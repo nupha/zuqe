@@ -289,16 +289,6 @@ pub unsafe fn JS_UpdateStackTop(rt: *mut JSRuntime) {
     update_stack_limit(rt);
 }
 
-pub unsafe fn JS_SetUncatchableError(ctx: *mut JSContext, val: JSValueConst, flag: bool) {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-        return;
-    }
-    let p = JS_VALUE_GET_OBJ(val);
-    if (*p).class_id() == JS_CLASS_ERROR {
-        (*p).detailed.set_uncatchable_error(flag);
-    }
-}
-
 unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     log::warn!("JS_FreeRuntime({rt:p})");
 

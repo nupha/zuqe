@@ -19,7 +19,7 @@ use crate::{
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
         JS_IsEmptyString, JS_IsException, JS_IsObject, JS_IsUndefined, JS_ToStringFree,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
 };
@@ -442,6 +442,16 @@ pub unsafe fn JS_IsUncatchableError(ctx: *const JSContext, val: JSValueConst) ->
     } else {
         let p = JS_VALUE_GET_OBJ(val);
         (*p).class_id() == JS_CLASS_ERROR && (*p).detailed.is_uncatchable_error()
+    }
+}
+
+pub unsafe fn JS_SetUncatchableError(ctx: *mut JSContext, val: JSValueConst, flag: bool) {
+    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+        return;
+    }
+    let p = JS_VALUE_GET_OBJ(val);
+    if (*p).class_id() == JS_CLASS_ERROR {
+        (*p).detailed.set_uncatchable_error(flag);
     }
 }
 

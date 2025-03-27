@@ -254,7 +254,7 @@ impl JSAtom {
         JSAtom(n | JS_ATOM_TAG_INT)
     }
 
-    /// test if an atom is int type
+    /// test if the atom is int type
     #[inline(always)]
     pub fn is_int_type(&self) -> bool {
         (self.0 & JS_ATOM_TAG_INT) != 0
@@ -321,7 +321,7 @@ impl JSAtom {
     /// convert atom to string or str
     pub unsafe fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
         let str_val = self.to_value(ctx, true);
-        if JS_IsException(str_val) {
+        if str_val.is_exception() {
             return Err(-1);
         }
 
@@ -336,7 +336,7 @@ impl JSAtom {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(u8)]
 pub enum JSAtomType {
-    None = 0, // 内部使用
+    None = 0, // uninitialized
     String = 1,
     GlobalSymbol = 2,
     Symbol = 3,
@@ -362,7 +362,7 @@ pub const JS_ATOM_MAX_INT: u32 = JS_ATOM_TAG_INT - 1;
 pub const JS_ATOM_MAX: u32 = (1 << 30) - 1;
 
 impl JSRuntime {
-    /// initialize default atoms
+    /// initialize default constant atoms
     pub unsafe fn init_default_atoms(&mut self) -> Result<(), i32> {
         self.atom_hash_size = 0;
         self.atom_hash = std::ptr::null_mut();

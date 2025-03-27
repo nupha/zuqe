@@ -7,12 +7,12 @@ use crate::{
     bytecode::{arithmatic::js_same_value, run_bytecodes},
     class::js_create_from_ctor,
     context::{is_strict_mode, JSContext},
-    error::JS_ThrowStackOverflow,
+    error::{JS_SetUncatchableError, JS_ThrowStackOverflow},
     function::{
         build_arg_list, check_function, free_arg_list, js_create_iterator_result,
         JSAsyncFunctionState, JSCFunctionDataRecord, JSCFunctionEnum,
     },
-    runtime::{js_check_stack_overflow, JS_SetUncatchableError},
+    runtime::js_check_stack_overflow,
     stack_frame::JSStackFrame,
     types::{init_list_head, likely, unlikely},
     value::{
