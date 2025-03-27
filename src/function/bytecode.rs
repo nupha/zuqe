@@ -638,7 +638,7 @@ pub unsafe fn js_create_function(ctx: &mut JSContext, fd: *mut JSFunctionDef) ->
     b.js_mode = (*fd).js_mode;
     b.is_derived_class_constructor = (*fd).is_derived_class_constructor;
     b.func_kind = (*fd).func_kind;
-    b.need_home_object = (*fd).home_object_var_idx >= 0 || (*fd).need_home_object;
+    b.need_home_object = (*fd).home_object_var_idx.is_some() || (*fd).need_home_object;
     b.new_target_allowed = (*fd).new_target_allowed;
     b.super_call_allowed = (*fd).super_call_allowed;
     b.super_allowed = (*fd).super_allowed;

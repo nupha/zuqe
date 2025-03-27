@@ -3,8 +3,8 @@ use crate::{
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{
-        add_global_var, add_scope_var, find_lexical_decl, find_var_in_child_scope, is_child_scope,
-        JSFunctionDef, JSVarDef, JSVarDefEnum, JSVarKindEnum, GLOBAL_VAR_OFFSET,
+        add_global_var, find_lexical_decl, is_child_scope, JSFunctionDef, JSVarDef, JSVarDefEnum,
+        JSVarKindEnum, GLOBAL_VAR_OFFSET,
     },
 };
 
@@ -35,7 +35,9 @@ pub unsafe fn define_var(
 
     match var_def_type {
         JSVarDefEnum::JS_VAR_DEF_WITH => {
-            idx = add_scope_var(ctx, fd, name, JSVarKindEnum::JS_VAR_NORMAL);
+            idx = (*fd)
+                .add_scope_var(ctx.as_mut().unwrap(), name, JSVarKindEnum::JS_VAR_NORMAL)
+                .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_LET
         | JSVarDefEnum::JS_VAR_DEF_CONST
@@ -78,7 +80,10 @@ pub unsafe fn define_var(
                 return js_parse_error(s, c"invalid redefinition of parameter name");
             }
 
-            if find_var_in_child_scope(ctx, fd, name, (*fd).scope_level).is_some() {
+            if (*fd)
+                .find_var_in_child_scope(name, (*fd).scope_level)
+                .is_some()
+            {
                 return js_parse_error(s, c"invalid redefinition of a variable");
             }
 
@@ -102,15 +107,16 @@ pub unsafe fn define_var(
                 (*hf).set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                 idx = GLOBAL_VAR_OFFSET;
             } else {
-                let var_kind: JSVarKindEnum;
-                if var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL {
-                    var_kind = JSVarKindEnum::JS_VAR_FUNCTION_DECL;
+                let var_kind = if var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL {
+                    JSVarKindEnum::JS_VAR_FUNCTION_DECL
                 } else if var_def_type == JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL {
-                    var_kind = JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL;
+                    JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL
                 } else {
-                    var_kind = JSVarKindEnum::JS_VAR_NORMAL;
-                }
-                idx = add_scope_var(ctx, fd, name, var_kind);
+                    JSVarKindEnum::JS_VAR_NORMAL
+                };
+                idx = (*fd)
+                    .add_scope_var(ctx.as_mut().unwrap(), name, var_kind)
+                    .map_or(-1, |x| x as i32);
                 if idx >= 0 {
                     vd = (*fd).vars.offset(idx as _);
                     (*vd).set_is_lexical(true);
@@ -119,7 +125,9 @@ pub unsafe fn define_var(
             }
         }
         JSVarDefEnum::JS_VAR_DEF_CATCH => {
-            idx = add_scope_var(ctx, fd, name, JSVarKindEnum::JS_VAR_CATCH);
+            idx = (*fd)
+                .add_scope_var(ctx.as_mut().unwrap(), name, JSVarKindEnum::JS_VAR_CATCH)
+                .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_VAR => {
             if find_lexical_decl(ctx, fd, name, (*fd).scope_first, false) >= 0 {
@@ -148,16 +156,11 @@ pub unsafe fn define_var(
                     // the variable already exists, don't add it again
                     id
                 } else if let Ok(id) = (*fd).add_var(ctx.as_mut().unwrap(), name) {
-                    // debug_assert_eq!(
-                    //     (*(*(*s).ctx).rt).atom_ref_count(name),
-                    //     _name_refcnt.map(|n| n + 1)
-                    // );
-
                     if name == JS_ATOM_arguments && (*fd).has_arguments_binding {
-                        (*fd).arguments_var_idx = id as _;
+                        (*fd).arguments_var_idx.replace(id);
                     }
                     (*fd).vars.offset(id as _).as_mut().unwrap().scope_next = (*fd).scope_level;
-                    id
+                    id as i32
                 } else {
                     // TODO: how to handle add_var() error?
                     -1

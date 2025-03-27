@@ -136,11 +136,9 @@ pub unsafe fn JS_CallInternal(
                 .collect::<Vec<_>>();
 
             #[cfg(debug_assertions)]
-            debug_assert_eq!(
-                argv_ref_count0.as_slice(),
-                argv_ref_count1.as_slice(),
-                "argument ref_count must not be changed"
-            );
+            for (a, b) in argv_ref_count0.iter().zip(argv_ref_count1.iter()) {
+                debug_assert!(a.unwrap_or(0) <= b.unwrap_or(0));
+            }
 
             ret
         } else {

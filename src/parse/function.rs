@@ -17,15 +17,15 @@ use crate::{
 
 use super::{
     class::cpool_add,
+    destructing::js_parse_destructuring_element,
     emit::{
         emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
         emit_return, emit_u16, emit_u32, js_is_live_code,
     },
     error::{js_parse_error, js_parse_error_reserved_identifier},
+    esm::{add_export_entry, JSParseExportEnum},
     obj::set_object_name,
     parse::{js_parse_skip_parens_token, reparse_ident_token},
-    destructing::js_parse_destructuring_element,
-    esm::{add_export_entry, JSParseExportEnum},
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
         peek_token, token_is_pseudo_keyword, CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA,
@@ -140,26 +140,27 @@ impl JSParseState {
         let fd1 = sub_fd.deref_mut();
         self.cur_func = fd1;
 
-        let fail = || -> Result<Box<JSFunctionDef>, i32> {
-            // // restore previous cur_func
-            // self.cur_func = fd0;
-            // // clean up and drop new fd
-            // js_free_function_def(ctx, Box::into_raw(sub_fd));
+        // let fail = || -> Result<Box<JSFunctionDef>, i32> {
+        //     // restore previous cur_func
+        //     self.cur_func = fd0;
+        //     // clean up and drop new fd
+        //     crate::function::js_free_function_def(ctx, Box::into_raw(sub_fd));
 
-            // Err(-1)
-            panic!();
-        };
+        //     Err(-1)
 
-        // macro_rules! fail {
-        //     () => {
-        //         // restore previous cur_func
-        //         self.cur_func = fd0;
-        //         // clean up and drop new fd
-        //         js_free_function_def(ctx, Box::into_raw(sub_fd));
+        //     //panic!();
+        // };
 
-        //         return Err(-1);
-        //     };
-        // }
+        macro_rules! fail {
+            () => {
+                // restore previous cur_func
+                self.cur_func = fd0;
+                // clean up and drop new fd
+                crate::function::js_free_function_def(ctx, Box::into_raw(sub_fd));
+
+                return Err(-1);
+            };
+        }
 
         if matches!(
             func_type,
@@ -180,12 +181,12 @@ impl JSParseState {
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
             if self.token.u.ident.is_reserved {
                 js_parse_error_reserved_identifier(self);
-                fail()?;
+                fail!();
             }
 
             let name = self.token.u.ident.atom;
             if (*fd1).add_arg(ctx, name).is_err() {
-                fail()?;
+                fail!();
             };
             (*fd1).defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
@@ -198,18 +199,18 @@ impl JSParseState {
                     (*fd1).has_parameter_expressions = true;
                 }
                 if self.next_token().is_err() {
-                    fail()?;
+                    fail!();
                 }
             } else {
                 if self.parse_expect(CHAR_BRACKET_L).is_err() {
-                    fail()?;
+                    fail!();
                 }
             }
 
             if (*fd1).has_parameter_expressions {
                 (*fd1).scope_level = -1; // force no parent scope
                 if self.push_scope().is_err() {
-                    fail()?;
+                    fail!();
                 }
             }
 
@@ -217,7 +218,7 @@ impl JSParseState {
                 let rest = if self.token.val == TOK_ELLIPSIS {
                     (*fd1).has_simple_parameter_list = false;
                     if self.next_token().is_err() {
-                        fail()?;
+                        fail!();
                     }
                     true
                 } else {
@@ -252,7 +253,7 @@ impl JSParseState {
                         true,
                     );
                     if has_initializer < 0 {
-                        fail()?;
+                        fail!();
                     }
                     if has_initializer != 0 {
                         has_opt_arg = true;
@@ -263,7 +264,7 @@ impl JSParseState {
                 } else if self.token.val == TOK_IDENT {
                     if self.token.u.ident.is_reserved {
                         js_parse_error_reserved_identifier(self);
-                        fail()?;
+                        fail!();
                     }
 
                     let name = self.token.u.ident.atom;
@@ -271,11 +272,11 @@ impl JSParseState {
                         && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
                         js_parse_error_reserved_identifier(self);
-                        fail()?;
+                        fail!();
                     }
                     if (*fd1).has_parameter_expressions {
                         if define_var(self, fd1, name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
-                            fail()?;
+                            fail!();
                         }
                     }
 
@@ -283,11 +284,11 @@ impl JSParseState {
                     let idx = if let Ok(id) = fd1.add_arg(ctx, name) {
                         id as i32
                     } else {
-                        return fail().map_err(|_| -1);
+                        fail!();
                     };
 
                     if self.next_token().is_err() {
-                        fail()?;
+                        fail!();
                     }
 
                     if rest {
@@ -310,13 +311,13 @@ impl JSParseState {
                         has_opt_arg = true;
 
                         if self.next_token().is_err() {
-                            fail()?;
+                            fail!();
                         }
 
                         let label = if let Ok(l) = (*self.cur_func).add_label() {
                             l as i32
                         } else {
-                            return fail();
+                            fail!();
                         };
 
                         emit_op(self, OpCode::GET_ARG);
@@ -328,7 +329,7 @@ impl JSParseState {
                         emit_op(self, OpCode::DROP);
 
                         if self.parse_assign_expr().is_err() {
-                            fail()?;
+                            fail!();
                         }
 
                         set_object_name(self, name);
@@ -354,19 +355,19 @@ impl JSParseState {
                     }
                 } else {
                     js_parse_error(self, c"missing formal parameter");
-                    fail()?;
+                    fail!();
                 }
 
                 if rest && self.token.val != CHAR_BRACKET_R {
                     let _ = self.parse_expect(CHAR_BRACKET_R);
-                    fail()?;
+                    fail!();
                 }
 
                 if self.token.val == CHAR_BRACKET_R {
                     break;
                 }
                 if self.parse_expect(CHAR_COMMA).is_err() {
-                    fail()?;
+                    fail!();
                 }
             }
 
@@ -374,7 +375,7 @@ impl JSParseState {
                 || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && (*fd1).arg_count != 1)
             {
                 js_parse_error(self, c"invalid number of arguments for getter or setter");
-                fail()?;
+                fail!();
             }
         }
 
@@ -392,7 +393,7 @@ impl JSParseState {
 
                 if fd1.find_var(vd.var_name).is_none() {
                     if fd1.add_var(ctx, vd.var_name).is_err() {
-                        fail()?;
+                        fail!();
                     }
 
                     let vd = fd1.vars.offset(idx as isize).as_mut().unwrap(); /* fd->vars may have been reallocated */
@@ -417,7 +418,7 @@ impl JSParseState {
         }
 
         if self.next_token().is_err() {
-            fail()?;
+            fail!();
         }
 
         /* generator function: yield after the parameters are evaluated */
@@ -434,19 +435,19 @@ impl JSParseState {
         fd1.body_scope = if let Ok(id) = self.push_scope() {
             id
         } else {
-            return fail();
+            fail!();
         };
 
         if self.token.val == TOK_ARROW {
             if self.next_token().is_err() {
-                fail()?;
+                fail!();
             }
             if self.token.val != CHAR_CURLY_L {
                 if js_parse_function_check_names(self, fd1, func_name) != 0 {
-                    fail()?;
+                    fail!();
                 }
                 if self.parse_assign_expr().is_err() {
-                    fail()?;
+                    fail!();
                 }
 
                 emit_op(
@@ -466,7 +467,7 @@ impl JSParseState {
                     fd1.source_len = self.last_ptr.offset_from(ptr) as u32;
                     fd1.source = js_strndup(ctx, ptr.cast(), fd1.source_len as _).cast();
                     if fd1.source.is_null() {
-                        fail()?;
+                        fail!();
                     }
                 }
 
@@ -477,22 +478,22 @@ impl JSParseState {
 
         if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.parse_expect(CHAR_CURLY_L).is_err() {
-                fail()?;
+                fail!();
             }
         }
 
         if self.parse_directives().is_err() {
-            fail()?;
+            fail!();
         }
 
         /* in strict_mode, check function and argument names */
         if js_parse_function_check_names(self, fd1, func_name) != 0 {
-            fail()?;
+            fail!();
         }
 
         while self.token.val != CHAR_CURLY_R {
             if self.parse_source_element().is_err() {
-                fail()?;
+                fail!();
             }
         }
 
@@ -502,13 +503,13 @@ impl JSParseState {
             fd1.source_len = self.buf_ptr.offset_from(ptr) as u32;
             fd1.source = js_strndup(ctx, ptr.cast(), fd1.source_len as _).cast();
             if fd1.source.is_null() {
-                fail()?;
+                fail!();
             }
         }
 
         // consume the '}'
         if self.next_token().is_err() {
-            fail()?;
+            fail!();
         }
 
         /* in case there is no return, add one */

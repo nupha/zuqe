@@ -3,7 +3,7 @@ use fallible_collections::FallibleVec;
 use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
-    context::JSContext,
+    context::{JSContext, JS_MODE_STRICT},
     error::JS_THROW_VAR_REDECL,
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
@@ -15,7 +15,11 @@ use crate::{
     utils::{get_u16, get_u32, push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, M2},
 };
 
-use super::optimize::{CodeContext, OPTIMIZE};
+use super::{
+    find_var_in_scope,
+    optimize::{CodeContext, OPTIMIZE},
+    ARG_SCOPE_INDEX,
+};
 
 pub const DEFINE_GLOBAL_LEX_VAR: u8 = 1 << 7;
 pub const DEFINE_GLOBAL_FUNC_VAR: u8 = 1 << 6;
@@ -237,7 +241,7 @@ impl JSFunctionDef {
     }
 
     /// return the new variable index or error
-    pub unsafe fn add_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<i32, i32> {
+    pub unsafe fn add_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.var_count >= JS_MAX_LOCAL_VARS {
             ctx.JS_ThrowInternalError(c"too many local variables");
@@ -261,7 +265,78 @@ impl JSFunctionDef {
         vd.var_name = JS_DupAtom(ctx, name);
         vd.func_pool_idx = -1;
 
-        Ok(self.var_count as i32 - 1)
+        Ok(self.var_count - 1)
+    }
+
+    /// define pseudo var `this`
+    pub unsafe fn add_var_this(&mut self, ctx: &mut JSContext) -> Result<u16, i32> {
+        let idx = self.add_var(ctx, JS_ATOM_this)?;
+
+        if self.is_derived_class_constructor {
+            let vd = self.vars.add(idx as usize);
+
+            // used to trigger 'uninitialized' checks
+            // in a derived class constructor
+            // XXX: should have is_this flag or var type
+            (*vd).set_is_lexical(true);
+        }
+
+        Ok(idx)
+    }
+
+    /// to add an `argument` definition.
+    /// - in_arg_scope=false, will define in the variable scope, returns var idx for `arguments`
+    /// - in_arg_scope=true, will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
+    pub unsafe fn add_arguments(
+        &mut self,
+        ctx: &mut JSContext,
+        in_arg_scope: bool,
+    ) -> Result<u16, i32> {
+        if in_arg_scope {
+            if self.arguments_arg_idx.is_none() {
+                if find_var_in_scope(ctx, self, JS_ATOM_arguments, ARG_SCOPE_INDEX).is_none() {
+                    // XXX: the scope links are not fully updated. May be an
+                    // issue if there are child scopes of the argument
+                    // scope
+                    let idx = self.add_var(ctx, JS_ATOM_arguments)?;
+
+                    (*(self.vars.add(idx as usize))).scope_next =
+                        self.scopes[ARG_SCOPE_INDEX as usize].first;
+                    self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx as i32;
+                    (*self.vars.add(idx as usize)).scope_level = ARG_SCOPE_INDEX;
+                    (*self.vars.add(idx as usize)).set_is_lexical(true);
+
+                    self.arguments_arg_idx.replace(idx);
+                }
+            }
+
+            Ok(0)
+        } else {
+            if let Some(idx) = self.arguments_var_idx {
+                Ok(idx)
+            } else {
+                let idx = self.add_var(ctx, JS_ATOM_arguments)?;
+                self.arguments_var_idx.replace(idx);
+                Ok(idx)
+            }
+        }
+    }
+
+    pub unsafe fn add_func_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
+        if let Some(i) = self.func_var_idx {
+            Ok(i)
+        } else {
+            let i = self.add_var(ctx, name)?;
+            self.func_var_idx.replace(i);
+
+            let vd = self.vars.add(i as usize);
+            (*vd).set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
+            if self.js_mode & JS_MODE_STRICT as u8 != 0 {
+                (*vd).set_is_const(true);
+            }
+
+            Ok(i)
+        }
     }
 
     /// return the variable index (add ARGUMENT_VAR_OFFSET for argument variables)
@@ -281,7 +356,7 @@ impl JSFunctionDef {
             for i in (0..self.var_count).rev() {
                 let vd = self.vars.add(i as usize);
                 if (*vd).var_name == name && (*vd).scope_level == 0 {
-                    return Some(i as i32);
+                    return Some(i as _);
                 }
             }
         }
@@ -350,7 +425,7 @@ pub unsafe fn find_var(ctx: *const JSContext, fd: *const JSFunctionDef, name: JS
 #[deprecated(note = "use JSFunctionDef::add_var() instead")]
 /* return the variable index or -1 if error */
 pub unsafe fn add_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd).add_var(ctx, name).unwrap_or(-1)
+    (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: JSAtom) -> *mut JSGlobalVar {
@@ -734,7 +809,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 while scope_idx >= 0 {
                     let vd = (*s).vars.add(scope_idx as usize);
                     if (*vd).scope_level == scope {
-                        if scope_idx != (*s).arguments_arg_idx {
+                        if scope_idx as u16 != (*s).arguments_arg_idx.unwrap_or(u16::MAX) {
                             if matches!(
                                 (*vd).var_kind(),
                                 JSVarKindEnum::JS_VAR_FUNCTION_DECL
@@ -879,7 +954,7 @@ pub unsafe fn resolve_pseudo_var(
     ctx: *mut JSContext,
     s: *mut JSFunctionDef,
     var_name: JSAtom,
-) -> Option<i32> {
+) -> Option<u16> {
     if !(*s).has_this_binding {
         return None;
     }
@@ -889,31 +964,34 @@ pub unsafe fn resolve_pseudo_var(
     match var_name {
         JS_ATOM__home_object_ => {
             // 'home_object' pseudo variable
-            if (*s).home_object_var_idx < 0 {
-                (*s).home_object_var_idx = (*s).add_var(ctx, var_name).expect("TODO");
+            if (*s).home_object_var_idx.is_none() {
+                (*s).home_object_var_idx
+                    .replace((*s).add_var(ctx, var_name).expect("TODO"));
             }
-            Some((*s).home_object_var_idx)
+            (*s).home_object_var_idx
         }
         JS_ATOM_this_active_func => {
             // 'this.active_func' pseudo variable
-            if (*s).this_active_func_var_idx < 0 {
-                (*s).this_active_func_var_idx = (*s).add_var(ctx, var_name).expect("TODO");
+            if (*s).this_active_func_var_idx.is_none() {
+                (*s).this_active_func_var_idx
+                    .replace((*s).add_var(ctx, var_name).expect("TODO"));
             }
-            Some((*s).this_active_func_var_idx)
+            (*s).this_active_func_var_idx
         }
         JS_ATOM_new_target => {
             // 'new.target' pseudo variable
-            if (*s).new_target_var_idx < 0 {
-                (*s).new_target_var_idx = (*s).add_var(ctx, var_name).expect("TODO");
+            if (*s).new_target_var_idx.is_none() {
+                (*s).new_target_var_idx
+                    .replace((*s).add_var(ctx, var_name).expect("TODO"));
             }
-            Some((*s).new_target_var_idx)
+            (*s).new_target_var_idx
         }
         JS_ATOM_this => {
             // 'this' pseudo variable
-            if (*s).this_var_idx < 0 {
-                (*s).this_var_idx = add_var_this(ctx, s);
+            if (*s).this_var_idx.is_none() {
+                (*s).this_var_idx = Some((*s).add_var_this(ctx).unwrap());
             }
-            Some((*s).this_var_idx)
+            (*s).this_var_idx
         }
         _ => None,
     }

@@ -10,17 +10,17 @@ use crate::{
 };
 
 use super::{
+    class::js_parse_class,
+    destructing::js_parse_destructuring_element,
     emit::{
         emit_atom_dup, emit_break, emit_goto, emit_label, emit_op, emit_op_temp, emit_u16,
         emit_u32, emit_u8, js_is_live_code,
     },
     error::{js_parse_error, js_parse_error_reserved_identifier},
+    esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::{push_break_entry, JSParseFunctionEnum},
     parse::{js_define_var, js_parse_skip_parens_token},
-    class::js_parse_class,
-    destructing::js_parse_destructuring_element,
-    esm::JSParseExportEnum,
     state::{js_parse_get_pos, JSParsePos, JSParseState, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     token::{
         peek_token, token_is_pseudo_keyword, CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COLON,
@@ -335,10 +335,10 @@ pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> 
 }
 
 pub unsafe fn set_eval_ret_undefined(s: *mut JSParseState) {
-    if (*(*s).cur_func).eval_ret_idx >= 0 {
+    if let Some(vidx) = (*(*s).cur_func).eval_ret_idx {
         emit_op(s, OpCode::UNDEFINED);
         emit_op(s, OpCode::PUT_LOC);
-        emit_u16(s, (*(*s).cur_func).eval_ret_idx as _);
+        emit_u16(s, vidx);
     }
 }
 
@@ -755,20 +755,20 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
     }
     emit_label(s, label_finally);
     if (*s).token.val == TOK_FINALLY {
-        let mut saved_eval_ret_idx: i32 = 0; // avoid warning
-
         (*s).next_token()?;
 
         // on the stack: ret_value gosub_ret_value
         push_break_entry((*s).cur_func, &mut block_env, JS_ATOM_NULL, -1, -1, 2);
 
-        if (*s.cur_func).eval_ret_idx >= 0 {
+        let mut saved_eval_ret_idx: u16 = 0;
+
+        if let Some(vidx) = (*s.cur_func).eval_ret_idx {
             // 'finally' updates eval_ret only if not a normal termination
             saved_eval_ret_idx =
                 (*(*s).cur_func).add_var(s.ctx.as_mut().unwrap(), JS_ATOM__ret_)?;
 
             emit_op(s, OpCode::GET_LOC);
-            emit_u16(s, (*s.cur_func).eval_ret_idx as _);
+            emit_u16(s, vidx);
             emit_op(s, OpCode::PUT_LOC);
             emit_u16(s, saved_eval_ret_idx as _);
             set_eval_ret_undefined(s);
@@ -776,11 +776,11 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
         js_parse_block(s)?;
 
-        if (*s.cur_func).eval_ret_idx >= 0 {
+        if let Some(vidx) = (*s.cur_func).eval_ret_idx {
             emit_op(s, OpCode::GET_LOC);
-            emit_u16(s, saved_eval_ret_idx as _);
+            emit_u16(s, saved_eval_ret_idx);
             emit_op(s, OpCode::PUT_LOC);
-            emit_u16(s, (*s.cur_func).eval_ret_idx as _);
+            emit_u16(s, vidx);
         }
         pop_break_entry((*s).cur_func);
     }
@@ -1007,22 +1007,18 @@ unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<(), i32> {
 }
 
 unsafe fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
-    if (*s).parse_expr().is_err() {
-        return Err(-1);
-    }
-    if (*s.cur_func).eval_ret_idx >= 0 {
+    s.parse_expr()?;
+
+    if let Some(vidx) = (*s.cur_func).eval_ret_idx {
         // store the expression value so that it can be returned by eval()
         emit_op(s, OpCode::PUT_LOC);
-        emit_u16(s, (*s.cur_func).eval_ret_idx as _);
+        emit_u16(s, vidx);
     } else {
-        emit_op(s, OpCode::DROP); // drop the result
+        // drop the result
+        emit_op(s, OpCode::DROP);
     }
 
-    if (*s).parse_expect_semi().is_err() {
-        Err(-1)
-    } else {
-        Ok(())
-    }
+    s.parse_expect_semi()
 }
 
 // XXX: handle IteratorClose when exiting the loop before the

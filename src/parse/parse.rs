@@ -57,8 +57,8 @@ impl JSParseState {
             || fd.js_mode & JS_MODE_STRICT as u8 == 0;
 
         if !self.is_module {
-            // 隐藏变量用于存储返回值
-            fd.eval_ret_idx = (*fd).add_var(self.ctx.as_mut().unwrap(), JS_ATOM__ret_)?;
+            // the <ret> variable used to store return value
+            fd.eval_ret_idx = Some((*fd).add_var(self.ctx.as_mut().unwrap(), JS_ATOM__ret_)?);
         }
 
         while self.token.val != TOK_EOF {
@@ -68,8 +68,7 @@ impl JSParseState {
         if !self.is_module {
             // 返回隐藏变量eval_ret_idx的值
             emit_op(self, OpCode::GET_LOC);
-            emit_u16(self, fd.eval_ret_idx as _);
-
+            emit_u16(self, fd.eval_ret_idx.unwrap());
             emit_return(self, true);
         } else {
             emit_return(self, false);

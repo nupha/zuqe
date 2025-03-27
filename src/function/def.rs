@@ -108,22 +108,30 @@ pub struct JSFunctionDef {
     pub arg_count: u16,
     // 已定义参数数量
     pub defined_arg_count: u16,
-
     // 当前函数的变量索引
-    pub func_var_idx: i32,
+    pub func_var_idx: Option<u16>,
 
     //
     // pseudo vars
     //
-    pub this_var_idx: i32,             // this
-    pub new_target_var_idx: i32,       // new.target
-    pub this_active_func_var_idx: i32, // this.active_func
-    pub home_object_var_idx: i32,      // home
-    pub arguments_arg_idx: i32,        // arguments
-    pub arguments_var_idx: i32,        // arguments variable
-    pub eval_ret_idx: i32,             // <ret>
-    pub arg_var_object_idx: i32,       // <arg_var> 参数作用域变量对象索引
-    pub var_object_idx: i32,           // <var>
+    /// this
+    pub this_var_idx: Option<u16>,
+    /// new.target
+    pub new_target_var_idx: Option<u16>,
+    /// this.active_func
+    pub this_active_func_var_idx: Option<u16>,
+    /// home
+    pub home_object_var_idx: Option<u16>,
+    /// `arguments`
+    pub arguments_var_idx: Option<u16>,
+    /// `arguments` in arg section
+    pub arguments_arg_idx: Option<u16>,
+    /// <ret>
+    pub eval_ret_idx: Option<u16>,
+    /// <arg_var>
+    pub arg_var_object_idx: Option<u16>,
+    /// <var>
+    pub var_object_idx: Option<u16>,
 
     // 需要home对象
     pub need_home_object: bool,
@@ -239,16 +247,16 @@ impl JSFunctionDef {
         fd.byte_code = Vec::with_capacity(128);
         fd.last_opcode_pos = -1;
         fd.func_name = JS_ATOM_NULL;
-        fd.var_object_idx = -1;
-        fd.arg_var_object_idx = -1;
-        fd.arguments_var_idx = -1;
-        fd.arguments_arg_idx = -1;
-        fd.func_var_idx = -1;
-        fd.eval_ret_idx = -1;
-        fd.this_var_idx = -1;
-        fd.new_target_var_idx = -1;
-        fd.this_active_func_var_idx = -1;
-        fd.home_object_var_idx = -1;
+        fd.var_object_idx = None;
+        fd.arg_var_object_idx = None;
+        fd.arguments_var_idx = None;
+        fd.arguments_arg_idx = None;
+        fd.func_var_idx = None;
+        fd.eval_ret_idx = None;
+        fd.this_var_idx = None;
+        fd.new_target_var_idx = None;
+        fd.home_object_var_idx = None;
+        fd.this_active_func_var_idx = None;
 
         /* XXX: should distinguish arg, var and var object and body scopes */
         fd.scopes = {
@@ -523,42 +531,45 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
     // in non strict mode, variables are created in the caller's
     // environment object
     if !s.is_eval && s.js_mode & JS_MODE_STRICT as u8 == 0 {
-        s.var_object_idx = (*s).add_var(ctx, JS_ATOM__var_).expect("TODO");
+        s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).expect("TODO"));
         if s.has_parameter_expressions {
             // an additional variable object is needed for the argument scope
-            s.arg_var_object_idx = (*s).add_var(ctx, JS_ATOM__arg_var_).expect("TODO");
+            s.arg_var_object_idx = Some(s.add_var(ctx, JS_ATOM__arg_var_).expect("TODO"));
         }
     }
 
     // eval can potentially use 'arguments' so we must define it
     let mut has_this_binding = s.has_this_binding;
     if has_this_binding {
-        if s.this_var_idx < 0 {
-            s.this_var_idx = add_var_this(ctx, s);
+        if s.this_var_idx.is_none() {
+            s.this_var_idx = Some(s.add_var_this(ctx).unwrap());
         }
-        if s.new_target_var_idx < 0 {
-            s.new_target_var_idx = (*s).add_var(ctx, JS_ATOM_new_target).expect("TODO");
+        if s.new_target_var_idx.is_none() {
+            s.new_target_var_idx = Some(s.add_var(ctx, JS_ATOM_new_target).expect("TODO"));
         }
-        if s.is_derived_class_constructor && (*s).this_active_func_var_idx < 0 {
-            s.this_active_func_var_idx = (*s).add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+        if s.is_derived_class_constructor && s.this_active_func_var_idx.is_none() {
+            s.this_active_func_var_idx =
+                Some(s.add_var(ctx, JS_ATOM_this_active_func).expect("TODO"));
         }
-        if s.has_home_object && (*s).home_object_var_idx < 0 {
-            s.home_object_var_idx = (*s).add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+        if s.has_home_object && (*s).home_object_var_idx.is_none() {
+            s.home_object_var_idx = Some(s.add_var(ctx, JS_ATOM__home_object_).expect("TODO"));
         }
     }
 
     let mut has_arguments_binding = s.has_arguments_binding;
     if has_arguments_binding {
-        add_arguments_var(ctx, s);
+        s.add_arguments(ctx, false).unwrap();
+
         // also add an arguments binding in the argument scope to
         // raise an error if a direct eval in the argument scope tries
         // to redefine it
         if (*s).has_parameter_expressions && s.js_mode & JS_MODE_STRICT as u8 == 0 {
-            add_arguments_arg(ctx, s);
+            s.add_arguments(ctx, true).unwrap();
         }
     }
+
     if s.is_func_expr && s.func_name != JS_ATOM_NULL {
-        add_func_var(ctx, s, s.func_name);
+        s.add_func_var(ctx, s.func_name).unwrap();
     }
 
     // eval can use all the variables of the enclosing functions, so
@@ -580,32 +591,36 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
 
         // add 'this' if it was not previously added
         if !has_this_binding && (*fd).has_this_binding {
-            if (*fd).this_var_idx < 0 {
-                (*fd).this_var_idx = add_var_this(ctx, fd);
+            if (*fd).this_var_idx.is_none() {
+                (*fd).this_var_idx.replace((*fd).add_var_this(ctx).unwrap());
             }
-            if (*fd).new_target_var_idx < 0 {
-                (*fd).new_target_var_idx = (*fd).add_var(ctx, JS_ATOM_new_target).expect("TODO");
+            if (*fd).new_target_var_idx.is_none() {
+                (*fd)
+                    .new_target_var_idx
+                    .replace((*fd).add_var(ctx, JS_ATOM_new_target).expect("TODO"));
             }
-            if (*fd).is_derived_class_constructor && (*fd).this_active_func_var_idx < 0 {
-                (*fd).this_active_func_var_idx =
-                    (*fd).add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+            if (*fd).is_derived_class_constructor && (*fd).this_active_func_var_idx.is_none() {
+                (*fd)
+                    .this_active_func_var_idx
+                    .replace((*fd).add_var(ctx, JS_ATOM_this_active_func).expect("TODO"));
             }
-            if (*fd).has_home_object && (*fd).home_object_var_idx < 0 {
-                (*fd).home_object_var_idx =
-                    (*fd).add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+            if (*fd).has_home_object && (*fd).home_object_var_idx.is_none() {
+                (*fd)
+                    .home_object_var_idx
+                    .replace((*fd).add_var(ctx, JS_ATOM__home_object_).expect("TODO"));
             }
             has_this_binding = true;
         }
 
         // add 'arguments' if it was not previously added
         if !has_arguments_binding && (*fd).has_arguments_binding {
-            add_arguments_var(ctx, fd);
+            (*fd).add_arguments(ctx, false).unwrap();
             has_arguments_binding = true;
         }
 
         // add function name
         if (*fd).is_func_expr && (*fd).func_name != JS_ATOM_NULL {
-            add_func_var(ctx, fd, (*fd).func_name);
+            (*fd).add_func_var(ctx, (*fd).func_name).unwrap();
         }
 
         // add lexical variables
@@ -713,96 +728,66 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
     }
 }
 
+#[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
 pub unsafe fn add_func_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
-    let idx = if (*fd).func_var_idx < 0 {
-        (*fd).add_var(ctx, name).unwrap_or(-1)
-    } else {
-        (*fd).func_var_idx
-    };
+    (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
 
-    if idx >= 0 {
-        (*fd).func_var_idx = idx;
-        (*(*fd).vars.add(idx as usize)).set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
-        if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
-            (*(*fd).vars.add(idx as usize)).set_is_const(true);
-        }
-    }
+    // let idx = if (*fd).func_var_idx < 0 {
+    //     (*fd).add_var(ctx, name).unwrap_or(-1)
+    // } else {
+    //     (*fd).func_var_idx
+    // };
 
-    idx
+    // if idx >= 0 {
+    //     (*fd).func_var_idx = idx;
+    //     (*(*fd).vars.add(idx as usize)).set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
+    //     if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
+    //         (*(*fd).vars.add(idx as usize)).set_is_const(true);
+    //     }
+    // }
+
+    // idx
 }
 
+#[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
 pub unsafe fn add_var_this(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
-    let idx = (*fd).add_var(ctx, JS_ATOM_this).unwrap_or(-1);
-    if idx >= 0 && (*fd).is_derived_class_constructor {
-        let vd = (*fd).vars.add(idx as usize);
-
-        // XXX: should have is_this flag or var type
-        (*vd).set_is_lexical(true); // used to trigger 'uninitialized' checks
-                                    // in a derived class constructor
-    }
-
-    idx
+    (*fd).add_var_this(ctx).map_or(-1, |x| x as i32)
 }
 
+#[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
 pub unsafe fn add_arguments_var(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
-    let mut idx = (*fd).arguments_var_idx;
-    if idx < 0 {
-        idx = (*fd).add_var(ctx, JS_ATOM_arguments).unwrap_or(-1);
-        if idx >= 0 {
-            (*fd).arguments_var_idx = idx;
-        }
-    }
-
-    idx
+    (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32)
 }
 
 // add an argument definition in the argument scope. Only needed when
 // "eval()" may be called in the argument scope. Return 0 if OK.
+#[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
 pub unsafe fn add_arguments_arg(ctx: &mut JSContext, fd: &mut JSFunctionDef) -> i32 {
-    if fd.arguments_arg_idx < 0 {
-        let mut idx = find_var_in_scope(ctx, fd, JS_ATOM_arguments, ARG_SCOPE_INDEX);
-        if idx < 0 {
-            // XXX: the scope links are not fully updated. May be an
-            // issue if there are child scopes of the argument
-            // scope
-            idx = (*fd).add_var(ctx, JS_ATOM_arguments).unwrap_or(-1);
-            if idx < 0 {
-                return -1;
-            }
-            (*fd.vars.add(idx as usize)).scope_next = fd.scopes[ARG_SCOPE_INDEX as usize].first;
-            fd.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx;
-            (*fd.vars.add(idx as usize)).scope_level = ARG_SCOPE_INDEX;
-            (*fd.vars.add(idx as usize)).set_is_lexical(true);
-
-            fd.arguments_arg_idx = idx;
-        }
-    }
-
-    0
+    (*fd).add_arguments(ctx, true).map_or(-1, |x| x as i32)
 }
 
-// find a variable declaration in a given scope
+/// find a variable declaration in a given scope
 pub unsafe fn find_var_in_scope(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     fd: &mut JSFunctionDef,
     name: JSAtom,
     scope_level: i32,
-) -> i32 {
+) -> Option<u16> {
     debug_assert!(scope_level >= 0);
 
     let mut scope_idx = fd.scopes[scope_level as usize].first;
     while scope_idx >= 0 {
-        let var = fd.vars.add(scope_idx as usize);
-        if (*var).scope_level != scope_level {
+        let vd = fd.vars.add(scope_idx as usize);
+        if (*vd).scope_level != scope_level {
             break;
         }
-        if (*var).var_name == name {
-            return scope_idx;
+        if (*vd).var_name == name {
+            return Some(scope_idx as u16);
         }
-        scope_idx = (*var).scope_next;
+        scope_idx = (*vd).scope_next;
     }
 
-    -1
+    None
 }
 
 /// find closure var by name, returning index of the closure var

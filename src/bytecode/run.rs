@@ -521,8 +521,8 @@ pub unsafe fn run_bytecodes(
                     let ret_val = JS_CallInternal(
                         ctx,
                         *call_argv.offset(-1),
-                        JS_UNDEFINED,
-                        JS_UNDEFINED,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
                         call_argc as _,
                         call_argv,
                         0,

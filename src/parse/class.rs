@@ -12,8 +12,7 @@ use crate::{
     },
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
-        add_scope_var, js_new_function_def, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum,
-        JSVarKindEnum,
+        js_new_function_def, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum,
     },
     mem::{js_free, js_resize_array, js_strndup},
     module::JSExportTypeEnum,
@@ -997,17 +996,18 @@ pub unsafe fn add_private_class_field(
     is_static: bool,
 ) -> i32 {
     let ctx = (*s).ctx;
+    let idx = if let Ok(i) = (*fd).add_scope_var(ctx.as_mut().unwrap(), name, var_kind) {
+        i
+    } else {
+        return -1;
+    };
 
-    let idx = add_scope_var(ctx, fd, name, var_kind);
-    if idx < 0 {
-        return idx;
-    }
     let vd = (*fd).vars.offset(idx as isize).as_mut().unwrap();
     vd.set_is_lexical(true);
     vd.set_is_const(true);
     vd.set_is_static_private(is_static);
 
-    return idx;
+    idx as i32
 }
 
 // find field in the current scope

@@ -100,52 +100,44 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         (*s).line_number_last_pc = 0;
     }
 
-    if (*s).home_object_var_idx >= 0 {
+    if let Some(vidx) = (*s).home_object_var_idx {
         push_vec_u8(&mut bc_out, opcodes::OP_special_object);
         push_vec_u8(
             &mut bc_out,
             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_HOME_OBJECT as _,
         );
-        push_vec_short_code(
-            &mut bc_out,
-            opcodes::OP_put_loc,
-            (*s).home_object_var_idx as _,
-        );
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
-    if (*s).this_active_func_var_idx >= 0 {
+
+    if let Some(vidx) = (*s).this_active_func_var_idx {
         push_vec_u8(&mut bc_out, opcodes::OP_special_object);
         push_vec_u8(
             &mut bc_out,
             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC as _,
         );
-        push_vec_short_code(
-            &mut bc_out,
-            opcodes::OP_put_loc,
-            (*s).this_active_func_var_idx as _,
-        );
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
-    if (*s).new_target_var_idx >= 0 {
+
+    if let Some(vidx) = (*s).new_target_var_idx {
         push_vec_u8(&mut bc_out, opcodes::OP_special_object);
         push_vec_u8(
             &mut bc_out,
             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_NEW_TARGET as _,
         );
-        push_vec_short_code(
-            &mut bc_out,
-            opcodes::OP_put_loc,
-            (*s).new_target_var_idx as _,
-        );
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
-    if (*s).this_var_idx >= 0 {
+
+    if let Some(vidx) = (*s).this_var_idx {
         if (*s).is_derived_class_constructor {
             push_vec_u8(&mut bc_out, opcodes::OP_set_loc_uninitialized);
-            push_vec_u16(&mut bc_out, (*s).this_var_idx as _);
+            push_vec_u16(&mut bc_out, vidx);
         } else {
             push_vec_u8(&mut bc_out, opcodes::OP_push_this);
-            push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, (*s).this_var_idx as _);
+            push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
         }
     }
-    if (*s).arguments_var_idx >= 0 {
+
+    if let Some(vidx) = (*s).arguments_var_idx {
         if (*s).js_mode & JS_MODE_STRICT as u8 != 0 || !(*s).has_simple_parameter_list {
             push_vec_u8(&mut bc_out, opcodes::OP_special_object);
             push_vec_u8(
@@ -159,46 +151,37 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 OPSpecialObjectEnum::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS as _,
             );
         }
-        if (*s).arguments_arg_idx >= 0 {
-            push_vec_short_code(
-                &mut bc_out,
-                opcodes::OP_set_loc,
-                (*s).arguments_arg_idx as _,
-            );
+        if let Some(aidx) = (*s).arguments_arg_idx {
+            push_vec_short_code(&mut bc_out, opcodes::OP_set_loc, aidx);
         }
-        push_vec_short_code(
-            &mut bc_out,
-            opcodes::OP_put_loc,
-            (*s).arguments_var_idx as _,
-        );
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
-    if (*s).func_var_idx >= 0 {
+
+    if let Some(vidx) = (*s).func_var_idx {
         push_vec_u8(&mut bc_out, opcodes::OP_special_object);
         push_vec_u8(
             &mut bc_out,
             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, (*s).func_var_idx as _);
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
-    if (*s).var_object_idx >= 0 {
+
+    if let Some(vidx) = (*s).var_object_idx {
         push_vec_u8(&mut bc_out, opcodes::OP_special_object);
         push_vec_u8(
             &mut bc_out,
             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, (*s).var_object_idx as _);
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
-    if (*s).arg_var_object_idx >= 0 {
+
+    if let Some(vidx) = (*s).arg_var_object_idx {
         push_vec_u8(&mut bc_out, opcodes::OP_special_object);
         push_vec_u8(
             &mut bc_out,
             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
         );
-        push_vec_short_code(
-            &mut bc_out,
-            opcodes::OP_put_loc,
-            (*s).arg_var_object_idx as _,
-        );
+        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
     }
 
     let mut cc = CodeContext::new(&(*s).byte_code);
