@@ -12,42 +12,70 @@ use super::{
     token::{JSToken, JSTokenNum, JSTokenUnion},
 };
 
-/* allow the 'in' binary operator */
+// Parse flags for controlling expression parsing behavior
+/// Allow the 'in' binary operator
 pub const PF_IN_ACCEPTED: i32 = 1 << 0;
-/* allow function calls parsing in js_parse_postfix_expr() */
+/// Allow function calls parsing in js_parse_postfix_expr()
 pub const PF_POSTFIX_CALL: i32 = 1 << 1;
-/* allow arrow functions parsing in js_parse_postfix_expr() */
+/// Allow arrow functions parsing in js_parse_postfix_expr()
 pub const PF_ARROW_FUNC: i32 = 1 << 2;
-/* allow the exponentiation operator in js_parse_unary() */
+/// Allow the exponentiation operator in js_parse_unary()
 pub const PF_POW_ALLOWED: i32 = 1 << 3;
-/* forbid the exponentiation operator in js_parse_unary() */
+// Forbid the exponentiation operator in js_parse_unary()
 pub const PF_POW_FORBIDDEN: i32 = 1 << 4;
 
-pub const SKIP_HAS_SEMI: i32 = 1 << 0;
-pub const SKIP_HAS_ELLIPSIS: i32 = 1 << 1;
-pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2;
+// Skip flags for controlling statement parsing behavior
+pub const SKIP_HAS_SEMI: i32 = 1 << 0; // Statement has semicolon
+pub const SKIP_HAS_ELLIPSIS: i32 = 1 << 1; // Statement has spread operator
+pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operator
 
+/// Represents the state of the JavaScript parser
+///
+/// This structure maintains all necessary information for parsing JavaScript code,
+/// including the current position, token, scope, and parsing context.
 pub struct JSParseState {
+    /// JavaScript context pointer for runtime operations
     pub ctx: *mut JSContext,
-    pub last_line_num: u32, // line number of last token
-    pub line_num: u32,      // line number of current offset
+    /// Line number of the previously processed token
+    pub last_line_num: u32,
+    /// Current line number being processed
+    pub line_num: u32,
+    /// Source file name being parsed
     pub filename: &'static CStr,
+    /// Current token being processed
     pub token: JSToken,
-    pub got_lf: bool, // true if got line feed before the current token
+    /// Indicates if a line feed was encountered before current token
+    pub got_lf: bool,
+    /// Pointer to the last processed character
     pub last_ptr: *const u8,
+    /// Current position in the input buffer
     pub buf_ptr: *const u8,
+    /// End of the input buffer
     pub buf_end: *const u8,
 
-    /// current function def
-    /// TODO: use Box<JSFunctionDef>
+    /// Current function being parsed
+    /// TODO: use Box<JSFunctionDef> for better memory management
     pub cur_func: *mut JSFunctionDef,
 
-    pub is_module: bool, // parsing a module
+    /// Indicates if parsing a JavaScript module
+    pub is_module: bool,
+    /// Controls whether HTML-style comments are allowed
     pub allow_html_comments: bool,
-    pub ext_json: bool, // true if accepting JSON superset
+    /// Enables parsing of JSON superset syntax
+    pub ext_json: bool,
 }
 
 impl JSParseState {
+    /// Creates a new parser state with initial values
+    ///
+    /// # Safety
+    /// This function is unsafe due to raw pointer usage
+    ///
+    /// # Arguments
+    /// * `ctx` - JavaScript context pointer
+    /// * `input` - Input buffer containing source code
+    /// * `input_len` - Length of input buffer
+    /// * `filename` - Name of source file
     pub unsafe fn new(
         ctx: *mut JSContext,
         input: *const u8,
@@ -81,7 +109,17 @@ impl JSParseState {
         s
     }
 
-    /// enter new scope
+    /// Enters a new lexical scope for variable declarations
+    ///
+    /// Creates a new scope for variable declarations and emits the corresponding bytecode.
+    /// The scope is tracked in the current function's scope chain.
+    ///
+    /// # Safety
+    /// This function is unsafe due to raw pointer manipulation
+    ///
+    /// # Returns
+    /// * `Ok(scope_id)` - ID of the newly created scope
+    /// * `Err(-1)` - If scope creation fails
     pub unsafe fn push_scope(&mut self) -> Result<i32, i32> {
         if !self.cur_func.is_null() {
             let fd = self.cur_func.as_mut().unwrap();
@@ -108,6 +146,13 @@ impl JSParseState {
         }
     }
 
+    /// Exits the current lexical scope
+    ///
+    /// Restores the parent scope and updates variable accessibility.
+    /// Emits bytecode for scope cleanup.
+    ///
+    /// # Safety
+    /// This function is unsafe due to raw pointer manipulation
     pub unsafe fn pop_scope(&mut self) {
         if !self.cur_func.is_null() {
             // disable scoped variables
@@ -122,6 +167,17 @@ impl JSParseState {
         }
     }
 
+    /// Closes multiple scopes up to a specified stop point
+    ///
+    /// Emits leave scope operations for all scopes from current until scope_stop.
+    /// Used during control flow changes that require multiple scope exits.
+    ///
+    /// # Safety
+    /// This function is unsafe due to raw pointer manipulation
+    ///
+    /// # Arguments
+    /// * `scope` - Starting scope ID to close from
+    /// * `scope_stop` - Stop closing scopes at this ID
     pub unsafe fn close_scopes(&mut self, mut scope: i32, scope_stop: i32) {
         while scope > scope_stop {
             emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
@@ -132,10 +188,17 @@ impl JSParseState {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Represents a position in the source code during parsing
+///
+/// Used for backtracking and position tracking during parsing operations.
 pub struct JSParsePos {
+    /// Line number of the last processed token
     pub last_line_num: u32,
+    /// Current line number
     pub line_num: u32,
+    /// Indicates if a line feed was encountered
     pub got_lf: bool,
+    /// Pointer to position in source buffer
     pub ptr: *const u8,
 }
 

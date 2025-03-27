@@ -16,7 +16,7 @@ use crate::{
             JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
         set_value, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsUninitialized,
-        JS_UNDEFINED, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_OBJ,
     },
 };
 
@@ -77,7 +77,7 @@ pub unsafe fn JS_DefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, def_flags: u
     } else {
         p = JS_VALUE_GET_OBJ((*ctx).global_obj);
         flags = JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | (def_flags & JS_PROP_CONFIGURABLE);
-        val = JS_UNDEFINED;
+        val = JSValue::UNDEFINED;
     }
 
     let prs = find_own_property1(p, prop);
@@ -123,8 +123,8 @@ pub unsafe fn JS_DefineGlobalFunction(
         (*ctx).global_obj,
         prop,
         func,
-        JS_UNDEFINED,
-        JS_UNDEFINED,
+        JSValue::UNDEFINED,
+        JSValue::UNDEFINED,
         flags,
     ) < 0
     {
@@ -145,7 +145,7 @@ pub unsafe fn JS_GetGlobalVar(ctx: *mut JSContext, prop: JSAtom, throw_ref_error
         if unlikely(JS_IsUninitialized((*pr).u.value)) {
             return JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
         }
-        return JS_DupValue(ctx, (*pr).u.value);
+        return (*pr).u.value.dup();
     }
 
     JS_GetPropertyInternal(
@@ -181,7 +181,7 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSV
             *sp.offset(0) = if ret {
                 JS_DupValue(ctx, (*ctx).global_obj)
             } else {
-                JS_UNDEFINED
+                JSValue::UNDEFINED
             };
         } else {
             return -1;

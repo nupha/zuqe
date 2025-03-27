@@ -1,17 +1,14 @@
-use std::borrow::Cow;
-
 use crate::{
-    atom::{js_get_atom_index, JSAtomStruct, JSAtomType, JS_FreeAtomStruct},
+    atom::{JSAtomType, JS_FreeAtomStruct},
     context::JSContext,
     error::JS_ThrowRangeError,
-    function::JSFunctionBytecode,
     gc::{free_zero_refcount, JSGCObjectHeader, JSGCPhaseEnum},
     runtime::JSRuntime,
     types::{list_add, list_del, unlikely, JSRefCountHeader},
     JS_MKVAL,
 };
 
-use super::{object::JSObject, string::JSString, JS_ToInt64Sat, JS_ToStringFree, MAX_SAFE_INTEGER};
+use super::{object::JSObject, string::JSString, JS_ToInt64Sat, MAX_SAFE_INTEGER};
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {

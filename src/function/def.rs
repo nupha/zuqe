@@ -10,7 +10,7 @@ use crate::{
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
         free_bytecode_atoms, is_var_in_arg_scope, JSClosureVar, JSFunctionKindEnum, JSGlobalVar,
-        JSVarDef, JSVarKindEnum, JSVarScope, ARG_SCOPE_END, ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
+        JSVarDef, JSVarKindEnum, JSVarScope, ARG_SCOPE_END, DEFINE_GLOBAL_LEX_VAR,
     },
     list_entry,
     mem::{js_free, js_malloc_typed},
