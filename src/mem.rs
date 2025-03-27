@@ -412,8 +412,6 @@ pub mod alloca {
 
     #[link(name = "alloca", kind = "static")]
     extern "C-unwind" {
-        pub fn c_alloca(size: usize) -> *mut u8;
-
         fn c_alloca_callback(size: usize, callback: Callback, opaque: *mut c_void);
     }
 
