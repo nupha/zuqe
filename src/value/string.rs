@@ -34,26 +34,59 @@ use super::{
     JS_IsNull, JS_IsUndefined, StringContent, JS_DTOA_VAR_FORMAT,
 };
 
+/// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
+/// Represents a JavaScript string with reference counting and atom support
+///
+/// Memory Layout:
+/// - 32-bit reference count header for GC
+/// - 32-bit hash and type field (30 bits hash + 2 bits atom type)
+/// - 32-bit hash next for symbol atom indexing
+/// - String content (either UTF-8 or UTF-16 encoded)
+///
+/// The string can be:
+/// - A regular string with dynamic content
+/// - An atom string (interned for efficiency)
+/// - A symbol string (unique identifier)
 #[derive(Debug)]
 #[repr(C)]
 pub struct JSString {
-    // must come first, 32-bit
+    // Reference count header must be first for memory layout
     pub header: JSRefCountHeader,
 
-    hash_and_type: u32, // hash: 30 bits, atom_type: 2 bits
-    pub hash_next: u32, // atom_index for JS_ATOM_TYPE_SYMBOL
+    // Combined hash and type field:
+    // - Lower 30 bits: hash value for quick string comparison
+    // - Upper 2 bits: atom type (None, String, Symbol)
+    hash_and_type: u32,
+
+    // Used for atom string chaining in hash table
+    // For symbols, stores the atom index
+    pub hash_next: u32,
 
     #[cfg(feature = "dump_leaks")]
-    pub link: crate::types::list_head, // string list
+    pub link: crate::types::list_head, // For tracking string allocations
 
-    /// string content
+    /// Actual string content, can be UTF-8 or UTF-16 encoded
     content: StringContent,
 }
 
 impl JSString {
-    /// create a JSString with uninitialized content. internal use only.
+    /// Creates a new JSString with uninitialized content
+    ///
+    /// This is an internal function used as the base for all string creation methods.
+    /// It allocates memory for the string and initializes the basic fields:
+    /// - Sets reference count to 1
+    /// - Initializes hash to 0
+    /// - Sets atom type to None
+    /// - Creates empty string content
+    ///
+    /// # Arguments
+    /// * `rt` - JavaScript runtime for memory allocation
+    ///
+    /// # Returns
+    /// * `Ok(Box<JSString>)` - Newly allocated string
+    /// * `Err(-1)` - Memory allocation failed
     fn new_uninit(rt: &mut JSRuntime) -> Result<Box<Self>, i32> {
         let mut ss = unsafe {
             Box::from_raw(
@@ -77,7 +110,18 @@ impl JSString {
         Ok(ss)
     }
 
-    /// create a jsstring with content bytes.
+    /// Creates a JSString with provided content bytes
+    ///
+    /// This is a low-level constructor that takes ownership of pre-allocated string content.
+    /// The content can be either UTF-8 or UTF-16 encoded.
+    ///
+    /// # Arguments
+    /// * `rt` - JavaScript runtime for memory allocation
+    /// * `content` - Pre-allocated string content to use
+    ///
+    /// # Returns
+    /// * `Ok(Box<JSString>)` - Newly created string with provided content
+    /// * `Err(-1)` - Memory allocation failed
     #[inline(always)]
     pub fn from_content(rt: &mut JSRuntime, content: StringContent) -> Result<Box<Self>, i32> {
         let mut ss = Self::new_uninit(rt)?;
@@ -85,13 +129,36 @@ impl JSString {
         Ok(ss)
     }
 
-    /// create string jsstring from an utf8 encoded str.
+    /// Creates a JSString from a Rust string slice
+    ///
+    /// Efficiently creates a string from UTF-8 encoded Rust str.
+    /// The string content is copied to ensure JavaScript string immutability.
+    ///
+    /// # Arguments
+    /// * `rt` - JavaScript runtime for memory allocation
+    /// * `str` - Source Rust string slice
+    ///
+    /// # Returns
+    /// * `Ok(Box<JSString>)` - Newly created string
+    /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     #[inline(always)]
     pub fn from_str(rt: &mut JSRuntime, str: &str) -> Result<Box<Self>, i32> {
         JSString::from_content(rt, StringContent::from_str(str).map_err(|_| -1)?)
     }
 
-    /// create jsstring from an utf8 encoded vec.
+    /// Creates a JSString from UTF-8 encoded bytes
+    ///
+    /// Handles both ASCII and non-ASCII UTF-8 content:
+    /// - ASCII content is stored as-is in UTF-8 format
+    /// - Non-ASCII content is converted to UTF-16 for better Unicode support
+    ///
+    /// # Arguments
+    /// * `rt` - JavaScript runtime for memory allocation
+    /// * `data` - UTF-8 encoded byte vector
+    ///
+    /// # Returns
+    /// * `Ok(Box<JSString>)` - Newly created string
+    /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub fn from_utf8(rt: &mut JSRuntime, data: Vec<u8>) -> Result<Box<Self>, i32> {
         debug_assert!(!data.is_empty());
 
@@ -111,69 +178,81 @@ impl JSString {
         Self::from_content(rt, str.content.clone().map_err(|_| -1)?)
     }
 
+    /// Returns a reference to the underlying string content
+    /// Used for string operations and comparisons
     #[inline(always)]
     pub fn content(&self) -> &StringContent {
         &self.content
     }
 
+    /// Returns the length of the string in code units
+    /// For UTF-8 strings, returns byte length
+    /// For UTF-16 strings, returns number of 16-bit units
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.content.len()
     }
 
+    /// Checks if the string is empty (zero length)
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Checks if the string uses UTF-16 encoding
+    /// Returns true for strings containing non-ASCII characters
+    /// Returns false for ASCII-only strings (stored as UTF-8)
     #[inline(always)]
     pub fn is_wide_char(&self) -> bool {
         self.content.is_utf16()
     }
 
+    /// Returns the 30-bit hash value of the string
+    /// Used for fast string comparison and atom table lookup
+    /// The hash is stored in the lower 30 bits of hash_and_type
     #[inline(always)]
     pub fn hash(&self) -> u32 {
-        self.hash_and_type & 0x3FFFFFFF // Mask out the top 2 bits
+        self.hash_and_type & 0x3FFFFFFF // Mask out the top 2 bits (atom type)
     }
 
+    /// Sets the 30-bit hash value while preserving the atom type
+    /// Used when computing string hash or updating atom table
     pub fn set_hash(&mut self, h: u32) {
+        // Clear hash bits while keeping atom type bits, then set new hash
         self.hash_and_type = self.hash_and_type & 0xC000_000 | (h & 0x3FFF_FFFF);
     }
 
+    /// Returns the atom type of the string (stored in upper 2 bits of hash_and_type)
+    ///
+    /// The atom type indicates whether this string is:
+    /// - A regular string (None)
+    /// - An interned string atom (String)
+    /// - A unique symbol (Symbol)
     pub fn atom_type(&self) -> JSAtomType {
         unsafe { std::mem::transmute((self.hash_and_type >> 30) as u8) }
     }
 
+    /// Sets the atom type in the upper 2 bits of hash_and_type
+    /// Used when converting a string to an atom or symbol
     pub fn set_atom_type(&mut self, t: JSAtomType) {
         self.hash_and_type |= (t as u32) << 30
     }
 
+    // Commented out legacy string access methods
+    // These were used for direct buffer access but are now handled through StringContent
     // #[inline(always)]
     // pub fn as_str8(&self) -> *const u8 {
     //     self.content.as_ptr()
     // }
+    // ... other commented methods ...
 
-    // #[inline(always)]
-    // pub unsafe fn as_str16(&self) -> *const u16 {
-    //     self.content.as_ptr().cast::<u16>()
-    // }
-
-    // #[inline(always)]
-    // pub unsafe fn as_u16_slice(&self) -> &[u16] {
-    //     std::slice::from_raw_parts(self.content.as_ptr().cast::<u16>(), self.len())
-    // }
-
-    // #[inline(always)]
-    // pub fn as_str8_mut(&mut self) -> *mut u8 {
-    //     self.content.as_mut_ptr()
-    // }
-
-    // #[inline(always)]
-    // pub unsafe fn as_str16_mut(&mut self) -> *mut u16 {
-    //     self.content.as_mut_ptr().cast::<u16>()
-    // }
-
-    /// decrease ref count, returns updated ref count.
+    /// Decrements the reference count and returns the new count
+    ///
+    /// Used for garbage collection and string deallocation.
+    /// The string is freed when the reference count reaches zero.
+    ///
+    /// # Panics
+    /// Panics in debug mode if reference count is already 1 or less
     #[inline(always)]
     pub fn dec_ref(&mut self) -> i32 {
         debug_assert!(self.header.ref_count > 1);
@@ -181,9 +260,24 @@ impl JSString {
         self.header.ref_count
     }
 
-    /// decrease jsstring ref count.
-    /// once ref count reaches zero, drop jsstring and returns None,
-    /// otherwise if string is still alive, returns Some(_)
+    /// Deallocates a JSString when its reference count reaches zero
+    ///
+    /// This is the main deallocation function that handles both regular strings
+    /// and atom strings. The process:
+    ///
+    /// 1. Decrements the reference count
+    /// 2. If count reaches zero:
+    ///    - For atom strings: calls JS_FreeAtomStruct to clean up atom table
+    ///    - For regular strings: removes from leak tracking list if enabled
+    ///    - Deallocates the string memory
+    /// 3. If count > 0: returns the string for continued use
+    ///
+    /// # Arguments
+    /// * `rt` - JavaScript runtime for memory management
+    ///
+    /// # Returns
+    /// * `None` - String was deallocated (ref count = 0)
+    /// * `Some(Box<Self>)` - String is still in use (ref count > 0)
     pub fn free(mut self: Box<Self>, rt: &mut JSRuntime) -> Option<Box<Self>> {
         debug_assert!(self.header.ref_count > 0);
 
@@ -200,9 +294,9 @@ impl JSString {
                     crate::types::list_del(&mut self.link);
                 }
             }
-            None // dropped
+            None // String deallocated
         } else {
-            Some(self) // still alive
+            Some(self) // String still in use
         }
     }
 }
@@ -217,47 +311,6 @@ impl JSContext {
             self.JS_ThrowOutOfMemory();
             JSValue::EXCEPTION
         }
-    }
-
-    /// create string value with content copied from a str content.
-    /// str is not null terminated.
-    /// returns JS_EXCEPTION if fail.
-    #[deprecated]
-    pub unsafe fn create_string8(&mut self, s: &str) -> JSValue {
-        unreachable!("unused");
-
-        // let len = s.len();
-        // if len == 0 {
-        //     JS_AtomToString(self, JS_ATOM_empty_string)
-        // } else {
-        //     JSString::with_capacity(self, len, false).map_or(JS_EXCEPTION, |mut str| {
-        //         std::ptr::copy_nonoverlapping(s.as_ptr(), str.as_str8_mut(), len);
-        //         // there must be an extra room for trailing '\0'
-        //         str.as_str8_mut().offset(len as _).write(0);
-        //         JS_MKPTR!(JSTag::String, Box::into_raw(str).cast())
-        //     })
-        // }
-    }
-
-    /// create string value with content copied from a u16 slice content.
-    /// returns JS_EXCEPTION if fail.
-    #[deprecated]
-    pub unsafe fn create_string16(&mut self, data: &[u16]) -> JSValue {
-        unreachable!("unused");
-
-        // let len = data.len();
-        // if len == 0 {
-        //     JS_AtomToString(self, JS_ATOM_empty_string)
-        // } else {
-        //     JSString::with_capacity(self, len, true)
-        //         .map(|mut s| {
-        //             unsafe {
-        //                 std::ptr::copy_nonoverlapping(data.as_ptr(), s.as_str16_mut(), len);
-        //             }
-        //             JS_MKPTR!(JSTag::String, Box::into_raw(s).cast())
-        //         })
-        //         .unwrap_or(JS_EXCEPTION)
-        // }
     }
 
     /// create string value from a single u16 char.
@@ -440,7 +493,7 @@ pub fn is_num(c: i32) -> bool {
     ('0' as i32..='9' as i32).contains(&c)
 }
 
-#[deprecated(note = "use StringContent::to_u32() instead")]
+#[deprecated(note = "use StringContent::parse_u32() instead")]
 pub unsafe fn is_num_string(pval: &mut u32, p: *const JSString) -> bool {
     match (*p).content().parse_u32() {
         Ok(n) => {
@@ -449,36 +502,6 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSString) -> bool {
         }
         Err(_) => false,
     }
-
-    // let mut n: u32;
-    // let len = (*p).len();
-    // if len == 0 || len > 10 {
-    //     return false;
-    // }
-
-    // for (i, c) in (*p).content().chars().enumerate() {
-    //     if c.is_digit(10) {
-    //         if i == 0 && c == '0' {
-    //             return if len != 1 {
-    //                 false
-    //             } else {
-    //                 *pval = 0;
-    //                 true
-    //             };
-    //         }
-
-    //         let n64: u64 = (n as u64) * 10 + (c as u64 - '0' as u64);
-    //         if (n64 >> 32) != 0 {
-    //             return false; // u32 overflow
-    //         }
-    //         n = n64 as u32;
-    //     } else {
-    //         return false;
-    //     }
-    // }
-
-    // *pval = n;
-    // true
 }
 
 pub unsafe fn JS_ToStringInternal(
@@ -511,7 +534,7 @@ pub unsafe fn JS_ToStringInternal(
         JSTag::FunctionBytecode => (*ctx).create_string("[function bytecode]"),
         JSTag::Symbol => {
             if is_ToPropertyKey {
-                JS_DupValue(ctx, val)
+                val.dup()
             } else {
                 ctx.as_mut()
                     .unwrap()
@@ -539,7 +562,7 @@ pub unsafe fn JS_ToStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
 }
 
 pub unsafe fn JS_ToLocaleStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    if JS_IsUndefined(val) || JS_IsNull(val) {
+    if val.is_undefined() || val.is_null() {
         JS_ToStringFree(ctx, val)
     } else {
         JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, 0, std::ptr::null_mut())
@@ -561,7 +584,7 @@ pub unsafe fn JS_IsEmptyString(v: JSValueConst) -> bool {
     JS_VALUE_GET_TAG(v) == JS_TAG_STRING && (*JS_VALUE_GET_STRING(v)).len() == 0
 }
 
-/// Note: string value `str2` is consumed.
+/// Note: string value `str2` is consumed inside.
 pub unsafe fn JS_ConcatString3(
     ctx: *mut JSContext,
     str1: &CStr,
@@ -810,51 +833,6 @@ impl JSValue {
         }
 
         Ok(s)
-
-        // if (*jss).is_wide_char() {
-        //     // utf16 encoded
-        //     let mut buf = SmallVec::<[u8; 128]>::new();
-        //     let mut p = buf.as_mut_ptr();
-
-        //     for &uc in (*jss).as_u16_slice() {
-        //         let n = unicode_to_utf8(p, uc as _);
-        //         if n > 0 {
-        //             p = p.add(n as _);
-        //             buf.set_len(buf.len() + n as usize);
-
-        //             if buf.capacity() - buf.len() <= 7 {
-        //                 if buf.try_reserve_exact(64).is_err() {
-        //                     if let Some(sv) = str_val {
-        //                         JS_FreeValue(ctx, sv);
-        //                     }
-        //                     return Err(-1);
-        //                 }
-        //             }
-        //         }
-        //     }
-
-        //     buf.push(0);
-
-        //     if let Ok(res) = CString::from_vec_with_nul(buf.into_vec()) {
-        //         Ok(Cow::Owned(res))
-        //     } else {
-        //         if let Some(sv) = str_val {
-        //             JS_FreeValue(ctx, sv);
-        //         }
-        //         Err(-1)
-        //     }
-        // } else {
-        //     // utf8 encoded string
-        //     if let Some(s) = str_val {
-        //         let cs = CString::from_vec_with_nul((*jss).content.clone().into());
-        //         JS_FreeValue(ctx, s);
-        //         Ok(Cow::Owned(cs.map_err(|_| -1)?))
-        //     } else {
-        //         Ok(Cow::Borrowed(CStr::from_ptr(
-        //             (*jss).content.as_ptr().cast(),
-        //         )))
-        //     }
-        // }
     }
 }
 
@@ -869,114 +847,6 @@ pub unsafe fn JS_ToCStringLen2(
     cesu8: bool,
 ) -> *const c_char {
     unreachable!("use JSValue::to_utf8_string() instead");
-
-    // let val = if JS_VALUE_GET_TAG(val1) != JSTag::String as i32 {
-    //     let v = JS_ToString(ctx, val1);
-    //     if JS_IsException(v) {
-    //         return std::ptr::null();
-    //     }
-    //     v
-    // } else {
-    //     JS_DupValue(ctx, val1)
-    // };
-
-    // let str = JS_VALUE_GET_STRING(val);
-    // let len = (*str).len();
-
-    // let str_new: *mut JSString;
-    // let mut q: *mut u8;
-
-    // if !(*str).is_wide_char() {
-    //     let src = (*str).as_str8();
-
-    //     /* count the number of non-ASCII characters */
-    //     /* Scanning the whole string is required for ASCII strings,
-    //       and computing the number of non-ASCII bytes is less expensive
-    //       than testing each byte, hence this method is faster for ASCII
-    //       strings, which is the most common case.
-    //     */
-    //     let mut count = 0_i32;
-    //     for pos in 0..len {
-    //         count += (*src.add(pos) >> 7) as i32;
-    //     }
-    //     if count == 0 {
-    //         if !plen.is_null() {
-    //             (*plen) = len;
-    //         }
-
-    //         return src as *const c_char;
-    //     }
-
-    //     str_new = if let Ok(mut s) =
-    //         JSString::with_capacity(ctx.as_mut().unwrap(), len + count as usize, false)
-    //     {
-    //         q = s.as_str8_mut();
-    //         for pos in 0..len {
-    //             let c = *src.offset(pos as isize);
-    //             if c < 0x80 {
-    //                 *q = c;
-    //                 q = q.offset(1);
-    //             } else {
-    //                 *q = (c >> 6) | 0xc0;
-    //                 q = q.offset(1);
-    //                 *q = (c & 0x3f) | 0x80;
-    //                 q = q.offset(1);
-    //             }
-    //         }
-
-    //         Box::into_raw(s)
-    //     } else {
-    //         return std::ptr::null();
-    //     };
-    // } else {
-    //     // wide string
-    //     let src = (*str).as_str16();
-
-    //     /* Allocate 3 bytes per 16 bit code point. Surrogate pairs may
-    //       produce 4 bytes but use 2 code points.
-    //     */
-    //     str_new = if let Ok(mut s) = JSString::with_capacity(ctx.as_mut().unwrap(), len * 3, false)
-    //     {
-    //         q = s.as_str8_mut();
-    //         let mut pos = 0;
-    //         while pos < len {
-    //             let mut uc = *src.offset(pos as isize) as i32;
-    //             pos += 1;
-
-    //             if uc < 0x80 {
-    //                 *q = uc as u8;
-    //                 q = q.offset(1);
-    //             } else {
-    //                 if (0xd800..0xdc00).contains(&uc) {
-    //                     if pos < len && !cesu8 {
-    //                         let c1 = *src.offset(pos as isize) as i32;
-    //                         if (0xdc00..0xe000).contains(&c1) {
-    //                             pos += 1;
-    //                             /* surrogate pair */
-    //                             uc = (((uc & 0x3FF) << 10) | (c1 & 0x3FF)) + 0x10000;
-    //                         }
-    //                     }
-    //                 }
-    //                 let written = unicode_to_utf8(q, uc as _);
-    //                 q = q.offset(written as isize);
-    //             }
-    //         }
-
-    //         Box::into_raw(s)
-    //     } else {
-    //         return std::ptr::null();
-    //     };
-    // }
-
-    // *q = 0;
-    // (*str_new).set_len(q.offset_from((*str_new).as_str8()) as usize);
-    // JS_FreeValue(ctx, val);
-
-    // if !plen.is_null() {
-    //     *plen = (*str_new).len() as usize;
-    // }
-
-    // (*str_new).as_str8().cast()
 }
 
 #[deprecated(note = "use JSValue::to_utf8_string() instead")]
@@ -997,19 +867,19 @@ pub unsafe fn JS_ToCString(ctx: *mut JSContext, val1: JSValueConst) -> *const c_
 pub unsafe fn JS_FreeCString(ctx: *mut JSContext, ptr: *const c_char) {
     unreachable!("JS_FreeCString() is not used any more");
 
-    if ptr.is_null() {
-        return;
-    }
+    // if ptr.is_null() {
+    //     return;
+    // }
 
-    // ptr是 JS_ToCString() 系列返回返回的指针，它是JSString中 content 字段的地址
-    // 可以通过ptr计算出JSString的地址
-    let off = offset_of!(JSString, content) as isize;
-    let p = ptr.offset(-off).cast::<JSString>() as *mut JSString;
-    // let p = container_of!(ptr, JSString, content) as *mut JSString;
-    println!("ptr={ptr:p}, p={p:p}");
-    debug_assert_eq!(p, container_of!(ptr, JSString, content) as *mut JSString);
+    // // ptr是 JS_ToCString() 系列返回返回的指针，它是JSString中 content 字段的地址
+    // // 可以通过ptr计算出JSString的地址
+    // let off = offset_of!(JSString, content) as isize;
+    // let p = ptr.offset(-off).cast::<JSString>() as *mut JSString;
+    // // let p = container_of!(ptr, JSString, content) as *mut JSString;
+    // println!("ptr={ptr:p}, p={p:p}");
+    // debug_assert_eq!(p, container_of!(ptr, JSString, content) as *mut JSString);
 
-    JS_FreeValue(ctx, JS_MKPTR!(JSTag::String, p.cast()));
+    // JS_FreeValue(ctx, JS_MKPTR!(JSTag::String, p.cast()));
 }
 
 pub unsafe fn js_string_obj_get_length(ctx: *mut JSContext, obj: JSValueConst) -> usize {
