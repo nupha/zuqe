@@ -251,14 +251,11 @@ pub unsafe fn run_bytecodes(
                 OpCode::PUSH_ATOM_VALUE => {
                     let a = get_u32(pc);
                     PC_GO!(4);
-
-                    println!("[O.o] **** atom={a}, {}", JSAtom(a).to_str(rt));
-
                     SP![0] = JSAtom(a).to_value(ctx, false);
                     SP_GO!(1);
                 }
                 OpCode::UNDEFINED => {
-                    SP![0] = JS_UNDEFINED;
+                    SP![0] = JSValue::UNDEFINED;
                     SP_GO!(1);
                 }
                 OpCode::NULL => {
@@ -1902,15 +1899,6 @@ pub unsafe fn run_bytecodes(
                     if opcode == OpCode::STRICT_NEQ {
                         b = !b;
                     }
-
-                    {
-                        println!("[O.o] strict {opcode:?}:");
-                        SP![-2].dump(ctx.rt());
-                        print!(" vs ");
-                        SP![-1].dump(ctx.rt());
-                        println!(" b={b}");
-                    }
-
                     SP![-2] = JS_NewBool(ctx, b);
                     SP_GO!(-1);
                 }
