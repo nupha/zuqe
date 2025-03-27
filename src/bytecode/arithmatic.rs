@@ -1,0 +1,870 @@
+use std::cmp::Ordering;
+
+use crate::{
+    bytecode::OpCode,
+    context::JSContext,
+    value::{
+        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_DupValue, JS_FreeValue,
+        JS_IsException, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree, JS_ToPrimitiveFree,
+        HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_UNDEFINED, JS_VALUE_GET_FLOAT64,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+    },
+};
+
+pub(super) enum BinaryOp {
+    Int(i32, i32),
+    Float(f64, f64),
+    /// at least one string
+    HasString(JSValue, JSValue),
+}
+
+impl BinaryOp {
+    /// value tag check fast path
+    #[inline(always)]
+    pub unsafe fn new_fast(op1: JSValue, op2: JSValue, allow_float: bool) -> Option<Self> {
+        match (JS_VALUE_GET_NORM_TAG(op1), JS_VALUE_GET_NORM_TAG(op2)) {
+            (JSTag::Int, JSTag::Int) => {
+                Some(Self::Int(JS_VALUE_GET_INT(op1), JS_VALUE_GET_INT(op2)))
+            }
+            (JSTag::Float64, JSTag::Float64) if allow_float => Some(Self::Float(
+                JS_VALUE_GET_FLOAT64(op1),
+                JS_VALUE_GET_FLOAT64(op2),
+            )),
+            (JSTag::Int, JSTag::Float64) if allow_float => Some(Self::Float(
+                JS_VALUE_GET_INT(op1) as f64,
+                JS_VALUE_GET_FLOAT64(op2),
+            )),
+            (JSTag::Float64, JSTag::Int) if allow_float => Some(Self::Float(
+                JS_VALUE_GET_FLOAT64(op1),
+                JS_VALUE_GET_INT(op2) as f64,
+            )),
+            _ => None,
+        }
+    }
+
+    /// 将两个JSValue创建双目操作(int,float,string)
+    /// mode: 0 = allow int, 1 = allow int/float, 2 = allow int/float/string
+    /// primitive_hint: Some(_) 使用toPrimitive(), None 不使用toPrimitive()
+    /// 参数op1,op2会释放
+    pub unsafe fn new_slow(
+        ctx: *mut JSContext,
+        op1: JSValue,
+        op2: JSValue,
+        mode: u8,
+        primitive_hint: Option<i32>,
+    ) -> Result<Self, i32> {
+        debug_assert!(mode <= 3, "BinaryOp::new_slow: mode={mode}");
+
+        if mode == 0 {
+            let n1 = if JS_VALUE_GET_TAG(op1) == JS_TAG_INT {
+                JS_VALUE_GET_INT(op1)
+            } else {
+                if let Ok(n) = op1.to_i32_free(ctx) {
+                    n
+                } else {
+                    JS_FreeValue(ctx, op2);
+                    return Err(-1);
+                }
+            };
+
+            let n2 = if JS_VALUE_GET_TAG(op2) == JS_TAG_INT {
+                JS_VALUE_GET_INT(op2)
+            } else {
+                if let Ok(n) = op2.to_i32_free(ctx) {
+                    n
+                } else {
+                    return Err(-1);
+                }
+            };
+
+            Ok(Self::Int(n1, n2))
+        } else {
+            let mut op1 = op1;
+            let mut op2 = op2;
+
+            loop {
+                match (JS_VALUE_GET_NORM_TAG(op1), JS_VALUE_GET_NORM_TAG(op2)) {
+                    (JSTag::Int, JSTag::Int) => {
+                        break Ok(Self::Int(JS_VALUE_GET_INT(op1), JS_VALUE_GET_INT(op2)));
+                    }
+                    (JSTag::Float64, JSTag::Float64) => {
+                        break Ok(Self::Float(
+                            JS_VALUE_GET_FLOAT64(op1),
+                            JS_VALUE_GET_FLOAT64(op2),
+                        ));
+                    }
+                    (JSTag::Int, JSTag::Float64) => {
+                        break Ok(Self::Float(
+                            JS_VALUE_GET_INT(op1) as f64,
+                            JS_VALUE_GET_FLOAT64(op2),
+                        ));
+                    }
+                    (JSTag::Float64, JSTag::Int) => {
+                        break Ok(Self::Float(
+                            JS_VALUE_GET_FLOAT64(op1),
+                            JS_VALUE_GET_INT(op2) as f64,
+                        ));
+                    }
+                    (JSTag::String, _) | (_, JSTag::String) if mode == 3 => {
+                        break Ok(Self::HasString(op1, op2));
+                    }
+
+                    (JSTag::Object, _) | (_, JSTag::Object) if primitive_hint.is_some() => {
+                        let hint = primitive_hint.unwrap();
+                        let p1 = JS_ToPrimitiveFree(ctx, op1, hint);
+                        if JS_IsException(p1) {
+                            JS_FreeValue(ctx, op2);
+                            break Err(-1);
+                        }
+                        let p2 = JS_ToPrimitiveFree(ctx, op2, hint);
+                        if JS_IsException(p2) {
+                            JS_FreeValue(ctx, p1);
+                            break Err(-1);
+                        }
+
+                        op1 = p1;
+                        op2 = p2;
+                    }
+
+                    _ => {
+                        if let Some(hint) = primitive_hint {
+                            let p1 = JS_ToPrimitiveFree(ctx, op1, hint);
+                            if JS_IsException(p1) {
+                                JS_FreeValue(ctx, op2);
+                                break Err(-1);
+                            }
+                            let p2 = JS_ToPrimitiveFree(ctx, op2, hint);
+                            if JS_IsException(p2) {
+                                JS_FreeValue(ctx, p1);
+                                break Err(-1);
+                            }
+
+                            op1 = p1;
+                            op2 = p2;
+                        } else {
+                            let n1 = JS_ToNumberFree(ctx, op1);
+                            if JS_IsException(n1) {
+                                JS_FreeValue(ctx, op2);
+                                break Err(-1);
+                            }
+                            let n2 = JS_ToNumberFree(ctx, op2);
+                            if JS_IsException(n1) {
+                                break Err(-1);
+                            }
+
+                            op1 = n1;
+                            op2 = n2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn add(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            BinaryOp::Int(a, b) => {
+                let r = a as i64 + b as i64; // 结果可能超出i32范围
+                Ok(JSValue::from_i64(r))
+            }
+            BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a + b)),
+            BinaryOp::HasString(a, b) => {
+                let s = unsafe { JS_ConcatString(ctx, a, b) };
+                if JS_IsException(s) {
+                    unsafe {
+                        JS_FreeValue(ctx, a);
+                        JS_FreeValue(ctx, b);
+                    }
+                    Err(-1)
+                } else {
+                    Ok(s)
+                }
+            }
+        }
+    }
+
+    pub fn sub(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            BinaryOp::Int(a, b) => Ok(JSValue::from_i32(a - b)),
+            BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a + b)),
+            BinaryOp::HasString(a, b) => {
+                unsafe {
+                    JS_FreeValue(ctx, a);
+                    JS_FreeValue(ctx, b);
+                }
+                Err(-1)
+            }
+        }
+    }
+
+    pub fn mul(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            BinaryOp::Int(a, b) => {
+                let v = (a as i64) * (b as i64);
+                if v == 0 && (a | b) < 0 {
+                    Ok(JSValue::from_f64_as_is(-0.0)) // -0.0
+                } else {
+                    Ok(JSValue::from_i64(v))
+                }
+            }
+            BinaryOp::Float(a, b) => Ok(JSValue::from_f64_as_is(a * b)),
+            BinaryOp::HasString(a, b) => {
+                unsafe {
+                    JS_FreeValue(ctx, a);
+                    JS_FreeValue(ctx, b);
+                }
+                Err(-1)
+            }
+        }
+    }
+
+    pub fn div(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            BinaryOp::Int(a, b) => Ok(JSValue::from_f64((a as f64) / (b as f64))),
+            BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a / b)),
+            BinaryOp::HasString(a, b) => {
+                unsafe {
+                    JS_FreeValue(ctx, a);
+                    JS_FreeValue(ctx, b);
+                }
+                Err(-1)
+            }
+        }
+    }
+
+    pub fn mod_(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            BinaryOp::Int(a, b) => {
+                if b == 0 {
+                    Ok(JS_NAN)
+                } else {
+                    Ok(JSValue::from_i32(a % b))
+                }
+            }
+            BinaryOp::Float(a, b) => {
+                if b == 0.0 {
+                    Ok(JS_NAN)
+                } else {
+                    // JS mod 遵循IEEE754标准，fmod():
+                    let n = (a / b).trunc(); // 向零取整
+                    let mut m = a - n * b; // 计算 fmod 结果
+                    m = if m == 0.0 && (a < 0.0 || a < 0.0) {
+                        -0.0
+                    } else {
+                        m
+                    };
+                    Ok(JSValue::from_f64(m))
+                }
+            }
+            BinaryOp::HasString(a, b) => {
+                unsafe {
+                    JS_FreeValue(ctx, a);
+                    JS_FreeValue(ctx, b);
+                }
+                Err(-1)
+            }
+        }
+    }
+
+    pub fn pow(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            BinaryOp::Int(a, b) => {
+                if b == 1 || (a == 0 && b == 0) {
+                    // pow(0,0)=1
+                    Ok(JSValue::from_i32(1))
+                } else if a == 0 {
+                    Ok(JSValue::ZERO)
+                } else if b > 0 {
+                    Ok(JSValue::from_i64((a as i64).pow(b as u32)))
+                } else {
+                    Ok(JSValue::from_f64((a as f64).powf(b as f64)))
+                }
+            }
+            BinaryOp::Float(a, b) => {
+                if b.is_infinite() && a.abs() == 1.0 {
+                    // not compatible with IEEE 754
+                    Ok(JS_NAN)
+                } else {
+                    Ok(JSValue::from_f64(a.powf(b)))
+                }
+            }
+            BinaryOp::HasString(a, b) => {
+                unsafe {
+                    JS_FreeValue(ctx, a);
+                    JS_FreeValue(ctx, b);
+                }
+                Err(-1)
+            }
+        }
+    }
+
+    pub fn shl(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) << (v2 & 0x1f))),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn shr(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) >> (v2 & 0x1f))),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn sar(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            Self::Int(v1, v2) => Ok(JSValue::from_i32(v1 >> (v2 & 0x1f))),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn and(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) & (v2 as u32))),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn or(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) | (v2 as u32))),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn xor(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
+        match self {
+            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) ^ (v2 as u32))),
+            _ => unreachable!(),
+        }
+    }
+}
+
+macro_rules! rel {
+    ($self:expr, $ctx:expr, $op:pat) => {
+        match $self {
+            Self::Int(a, b) => matches!(a.cmp(&b), $op),
+            Self::Float(a, b) => a.partial_cmp(&b).map_or(false, |c|matches!(c , $op)), // got false if NaN
+            Self::HasString(s1, s2) => {
+                if JS_VALUE_GET_TAG(s1) == JS_VALUE_GET_TAG(s2) {
+                    // both is string
+                    unsafe {
+                        let b = (*JS_VALUE_GET_STRING(s1))
+                            .content()
+                            .cmp((*JS_VALUE_GET_STRING(s2)).content());
+                        JS_FreeValue($ctx, s1);
+                        JS_FreeValue($ctx, s2);
+                        matches!(b, $op)
+                    }
+                } else {
+                    false
+                }
+            }
+        }
+    };
+}
+
+impl BinaryOp {
+    pub fn lt(self, ctx: *mut JSContext) -> bool {
+        rel!(self, ctx, Ordering::Less)
+    }
+    pub fn lte(self, ctx: *mut JSContext) -> bool {
+        rel!(self, ctx, Ordering::Less | Ordering::Equal)
+    }
+    pub fn gt(self, ctx: *mut JSContext) -> bool {
+        rel!(self, ctx, Ordering::Greater)
+    }
+    pub fn gte(self, ctx: *mut JSContext) -> bool {
+        rel!(self, ctx, Ordering::Greater | Ordering::Equal)
+    }
+}
+
+pub(super) enum UnaryOp {
+    Int(i32),
+    Float(f64),
+}
+
+impl UnaryOp {
+    #[inline(always)]
+    pub fn new(ctx: &mut JSContext, val: JSValue, allow_float: bool) -> Result<Self, i32> {
+        match JS_VALUE_GET_NORM_TAG(val) {
+            JSTag::Int => Ok(UnaryOp::Int(JS_VALUE_GET_INT(val))),
+            JSTag::Float64 if allow_float => Ok(UnaryOp::Float(JS_VALUE_GET_FLOAT64(val))),
+            _ => {
+                if allow_float {
+                    let n = unsafe { JS_ToNumberFree(ctx, val) };
+                    match JS_VALUE_GET_NORM_TAG(n) {
+                        JSTag::Int => Ok(UnaryOp::Int(JS_VALUE_GET_INT(n))),
+                        JSTag::Float64 => Ok(UnaryOp::Float(JS_VALUE_GET_FLOAT64(val))),
+                        JSTag::Exception => Err(-1),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    unsafe { val.to_i32_free(ctx).map(|i| Self::Int(i)) }
+                }
+            }
+        }
+    }
+
+    /// a shortcut for ::new(ctx, op1, false)
+    #[inline(always)]
+    pub fn new_int(ctx: &mut JSContext, op1: JSValue) -> Result<Self, i32> {
+        match JS_VALUE_GET_NORM_TAG(op1) {
+            JSTag::Int => Ok(Self::Int(JS_VALUE_GET_INT(op1))),
+            _ => unsafe { op1.to_i32_free(ctx).map(|i| Self::Int(i)) },
+        }
+    }
+
+    pub fn neg(self) -> JSValue {
+        match self {
+            UnaryOp::Int(a) => {
+                if a == 0 {
+                    // -0 cannot be expressed as integer
+                    JSValue::from_f64_as_is(-0.0)
+                } else if a == i32::MIN {
+                    JSValue::from_f64_as_is(-(a as f64))
+                } else {
+                    JSValue::from_i32(-a)
+                }
+            }
+            UnaryOp::Float(a) => {
+                if a == 0.0 {
+                    JSValue::from_f64_as_is(-0.0)
+                } else {
+                    JSValue::from_f64(-a)
+                }
+            }
+        }
+    }
+
+    pub fn plus(self) -> JSValue {
+        match self {
+            UnaryOp::Int(a) => JSValue::from_i32(a),
+            UnaryOp::Float(a) => JSValue::from_f64_as_is(a),
+        }
+    }
+
+    pub fn inc(self) -> JSValue {
+        match self {
+            UnaryOp::Int(a) => {
+                if a == i32::MAX {
+                    JSValue::from_i64(a as i64 + 1)
+                } else {
+                    JSValue::from_i32(a + 1)
+                }
+            }
+            UnaryOp::Float(a) => JSValue::from_f64_as_is(a + 1.0),
+        }
+    }
+
+    pub fn dec(self) -> JSValue {
+        match self {
+            UnaryOp::Int(a) => {
+                if a == i32::MIN {
+                    JSValue::from_i64(a as i64 - 1)
+                } else {
+                    JSValue::from_i32(a - 1)
+                }
+            }
+            UnaryOp::Float(a) => JSValue::from_f64_as_is(a - 1.0),
+        }
+    }
+
+    pub fn not(self) -> JSValue {
+        match self {
+            Self::Int(a) => JSValue::from_i32(!a),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[inline(always)]
+pub(super) unsafe fn op_binary_logic(
+    ctx: *mut JSContext,
+    opcode: OpCode,
+    sp: *mut JSValue,
+) -> Result<*mut JSValue, i32> {
+    if let Ok(res) =
+        BinaryOp::new_slow(ctx, *sp.offset(-2), *sp.offset(-1), 0, None).and_then(|binop| {
+            match opcode {
+                OpCode::SHL => binop.shl(ctx),
+                OpCode::SHR => binop.shr(ctx),
+                OpCode::SAR => binop.sar(ctx),
+                OpCode::AND => binop.and(ctx),
+                OpCode::OR => binop.or(ctx),
+                OpCode::XOR => binop.xor(ctx),
+                _ => unreachable!(),
+            }
+        })
+    {
+        *sp.offset(-2) = res;
+        Ok(sp.offset(-1))
+    } else {
+        *sp.offset(-2) = JS_UNDEFINED;
+        *sp.offset(-1) = JS_UNDEFINED;
+        Err(-1)
+    }
+}
+
+pub(super) unsafe fn relational(
+    ctx: *mut JSContext,
+    op1: JSValue,
+    op2: JSValue,
+    opcode: OpCode,
+) -> Result<bool, i32> {
+    let binop = if let Some(b) = BinaryOp::new_fast(op1, op2, true) {
+        b
+    } else {
+        BinaryOp::new_slow(ctx, op1, op2, 3, Some(HINT_NUMBER))?
+    };
+    match opcode {
+        OpCode::LT => Ok(binop.lt(ctx)),
+        OpCode::LTE => Ok(binop.lte(ctx)),
+        OpCode::GT => Ok(binop.gt(ctx)),
+        OpCode::GTE => Ok(binop.gte(ctx)),
+        _ => todo!(),
+    }
+}
+
+#[inline(always)]
+pub unsafe fn js_eq(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
+    let op1 = *sp.offset(-2);
+    let op2 = *sp.offset(-1);
+
+    if let Some(bop) = BinaryOp::new_fast(op1, op2, true) {
+        // fast path
+        let b = match bop {
+            BinaryOp::Int(a, b) => a == b,
+            BinaryOp::Float(a, b) => a == b,
+            _ => unreachable!(),
+        };
+        Ok(b ^ is_neq)
+    } else {
+        js_eq_slow(ctx, sp, is_neq)
+    }
+}
+
+pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
+    macro_rules! exception {
+        () => {
+            (*sp.offset(-2)) = JS_UNDEFINED;
+            (*sp.offset(-1)) = JS_UNDEFINED;
+            return Err(-1);
+        };
+    }
+    macro_rules! number_tags {
+        () => {
+            JSTag::Int | JSTag::Float64 | JSTag::BigInt
+        };
+    }
+
+    let mut op1 = *sp.offset(-2);
+    let mut op2 = *sp.offset(-1);
+
+    let res = loop {
+        let tag1 = JS_VALUE_GET_NORM_TAG(op1);
+        let tag2 = JS_VALUE_GET_NORM_TAG(op2);
+
+        let b: bool = match (tag1, tag2) {
+            (JSTag::Int, JSTag::Int) => JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2),
+            (JSTag::Int, JSTag::Float64) => {
+                (JS_VALUE_GET_INT(op1) as f64 == JS_VALUE_GET_FLOAT64(op2)) ^ is_neq
+            }
+            (JSTag::Float64, JSTag::Int) => {
+                (JS_VALUE_GET_FLOAT64(op1) == JS_VALUE_GET_INT(op2) as f64) ^ is_neq
+            }
+            (JSTag::Float64, JSTag::Float64) => {
+                JS_VALUE_GET_FLOAT64(op1) == JS_VALUE_GET_FLOAT64(op2)
+            }
+            (JSTag::Null, JSTag::Undefined) | (JSTag::Undefined, JSTag::Null) => true,
+
+            (JSTag::Bool, _) => {
+                op1 = JSValue::from_i32(JS_VALUE_GET_INT(op1));
+                continue; // goto redo
+            }
+            (_, JSTag::Bool) => {
+                op2 = JSValue::from_i32(JS_VALUE_GET_INT(op2));
+                continue; // goto redo
+            }
+
+            (JSTag::String, number_tags!()) | (number_tags!(), JSTag::String) => {
+                if tag1 == JSTag::BigInt || tag2 == JSTag::BigInt {
+                    println!("BigInt is not supported");
+                    break false;
+                } else {
+                    op1 = JS_ToNumericFree(ctx, op1);
+                    if JS_IsException(op1) {
+                        JS_FreeValue(ctx, op2);
+                        exception!();
+                    }
+                    op2 = JS_ToNumericFree(ctx, op2);
+                    if JS_IsException(op2) {
+                        JS_FreeValue(ctx, op1);
+                        exception!();
+                    }
+                }
+                js_strict_eq(ctx, op1, op2)
+            }
+
+            (JSTag::Object, number_tags!() | JSTag::String | JSTag::Symbol)
+            | (number_tags!() | JSTag::String | JSTag::Symbol, JSTag::Object) => {
+                op1 = JS_ToPrimitiveFree(ctx, op1, HINT_NONE);
+                if JS_IsException(op1) {
+                    JS_FreeValue(ctx, op2);
+                    exception!();
+                }
+                op2 = JS_ToPrimitiveFree(ctx, op2, HINT_NONE);
+                if JS_IsException(op2) {
+                    JS_FreeValue(ctx, op1);
+                    exception!();
+                }
+                continue; // goto redo
+            }
+
+            _ if tag1 == tag2 => js_strict_eq2(ctx, op1, op2, JSStrictEqModeEnum::JS_EQ_STRICT),
+            _ => {
+                let r = (JS_IsHTMLDDA(ctx, op1) && matches!(tag2, JSTag::Null | JSTag::Undefined))
+                    || (JS_IsHTMLDDA(ctx, op2) && matches!(tag1, JSTag::Null | JSTag::Undefined));
+                JS_FreeValue(ctx, op1);
+                JS_FreeValue(ctx, op2);
+                r
+            }
+        };
+
+        break b; // done
+    };
+
+    Ok(res ^ is_neq)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum JSStrictEqModeEnum {
+    JS_EQ_STRICT,
+    JS_EQ_SAME_VALUE,
+    JS_EQ_SAME_VALUE_ZERO,
+}
+
+// XXX: Should take JSValueConst arguments
+pub unsafe fn js_strict_eq2(
+    ctx: *mut JSContext,
+    op1: JSValue,
+    op2: JSValue,
+    eq_mode: JSStrictEqModeEnum,
+) -> bool {
+    let tag1 = JS_VALUE_GET_NORM_TAG(op1);
+    let tag2 = JS_VALUE_GET_NORM_TAG(op2);
+
+    let res: bool = match (tag1, tag2) {
+        (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
+            JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2)
+        }
+        (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
+        (JSTag::String, JSTag::String) => {
+            let p1 = JS_VALUE_GET_STRING(op1);
+            let p2 = JS_VALUE_GET_STRING(op2);
+            (*p1).content().eq(p2.as_ref().unwrap().content())
+        }
+        (JSTag::Symbol, JSTag::Symbol) => {
+            let p1 = JS_VALUE_GET_PTR(op1);
+            let p2 = JS_VALUE_GET_PTR(op2);
+            p1 == p2
+        }
+        (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2),
+        (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
+            let d1 = if tag1 == JSTag::Int {
+                JS_VALUE_GET_INT(op1) as f64
+            } else {
+                JS_VALUE_GET_FLOAT64(op1)
+            };
+            let d2 = if tag2 == JSTag::Int {
+                JS_VALUE_GET_FLOAT64(op2)
+            } else {
+                JS_VALUE_GET_FLOAT64(op2)
+            };
+
+            if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
+                if d1.is_nan() || d2.is_nan() {
+                    d1.is_nan() == d2.is_nan()
+                } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
+                    d1 == d2 // +0 == -0
+                } else {
+                    let u1 = JSFloat64Union { d: d1 };
+                    let u2 = JSFloat64Union { d: d2 };
+                    u1.u64 == u2.u64 // +0 != -0
+                }
+            } else {
+                d1 == d2 // if NaN return false and +0 == -0
+            }
+        }
+
+        (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
+            println!("BigInt is not supported");
+            false
+        }
+        _ => false,
+    };
+
+    JS_FreeValue(ctx, op1);
+    JS_FreeValue(ctx, op2);
+    res
+}
+
+// // XXX: Should take JSValueConst arguments
+// pub unsafe fn js_strict_eq2(
+//     ctx: *mut JSContext,
+//     op1: JSValue,
+//     op2: JSValue,
+//     eq_mode: JSStrictEqModeEnum,
+// ) -> bool {
+//     let tag1 = JS_VALUE_GET_NORM_TAG(op1);
+//     let tag2 = JS_VALUE_GET_NORM_TAG(op2);
+//     let res: bool;
+
+//     match tag1 {
+//         JS_TAG_BOOL => {
+//             if tag1 != tag2 {
+//                 res = false;
+//             } else {
+//                 return JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2);
+//             }
+//         }
+//         JS_TAG_NULL | JS_TAG_UNDEFINED => {
+//             res = tag1 == tag2;
+//         }
+//         JS_TAG_STRING => {
+//             if tag1 != tag2 {
+//                 res = false;
+//             } else {
+//                 let p1 = JS_VALUE_GET_STRING(op1);
+//                 let p2 = JS_VALUE_GET_STRING(op2);
+//                 res = js_string_compare(ctx, p1, p2) == 0;
+//             }
+//         }
+//         JS_TAG_SYMBOL => {
+//             if tag1 != tag2 {
+//                 res = false;
+//             } else {
+//                 let p1 = JS_VALUE_GET_PTR(op1);
+//                 let p2 = JS_VALUE_GET_PTR(op2);
+//                 res = p1 == p2;
+//             }
+//         }
+//         JS_TAG_OBJECT => {
+//             if tag1 != tag2 {
+//                 res = false;
+//             } else {
+//                 res = JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2);
+//             }
+//         }
+
+//         JS_TAG_INT => {
+//             if tag2 == JS_TAG_INT {
+//                 return JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2);
+//             } else if tag2 == JS_TAG_FLOAT64 {
+//                 let d1 = JS_VALUE_GET_INT(op1) as f64;
+//                 let d2 = JS_VALUE_GET_FLOAT64(op2);
+
+//                 return if unlikely(eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE) {
+//                     // NaN is not always normalized, so this test is necessary
+//                     if d1.is_nan() || d2.is_nan() {
+//                         d1.is_nan() == d2.is_nan()
+//                     } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
+//                         d1 == d2 // +0 == -0
+//                     } else {
+//                         let u1 = JSFloat64Union { d: d1 };
+//                         let u2 = JSFloat64Union { d: d1 };
+//                         u1.u64 == u2.u64 // +0 != -0
+//                     }
+//                 } else {
+//                     d1 == d2 // if NaN return false and +0 == -0
+//                 };
+//             } else {
+//                 res = false
+//             }
+//         }
+//         JS_TAG_FLOAT64 => {
+//             let d1 = JS_VALUE_GET_FLOAT64(op1);
+//             let d2 = if tag2 == JS_TAG_FLOAT64 {
+//                 JS_VALUE_GET_FLOAT64(op2)
+//             } else if tag2 == JS_TAG_INT {
+//                 JS_VALUE_GET_INT(op2) as f64
+//             } else {
+//                 return false;
+//             };
+
+//             return if unlikely(eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE) {
+//                 // NaN is not always normalized, so this test is necessary
+//                 if d1.is_nan() || d2.is_nan() {
+//                     d1.is_nan() == d2.is_nan()
+//                 } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
+//                     d1 == d2 // +0 == -0
+//                 } else {
+//                     let u1 = JSFloat64Union { d: d1 };
+//                     let u2 = JSFloat64Union { d: d1 };
+//                     u1.u64 == u2.u64 // +0 != -0
+//                 }
+//             } else {
+//                 d1 == d2 // if NaN return false and +0 == -0
+//             };
+//         }
+//         JS_TAG_BIG_INT => {
+//             unimplemented!()
+//             // let mut a_s: bf_t;
+//             // let a: *mut bf_t;
+//             // let mut b_s: bf_t;
+//             // let b: *mut bf_t;
+//             // if tag1 != tag2 {
+//             //     res = FALSE;
+//             //     // C2RS: break; translated to return early
+//             //     return res;
+//             // }
+//             // a = JS_ToBigFloat(ctx, &mut a_s, op1); // cannot fail
+//             // b = JS_ToBigFloat(ctx, &mut b_s, op2); // cannot fail
+//             // res = bf_cmp_eq(a, b) as BOOL;
+//             // if a == &mut a_s {
+//             //     bf_delete(a);
+//             // }
+//             // if b == &mut b_s {
+//             //     bf_delete(b);
+//             // }
+//         }
+
+//         _ => {
+//             res = false;
+//         }
+//     }
+
+//     JS_FreeValue(ctx, op1);
+//     JS_FreeValue(ctx, op2);
+
+//     return res;
+// }
+
+pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> bool {
+    js_strict_eq2(ctx, op1, op2, JSStrictEqModeEnum::JS_EQ_STRICT)
+}
+
+pub unsafe fn js_same_value(ctx: *mut JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
+    js_strict_eq2(
+        ctx,
+        op1.dup(),
+        op2.dup(),
+        JSStrictEqModeEnum::JS_EQ_SAME_VALUE,
+    )
+}
+
+pub unsafe fn js_same_value_zero(
+    ctx: *mut JSContext,
+    op1: JSValueConst,
+    op2: JSValueConst,
+) -> bool {
+    js_strict_eq2(
+        ctx,
+        JS_DupValue(ctx, op1),
+        JS_DupValue(ctx, op2),
+        JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
+    )
+}

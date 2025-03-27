@@ -1,0 +1,160 @@
+use crate::{
+    atom::{consts::JS_ATOM_length, JSAtom},
+    bytecode::OpCode,
+};
+
+use super::{
+    emit::{emit_atom_dup, emit_op, emit_u16, emit_u32},
+    parse::js_parse_expect,
+    state::JSParseState,
+    token::TOK_ELLIPSIS,
+};
+
+pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
+    let mut idx: u32;
+    let mut need_length: bool;
+
+    macro_rules! done {
+        () => {
+            return js_parse_expect(s, ']' as i32);
+        };
+    }
+
+    if (*s).next_token().is_err() {
+        return -1;
+    }
+
+    // small regular arrays are created on the stack
+    idx = 0;
+    while (*s).token.val != ']' as i32 && idx < 32 {
+        if (*s).token.val == ',' as i32 || (*s).token.val == TOK_ELLIPSIS {
+            break;
+        }
+        if (*s).parse_assign_expr().is_err() {
+            return -1;
+        }
+        idx += 1;
+        // accept trailing comma
+        if (*s).token.val == ',' as i32 {
+            if (*s).next_token().is_err() {
+                return -1;
+            }
+        } else if (*s).token.val != ']' as i32 {
+            done!();
+        }
+    }
+
+    emit_op(s, OpCode::ARRAY_FROM);
+    emit_u16(s, idx as _);
+
+    // larger arrays and holes are handled with explicit indices
+    need_length = false;
+    while (*s).token.val != ']' as i32 && idx < 0x7fffffff {
+        if (*s).token.val == TOK_ELLIPSIS {
+            break;
+        }
+        need_length = true;
+        if (*s).token.val != ',' as i32 {
+            if (*s).parse_assign_expr().is_err() {
+                return -1;
+            }
+            emit_op(s, OpCode::DEFINE_FIELD);
+            emit_u32(s, JSAtom::from_u32(idx).0);
+            need_length = false;
+        }
+        idx += 1;
+        // accept trailing comma
+        if (*s).token.val == ',' as i32 {
+            if (*s).next_token().is_err() {
+                return -1;
+            }
+        }
+    }
+    if (*s).token.val == ']' as i32 {
+        if need_length {
+            // Set the length: Cannot use OP_define_field because
+            // length is not configurable
+            emit_op(s, OpCode::DUP);
+            emit_op(s, OpCode::PUSH_I32);
+            emit_u32(s, idx);
+            emit_op(s, OpCode::PUT_FIELD);
+            emit_atom_dup(s, JS_ATOM_length);
+        }
+        done!();
+    }
+
+    // huge arrays and spread elements require a dynamic index on the stack
+    emit_op(s, OpCode::PUSH_I32);
+    emit_u32(s, idx);
+
+    // stack has array, index
+    while (*s).token.val != ']' as i32 {
+        if (*s).token.val == TOK_ELLIPSIS {
+            if (*s).next_token().is_err() {
+                return -1;
+            }
+            if (*s).parse_assign_expr().is_err() {
+                return -1;
+            }
+
+            emit_op(s, OpCode::APPEND);
+
+            // debug?
+            // {
+            //     let label_next;
+            //     let label_done;
+            //     label_next = new_label(s);
+            //     label_done = new_label(s);
+            //     // enumerate object
+            //     emit_op(s, OpCode::FOR_OF_START);
+            //     emit_op(s, OP_rot5l);
+            //     emit_op(s, OP_rot5l);
+            //     emit_label(s, label_next);
+            //     // on stack: enum_rec array idx
+            //     emit_op(s, OP_for_of_next);
+            //     emit_u8(s, 2);
+            //     emit_goto(s, OP_if_true, label_done);
+            //     // append element
+            //     // enum_rec array idx val -> enum_rec array new_idx
+            //     emit_op(s, OP_define_array_el);
+            //     emit_op(s, OP_inc);
+            //     emit_goto(s, OP_goto, label_next);
+            //     emit_label(s, label_done);
+            //     // close enumeration
+            //     emit_op(s, OP_drop); // drop undef val
+            //     emit_op(s, OP_nip1); // drop enum_rec
+            //     emit_op(s, OP_nip1);
+            //     emit_op(s, OP_nip1);
+            // }
+        } else {
+            need_length = true;
+            if (*s).token.val != ',' as i32 {
+                if (*s).parse_assign_expr().is_err() {
+                    return -1;
+                }
+                // a idx val
+                emit_op(s, OpCode::DEFINE_ARRAY_EL);
+                need_length = false;
+            }
+            emit_op(s, OpCode::INC);
+        }
+        if (*s).token.val != ',' as i32 {
+            break;
+        }
+        if (*s).next_token().is_err() {
+            return -1;
+        }
+    }
+
+    if need_length {
+        // Set the length: cannot use OP_define_field because
+        // length is not configurable
+        emit_op(s, OpCode::DUP1); // array length - array array length
+        emit_op(s, OpCode::PUT_FIELD);
+        emit_atom_dup(s, JS_ATOM_length);
+    } else {
+        emit_op(s, OpCode::DROP); // array length - array
+    }
+
+    done!();
+}

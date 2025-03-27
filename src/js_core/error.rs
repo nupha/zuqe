@@ -1,0 +1,143 @@
+use std::mem;
+
+use crate::{
+    atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
+    context::{JSContext, JS_GetActiveFunction},
+    error::{build_backtrace, JSErrorEnum, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL},
+    function::JS_GetFunctionRealm,
+    iterator::{iterator_to_array, JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
+    value::{
+        object::{
+            JS_DefinePropertyValue, JS_GetProperty, JS_HasProperty, JS_NewObjectProtoClass,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
+        },
+        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
+        JS_IsUndefined, JS_ToString,
+    },
+    JS_CLASS_ERROR,
+};
+
+pub unsafe fn js_error_constructor(
+    ctx: *mut JSContext,
+    mut new_target: JSValueConst,
+    argc: i32,
+    argv: *mut JSValueConst,
+    magic: i32,
+) -> JSValue {
+    let mut obj: JSValue = mem::zeroed();
+    let mut msg: JSValue = mem::zeroed();
+
+    let message: JSValueConst;
+    let options: JSValueConst;
+    let mut arg_index: i32 = 0;
+
+    if JS_IsUndefined(new_target) {
+        // C2RS: Adjusted to use pointer dereference for assignment
+        let active_function = JS_GetActiveFunction(ctx);
+        new_target = active_function;
+    }
+
+    let mut proto = JS_GetProperty(ctx, new_target, JS_ATOM_prototype);
+    if JS_IsException(proto) {
+        return proto;
+    }
+    if !JS_IsObject(proto) {
+        JS_FreeValue(ctx, proto);
+        let realm = JS_GetFunctionRealm(ctx, new_target);
+        if realm.is_null() {
+            return JSValue::EXCEPTION;
+        }
+        let proto1 = if magic < 0 {
+            (*realm).class_proto[JS_CLASS_ERROR as usize]
+        } else {
+            (*realm).native_error_proto[magic as usize]
+        };
+
+        proto = JS_DupValue(ctx, proto1);
+    }
+
+    let obj = JS_NewObjectProtoClass(ctx, proto, JS_CLASS_ERROR);
+    JS_FreeValue(ctx, proto);
+    if JS_IsException(obj) {
+        return obj;
+    }
+
+    let mut arg_index = if magic == JSErrorEnum::Aggregate as i32 {
+        1
+    } else {
+        0
+    };
+    let message = *argv.offset(arg_index as isize);
+    arg_index += 1;
+
+    if !JS_IsUndefined(message) {
+        let msg = JS_ToString(ctx, message);
+        if JS_IsException(msg) {
+            JS_FreeValue(ctx, obj);
+            return JSValue::EXCEPTION;
+        }
+
+        JS_DefinePropertyValue(
+            ctx,
+            obj,
+            JS_ATOM_message,
+            msg,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        );
+    }
+
+    if arg_index < argc {
+        let options = *argv.offset(arg_index as isize);
+
+        if JS_IsObject(options) {
+            let present = if let Ok(b) = JS_HasProperty(ctx, options, JS_ATOM_cause) {
+                b
+            } else {
+                JS_FreeValue(ctx, obj);
+                return JSValue::EXCEPTION;
+            };
+
+            if present {
+                let cause = JS_GetProperty(ctx, options, JS_ATOM_cause);
+                if JS_IsException(cause) {
+                    JS_FreeValue(ctx, obj);
+                    return JSValue::EXCEPTION;
+                }
+                JS_DefinePropertyValue(
+                    ctx,
+                    obj,
+                    JS_ATOM_cause,
+                    cause,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                );
+            }
+        }
+    }
+
+    if magic == JSErrorEnum::Aggregate as i32 {
+        let error_list = iterator_to_array(ctx, *argv.offset(0));
+        if JS_IsException(error_list) {
+            JS_FreeValue(ctx, obj);
+            return JSValue::EXCEPTION;
+        }
+
+        JS_DefinePropertyValue(
+            ctx,
+            obj,
+            JS_ATOM_errors,
+            error_list,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        );
+    }
+
+    // skip the Error() function in the backtrace
+    build_backtrace(
+        ctx,
+        obj,
+        std::ptr::null_mut(),
+        Some(0),
+        JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL,
+    );
+
+    obj
+}

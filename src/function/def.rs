@@ -1,0 +1,1407 @@
+use std::ffi::CStr;
+
+use crate::{
+    atom::{
+        consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL,
+    },
+    bytecode::{opcode_info_intermediate, opcodes},
+    context::{JSContext, JS_MODE_STRICT},
+    error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
+    eval::JS_EVAL_TYPE_GLOBAL,
+    function::{
+        free_bytecode_atoms, is_var_in_arg_scope, JSClosureVar, JSFunctionKindEnum, JSGlobalVar,
+        JSVarDef, JSVarKindEnum, JSVarScope, ARG_SCOPE_END, ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
+    },
+    list_entry,
+    mem::{js_free, js_malloc_typed},
+    module::JSModuleDef,
+    parse::JSParseFunctionEnum,
+    types::{init_list_head, list_add_tail, list_del, list_foreach_safe, list_head},
+    utils::{get_u32, push_vec_u16, push_vec_u32, push_vec_u8},
+    value::{
+        object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+        JSValue, JS_FreeValue,
+    },
+};
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct JSFunctionDef {
+    pub ctx: *mut JSContext,
+
+    /// 父函数定义
+    /// TODO: use Option<Box<JSFunctionDef>>
+    pub parent: *mut JSFunctionDef,
+
+    /// 在父级常量池中的索引，-1表示无
+    /// TODO: use Option<u16>
+    pub parent_cpool_idx: i32,
+
+    // 父级作用域层级
+    pub parent_scope_level: i32,
+
+    /// chain of children function defs
+    /// TODO use Option<Box<JSFunctionDef>> for child
+    pub child_list: list_head,
+
+    pub link: list_head,
+
+    // TODO: use Option<EvalType>
+    /// 是否是eval代码
+    pub is_eval: bool,
+    /// 仅当is_eval=true时有效
+    pub eval_type: u32,
+
+    // 变量是否未在本地定义
+    pub is_global_var: bool,
+    // 是否是函数表达式
+    pub is_func_expr: bool,
+    // 是否拥有home object
+    pub has_home_object: bool,
+    // 是否需要prototype字段
+    pub has_prototype: bool,
+    // 是否有简单参数列表
+    pub has_simple_parameter_list: bool,
+    // 是否需要创建参数作用域
+    pub has_parameter_expressions: bool,
+    // 严格模式指令
+    pub has_use_strict: bool,
+    // 是否包含eval调用
+    pub has_eval_call: bool,
+    // 是否可访问arguments绑定
+    pub has_arguments_binding: bool,
+    // 是否可访问this绑定
+    pub has_this_binding: bool,
+    // 是否允许new.target
+    pub new_target_allowed: bool,
+    // 是否允许super()
+    pub super_call_allowed: bool,
+    // 是否允许super.或super[]
+    pub super_allowed: bool,
+    // 是否允许arguments标识符
+    pub arguments_allowed: bool,
+    // 是否是派生类构造函数
+    pub is_derived_class_constructor: bool,
+    // 是否在函数体内
+    pub in_function_body: bool,
+    // 回溯屏障
+    pub backtrace_barrier: bool,
+
+    // 函数类型枚举（原C使用位域）
+    pub func_kind: JSFunctionKindEnum,
+    pub func_type: JSParseFunctionEnum,
+    pub func_name: JSAtom,
+    pub js_mode: u8,
+
+    /// 变量定义数组. TODO: use Vec<JSVarDef>
+    pub vars: *mut JSVarDef,
+    // 已分配变量空间
+    pub var_size: i32,
+    // 变量计数
+    pub var_count: u16,
+
+    /// 参数定义数组. TODO: use Vec<JSVarDef>
+    pub args: *mut JSVarDef,
+    // 已分配参数空间
+    pub arg_size: i32,
+    // 参数数量: 函数定义参数个数
+    pub arg_count: u16,
+    // 已定义参数数量
+    pub defined_arg_count: u16,
+
+    // 当前函数的变量索引
+    pub func_var_idx: i32,
+
+    //
+    // pseudo vars
+    //
+    pub this_var_idx: i32,             // this
+    pub new_target_var_idx: i32,       // new.target
+    pub this_active_func_var_idx: i32, // this.active_func
+    pub home_object_var_idx: i32,      // home
+    pub arguments_arg_idx: i32,        // arguments
+    pub arguments_var_idx: i32,        // arguments variable
+    pub eval_ret_idx: i32,             // <ret>
+    pub arg_var_object_idx: i32,       // <arg_var> 参数作用域变量对象索引
+    pub var_object_idx: i32,           // <var>
+
+    // 需要home对象
+    pub need_home_object: bool,
+
+    /// current scope id
+    pub scope_level: i32,
+    /// 第一个词法作用域变量索引
+    pub scope_first: i32,
+    /// list of all scopes
+    pub scopes: Vec<JSVarScope>,
+
+    // 函数体或eval的作用域
+    pub body_scope: i32,
+
+    // 全局变量计数
+    pub global_var_count: u16,
+    // 全局变量分配大小
+    pub global_var_size: i32,
+    // 全局变量数组. TODO: use Vec<JSGlobalVar>
+    pub global_vars: *mut JSGlobalVar,
+
+    // 字节码缓冲区
+    pub byte_code: Vec<u8>,
+    // 最后操作码位置
+    pub last_opcode_pos: i32,
+    // 最后操作码行号
+    pub last_opcode_line_num: u32,
+    // 是否使用短操作码
+    pub use_short_opcodes: bool,
+
+    /// 标签槽数组
+    /// TODO: use Vec<LabelSlot>
+    pub label_slots: *mut LabelSlot,
+    // 标签槽分配大小
+    pub label_size: i32,
+    // 标签数量
+    pub label_count: u16,
+
+    // break/continue label stack
+    pub top_break: *mut BlockEnv,
+
+    /// 常量池（字符串、函数、数字）.
+    /// TODO: use Vec<JSValue>
+    pub cpool: *mut JSValue,
+    // 常量池计数
+    pub cpool_count: i32,
+    // 常量池分配大小
+    pub cpool_size: i32,
+
+    /// 闭包变量数组.
+    pub closure_vars: Option<Vec<JSClosureVar>>,
+
+    // 跳转槽数组. TODO: use Vec<JumpSlot>
+    pub jump_slots: *mut JumpSlot,
+    // 跳转槽分配大小
+    pub jump_size: u32,
+    // 跳转计数
+    pub jump_count: u32,
+
+    /// 行号槽数组. TODO: use Vec<LineNumberSlot>
+    pub line_number_slots: *mut LineNumberSlot,
+    // 行号槽分配大小
+    pub line_number_size: u32,
+    // 行号计数
+    pub line_number_count: u32,
+    // 最后记录的行号
+    pub line_number_last: u32,
+    // 最后记录行号的PC
+    pub line_number_last_pc: u32,
+
+    pub filename: JSAtom,
+    /// 当前行号
+    pub line_num: u32,
+    /// pc到行号的映射表
+    pub pc2line: Option<Vec<u8>>,
+
+    /// 原始源码（UTF-8编码）
+    /// TODO: use String
+    pub source: *mut u8,
+    // 源码长度
+    pub source_len: u32,
+
+    // 模块定义（解析模块时非空）
+    pub module: *mut JSModuleDef,
+    // 是否包含await（用于模块eval）
+    pub has_await: bool,
+}
+
+// #[cfg(debug_assertions)]
+// impl Drop for JSFunctionDef {
+//     fn drop(&mut self) {
+//         println!("JSFunctionDef::drop({self:p})");
+//     }
+// }
+
+impl JSFunctionDef {
+    /// create function def, don't attach to parent-child chain.
+    pub unsafe fn new0(
+        ctx: &mut JSContext,
+        is_eval: bool,
+        is_func_expr: bool,
+        filename: *const u8,
+        line_num: u32,
+    ) -> Result<Box<Self>, i32> {
+        let ptr = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
+        let mut fd = Box::from_raw(ptr.as_ptr());
+
+        fd.ctx = ctx;
+        fd.parent = std::ptr::null_mut();
+        fd.parent_cpool_idx = -1;
+        fd.is_eval = is_eval;
+        fd.is_func_expr = is_func_expr;
+        fd.byte_code = Vec::with_capacity(128);
+        fd.last_opcode_pos = -1;
+        fd.func_name = JS_ATOM_NULL;
+        fd.var_object_idx = -1;
+        fd.arg_var_object_idx = -1;
+        fd.arguments_var_idx = -1;
+        fd.arguments_arg_idx = -1;
+        fd.func_var_idx = -1;
+        fd.eval_ret_idx = -1;
+        fd.this_var_idx = -1;
+        fd.new_target_var_idx = -1;
+        fd.this_active_func_var_idx = -1;
+        fd.home_object_var_idx = -1;
+
+        /* XXX: should distinguish arg, var and var object and body scopes */
+        fd.scopes = {
+            let mut arr = Vec::<JSVarScope>::new();
+            arr.try_reserve_exact(4).map_err(|_| -1)?;
+            arr.push(JSVarScope {
+                first: -1,
+                parent: -1,
+            });
+            arr
+        };
+        fd.scope_level = 0;
+        fd.scope_first = -1;
+        fd.body_scope = -1;
+
+        fd.filename = JS_NewAtom(ctx, CStr::from_ptr(filename.cast()));
+        fd.line_num = line_num;
+
+        fd.pc2line = None;
+        // (*fd).pc2line_last_line_num = line_num;
+        // (*fd).pc2line_last_pc = 0;
+
+        fd.last_opcode_line_num = line_num;
+
+        fd.cpool = std::ptr::null_mut();
+        fd.cpool_count = 0;
+        fd.cpool_size = 0;
+        fd.arg_count = 0;
+        fd.var_count = 0;
+        fd.closure_vars = None;
+        fd.defined_arg_count = 0;
+        fd.global_var_count = 0;
+        fd.global_var_size = 0;
+        fd.global_vars = std::ptr::null_mut();
+        fd.label_slots = std::ptr::null_mut();
+        fd.label_size = 0;
+        fd.label_count = 0;
+        fd.top_break = std::ptr::null_mut();
+
+        init_list_head(&mut fd.child_list);
+
+        Ok(fd)
+    }
+
+    /// create function def and attach to parent-child chain
+    pub unsafe fn new(
+        ctx: &mut JSContext,
+        parent: *mut JSFunctionDef,
+        is_eval: bool,
+        is_func_expr: bool,
+        filename: *const u8,
+        line_num: u32,
+    ) -> Result<Box<Self>, i32> {
+        Self::new0(ctx, is_eval, is_func_expr, filename, line_num).map(|mut fd| {
+            if !parent.is_null() {
+                fd.set_parent(parent);
+            }
+            fd
+        })
+    }
+
+    pub unsafe fn set_parent(&mut self, parent: *mut JSFunctionDef) {
+        debug_assert!(!parent.is_null());
+        debug_assert!(self.parent.is_null());
+
+        self.parent = parent;
+        list_add_tail(&mut self.link, &mut (*parent).child_list);
+        self.js_mode = (*parent).js_mode;
+        self.parent_scope_level = (*parent).scope_level as i32;
+    }
+
+    /// update label ref count by delta. returns updated ref count.
+    pub unsafe fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
+        debug_assert!(
+            label < self.label_count as u32,
+            "label={label}, count={}",
+            self.label_count
+        );
+
+        let ls = self.label_slots.offset(label as isize);
+        (*ls).ref_count += delta;
+        debug_assert!((*ls).ref_count >= 0);
+        (*ls).ref_count
+    }
+
+    /// the pc2line table gives a line number for each PC value
+    pub unsafe fn add_pc2line_info(&mut self, pc: u32, line_num: u32) {
+        if !self.line_number_slots.is_null()
+            && self.line_number_count < self.line_number_size
+            && pc >= self.line_number_last_pc
+            && line_num != self.line_number_last
+        {
+            (*self
+                .line_number_slots
+                .offset(self.line_number_count as isize))
+            .pc = pc as u32;
+
+            (*self
+                .line_number_slots
+                .offset(self.line_number_count as isize))
+            .line_num = line_num;
+
+            self.line_number_count += 1;
+            self.line_number_last_pc = pc;
+            self.line_number_last = line_num;
+        }
+    }
+
+    /// free JSFunctionDef
+    pub fn free(self, ctx: *mut JSContext) {
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct LineNumberSlot {
+    pub pc: u32,
+    pub line_num: u32,
+}
+
+#[repr(C)]
+pub struct BlockEnv {
+    pub prev: *mut BlockEnv,
+    // JS_ATOM_NULL if none
+    pub label_name: JSAtom,
+    // -1 if none
+    pub label_break: i32,
+    // -1 if none
+    pub label_cont: i32,
+    // number of stack elements to drop
+    pub drop_count: i32,
+    // -1 if none
+    pub label_finally: i32,
+    pub scope_level: i32,
+    pub has_iterator: bool,
+}
+
+#[derive(Debug)]
+pub struct LabelSlot {
+    pub ref_count: i32,
+
+    /// phase 1 address, -1 means not resolved yet
+    pub pos: i32,
+    /// phase 2 address, -1 means not resolved yet
+    pub pos2: i32,
+    /// phase 3 address, -1 means not resolved yet
+    pub addr: i32,
+
+    /// relocations
+    /// TODO: use Vec<RelocEntry> or LinkedList<RelocEntry>
+    pub first_reloc: *mut RelocEntry,
+}
+
+#[derive(Debug)]
+pub struct RelocEntry {
+    pub next: *mut Self,
+    pub addr: usize, /* address to patch */
+    pub size: i32,   /* address size: 1, 2 or 4 bytes */
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct JumpSlot {
+    pub op: i32,
+    pub size: i32,
+    pub pos: i32,
+    pub label: i32,
+}
+
+#[deprecated(note = "use JSModuleDef::new() instead")]
+pub unsafe fn js_new_function_def(
+    ctx: *mut JSContext,
+    parent: *mut JSFunctionDef,
+    is_eval: bool,
+    is_func_expr: bool,
+    filename: *const u8,
+    line_num: u32,
+) -> *mut JSFunctionDef {
+    if let Ok(d) = JSFunctionDef::new(
+        ctx.as_mut().unwrap(),
+        parent,
+        is_eval,
+        is_func_expr,
+        filename,
+        line_num,
+    ) {
+        debug_assert_eq!(d.scope_first, -1);
+        Box::into_raw(d)
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+/// `fd` will be dropped inside
+pub unsafe fn js_free_function_def(ctx: *mut JSContext, fd: *mut JSFunctionDef) {
+    // free the child functions
+    list_foreach_safe(&mut (*fd).child_list, |el| {
+        let fd1 = list_entry!(el, JSFunctionDef, link);
+        js_free_function_def(ctx, fd1);
+    });
+
+    free_bytecode_atoms(
+        (*ctx).rt_mut(),
+        std::slice::from_raw_parts((*fd).byte_code.as_ptr(), (*fd).byte_code.len() as usize),
+        (*fd).use_short_opcodes,
+    );
+    (*fd).byte_code.clear();
+
+    js_free(ctx, (*fd).jump_slots.cast());
+    js_free(ctx, (*fd).label_slots.cast());
+    js_free(ctx, (*fd).line_number_slots.cast());
+
+    for i in 0..(*fd).cpool_count {
+        JS_FreeValue(ctx, *(*fd).cpool.offset(i as isize));
+    }
+    js_free(ctx, (*fd).cpool.cast());
+
+    for i in 0..(*fd).var_count {
+        JS_FreeAtom(ctx, (*(*fd).vars.offset(i as isize)).var_name);
+        #[cfg(debug_assertions)]
+        {
+            (*(*fd).vars.offset(i as isize)).var_name = JS_ATOM_NULL;
+        }
+    }
+    js_free(ctx, (*fd).vars.cast());
+
+    for i in 0..(*fd).arg_count {
+        JS_FreeAtom(ctx, (*(*fd).args.offset(i as isize)).var_name);
+        #[cfg(debug_assertions)]
+        {
+            (*(*fd).args.offset(i as isize)).var_name = JS_ATOM_NULL;
+        }
+    }
+    js_free(ctx, (*fd).args.cast());
+
+    for i in 0..(*fd).global_var_count {
+        JS_FreeAtom(ctx, (*(*fd).global_vars.offset(i as isize)).var_name);
+    }
+    js_free(ctx, (*fd).global_vars.cast());
+
+    if let Some(mut lst) = (*fd).closure_vars.take() {
+        for cv in lst.drain(..) {
+            JS_FreeAtom(ctx, cv.var_name);
+        }
+    }
+
+    JS_FreeAtom(ctx, (*fd).func_name);
+    JS_FreeAtom(ctx, (*fd).filename);
+    js_free(ctx, (*fd).source.cast());
+
+    if !(*fd).parent.is_null() {
+        // remove in parent's list
+        list_del(&mut (*fd).link);
+    }
+
+    drop(Box::from_raw(fd));
+}
+
+/// update label ref count by delta. returns new ref count.
+#[deprecated(note = "use JSFunctionDef::update_label_ref_count() instead")]
+pub unsafe fn update_label(fd: *mut JSFunctionDef, label: u32, delta: i32) -> i32 {
+    (*fd).update_label_ref_count(label, delta)
+}
+
+pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
+    let be = (*fd).top_break;
+    (*fd).top_break = (*be).prev;
+}
+
+pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
+    // in non strict mode, variables are created in the caller's
+    // environment object
+    if !s.is_eval && s.js_mode & JS_MODE_STRICT as u8 == 0 {
+        s.var_object_idx = (*s).add_var(ctx, JS_ATOM__var_).expect("TODO");
+        if s.has_parameter_expressions {
+            // an additional variable object is needed for the argument scope
+            s.arg_var_object_idx = (*s).add_var(ctx, JS_ATOM__arg_var_).expect("TODO");
+        }
+    }
+
+    // eval can potentially use 'arguments' so we must define it
+    let mut has_this_binding = s.has_this_binding;
+    if has_this_binding {
+        if s.this_var_idx < 0 {
+            s.this_var_idx = add_var_this(ctx, s);
+        }
+        if s.new_target_var_idx < 0 {
+            s.new_target_var_idx = (*s).add_var(ctx, JS_ATOM_new_target).expect("TODO");
+        }
+        if s.is_derived_class_constructor && (*s).this_active_func_var_idx < 0 {
+            s.this_active_func_var_idx = (*s).add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+        }
+        if s.has_home_object && (*s).home_object_var_idx < 0 {
+            s.home_object_var_idx = (*s).add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+        }
+    }
+
+    let mut has_arguments_binding = s.has_arguments_binding;
+    if has_arguments_binding {
+        add_arguments_var(ctx, s);
+        // also add an arguments binding in the argument scope to
+        // raise an error if a direct eval in the argument scope tries
+        // to redefine it
+        if (*s).has_parameter_expressions && s.js_mode & JS_MODE_STRICT as u8 == 0 {
+            add_arguments_arg(ctx, s);
+        }
+    }
+    if s.is_func_expr && s.func_name != JS_ATOM_NULL {
+        add_func_var(ctx, s, s.func_name);
+    }
+
+    // eval can use all the variables of the enclosing functions, so
+    // they must be all put in the closure. The closure variables are
+    // ordered by scope. It works only because no closure are created
+    // before.
+    debug_assert!(s.is_eval || s.closure_vars.as_ref().map_or(0, |x| x.len()) == 0);
+
+    // XXX: inefficient, but eval performance is less critical
+    let mut fd = s as *mut JSFunctionDef;
+    loop {
+        let scope_level = (*fd).parent_scope_level;
+
+        if let Some(p) = (*fd).parent.as_mut() {
+            fd = p;
+        } else {
+            break;
+        }
+
+        // add 'this' if it was not previously added
+        if !has_this_binding && (*fd).has_this_binding {
+            if (*fd).this_var_idx < 0 {
+                (*fd).this_var_idx = add_var_this(ctx, fd);
+            }
+            if (*fd).new_target_var_idx < 0 {
+                (*fd).new_target_var_idx = (*fd).add_var(ctx, JS_ATOM_new_target).expect("TODO");
+            }
+            if (*fd).is_derived_class_constructor && (*fd).this_active_func_var_idx < 0 {
+                (*fd).this_active_func_var_idx =
+                    (*fd).add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+            }
+            if (*fd).has_home_object && (*fd).home_object_var_idx < 0 {
+                (*fd).home_object_var_idx =
+                    (*fd).add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+            }
+            has_this_binding = true;
+        }
+
+        // add 'arguments' if it was not previously added
+        if !has_arguments_binding && (*fd).has_arguments_binding {
+            add_arguments_var(ctx, fd);
+            has_arguments_binding = true;
+        }
+
+        // add function name
+        if (*fd).is_func_expr && (*fd).func_name != JS_ATOM_NULL {
+            add_func_var(ctx, fd, (*fd).func_name);
+        }
+
+        // add lexical variables
+        debug_assert!((0..(*fd).scopes.len() as i32).contains(&scope_level));
+        let mut scope_idx = (*fd).scopes[scope_level as usize].first;
+        while scope_idx >= 0 {
+            let vd = (*fd).vars.add(scope_idx as usize);
+            (*vd).set_is_captured(true);
+            s.get_closure_var2(
+                ctx,
+                fd,
+                true,
+                false,
+                scope_idx as u16,
+                (*vd).var_name,
+                (*vd).is_const(),
+                (*vd).is_lexical(),
+                (*vd).var_kind(),
+            )
+            .expect("TODO");
+            scope_idx = (*vd).scope_next;
+        }
+
+        let is_arg_scope = scope_idx == ARG_SCOPE_END;
+        if !is_arg_scope {
+            // add unscoped variables
+            // XXX: propagate is_const and var_kind too ?
+            for i in 0..(*fd).arg_count {
+                let vd = (*fd).args.add(i as usize);
+                if (*vd).var_name != JS_ATOM_NULL {
+                    s.get_closure_var2(
+                        ctx,
+                        fd,
+                        true,
+                        true,
+                        i,
+                        (*vd).var_name,
+                        false,
+                        (*vd).is_lexical(),
+                        JSVarKindEnum::JS_VAR_NORMAL,
+                    )
+                    .unwrap();
+                }
+            }
+
+            for i in 0..(*fd).var_count {
+                let vd = (*fd).vars.add(i as usize);
+                // do not close top level last result
+                if (*vd).scope_level == 0 && !matches!((*vd).var_name, JS_ATOM__ret_ | JS_ATOM_NULL)
+                {
+                    s.get_closure_var2(
+                        ctx,
+                        fd,
+                        true,
+                        false,
+                        i,
+                        (*vd).var_name,
+                        false,
+                        (*vd).is_lexical(),
+                        JSVarKindEnum::JS_VAR_NORMAL,
+                    )
+                    .expect("TODO");
+                }
+            }
+        } else {
+            for i in 0..(*fd).var_count {
+                let vd = (*fd).vars.add(i as usize);
+                // do not close top level last result
+                if (*vd).scope_level == 0 && is_var_in_arg_scope(vd) {
+                    s.get_closure_var2(
+                        ctx,
+                        fd,
+                        true,
+                        false,
+                        i,
+                        (*vd).var_name,
+                        false,
+                        (*vd).is_lexical(),
+                        JSVarKindEnum::JS_VAR_NORMAL,
+                    )
+                    .expect("TODO");
+                }
+            }
+        }
+
+        if (*fd).is_eval {
+            // add direct eval variables (we are necessarily at the top level)
+            if let Some(cvars) = (*fd).closure_vars.as_ref() {
+                for (i, cv) in cvars.iter().enumerate() {
+                    s.get_closure_var2(
+                        ctx,
+                        fd,
+                        false,
+                        (*cv).is_arg(),
+                        i as _,
+                        (*cv).var_name,
+                        (*cv).is_const(),
+                        (*cv).is_lexical(),
+                        (*cv).var_kind(),
+                    )
+                    .expect("TODO");
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn add_func_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
+    let idx = if (*fd).func_var_idx < 0 {
+        (*fd).add_var(ctx, name).unwrap_or(-1)
+    } else {
+        (*fd).func_var_idx
+    };
+
+    if idx >= 0 {
+        (*fd).func_var_idx = idx;
+        (*(*fd).vars.add(idx as usize)).set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
+        if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
+            (*(*fd).vars.add(idx as usize)).set_is_const(true);
+        }
+    }
+
+    idx
+}
+
+pub unsafe fn add_var_this(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
+    let idx = (*fd).add_var(ctx, JS_ATOM_this).unwrap_or(-1);
+    if idx >= 0 && (*fd).is_derived_class_constructor {
+        let vd = (*fd).vars.add(idx as usize);
+
+        // XXX: should have is_this flag or var type
+        (*vd).set_is_lexical(true); // used to trigger 'uninitialized' checks
+                                    // in a derived class constructor
+    }
+
+    idx
+}
+
+pub unsafe fn add_arguments_var(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
+    let mut idx = (*fd).arguments_var_idx;
+    if idx < 0 {
+        idx = (*fd).add_var(ctx, JS_ATOM_arguments).unwrap_or(-1);
+        if idx >= 0 {
+            (*fd).arguments_var_idx = idx;
+        }
+    }
+
+    idx
+}
+
+// add an argument definition in the argument scope. Only needed when
+// "eval()" may be called in the argument scope. Return 0 if OK.
+pub unsafe fn add_arguments_arg(ctx: &mut JSContext, fd: &mut JSFunctionDef) -> i32 {
+    if fd.arguments_arg_idx < 0 {
+        let mut idx = find_var_in_scope(ctx, fd, JS_ATOM_arguments, ARG_SCOPE_INDEX);
+        if idx < 0 {
+            // XXX: the scope links are not fully updated. May be an
+            // issue if there are child scopes of the argument
+            // scope
+            idx = (*fd).add_var(ctx, JS_ATOM_arguments).unwrap_or(-1);
+            if idx < 0 {
+                return -1;
+            }
+            (*fd.vars.add(idx as usize)).scope_next = fd.scopes[ARG_SCOPE_INDEX as usize].first;
+            fd.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx;
+            (*fd.vars.add(idx as usize)).scope_level = ARG_SCOPE_INDEX;
+            (*fd.vars.add(idx as usize)).set_is_lexical(true);
+
+            fd.arguments_arg_idx = idx;
+        }
+    }
+
+    0
+}
+
+// find a variable declaration in a given scope
+pub unsafe fn find_var_in_scope(
+    ctx: &mut JSContext,
+    fd: &mut JSFunctionDef,
+    name: JSAtom,
+    scope_level: i32,
+) -> i32 {
+    debug_assert!(scope_level >= 0);
+
+    let mut scope_idx = fd.scopes[scope_level as usize].first;
+    while scope_idx >= 0 {
+        let var = fd.vars.add(scope_idx as usize);
+        if (*var).scope_level != scope_level {
+            break;
+        }
+        if (*var).var_name == name {
+            return scope_idx;
+        }
+        scope_idx = (*var).scope_next;
+    }
+
+    -1
+}
+
+/// find closure var by name, returning index of the closure var
+#[deprecated(note = "use JSFunctionDef::find_closure_var() instead")]
+pub unsafe fn find_closure_var(
+    ctx: &mut JSContext,
+    s: &mut JSFunctionDef,
+    var_name: JSAtom,
+) -> Option<u16> {
+    (*s).find_closure_var(var_name)
+}
+
+// 'fd' must be a parent of 's'. Create in 's' a closure referencing a
+// local variable (is_local = TRUE) or a closure (is_local = FALSE) in
+// 'fd'
+#[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
+pub unsafe fn get_closure_var2(
+    ctx: &mut JSContext,
+    s: &mut JSFunctionDef,
+    fd: *const JSFunctionDef,
+    is_local: bool,
+    is_arg: bool,
+    var_idx: u16,
+    var_name: JSAtom,
+    is_const: bool,
+    is_lexical: bool,
+    var_kind: JSVarKindEnum,
+) -> Result<u16, i32> {
+    s.get_closure_var2(
+        ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    )
+
+    // let vi = if fd != s.parent {
+    //     // search var_idx along ancestor path
+    //     let i = get_closure_var2(
+    //         ctx,
+    //         s.parent.as_mut().unwrap(),
+    //         fd,
+    //         is_local,
+    //         is_arg,
+    //         var_idx,
+    //         var_name,
+    //         is_const,
+    //         is_lexical,
+    //         var_kind,
+    //     )?;
+    //     is_local = false;
+    //     i
+    // } else {
+    //     var_idx
+    // };
+
+    // // find variable idx in this JSFunctionDef (s)
+    // if let Some(nth) = s.closure_vars.iter().position(|cv| {
+    //     (*cv).var_idx == vi && (*cv).is_arg() == is_arg && (*cv).is_local() == is_local
+    // }) {
+    //     return Ok(nth as u16);
+    // }
+
+    // // var not found, create it.
+    // s.add_closure_var(
+    //     ctx, is_local, is_arg, vi, var_name, is_const, is_lexical, var_kind,
+    // )
+}
+
+#[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
+pub unsafe fn get_closure_var(
+    ctx: &mut JSContext,
+    s: &mut JSFunctionDef,
+    fd: *const JSFunctionDef,
+    is_arg: bool,
+    var_idx: u16,
+    var_name: JSAtom,
+    is_const: bool,
+    is_lexical: bool,
+    var_kind: JSVarKindEnum,
+) -> Result<u16, i32> {
+    s.get_closure_var2(
+        ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    )
+}
+
+pub unsafe fn get_label_pos(s: *mut JSFunctionDef, mut label: i32) -> i32 {
+    let mut pos: i32 = 0;
+
+    for _ in 0..20 {
+        pos = (*(*s).label_slots.add(label as usize)).pos;
+
+        loop {
+            match (*s).byte_code[pos as usize] {
+                opcodes::op_line_num | opcodes::op_label => {
+                    pos += 5;
+                    continue;
+                }
+                opcodes::OP_goto => {
+                    label = get_u32((*s).byte_code.as_ptr().add(pos as usize + 1)) as i32;
+                }
+                _ => {
+                    return pos;
+                }
+            }
+
+            break; // loop
+        }
+    }
+
+    pos
+}
+
+pub unsafe fn skip_dead_code(
+    s: *mut JSFunctionDef,
+    bc_buf: *const u8,
+    bc_len: usize,
+    pos: usize,
+    linep: *mut i32,
+) -> usize {
+    let mut current_pos = pos;
+
+    while current_pos < bc_len {
+        let op = *bc_buf.add(current_pos as usize);
+        let oi = opcode_info_intermediate(op);
+        let len = oi.size;
+
+        if op == opcodes::op_line_num {
+            *linep = get_u32(bc_buf.add(current_pos as usize + 1)) as i32;
+        } else if op == opcodes::op_label {
+            let label = get_u32(bc_buf.add(current_pos as usize + 1));
+            if (*s).update_label_ref_count(label, 0) > 0 {
+                break;
+            }
+
+            // if false {
+            //     if !(*s)
+            //         .label_slots
+            //         .offset(label as isize)
+            //         .first_reloc
+            //         .is_null()
+            //     {
+            //         println!(
+            //             "line {}: unreferenced label {}:{} has relocations",
+            //             *linep,
+            //             label,
+            //             (*(*s).label_slots.offset(label as isize)).pos2
+            //         );
+            //     }
+            // }
+
+            debug_assert!((*(*s).label_slots.add(label as usize))
+                .first_reloc
+                .is_null());
+        } else {
+            // XXX: output a warning for unreachable code?
+            match oi.fmt {
+                "label" | "label_u16" => {
+                    let label = get_u32(bc_buf.add(current_pos as usize + 1));
+                    (*s).update_label_ref_count(label, -1);
+                }
+                f @ ("atom_label_u8" | "atom_label_u16" | "atom" | "atom_u8" | "atom_u16") => {
+                    if matches!(f, "atom_label_u8" | "atom_label_u16") {
+                        let label = get_u32(bc_buf.add(current_pos as usize + 5));
+                        (*s).update_label_ref_count(label, -1);
+                    }
+
+                    let atom = JSAtom(get_u32(bc_buf.add(current_pos as usize + 1)));
+                    JS_FreeAtom((*s).ctx, atom);
+                }
+                _ => {}
+            }
+        }
+
+        current_pos += len as usize;
+    }
+
+    current_pos
+}
+
+pub unsafe fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
+    // if the field is not initialized, the error is catched when accessing it
+    push_vec_u8(
+        bc,
+        if is_ref {
+            opcodes::OP_get_var_ref
+        } else {
+            opcodes::OP_get_loc
+        },
+    );
+    push_vec_u16(bc, idx as u16);
+}
+
+// return 0 if OK or -1 if the private field could not be resolved
+pub unsafe fn resolve_scope_private_field(
+    ctx: &mut JSContext,
+    s: *mut JSFunctionDef,
+    var_name: JSAtom,
+    scope_level: i32,
+    op: u8,
+    bc: &mut Vec<u8>,
+) -> i32 {
+    let mut is_ref = false;
+    let mut var_kind = JSVarKindEnum::JS_VAR_NORMAL;
+
+    let idx =
+        resolve_scope_private_field1(ctx, &mut is_ref, &mut var_kind, s, var_name, scope_level);
+    if idx < 0 {
+        return -1;
+    }
+    debug_assert_ne!(var_kind, JSVarKindEnum::JS_VAR_NORMAL);
+
+    match op as u8 {
+        opcodes::op_scope_get_private_field | opcodes::op_scope_get_private_field2 => {
+            match var_kind {
+                JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
+                    if op == opcodes::op_scope_get_private_field2 {
+                        bc.push(opcodes::OP_dup);
+                    }
+                    get_loc_or_ref(bc, is_ref, idx);
+                    bc.push(opcodes::OP_get_private_field);
+                }
+                JSVarKindEnum::JS_VAR_PRIVATE_METHOD => {
+                    get_loc_or_ref(bc, is_ref, idx);
+                    bc.push(opcodes::OP_check_brand);
+                    if op != opcodes::op_scope_get_private_field2 {
+                        bc.push(opcodes::OP_nip);
+                    }
+                }
+                JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
+                    if op == opcodes::op_scope_get_private_field2 {
+                        bc.push(opcodes::OP_dup);
+                    }
+                    get_loc_or_ref(bc, is_ref, idx);
+
+                    bc.push(opcodes::OP_check_brand);
+                    bc.push(opcodes::OP_call_method);
+                    bc.extend_from_slice(&[0, 0]); // 0_u16
+                }
+                JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
+                    // XXX: add clearer error message
+                    bc.push(opcodes::OP_throw_error);
+                    bc.extend_from_slice(JS_DupAtom(ctx, var_name).0.to_ne_bytes().as_slice());
+                    bc.push(JS_THROW_VAR_RO);
+                }
+                _ => {
+                    unreachable!();
+                }
+            }
+        }
+        opcodes::op_scope_put_private_field => {
+            match var_kind {
+                JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
+                    get_loc_or_ref(bc, is_ref, idx);
+                    bc.push(opcodes::OP_put_private_field);
+                }
+                JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
+                    // XXX: add clearer error message
+                    bc.push(opcodes::OP_throw_error);
+                    bc.extend_from_slice(JS_DupAtom(ctx, var_name).0.to_ne_bytes().as_slice());
+                    bc.push(JS_THROW_VAR_RO);
+                }
+                JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
+                    let setter_name = get_private_setter_name(ctx, var_name);
+                    if setter_name == JS_ATOM_NULL {
+                        return -1;
+                    }
+                    let idx = resolve_scope_private_field1(
+                        ctx,
+                        &mut is_ref,
+                        &mut var_kind,
+                        s,
+                        setter_name,
+                        scope_level,
+                    );
+                    JS_FreeAtom(ctx, setter_name);
+                    if idx < 0 {
+                        return -1;
+                    }
+                    debug_assert_eq!(var_kind, JSVarKindEnum::JS_VAR_PRIVATE_SETTER);
+
+                    get_loc_or_ref(bc, is_ref, idx);
+
+                    bc.push(opcodes::OP_swap);
+                    // obj func value
+                    bc.push(opcodes::OP_rot3r);
+                    // value obj func
+                    bc.push(opcodes::OP_check_brand);
+                    bc.push(opcodes::OP_rot3l);
+                    // obj func value
+                    bc.push(opcodes::OP_call_method);
+                    bc.extend_from_slice(1_u16.to_ne_bytes().as_slice());
+                    bc.push(opcodes::OP_drop);
+                }
+                _ => {
+                    unreachable!(); // C2RS: Replaced abort() with unreachable!()
+                }
+            }
+        }
+        opcodes::op_scope_in_private_field => {
+            get_loc_or_ref(bc, is_ref, idx);
+            bc.push(opcodes::OP_private_in);
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+
+    0
+}
+
+// search in all scopes
+pub unsafe fn find_private_class_field_all(
+    ctx: &JSContext,
+    fd: *mut JSFunctionDef,
+    name: JSAtom,
+    scope_level: i32,
+) -> i32 {
+    debug_assert!(scope_level >= 0);
+
+    let mut idx = (*fd).scopes[scope_level as usize].first;
+    while idx >= 0 {
+        if (*(*fd).vars.offset(idx as isize)).var_name == name {
+            return idx;
+        }
+        idx = (*(*fd).vars.offset(idx as isize)).scope_next;
+    }
+    return -1;
+}
+
+pub unsafe fn resolve_scope_private_field1(
+    ctx: &mut JSContext,
+    pis_ref: *mut bool,
+    pvar_kind: *mut JSVarKindEnum,
+    s: *mut JSFunctionDef,
+    var_name: JSAtom,
+    mut scope_level: i32,
+) -> i32 {
+    let mut fd = s;
+    let mut is_ref = false;
+    let mut idx: i32;
+    let var_kind: JSVarKindEnum;
+
+    'outer: loop {
+        idx = find_private_class_field_all(ctx, fd, var_name, scope_level);
+        if idx >= 0 {
+            var_kind = (*(*fd).vars.offset(idx as isize)).var_kind();
+            if is_ref {
+                idx = if let Ok(vi) = (*s).get_closure_var2(
+                    ctx,
+                    fd,
+                    true,
+                    false,
+                    idx as u16,
+                    var_name,
+                    true,
+                    true,
+                    JSVarKindEnum::JS_VAR_NORMAL,
+                ) {
+                    vi as i32
+                } else {
+                    return -1;
+                }
+            }
+            break 'outer;
+        }
+
+        scope_level = (*fd).parent_scope_level;
+        if (*fd).parent.is_null() {
+            if (*fd).is_eval {
+                // closure of the eval function (top level)
+                if let Some(cvars) = (*fd).closure_vars.as_ref() {
+                    for (i, cv) in cvars.iter().enumerate() {
+                        if cv.var_name == var_name {
+                            var_kind = cv.var_kind();
+                            is_ref = true;
+
+                            if fd != s {
+                                idx = if let Ok(vi) = (*s).get_closure_var2(
+                                    ctx,
+                                    fd,
+                                    false,
+                                    (*cv).is_arg(),
+                                    i as _,
+                                    cv.var_name,
+                                    cv.is_const(),
+                                    cv.is_lexical(),
+                                    cv.var_kind(),
+                                ) {
+                                    vi as i32
+                                } else {
+                                    return -1;
+                                }
+                            }
+
+                            break 'outer; // goto done
+                        }
+                    }
+                }
+            }
+
+            // XXX: no line number info
+            JS_ThrowSyntaxErrorAtom(ctx, c"undefined private field '%s'", var_name);
+            return -1;
+        } else {
+            fd = (*fd).parent;
+        }
+
+        is_ref = true;
+    }
+
+    // done:
+    *pis_ref = is_ref;
+    *pvar_kind = var_kind;
+    idx
+}
+
+/* build a private setter function name from the private getter name */
+pub unsafe fn get_private_setter_name(ctx: *mut JSContext, name: JSAtom) -> JSAtom {
+    js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast())
+}
+
+pub unsafe fn instantiate_hoisted_definitions(
+    ctx: *mut JSContext,
+    s: *mut JSFunctionDef,
+    bc: &mut Vec<u8>,
+) {
+    // add the hoisted functions in arguments and local variables
+
+    for i in 0..(*s).arg_count {
+        let vd = (*s).args.offset(i as isize);
+        if (*vd).func_pool_idx >= 0 {
+            push_vec_u8(bc, opcodes::OP_fclosure);
+            push_vec_u32(bc, (*vd).func_pool_idx as u32);
+            push_vec_u8(bc, opcodes::OP_put_arg);
+            push_vec_u16(bc, i as u16);
+        }
+    }
+
+    for i in 0..(*s).var_count {
+        let vd = (*s).vars.offset(i as isize);
+        if (*vd).scope_level == 0 && (*vd).func_pool_idx >= 0 {
+            push_vec_u8(bc, opcodes::OP_fclosure);
+            push_vec_u32(bc, (*vd).func_pool_idx as u32);
+            push_vec_u8(bc, opcodes::OP_put_loc);
+            push_vec_u16(bc, i as u16);
+        }
+    }
+
+    let mut label_next: Option<u32> = None;
+
+    // the module global variables must be initialized before
+    // evaluating the module so that the exported functions are
+    // visible if there are cyclic module references
+    if !(*s).module.is_null() {
+        let l = (*s)
+            .add_label()
+            .expect("TODO: unhandled create label exception");
+        label_next.replace(l);
+
+        // if 'this' is true, initialize the global variables and return
+        push_vec_u8(bc, opcodes::OP_push_this);
+        push_vec_u8(bc, opcodes::OP_if_false);
+        push_vec_u32(bc, l);
+
+        (*s).update_label_ref_count(l, 1);
+        (*s).jump_size += 1;
+    }
+
+    // add the global variables (only happens if s->is_global_var is
+    // true)
+    for i in 0..(*s).global_var_count {
+        let hf: *mut JSGlobalVar = (*s).global_vars.offset(i as isize);
+        let mut has_closure: i32 = 0;
+        let mut force_init = (*hf).force_init();
+        let mut idx = 0;
+
+        // we are in an eval, so the closure contains all the
+        // enclosing variables
+        // If the outer function has a variable environment,
+        // create a property for the variable there
+        if let Some(cvars) = (*s).closure_vars.as_ref() {
+            idx = cvars.len();
+
+            for (j, cv) in cvars.iter().enumerate() {
+                match cv.var_name {
+                    JS_ATOM__var_ | JS_ATOM__arg_var_ => {
+                        has_closure = 1;
+                        force_init = true;
+                        idx = j;
+                        break;
+                    }
+                    n if n == (*hf).var_name => {
+                        push_vec_u8(bc, opcodes::OP_get_var_ref);
+                        push_vec_u16(bc, j as u16);
+                        has_closure = 1;
+                        force_init = true;
+                        idx = j;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // let mut idx = (*s).closure_var_count;
+        // for j in 0..(*s).closure_var_count {
+        //     let cv: *mut JSClosureVar = (*s).closure_vars.offset(j as isize);
+        //     if (*cv).var_name == (*hf).var_name {
+        //         has_closure = 2;
+        //         force_init = false;
+        //         idx = j;
+        //         break;
+        //     }
+        //     if matches!((*cv).var_name, JS_ATOM__var_ | JS_ATOM__arg_var_) {
+        //         push_vec_u8(bc, opcodes::OP_get_var_ref);
+        //         push_vec_u16(bc, j as u16);
+        //         has_closure = 1;
+        //         force_init = true;
+        //         idx = j;
+        //         break;
+        //     }
+        // }
+
+        if has_closure == 0 {
+            let mut flags: u32 = 0;
+            if (*s).eval_type != JS_EVAL_TYPE_GLOBAL {
+                flags |= JS_PROP_CONFIGURABLE;
+            }
+            if (*hf).cpool_idx >= 0 && !(*hf).is_lexical() {
+                // global function definitions need a specific handling
+                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u32(bc, (*hf).cpool_idx as u32);
+
+                push_vec_u8(bc, opcodes::OP_define_func);
+                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u8(bc, flags as u8);
+
+                //goto done_global_var
+                {
+                    JS_FreeAtom(ctx, (*hf).var_name);
+                    continue;
+                }
+            } else {
+                if (*hf).is_lexical() {
+                    flags |= DEFINE_GLOBAL_LEX_VAR as u32;
+                    if !(*hf).is_const() {
+                        flags |= JS_PROP_WRITABLE;
+                    }
+                }
+                push_vec_u8(bc, opcodes::OP_define_var);
+                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u8(bc, flags as u8);
+            }
+        }
+
+        if (*hf).cpool_idx >= 0 || force_init {
+            if (*hf).cpool_idx >= 0 {
+                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u32(bc, (*hf).cpool_idx as u32);
+                if (*hf).var_name == JS_ATOM__default_ {
+                    // set default export function name
+                    push_vec_u8(bc, opcodes::OP_set_name);
+                    push_vec_u32(bc, JS_DupAtom(ctx, JS_ATOM_default).0);
+                }
+            } else {
+                push_vec_u8(bc, opcodes::OP_undefined);
+            }
+
+            if has_closure == 2 {
+                push_vec_u8(bc, opcodes::OP_put_var_ref);
+                push_vec_u16(bc, idx as u16);
+            } else if has_closure == 1 {
+                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u8(bc, opcodes::OP_define_field);
+                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u8(bc, opcodes::OP_drop);
+            } else {
+                // XXX: Check if variable is writable and enumerable
+                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u8(bc, opcodes::OP_put_var);
+                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+            }
+        }
+
+        // done_global_var:
+        JS_FreeAtom(ctx, (*hf).var_name);
+    }
+
+    if !(*s).module.is_null() {
+        let l = label_next.unwrap();
+
+        push_vec_u8(bc, opcodes::OP_return_undef);
+        push_vec_u8(bc, opcodes::op_label);
+        push_vec_u32(bc, l);
+        (*(*s).label_slots.offset(l as isize)).pos2 = bc.len() as i32;
+    }
+
+    js_free(ctx, (*s).global_vars.cast());
+    (*s).global_vars = std::ptr::null_mut();
+    (*s).global_var_count = 0;
+    (*s).global_var_size = 0;
+}
