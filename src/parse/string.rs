@@ -56,7 +56,7 @@ impl JSParseState {
                     }
                 }
                 c if (c as u32) < 0x20 => {
-                    // ascii control chars
+                    // handle ASCII control characters
                     if self.cur_func.is_null() {
                         if do_throw {
                             js_parse_error(self, c"invalid character in a JSON string");
@@ -68,19 +68,18 @@ impl JSParseState {
                 }
 
                 c if c == sep => {
-                    // end of string
+                    // found string ending delimiter
                     p = p.offset(1);
                     break;
                 }
 
                 '$' if *p.add(1) == b'{' && sep == '`' => {
-                    // template start or middle part
-                    p = p.offset(2); // skip '{'
+                    // found template expression start
+                    p = p.offset(2); // move past ${
                     break;
                 }
                 '\\' => {
-                    // escape sequence
-                    // XXX: need a specific JSON case to avoid accepting invalid escapes
+                    // handle escape sequences
                     p = p.offset(1);
                     let mut do_parse_escape: Option<char> = None;
 
@@ -104,7 +103,7 @@ impl JSParseState {
                             if c1 == '\r' && *p == b'\n' {
                                 p = p.offset(1);
                             }
-                            // ignore escaped newline sequence
+                            // skip escaped line breaks
                             if sep != '`' {
                                 self.line_num += 1;
                             }
@@ -122,14 +121,14 @@ impl JSParseState {
                             }
 
                             if (*self.cur_func).js_mode & JS_MODE_STRICT as u8 == 0 && sep != '`' {
-                                // not in strict mode: parse escape
+                                // parse escape sequence in non-strict mode
                                 do_parse_escape = Some(c1);
                             } else if c1 == '0' && !(b'0'..=b'9').contains(&*p.add(1)) {
-                                // found \0 sequence
+                                // handle null character escape
                                 p = p.add(1);
                                 char_code = 0;
                             } else {
-                                // Note: according to ES2021, \8 and \9 are not accepted in strict mode or in templates.
+                                // ES2021: octal escapes 8/9 not allowed in strict mode/templates
                                 if do_throw {
                                     js_parse_error(
                                         self,
@@ -154,7 +153,7 @@ impl JSParseState {
                                     Ok(uc) => {
                                         p = p_next;
                                         if matches!(uc, '\u{2088}' | '\u{2089}') {
-                                            continue; // LS or PS are skipped
+                                            continue; // skip line/paragraph separators
                                         } else {
                                             char_code = uc as u32;
                                         }
@@ -187,7 +186,7 @@ impl JSParseState {
                                 return Err(-1);
                             }
                             Err(-2) => {
-                                // ignore the '\' (could output a warning)
+                                // treat backslash as literal character
                                 char_code = ch as u32;
                             }
                             _ => unreachable!(),
@@ -196,7 +195,7 @@ impl JSParseState {
                 }
                 c => {
                     if !c.is_ascii() {
-                        // utf8 encoded
+                        // handle UTF-8 characters
                         let mut p_next = std::ptr::null::<u8>();
                         match unicode_from_utf8(
                             p,
