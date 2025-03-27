@@ -511,7 +511,7 @@ impl StringContent {
     }
 
     /// if string is correct representation of u32, convert to u32. otherwise, returns Err
-    pub fn to_u32(&self) -> Result<u32, i32> {
+    pub fn parse_u32(&self) -> Result<u32, i32> {
         let len = self.len();
         if len == 0 || len > 10 {
             return Err(-1);

@@ -18,7 +18,7 @@ use crate::{
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_UNDEFINED, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_BOUND_FUNCTION,
 };
@@ -47,7 +47,7 @@ pub unsafe fn js_function_bind(
     }
 
     let func_obj = JS_NewObjectProtoClass(ctx, (*ctx).function_proto, JS_CLASS_BOUND_FUNCTION);
-    if JS_IsException(func_obj) {
+    if func_obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
@@ -68,8 +68,8 @@ pub unsafe fn js_function_bind(
         return JSValue::EXCEPTION;
     }
 
-    (*bf).func_obj = JS_DupValue(ctx, this_val);
-    (*bf).this_val = JS_DupValue(ctx, *argv.offset(0));
+    (*bf).func_obj = this_val.dup();
+    (*bf).this_val = (*argv.offset(0)).dup();
     (*bf).argc = arg_count;
     for i in 0..arg_count {
         *(*bf).argv.as_mut_ptr().add(i as usize) = JS_DupValue(ctx, *argv.offset((i + 1) as isize));
@@ -89,7 +89,6 @@ pub unsafe fn js_function_bind(
         let length = JS_GetProperty(ctx, this_val, JS_ATOM_length);
         match JS_VALUE_GET_NORM_TAG(length) {
             JSTag::Int => {
-                /* most common case */
                 let n = JS_VALUE_GET_INT(length);
                 JSValue::from_i32(std::cmp::max(0, n - arg_count))
             }
@@ -120,22 +119,24 @@ pub unsafe fn js_function_bind(
 
     JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE);
 
-    let mut name1 = JS_GetProperty(ctx, this_val, JS_ATOM_name);
-    if JS_IsException(name1) {
+    let mut name = JS_GetProperty(ctx, this_val, JS_ATOM_name);
+    if name.is_exception() {
         JS_FreeValue(ctx, func_obj);
         return JSValue::EXCEPTION;
     }
-    if !JS_IsString(name1) {
-        JS_FreeValue(ctx, name1);
-        name1 = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
+    if !JS_IsString(name) {
+        JS_FreeValue(ctx, name);
+        name = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
     }
-    name1 = JS_ConcatString3(ctx, c"bound ", name1, c"");
-    if JS_IsException(name1) {
+
+    // make bound function name.
+    let bf_name = JS_ConcatString3(ctx, c"bound ", name, c"");
+    if bf_name.is_exception() {
         JS_FreeValue(ctx, func_obj);
         return JSValue::EXCEPTION;
     }
 
-    JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_name, name1, JS_PROP_CONFIGURABLE);
+    JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE);
 
     func_obj
 }

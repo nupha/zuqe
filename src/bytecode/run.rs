@@ -83,7 +83,7 @@ pub unsafe fn run_bytecodes(
     this_obj: JSValue,
     new_target: JSValue,
     bytecodes: &[u8],      // 字节码
-    pc: usize,             // 当前指令index地址
+    pc_offset: usize,      // 当前指令index地址
     sp_base: *mut JSValue, // stack 起始地址指针
     mut sp: *mut JSValue,  // 当前 stack 指针
     var_refs: &[NonNull<JSVarRef>],
@@ -93,14 +93,14 @@ pub unsafe fn run_bytecodes(
     throw: bool,
     local_buf: &mut [JSValue],
 ) -> JSValue {
-    debug_assert!(pc < bytecodes.len());
+    debug_assert!(pc_offset < bytecodes.len());
 
     let cpools = b.cpools_slice();
     let ctx = b.realm.as_mut().unwrap();
     let rt = ctx.rt.as_mut();
 
     let pc_base = bytecodes.as_ptr();
-    let mut pc = pc_base.add(pc); // convert index to pointer
+    let mut pc = pc_base.add(pc_offset); // convert index to pointer
 
     macro_rules! SP {
         [0] => {
@@ -249,8 +249,12 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::PUSH_ATOM_VALUE => {
-                    SP![0] = JSAtom::from_u32(get_u32(pc)).to_value(ctx, false);
+                    let a = get_u32(pc);
                     PC_GO!(4);
+
+                    println!("[O.o] **** atom={a}, {}", JSAtom(a).to_str(rt));
+
+                    SP![0] = JSAtom(a).to_value(ctx, false);
                     SP_GO!(1);
                 }
                 OpCode::UNDEFINED => {
@@ -1083,7 +1087,9 @@ pub unsafe fn run_bytecodes(
                     sp = sp.offset(2);
                 }
                 OpCode::GOTO => {
-                    pc = pc.add(get_u32(pc) as usize);
+                    let n = get_u32(pc) as i32; // plus or minus
+                    PC_GO!(n);
+
                     if js_poll_interrupts(ctx) != 0 {
                         goto = Some(GotoLabel::Exception);
                     }
@@ -1896,6 +1902,15 @@ pub unsafe fn run_bytecodes(
                     if opcode == OpCode::STRICT_NEQ {
                         b = !b;
                     }
+
+                    {
+                        println!("[O.o] strict {opcode:?}:");
+                        SP![-2].dump(ctx.rt());
+                        print!(" vs ");
+                        SP![-1].dump(ctx.rt());
+                        println!(" b={b}");
+                    }
+
                     SP![-2] = JS_NewBool(ctx, b);
                     SP_GO!(-1);
                 }

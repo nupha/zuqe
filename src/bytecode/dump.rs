@@ -108,10 +108,8 @@ pub unsafe fn dump_opcode_one(ctx: &mut JSContext, b: &JSFunctionBytecode, pc: u
             b.get_cpool(idx).unwrap().dump(ctx.rt());
         }
         "atom" => {
-            print!(
-                " {}",
-                JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
-            );
+            let a = get_u32(tab.as_ptr().add(pos as _));
+            print!(" {a}:{}", JSAtom(a).to_str((*ctx).rt()));
         }
         f @ ("atom_u8" | "atom_u16") => {
             print!(
@@ -486,10 +484,8 @@ pub unsafe fn dump_byte_code(
                 }
             }
             "atom" => {
-                print!(
-                    " {}",
-                    JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
-                );
+                let a = get_u32(tab.as_ptr().add(pos as _));
+                print!(" {a}:{}", JSAtom(a).to_str((*ctx).rt()));
             }
             f @ ("atom_u8" | "atom_u16") => {
                 print!(

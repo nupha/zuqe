@@ -25,8 +25,8 @@ use crate::{
         JS_NumberIsNegativeOrMinusZero, JS_ToBoolFree, JS_ToFloat64Free, JS_ToLengthFree,
         JS_ToNumberFree, JS_ToStringInternal, JS_ToUint32, JS_ToUint32Free, JS_ToUint8ClampFree,
         JS_TAG_EXCEPTION, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED,
-        JS_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
@@ -144,6 +144,7 @@ pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValu
    define_own_property callback.
    return -1 (exception), FALSE or TRUE.
 */
+/// Note: property value is duplicated inside.
 pub unsafe fn JS_DefineProperty(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -291,7 +292,7 @@ pub unsafe fn JS_DefineProperty(
                             );
                         }
                         (*prs).set_flags((*prs).flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
-                        (*pr).u.value = JS_UNDEFINED;
+                        (*pr).u.value = JSValue::UNDEFINED;
                     } else if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_VARREF {
                         /* Note: JS_PROP_VARREF is always writable */
                     } else {
@@ -442,7 +443,7 @@ pub unsafe fn JS_DefineProperty(
                             set_value(
                                 ctx,
                                 &mut *(*p).u.array.u.values.offset(idx as isize),
-                                JS_DupValue(ctx, val),
+                                val.dup(),
                             );
                         }
                         return 1;
@@ -514,7 +515,7 @@ pub unsafe fn JS_DefineProperty(
                         ctx.as_mut().unwrap(),
                         this_obj,
                         JSValue::from_i32(idx as i32),
-                        JS_DupValue(ctx, val),
+                        val.dup(),
                         flags,
                     );
                 }
@@ -532,7 +533,8 @@ pub unsafe fn JS_DefineProperty(
     }
 }
 
-/* shortcut to add or redefine a new property value */
+/// shortcut to add or redefine a new property value.
+/// Note: property value is consumed.
 pub unsafe fn JS_DefinePropertyValue(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -544,7 +546,7 @@ pub unsafe fn JS_DefinePropertyValue(
         ctx,
         this_obj,
         prop,
-        val,
+        val, // will be duplicated inside
         JSValue::UNDEFINED,
         JSValue::UNDEFINED,
         flags
@@ -553,8 +555,11 @@ pub unsafe fn JS_DefinePropertyValue(
             | JS_PROP_HAS_WRITABLE
             | JS_PROP_HAS_ENUMERABLE,
     );
+
+    // consume value
     JS_FreeValue(ctx, val);
-    return ret;
+
+    ret
 }
 
 pub unsafe fn JS_DefinePropertyValueStr(
@@ -703,6 +708,7 @@ pub unsafe fn JS_HasProperty(
     Ok(false)
 }
 
+/// Note: `val` is consumed
 pub unsafe fn JS_SetPropertyValue(
     ctx: &mut JSContext,
     this_obj: JSValue,
@@ -1104,8 +1110,8 @@ pub unsafe fn JS_SetPropertyInternal(
                                             this_obj,
                                             prop,
                                             val,
-                                            JS_UNDEFINED,
-                                            JS_UNDEFINED,
+                                            JSValue::UNDEFINED,
+                                            JSValue::UNDEFINED,
                                             JS_PROP_HAS_VALUE,
                                         );
                                         JS_FreeValue(ctx, val);
@@ -1254,8 +1260,8 @@ pub unsafe fn JS_SetPropertyInternal(
                 $p,
                 prop,
                 val,
-                JS_UNDEFINED,
-                JS_UNDEFINED,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
                 flags
                     | JS_PROP_HAS_VALUE
                     | JS_PROP_HAS_ENUMERABLE
@@ -1279,8 +1285,8 @@ pub unsafe fn JS_SetPropertyInternal(
     //             p,
     //             prop,
     //             val,
-    //             JS_UNDEFINED,
-    //             JS_UNDEFINED,
+    //             JSValue::UNDEFINED,
+    //             JSValue::UNDEFINED,
     //             flags
     //                 | JS_PROP_HAS_VALUE
     //                 | JS_PROP_HAS_ENUMERABLE
@@ -1350,8 +1356,8 @@ pub unsafe fn JS_SetPropertyInternal(
                 this_obj,
                 prop,
                 val,
-                JS_UNDEFINED,
-                JS_UNDEFINED,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
                 JS_PROP_HAS_VALUE,
             );
             JS_FreeValue(ctx, val);
@@ -1427,9 +1433,9 @@ pub unsafe fn js_obj_to_desc(
         return Err(-1);
     }
 
-    let mut val: JSValue = JS_UNDEFINED;
-    let mut getter: JSValue = JS_UNDEFINED;
-    let mut setter: JSValue = JS_UNDEFINED;
+    let mut val: JSValue = JSValue::UNDEFINED;
+    let mut getter: JSValue = JSValue::UNDEFINED;
+    let mut setter: JSValue = JSValue::UNDEFINED;
     let mut flags: u32 = 0;
 
     macro_rules! fail {
@@ -1532,7 +1538,7 @@ impl JSObject {
             self.prop_values.extend(
                 std::iter::repeat(JSProperty {
                     u: JSPropertyUnion {
-                        value: JS_UNDEFINED,
+                        value: JSValue::UNDEFINED,
                     },
                 })
                 .take(grow),
@@ -1783,7 +1789,7 @@ impl JSObject {
 //                 JS_FreeAtom(ctx, (*pr).atom);
 //                 (*pr).set_flags(0);
 //                 (*pr).atom = JS_ATOM_NULL;
-//                 (*pr1).u.value = JS_UNDEFINED;
+//                 (*pr1).u.value = JSValue::UNDEFINED;
 
 //                 if (*sh).deleted_prop_count >= 8
 //                     && (*sh).deleted_prop_count >= (*sh).prop_count as i32 / 2
@@ -2043,7 +2049,7 @@ pub unsafe fn JS_AutoInitProperty(
     (*prs).set_flags(f);
 
     if JS_IsException(val) {
-        (*pr).u.value = JS_UNDEFINED;
+        (*pr).u.value = JSValue::UNDEFINED;
         -1
     } else {
         (*pr).u.value = val;
@@ -2092,6 +2098,7 @@ pub unsafe fn JS_DefineAutoInitProperty(
     Ok(true)
 }
 
+/// returned value has its ref_count increased by 1.
 pub unsafe fn JS_GetPropertyInternal(
     ctx: *mut JSContext,
     obj: JSValueConst,
@@ -2132,7 +2139,7 @@ pub unsafe fn JS_GetPropertyInternal(
     };
 
     if p.is_null() {
-        return JS_UNDEFINED;
+        return JSValue::UNDEFINED;
     }
 
     loop {
@@ -2143,17 +2150,11 @@ pub unsafe fn JS_GetPropertyInternal(
             match (*prs).flags() & JS_PROP_TMASK {
                 JS_PROP_GETSET => {
                     return if unlikely((*pr).u.getset.getter.is_null()) {
-                        JS_UNDEFINED
+                        JSValue::UNDEFINED
                     } else {
                         let func: JSValue = JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast());
                         /* Note: the field could be removed in the getter */
-                        JS_CallFree(
-                            ctx,
-                            JS_DupValue(ctx, func),
-                            this_obj,
-                            0,
-                            std::ptr::null_mut(),
-                        )
+                        JS_CallFree(ctx, func.dup(), this_obj, 0, std::ptr::null_mut())
                     };
                 }
                 JS_PROP_VARREF => {
@@ -2161,7 +2162,7 @@ pub unsafe fn JS_GetPropertyInternal(
                     return if unlikely(JS_IsUninitialized(val)) {
                         JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom)
                     } else {
-                        JS_DupValue(ctx, val)
+                        val.dup()
                     };
                 }
                 JS_PROP_AUTOINIT => {
@@ -2173,7 +2174,7 @@ pub unsafe fn JS_GetPropertyInternal(
                     }
                 }
                 0 => {
-                    return JS_DupValue(ctx, (*pr).u.value);
+                    return (*pr).u.value.dup();
                 }
                 _ => unreachable!(),
             }
@@ -2190,7 +2191,7 @@ pub unsafe fn JS_GetPropertyInternal(
                     } else if (*p).class_id() >= JS_CLASS_UINT8C_ARRAY
                         && (*p).class_id() <= JS_CLASS_FLOAT64_ARRAY
                     {
-                        return JS_UNDEFINED;
+                        return JSValue::UNDEFINED;
                     }
                 } else if (*p).class_id() >= JS_CLASS_UINT8C_ARRAY
                     && (*p).class_id() <= JS_CLASS_FLOAT64_ARRAY
@@ -2200,7 +2201,7 @@ pub unsafe fn JS_GetPropertyInternal(
                         if ret < 0 {
                             return JSValue::EXCEPTION;
                         }
-                        return JS_UNDEFINED;
+                        return JSValue::UNDEFINED;
                     }
                 }
             } else {
@@ -2625,7 +2626,7 @@ pub unsafe fn JS_CreateProperty(
         if (flags & JS_PROP_HAS_VALUE) != 0 {
             (*pr).u.value = JS_DupValue(ctx, val);
         } else {
-            (*pr).u.value = JS_UNDEFINED;
+            (*pr).u.value = JSValue::UNDEFINED;
         }
     }
 
@@ -2644,7 +2645,7 @@ pub unsafe fn JS_DefinePropertyGetSet(
         ctx,
         this_obj,
         prop,
-        JS_UNDEFINED,
+        JSValue::UNDEFINED,
         getter,
         setter,
         flags
@@ -2685,30 +2686,25 @@ pub unsafe fn JS_GetOwnPropertyInternal(
     let mut pr: *mut JSProperty = std::ptr::null_mut();
     let mut prs: *mut JSShapeProperty;
 
-    // C2RS: Converted goto retry to loop with continue
     loop {
         prs = find_own_property(&mut pr as *mut *mut JSProperty, p, prop);
         if !prs.is_null() {
             if !desc.is_null() {
                 (*desc).flags = (*prs).flags() & JS_PROP_C_W_E;
-                (*desc).getter = JS_UNDEFINED;
-                (*desc).setter = JS_UNDEFINED;
-                (*desc).value = JS_UNDEFINED;
+                (*desc).getter = JSValue::UNDEFINED;
+                (*desc).setter = JSValue::UNDEFINED;
+                (*desc).value = JSValue::UNDEFINED;
                 if unlikely((*prs).flags() & JS_PROP_TMASK != 0) {
                     match (*prs).flags() & JS_PROP_TMASK {
                         JS_PROP_GETSET => {
                             (*desc).flags |= JS_PROP_GETSET;
                             if !(*pr).u.getset.getter.is_null() {
-                                (*desc).getter = JS_DupValue(
-                                    ctx,
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()),
-                                );
+                                (*desc).getter =
+                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()).dup();
                             }
                             if !(*pr).u.getset.setter.is_null() {
-                                (*desc).setter = JS_DupValue(
-                                    ctx,
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()),
-                                );
+                                (*desc).setter =
+                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()).dup();
                             }
                         }
                         JS_PROP_VARREF => {
@@ -2717,7 +2713,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                                 JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
                                 return -1;
                             }
-                            (*desc).value = JS_DupValue(ctx, val);
+                            (*desc).value = val.dup();
                         }
                         JS_PROP_AUTOINIT => {
                             /* Instantiate property and retry */
@@ -2729,7 +2725,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                         _ => {}
                     }
                 } else {
-                    (*desc).value = JS_DupValue(ctx, (*pr).u.value);
+                    (*desc).value = (*pr).u.value.dup();
                 }
             } else {
                 /* for consistency, send the exception even if desc is NULL */
@@ -2754,8 +2750,8 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                         if !desc.is_null() {
                             (*desc).flags =
                                 JS_PROP_WRITABLE | JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE;
-                            (*desc).getter = JS_UNDEFINED;
-                            (*desc).setter = JS_UNDEFINED;
+                            (*desc).getter = JSValue::UNDEFINED;
+                            (*desc).setter = JSValue::UNDEFINED;
                             (*desc).value =
                                 JS_GetPropertyUint32(ctx, JS_MKPTR!(JSTag::Object, p.cast()), idx);
                         }
@@ -2785,6 +2781,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
     0
 }
 
+/// returned value has its ref_count incremented by 1
 pub unsafe fn JS_GetOwnProperty(
     ctx: *mut JSContext,
     desc: *mut JSPropertyDescriptor,
@@ -2810,7 +2807,6 @@ pub unsafe fn JS_CopyDataProperties(
     }
 
     let mut tab_atom: *mut JSPropertyEnum = std::ptr::null_mut();
-    let mut val: JSValue = std::mem::zeroed();
     let mut tab_atom_count: u32 = 0;
 
     let mut desc: JSPropertyDescriptor = std::mem::zeroed();

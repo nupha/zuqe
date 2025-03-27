@@ -189,7 +189,7 @@ impl JSString {
 
         self.header.ref_count -= 1;
 
-        if self.header.ref_count <= 0 {
+        if self.header.ref_count == 0 {
             if self.atom_type() != JSAtomType::None {
                 unsafe {
                     JS_FreeAtomStruct(rt, self.as_mut());
@@ -442,7 +442,7 @@ pub fn is_num(c: i32) -> bool {
 
 #[deprecated(note = "use StringContent::to_u32() instead")]
 pub unsafe fn is_num_string(pval: &mut u32, p: *const JSString) -> bool {
-    match (*p).content().to_u32() {
+    match (*p).content().parse_u32() {
         Ok(n) => {
             *pval = n;
             true
@@ -561,6 +561,7 @@ pub unsafe fn JS_IsEmptyString(v: JSValueConst) -> bool {
     JS_VALUE_GET_TAG(v) == JS_TAG_STRING && (*JS_VALUE_GET_STRING(v)).len() == 0
 }
 
+/// Note: string value `str2` is consumed.
 pub unsafe fn JS_ConcatString3(
     ctx: *mut JSContext,
     str1: &CStr,
@@ -576,12 +577,12 @@ pub unsafe fn JS_ConcatString3(
 
     if unlikely(JS_VALUE_GET_TAG(str2) != JS_TAG_STRING) {
         str2 = JS_ToStringFree(ctx, str2);
-        if JS_IsException(str2) {
+        if str2.is_exception() {
             fail!();
         }
     }
-    let p = JS_VALUE_GET_STRING(str2);
 
+    let p = JS_VALUE_GET_STRING(str2);
     let len1 = str1.count_bytes();
     let len3 = str3.count_bytes();
 

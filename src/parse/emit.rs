@@ -1,11 +1,12 @@
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_NewAtomStr, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_DupAtom, JS_ValueToAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
     mem::js_resize_array,
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
     value::{
-        JSValue, JSValueConst, JS_DupValue, JS_TAG_STRING, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_TAG_STRING, JS_VALUE_GET_STRING,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -209,9 +210,14 @@ impl JSFunctionDef {
         last_line_num: u32,
     ) -> i32 {
         if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
-            // warning: JS_NewAtomStr frees the string value
-            JS_DupValue(self.ctx, val);
-            let atom = JS_NewAtomStr(self.ctx, JS_VALUE_GET_STRING(val));
+            // warning: create atom consumes the value, dup it in advance
+            val.dup();
+
+            let p = JS_VALUE_GET_STRING(val);
+            debug_assert!((*p).header.ref_count > 1);
+
+            let (atom, ss) = JSAtom::from_jsstring(Box::from_raw(p), self.ctx.as_mut().unwrap());
+            Box::leak(ss.unwrap());
 
             if atom != JS_ATOM_NULL && !atom.is_int_type() {
                 self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
@@ -220,7 +226,7 @@ impl JSFunctionDef {
             }
         }
 
-        let idx = self.cpool_add(JS_DupValue(self.ctx, val));
+        let idx = self.cpool_add(val.dup());
         if idx < 0 {
             return -1;
         }
@@ -341,7 +347,7 @@ impl JSFunctionDef {
     //     }
     // }
 
-    // return the constant pool index. 'val' is not duplicated.
+    /// return the constant pool index. 'val' is consumed
     pub unsafe fn cpool_add(&mut self, val: JSValue) -> i32 {
         if js_resize_array(
             self.ctx,
@@ -351,6 +357,7 @@ impl JSFunctionDef {
             self.cpool_count + 1,
         ) != 0
         {
+            JS_FreeValue(self.ctx, val);
             return -1;
         }
 

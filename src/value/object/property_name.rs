@@ -174,9 +174,8 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     if (*p).detailed.is_exotic() {
         if (*p).detailed.fast_array() {
             if (flags & JS_GPN_STRING_MASK) != 0 {
-                // C2RS: goto add_array_keys is replaced with a loop
                 for i in 0..(*p).u.array.count {
-                    (*tab_atom.offset(num_index as isize)).atom = JSAtom::from_u32(i as u32);
+                    (*tab_atom.offset(num_index as isize)).atom = JSAtom::from_u32(i);
                     if (*tab_atom.offset(num_index as isize)).atom == JS_ATOM_NULL {
                         js_free_prop_enum(ctx, tab_atom, num_index as _);
                         return Err(-1);
@@ -188,7 +187,6 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
         } else if (*p).class_id() == JS_CLASS_STRING {
             if (flags & JS_GPN_STRING_MASK) != 0 {
                 let len = js_string_obj_get_length(ctx, JS_MKPTR!(JSTag::Object, p.cast()));
-                // C2RS: goto add_array_keys is replaced with a loop
                 for i in 0..len {
                     (*tab_atom.offset(num_index as isize)).atom = JSAtom::from_u32(i as u32);
                     if (*tab_atom.offset(num_index as isize)).atom == JS_ATOM_NULL {

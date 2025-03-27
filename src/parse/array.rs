@@ -11,9 +11,6 @@ use super::{
 };
 
 pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
-    let mut idx: u32;
-    let mut need_length: bool;
-
     macro_rules! done {
         () => {
             return js_parse_expect(s, ']' as i32);
@@ -24,8 +21,9 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
         return -1;
     }
 
+    let mut idx = 0_u32;
+
     // small regular arrays are created on the stack
-    idx = 0;
     while (*s).token.val != ']' as i32 && idx < 32 {
         if (*s).token.val == ',' as i32 || (*s).token.val == TOK_ELLIPSIS {
             break;
@@ -48,7 +46,7 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
     emit_u16(s, idx as _);
 
     // larger arrays and holes are handled with explicit indices
-    need_length = false;
+    let mut need_length = false;
     while (*s).token.val != ']' as i32 && idx < 0x7fffffff {
         if (*s).token.val == TOK_ELLIPSIS {
             break;
