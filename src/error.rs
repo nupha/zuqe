@@ -138,8 +138,8 @@ impl JSContext {
 
     /// WARNING: obj is consumed
     pub unsafe fn JS_Throw(&mut self, obj: JSValue) -> JSValue {
-        JS_FreeValue(self, self.rt().current_exception); // free current exception value
-        self.rt_mut().current_exception = obj;
+        let ex0 = self.rt_mut().current_exception.replace(obj);
+        JS_FreeValue(self, ex0); // free old exception value
         JSValue::EXCEPTION
     }
 

@@ -122,18 +122,26 @@ pub unsafe fn JS_CallInternal(
     if (*p).class_id() != JS_CLASS_BYTECODE_FUNCTION {
         return if let Some(cb) = (*(*rt).class_array.add((*p).detailed.class_id() as usize)).call {
             #[cfg(debug_assertions)]
-            let argv_ref_count0 = std::slice::from_raw_parts(argv, argc as usize)
-                .iter()
-                .map(|x| JS_VALUE_REF_COUNT(*x))
-                .collect::<Vec<_>>();
+            let argv_ref_count0 = if argc > 0 {
+                std::slice::from_raw_parts(argv, argc as usize)
+                    .iter()
+                    .map(|x| JS_VALUE_REF_COUNT(*x))
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
 
             let ret = cb(caller_ctx, func_obj, this_obj, argc, argv, flags);
 
             #[cfg(debug_assertions)]
-            let argv_ref_count1 = std::slice::from_raw_parts(argv, argc as usize)
-                .iter()
-                .map(|x| JS_VALUE_REF_COUNT(*x))
-                .collect::<Vec<_>>();
+            let argv_ref_count1 = if argc > 0 {
+                std::slice::from_raw_parts(argv, argc as usize)
+                    .iter()
+                    .map(|x| JS_VALUE_REF_COUNT(*x))
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
 
             #[cfg(debug_assertions)]
             for (a, b) in argv_ref_count0.iter().zip(argv_ref_count1.iter()) {

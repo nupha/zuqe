@@ -340,34 +340,38 @@ pub unsafe fn dump_byte_code(
     pos = 0;
     while pos < len {
         let op = tab[pos as usize];
-        if !source.is_null() {
-            if !b.is_null() {
-                line1 = (*b).find_line_num(pos as _).unwrap() as i32 - line_num + 1;
-            } else if op == opcodes::op_line_num {
-                line1 = get_u32(tab.as_ptr().add(pos as usize + 1)) as i32 - line_num + 1;
-            }
 
-            if line1 > line {
-                if !in_source {
-                    println!();
+        // print source code
+        {
+            if !source.is_null() {
+                if !b.is_null() {
+                    line1 = (*b).find_line_num(pos as _).unwrap() as i32 - line_num + 1;
+                } else if op == opcodes::op_line_num {
+                    line1 = get_u32(tab.as_ptr().add(pos as usize + 1)) as i32 - line_num + 1;
+                };
+
+                if line1 > line {
+                    if !in_source {
+                        println!();
+                    }
+                    in_source = true;
+                    print_lines(source.cast(), line, line1);
+                    line = line1;
+
+                    // bits[pos as usize] |= 2;
                 }
-                in_source = true;
-                print_lines(source.cast(), line, line1);
-                line = line1;
-                // C2RS: bits[pos] |= 2; commented out as per original code
             }
+            if in_source {
+                println!();
+            }
+            in_source = false;
         }
-        if in_source {
-            println!();
-        }
-        in_source = false;
 
         if op >= op_max {
             println!("invalid opcode (0x{:02x})", op);
             pos += 1;
             continue;
         }
-
         let oi = if use_short_opcodes {
             opcode_info_final(op)
         } else {
@@ -379,22 +383,22 @@ pub unsafe fn dump_byte_code(
             break;
         }
 
-        //  #[cfg(all(DUMP_BYTECODE, feature = "dump_bytecode_16"))]
-        // {
-        //     let mut x = 0;
-        //     print!("{pos:5} ");
-        //     let x0 = 6;
+        // print bytecode in hex
+        {
+            let mut x = 0;
+            print!("{pos:5} ");
+            let x0 = 6;
 
-        //     for i in 0..size {
-        //         if i == 6 {
-        //             print!("\n      ");
-        //             x = x0;
-        //         }
-        //         print!(" {:02X}", tab[(pos + i) as usize]);
-        //         x += 3;
-        //     }
-        //     print!("{:width$}", " ", width = x0 + 20 - x);
-        // }
+            for i in 0..size {
+                if i == 6 {
+                    print!("\n      ");
+                    x = 0;
+                }
+                print!(" {:02X}", tab[(pos + i) as usize]);
+                x += 3;
+            }
+            print!("{:width$}", " ", width = x0 + 20 - x);
+        }
 
         // print address
         if bits[pos as usize] != 0 {
@@ -711,17 +715,17 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
         b,
     );
 
-    if (*b).has_debug {
-        // dump_pc2line(
-        //     ctx,
-        //     (*b).debug
-        //         .pc2line_buf
-        //         .as_ref()
-        //         .map_or(std::ptr::null(), |x| x.as_ptr()),
-        //     (*b).debug.pc2line_buf.as_ref().map_or(0, |x| x.len()) as _,
-        //     (*b).debug.line_num as _,
-        // );
-    }
+    // if (*b).has_debug {
+    //     dump_pc2line(
+    //         ctx,
+    //         (*b).debug
+    //             .pc2line_buf
+    //             .as_ref()
+    //             .map_or(std::ptr::null(), |x| x.as_ptr()),
+    //         (*b).debug.pc2line_buf.as_ref().map_or(0, |x| x.len()) as _,
+    //         (*b).debug.line_num as _,
+    //     );
+    // }
 
     println!();
 }
@@ -784,15 +788,16 @@ pub unsafe fn dump_pc2line(ctx: *const JSContext, buf: *const u8, len: i32, mut 
     }
 }
 
-unsafe fn print_lines(source: *const u8, line: i32, line1: i32) {
+/// print source code in ranges from_line..to_line
+unsafe fn print_lines(source: *const u8, from_line: i32, to_line: i32) {
     let mut s = source;
-    let mut p = skip_lines(s, line);
+    let mut p = skip_lines(s, from_line);
     if *p != 0 {
-        for _ in line..line1 {
-            s = p;
-            p = skip_lines(s, 1);
+        for _ in from_line..to_line {
+            s = p; // this line
+            p = skip_lines(s, 1); // next line
+            let length = p.offset_from(s) as usize; // len of this line
 
-            let length = (p as isize - s as isize) as usize;
             print!(
                 ";; {:.*}",
                 length,
