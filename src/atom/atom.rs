@@ -477,7 +477,7 @@ pub unsafe fn js_get_atom_index(rt: &JSRuntime, p: *mut JSAtomStruct) -> JSAtom 
         }
     }
 
-    JSAtom::from_u32(i)
+    JSAtom(i)
 }
 
 #[inline(always)]
