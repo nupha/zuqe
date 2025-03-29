@@ -59,12 +59,11 @@ use crate::{
             JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
             JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsNull,
-        JS_IsObject, JS_IsUndefined, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
-        JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_FALSE,
-        JS_TAG_CATCH_OFFSET, JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL,
-        JS_TAG_UNDEFINED, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        set_value, JSTag, JSValue, JS_FreeValue, JS_IsException, JS_IsNull, JS_IsObject,
+        JS_IsUndefined, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset, JS_NewSymbolFromAtom,
+        JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET, JS_TAG_INT, JS_TAG_NULL,
+        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_VALUE_GET_INT,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -104,10 +103,10 @@ pub unsafe fn run_bytecodes(
 
     macro_rules! SP {
         [0] => {
-            *sp
+            (*sp)
         };
         [$idx:expr] => {
-            *sp.offset(($idx) as isize)
+            (*sp.offset(($idx) as isize))
         };
     }
     macro_rules! SP_GO {
@@ -138,7 +137,7 @@ pub unsafe fn run_bytecodes(
 
     macro_rules! VAR {
         [$idx:expr] => {
-            *sf.var_base_ptr.offset(($idx) as isize)
+            (*sf.var_base_ptr.offset(($idx) as isize))
         };
     }
     macro_rules! CPOOL {
@@ -215,7 +214,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::PUSH_CONST => {
                     let id = get_u32(pc);
                     PC_GO!(4);
-                    SP![0] = JS_DupValue(ctx, CPOOL![id]);
+                    SP![0] = CPOOL![id].dup();
                     SP_GO!(1);
                 }
 
@@ -266,14 +265,14 @@ pub unsafe fn run_bytecodes(
                     /* OP_push_this is only called at the start of a function */
                     let val = if mode & JS_MODE_STRICT == 0 {
                         match JS_VALUE_GET_TAG(this_obj) {
-                            JS_TAG_OBJECT => JS_DupValue(ctx, this_obj),
-                            JS_TAG_NULL | JS_TAG_UNDEFINED => JS_DupValue(ctx, ctx.global_obj),
+                            JS_TAG_OBJECT => this_obj.dup(),
+                            JS_TAG_NULL | JS_TAG_UNDEFINED => ctx.global_obj.dup(),
                             _ => JS_ToObject(ctx, this_obj),
                         }
                     } else {
-                        JS_DupValue(ctx, this_obj)
+                        this_obj.dup()
                     };
-                    if JS_IsException(val) {
+                    if val.is_exception() {
                         goto = Some(GotoLabel::Exception);
                     } else {
                         SP![0] = val;
@@ -321,18 +320,18 @@ pub unsafe fn run_bytecodes(
                             SP_GO!(1);
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC => {
-                            SP![0] = JS_DupValue(ctx, sf.cur_func);
+                            SP![0] = sf.cur_func.dup();
                             SP_GO!(1);
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_NEW_TARGET => {
-                            SP![0] = JS_DupValue(ctx, new_target);
+                            SP![0] = new_target.dup();
                             SP_GO!(1);
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_HOME_OBJECT => {
                             SP![0] = if func_home_obj.is_null() {
-                                JS_UNDEFINED
+                                JSValue::UNDEFINED
                             } else {
-                                JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, func_home_obj.cast()))
+                                JS_MKPTR!(JSTag::Object, func_home_obj.cast()).dup()
                             };
                             SP_GO!(1);
                         }
@@ -380,33 +379,33 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::DUP => {
                     // a ^ -> a a ^
-                    SP![0] = JS_DupValue(ctx, SP![-1]);
+                    SP![0] = SP![-1].dup();
                     SP_GO!(1);
                 }
                 OpCode::DUP2 => {
                     // a b ^ -> a b a b ^
-                    SP![0] = JS_DupValue(ctx, SP![-2]);
-                    *sp.add(1) = JS_DupValue(ctx, SP![-1]);
+                    SP![0] = SP![-2].dup();
+                    *sp.add(1) = SP![-1].dup();
                     SP_GO!(2);
                 }
                 OpCode::DUP3 => {
                     // a b c ^ -> a b c a b c ^
-                    SP![0] = JS_DupValue(ctx, SP![-3]);
-                    *sp.add(1) = JS_DupValue(ctx, SP![-2]);
-                    *sp.add(2) = JS_DupValue(ctx, SP![-1]);
-                    sp = sp.add(3);
+                    SP![0] = SP![-3].dup();
+                    *sp.add(1) = SP![-2].dup();
+                    *sp.add(2) = SP![-1].dup();
+                    SP_GO!(3);
                 }
                 OpCode::DUP1 => {
                     // a b ^ -> a a b ^
                     SP![0] = SP![-1];
-                    SP![-1] = JS_DupValue(ctx, SP![-2]);
+                    SP![-1] = SP![-2].dup();
                     SP_GO!(1);
                 }
                 OpCode::INSERT2 => {
                     // obj a ^ -> a obj a ^ (dup_x1)
                     SP![0] = SP![-1];
                     SP![-1] = SP![-2];
-                    SP![-2] = JS_DupValue(ctx, *sp);
+                    SP![-2] = SP![0].dup();
                     SP_GO!(1);
                 }
                 OpCode::INSERT3 => {
@@ -414,7 +413,7 @@ pub unsafe fn run_bytecodes(
                     SP![0] = SP![-1];
                     SP![-1] = SP![-2];
                     SP![-2] = SP![-3];
-                    SP![-3] = JS_DupValue(ctx, *sp);
+                    SP![-3] = SP![0].dup();
                     SP_GO!(1);
                 }
                 OpCode::INSERT4 => {
@@ -423,7 +422,7 @@ pub unsafe fn run_bytecodes(
                     SP![-1] = SP![-2];
                     SP![-2] = SP![-3];
                     SP![-3] = SP![-4];
-                    SP![-4] = JS_DupValue(ctx, *sp);
+                    SP![-4] = SP![0].dup();
                     SP_GO!(1);
                 }
                 OpCode::PERM3 => {
@@ -499,7 +498,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::FCLOSURE => {
                     let id = get_u32(pc);
                     PC_GO!(4);
-                    let bfunc = JS_DupValue(ctx, CPOOL![id]);
+                    let bfunc = CPOOL![id].dup();
                     SP![0] = js_closure(ctx, bfunc, var_refs, sf);
                     if JS_IsException(SP![0]) {
                         goto = Some(GotoLabel::Exception);
@@ -613,7 +612,7 @@ pub unsafe fn run_bytecodes(
                                 *call_argv.offset(i as isize),
                                 JS_PROP_C_W_E | JS_PROP_THROW,
                             );
-                            *call_argv.offset(i as isize) = JS_UNDEFINED;
+                            *call_argv.offset(i as isize) = JSValue::UNDEFINED;
                             if ret < 0 {
                                 JS_FreeValue(ctx, ret_val);
                                 goto = Some(GotoLabel::Exception);
@@ -649,7 +648,7 @@ pub unsafe fn run_bytecodes(
                     goto = Some(GotoLabel::Done(*sp, false))
                 }
                 OpCode::RETURN_UNDEF => {
-                    goto = Some(GotoLabel::Done(JS_UNDEFINED, false));
+                    goto = Some(GotoLabel::Done(JSValue::UNDEFINED, false));
                 }
                 OpCode::CHECK_CTOR_RETURN => {
                     /* return TRUE if 'this' should be returned */
@@ -660,11 +659,11 @@ pub unsafe fn run_bytecodes(
                             );
                             goto = Some(GotoLabel::Exception);
                         } else {
-                            SP![0] = JS_TRUE;
+                            SP![0] = JSValue::TRUE;
                             sp = sp.offset(1);
                         }
                     } else {
-                        SP![0] = JS_FALSE;
+                        SP![0] = JSValue::FALSE;
                         sp = sp.offset(1);
                     }
                 }
@@ -695,13 +694,14 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::THROW => {
                     SP_GO!(-1);
-                    ctx.JS_Throw(*sp);
+                    ctx.JS_Throw(SP![0]);
                     goto = Some(GotoLabel::Exception);
                 }
                 OpCode::THROW_ERROR => {
                     let atom = JSAtom(get_u32(pc));
                     let type_ = *pc.offset(4);
                     PC_GO!(5);
+
                     match type_ {
                         JS_THROW_VAR_RO => {
                             JS_ThrowTypeErrorReadOnly(ctx, JS_PROP_THROW, atom);
@@ -738,11 +738,11 @@ pub unsafe fn run_bytecodes(
                     let ret_val = if js_same_value(ctx, *call_argv.offset(-1), ctx.eval_obj) {
                         JS_EvalObject(
                             ctx,
-                            JS_UNDEFINED,
+                            JSValue::UNDEFINED,
                             if call_argc > 0 {
                                 *call_argv
                             } else {
-                                JS_UNDEFINED
+                                JSValue::UNDEFINED
                             },
                             JS_EVAL_TYPE_DIRECT,
                             scope_idx as _,
@@ -751,8 +751,8 @@ pub unsafe fn run_bytecodes(
                         JS_CallInternal(
                             ctx,
                             *call_argv.offset(-1),
-                            JS_UNDEFINED,
-                            JS_UNDEFINED,
+                            JSValue::UNDEFINED,
+                            JSValue::UNDEFINED,
                             call_argc,
                             call_argv,
                             0,
@@ -782,13 +782,13 @@ pub unsafe fn run_bytecodes(
                         let ret_val = if js_same_value(ctx, SP![-2], ctx.eval_obj) {
                             JS_EvalObject(
                                 ctx,
-                                JS_UNDEFINED,
-                                if len > 0 { *tab } else { JS_UNDEFINED },
+                                JSValue::UNDEFINED,
+                                if len > 0 { *tab } else { JSValue::UNDEFINED },
                                 JS_EVAL_TYPE_DIRECT,
                                 scope_idx as _,
                             )
                         } else {
-                            JS_Call(ctx, SP![-2], JS_UNDEFINED, len as _, tab)
+                            JS_Call(ctx, SP![-2], JSValue::UNDEFINED, len as _, tab)
                         };
 
                         free_arg_list(ctx, tab, len);
@@ -804,7 +804,8 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::REGEXP => {
-                    SP![-2] = js_regexp_constructor_internal(ctx, JS_UNDEFINED, SP![-2], SP![-1]);
+                    SP![-2] =
+                        js_regexp_constructor_internal(ctx, JSValue::UNDEFINED, SP![-2], SP![-1]);
                     SP_GO!(-1);
                 }
                 OpCode::GET_SUPER => {
@@ -865,7 +866,7 @@ pub unsafe fn run_bytecodes(
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
 
-                    /* sp[-2] is JS_TRUE or JS_FALSE */
+                    // sp[-2] is TRUE or FALSE
                     if JS_VALUE_GET_INT(SP![-2]) == 0 {
                         JS_ThrowReferenceErrorNotDefined(ctx, atom);
                         goto = Some(GotoLabel::Exception);
@@ -907,7 +908,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_LOC => {
                     let idx = get_u16(pc);
                     PC_GO!(2);
-                    SP![0] = JS_DupValue(ctx, VAR![idx]);
+                    SP![0] = VAR![idx].dup();
                     sp = sp.offset(1);
                 }
                 OpCode::PUT_LOC => {
@@ -941,7 +942,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::SET_ARG => {
                     let idx = get_u16(pc);
                     PC_GO!(2);
-                    set_value(ctx, ARG_REF![idx], JS_DupValue(ctx, SP![-1]));
+                    set_value(ctx, ARG_REF![idx], SP![-1].dup());
                 }
 
                 #[cfg(feature = "short_opcode")]
@@ -980,7 +981,7 @@ pub unsafe fn run_bytecodes(
                     } else {
                         if opcode == OpCode::GET_VAR_REF_CHECK {
                             // GET_VAR_REF_CHECK
-                            SP![0] = JS_DupValue(ctx, *val);
+                            SP![0] = (*val).dup();
                             sp = sp.offset(1);
                         } else {
                             // PUT_VAR_REF_CHECK, PUT_VAR_REF_CHECK_INIT
@@ -1006,7 +1007,7 @@ pub unsafe fn run_bytecodes(
                         );
                         goto = Some(GotoLabel::Exception);
                     } else {
-                        SP![0] = JS_DupValue(ctx, val);
+                        SP![0] = val.dup();
                         sp = sp.offset(1);
                     }
                 }
@@ -1108,6 +1109,9 @@ pub unsafe fn run_bytecodes(
                 OpCode::IF_TRUE | OpCode::IF_FALSE => {
                     let b = opcode == OpCode::IF_TRUE;
                     let op1 = SP![-1];
+                    SP_GO!(-1);
+                    PC_GO!(4);
+
                     let res = if JS_VALUE_GET_TAG(op1) <= JS_TAG_UNDEFINED {
                         JS_VALUE_GET_INT(op1) != 0
                     } else {
@@ -1116,11 +1120,8 @@ pub unsafe fn run_bytecodes(
                     };
 
                     if b == res {
-                        pc = pc.offset(get_u32(pc) as isize - 4);
+                        pc = pc.offset(get_u32(pc.offset(-4)) as isize - 4);
                     }
-
-                    SP_GO!(-1);
-                    PC_GO!(4);
 
                     if js_poll_interrupts(ctx) != 0 {
                         goto = Some(GotoLabel::Exception);
@@ -1295,7 +1296,7 @@ pub unsafe fn run_bytecodes(
                     } else {
                         JS_ToBoolFree(ctx, op1).unwrap_or(true)
                     };
-                    *sp.offset(1) = JS_NewBool(ctx, !res);
+                    SP![-1] = JS_NewBool(ctx, !res);
                 }
                 OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
                     let atom = JSAtom(get_u32(pc));
@@ -1430,9 +1431,9 @@ pub unsafe fn run_bytecodes(
                             flags |= JS_PROP_ENUMERABLE;
                         }
                         op_flags &= 3;
-                        let mut value = JS_UNDEFINED;
-                        let mut getter = JS_UNDEFINED;
-                        let mut setter = JS_UNDEFINED;
+                        let mut value = JSValue::UNDEFINED;
+                        let mut getter = JSValue::UNDEFINED;
+                        let mut setter = JSValue::UNDEFINED;
                         match op_flags {
                             OP_DEFINE_METHOD_METHOD => {
                                 value = SP![-1];
@@ -1505,7 +1506,7 @@ pub unsafe fn run_bytecodes(
                         }
                         goto = Some(GotoLabel::Exception);
                     } else {
-                        let val = JS_GetPropertyValue(ctx, SP![-2], JS_DupValue(ctx, SP![-1]));
+                        let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1].dup());
                         if JS_IsException(val) {
                             goto = Some(GotoLabel::Exception);
                         } else {
@@ -1580,7 +1581,7 @@ pub unsafe fn run_bytecodes(
                     let ret = JS_DefinePropertyValueValue(
                         ctx,
                         SP![-3],
-                        JS_DupValue(ctx, SP![-2]),
+                        SP![-2].dup(),
                         SP![-1],
                         JS_PROP_C_W_E | JS_PROP_THROW,
                     );
@@ -1647,8 +1648,8 @@ pub unsafe fn run_bytecodes(
                         SP_GO!(-1);
                     } else {
                         // fail
-                        SP![-1] = JS_UNDEFINED; // original value was freed
-                        SP![-2] = JS_UNDEFINED; // original value was freed
+                        SP![-1] = JSValue::UNDEFINED; // original value was freed
+                        SP![-2] = JSValue::UNDEFINED; // original value was freed
                         goto = Some(GotoLabel::Exception);
                     }
 
@@ -1711,9 +1712,8 @@ pub unsafe fn run_bytecodes(
 
                     // In case of exception, following expression frees *pv and op1,
                     // so we must duplicate *pv in advance
-                    if let Ok(val) =
-                        BinaryOp::new_slow(ctx, JS_DupValue(ctx, *pv), op1, 3, Some(HINT_NONE))
-                            .and_then(|bop| bop.add(ctx))
+                    if let Ok(val) = BinaryOp::new_slow(ctx, (*pv).dup(), op1, 3, Some(HINT_NONE))
+                        .and_then(|bop| bop.add(ctx))
                     {
                         set_value(ctx, pv, val);
                     } else {
@@ -1812,7 +1812,7 @@ pub unsafe fn run_bytecodes(
                         }) {
                             SP![-1] = res;
                         } else {
-                            SP![-1] = JS_UNDEFINED;
+                            SP![-1] = JSValue::UNDEFINED;
                             goto = Some(GotoLabel::Exception);
                         }
                     }
@@ -1821,7 +1821,7 @@ pub unsafe fn run_bytecodes(
                     let op1 = SP![-1];
                     let n1 = JS_ToNumberFree(ctx, op1);
                     if JS_IsException(n1) {
-                        SP![-1] = JS_UNDEFINED;
+                        SP![-1] = JSValue::UNDEFINED;
                         goto = Some(GotoLabel::Exception);
                     } else {
                         SP![-1] = n1;
@@ -1839,15 +1839,13 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::INC_LOC | OpCode::DEC_LOC => {
-                    let is_inc = opcode == OpCode::INC_LOC;
                     let idx = *pc as i32;
                     PC_GO!(1);
 
                     let op1 = VAR![idx];
 
-                    // must duplicate otherwise the variable value may be destroyed before JS code accesses it
-                    let op1 = JS_DupValue(ctx, op1);
-                    if let Ok(res) = UnaryOp::new(ctx, op1, true).map(|unary| match opcode {
+                    // must duplicate `op1` otherwise the variable value may be destroyed before JS code accesses it
+                    if let Ok(res) = UnaryOp::new(ctx, op1.dup(), true).map(|unary| match opcode {
                         OpCode::INC_LOC => unary.inc(),
                         OpCode::DEC_LOC => unary.dec(),
                         _ => unreachable!(),
@@ -1861,7 +1859,7 @@ pub unsafe fn run_bytecodes(
                     if let Ok(res) = UnaryOp::new_int(ctx, SP![-1].dup()).map(|unary| unary.not()) {
                         SP![-1] = res;
                     } else {
-                        SP![-1] = JS_UNDEFINED;
+                        SP![-1] = JSValue::UNDEFINED;
                         goto = Some(GotoLabel::Exception);
                     }
                 }
@@ -2069,7 +2067,7 @@ pub unsafe fn run_bytecodes(
                                             goto = Some(GotoLabel::Exception);
                                         } else {
                                             JS_FreeValue(ctx, SP![-1]);
-                                            SP![-1] = JS_UNDEFINED;
+                                            SP![-1] = JSValue::UNDEFINED;
                                             SP![0] = val;
                                             SP_GO!(1);
                                         }
@@ -2104,7 +2102,7 @@ pub unsafe fn run_bytecodes(
                     goto = Some(GotoLabel::Done(ret_val, true));
                 }
                 OpCode::RETURN_ASYNC => {
-                    goto = Some(GotoLabel::Done(JS_UNDEFINED, true));
+                    goto = Some(GotoLabel::Done(JSValue::UNDEFINED, true));
                 }
                 OpCode::INITIAL_YIELD => {
                     goto = Some(GotoLabel::Done(
@@ -2117,10 +2115,10 @@ pub unsafe fn run_bytecodes(
 
                 OpCode::IS_UNDEFINED_OR_NULL => {
                     if matches!(JS_VALUE_GET_TAG(SP![-1]), JS_TAG_UNDEFINED | JS_TAG_NULL) {
-                        SP![-1] = JS_TRUE;
+                        SP![-1] = JSValue::TRUE;
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
-                        SP![-1] = JS_FALSE;
+                        SP![-1] = JSValue::FALSE;
                     }
                 }
 

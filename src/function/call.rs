@@ -184,6 +184,8 @@ pub unsafe fn JS_CallInternal(
     sf.cur_func = func_obj;
 
     // allocate local buffer and running bytecodes with it
+    println!("[O.o] **** alloca buf {local_buf_size}");
+
     let retval = crate::mem::alloca::with_alloca(local_buf_size, |local_buf| {
         // local_buf layout:
         //

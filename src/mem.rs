@@ -444,6 +444,7 @@ pub mod alloca {
                 trampoline,
                 std::ptr::addr_of_mut!(closure_data).cast(),
             );
+
             ret.assume_init()
         }
     }

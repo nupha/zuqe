@@ -5,14 +5,13 @@
 #include <malloc.h>
 #endif
 
-
 void c_alloca_callback(size_t size, void (*callback)(uint8_t *, void *), void* data) {
 #ifdef _MSC_VER
     uint8_t *buffer = _alloca(size);
 #else
-    uint8_t buffer[size];
+    uint8_t buffer[size] __attribute__((aligned(8)));
 #endif
 
-    return callback(&buffer[0], data);
+    callback(&buffer[0], data); 
+    return;
 }
-
