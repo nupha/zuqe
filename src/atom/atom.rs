@@ -827,8 +827,7 @@ pub unsafe fn find_atom(ctx: *mut JSContext, name: &str) -> JSAtom {
 
 pub unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
     let p = *(*rt).atom_array.offset(i.0 as _);
-
-    debug_assert!(p.is_aligned(), "{p:p}");
+    debug_assert!(p.is_aligned(), "{i:?} is not aligned: {p:p}");
 
     (*p).header.ref_count -= 1;
     if (*p).header.ref_count <= 0 {
