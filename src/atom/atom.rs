@@ -234,8 +234,7 @@ impl JSAtom {
     ) -> (Self, Option<Box<JSString>>) {
         if let Ok(i) = ss.content().parse_u32() {
             if i <= JS_ATOM_MAX_INT {
-                let ss = ss.free(ctx.rt_mut());
-                return (JSAtom(i), ss);
+                return (JSAtom::from_u32(i), ss.free(ctx.rt_mut()));
             }
         }
 
