@@ -1,26 +1,22 @@
 use std::{
     borrow::Cow,
     ffi::{c_char, CStr},
-    mem::offset_of,
     ptr::NonNull,
 };
 
 use fallible_collections::FallibleVec;
 
 use crate::{
-    atom::{consts::*, JSAtom, JSAtomType, JSAtomTypeHint, JS_FreeAtomStruct, __JS_AtomToUInt32},
+    atom::{consts::*, JSAtom, JSAtomType, JS_FreeAtomStruct, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
-    container_of,
     context::JSContext,
     function::JS_InvokeFree,
-    mem::js_malloc_rt_typed,
     runtime::JSRuntime,
     types::{list_head, unlikely, JSRefCountHeader},
     value::{
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, HINT_STRING,
-        JS_TAG_NULL, JS_TAG_STRING, JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_BOOL,
-        JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING, JS_TAG_NULL, JS_TAG_STRING,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -32,7 +28,7 @@ use super::{
         JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
     },
     primitives::JS_ToPrimitive,
-    JS_IsNull, JS_IsUndefined, StringContent, JS_DTOA_VAR_FORMAT,
+    StringContent, JS_DTOA_VAR_FORMAT,
 };
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
@@ -90,7 +86,7 @@ impl JSString {
     /// * `Ok(Box<JSString>)` - Newly allocated string
     /// * `Err(-1)` - Memory allocation failed
     fn new_uninit(rt: &mut JSRuntime) -> Result<Box<Self>, i32> {
-        let ss = Box::new(Self {
+        let mut ss = Box::new(Self {
             header: JSRefCountHeader { ref_count: 1 },
             hash_and_type: 0,
             atom_type: None,
@@ -513,7 +509,7 @@ pub unsafe fn JS_ToStringInternal(
     is_ToPropertyKey: bool,
 ) -> JSValue {
     match JS_VALUE_GET_NORM_TAG(val) {
-        JSTag::String => JS_DupValue(ctx, val),
+        JSTag::String => val.dup(),
         JSTag::Int => (*ctx).create_string(&format!("{}", JS_VALUE_GET_INT(val))),
         JSTag::Bool => if JS_VALUE_GET_BOOL(val) {
             JS_ATOM_true
@@ -526,7 +522,7 @@ pub unsafe fn JS_ToStringInternal(
         JSTag::Exception => JSValue::EXCEPTION,
         JSTag::Object => {
             let val1 = JS_ToPrimitive(ctx, &val, HINT_STRING);
-            if JS_IsException(val1) {
+            if val1.is_exception() {
                 val1
             } else {
                 let ret = JS_ToStringInternal(ctx, val1, is_ToPropertyKey);
@@ -689,57 +685,9 @@ pub unsafe fn JS_ConcatString1(
 /// For convience, op1 or op2 = JS_EXCEPTION are accepted and return JSValue::EXCEPTION.
 /// op1 and op2 are freed
 pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> JSValue {
-    // if unlikely(JS_VALUE_GET_TAG(op1) != JS_TAG_STRING) {
-    //     op1 = JS_ToStringFree(ctx, op1);
-    //     if JS_IsException(op1) {
-    //         JS_FreeValue(ctx, op2);
-    //         return JSValue::EXCEPTION;
-    //     }
-    // }
-    // if unlikely(JS_VALUE_GET_TAG(op2) != JS_TAG_STRING) {
-    //     op2 = JS_ToStringFree(ctx, op2);
-    //     if JS_IsException(op2) {
-    //         JS_FreeValue(ctx, op1);
-    //         return JSValue::EXCEPTION;
-    //     }
-    // }
-
-    // let p1 = JS_VALUE_GET_STRING(op1);
-    // let p2 = JS_VALUE_GET_STRING(op2);
-
-    // if (*p1).is_empty() {
-    //     JS_FreeValue(ctx, op1);
-    //     return op2;
-    // } else if (*p2).is_empty() {
-    //     JS_FreeValue(ctx, op2);
-    //     return op1;
-    // }
-
-    // if (*p1).header.ref_count == 1 {
-    //     if (*p1).content.push(&(*p2).content).is_err() {
-    //         (*ctx).JS_ThrowOutOfMemory();
-    //         JS_EXCEPTION
-    //     } else {
-    //         JS_FreeValue(ctx, op2);
-    //         op1
-    //     }
-    // } else if let Ok(new_sc) = (*p1).content().clone().and_then(|mut s| {
-    //     s.push((*p2).content())?;
-    //     Ok(s)
-    // }) {
-    //     let res = (*ctx).create_string_from_content(new_sc);
-    //     if !JS_IsException(res) {
-    //         JS_FreeValue(ctx, op1);
-    //         JS_FreeValue(ctx, op2);
-    //     }
-    //     res
-    // } else {
-    //     JS_EXCEPTION
-    // }
-
-    let str1 = if unlikely(JS_VALUE_GET_TAG(op1) != JS_TAG_STRING) {
+    let str1 = if JS_VALUE_GET_TAG(op1) != JS_TAG_STRING {
         let v = JS_ToStringFree(ctx, op1);
-        if JS_IsException(op1) {
+        if v.is_exception() {
             JS_FreeValue(ctx, op2);
             return JSValue::EXCEPTION;
         }
@@ -748,10 +696,9 @@ pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -
         op1.into_rc((*ctx).rt())
     };
 
-    let str2 = if unlikely(JS_VALUE_GET_TAG(op2) != JS_TAG_STRING) {
+    let str2 = if JS_VALUE_GET_TAG(op2) != JS_TAG_STRING {
         let v = JS_ToStringFree(ctx, op2);
-        if JS_IsException(v) {
-            //JS_FreeValue(ctx, op1);
+        if v.is_exception() {
             return JSValue::EXCEPTION;
         }
         v.into_rc((*ctx).rt())
@@ -821,7 +768,7 @@ impl JSValue {
             JS_VALUE_GET_STRING(self)
         } else {
             let ts = JS_ToString(ctx, self);
-            if JS_IsException(ts) {
+            if ts.is_exception() {
                 return Err(-1);
             }
             let s = JS_VALUE_GET_STRING(ts);
@@ -885,7 +832,7 @@ pub unsafe fn JS_FreeCString(ctx: *mut JSContext, ptr: *const c_char) {
     // JS_FreeValue(ctx, JS_MKPTR!(JSTag::String, p.cast()));
 }
 
-pub unsafe fn js_string_obj_get_length(ctx: *mut JSContext, obj: JSValueConst) -> usize {
+pub unsafe fn js_string_obj_get_length(ctx: *const JSContext, obj: JSValueConst) -> usize {
     // This is a class exotic method: obj class_id is JS_CLASS_STRING
     let p = JS_VALUE_GET_OBJ(obj);
 
@@ -934,8 +881,8 @@ pub unsafe fn js_string_get_own_property(
                     let ch = p1.content().chars().nth(idx as usize).unwrap();
                     (*desc).flags = JS_PROP_ENUMERABLE as _;
                     (*desc).value = (*ctx).create_string_from_char(ch);
-                    (*desc).getter = JS_UNDEFINED;
-                    (*desc).setter = JS_UNDEFINED;
+                    (*desc).getter = JSValue::UNDEFINED;
+                    (*desc).setter = JSValue::UNDEFINED;
                 }
 
                 return 1;
