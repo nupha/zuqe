@@ -90,18 +90,19 @@ impl JSString {
     /// * `Ok(Box<JSString>)` - Newly allocated string
     /// * `Err(-1)` - Memory allocation failed
     fn new_uninit(rt: &mut JSRuntime) -> Result<Box<Self>, i32> {
-        let mut ss = Box::new(Self {
+        let ss = Box::new(Self {
             header: JSRefCountHeader { ref_count: 1 },
             hash_and_type: 0,
             atom_type: None,
             hash_next: 0,
-            link: list_head::default(),
             content: StringContent::Empty,
+
+            #[cfg(feature = "dump_leaks")]
+            link: list_head::default(),
         });
 
         #[cfg(feature = "dump_leaks")]
         unsafe {
-            // add to debug string list chain
             crate::types::list_add_tail(&mut ss.link, &mut rt.debug_string_list);
         }
 
