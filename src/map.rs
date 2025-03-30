@@ -115,7 +115,7 @@ pub unsafe fn map_normalize_key(ctx: *mut JSContext, key: JSValueConst) -> JSVal
 }
 
 // XXX: better hash ?
-pub unsafe fn map_hash_key(ctx: *mut JSContext, key: JSValueConst) -> u32 {
+pub unsafe fn map_hash_key(ctx: *const JSContext, key: JSValueConst) -> u32 {
     let tag = JS_VALUE_GET_NORM_TAG(key);
     let h: u32;
 
@@ -124,7 +124,9 @@ pub unsafe fn map_hash_key(ctx: *mut JSContext, key: JSValueConst) -> u32 {
             h = JS_VALUE_GET_INT(key) as u32;
         }
         JSTag::String => {
-            h = (*JS_VALUE_GET_STRING(key)).content().make_hash(0);
+            h = (*JS_VALUE_GET_STRING(key))
+                .content()
+                .calc_hash(crate::atom::JSAtomTypeHint::String);
         }
         JSTag::Object | JSTag::Symbol => {
             h = (JS_VALUE_GET_PTR(key) as usize * 3163) as u32;

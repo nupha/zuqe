@@ -1,10 +1,12 @@
-use std::ffi::{c_char, c_void};
+use std::{
+    collections::HashMap,
+    ffi::{c_char, c_void},
+    num::NonZeroU16,
+    ptr::NonNull,
+};
 
 use crate::{
-    atom::{
-        atom_is_free, consts::JS_ATOM_INIT_COUNT, JSAtomStruct, JSAtomType, JS_FreeAtomRT,
-        JS_ATOM_HASH_SYMBOL,
-    },
+    atom::{consts::JS_ATOM_INIT_COUNT, JSAtomStruct, JSAtomType, JS_FreeAtomRT},
     class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
     context::JSContext,
     function::{
@@ -28,12 +30,10 @@ use crate::{
     value::{
         js_string_exotic_methods,
         object::{init_shape_hash, JSShape},
-        JSString, JSValue, JSValueConst, JS_DumpString, JS_FreeValueRT, JS_TAG_OBJECT,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSString, JSValue, JS_DumpString, JS_FreeValueRT,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
-    JS_CLASS_ERROR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT,
-    JS_CLASS_STRING,
+    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_STRING,
 };
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
@@ -57,15 +57,12 @@ pub struct JSRuntime {
     pub malloc_state: JSMallocState,
     pub rt_info: *const c_char,
 
-    pub atom_hash_size: i32, /* power of two */
-    pub atom_count: i32,
-    pub atom_size: i32,
-    pub atom_count_resize: i32, /* resize hash table at this count */
-    pub atom_hash: *mut u32,
-
-    /// TODO: use HashMap<u32, Box<JSAtomStruct>>
-    pub(crate) atom_array: *mut *mut JSAtomStruct,
-    pub atom_free_index: i32, /* 0 = none */
+    /// atom description slots. None element means the slot is free.
+    /// index 0 is reserved, not for use; index 1 for atom 1; index 2 for atom 2, ...
+    pub(super) atom_slots: Vec<Option<NonNull<JSAtomStruct>>>,
+    /// JSString hash to atom vec dict.
+    /// Value is a list of atom index. Note: JSString hash may have collison.
+    pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
     // TODO: use Vec<JSClass>
     pub class_array: *mut JSClass,
@@ -82,7 +79,7 @@ pub struct JSRuntime {
     pub malloc_gc_threshold: usize,
 
     #[cfg(feature = "dump_leaks")]
-    pub string_list: list_head, /* list of JSString.link */
+    pub debug_string_list: list_head, /* list of JSString.link */
 
     /* stack limitation */
     pub stack_size: usize, /* in bytes, 0 if no limit */
@@ -138,23 +135,23 @@ impl JSRuntime {
             mf,
             malloc_state: ms,
             rt_info: std::ptr::null(),
-            atom_hash: std::ptr::null_mut(),
-            atom_array: std::ptr::null_mut(),
+
+            atom_hash_lut: HashMap::with_capacity(256),
+            atom_slots: {
+                let mut lst = Vec::with_capacity(256);
+                lst.push(None); // element #0 is reserved, is not usable
+                lst
+            },
+
             class_array: std::ptr::null_mut(),
-            user_opaque: std::ptr::null_mut(),
+            class_count: 0,
+
             gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
             current_stack_frame: std::ptr::null_mut(),
-            interrupt_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             module_loader_opaque: std::ptr::null_mut(),
             sab_funcs: JSSharedArrayBufferFunctions::new(),
             shape_hash: std::ptr::null_mut(),
-            atom_hash_size: 0,
-            atom_count: 0,
-            atom_size: 0,
-            atom_count_resize: 0,
-            atom_free_index: 0,
-            class_count: 0,
             context_list: Vec::with_capacity(1),
             gc_obj_list: list_head::default(),
             gc_zero_ref_count_list: list_head::default(),
@@ -177,7 +174,10 @@ impl JSRuntime {
             shape_hash_count: 0,
 
             #[cfg(feature = "dump_leaks")]
-            string_list: list_head::default(),
+            debug_string_list: list_head::default(),
+
+            user_opaque: std::ptr::null_mut(),
+            interrupt_opaque: std::ptr::null_mut(),
         });
 
         unsafe {
@@ -186,7 +186,7 @@ impl JSRuntime {
             rt.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
 
             #[cfg(feature = "dump_leaks")]
-            init_list_head(&mut rt.string_list);
+            init_list_head(&mut rt.debug_string_list);
 
             init_list_head(&mut rt.job_list);
 
@@ -308,7 +308,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
             el = el1;
             el1 = (*el).next;
         }
-        init_list_head(&mut (*rt).job_list);
+        init_list_head(&mut rt.job_list);
     }
 
     JS_RunGC(rt);
@@ -319,7 +319,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
         /* remove the internal refcounts to display only the object
         referenced externally */
-        list_foreach(&mut (*rt).gc_obj_list, |el| {
+        list_foreach(&mut rt.gc_obj_list, |el| {
             let p = list_entry!(el, JSGCObjectHeader, link);
             (*p).set_mark(0);
         });
@@ -327,7 +327,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
         crate::gc::gc_decref(rt);
 
         let mut header_done = false;
-        list_foreach(&mut (*rt).gc_obj_list, |el| {
+        list_foreach(&mut rt.gc_obj_list, |el| {
             let p = list_entry!(el, JSGCObjectHeader, link);
             if (*p).ref_count != 0 {
                 if !header_done {
@@ -341,7 +341,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
         let mut count = 0;
         let mut el = rt.gc_obj_list.next;
-        while el != &mut (*rt).gc_obj_list {
+        while el != &mut rt.gc_obj_list {
             let p = list_entry!(el, JSGCObjectHeader, link);
             if (*p).ref_count == 0 {
                 count += 1;
@@ -357,31 +357,28 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
     // free the classes
     for i in 0..rt.class_count {
-        let cl: *mut JSClass = (*rt).class_array.offset(i as isize);
+        let cl: *mut JSClass = rt.class_array.offset(i as isize);
         if (*cl).class_id != 0 {
             JS_FreeAtomRT(rt, (*cl).class_name);
         }
     }
-    js_free_rt(rt, (*rt).class_array.cast());
-
-    // bf_context_end(&(*rt).bf_ctx);
+    js_free_rt(rt, rt.class_array.cast());
 
     #[cfg(feature = "dump_leaks")]
-    /* only the atoms defined in JS_InitAtoms() should be left */
     {
         let mut header_done: bool = false;
 
-        for i in 0..(*rt).atom_size {
-            let p = *(*rt).atom_array.offset(i as isize);
-            if !atom_is_free(p) {
-                // && p->str
-                if i >= JS_ATOM_INIT_COUNT as i32 || (*p).header.ref_count != 1 {
+        // only the constant atoms could be left
+        for (i, a) in rt.atom_slots.iter().enumerate() {
+            if let Some(p) = a {
+                let p = p.as_ref();
+                if i >= JS_ATOM_INIT_COUNT as usize || p.ref_count() != 1 {
                     if !header_done {
                         header_done = true;
-                        if !(*rt).rt_info.is_null() {
+                        if !rt.rt_info.is_null() {
                             println!(
                                 "{}:1: atom leakage:",
-                                std::ffi::CStr::from_ptr((*rt).rt_info).to_string_lossy()
+                                std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
                             );
                         } else {
                             println!("Atom leaks: (NANE, ID, REFCNT)");
@@ -390,95 +387,90 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
                     if !(*rt).rt_info.is_null() {
                         print!(" ");
                     } else {
-                        print!("    {:6} {:6} ", i, (*p).header.ref_count);
+                        print!("    {:6} {:6} ", i, (*p).ref_count());
                     }
-                    match (*p).atom_type() {
-                        JSAtomType::String => JS_DumpString(rt, p),
-                        JSAtomType::GlobalSymbol => {
+                    match p.atom_type().unwrap() {
+                        JSAtomType::String(_) => JS_DumpString(rt, p),
+                        JSAtomType::GlobalSymbol(_) => {
                             print!("Symbol.for(");
                             JS_DumpString(rt, p);
                             print!(")");
                         }
-                        JSAtomType::Symbol => {
-                            if (*p).hash() == JS_ATOM_HASH_SYMBOL {
-                                print!("Symbol(");
-                                JS_DumpString(rt, p);
-                                print!(")");
-                            } else {
-                                print!("Private(");
-                                JS_DumpString(rt, p);
-                                print!(")");
-                            }
+                        JSAtomType::Symbol(_) => {
+                            print!("Symbol(");
+                            JS_DumpString(rt, p);
+                            print!(")");
+                        }
+                        JSAtomType::Private(_) => {
+                            print!("Private(");
+                            JS_DumpString(rt, p);
+                            print!(")");
                         }
                         _ => {}
                     }
 
-                    if !(*rt).rt_info.is_null() {
-                        println!(":{}", (*p).header.ref_count);
+                    if !rt.rt_info.is_null() {
+                        println!(":{}", (*p).ref_count());
                     } else {
                         println!("");
                     }
                 }
             }
         }
-        if !(*rt).rt_info.is_null() && header_done {
+
+        if !rt.rt_info.is_null() && header_done {
             println!("");
         }
     }
 
     // free atoms
-    for i in 0..(*rt).atom_size {
-        let p = *rt.atom_array.offset(i as isize);
-        if !atom_is_free(p) {
+    for a in rt.atom_slots.drain(..) {
+        if let Some(mut p) = a {
             #[cfg(feature = "dump_leaks")]
-            list_del(&mut (*p).link);
+            list_del(&mut p.as_mut().link);
 
-            js_free_rt(rt, p.cast());
+            drop(Box::from_raw(p.as_ptr()));
         }
     }
-    js_free_rt(rt, rt.atom_array.cast());
-    js_free_rt(rt, rt.atom_hash.cast());
-    js_free_rt(rt, rt.shape_hash.cast());
+    rt.atom_hash_lut.clear();
 
     #[cfg(feature = "dump_leaks")]
     {
-        if !list_empty(&mut (*rt).string_list) {
-            if !(*rt).rt_info.is_null() {
+        if !list_empty(&mut rt.debug_string_list) {
+            if !rt.rt_info.is_null() {
                 println!(
                     "{}:1: string leakage:",
-                    std::ffi::CStr::from_ptr((*rt).rt_info).to_string_lossy()
+                    std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
                 );
             } else {
                 println!("String leaks (VALUE, REFCOUNT):\n");
             }
 
-            let mut el = (*rt).string_list.next;
-            while el != &mut (*rt).string_list {
-                let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
-                if !(*rt).rt_info.is_null() {
+            list_foreach(&mut rt.debug_string_list, |el| {
+                let ss = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
+
+                if !rt.rt_info.is_null() {
                     print!(" ");
                 } else {
-                    print!("    {:6} ", (*str).header.ref_count);
+                    print!("    {:6} ", (*ss).ref_count());
                 }
-                JS_DumpString(rt, str);
-                if !(*rt).rt_info.is_null() {
-                    println!(":{}", (*str).header.ref_count);
+                JS_DumpString(rt, ss);
+                if !rt.rt_info.is_null() {
+                    println!(":{}", (*ss).ref_count());
                 } else {
                     println!("");
                 }
-                list_del(&mut (*str).link);
-                js_free_rt(rt, str.cast());
+                list_del(&mut (*ss).link);
+                drop(Box::from_raw(ss));
+            });
 
-                el = (*el).next;
-            }
-
-            if !(*rt).rt_info.is_null() {
+            if !rt.rt_info.is_null() {
                 println!("");
             }
         }
 
         {
-            let s: *mut JSMallocState = &mut (*rt).malloc_state;
+            let s: *mut JSMallocState = &mut rt.malloc_state;
             println!("MemState: {:?}", *s);
 
             // FIXME:

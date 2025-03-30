@@ -658,7 +658,7 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
             print!(
                 "{i:5}: {kind_str} {}'{}",
                 vd.var_name.to_str((*ctx).rt()),
-                (*ctx).rt().atom_ref_count(vd.var_name).unwrap_or(999)
+                vd.var_name.ref_count((*ctx).rt()).unwrap_or(999)
             );
 
             if (*vd).scope_level != 0 {

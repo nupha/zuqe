@@ -1,10 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    atom::{js_get_atom_index, JSAtomStruct},
-    context::JSContext,
-    function::JSFunctionBytecode,
-    runtime::JSRuntime,
+    atom::JSAtomStruct, context::JSContext, function::JSFunctionBytecode, runtime::JSRuntime,
 };
 
 use super::{
@@ -19,13 +16,9 @@ pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: *const JSString) {
         return;
     }
 
-    print!("{}", (*p).header.ref_count);
+    print!("{}", (*p).ref_count());
 
-    let sep = if (*p).header.ref_count == 1 {
-        b'\"'
-    } else {
-        b'\''
-    } as char;
+    let sep = if (*p).ref_count() == 1 { b'\"' } else { b'\'' } as char;
     print!("{}", sep as char);
 
     for c in (*p).content().chars() {
@@ -74,7 +67,7 @@ impl JSValue {
             }
             JSTag::Symbol => {
                 let p = JS_VALUE_GET_PTR(self).cast::<JSAtomStruct>();
-                format!("Symbol({})", js_get_atom_index(rt, p).to_str(rt),).into()
+                format!("Symbol({})", (*p).atom_type().unwrap().atom().to_str(rt),).into()
             }
             JSTag::CatchOffset => "catchoffset".into(),
             JSTag::Module => "[module]".into(),

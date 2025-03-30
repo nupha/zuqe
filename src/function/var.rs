@@ -640,7 +640,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
 
                 // get atom refcount before resolve_scope_var()
                 #[cfg(debug_assertions)]
-                let _name_refcnt = (*ctx).rt().atom_ref_count(var_name);
+                let _name_refcnt = var_name.ref_count((*ctx).rt());
 
                 pos_next = resolve_scope_var(
                     ctx,
@@ -657,7 +657,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 // check atom refcount after resolve_scope_var()
                 #[cfg(debug_assertions)]
                 debug_assert!(
-                    (*ctx).rt().atom_ref_count(var_name) >= _name_refcnt,
+                    var_name.ref_count((*ctx).rt()) >= _name_refcnt,
                     "[O.o] {var_name:?}, {}",
                     var_name.to_str((*ctx).rt())
                 );

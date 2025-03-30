@@ -1,12 +1,11 @@
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_ValueToAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
     mem::js_resize_array,
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
     value::{
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_TAG_STRING, JS_VALUE_GET_STRING,
-        JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_TAG_STRING, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
 };
 
@@ -214,9 +213,9 @@ impl JSFunctionDef {
             val.dup();
 
             let p = JS_VALUE_GET_STRING(val);
-            debug_assert!((*p).header.ref_count > 1);
+            debug_assert!((*p).ref_count() > 1);
 
-            let (atom, ss) = JSAtom::from_jsstring(Box::from_raw(p), self.ctx.as_mut().unwrap());
+            let (atom, ss) = (*self.ctx).rt_mut().add_atom_jsstring(Box::from_raw(p));
             Box::leak(ss.unwrap());
 
             if atom != JS_ATOM_NULL && !atom.is_int_type() {

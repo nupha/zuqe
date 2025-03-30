@@ -1,4 +1,5 @@
 mod atom;
+mod registry;
 
 pub use atom::*;
 

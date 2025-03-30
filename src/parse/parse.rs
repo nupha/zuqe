@@ -317,7 +317,7 @@ impl JSParseState {
                 }
 
                 #[cfg(debug_assertions)]
-                let _name_refcnt = (*ctx).rt().atom_ref_count(self.token.u.ident.atom);
+                let _name_refcnt = self.token.u.ident.atom.ref_count((*ctx).rt());
 
                 let name = JS_DupAtom(ctx, self.token.u.ident.atom);
 
@@ -412,10 +412,7 @@ impl JSParseState {
                     }
 
                     #[cfg(debug_assertions)]
-                    debug_assert_eq!(
-                        (*ctx).rt().atom_ref_count(name),
-                        _name_refcnt.map(|n| n + 2)
-                    );
+                    debug_assert_eq!(name.ref_count((*ctx).rt()), _name_refcnt.map(|n| n + 2));
                 } else {
                     if tok == TOK_CONST {
                         js_parse_error(self, c"missing initializer for const variable");

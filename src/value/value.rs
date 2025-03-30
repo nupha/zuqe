@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{
     atom::{JSAtomType, JS_FreeAtomStruct},
     context::JSContext,
@@ -380,6 +382,7 @@ pub unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
     }
 }
 
+/// when value tag is STRING, this returns JSString raw pointer, null means empty string.
 #[inline(always)]
 pub(crate) fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
     JS_VALUE_GET_PTR(v).cast()
@@ -443,8 +446,8 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     match tag {
         JS_TAG_STRING => {
             let p = JS_VALUE_GET_STRING(v);
-            if (*p).atom_type() != JSAtomType::None {
-                JS_FreeAtomStruct(rt.as_mut().unwrap(), p);
+            if (*p).atom_type().is_some() {
+                JS_FreeAtomStruct(rt.as_mut().unwrap(), NonNull::new(p).unwrap());
             } else {
                 #[cfg(feature = "dump_leaks")]
                 list_del(&mut (*p).link);
@@ -464,23 +467,17 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
                 }
             }
         }
+        JS_TAG_SYMBOL => {
+            JS_FreeAtomStruct(
+                rt.as_mut().unwrap(),
+                NonNull::new(JS_VALUE_GET_PTR(v).cast::<JSString>()).unwrap(),
+            );
+        }
         JS_TAG_MODULE => {
             unreachable!("never freed here");
         }
-        JS_TAG_BIG_INT | JS_TAG_BIG_FLOAT => {
+        JS_TAG_BIG_INT | JS_TAG_BIG_FLOAT | JS_TAG_BIG_DECIMAL => {
             unimplemented!()
-            // let bf = v.get_ptr::<JSBigFloat>();
-            // bf_delete(&mut (*bf).num);
-            // js_free_rt(rt, bf);
-        }
-        JS_TAG_BIG_DECIMAL => {
-            unimplemented!()
-            // let bf = v.get_ptr::<JSBigDecimal>();
-            // bfdec_delete(&mut (*bf).num);
-            // js_free_rt(rt, bf);
-        }
-        JS_TAG_SYMBOL => {
-            JS_FreeAtomStruct(rt.as_mut().unwrap(), JS_VALUE_GET_PTR(v).cast());
         }
         _ => {
             panic!("__JS_FreeValue: unknown tag={}", tag);

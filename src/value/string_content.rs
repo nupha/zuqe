@@ -12,6 +12,8 @@ use widestring::{
     U16Str,
 };
 
+use crate::atom::JSAtomTypeHint;
+
 use super::string::JS_STRING_LEN_MAX;
 
 #[derive(Debug)]
@@ -482,9 +484,15 @@ impl StringContent {
         }
     }
 
-    /// calc hash value
+    /// calc hash for string content
     #[inline]
-    pub unsafe fn make_hash(&self, mut h: u32) -> u32 {
+    pub unsafe fn calc_hash(&self, atom_type: JSAtomTypeHint) -> u32 {
+        let mut h = if atom_type == JSAtomTypeHint::GlobalSymbol {
+            JSAtomTypeHint::String
+        } else {
+            atom_type
+        } as u32;
+
         match &self {
             Self::Empty => h,
             Self::Utf8(s) => {
@@ -502,8 +510,11 @@ impl StringContent {
         }
     }
 
+    /// calc hash value of str
     #[inline(always)]
-    pub unsafe fn hash_str(str: &str, mut h: u32) -> u32 {
+    pub unsafe fn calc_hash_str(str: &str, atom_type: JSAtomTypeHint) -> u32 {
+        let mut h = atom_type as u32;
+
         for c in str.encode_utf16() {
             h = hash_char(c as u32, h);
         }

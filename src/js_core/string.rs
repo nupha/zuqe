@@ -2,7 +2,7 @@ use {fallible_collections::FallibleVec, widestring::U16Str};
 
 use crate::{
     array::JS_NewArray,
-    atom::{consts::*, js_get_atom_index, JSAtom, JSAtomStruct},
+    atom::{consts::*, JSAtom, JSAtomStruct},
     class::js_create_from_ctor,
     context::JSContext,
     error::JS_ThrowRangeError,
@@ -43,7 +43,10 @@ pub unsafe fn js_string_constructor(
             val = JS_ConcatString3(
                 ctx,
                 c"Symbol(",
-                js_get_atom_index((*ctx).rt(), p).to_value(ctx.as_mut().unwrap(), true),
+                (*p).atom_type()
+                    .unwrap()
+                    .atom()
+                    .to_value(ctx.as_mut().unwrap(), true),
                 c")",
             );
         } else {

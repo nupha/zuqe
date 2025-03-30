@@ -1,9 +1,6 @@
 use crate::{
     array::JS_NewArray,
-    atom::{
-        JSAtom, JSAtomKindEnum, JS_AtomGetKind, JS_AtomIsArrayIndex, JS_DupAtom, JS_FreeAtom,
-        JS_ATOM_NULL,
-    },
+    atom::{JSAtom, JSAtomKindEnum, JS_AtomIsArrayIndex, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
     iterator::JSIteratorKindEnum,
@@ -47,7 +44,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     for (i, (key, prs)) in (*p).shape_mut().unwrap().props.iter_mut().enumerate() {
         let atom = *key;
         let is_enumerable = ((*prs).flags() & JS_PROP_ENUMERABLE) != 0;
-        let kind = JS_AtomGetKind(ctx, atom);
+        let kind = atom.kind((*ctx).rt());
 
         if ((flags & JS_GPN_ENUM_ONLY) == 0 || is_enumerable) && (flags >> (kind as u8)) & 1 != 0 {
             // need to raise an exception in case of the module
@@ -101,7 +98,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
 
                 for i in 0..exotic_count {
                     let atom = (*tab_exotic.offset(i as isize)).atom;
-                    let kind = JS_AtomGetKind(ctx, atom);
+                    let kind = atom.kind((*ctx).rt());
 
                     if ((flags >> (kind as u8)) & 1) != 0 {
                         let mut is_enumerable = false;
@@ -150,7 +147,8 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     for (key, prs) in (*p).shape_mut().unwrap().props.iter_mut() {
         let atom = *key;
         let is_enumerable = ((*prs).flags() & JS_PROP_ENUMERABLE) != 0;
-        let kind = JS_AtomGetKind(ctx, atom);
+        let kind = atom.kind((*ctx).rt());
+
         let j: u32;
 
         if (!(flags & JS_GPN_ENUM_ONLY) != 0 || is_enumerable) && (flags >> (kind as u8)) & 1 != 0 {
@@ -202,7 +200,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
             for i in 0..exotic_count {
                 let atom = (*tab_exotic.offset(i as isize)).atom;
                 let is_enumerable = (*tab_exotic.offset(i as isize)).is_enumerable;
-                let kind = JS_AtomGetKind(ctx, atom);
+                let kind = atom.kind((*ctx).rt());
 
                 if (!(flags & JS_GPN_ENUM_ONLY) != 0 || is_enumerable)
                     && ((flags >> (kind as u8)) & 1) != 0

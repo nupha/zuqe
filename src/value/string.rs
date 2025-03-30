@@ -2,19 +2,20 @@ use std::{
     borrow::Cow,
     ffi::{c_char, CStr},
     mem::offset_of,
+    ptr::NonNull,
 };
 
 use fallible_collections::FallibleVec;
 
 use crate::{
-    atom::{consts::*, JSAtom, JSAtomType, JS_FreeAtomStruct, __JS_AtomToUInt32},
+    atom::{consts::*, JSAtom, JSAtomType, JSAtomTypeHint, JS_FreeAtomStruct, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
     container_of,
     context::JSContext,
     function::JS_InvokeFree,
     mem::js_malloc_rt_typed,
     runtime::JSRuntime,
-    types::{unlikely, JSRefCountHeader},
+    types::{list_head, unlikely, JSRefCountHeader},
     value::{
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, HINT_STRING,
         JS_TAG_NULL, JS_TAG_STRING, JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_BOOL,
@@ -53,12 +54,13 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 #[repr(C)]
 pub struct JSString {
     // Reference count header must be first for memory layout
-    pub header: JSRefCountHeader,
+    header: JSRefCountHeader,
 
-    // Combined hash and type field:
-    // - Lower 30 bits: hash value for quick string comparison
-    // - Upper 2 bits: atom type (None, String, Symbol)
+    // Hash value
     hash_and_type: u32,
+
+    /// atom type of string
+    atom_type: Option<JSAtomType>,
 
     // Used for atom string chaining in hash table
     // For symbols, stores the atom index
@@ -88,23 +90,19 @@ impl JSString {
     /// * `Ok(Box<JSString>)` - Newly allocated string
     /// * `Err(-1)` - Memory allocation failed
     fn new_uninit(rt: &mut JSRuntime) -> Result<Box<Self>, i32> {
-        let mut ss = unsafe {
-            Box::from_raw(
-                js_malloc_rt_typed::<JSString>(rt, 1, false)
-                    .ok_or(-1)?
-                    .as_ptr(),
-            )
-        };
-
-        ss.header.ref_count = 1;
-        ss.set_atom_type(JSAtomType::None);
-        ss.set_hash(0);
-        ss.hash_next = 0;
-        ss.content = StringContent::Empty;
+        let mut ss = Box::new(Self {
+            header: JSRefCountHeader { ref_count: 1 },
+            hash_and_type: 0,
+            atom_type: None,
+            hash_next: 0,
+            link: list_head::default(),
+            content: StringContent::Empty,
+        });
 
         #[cfg(feature = "dump_leaks")]
         unsafe {
-            crate::types::list_add_tail(&mut ss.link, &mut rt.string_list);
+            // add to debug string list chain
+            crate::types::list_add_tail(&mut ss.link, &mut rt.debug_string_list);
         }
 
         Ok(ss)
@@ -207,44 +205,48 @@ impl JSString {
         self.content.is_utf16()
     }
 
-    /// Returns the 30-bit hash value of the string
-    /// Used for fast string comparison and atom table lookup
-    /// The hash is stored in the lower 30 bits of hash_and_type
+    /// Get hash value of the string.
     #[inline(always)]
     pub fn hash(&self) -> u32 {
-        self.hash_and_type & 0x3FFFFFFF // Mask out the top 2 bits (atom type)
+        self.hash_and_type
     }
 
-    /// Sets the 30-bit hash value while preserving the atom type
-    /// Used when computing string hash or updating atom table
+    /// Save hash value
     pub fn set_hash(&mut self, h: u32) {
-        // Clear hash bits while keeping atom type bits, then set new hash
-        self.hash_and_type = self.hash_and_type & 0xC000_000 | (h & 0x3FFF_FFFF);
+        self.hash_and_type = h;
     }
 
-    /// Returns the atom type of the string (stored in upper 2 bits of hash_and_type)
+    /// Returns the atom type and atom id of the string.
     ///
     /// The atom type indicates whether this string is:
     /// - A regular string (None)
     /// - An interned string atom (String)
     /// - A unique symbol (Symbol)
-    pub fn atom_type(&self) -> JSAtomType {
-        unsafe { std::mem::transmute((self.hash_and_type >> 30) as u8) }
+    #[inline(always)]
+    pub fn atom_type(&self) -> Option<JSAtomType> {
+        self.atom_type
     }
 
-    /// Sets the atom type in the upper 2 bits of hash_and_type
-    /// Used when converting a string to an atom or symbol
+    /// Sets the atom type
+    /// Used when converting a string to an atom or symbol.
     pub fn set_atom_type(&mut self, t: JSAtomType) {
-        self.hash_and_type |= (t as u32) << 30
+        debug_assert!(self.atom_type.is_none());
+        self.atom_type = Some(t);
     }
 
-    // Commented out legacy string access methods
-    // These were used for direct buffer access but are now handled through StringContent
-    // #[inline(always)]
-    // pub fn as_str8(&self) -> *const u8 {
-    //     self.content.as_ptr()
-    // }
-    // ... other commented methods ...
+    /// Get current reference count
+    #[inline(always)]
+    pub fn ref_count(&self) -> i32 {
+        self.header.ref_count
+    }
+
+    /// Increase ref count by 1.
+    /// Returns updated ref count.
+    #[inline(always)]
+    pub fn inc_ref(&mut self) -> i32 {
+        self.header.ref_count += 1;
+        self.header.ref_count
+    }
 
     /// Decrements the reference count and returns the new count
     ///
@@ -255,7 +257,7 @@ impl JSString {
     /// Panics in debug mode if reference count is already 1 or less
     #[inline(always)]
     pub fn dec_ref(&mut self) -> i32 {
-        debug_assert!(self.header.ref_count > 1);
+        debug_assert!(self.header.ref_count > 0);
         self.header.ref_count -= 1;
         self.header.ref_count
     }
@@ -284,9 +286,9 @@ impl JSString {
         self.header.ref_count -= 1;
 
         if self.header.ref_count == 0 {
-            if self.atom_type() != JSAtomType::None {
+            if self.atom_type().is_some() {
                 unsafe {
-                    JS_FreeAtomStruct(rt, self.as_mut());
+                    JS_FreeAtomStruct(rt, NonNull::new(Box::into_raw(self)).unwrap());
                 }
             } else {
                 #[cfg(feature = "dump_leaks")]
@@ -294,7 +296,7 @@ impl JSString {
                     crate::types::list_del(&mut self.link);
                 }
             }
-            None // String deallocated
+            None
         } else {
             Some(self) // String still in use
         }

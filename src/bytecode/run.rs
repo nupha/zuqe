@@ -4,7 +4,7 @@ use crate::{
     array::JS_NewArray,
     atom::{
         consts::{JS_ATOM_return, JS_ATOM_throw},
-        JSAtom, JSAtomType, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
+        JSAtom, JSAtomType, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
     },
     bytecode::{
         arithmatic::{
@@ -1335,7 +1335,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::PRIVATE_SYMBOL => {
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
-                    let val = JS_NewSymbolFromAtom(ctx, atom, JSAtomType::Private);
+                    let val = JS_NewSymbolFromAtom(ctx, atom, JSAtomTypeHint::Private);
                     if val.is_exception() {
                         goto = Some(GotoLabel::Exception);
                     } else {

@@ -4,7 +4,7 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
-        JSAtom, JSAtomType, JS_AtomIsArrayIndex, JS_FreeAtomRT, __JS_FindAtom,
+        JSAtom, JSAtomType, JSAtomTypeHint, JS_AtomIsArrayIndex, JS_FreeAtomRT, __JS_FindAtom,
     },
     context::{JSContext, JS_FreeContext},
     function::{
@@ -216,10 +216,10 @@ impl JSRuntime {
         let cstr = unsafe { CStr::from_ptr(class_def.class_name) };
         let str = cstr.to_str().unwrap();
 
-        let name = if let Some(a) = unsafe { __JS_FindAtom(self, str, JSAtomType::String) } {
+        let name = if let Some(a) = unsafe { __JS_FindAtom(self, str, JSAtomTypeHint::String) } {
             a
         } else {
-            JSAtom::from_str(self, str, JSAtomType::String)?
+            self.add_atom_str(str, JSAtomTypeHint::String)?
         };
 
         unsafe {

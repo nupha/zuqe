@@ -150,7 +150,7 @@ pub unsafe fn define_var(
                 idx = GLOBAL_VAR_OFFSET;
             } else {
                 #[cfg(debug_assertions)]
-                let _name_refcnt = (*(*s).ctx).rt().atom_ref_count(name);
+                let _name_refcnt = name.ref_count((*(*s).ctx).rt());
 
                 idx = if let Some(id) = (*fd).find_var(name) {
                     // the variable already exists, don't add it again

@@ -3,7 +3,8 @@ use std::{ffi::c_void, mem::ManuallyDrop};
 use crate::{
     array_buffer::JSArrayBuffer,
     atom::{
-        consts::*, js_symbol_to_atom, JSAtom, JSAtomType, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
+        consts::*, js_symbol_to_atom, JSAtom, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom,
+        JS_ATOM_NULL,
     },
     class::JSClassID,
     context::{JSContext, JS_FreeContext},
@@ -982,22 +983,22 @@ pub unsafe fn JS_DefineObjectNameComputed(
     flags: u32,
 ) -> i32 {
     if JS_IsObject(obj) && !js_object_has_name(ctx, obj) {
-        let prop: JSAtom;
-        let name_str: JSValue;
-        prop = JS_ValueToAtom(ctx, str);
+        let prop = JS_ValueToAtom(ctx, str);
         if prop == JS_ATOM_NULL {
             return -1;
         }
-        name_str = js_get_function_name(ctx, prop);
+
+        let name_str = js_get_function_name(ctx, prop);
         JS_FreeAtom(ctx, prop);
-        if JS_IsException(name_str) {
+        if name_str.is_exception() {
             return -1;
         }
         if JS_DefinePropertyValue(ctx, obj, JS_ATOM_name, name_str, flags) < 0 {
             return -1;
         }
     }
-    return 0;
+
+    0
 }
 
 // Note: all the fields are already sealed except length
@@ -1172,7 +1173,7 @@ pub unsafe fn JS_AddBrand(ctx: *mut JSContext, obj: JSValueConst, home_obj: JSVa
 
     let brand = if prs.is_null() {
         // if the brand is not present, add it
-        let br = JS_NewSymbolFromAtom(ctx, JS_ATOM_brand, JSAtomType::Private);
+        let br = JS_NewSymbolFromAtom(ctx, JS_ATOM_brand, JSAtomTypeHint::Private);
         if JS_IsException(br) {
             return -1;
         }
@@ -1232,7 +1233,7 @@ pub unsafe fn JS_DefinePrivateField(
         return -1;
     }
 
-    let prop = js_symbol_to_atom(ctx, name as JSValue);
+    let prop = js_symbol_to_atom(ctx, name);
     let p = JS_VALUE_GET_OBJ(obj);
     let mut pr = std::ptr::null_mut::<JSProperty>();
     let prs = find_own_property(&mut pr, p, prop);
@@ -1290,8 +1291,9 @@ pub unsafe fn JS_SetPrivateField(
         JS_FreeValue(ctx, val);
         return -1;
     }
-    // safety check
-    if unlikely(JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL) {
+
+    // ensure name must be a Symbol
+    if JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL {
         ctx.as_mut().unwrap().JS_ThrowTypeErrorNotASymbol();
         JS_FreeValue(ctx, val);
         return -1;

@@ -1,5 +1,4 @@
 use zhuque::{
-    atom::JS_DumpAtoms,
     context::JS_FreeContext,
     eval::{JS_Eval, JS_EVAL_TYPE_GLOBAL},
     gc::JS_DumpGCObjects,
