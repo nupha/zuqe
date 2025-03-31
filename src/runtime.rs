@@ -24,7 +24,8 @@ use crate::{
     },
     stack_frame::JSStackFrame,
     types::{
-        init_list_head, list_del, list_empty, list_foreach, list_head, JSSharedArrayBufferFunctions,
+        init_list_head, list_del, list_empty, list_foreach, list_foreach_safe, list_head,
+        JSSharedArrayBufferFunctions,
     },
     utils::js_get_stack_pointer,
     value::{
@@ -350,7 +351,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
                             println!("Atom leaks: (NANE, ID, REFCNT)");
                         }
                     }
-                    if !(*rt).rt_info.is_null() {
+                    if !rt.rt_info.is_null() {
                         print!(" ");
                     } else {
                         print!("    {:6} {:6} ", i, (*p).ref_count());
@@ -372,7 +373,6 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
                             JS_DumpString(rt, p);
                             print!(")");
                         }
-                        _ => {}
                     }
 
                     if !rt.rt_info.is_null() {
@@ -392,6 +392,8 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     // free atoms
     for a in rt.atom_slots.drain(..) {
         if let Some(mut p) = a {
+            debug_assert_eq!(p.as_ref().ref_count(), 1);
+
             #[cfg(feature = "dump_leaks")]
             list_del(&mut p.as_mut().link);
 
@@ -400,6 +402,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     }
     rt.atom_hash_lut.clear();
 
+    // dump string leakage
     #[cfg(feature = "dump_leaks")]
     {
         if !list_empty(&mut rt.debug_string_list) {
@@ -409,25 +412,28 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
                     std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
                 );
             } else {
-                println!("String leaks (VALUE, REFCOUNT):\n");
+                println!("String leaks:\n");
             }
 
-            list_foreach(&mut rt.debug_string_list, |el| {
-                let ss = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
+            list_foreach_safe(&mut rt.debug_string_list, |el| {
+                let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
 
                 if !rt.rt_info.is_null() {
                     print!(" ");
                 } else {
-                    print!("    {:6} ", (*ss).ref_count());
+                    print!("    {:6} ", (*str).ref_count());
                 }
-                JS_DumpString(rt, ss);
+
+                JS_DumpString(rt, str);
+
                 if !rt.rt_info.is_null() {
-                    println!(":{}", (*ss).ref_count());
+                    println!(":{}", (*str).ref_count());
                 } else {
                     println!("");
                 }
-                list_del(&mut (*ss).link);
-                drop(Box::from_raw(ss));
+
+                list_del(&mut (*str).link);
+                drop(Box::from_raw(str));
             });
 
             if !rt.rt_info.is_null() {

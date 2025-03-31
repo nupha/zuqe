@@ -195,12 +195,12 @@ pub unsafe fn run_bytecodes(
 
         // loop bytecodes
         loop {
-            #[cfg(feature = "dump_bytecode")]
-            {
-                print!("[O.o] RUN {:5}: ", pc.offset_from(pc_base));
-                crate::bytecode::dump::dump_opcode_one(ctx, b, pc.offset_from(pc_base) as usize);
-                println!();
-            }
+            // #[cfg(feature = "dump_bytecode")]
+            // {
+            //     print!("[O.o] RUN {:5}: ", pc.offset_from(pc_base));
+            //     crate::bytecode::dump::dump_opcode_one(ctx, b, pc.offset_from(pc_base) as usize);
+            //     println!();
+            // }
 
             let opcode = std::mem::transmute::<u8, OpCode>(*pc);
             PC_GO!(1);

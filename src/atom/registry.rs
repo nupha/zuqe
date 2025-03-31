@@ -130,11 +130,6 @@ impl JSRuntime {
             }
         }
 
-        #[cfg(feature = "dump_leaks")]
-        unsafe {
-            crate::types::list_add_tail(&mut atom_desc.link, &mut self.debug_string_list);
-        }
-
         // find a free slot
         let (idx, aid) = if let Some(idx) = self
             .atom_slots
@@ -177,7 +172,13 @@ impl JSRuntime {
             }
         }
 
-        let p = NonNull::new(Box::into_raw(atom_desc)).unwrap(); // <-- take ownership of Box<JSString>
+        let mut p = NonNull::new(Box::into_raw(atom_desc)).unwrap(); // <-- take ownership of Box<JSString>
+
+        #[cfg(feature = "dump_leaks")]
+        unsafe {
+            crate::types::list_add_tail(&mut p.as_mut().link, &mut self.debug_string_list);
+        }
+
         if let Some(i) = idx {
             debug_assert!(i != 0, "atom slot #0 is not usable");
             debug_assert!(self.atom_slots[i].is_none(), "atom slot {i} is in use");

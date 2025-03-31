@@ -46,6 +46,26 @@ impl StringContent {
         }
     }
 
+    /// Creates StringContent from UTF-8 encoded bytes
+    ///
+    /// Handles both ASCII and non-ASCII UTF-8 content:
+    /// - ASCII content is stored as-is in UTF-8 format
+    /// - Non-ASCII content is converted to UTF-16 for better Unicode support
+    pub fn from_utf8(data: Vec<u8>) -> Result<Self, i32> {
+        debug_assert!(!data.is_empty());
+
+        if data.is_empty() {
+            Ok(Self::Empty)
+        } else if data.is_ascii() {
+            Ok(Self::Utf8(data))
+        } else {
+            let mut u = Vec::<u16>::try_with_capacity(data.len() / 2).map_err(|_| -1)?;
+            u.extend(unsafe { String::from_utf8_unchecked(data).encode_utf16() });
+            u.shrink_to_fit();
+            Ok(Self::Utf16(u))
+        }
+    }
+
     pub fn with_capacity(cap: usize, is_wide: bool) -> Result<Self, TryReserveError> {
         if is_wide {
             Ok(Self::Utf16(Vec::<u16>::try_with_capacity(cap)?))
@@ -57,7 +77,7 @@ impl StringContent {
     pub fn reserve(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
             Self::Empty => {
-                std::mem::replace(self, Self::Utf8(Vec::<u8>::try_with_capacity(cap)?));
+                let _ = std::mem::replace(self, Self::Utf8(Vec::<u8>::try_with_capacity(cap)?));
                 Ok(())
             }
             Self::Utf8(s) => s.try_reserve(cap),
@@ -68,7 +88,7 @@ impl StringContent {
     pub fn try_reserve_exact(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
             Self::Empty => {
-                std::mem::replace(self, Self::Utf8(Vec::<u8>::try_with_capacity(cap)?));
+                let _ = std::mem::replace(self, Self::Utf8(Vec::<u8>::try_with_capacity(cap)?));
                 Ok(())
             }
             Self::Utf8(s) => s.try_reserve_exact(cap),

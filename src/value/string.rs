@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     ffi::{c_char, CStr},
     ptr::NonNull,
+    sync::atomic::AtomicBool,
 };
 
 use fallible_collections::FallibleVec;
@@ -97,11 +98,10 @@ impl JSString {
             link: list_head::default(),
         });
 
-        #[cfg(feature = "dump_leaks")]
-        unsafe {
-            crate::types::init_list_head(&mut ss.link);
-            crate::types::list_add_tail(&mut ss.link, &mut rt.debug_string_list);
-        }
+        // #[cfg(feature = "dump_leaks")]
+        // unsafe {
+        //     crate::types::list_add_tail(&mut ss.link, &mut rt.debug_string_list);
+        // }
 
         Ok(ss)
     }
@@ -156,16 +156,7 @@ impl JSString {
     /// * `Ok(Box<JSString>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub fn from_utf8(rt: &mut JSRuntime, data: Vec<u8>) -> Result<Box<Self>, i32> {
-        debug_assert!(!data.is_empty());
-
-        if data.is_ascii() {
-            Self::from_content(rt, StringContent::Utf8(data))
-        } else {
-            let mut u = Vec::<u16>::try_with_capacity(data.len() / 2).map_err(|_| -1)?;
-            u.extend(unsafe { String::from_utf8_unchecked(data).encode_utf16() });
-            u.shrink_to_fit();
-            Self::from_content(rt, StringContent::Utf16(u))
-        }
+        JSString::from_content(rt, StringContent::from_utf8(data).map_err(|_| -1)?)
     }
 
     /// create a new jsstring copying from an other jsstring
@@ -299,16 +290,49 @@ impl JSString {
             Some(self) // String still in use
         }
     }
+
+    #[cfg(feature = "dump_leaks")]
+    /// consume Box<JSString>, make into JSValue
+    pub fn into_value(mut self: Box<Self>, rt: &mut JSRuntime) -> JSValue {
+        unsafe {
+            crate::types::list_add_tail(&mut self.link, &mut rt.debug_string_list);
+        }
+        JS_MKPTR!(JSTag::String, Box::into_raw(self).cast())
+    }
+
+    #[cfg(not(feature = "dump_leaks"))]
+    /// consume Box<JSString>, make into JSValue
+    pub fn into_value(self: Box<Self>, rt: &mut JSRuntime) -> JSValue {
+        JS_MKPTR!(JSTag::String, Box::into_raw(self).cast())
+    }
 }
 
 impl JSContext {
     /// create string value with provieded raw content bytes as-is.
     /// returns JS_EXCEPTION if fail.
     pub unsafe fn create_string_from_content(&mut self, content: StringContent) -> JSValue {
-        if let Ok(s) = JSString::from_content(self.rt_mut(), content) {
-            JS_MKPTR!(JSTag::String, Box::into_raw(s).cast())
+        if content == StringContent::Empty {
+            unsafe { JS_ATOM_empty_string.to_value(self, true) }
+        } else if let Ok(s) = JSString::from_content(self.rt_mut(), content) {
+            s.into_value(self.rt_mut())
         } else {
             self.JS_ThrowOutOfMemory();
+            JSValue::EXCEPTION
+        }
+    }
+
+    /// create string jsvalue from an utf8 encoded str.
+    pub fn create_string(&mut self, str: &str) -> JSValue {
+        if str.is_empty() {
+            unsafe { JS_ATOM_empty_string.to_value(self, true) }
+        } else if str.len() > JS_STRING_LEN_MAX {
+            unsafe { self.JS_ThrowInternalError(c"string too long") }
+        } else if let Ok(ss) = JSString::from_str(self.rt_mut(), str) {
+            ss.into_value(self.rt_mut())
+        } else {
+            unsafe {
+                self.JS_ThrowOutOfMemory();
+            }
             JSValue::EXCEPTION
         }
     }
@@ -331,33 +355,12 @@ impl JSContext {
             unsafe { self.JS_ThrowInternalError(c"string too long") }
         } else {
             if let Ok(ss) = JSString::from_utf8(self.rt_mut(), data) {
-                JS_MKPTR!(JSTag::String, Box::into_raw(ss).cast())
+                ss.into_value(self.rt_mut())
             } else {
                 unsafe {
                     self.JS_ThrowOutOfMemory();
                 }
                 JSValue::EXCEPTION
-            }
-        }
-    }
-
-    /// create string jsvalue from an utf8 encoded str.
-    pub fn create_string(&mut self, str: &str) -> JSValue {
-        if str.is_empty() {
-            unsafe { JS_ATOM_empty_string.to_value(self, true) }
-        } else if str.len() > JS_STRING_LEN_MAX {
-            unsafe { self.JS_ThrowInternalError(c"string too long") }
-        } else {
-            match JSString::from_str(self.rt_mut(), str) {
-                Ok(ss) => {
-                    JS_MKPTR!(JSTag::String, Box::into_raw(ss).cast())
-                }
-                Err(_) => {
-                    unsafe {
-                        self.JS_ThrowOutOfMemory();
-                    }
-                    JSValue::EXCEPTION
-                }
             }
         }
     }

@@ -5,7 +5,7 @@ use crate::{
     mem::{js_free_rt, js_malloc_typed, js_mallocz_rt, js_realloc_rt},
     regexp::is_digit,
     runtime::JSRuntime,
-    types::likely,
+    types::{likely, list_find},
     value::{
         object::JS_ToPropertyKey, JSString, JSTag, JSValue, JSValueConst, JS_DumpString,
         JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToNumber, JS_ToString, StringContent,
@@ -163,7 +163,7 @@ impl JSAtom {
         }
     }
 
-    /// convert atom to JSValue.
+    /// convert atom to JSValue. Atom description is duplicated inside.
     /// will return JSValue::EXCEPTION if failed.
     pub unsafe fn to_value(self, ctx: &mut JSContext, force_string: bool) -> JSValue {
         if self.is_int_type() {
@@ -171,15 +171,12 @@ impl JSAtom {
         } else {
             let rt = ctx.rt();
 
-            let mut p = rt.get_atom_desc(self).expect("INVALID ATOM");
+            let p = rt.get_atom_desc(self).expect("INVALID ATOM");
             let ss = p.as_ref();
 
             if let JSAtomType::String(_) = ss.atom_type().unwrap() {
                 JS_MKPTR!(JSTag::String, p.as_ptr().cast()).dup()
             } else if force_string {
-                if ss.is_empty() {
-                    p = rt.get_atom_desc(JS_ATOM_empty_string).unwrap();
-                }
                 JS_MKPTR!(JSTag::String, p.as_ptr().cast()).dup()
             } else {
                 JS_MKPTR!(JSTag::Symbol, p.as_ptr().cast()).dup()
@@ -573,6 +570,7 @@ pub unsafe fn find_atom(ctx: *mut JSContext, name: &str) -> JSAtom {
 pub unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
     if let Some(mut p) = (*rt).get_atom_desc(i) {
         debug_assert!(p.as_ref().ref_count() > 0);
+
         if p.as_mut().dec_ref() == 0 {
             JS_FreeAtomStruct(rt, p);
         }
@@ -623,7 +621,14 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, mut p: NonNull<JSAtomStruct>
     }
 
     #[cfg(feature = "dump_leaks")]
-    crate::types::list_del(&mut p.as_mut().link);
+    {
+        debug_assert!(list_find(
+            &mut p.as_mut().link,
+            &mut (*rt).debug_string_list
+        ));
+
+        crate::types::list_del(&mut p.as_mut().link);
+    }
 
     // drop JSString
     drop(Box::from_raw(p.as_ptr()));
