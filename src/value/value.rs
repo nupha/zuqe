@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::{JSAtomType, JS_FreeAtomStruct},
+    atom::JS_FreeAtomStruct,
     context::JSContext,
     error::JS_ThrowRangeError,
     gc::{free_zero_refcount, JSGCObjectHeader, JSGCPhaseEnum},
@@ -382,9 +382,10 @@ pub unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
     }
 }
 
-/// when value tag is STRING, this returns JSString raw pointer, null means empty string.
 #[inline(always)]
 pub(crate) fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
+    debug_assert_eq!(JS_VALUE_GET_TAG(v), JS_TAG_STRING);
+    debug_assert!(!JS_VALUE_GET_PTR(v).is_null());
     JS_VALUE_GET_PTR(v).cast()
 }
 

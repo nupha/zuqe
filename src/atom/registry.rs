@@ -124,10 +124,6 @@ impl JSRuntime {
             _ => {}
         }
 
-        if atom_desc.is_empty() {
-            println!("[O.o] atom type {type_hint:?}, empty_str, hash={hash}");
-        }
-
         if self.atom_hash_lut.len() == self.atom_hash_lut.capacity() {
             if self.atom_hash_lut.try_reserve(16).is_err() {
                 return Err((-1, str));

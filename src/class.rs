@@ -105,12 +105,14 @@ impl Default for JSClassDef {
 
 #[repr(C)]
 pub struct JSClass {
-    pub class_id: JSClassID, /* 0 means free entry */
+    /// 0 means free entry
+    pub class_id: JSClassID,
     pub class_name: JSAtom,
     pub finalizer: JSClassFinalizer,
     pub gc_mark: JSClassGCMark,
     pub call: Option<JSClassCall>,
-    /* pointers for exotic behavior, can be NULL if none are present */
+
+    /// pointers for exotic behavior, can be NULL if none are present
     pub exotic: *const JSClassExoticMethods,
 }
 
