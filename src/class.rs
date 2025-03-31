@@ -5,6 +5,7 @@ use crate::{
     atom::{
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
         JSAtom, JSAtomType, JSAtomTypeHint, JS_AtomIsArrayIndex, JS_FreeAtomRT, __JS_FindAtom,
+        JS_ATOM_NULL,
     },
     context::{JSContext, JS_FreeContext},
     function::{
@@ -142,73 +143,40 @@ impl JSRuntime {
     ) -> Result<(), i32> {
         if class_id >= (1 << 16) {
             return Err(-1);
-        } else if class_id < self.class_count as u32
-            && (*self.class_array.offset(class_id as _)).class_id != 0
-        {
-            return Err(-1); // class_id is used
         }
 
-        if class_id >= self.class_count as u32 {
-            let new_size = std::cmp::max(
-                JS_CLASS_INIT_COUNT,
-                std::cmp::max(class_id + 1, (self.class_count as u32 * 3) / 2),
-            );
-
-            // reallocate the context class prototype array, if any
-            for ctx in self.context_list.iter_mut() {
-                let sz = new_size as usize - (*ctx).class_proto.len();
-                if ctx.class_proto.try_reserve_exact(sz).is_err() {
-                    return Err(-1);
-                } else {
-                    ctx.class_proto
-                        .extend(std::iter::repeat_n(JSValue::NULL, sz));
-                }
+        if (class_id as usize) < self.class_array.len() {
+            if self.class_array[class_id as usize].class_id != 0 {
+                return Err(-1); // class_id slot is in use
+            }
+        } else {
+            if class_id as usize >= self.class_array.capacity() {
+                self.class_array
+                    .try_reserve(class_id as usize - self.class_array.capacity() + 1)
+                    .map_err(|_| -1)?;
             }
 
-            // let r = list_foreach_with_ret(&mut self.context_list, |el| {
-            //     let ctx = list_entry!(el, JSContext, link);
-
-            //     let sz = new_size as usize - (*ctx).class_proto.len();
-            //     if (*ctx).class_proto.try_reserve_exact(sz).is_err() {
-            //         Some(-1) // abort err
-            //     } else {
-            //         (*ctx).class_proto.extend(std::iter::repeat_n(JS_NULL, sz));
-            //         None
-            //     }
-            // });
-            // if r.is_some() {
-            //     return Err(-1);
-            // }
-
-            // reallocate the class array
-            let new_class_array: *mut JSClass = js_realloc_rt(
-                self,
-                self.class_array.cast(),
-                std::mem::size_of::<JSClass>() * new_size as usize,
-            )
-            .cast();
-
-            if new_class_array.is_null() {
-                return Err(-1);
+            // fill slots with empty entries
+            for _ in 0..=(class_id as usize - self.class_array.len()) {
+                self.class_array.push(JSClass {
+                    class_id: 0,
+                    class_name: JS_ATOM_NULL,
+                    finalizer: None,
+                    gc_mark: None,
+                    call: None,
+                    exotic: std::ptr::null(),
+                });
             }
-
-            std::ptr::write_bytes(
-                new_class_array.offset(self.class_count as isize),
-                0,
-                (new_size as usize - self.class_count as usize) * std::mem::size_of::<JSClass>(),
-            );
-
-            self.class_array = new_class_array;
-            self.class_count = new_size as _;
         }
 
-        let cl = self.class_array.offset(class_id as _);
-        (*cl).class_id = class_id;
-        (*cl).class_name = name.dup(self);
-        (*cl).finalizer = (*class_def).finalizer;
-        (*cl).gc_mark = (*class_def).gc_mark;
-        (*cl).call = (*class_def).call;
-        (*cl).exotic = (*class_def).exotic;
+        self.class_array[class_id as usize] = JSClass {
+            class_id,
+            class_name: name.dup(self),
+            finalizer: (*class_def).finalizer,
+            gc_mark: (*class_def).gc_mark,
+            call: (*class_def).call,
+            exotic: (*class_def).exotic,
+        };
 
         Ok(())
     }
@@ -254,22 +222,25 @@ impl JSContext {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns JS_NULL.
     pub fn get_class_proto(&self, class_id: JSClassID) -> JSValue {
-        debug_assert_eq!(self.class_proto.len(), unsafe {
-            self.rt.as_ref().class_count as usize
-        });
         debug_assert!((class_id as usize) < self.class_proto.len());
+        // debug_assert_eq!(self.class_proto.len(), unsafe {
+        //     self.rt.as_ref().class_array.len()
+        // });
         self.class_proto[class_id as usize].dup()
     }
 
     pub fn set_class_proto(&mut self, class_id: JSClassID, proto_obj: JSValue) {
-        debug_assert_eq!(self.class_proto.len(), self.rt().class_count as usize);
+        // debug_assert_eq!(self.class_proto.len(), self.rt().class_array.len());
         debug_assert!(class_id < self.class_proto.len() as JSClassID);
         debug_assert_eq!(
             JS_VALUE_GET_TAG(self.class_proto[class_id as usize]),
             JS_TAG_NULL
         );
 
-        unsafe { self.class_proto[class_id as usize].replace(proto_obj) };
+        unsafe {
+            let old = self.class_proto[class_id as usize].replace(proto_obj);
+            JS_FreeValue(self, old);
+        }
     }
 }
 

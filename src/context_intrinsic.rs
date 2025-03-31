@@ -277,22 +277,51 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
         // XXX: create auto_initializer
         {
             // initialize Array.prototype[Symbol.unscopables]
-            let unscopables: &[u8] = b"copyWithin\0entries\0fill\0find\0findIndex\0findLast\0findLastIndex\0flat\0flatMap\0includes\0keys\0toReversed\0toSorted\0toSpliced\0values\0";
-            let mut p: *const u8 = unscopables.as_ptr();
+            let unscopables = [
+                "copyWithin\0",
+                "entries\0",
+                "fill\0",
+                "find\0",
+                "findIndex\0",
+                "findLast\0",
+                "findLastIndex\0",
+                "flat\0",
+                "flatMap\0",
+                "includes\0",
+                "keys\0",
+                "toReversed\0",
+                "toSorted\0",
+                "toSpliced\0",
+                "values\0",
+            ];
             let obj1 = JS_NewObjectProto(ctx, JSValue::NULL);
-            let mut p_start = p;
-            while *p != 0 {
-                let len = libc::strlen(p as *const i8);
-                p = p.add(len + 1);
+            for s in unscopables {
                 JS_DefinePropertyValueStr(
                     ctx,
                     obj1,
-                    CStr::from_ptr(p_start.cast()),
+                    CStr::from_bytes_with_nul_unchecked(s.as_bytes()),
                     JSValue::TRUE,
                     JS_PROP_C_W_E,
                 );
-                p_start = p;
             }
+
+            // let unscopables: &[u8] = b"copyWithin\0entries\0fill\0find\0findIndex\0findLast\0findLastIndex\0flat\0flatMap\0includes\0keys\0toReversed\0toSorted\0toSpliced\0values\0";
+            // let mut p: *const u8 = unscopables.as_ptr();
+            // let obj1 = JS_NewObjectProto(ctx, JSValue::NULL);
+            // let mut p_start = p;
+            // while *p != 0 {
+            //     let len = libc::strlen(p as *const i8);
+            //     p = p.add(len + 1);
+            //     JS_DefinePropertyValueStr(
+            //         ctx,
+            //         obj1,
+            //         CStr::from_ptr(p_start.cast()),
+            //         JSValue::TRUE,
+            //         JS_PROP_C_W_E,
+            //     );
+            //     p_start = p;
+            // }
+
             JS_DefinePropertyValue(
                 ctx,
                 (*ctx).class_proto[JS_CLASS_ARRAY as usize],

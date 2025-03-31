@@ -283,10 +283,7 @@ pub unsafe fn JS_NewObjectFromShape(
         JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL | JS_CLASS_DATE
         | JS_CLASS_BIG_INT => {
             obj.u.object_data = JS_UNDEFINED;
-            if !(*(*ctx).rt().class_array.add(class_id as usize))
-                .exotic
-                .is_null()
-            {
+            if !(*ctx).rt().class_array[class_id as usize].exotic.is_null() {
                 obj.detailed.set_exotic(true);
             }
         }
@@ -307,10 +304,7 @@ pub unsafe fn JS_NewObjectFromShape(
         }
 
         _ => {
-            if !(*(*ctx).rt().class_array.add(class_id as usize))
-                .exotic
-                .is_null()
-            {
+            if !(*ctx).rt().class_array[class_id as usize].exotic.is_null() {
                 obj.detailed.set_exotic(true);
             }
         }

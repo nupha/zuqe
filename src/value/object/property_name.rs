@@ -84,7 +84,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
                     js_string_obj_get_length(ctx, JS_MKPTR!(JSTag::Object, p.cast())) as u32;
             }
         } else {
-            let em = (*(*ctx).rt().class_array.offset((*p).class_id() as isize)).exotic;
+            let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
             if !em.is_null() && (*em).get_own_property_names.is_some() {
                 if ((*em).get_own_property_names.unwrap())(
                     ctx,

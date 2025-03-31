@@ -64,9 +64,7 @@ pub struct JSRuntime {
     /// Value is a list of atom index. Note: JSString hash may have collison.
     pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
-    // TODO: use Vec<JSClass>
-    pub class_array: *mut JSClass,
-    pub class_count: i32, /* size of class_array */
+    pub class_array: Vec<JSClass>,
 
     pub context_list: Vec<Box<JSContext>>,
 
@@ -143,8 +141,7 @@ impl JSRuntime {
                 lst
             },
 
-            class_array: std::ptr::null_mut(),
-            class_count: 0,
+            class_array: Vec::new(),
 
             gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
             current_stack_frame: std::ptr::null_mut(),
@@ -197,49 +194,20 @@ impl JSRuntime {
             //
             rt.add_classes(&js_std_class_def, JS_CLASS_OBJECT)?;
 
-            rt.class_array
-                .add(JS_CLASS_ARGUMENTS as usize)
-                .as_mut()
-                .unwrap()
-                .exotic = &js_arguments_exotic_methods;
+            rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
+            rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
+            rt.class_array[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
 
-            rt.class_array
-                .add(JS_CLASS_STRING as usize)
-                .as_mut()
-                .unwrap()
-                .exotic = &js_string_exotic_methods;
-
-            rt.class_array
-                .add(JS_CLASS_MODULE_NS as usize)
-                .as_mut()
-                .unwrap()
-                .exotic = &js_module_ns_exotic_methods;
-
-            rt.class_array
-                .add(JS_CLASS_C_FUNCTION as usize)
-                .as_mut()
-                .unwrap()
+            rt.class_array[JS_CLASS_C_FUNCTION as usize]
                 .call
                 .replace(js_call_c_function);
-
-            rt.class_array
-                .add(JS_CLASS_C_FUNCTION_DATA as usize)
-                .as_mut()
-                .unwrap()
+            rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
                 .replace(js_c_function_data_call);
-
-            rt.class_array
-                .add(JS_CLASS_BOUND_FUNCTION as usize)
-                .as_mut()
-                .unwrap()
+            rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
                 .call
                 .replace(js_call_bound_function);
-
-            rt.class_array
-                .add(JS_CLASS_GENERATOR_FUNCTION as usize)
-                .as_mut()
-                .unwrap()
+            rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
                 .call
                 .replace(js_generator_function_call);
 
@@ -356,13 +324,11 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     debug_assert!(list_empty(&mut rt.gc_obj_list));
 
     // free the classes
-    for i in 0..rt.class_count {
-        let cl: *mut JSClass = rt.class_array.offset(i as isize);
-        if (*cl).class_id != 0 {
-            JS_FreeAtomRT(rt, (*cl).class_name);
+    while let Some(cls) = rt.class_array.pop() {
+        if cls.class_id != 0 {
+            JS_FreeAtomRT(rt, cls.class_name);
         }
     }
-    js_free_rt(rt, rt.class_array.cast());
 
     #[cfg(feature = "dump_leaks")]
     {

@@ -99,6 +99,7 @@ impl JSString {
 
         #[cfg(feature = "dump_leaks")]
         unsafe {
+            crate::types::init_list_head(&mut ss.link);
             crate::types::list_add_tail(&mut ss.link, &mut rt.debug_string_list);
         }
 

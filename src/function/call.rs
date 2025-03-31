@@ -120,7 +120,7 @@ pub unsafe fn JS_CallInternal(
 
     let p = JS_VALUE_GET_OBJ(func_obj);
     if (*p).class_id() != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = (*(*rt).class_array.add((*p).detailed.class_id() as usize)).call {
+        return if let Some(cb) = (*rt).class_array[(*p).class_id() as usize].call {
             #[cfg(debug_assertions)]
             let argv_ref_count0 = if argc > 0 {
                 std::slice::from_raw_parts(argv, argc as usize)
@@ -328,15 +328,15 @@ pub unsafe fn JS_CallConstructorInternal(
     flags |= JS_CALL_FLAG_CONSTRUCTOR;
 
     if (*p).class_id() != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = (*(*ctx).rt().class_array.add((*p).class_id() as usize)).call {
-            return cb(
+        return if let Some(cb) = (*ctx).rt().class_array[(*p).class_id() as usize].call {
+            cb(
                 ctx,
                 func_obj,
                 new_target,
                 argc,
                 argv as *const JSValueConst,
                 flags,
-            );
+            )
         } else {
             (*ctx).JS_ThrowTypeError(c"not a function")
         };
@@ -344,21 +344,30 @@ pub unsafe fn JS_CallConstructorInternal(
 
     let b = (*p).u.func.function_bytecode.as_mut().unwrap();
     if b.is_derived_class_constructor {
-        return JS_CallInternal(ctx, func_obj, JS_UNDEFINED, new_target, argc, argv, flags);
+        return JS_CallInternal(
+            ctx,
+            func_obj,
+            JSValue::UNDEFINED,
+            new_target,
+            argc,
+            argv,
+            flags,
+        );
     } else {
         /* legacy constructor behavior */
         let this = js_create_from_ctor(ctx, new_target, JS_CLASS_OBJECT);
-        if JS_IsException(this) {
+        if this.is_exception() {
             return JSValue::EXCEPTION;
         }
+
         let ret = JS_CallInternal(ctx, func_obj, this, new_target, argc, argv, flags);
-        if JS_VALUE_GET_TAG(ret) == JS_TAG_OBJECT || JS_IsException(ret) {
+        return if JS_VALUE_GET_TAG(ret) == JS_TAG_OBJECT || JS_IsException(ret) {
             JS_FreeValue(ctx, this);
-            return ret;
+            ret
         } else {
             JS_FreeValue(ctx, ret);
-            return this;
-        }
+            this
+        };
     }
 }
 

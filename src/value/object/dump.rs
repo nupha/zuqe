@@ -101,7 +101,7 @@ impl JSObject {
         // print class name
         print!(
             "{:10} ",
-            (*(*rt).class_array.offset(self.class_id() as isize))
+            (*rt).class_array[self.class_id() as usize]
                 .class_name
                 .to_str(rt),
         );

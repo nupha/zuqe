@@ -658,7 +658,7 @@ pub unsafe fn JS_HasProperty(
 
     loop {
         if (*p).detailed.is_exotic() {
-            let em = (*(*ctx).rt().class_array.offset((*p).class_id() as isize)).exotic;
+            let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
             if !em.is_null() && (*em).has_property.is_some() {
                 // has_property can free the prototype
                 let obj1 = JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, p.cast()));
@@ -1061,13 +1061,7 @@ pub unsafe fn JS_SetPropertyInternal(
                         }
                     }
                 } else {
-                    let em = (*ctx)
-                        .rt()
-                        .class_array
-                        .offset((*proto).class_id() as _)
-                        .as_ref()
-                        .unwrap()
-                        .exotic;
+                    let em = (*ctx).rt().class_array[(*proto).class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = (*em).set_property {
                             /* set_property can free the prototype */
@@ -1673,7 +1667,7 @@ impl JSObject {
                     }
                 } else {
                     let class_id = self.class_id();
-                    let em = (*(*ctx).rt().class_array.offset(class_id as _)).exotic;
+                    let em = (*ctx).rt().class_array[class_id as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = (*em).delete_property {
                             return cb(
@@ -2205,14 +2199,7 @@ pub unsafe fn JS_GetPropertyInternal(
                     }
                 }
             } else {
-                let em = (*ctx)
-                    .rt()
-                    .class_array
-                    .offset((*p).class_id() as _)
-                    .as_ref()
-                    .unwrap()
-                    .exotic;
-
+                let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
                 if !em.is_null() {
                     if (*em).get_property.is_some() {
                         /* XXX: should pass throw_ref_error */
@@ -2552,14 +2539,7 @@ pub unsafe fn JS_CreateProperty(
                 };
             }
         } else if (flags & JS_PROP_NO_EXOTIC) == 0 {
-            let em = (*ctx)
-                .rt()
-                .class_array
-                .offset((*p).class_id() as _)
-                .as_ref()
-                .unwrap()
-                .exotic;
-
+            let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
             if !em.is_null() {
                 if (*em).define_own_property.is_some() {
                     let r = (*em).define_own_property.unwrap()(
@@ -2759,14 +2739,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                     }
                 }
             } else {
-                let em = (*ctx)
-                    .rt()
-                    .class_array
-                    .offset((*p).class_id() as _)
-                    .as_ref()
-                    .unwrap()
-                    .exotic;
-
+                let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
                 if !em.is_null() {
                     if let Some(cb) = (*em).get_own_property {
                         return cb(ctx, desc, JS_MKPTR!(JSTag::Object, p.cast()), prop);
@@ -2821,7 +2794,7 @@ pub unsafe fn JS_CopyDataProperties(
 
     let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
     if (*p).detailed.is_exotic() {
-        let em = (*(*ctx).rt().class_array.offset((*p).class_id() as isize)).exotic;
+        let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
         // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
         // introduces a visible change
         if !em.is_null() && (*em).get_own_property_names.is_some() {

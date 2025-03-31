@@ -89,12 +89,14 @@ unsafe fn __list_add(el: *mut list_head, prev: *mut list_head, next: *mut list_h
 /* add 'el' at the head of the list 'head' (= after element head) */
 #[inline(always)]
 pub unsafe fn list_add(el: *mut list_head, head: *mut list_head) {
+    debug_assert!(!head.is_null());
     __list_add(el, head, (*head).next);
 }
 
 /* add 'el' at the end of the list 'head' (= before element head) */
 #[inline]
 pub unsafe fn list_add_tail(el: *mut list_head, head: *mut list_head) {
+    debug_assert!(!(*head).prev.is_null());
     __list_add(el, (*head).prev, head);
 }
 

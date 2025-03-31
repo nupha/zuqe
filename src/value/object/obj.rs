@@ -480,7 +480,7 @@ pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
     }
 
     // call finalizer
-    if let Some(cb) = (*(*rt).class_array.add((*p).class_id() as _)).finalizer {
+    if let Some(cb) = (*rt).class_array[(*p).class_id() as usize].finalizer {
         cb(rt, JS_MKPTR!(JSTag::Object, p.cast()));
     }
 
@@ -558,8 +558,7 @@ pub unsafe fn JS_IsFunction(ctx: *mut JSContext, val: JSValueConst) -> bool {
         _ => (*ctx)
             .rt()
             .class_array
-            .offset((*p).class_id() as isize)
-            .as_ref()
+            .get((*p).class_id() as usize)
             .and_then(|c| c.call)
             .is_some(),
     }

@@ -144,7 +144,7 @@ impl JSContext {
     }
 
     pub unsafe fn JS_ThrowTypeErrorInvalidClass(&mut self, class_id: JSClassID) -> JSValue {
-        let name = (*self.rt().class_array.offset(class_id as isize)).class_name;
+        let name = self.rt().class_array[class_id as usize].class_name;
         JS_ThrowTypeErrorAtom(self, c"%s object expected", name)
     }
 }

@@ -321,9 +321,9 @@ impl JSRuntime {
 
         // initialize class proto list
         ctx.class_proto =
-            Vec::<JSValue>::try_with_capacity(self.class_count as usize).map_err(|_| -1)?;
+            Vec::<JSValue>::try_with_capacity(self.class_array.len()).map_err(|_| -1)?;
         ctx.class_proto
-            .extend(std::iter::repeat_n(JSValue::NULL, self.class_count as _));
+            .extend(std::iter::repeat_n(JSValue::NULL, self.class_array.len()));
 
         init_list_head(&mut ctx.loaded_modules);
 

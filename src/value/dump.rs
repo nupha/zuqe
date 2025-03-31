@@ -62,7 +62,7 @@ impl JSValue {
             }
             JSTag::Object => {
                 let p = JS_VALUE_GET_OBJ(self);
-                let atom = (*(*rt).class_array.offset((*p).class_id() as isize)).class_name;
+                let atom = (*rt).class_array[(*p).class_id() as usize].class_name;
                 format!("[{} {p:p}]", atom.to_str(rt)).into()
             }
             JSTag::Symbol => {

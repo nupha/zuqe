@@ -140,9 +140,7 @@ pub unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_
             }
 
             if (*p).class_id() != JS_CLASS_OBJECT {
-                let gc_mark = (*(*rt).class_array.wrapping_add((*p).class_id() as usize)).gc_mark;
-
-                if let Some(f) = gc_mark {
+                if let Some(f) = (*rt).class_array[(*p).class_id() as usize].gc_mark {
                     f(rt, JS_MKPTR!(JSTag::Object, p.cast()), mark_func);
                 }
             }
@@ -428,9 +426,14 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
     for i in 0..JS_NATIVE_ERROR_COUNT {
         JS_MarkValue(rt, ctx.native_error_proto[i], mark_func);
     }
-    for i in 0..rt.class_count {
-        JS_MarkValue(rt, ctx.class_proto[i as usize], mark_func);
+
+    for cproto in ctx.class_proto.iter() {
+        JS_MarkValue(rt, *cproto, mark_func);
     }
+    // for i in 0..rt.class_count {
+    //     JS_MarkValue(rt, ctx.class_proto[i as usize], mark_func);
+    // }
+
     JS_MarkValue(rt, ctx.iterator_proto, mark_func);
     JS_MarkValue(rt, ctx.async_iterator_proto, mark_func);
     JS_MarkValue(rt, ctx.promise_ctor, mark_func);
