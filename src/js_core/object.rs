@@ -1,7 +1,6 @@
 use crate::{
     array::{js_array_push, JS_IsArray, JS_NewArray},
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
-    bytecode::arithmatic::js_same_value,
     class::js_create_from_ctor,
     context::{JSContext, JS_GetActiveFunction},
     function::{check_function, js_poll_interrupts, JSCFunctionListEntry, JS_Call, JS_Invoke},
@@ -663,7 +662,7 @@ pub unsafe fn js_object_is(
     argc: i32,
     argv: *mut JSValue,
 ) -> JSValue {
-    JS_NewBool(ctx, js_same_value(ctx, *argv.add(0), *argv.add(1)))
+    JS_NewBool(ctx, (*argv.add(0)).is_same(*argv.add(1)))
 }
 
 /// Object.assign(obj, source1)
@@ -674,24 +673,23 @@ pub unsafe fn js_object_assign(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let obj = JS_ToObject(ctx, *argv.offset(0));
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
     for i in 1..argc {
         let a = *argv.add(i as usize);
 
-        if !JS_IsNull(a) && !JS_IsUndefined(a) {
+        if !a.is_undefined_or_null() {
             let s = JS_ToObject(ctx, a);
-            if JS_IsException(s) {
+            if s.is_exception() {
                 // C2RS: goto exception replaced with conditional logic
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, s);
                 return JSValue::EXCEPTION;
             }
 
-            if JS_CopyDataProperties(ctx, obj, s, JS_UNDEFINED, true).is_err() {
-                // C2RS: goto exception replaced with conditional logic
+            if JS_CopyDataProperties(ctx, obj, s, JSValue::UNDEFINED, true).is_err() {
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, s);
                 return JSValue::EXCEPTION;

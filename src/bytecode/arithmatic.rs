@@ -528,6 +528,70 @@ pub(super) unsafe fn relational(
     }
 }
 
+impl JSValue {
+    /// compare JSValues equality with mode. both values will keep ref_count unchanged.
+    fn strict_eq_internal(self, other: JSValue, eq_mode: JSStrictEqModeEnum) -> bool {
+        let tag1 = JS_VALUE_GET_NORM_TAG(self);
+        let tag2 = JS_VALUE_GET_NORM_TAG(other);
+
+        let res: bool = match (tag1, tag2) {
+            (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
+                JS_VALUE_GET_INT(self) == JS_VALUE_GET_INT(other)
+            }
+            (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
+            (JSTag::String, JSTag::String) => self.string().content() == other.string().content(),
+            (JSTag::Symbol, JSTag::Symbol) => JS_VALUE_GET_PTR(self) == JS_VALUE_GET_PTR(other),
+            (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(self) == JS_VALUE_GET_OBJ(other),
+            (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
+                let d1 = if tag1 == JSTag::Int {
+                    JS_VALUE_GET_INT(self) as f64
+                } else {
+                    JS_VALUE_GET_FLOAT64(self)
+                };
+                let d2 = if tag2 == JSTag::Int {
+                    JS_VALUE_GET_FLOAT64(other)
+                } else {
+                    JS_VALUE_GET_FLOAT64(other)
+                };
+
+                if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
+                    if d1.is_nan() || d2.is_nan() {
+                        d1.is_nan() == d2.is_nan()
+                    } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
+                        d1 == d2 // +0 == -0
+                    } else {
+                        let u1 = JSFloat64Union { d: d1 };
+                        let u2 = JSFloat64Union { d: d2 };
+                        unsafe { u1.u64 == u2.u64 } // +0 != -0
+                    }
+                } else {
+                    d1 == d2 // if NaN return false and +0 == -0
+                }
+            }
+
+            (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
+                println!("BigInt is not supported");
+                false
+            }
+            _ => false,
+        };
+
+        res
+    }
+
+    /// compare JSValues equality. both values keep ref_count unchanged.
+    #[inline(always)]
+    pub fn strict_eq(self, other: JSValue) -> bool {
+        self.strict_eq_internal(other, JSStrictEqModeEnum::JS_EQ_STRICT)
+    }
+
+    /// compare if two values are same. both values keep ref_count unchanged.
+    #[inline(always)]
+    pub fn is_same(self, other: JSValue) -> bool {
+        self.strict_eq_internal(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE)
+    }
+}
+
 #[inline(always)]
 pub unsafe fn js_eq(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
     let op1 = *sp.offset(-2);
@@ -647,213 +711,91 @@ pub enum JSStrictEqModeEnum {
     JS_EQ_SAME_VALUE_ZERO,
 }
 
-// XXX: Should take JSValueConst arguments
+/// op1, op2 are consumed
+#[deprecated(note = "use JSValue::strict_eq2() instead")]
 pub unsafe fn js_strict_eq2(
     ctx: *mut JSContext,
     op1: JSValue,
     op2: JSValue,
     eq_mode: JSStrictEqModeEnum,
 ) -> bool {
-    let tag1 = JS_VALUE_GET_NORM_TAG(op1);
-    let tag2 = JS_VALUE_GET_NORM_TAG(op2);
+    let res = op1.strict_eq_internal(op2, eq_mode);
 
-    let res: bool = match (tag1, tag2) {
-        (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
-            JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2)
-        }
-        (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
-        (JSTag::String, JSTag::String) => {
-            let p1 = JS_VALUE_GET_STRING(op1);
-            let p2 = JS_VALUE_GET_STRING(op2);
-            (*p1).content().eq(p2.as_ref().unwrap().content())
-        }
-        (JSTag::Symbol, JSTag::Symbol) => {
-            let p1 = JS_VALUE_GET_PTR(op1);
-            let p2 = JS_VALUE_GET_PTR(op2);
-            p1 == p2
-        }
-        (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2),
-        (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
-            let d1 = if tag1 == JSTag::Int {
-                JS_VALUE_GET_INT(op1) as f64
-            } else {
-                JS_VALUE_GET_FLOAT64(op1)
-            };
-            let d2 = if tag2 == JSTag::Int {
-                JS_VALUE_GET_FLOAT64(op2)
-            } else {
-                JS_VALUE_GET_FLOAT64(op2)
-            };
+    // let tag1 = JS_VALUE_GET_NORM_TAG(op1);
+    // let tag2 = JS_VALUE_GET_NORM_TAG(op2);
 
-            if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
-                if d1.is_nan() || d2.is_nan() {
-                    d1.is_nan() == d2.is_nan()
-                } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-                    d1 == d2 // +0 == -0
-                } else {
-                    let u1 = JSFloat64Union { d: d1 };
-                    let u2 = JSFloat64Union { d: d2 };
-                    u1.u64 == u2.u64 // +0 != -0
-                }
-            } else {
-                d1 == d2 // if NaN return false and +0 == -0
-            }
-        }
+    // let res: bool = match (tag1, tag2) {
+    //     (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
+    //         JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2)
+    //     }
+    //     (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
+    //     (JSTag::String, JSTag::String) => op1.string().content() == op2.string().content(),
+    //     (JSTag::Symbol, JSTag::Symbol) => {
+    //         let p1 = JS_VALUE_GET_PTR(op1);
+    //         let p2 = JS_VALUE_GET_PTR(op2);
+    //         p1 == p2
+    //     }
+    //     (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2),
+    //     (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
+    //         let d1 = if tag1 == JSTag::Int {
+    //             JS_VALUE_GET_INT(op1) as f64
+    //         } else {
+    //             JS_VALUE_GET_FLOAT64(op1)
+    //         };
+    //         let d2 = if tag2 == JSTag::Int {
+    //             JS_VALUE_GET_FLOAT64(op2)
+    //         } else {
+    //             JS_VALUE_GET_FLOAT64(op2)
+    //         };
 
-        (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
-            println!("BigInt is not supported");
-            false
-        }
-        _ => false,
-    };
+    //         if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
+    //             if d1.is_nan() || d2.is_nan() {
+    //                 d1.is_nan() == d2.is_nan()
+    //             } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
+    //                 d1 == d2 // +0 == -0
+    //             } else {
+    //                 let u1 = JSFloat64Union { d: d1 };
+    //                 let u2 = JSFloat64Union { d: d2 };
+    //                 u1.u64 == u2.u64 // +0 != -0
+    //             }
+    //         } else {
+    //             d1 == d2 // if NaN return false and +0 == -0
+    //         }
+    //     }
+
+    //     (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
+    //         println!("BigInt is not supported");
+    //         false
+    //     }
+    //     _ => false,
+    // };
 
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
+
     res
 }
 
-// // XXX: Should take JSValueConst arguments
-// pub unsafe fn js_strict_eq2(
-//     ctx: *mut JSContext,
-//     op1: JSValue,
-//     op2: JSValue,
-//     eq_mode: JSStrictEqModeEnum,
-// ) -> bool {
-//     let tag1 = JS_VALUE_GET_NORM_TAG(op1);
-//     let tag2 = JS_VALUE_GET_NORM_TAG(op2);
-//     let res: bool;
-
-//     match tag1 {
-//         JS_TAG_BOOL => {
-//             if tag1 != tag2 {
-//                 res = false;
-//             } else {
-//                 return JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2);
-//             }
-//         }
-//         JS_TAG_NULL | JS_TAG_UNDEFINED => {
-//             res = tag1 == tag2;
-//         }
-//         JS_TAG_STRING => {
-//             if tag1 != tag2 {
-//                 res = false;
-//             } else {
-//                 let p1 = JS_VALUE_GET_STRING(op1);
-//                 let p2 = JS_VALUE_GET_STRING(op2);
-//                 res = js_string_compare(ctx, p1, p2) == 0;
-//             }
-//         }
-//         JS_TAG_SYMBOL => {
-//             if tag1 != tag2 {
-//                 res = false;
-//             } else {
-//                 let p1 = JS_VALUE_GET_PTR(op1);
-//                 let p2 = JS_VALUE_GET_PTR(op2);
-//                 res = p1 == p2;
-//             }
-//         }
-//         JS_TAG_OBJECT => {
-//             if tag1 != tag2 {
-//                 res = false;
-//             } else {
-//                 res = JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2);
-//             }
-//         }
-
-//         JS_TAG_INT => {
-//             if tag2 == JS_TAG_INT {
-//                 return JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2);
-//             } else if tag2 == JS_TAG_FLOAT64 {
-//                 let d1 = JS_VALUE_GET_INT(op1) as f64;
-//                 let d2 = JS_VALUE_GET_FLOAT64(op2);
-
-//                 return if unlikely(eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE) {
-//                     // NaN is not always normalized, so this test is necessary
-//                     if d1.is_nan() || d2.is_nan() {
-//                         d1.is_nan() == d2.is_nan()
-//                     } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-//                         d1 == d2 // +0 == -0
-//                     } else {
-//                         let u1 = JSFloat64Union { d: d1 };
-//                         let u2 = JSFloat64Union { d: d1 };
-//                         u1.u64 == u2.u64 // +0 != -0
-//                     }
-//                 } else {
-//                     d1 == d2 // if NaN return false and +0 == -0
-//                 };
-//             } else {
-//                 res = false
-//             }
-//         }
-//         JS_TAG_FLOAT64 => {
-//             let d1 = JS_VALUE_GET_FLOAT64(op1);
-//             let d2 = if tag2 == JS_TAG_FLOAT64 {
-//                 JS_VALUE_GET_FLOAT64(op2)
-//             } else if tag2 == JS_TAG_INT {
-//                 JS_VALUE_GET_INT(op2) as f64
-//             } else {
-//                 return false;
-//             };
-
-//             return if unlikely(eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE) {
-//                 // NaN is not always normalized, so this test is necessary
-//                 if d1.is_nan() || d2.is_nan() {
-//                     d1.is_nan() == d2.is_nan()
-//                 } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-//                     d1 == d2 // +0 == -0
-//                 } else {
-//                     let u1 = JSFloat64Union { d: d1 };
-//                     let u2 = JSFloat64Union { d: d1 };
-//                     u1.u64 == u2.u64 // +0 != -0
-//                 }
-//             } else {
-//                 d1 == d2 // if NaN return false and +0 == -0
-//             };
-//         }
-//         JS_TAG_BIG_INT => {
-//             unimplemented!()
-//             // let mut a_s: bf_t;
-//             // let a: *mut bf_t;
-//             // let mut b_s: bf_t;
-//             // let b: *mut bf_t;
-//             // if tag1 != tag2 {
-//             //     res = FALSE;
-//             //     // C2RS: break; translated to return early
-//             //     return res;
-//             // }
-//             // a = JS_ToBigFloat(ctx, &mut a_s, op1); // cannot fail
-//             // b = JS_ToBigFloat(ctx, &mut b_s, op2); // cannot fail
-//             // res = bf_cmp_eq(a, b) as BOOL;
-//             // if a == &mut a_s {
-//             //     bf_delete(a);
-//             // }
-//             // if b == &mut b_s {
-//             //     bf_delete(b);
-//             // }
-//         }
-
-//         _ => {
-//             res = false;
-//         }
-//     }
-
-//     JS_FreeValue(ctx, op1);
-//     JS_FreeValue(ctx, op2);
-
-//     return res;
-// }
-
+/// op1, op2 are consumed
+#[deprecated(note = "use JSValue::strict_eq() instead")]
 pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> bool {
-    js_strict_eq2(ctx, op1, op2, JSStrictEqModeEnum::JS_EQ_STRICT)
+    let res = op1.strict_eq(op2);
+    JS_FreeValue(ctx, op1);
+    JS_FreeValue(ctx, op2);
+
+    res
 }
 
+/// op1, op2 ref_count unchanged
+#[deprecated(note = "use JSValue::is_same() instead")]
 pub unsafe fn js_same_value(ctx: *mut JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
-    js_strict_eq2(
-        ctx,
-        op1.dup(),
-        op2.dup(),
-        JSStrictEqModeEnum::JS_EQ_SAME_VALUE,
-    )
+    unreachable!("use JSValue::is_same_to() instead");
+    // js_strict_eq2(
+    //     ctx,
+    //     op1.dup(),
+    //     op2.dup(),
+    //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE,
+    // )
 }
 
 pub unsafe fn js_same_value_zero(

@@ -4,12 +4,10 @@ use crate::{
     array::JS_NewArray,
     atom::{
         consts::{JS_ATOM_return, JS_ATOM_throw},
-        JSAtom, JSAtomInfo, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
+        JSAtom, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
     },
     bytecode::{
-        arithmatic::{
-            js_eq, js_same_value, js_strict_eq, op_binary_logic, relational, BinaryOp, UnaryOp,
-        },
+        arithmatic::{js_eq, js_strict_eq, op_binary_logic, relational, BinaryOp, UnaryOp},
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next, js_for_of_start,
             js_has_unscopable, js_iterator_get_value_done, js_method_set_home_object,
@@ -735,7 +733,7 @@ pub unsafe fn run_bytecodes(
                     let call_argv = sp.offset(-call_argc as isize);
                     sf.cur_pc_offset = pc.offset_from(pc_base) as _;
 
-                    let ret_val = if js_same_value(ctx, *call_argv.offset(-1), ctx.eval_obj) {
+                    let ret_val = if (*call_argv.offset(-1)).is_same(ctx.eval_obj) {
                         JS_EvalObject(
                             ctx,
                             JSValue::UNDEFINED,
@@ -779,7 +777,7 @@ pub unsafe fn run_bytecodes(
                     if tab.is_null() {
                         goto = Some(GotoLabel::Exception);
                     } else {
-                        let ret_val = if js_same_value(ctx, SP![-2], ctx.eval_obj) {
+                        let ret_val = if SP![-2].is_same(ctx.eval_obj) {
                             JS_EvalObject(
                                 ctx,
                                 JSValue::UNDEFINED,
@@ -1265,7 +1263,7 @@ pub unsafe fn run_bytecodes(
                     if method.is_exception() {
                         goto = Some(GotoLabel::Exception);
                     } else {
-                        let ret_flag = if method.is_undefined() || method.is_null() {
+                        let ret_flag = if method.is_undefined_or_null() {
                             true
                         } else {
                             let ret = if flags & 2 != 0 {
@@ -1396,7 +1394,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::SET_PROTO => {
                     let proto = SP![-1];
-                    if JS_IsObject(proto) || proto.is_null() {
+                    if proto.is_object() || proto.is_null() {
                         if JS_SetPrototypeInternal(ctx, SP![-2], proto, true).is_err() {
                             goto = Some(GotoLabel::Exception);
                         }
@@ -1841,7 +1839,7 @@ pub unsafe fn run_bytecodes(
 
                 OpCode::TO_PROPKEY2 => {
                     // must be tested first
-                    if SP![-2].is_undefined() || SP![-2].is_null() {
+                    if SP![-2].is_undefined_or_null() {
                         ctx.JS_ThrowTypeError(c"value has property");
                         goto = Some(GotoLabel::Exception);
                     } else {

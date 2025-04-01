@@ -5,7 +5,7 @@ use crate::{
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
     },
     bytecode::{
-        arithmatic::{js_same_value, js_strict_eq2, JSStrictEqModeEnum},
+        arithmatic::{js_strict_eq2, JSStrictEqModeEnum},
         js_for_of_start,
     },
     class::js_create_from_ctor,
@@ -31,10 +31,9 @@ use crate::{
             JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException, JS_IsNull,
-        JS_IsNumber, JS_IsObject, JS_IsUndefined, JS_NewBool, JS_NewInt32, JS_NewInt64,
-        JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat, JS_ToLocaleStringFree,
-        JS_ToString, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING,
-        JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_IsNumber, JS_IsObject, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat,
+        JS_ToInt64Clamp, JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToString, JS_ToStringFree,
+        StringContent, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY,
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -106,7 +105,7 @@ pub unsafe fn JS_ArraySpeciesCreate(
     };
 
     let mut ctor = JS_GetProperty(ctx, obj, JS_ATOM_constructor);
-    if JS_IsException(ctor) {
+    if ctor.is_exception() {
         return ctor;
     }
 
@@ -117,25 +116,25 @@ pub unsafe fn JS_ArraySpeciesCreate(
             JS_FreeValue(ctx, ctor);
             return JSValue::EXCEPTION;
         }
-        if realm != ctx && js_same_value(ctx, ctor, (*realm).array_ctor) {
+        if realm != ctx && ctor.is_same((*realm).array_ctor) {
             JS_FreeValue(ctx, ctor);
             ctor = JSValue::UNDEFINED;
         }
     }
 
-    if JS_IsObject(ctor) {
+    if ctor.is_object() {
         let species = JS_GetProperty(ctx, ctor, JS_ATOM_Symbol_species);
         JS_FreeValue(ctx, ctor);
-        if JS_IsException(species) {
+        if species.is_exception() {
             return species;
         }
         ctor = species;
-        if JS_IsNull(ctor) {
+        if ctor.is_null() {
             ctor = JSValue::UNDEFINED;
         }
     }
 
-    if JS_IsUndefined(ctor) {
+    if ctor.is_undefined() {
         js_array_constructor(ctx, JSValue::UNDEFINED, 1, [len_val].as_mut_ptr())
     } else {
         let ret = JS_CallConstructor(ctx, ctor, 1, [len_val].as_mut_ptr());
@@ -145,16 +144,17 @@ pub unsafe fn JS_ArraySpeciesCreate(
 }
 
 pub unsafe fn JS_isConcatSpreadable(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    if !JS_IsObject(obj) {
+    if !obj.is_object() {
         return Ok(false);
     }
 
-    let val = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_isConcatSpreadable);
-    if JS_IsException(val) {
+    let tmp = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_isConcatSpreadable);
+    if tmp.is_exception() {
         return Err(-1);
     }
-    if !JS_IsUndefined(val) {
-        JS_ToBoolFree(ctx, val)
+
+    if !tmp.is_undefined() {
+        JS_ToBoolFree(ctx, tmp)
     } else {
         JS_IsArray(ctx, obj)
     }
@@ -1180,22 +1180,21 @@ pub unsafe fn js_array_join(
             return JSValue::EXCEPTION;
         }
 
-        if !el.is_null() && !el.is_undefined() {
+        if !el.is_undefined_or_null() {
             if toLocaleString != 0 {
                 el = JS_ToLocaleStringFree(ctx, el.into()).into_rc((*ctx).rt());
             }
 
             if JS_VALUE_GET_TAG(*el) != JSTag::String as i32 {
                 el = JS_ToStringFree(ctx, el.into()).into_rc((*ctx).rt());
-                if JS_IsException(*el) {
+                if el.is_exception() {
                     JS_FreeValue(ctx, sep);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
             }
 
-            let ss = JS_VALUE_GET_STRING(*el);
-            if content.push((*ss).content()).is_err() {
+            if content.push(el.string().content()).is_err() {
                 JS_FreeValue(ctx, sep);
                 JS_FreeValue(ctx, obj);
                 (*ctx).JS_ThrowOutOfMemory();

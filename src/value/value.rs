@@ -363,6 +363,26 @@ impl JSValue {
         JS_VALUE_GET_TAG(*self) == JS_TAG_UNDEFINED
     }
 
+    #[inline(always)]
+    pub fn is_undefined_or_null(&self) -> bool {
+        matches!(JS_VALUE_GET_TAG(*self), JS_TAG_UNDEFINED | JS_TAG_NULL)
+    }
+
+    #[inline(always)]
+    pub fn is_object(&self) -> bool {
+        JS_VALUE_GET_TAG(*self) == JS_TAG_OBJECT
+    }
+
+    #[inline(always)]
+    pub fn is_string(&self) -> bool {
+        JS_VALUE_GET_TAG(*self) == JS_TAG_STRING
+    }
+
+    #[inline(always)]
+    pub fn is_int(&self) -> bool {
+        JS_VALUE_GET_TAG(*self) == JS_TAG_INT
+    }
+
     /// check if self is an exception. returns Err if yes, otherwise returns Ok(value)
     #[inline(always)]
     pub fn check_exception(self) -> Result<Self, i32> {
@@ -371,6 +391,15 @@ impl JSValue {
         } else {
             Ok(self)
         }
+    }
+
+    /// get a reference to value's string description. won't effect value's ref_count.
+    /// will panic if value is not string type.
+    #[inline(always)]
+    pub fn string(&self) -> &JSString {
+        debug_assert!(self.is_string());
+        debug_assert!(!JS_VALUE_GET_PTR(*self).is_null());
+        unsafe { JS_VALUE_GET_PTR(*self).cast::<JSString>().as_ref().unwrap() }
     }
 
     /// run callback with value's string description. won't effect value' ref_count.
@@ -421,6 +450,7 @@ pub unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
     }
 }
 
+#[deprecated(note = "use JSValue::string() instead")]
 #[inline(always)]
 pub(crate) fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
     debug_assert_eq!(JS_VALUE_GET_TAG(v), JS_TAG_STRING);
@@ -609,9 +639,10 @@ pub fn JS_IsUninitialized(v: JSValueConst) -> bool {
     unlikely(JS_VALUE_GET_TAG(v) == JS_TAG_UNINITIALIZED)
 }
 
+#[deprecated(note = "use JSValue::is_string() instead")]
 #[inline]
 pub fn JS_IsString(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_STRING
+    v.is_object()
 }
 
 #[inline]
@@ -619,9 +650,10 @@ pub fn JS_IsSymbol(v: JSValueConst) -> bool {
     JS_VALUE_GET_TAG(v) == JS_TAG_SYMBOL
 }
 
+#[deprecated(note = "use JSValue::is_object() instead")]
 #[inline]
 pub fn JS_IsObject(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_OBJECT
+    v.is_object()
 }
 
 #[inline]

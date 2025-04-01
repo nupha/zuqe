@@ -33,14 +33,12 @@ pub unsafe fn js_string_constructor(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let val: JSValue;
-
-    if argc == 0 {
-        val = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
+    let tmp_str: JSValue = if argc == 0 {
+        JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true)
     } else {
-        if JS_IsUndefined(new_target) && JS_IsSymbol(*argv.offset(0)) {
+        let s = if new_target.is_undefined() && JS_IsSymbol(*argv.offset(0)) {
             let p = JS_VALUE_GET_PTR(*argv.offset(0)).cast::<JSAtomStruct>();
-            val = JS_ConcatString3(
+            JS_ConcatString3(
                 ctx,
                 c"Symbol(",
                 (*p).atom_info()
@@ -48,31 +46,32 @@ pub unsafe fn js_string_constructor(
                     .atom()
                     .to_value(ctx.as_mut().unwrap(), true),
                 c")",
-            );
+            )
         } else {
-            val = JS_ToString(ctx, *argv.offset(0));
+            JS_ToString(ctx, *argv.offset(0))
+        };
+        if s.is_exception() {
+            return JSValue::EXCEPTION;
         }
-        if JS_IsException(val) {
-            return val;
-        }
-    }
 
-    if !JS_IsUndefined(new_target) {
-        let p1 = JS_VALUE_GET_STRING(val);
+        s
+    };
+
+    if !new_target.is_undefined() {
         let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_STRING);
-        if !JS_IsException(obj) {
-            JS_SetObjectData(ctx, obj, val);
+        if !obj.is_exception() {
+            JS_SetObjectData(ctx, obj, tmp_str);
             JS_DefinePropertyValue(
                 ctx,
                 obj,
                 JS_ATOM_length,
-                JSValue::from_i32((*p1).len() as _),
+                JSValue::from_i32(tmp_str.string().len() as _),
                 0,
             );
         }
         obj
     } else {
-        val
+        tmp_str
     }
 }
 
@@ -1762,15 +1761,16 @@ pub unsafe fn js_string_raw(
     let mut res_string = StringContent::Empty;
 
     for i in 0..n {
-        let val = JS_ToStringFree(ctx, JS_GetPropertyInt64(ctx, raw, i));
-        if JS_IsException(val) {
+        let tmp = JS_ToStringFree(ctx, JS_GetPropertyInt64(ctx, raw, i));
+        if tmp.is_exception() {
             JS_FreeValue(ctx, cooked);
             JS_FreeValue(ctx, raw);
             return JSValue::EXCEPTION;
         }
 
-        let r = res_string.push((*JS_VALUE_GET_STRING(val)).content());
-        JS_FreeValue(ctx, val);
+        let r = res_string.push(tmp.string().content());
+        JS_FreeValue(ctx, tmp);
+
         if r.is_err() {
             JS_FreeValue(ctx, cooked);
             JS_FreeValue(ctx, raw);
@@ -1779,15 +1779,16 @@ pub unsafe fn js_string_raw(
 
         if i < n - 1 && i + 1 < argc as i64 {
             let val = *argv.offset((i + 1) as isize);
-            let val = JS_ToStringFree(ctx, val);
-            if val.is_exception() {
+            let tmp = JS_ToStringFree(ctx, val);
+            if tmp.is_exception() {
                 JS_FreeValue(ctx, cooked);
                 JS_FreeValue(ctx, raw);
                 return JSValue::EXCEPTION;
             }
 
-            let r = res_string.push((*JS_VALUE_GET_STRING(val)).content());
-            JS_FreeValue(ctx, val);
+            let r = res_string.push(tmp.string().content());
+            JS_FreeValue(ctx, tmp);
+
             if r.is_err() {
                 JS_FreeValue(ctx, cooked);
                 JS_FreeValue(ctx, raw);

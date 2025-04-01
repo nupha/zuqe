@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::JSAtom,
-    bytecode::{arithmatic::js_same_value, run_bytecodes},
+    bytecode::run_bytecodes,
     class::js_create_from_ctor,
     context::{is_strict_mode, JSContext},
     error::{JS_SetUncatchableError, JS_ThrowStackOverflow},
@@ -650,7 +650,7 @@ pub unsafe fn js_call_bound_function(
 
         if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
             let mut new_target = this_obj;
-            if js_same_value(ctx, func_obj, new_target) {
+            if func_obj.is_same(new_target) {
                 new_target = bf.func_obj;
             }
 

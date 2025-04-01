@@ -9,7 +9,6 @@ use crate::{
         JS_NewAtom, JS_NewAtomInt64, JS_ValueToAtom, __JS_AtomToUInt32, consts::*, JS_ATOM_MAX_INT,
         JS_ATOM_NULL,
     },
-    bytecode::arithmatic::js_same_value,
     context::{is_strict_mode, JSContext, JS_DupContext},
     error::{
         JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
@@ -298,7 +297,7 @@ pub unsafe fn JS_DefineProperty(
                         if ((*prs).flags() & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE)) == 0
                             && (flags & JS_PROP_HAS_VALUE) != 0
                         {
-                            if !js_same_value(ctx, val, (*pr).u.value) {
+                            if !val.is_same((*pr).u.value) {
                                 return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
                                     flags as _,
                                     c"property is not configurable",
@@ -314,7 +313,7 @@ pub unsafe fn JS_DefineProperty(
                                 /* JS_PROP_WRITABLE is always true for variable
                                 references, but they are write protected in module name
                                 spaces. */
-                                if !js_same_value(ctx, val, *(*(*pr).u.var_ref).pvalue) {
+                                if !val.is_same(*(*(*pr).u.var_ref).pvalue) {
                                     return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
                                         flags as _,
                                         c"property is not configurable",
