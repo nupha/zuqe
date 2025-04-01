@@ -528,9 +528,18 @@ pub(super) unsafe fn relational(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum JSStrictEqModeEnum {
+    JS_EQ_STRICT,
+    JS_EQ_SAME_VALUE,
+    JS_EQ_SAME_VALUE_ZERO,
+}
+
 impl JSValue {
-    /// compare JSValues equality with mode. both values will keep ref_count unchanged.
-    fn strict_eq_internal(self, other: JSValue, eq_mode: JSStrictEqModeEnum) -> bool {
+    /// compare JSValues equality in given mode.
+    /// Note: both values keep ref_count unchanged after calling.
+    pub fn strict_eq2(self, other: JSValue, eq_mode: JSStrictEqModeEnum) -> bool {
         let tag1 = JS_VALUE_GET_NORM_TAG(self);
         let tag2 = JS_VALUE_GET_NORM_TAG(other);
 
@@ -579,17 +588,126 @@ impl JSValue {
         res
     }
 
-    /// compare JSValues equality. both values keep ref_count unchanged.
+    /// compare JSValues equality. both values keep ref_count unchanged after calling.
     #[inline(always)]
     pub fn strict_eq(self, other: JSValue) -> bool {
-        self.strict_eq_internal(other, JSStrictEqModeEnum::JS_EQ_STRICT)
+        self.strict_eq2(other, JSStrictEqModeEnum::JS_EQ_STRICT)
     }
 
-    /// compare if two values are same. both values keep ref_count unchanged.
+    /// compare if two values are same. both values keep ref_count unchanged after calling.
     #[inline(always)]
     pub fn is_same(self, other: JSValue) -> bool {
-        self.strict_eq_internal(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE)
+        self.strict_eq2(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE)
     }
+
+    /// both values keep ref_count unchanged after calling.
+    #[inline(always)]
+    pub fn is_same0(self, other: JSValueConst) -> bool {
+        self.strict_eq2(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO)
+    }
+}
+
+/// op1, op2 are consumed
+#[deprecated(note = "use JSValue::strict_eq2() instead")]
+pub unsafe fn js_strict_eq2(
+    ctx: *mut JSContext,
+    op1: JSValue,
+    op2: JSValue,
+    eq_mode: JSStrictEqModeEnum,
+) -> bool {
+    let res = op1.strict_eq2(op2, eq_mode);
+
+    // let tag1 = JS_VALUE_GET_NORM_TAG(op1);
+    // let tag2 = JS_VALUE_GET_NORM_TAG(op2);
+
+    // let res: bool = match (tag1, tag2) {
+    //     (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
+    //         JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2)
+    //     }
+    //     (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
+    //     (JSTag::String, JSTag::String) => op1.string().content() == op2.string().content(),
+    //     (JSTag::Symbol, JSTag::Symbol) => {
+    //         let p1 = JS_VALUE_GET_PTR(op1);
+    //         let p2 = JS_VALUE_GET_PTR(op2);
+    //         p1 == p2
+    //     }
+    //     (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2),
+    //     (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
+    //         let d1 = if tag1 == JSTag::Int {
+    //             JS_VALUE_GET_INT(op1) as f64
+    //         } else {
+    //             JS_VALUE_GET_FLOAT64(op1)
+    //         };
+    //         let d2 = if tag2 == JSTag::Int {
+    //             JS_VALUE_GET_FLOAT64(op2)
+    //         } else {
+    //             JS_VALUE_GET_FLOAT64(op2)
+    //         };
+
+    //         if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
+    //             if d1.is_nan() || d2.is_nan() {
+    //                 d1.is_nan() == d2.is_nan()
+    //             } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
+    //                 d1 == d2 // +0 == -0
+    //             } else {
+    //                 let u1 = JSFloat64Union { d: d1 };
+    //                 let u2 = JSFloat64Union { d: d2 };
+    //                 u1.u64 == u2.u64 // +0 != -0
+    //             }
+    //         } else {
+    //             d1 == d2 // if NaN return false and +0 == -0
+    //         }
+    //     }
+
+    //     (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
+    //         println!("BigInt is not supported");
+    //         false
+    //     }
+    //     _ => false,
+    // };
+
+    JS_FreeValue(ctx, op1);
+    JS_FreeValue(ctx, op2);
+
+    res
+}
+
+/// op1, op2 are consumed
+#[deprecated(note = "use JSValue::strict_eq() instead")]
+pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> bool {
+    let res = op1.strict_eq(op2);
+    JS_FreeValue(ctx, op1);
+    JS_FreeValue(ctx, op2);
+
+    res
+}
+
+/// op1, op2 ref_count unchanged
+#[deprecated(note = "use JSValue::is_same() instead")]
+pub unsafe fn js_same_value(ctx: *mut JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
+    unreachable!("use JSValue::is_same_to() instead");
+    // js_strict_eq2(
+    //     ctx,
+    //     op1.dup(),
+    //     op2.dup(),
+    //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE,
+    // )
+}
+
+#[deprecated(note = "use JSValue::is_same0() instead")]
+pub unsafe fn js_same_value_zero(
+    ctx: *mut JSContext,
+    op1: JSValueConst,
+    op2: JSValueConst,
+) -> bool {
+    op1.is_same0(op2)
+
+    // js_strict_eq2(
+    //     ctx,
+    //     JS_DupValue(ctx, op1),
+    //     JS_DupValue(ctx, op2),
+    //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
+    // )
 }
 
 #[inline(always)]
@@ -701,112 +819,4 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
     };
 
     Ok(res ^ is_neq)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum JSStrictEqModeEnum {
-    JS_EQ_STRICT,
-    JS_EQ_SAME_VALUE,
-    JS_EQ_SAME_VALUE_ZERO,
-}
-
-/// op1, op2 are consumed
-#[deprecated(note = "use JSValue::strict_eq2() instead")]
-pub unsafe fn js_strict_eq2(
-    ctx: *mut JSContext,
-    op1: JSValue,
-    op2: JSValue,
-    eq_mode: JSStrictEqModeEnum,
-) -> bool {
-    let res = op1.strict_eq_internal(op2, eq_mode);
-
-    // let tag1 = JS_VALUE_GET_NORM_TAG(op1);
-    // let tag2 = JS_VALUE_GET_NORM_TAG(op2);
-
-    // let res: bool = match (tag1, tag2) {
-    //     (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
-    //         JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2)
-    //     }
-    //     (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
-    //     (JSTag::String, JSTag::String) => op1.string().content() == op2.string().content(),
-    //     (JSTag::Symbol, JSTag::Symbol) => {
-    //         let p1 = JS_VALUE_GET_PTR(op1);
-    //         let p2 = JS_VALUE_GET_PTR(op2);
-    //         p1 == p2
-    //     }
-    //     (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2),
-    //     (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
-    //         let d1 = if tag1 == JSTag::Int {
-    //             JS_VALUE_GET_INT(op1) as f64
-    //         } else {
-    //             JS_VALUE_GET_FLOAT64(op1)
-    //         };
-    //         let d2 = if tag2 == JSTag::Int {
-    //             JS_VALUE_GET_FLOAT64(op2)
-    //         } else {
-    //             JS_VALUE_GET_FLOAT64(op2)
-    //         };
-
-    //         if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
-    //             if d1.is_nan() || d2.is_nan() {
-    //                 d1.is_nan() == d2.is_nan()
-    //             } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-    //                 d1 == d2 // +0 == -0
-    //             } else {
-    //                 let u1 = JSFloat64Union { d: d1 };
-    //                 let u2 = JSFloat64Union { d: d2 };
-    //                 u1.u64 == u2.u64 // +0 != -0
-    //             }
-    //         } else {
-    //             d1 == d2 // if NaN return false and +0 == -0
-    //         }
-    //     }
-
-    //     (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
-    //         println!("BigInt is not supported");
-    //         false
-    //     }
-    //     _ => false,
-    // };
-
-    JS_FreeValue(ctx, op1);
-    JS_FreeValue(ctx, op2);
-
-    res
-}
-
-/// op1, op2 are consumed
-#[deprecated(note = "use JSValue::strict_eq() instead")]
-pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> bool {
-    let res = op1.strict_eq(op2);
-    JS_FreeValue(ctx, op1);
-    JS_FreeValue(ctx, op2);
-
-    res
-}
-
-/// op1, op2 ref_count unchanged
-#[deprecated(note = "use JSValue::is_same() instead")]
-pub unsafe fn js_same_value(ctx: *mut JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
-    unreachable!("use JSValue::is_same_to() instead");
-    // js_strict_eq2(
-    //     ctx,
-    //     op1.dup(),
-    //     op2.dup(),
-    //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE,
-    // )
-}
-
-pub unsafe fn js_same_value_zero(
-    ctx: *mut JSContext,
-    op1: JSValueConst,
-    op2: JSValueConst,
-) -> bool {
-    js_strict_eq2(
-        ctx,
-        JS_DupValue(ctx, op1),
-        JS_DupValue(ctx, op2),
-        JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
-    )
 }

@@ -396,10 +396,14 @@ impl JSValue {
     /// get a reference to value's string description. won't effect value's ref_count.
     /// will panic if value is not string type.
     #[inline(always)]
-    pub fn string(&self) -> &JSString {
-        debug_assert!(self.is_string());
-        debug_assert!(!JS_VALUE_GET_PTR(*self).is_null());
-        unsafe { JS_VALUE_GET_PTR(*self).cast::<JSString>().as_ref().unwrap() }
+    pub fn string<'a>(self) -> &'a JSString {
+        debug_assert!(matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_STRING | JS_TAG_SYMBOL
+        ));
+        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+
+        unsafe { JS_VALUE_GET_PTR(self).cast::<JSString>().as_ref().unwrap() }
     }
 
     /// run callback with value's string description. won't effect value' ref_count.
@@ -492,19 +496,11 @@ pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
             JS_TAG_STRING | JS_TAG_SYMBOL => {
                 let s = Rc::from_raw(JS_VALUE_GET_STRING(v));
                 if Rc::strong_count(&s) == 1 {
-                    // drop atom too
+                    // rc is about to drop, drop atom description too
                     if let Some(at) = s.atom_info() {
                         JS_FreeAtomStruct(rt, at.atom());
                     }
                 }
-
-                // if Rc::strong_count(&s) == 2 {
-                //     if let Some(at) = s.atom_type() {
-                //         // 2 ref counts left: this value and an atom.
-                //         drop(s); // now the strong_count is 1
-                //         JS_FreeAtomStruct(rt, at.atom()); // drop atom too
-                //     }
-                // }
             }
             _ => {
                 let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
@@ -631,7 +627,7 @@ pub fn JS_IsException(v: JSValueConst) -> bool {
 
 pub unsafe fn check_exception_free(ctx: *mut JSContext, obj: JSValue) -> bool {
     JS_FreeValue(ctx, obj);
-    JS_IsException(obj)
+    obj.is_exception()
 }
 
 #[inline]

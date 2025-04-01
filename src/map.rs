@@ -1,5 +1,4 @@
 use crate::{
-    bytecode::arithmatic::js_same_value_zero,
     context::JSContext,
     list_entry,
     mem::{js_malloc_typed, js_realloc2},
@@ -170,7 +169,7 @@ pub unsafe fn map_find_record(
 
     list_foreach_with_ret((*s).hash_table.add(h as usize), |el| {
         let mr = list_entry!(el, JSMapRecord, hash_link);
-        if js_same_value_zero(ctx, (*mr).key, key) {
+        if (*mr).key.is_same0(key) {
             Some(mr) // pre exit with a value
         } else {
             None
