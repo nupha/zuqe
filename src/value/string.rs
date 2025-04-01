@@ -12,7 +12,7 @@ use crate::{
     context::JSContext,
     function::JS_InvokeFree,
     runtime::JSRuntime,
-    types::{list_head, unlikely, JSRefCountHeader},
+    types::{list_head, unlikely},
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING, JS_TAG_NULL, JS_TAG_STRING,
         JS_TAG_UNDEFINED, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
