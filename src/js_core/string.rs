@@ -43,7 +43,7 @@ pub unsafe fn js_string_constructor(
             val = JS_ConcatString3(
                 ctx,
                 c"Symbol(",
-                (*p).atom_type()
+                (*p).atom_info()
                     .unwrap()
                     .atom()
                     .to_value(ctx.as_mut().unwrap(), true),
@@ -199,7 +199,7 @@ pub unsafe fn js_string_concat(
 // return the position of the first invalid character in the string or
 // -1 if none
 pub(crate) unsafe fn js_string_find_invalid_codepoint(p: *mut JSString) -> i32 {
-    if let StringContent::Utf16(ws) = (*p).content() {
+    if let StringContent::Utf16(ws) = (*p).content().as_ref() {
         U16Str::from_slice(ws)
             .chars()
             .position(|c| c.is_err())
@@ -245,7 +245,7 @@ pub unsafe fn js_string_toWellFormed(
         return str;
     }
 
-    if let StringContent::Utf16(ws) = &mut (*p).content() {
+    if let StringContent::Utf16(ws) = (*p).content().as_ref() {
         let ret = if let Ok(mut w) = Vec::<u16>::try_with_capacity(ws.len() * 3 / 2) {
             for c in U16Str::from_slice(ws).chars_lossy() {
                 w.extend_from_slice(c.encode_utf16(&mut [0; 2]));
@@ -882,7 +882,7 @@ pub unsafe fn js_string_pad(
     // }
 
     let mut res_string = if padEnd != 0 {
-        if let Ok(s) = (*p).content().clone() {
+        if let Ok(s) = (*p).content().copy_to_new() {
             s
         } else {
             (*ctx).JS_ThrowOutOfMemory();
@@ -1405,7 +1405,7 @@ pub unsafe fn js_string_trim(
     }
 
     let p = JS_VALUE_GET_STRING(str);
-    if let Ok(mut s) = (*p).content().clone() {
+    if let Ok(mut s) = (*p).content().copy_to_new() {
         JS_FreeValue(ctx, str);
         s.trim(magic & 1 != 0, magic & 2 != 0);
         (*ctx).create_string_from_content(s)
@@ -1518,7 +1518,7 @@ pub unsafe fn js_string_toLowerCase(
         return val;
     }
 
-    let sc = match (*p).content() {
+    let sc = match (*p).content().as_ref() {
         StringContent::Empty => unreachable!(),
         StringContent::Utf8(s) => {
             if let Ok(mut d) = Vec::<u8>::try_with_capacity(s.len()) {

@@ -1,7 +1,7 @@
-use std::ptr::NonNull;
+use std::{ffi::c_void, ptr::NonNull, rc::Rc};
 
 use crate::{
-    atom::{JSAtom, JSAtomType, JSAtomTypeHint, JS_ATOM_HASH_SYMBOL},
+    atom::{JSAtom, JSAtomInfo, JSAtomTypeHint, JS_ATOM_HASH_SYMBOL},
     context::JSContext,
     JS_MKPTR,
 };
@@ -23,39 +23,24 @@ pub unsafe fn JS_NewSymbolFromAtom(
     debug_assert!(!atom.is_int_type());
 
     let p = (*rt).get_atom_desc(atom).unwrap();
-    JS_MKPTR!(JSTag::String, p.as_ptr().cast()).dup();
-
-    JS_NewSymbol(ctx, p.as_ptr(), atom_type)
+    JS_NewSymbol(ctx, p.clone(), atom_type)
 }
 
-// 'p' is freed
+/// 'p' is consumed
 pub unsafe fn JS_NewSymbol(
     ctx: *mut JSContext,
-    p: *mut JSString,
+    p: Rc<JSString>,
     atom_type: JSAtomTypeHint,
 ) -> JSValue {
-    let rt = (*ctx).rt.as_mut();
-
-    match rt.add_atom(
-        if p.is_null() {
-            None
-        } else {
-            Some(Box::from_raw(p))
-        },
-        atom_type,
-    ) {
-        Ok((a, ss)) => {
-            if let Some(s) = ss {
-                Box::leak(s);
-            }
-            JS_MKPTR!(JSTag::Symbol, rt.get_atom_desc(a).unwrap().as_ptr().cast())
+    match (*ctx).rt_mut().add_atom(Some(p), atom_type) {
+        Ok(a) => {
+            JS_MKPTR!(
+                JSTag::Symbol,
+                Rc::into_raw((*ctx).rt().get_atom_desc(a).unwrap().clone()).cast::<c_void>()
+                    as *mut _
+            )
         }
-        Err((_, ss)) => {
-            if let Some(s) = ss {
-                Box::leak(s);
-            }
-            ctx.as_mut().unwrap().JS_ThrowOutOfMemory()
-        }
+        Err(_) => ctx.as_mut().unwrap().JS_ThrowOutOfMemory(),
     }
 }
 
@@ -68,7 +53,7 @@ pub unsafe fn JS_AtomSymbolHasDescription(ctx: *mut JSContext, atom: JSAtom) -> 
     let p = (*ctx).rt().get_atom_desc(atom).unwrap().as_ref();
 
     return matches!(
-        p.atom_type().unwrap(),
-        JSAtomType::Symbol(_) | JSAtomType::GlobalSymbol(_)
+        p.atom_info().unwrap(),
+        JSAtomInfo::Symbol(_) | JSAtomInfo::GlobalSymbol(_)
     ) && !((*p).len() == 0 && (*p).is_wide_char());
 }

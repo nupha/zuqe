@@ -492,9 +492,9 @@ pub const ATOD_TYPE_BIG_INT: i32 = (1 << 7);
 /// accept -0x1
 pub const ATOD_ACCEPT_PREFIX_AFTER_SIGN: i32 = 1 << 10;
 
-// 静态函数在Rust中转换为模块私有函数
+/// `val` keeps ref count after calling this function.
 pub unsafe fn JS_ToNumber(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    JS_ToNumberFree(ctx, JS_DupValue(ctx, val))
+    JS_ToNumberFree(ctx, val.dup())
 }
 
 /* same as JS_ToNumber() but return 0 in case of NaN/Undefined */

@@ -3,10 +3,11 @@ use std::{
     ffi::{c_char, c_void},
     num::NonZeroU16,
     ptr::NonNull,
+    rc::Rc,
 };
 
 use crate::{
-    atom::{consts::JS_ATOM_INIT_COUNT, JSAtomStruct, JSAtomType, JS_FreeAtomRT},
+    atom::{consts::JS_ATOM_INIT_COUNT, JSAtomInfo, JSAtomStruct, JS_FreeAtomRT, __JS_AtomIsConst},
     class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
     context::JSContext,
     function::{
@@ -23,15 +24,12 @@ use crate::{
         JSModuleNormalizeFunc,
     },
     stack_frame::JSStackFrame,
-    types::{
-        init_list_head, list_del, list_empty, list_foreach, list_foreach_safe, list_head,
-        JSSharedArrayBufferFunctions,
-    },
+    types::{init_list_head, list_empty, list_foreach, list_head, JSSharedArrayBufferFunctions},
     utils::js_get_stack_pointer,
     value::{
         js_string_exotic_methods,
         object::{init_shape_hash, JSShape},
-        JSString, JSValue, JS_DumpString, JS_FreeValueRT,
+        JSValue, JS_FreeValueRT,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_STRING,
@@ -58,9 +56,11 @@ pub struct JSRuntime {
     pub malloc_state: JSMallocState,
     pub rt_info: *const c_char,
 
-    /// atom description slots. None element means the slot is free.
-    /// index 0 is reserved, not for use; index 1 for atom 1; index 2 for atom 2, ...
-    pub(super) atom_slots: Vec<Option<NonNull<JSAtomStruct>>>,
+    /// atom description slots list.
+    /// each element is a atom description Rc<JSAtomStruct>, None indicates the slot is unused.
+    /// when an atom is duplicated, the Rc<> is cloned.
+    /// index 0 is reserved not for use; index 1 is for atom 1; index 2 is for atom 2, ...
+    pub(super) atom_slots: Vec<Option<Rc<JSAtomStruct>>>,
     /// JSString hash to atom vec dict.
     /// Value is a list of atom index. Note: JSString hash may have collison.
     pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
@@ -138,7 +138,7 @@ impl JSRuntime {
             atom_hash_lut: HashMap::with_capacity(256),
             atom_slots: {
                 let mut lst = Vec::with_capacity(256);
-                lst.push(None); // element #0 is reserved, is not usable
+                lst.push(None); // element #0 is reserved, not for use.
                 lst
             },
 
@@ -331,115 +331,121 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
         }
     }
 
-    #[cfg(feature = "dump_leaks")]
-    {
-        let mut header_done: bool = false;
+    // dump atom leaks
+    // #[cfg(feature = "dump_leaks")]
+    // {
+    //     let mut header_done: bool = false;
 
-        // only the constant atoms could be left
-        for (i, a) in rt.atom_slots.iter().enumerate() {
-            if let Some(p) = a {
-                let p = p.as_ref();
-                if i >= JS_ATOM_INIT_COUNT as usize || p.ref_count() != 1 {
-                    if !header_done {
-                        header_done = true;
-                        if !rt.rt_info.is_null() {
-                            println!(
-                                "{}:1: atom leakage:",
-                                std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
-                            );
-                        } else {
-                            println!("Atom leaks: (NANE, ID, REFCNT)");
-                        }
-                    }
-                    if !rt.rt_info.is_null() {
-                        print!(" ");
-                    } else {
-                        print!("    {:6} {:6} ", i, (*p).ref_count());
-                    }
-                    match p.atom_type().unwrap() {
-                        JSAtomType::String(_) => JS_DumpString(rt, p),
-                        JSAtomType::GlobalSymbol(_) => {
-                            print!("Symbol.for(");
-                            JS_DumpString(rt, p);
-                            print!(")");
-                        }
-                        JSAtomType::Symbol(_) => {
-                            print!("Symbol(");
-                            JS_DumpString(rt, p);
-                            print!(")");
-                        }
-                        JSAtomType::Private(_) => {
-                            print!("Private(");
-                            JS_DumpString(rt, p);
-                            print!(")");
-                        }
-                    }
+    //     // only the constant atoms could be left
+    //     for (i, a) in rt.atom_slots.iter().enumerate() {
+    //         if let Some(p) = a {
+    //             let p = p.as_ref();
+    //             if i >= JS_ATOM_INIT_COUNT as usize || p.ref_count() != 1 {
+    //                 if !header_done {
+    //                     header_done = true;
+    //                     if !rt.rt_info.is_null() {
+    //                         println!(
+    //                             "{}:1: atom leakage:",
+    //                             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
+    //                         );
+    //                     } else {
+    //                         println!("Atom leaks: (NANE, ID, REFCNT)");
+    //                     }
+    //                 }
+    //                 if !rt.rt_info.is_null() {
+    //                     print!(" ");
+    //                 } else {
+    //                     print!("    {:6} {:6} ", i, (*p).ref_count());
+    //                 }
+    //                 match p.atom_type().unwrap() {
+    //                     JSAtomType::String(_) => JS_DumpString(rt, p),
+    //                     JSAtomType::GlobalSymbol(_) => {
+    //                         print!("Symbol.for(");
+    //                         JS_DumpString(rt, p);
+    //                         print!(")");
+    //                     }
+    //                     JSAtomType::Symbol(_) => {
+    //                         print!("Symbol(");
+    //                         JS_DumpString(rt, p);
+    //                         print!(")");
+    //                     }
+    //                     JSAtomType::Private(_) => {
+    //                         print!("Private(");
+    //                         JS_DumpString(rt, p);
+    //                         print!(")");
+    //                     }
+    //                 }
 
-                    if !rt.rt_info.is_null() {
-                        println!(":{}", (*p).ref_count());
-                    } else {
-                        println!("");
-                    }
-                }
-            }
-        }
+    //                 if !rt.rt_info.is_null() {
+    //                     println!(":{}", (*p).ref_count());
+    //                 } else {
+    //                     println!("");
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        if !rt.rt_info.is_null() && header_done {
-            println!("");
-        }
-    }
+    //     if !rt.rt_info.is_null() && header_done {
+    //         println!("");
+    //     }
+    // }
 
     // free atoms
-    for a in rt.atom_slots.drain(..) {
-        if let Some(mut p) = a {
-            debug_assert_eq!(p.as_ref().ref_count(), 1);
+    rt.atom_hash_lut.clear();
+    for mut a in rt.atom_slots.drain(..) {
+        if let Some(p) = a.take() {
+            println!(
+                "[O.o] atom {}, rc={}",
+                p.content().to_str(),
+                Rc::strong_count(&p)
+            );
 
-            #[cfg(feature = "dump_leaks")]
-            list_del(&mut p.as_mut().link);
-
-            drop(Box::from_raw(p.as_ptr()));
+            // if __JS_AtomIsConst(p.atom_type().unwrap().atom()) {
+            //     drop(p);
+            // } else {
+            //     debug_assert_eq!(Rc::strong_count(&p), 0);
+            // }
         }
     }
-    rt.atom_hash_lut.clear();
 
     // dump string leakage
     #[cfg(feature = "dump_leaks")]
     {
-        if !list_empty(&mut rt.debug_string_list) {
-            if !rt.rt_info.is_null() {
-                println!(
-                    "{}:1: string leakage:",
-                    std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
-                );
-            } else {
-                println!("String leaks:\n");
-            }
+        // if !list_empty(&mut rt.debug_string_list) {
+        //     if !rt.rt_info.is_null() {
+        //         println!(
+        //             "{}:1: string leakage:",
+        //             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
+        //         );
+        //     } else {
+        //         println!("String leaks:\n");
+        //     }
 
-            list_foreach_safe(&mut rt.debug_string_list, |el| {
-                let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
+        //     list_foreach_safe(&mut rt.debug_string_list, |el| {
+        //         let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
 
-                if !rt.rt_info.is_null() {
-                    print!(" ");
-                } else {
-                    print!("    {:6} ", (*str).ref_count());
-                }
+        //         if !rt.rt_info.is_null() {
+        //             print!(" ");
+        //         } else {
+        //             print!("    {:6} ", (*str).ref_count());
+        //         }
 
-                JS_DumpString(rt, str);
+        //         JS_DumpString(rt, str);
 
-                if !rt.rt_info.is_null() {
-                    println!(":{}", (*str).ref_count());
-                } else {
-                    println!("");
-                }
+        //         if !rt.rt_info.is_null() {
+        //             println!(":{}", (*str).ref_count());
+        //         } else {
+        //             println!("");
+        //         }
 
-                list_del(&mut (*str).link);
-                drop(Box::from_raw(str));
-            });
+        //         list_del(&mut (*str).link);
+        //         drop(Box::from_raw(str));
+        //     });
 
-            if !rt.rt_info.is_null() {
-                println!("");
-            }
-        }
+        //     if !rt.rt_info.is_null() {
+        //         println!("");
+        //     }
+        // }
 
         {
             let s: *mut JSMallocState = &mut rt.malloc_state;

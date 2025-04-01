@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
@@ -202,6 +204,7 @@ impl JSFunctionDef {
         }
     }
 
+    /// Note: `val` keep ref_count unchanged after calling this function
     pub unsafe fn emit_push_const(
         &mut self,
         val: JSValueConst,
@@ -209,20 +212,24 @@ impl JSFunctionDef {
         last_line_num: u32,
     ) -> i32 {
         if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
-            // warning: create atom consumes the value, dup it in advance
-            val.dup();
-
-            let p = JS_VALUE_GET_STRING(val);
-            debug_assert!((*p).ref_count() > 1);
-
-            let (atom, ss) = (*self.ctx).rt_mut().add_atom_jsstring(Box::from_raw(p));
-            Box::leak(ss.unwrap());
-
-            if atom != JS_ATOM_NULL && !atom.is_int_type() {
-                self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
-                self.emit_u32(atom.0);
-                return 0;
+            // Note: converting to atom will consume the string,
+            // so clone the string description to keep val's refcount
+            if let Ok(atom) = (*self.ctx)
+                .rt_mut()
+                .add_atom_jsstring(val.with_string(|s| s.clone()))
+            {
+                if !atom.is_int_type() {
+                    self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
+                    self.emit_u32(atom.0);
+                    return 0;
+                }
             }
+
+            // if atom != JS_ATOM_NULL && !atom.is_int_type() {
+            //     self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
+            //     self.emit_u32(atom.0);
+            //     return 0;
+            // }
         }
 
         let idx = self.cpool_add(val.dup());

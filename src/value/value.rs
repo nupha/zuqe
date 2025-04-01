@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{ptr::NonNull, rc::Rc};
 
 use crate::{
     atom::JS_FreeAtomStruct,
@@ -304,23 +304,45 @@ impl JSValue {
 
     /// increase value refcount
     #[inline(always)]
-    pub(crate) fn dup(&self) -> Self {
-        let v = *self;
+    pub(crate) fn dup(self) -> Self {
+        let v = self;
         if JS_VALUE_HAS_REF_COUNT(v) {
-            let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-            unsafe {
-                p.as_mut().unwrap().ref_count += 1;
+            match JS_VALUE_GET_TAG(v) {
+                JS_TAG_STRING | JS_TAG_SYMBOL => {
+                    let p = JS_VALUE_GET_STRING(v);
+                    unsafe {
+                        Rc::increment_strong_count(p);
+                    }
+                }
+                _ => {
+                    let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
+                    unsafe {
+                        p.as_mut().unwrap().ref_count += 1;
+                    }
+                }
             }
         }
+
         v
     }
 
     /// get value refcount
     pub fn ref_count(&self) -> Option<i32> {
         let v = *self;
+
         if JS_VALUE_HAS_REF_COUNT(v) {
-            let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-            Some(unsafe { (*p).ref_count })
+            match JS_VALUE_GET_TAG(v) {
+                JS_TAG_STRING | JS_TAG_SYMBOL => {
+                    let p = unsafe { Rc::from_raw(JS_VALUE_GET_STRING(v)) };
+                    let r = Rc::strong_count(&p);
+                    let _ = Rc::into_raw(p);
+                    Some(r as i32)
+                }
+                _ => {
+                    let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
+                    Some(unsafe { (*p).ref_count })
+                }
+            }
         } else {
             None
         }
@@ -349,6 +371,23 @@ impl JSValue {
         } else {
             Ok(self)
         }
+    }
+
+    /// run callback with value's string description. won't effect value' ref_count.
+    /// will panic if value is not string type.
+    pub fn with_string<R>(self, f: impl FnOnce(&Rc<JSString>) -> R) -> R {
+        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_STRING);
+        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+
+        let s = unsafe { Rc::from_raw(JS_VALUE_GET_PTR(self).cast::<JSString>()) };
+        debug_assert!(Rc::strong_count(&s) > 0);
+
+        let r = f(&s);
+
+        // restore string
+        let _ = Rc::into_raw(s);
+
+        r
     }
 }
 
@@ -419,11 +458,32 @@ pub unsafe fn JS_FreeValue(ctx: *mut JSContext, v: JSValue) {
 #[inline(always)]
 pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     if JS_VALUE_HAS_REF_COUNT(v) {
-        let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-        (*p).ref_count -= 1;
+        match JS_VALUE_GET_TAG(v) {
+            JS_TAG_STRING | JS_TAG_SYMBOL => {
+                let s = Rc::from_raw(JS_VALUE_GET_STRING(v));
+                if Rc::strong_count(&s) == 1 {
+                    // drop atom too
+                    if let Some(at) = s.atom_info() {
+                        JS_FreeAtomStruct(rt, at.atom());
+                    }
+                }
 
-        if (*p).ref_count <= 0 {
-            __JS_FreeValueRT(rt, v);
+                // if Rc::strong_count(&s) == 2 {
+                //     if let Some(at) = s.atom_type() {
+                //         // 2 ref counts left: this value and an atom.
+                //         drop(s); // now the strong_count is 1
+                //         JS_FreeAtomStruct(rt, at.atom()); // drop atom too
+                //     }
+                // }
+            }
+            _ => {
+                let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
+                (*p).ref_count -= 1;
+
+                if (*p).ref_count <= 0 {
+                    __JS_FreeValueRT(rt, v);
+                }
+            }
         }
     }
 }
@@ -446,16 +506,18 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
 
     match tag {
         JS_TAG_STRING => {
-            let p = JS_VALUE_GET_STRING(v);
-            if (*p).atom_type().is_some() {
-                JS_FreeAtomStruct(rt.as_mut().unwrap(), NonNull::new(p).unwrap());
-            } else {
-                #[cfg(feature = "dump_leaks")]
-                list_del(&mut (*p).link);
+            unreachable!();
+            // let p = JS_VALUE_GET_STRING(v);
+            // let s = Rc::from_raw(p);
+            // if let Some(at) = (*p).atom_type() {
+            //     JS_FreeAtomStruct(rt.as_mut().unwrap(), NonNull::new(p).unwrap());
+            // } else {
+            //     #[cfg(feature = "dump_leaks")]
+            //     list_del(&mut (*p).link);
 
-                // drop JSString
-                drop(Box::from_raw(p));
-            }
+            //     // drop JSString
+            //     drop(Box::from_raw(p));
+            // }
         }
         JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE => {
             let p = JS_VALUE_GET_OBJ(v).cast::<JSGCObjectHeader>();
@@ -469,10 +531,11 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
             }
         }
         JS_TAG_SYMBOL => {
-            JS_FreeAtomStruct(
-                rt.as_mut().unwrap(),
-                NonNull::new(JS_VALUE_GET_PTR(v).cast::<JSString>()).unwrap(),
-            );
+            unreachable!();
+            // JS_FreeAtomStruct(
+            //     rt.as_mut().unwrap(),
+            //     NonNull::new(JS_VALUE_GET_PTR(v).cast::<JSString>()).unwrap(),
+            // );
         }
         JS_TAG_MODULE => {
             unreachable!("never freed here");

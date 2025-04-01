@@ -4,7 +4,7 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
-        JSAtom, JSAtomType, JSAtomTypeHint, JS_AtomIsArrayIndex, JS_FreeAtomRT, __JS_FindAtom,
+        JSAtom, JSAtomInfo, JSAtomTypeHint, JS_AtomIsArrayIndex, JS_FreeAtomRT, __JS_FindAtom,
         JS_ATOM_NULL,
     },
     context::{JSContext, JS_FreeContext},

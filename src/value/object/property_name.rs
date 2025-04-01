@@ -81,7 +81,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
         } else if (*p).class_id() == JS_CLASS_STRING {
             if (flags & JS_GPN_STRING_MASK) != 0 {
                 num_keys_count +=
-                    js_string_obj_get_length(ctx, JS_MKPTR!(JSTag::Object, p.cast())) as u32;
+                    js_string_obj_get_length(JS_MKPTR!(JSTag::Object, p.cast())) as u32;
             }
         } else {
             let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
@@ -184,7 +184,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
             }
         } else if (*p).class_id() == JS_CLASS_STRING {
             if (flags & JS_GPN_STRING_MASK) != 0 {
-                let len = js_string_obj_get_length(ctx, JS_MKPTR!(JSTag::Object, p.cast()));
+                let len = js_string_obj_get_length(JS_MKPTR!(JSTag::Object, p.cast()));
                 for i in 0..len {
                     (*tab_atom.offset(num_index as isize)).atom = JSAtom::from_u32(i as u32);
                     if (*tab_atom.offset(num_index as isize)).atom == JS_ATOM_NULL {

@@ -104,7 +104,8 @@ impl StringContent {
         }
     }
 
-    pub fn clone(&self) -> Result<Self, TryReserveError> {
+    /// create a new string content by coping content.
+    pub fn copy_to_new(&self) -> Result<Self, TryReserveError> {
         match self {
             Self::Empty => Ok(Self::Empty),
             Self::Utf8(s) => {

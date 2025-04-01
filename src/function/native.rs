@@ -207,6 +207,11 @@ pub unsafe fn JS_NewCFunction3(
 
     // define propperties on func_obj: length and name.
     let name_atom = (*ctx).create_atom(name.to_string_lossy().as_ref()).unwrap();
+
+    if name_atom.0 == 235 {
+        println!("[O.o] atom 235 {:?}", name);
+    }
+
     js_function_set_properties(ctx, func_obj, name_atom, length as i32);
     JS_FreeAtom(ctx, name_atom);
 
@@ -267,6 +272,7 @@ pub unsafe fn JS_SetPropertyFunctionList(
         let atom = (*ctx)
             .create_atom((*e).name.to_string_lossy().as_ref())
             .expect("TODO");
+
         JS_InstantiateFunctionListItem(ctx, obj, atom, e);
         JS_FreeAtom(ctx, atom);
     }

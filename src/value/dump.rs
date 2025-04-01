@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 use crate::{
     atom::JSAtomStruct, context::JSContext, function::JSFunctionBytecode, runtime::JSRuntime,
@@ -10,18 +10,19 @@ use super::{
     JS_VALUE_GET_STRING,
 };
 
-pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: *const JSString) {
-    if p.is_null() {
-        print!("<null>");
-        return;
-    }
+pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: &Rc<JSString>) {
+    // if p.is_null() {
+    //     print!("<null>");
+    //     return;
+    // }
 
-    print!("{}", (*p).ref_count());
+    let ref_cnt = Rc::strong_count(p);
+    print!("{}", ref_cnt);
 
-    let sep = if (*p).ref_count() == 1 { b'\"' } else { b'\'' } as char;
+    let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
     print!("{}", sep as char);
 
-    for c in (*p).content().chars() {
+    for c in p.content().chars() {
         match c {
             '\'' | '"' if c == sep => print!("\\{c}"),
             '\n' => print!("\\n"),
@@ -52,8 +53,11 @@ impl JSValue {
             JSTag::Undefined => "undefined".into(),
             JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
             JSTag::String => {
-                let p: *mut JSString = JS_VALUE_GET_STRING(self);
-                JS_DumpString(rt, p);
+                let p = JS_VALUE_GET_STRING(self);
+                debug_assert!(!p.is_null());
+                let ss = Rc::from_raw(p);
+                JS_DumpString(rt, &ss);
+                Rc::into_raw(ss);
                 return;
             }
             JSTag::FunctionBytecode => {
@@ -67,7 +71,7 @@ impl JSValue {
             }
             JSTag::Symbol => {
                 let p = JS_VALUE_GET_PTR(self).cast::<JSAtomStruct>();
-                format!("Symbol({})", (*p).atom_type().unwrap().atom().to_str(rt),).into()
+                format!("Symbol({})", (*p).atom_info().unwrap().atom().to_str(rt),).into()
             }
             JSTag::CatchOffset => "catchoffset".into(),
             JSTag::Module => "[module]".into(),

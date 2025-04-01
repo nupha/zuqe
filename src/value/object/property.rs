@@ -144,7 +144,7 @@ pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValu
    define_own_property callback.
    return -1 (exception), FALSE or TRUE.
 */
-/// Note: property value is duplicated inside.
+/// Note: property `val` is duplicated inside.
 pub unsafe fn JS_DefineProperty(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -170,12 +170,11 @@ pub unsafe fn JS_DefineProperty(
         if !prs.is_null() {
             /* the range of the Array length property is always tested before */
             if ((*prs).flags() & JS_PROP_LENGTH) != 0 && (flags & JS_PROP_HAS_VALUE) != 0 {
-                let array_length =
-                    if let Ok(n) = JS_ToArrayLengthFree(ctx, JS_DupValue(ctx, val), false) {
-                        n
-                    } else {
-                        return -1;
-                    };
+                let array_length = if let Ok(n) = JS_ToArrayLengthFree(ctx, val.dup(), false) {
+                    n
+                } else {
+                    return -1;
+                };
 
                 /* this code relies on the fact that Uint32 are never allocated */
                 val = JSValue::from_u32(array_length);
@@ -323,7 +322,7 @@ pub unsafe fn JS_DefineProperty(
                                 }
                             } else {
                                 /* update the reference */
-                                set_value(ctx, (*(*pr).u.var_ref).pvalue, JS_DupValue(ctx, val));
+                                set_value(ctx, (*(*pr).u.var_ref).pvalue, val.dup());
                             }
                         }
                         /* if writable is set to false, no longer a
@@ -527,10 +526,24 @@ pub unsafe fn JS_DefineProperty(
         break;
     }
 
-    match JS_CreateProperty(ctx, p, prop, val, getter, setter, flags) {
-        Ok(b) => b as i32,
-        Err(_) => -1,
+    #[cfg(debug_assertions)]
+    let _val_rc = val.ref_count();
+
+    let r = JS_CreateProperty(ctx, p, prop, val, getter, setter, flags);
+
+    #[cfg(debug_assertions)]
+    if flags & JS_PROP_HAS_VALUE != 0 {
+        if let Some(c) = val.ref_count() {
+            debug_assert!(
+                c > _val_rc.unwrap(),
+                "before:{}, after:{}",
+                _val_rc.unwrap(),
+                c
+            );
+        }
     }
+
+    r.map_or(-1, |b| b as i32)
 }
 
 /// shortcut to add or redefine a new property value.
@@ -542,6 +555,9 @@ pub unsafe fn JS_DefinePropertyValue(
     val: JSValue,
     flags: u32,
 ) -> i32 {
+    #[cfg(debug_assertions)]
+    let _val_rc = val.ref_count();
+
     let ret = JS_DefineProperty(
         ctx,
         this_obj,
@@ -556,9 +572,18 @@ pub unsafe fn JS_DefinePropertyValue(
             | JS_PROP_HAS_ENUMERABLE,
     );
 
+    #[cfg(debug_assertions)]
+    if let Some(c) = val.ref_count() {
+        debug_assert!(
+            c > _val_rc.unwrap(),
+            "before:{}, after:{}",
+            _val_rc.unwrap(),
+            c
+        );
+    }
+
     // consume value
     JS_FreeValue(ctx, val);
-
     ret
 }
 
@@ -2438,6 +2463,7 @@ pub unsafe fn JS_TryGetPropertyInt64(
     }
 }
 
+/// `val` is duplicated inside
 pub unsafe fn JS_CreateProperty(
     ctx: *mut JSContext,
     p: *mut JSObject,
@@ -2481,85 +2507,56 @@ pub unsafe fn JS_CreateProperty(
 
     /* add a new property or modify an existing exotic one */
     if (*p).detailed.is_exotic() {
-        if (*p).class_id() == JS_CLASS_ARRAY {
-            let mut idx: u32 = 0;
+        match (*p).class_id() {
+            JS_CLASS_ARRAY => {
+                let mut idx: u32 = 0;
 
-            if (*p).detailed.fast_array() {
-                if prop.is_int_type() {
-                    idx = __JS_AtomToUInt32(prop);
-                    if idx == (*p).u.array.count {
-                        if !(*p).detailed.extensible() {
-                            if ctx
-                                .as_mut()
-                                .unwrap()
-                                .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
-                                == 0
-                            {
-                                return Ok(false);
-                            } else {
-                                return Err(-1);
+                if (*p).detailed.fast_array() {
+                    if prop.is_int_type() {
+                        idx = __JS_AtomToUInt32(prop);
+                        if idx == (*p).u.array.count {
+                            if !(*p).detailed.extensible() {
+                                return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                    flags as _,
+                                    c"object is not extensible",
+                                ) == 0
+                                {
+                                    Ok(false)
+                                } else {
+                                    Err(-1)
+                                };
                             }
-                        }
 
-                        if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+                            if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+                                convert_to_array!(p, idx);
+                            }
+                            let prop_flags = get_prop_flags(flags, 0);
+                            if prop_flags != JS_PROP_C_W_E {
+                                convert_to_array!(p, idx);
+                            }
+                            let r = add_fast_array_element(ctx, p, val.dup(), flags);
+                            return if r < 0 { Err(-1) } else { Ok(r != 0) };
+                        } else {
                             convert_to_array!(p, idx);
                         }
-                        let prop_flags = get_prop_flags(flags, 0);
-                        if prop_flags != JS_PROP_C_W_E {
-                            convert_to_array!(p, idx);
-                        }
-                        let r = add_fast_array_element(ctx, p, JS_DupValue(ctx, val), flags);
-                        return if r < 0 { Err(-1) } else { Ok(r != 0) };
-                    } else {
+                    } else if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
+                        /* convert the fast array to normal array */
                         convert_to_array!(p, idx);
                     }
                 } else if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
-                    /* convert the fast array to normal array */
-                    convert_to_array!(p, idx);
+                    generic_array!(p, idx);
                 }
-            } else if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
-                generic_array!(p, idx);
             }
-        } else if (*p).class_id() >= JS_CLASS_UINT8C_ARRAY
-            && (*p).class_id() <= JS_CLASS_FLOAT64_ARRAY
-        {
-            let ret = JS_AtomIsNumericIndex(ctx, prop);
-            if ret != 0 {
-                if ret < 0 {
-                    return Err(-1);
-                }
-                return if ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                    flags as _,
-                    c"cannot create numeric index in typed array",
-                ) == 0
-                {
-                    Ok(false)
-                } else {
-                    Err(-1)
-                };
-            }
-        } else if (flags & JS_PROP_NO_EXOTIC) == 0 {
-            let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
-            if !em.is_null() {
-                if (*em).define_own_property.is_some() {
-                    let r = (*em).define_own_property.unwrap()(
-                        ctx,
-                        JS_MKPTR!(JSTag::Object, p.cast()),
-                        prop,
-                        val,
-                        getter,
-                        setter,
+            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                let ret = JS_AtomIsNumericIndex(ctx, prop);
+                if ret != 0 {
+                    if ret < 0 {
+                        return Err(-1);
+                    }
+                    return if ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
                         flags as _,
-                    );
-                    return if r < 0 { Err(-1) } else { Ok(r != 0) };
-                }
-
-                if !JS_IsExtensible(ctx, JS_MKPTR!(JSTag::Object, p.cast()))? {
-                    return if ctx
-                        .as_mut()
-                        .unwrap()
-                        .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
-                        == 0
+                        c"cannot create numeric index in typed array",
+                    ) == 0
                     {
                         Ok(false)
                     } else {
@@ -2567,16 +2564,43 @@ pub unsafe fn JS_CreateProperty(
                     };
                 }
             }
+            cid => {
+                if (flags & JS_PROP_NO_EXOTIC) == 0 {
+                    let em = (*ctx).rt().class_array[cid as usize].exotic;
+                    if !em.is_null() {
+                        if let Some(cb) = (*em).define_own_property {
+                            let r = cb(
+                                ctx,
+                                JS_MKPTR!(JSTag::Object, p.cast()),
+                                prop,
+                                val,
+                                getter,
+                                setter,
+                                flags as _,
+                            );
+                            return if r < 0 { Err(-1) } else { Ok(r != 0) };
+                        }
+
+                        if !JS_IsExtensible(ctx, JS_MKPTR!(JSTag::Object, p.cast()))? {
+                            return if ctx
+                                .as_mut()
+                                .unwrap()
+                                .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
+                                == 0
+                            {
+                                Ok(false)
+                            } else {
+                                Err(-1)
+                            };
+                        }
+                    }
+                }
+            }
         }
     }
 
     if !(*p).detailed.extensible() {
-        return if ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
-            == 0
-        {
+        return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible") == 0 {
             Ok(false)
         } else {
             Err(-1)
@@ -2588,10 +2612,7 @@ pub unsafe fn JS_CreateProperty(
     } else {
         flags & JS_PROP_C_W_E
     };
-    let pr = p
-        .as_mut()
-        .unwrap()
-        .add_property(ctx.as_mut().unwrap(), prop, prop_flags)?;
+    let pr = (*p).add_property(ctx.as_mut().unwrap(), prop, prop_flags)?;
 
     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
         (*pr).u.getset.getter = std::ptr::null_mut();
@@ -2604,7 +2625,7 @@ pub unsafe fn JS_CreateProperty(
         }
     } else {
         if (flags & JS_PROP_HAS_VALUE) != 0 {
-            (*pr).u.value = JS_DupValue(ctx, val);
+            (*pr).u.value = val.dup();
         } else {
             (*pr).u.value = JSValue::UNDEFINED;
         }

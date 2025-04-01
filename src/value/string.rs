@@ -1,14 +1,13 @@
 use std::{
     borrow::Cow,
+    cell::Cell,
+    ffi::c_void,
     ffi::{c_char, CStr},
-    ptr::NonNull,
-    sync::atomic::AtomicBool,
+    rc::Rc,
 };
 
-use fallible_collections::FallibleVec;
-
 use crate::{
-    atom::{consts::*, JSAtom, JSAtomType, JS_FreeAtomStruct, __JS_AtomToUInt32},
+    atom::{consts::*, JSAtom, JSAtomInfo, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
     context::JSContext,
     function::JS_InvokeFree,
@@ -50,79 +49,31 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 #[derive(Debug)]
 #[repr(C)]
 pub struct JSString {
-    // Reference count header must be first for memory layout
-    header: JSRefCountHeader,
-
     // Hash value
-    hash_and_type: u32,
+    hash_and_type: Cell<u32>,
 
-    /// atom type of string
-    atom_type: Option<JSAtomType>,
+    /// atom info of string, None if not registered as atom.
+    atom_type: Cell<Option<JSAtomInfo>>,
 
-    // Used for atom string chaining in hash table
-    // For symbols, stores the atom index
-    pub hash_next: u32,
+    /// string content
+    content: Rc<StringContent>,
 
     #[cfg(feature = "dump_leaks")]
     pub link: crate::types::list_head, // For tracking string allocations
-
-    /// Actual string content, can be UTF-8 or UTF-16 encoded
-    content: StringContent,
 }
 
 impl JSString {
-    /// Creates a new JSString with uninitialized content
-    ///
-    /// This is an internal function used as the base for all string creation methods.
-    /// It allocates memory for the string and initializes the basic fields:
-    /// - Sets reference count to 1
-    /// - Initializes hash to 0
-    /// - Sets atom type to None
-    /// - Creates empty string content
-    ///
-    /// # Arguments
-    /// * `rt` - JavaScript runtime for memory allocation
-    ///
-    /// # Returns
-    /// * `Ok(Box<JSString>)` - Newly allocated string
-    /// * `Err(-1)` - Memory allocation failed
-    fn new_uninit(rt: &mut JSRuntime) -> Result<Box<Self>, i32> {
-        let mut ss = Box::new(Self {
-            header: JSRefCountHeader { ref_count: 1 },
-            hash_and_type: 0,
-            atom_type: None,
-            hash_next: 0,
-            content: StringContent::Empty,
+    /// create new jsstring from Rc<StringContent>
+    #[inline]
+    pub fn new(content: Rc<StringContent>) -> Rc<Self> {
+        Rc::new(JSString {
+            hash_and_type: Cell::new(0),
+            atom_type: Cell::new(None),
+            content,
 
             #[cfg(feature = "dump_leaks")]
             link: list_head::default(),
-        });
-
-        // #[cfg(feature = "dump_leaks")]
-        // unsafe {
-        //     crate::types::list_add_tail(&mut ss.link, &mut rt.debug_string_list);
-        // }
-
-        Ok(ss)
-    }
-
-    /// Creates a JSString with provided content bytes
-    ///
-    /// This is a low-level constructor that takes ownership of pre-allocated string content.
-    /// The content can be either UTF-8 or UTF-16 encoded.
-    ///
-    /// # Arguments
-    /// * `rt` - JavaScript runtime for memory allocation
-    /// * `content` - Pre-allocated string content to use
-    ///
-    /// # Returns
-    /// * `Ok(Box<JSString>)` - Newly created string with provided content
-    /// * `Err(-1)` - Memory allocation failed
-    #[inline(always)]
-    pub fn from_content(rt: &mut JSRuntime, content: StringContent) -> Result<Box<Self>, i32> {
-        let mut ss = Self::new_uninit(rt)?;
-        ss.content = content;
-        Ok(ss)
+        })
     }
 
     /// Creates a JSString from a Rust string slice
@@ -138,8 +89,10 @@ impl JSString {
     /// * `Ok(Box<JSString>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     #[inline(always)]
-    pub fn from_str(rt: &mut JSRuntime, str: &str) -> Result<Box<Self>, i32> {
-        JSString::from_content(rt, StringContent::from_str(str).map_err(|_| -1)?)
+    pub fn from_str(str: &str) -> Result<Rc<Self>, i32> {
+        StringContent::from_str(str)
+            .map(|s| s.into())
+            .map_err(|_| -1)
     }
 
     /// Creates a JSString from UTF-8 encoded bytes
@@ -155,20 +108,22 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSString>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub fn from_utf8(rt: &mut JSRuntime, data: Vec<u8>) -> Result<Box<Self>, i32> {
-        JSString::from_content(rt, StringContent::from_utf8(data).map_err(|_| -1)?)
+    pub fn from_utf8(data: Vec<u8>) -> Result<Rc<Self>, i32> {
+        StringContent::from_utf8(data)
+            .map(|s| s.into())
+            .map_err(|_| -1)
     }
 
-    /// create a new jsstring copying from an other jsstring
+    /// create a new jsstring copying content from an other jsstring
     #[inline(always)]
-    pub fn copy_from(rt: &mut JSRuntime, str: &JSString) -> Result<Box<Self>, i32> {
-        Self::from_content(rt, str.content.clone().map_err(|_| -1)?)
+    pub fn copy_from(str: &JSString) -> Result<Rc<Self>, i32> {
+        str.content.copy_to_new().map(|s| s.into()).map_err(|_| -1)
     }
 
     /// Returns a reference to the underlying string content
     /// Used for string operations and comparisons
     #[inline(always)]
-    pub fn content(&self) -> &StringContent {
+    pub fn content(&self) -> &Rc<StringContent> {
         &self.content
     }
 
@@ -197,12 +152,12 @@ impl JSString {
     /// Get hash value of the string.
     #[inline(always)]
     pub fn hash(&self) -> u32 {
-        self.hash_and_type
+        self.hash_and_type.get()
     }
 
     /// Save hash value
-    pub fn set_hash(&mut self, h: u32) {
-        self.hash_and_type = h;
+    pub fn set_hash(&self, h: u32) {
+        self.hash_and_type.set(h);
     }
 
     /// Returns the atom type and atom id of the string.
@@ -212,123 +167,64 @@ impl JSString {
     /// - An interned string atom (String)
     /// - A unique symbol (Symbol)
     #[inline(always)]
-    pub fn atom_type(&self) -> Option<JSAtomType> {
-        self.atom_type
+    pub fn atom_info(&self) -> Option<JSAtomInfo> {
+        self.atom_type.get()
     }
 
     /// Sets the atom type
     /// Used when converting a string to an atom or symbol.
-    pub fn set_atom_type(&mut self, t: JSAtomType) {
-        debug_assert!(self.atom_type.is_none());
-        self.atom_type = Some(t);
+    pub fn set_atom_type(&self, t: JSAtomInfo) {
+        debug_assert!(self.atom_type.get().is_none());
+        self.atom_type.set(Some(t));
     }
 
-    /// Get current reference count
+    /// consume Rc<JSString>, make into JSValue
     #[inline(always)]
-    pub fn ref_count(&self) -> i32 {
-        self.header.ref_count
+    pub fn into_value(self: Rc<Self>) -> JSValue {
+        // leak Rc<JSString> raw pointer.
+        JS_MKPTR!(JSTag::String, Rc::into_raw(self).cast::<c_void>() as _)
     }
+}
 
-    /// Increase ref count by 1.
-    /// Returns updated ref count.
+/// Convert StringContent to Rc<JSString>
+impl From<StringContent> for Rc<JSString> {
     #[inline(always)]
-    pub fn inc_ref(&mut self) -> i32 {
-        self.header.ref_count += 1;
-        self.header.ref_count
+    fn from(value: StringContent) -> Self {
+        JSString::new(Rc::new(value))
     }
+}
 
-    /// Decrements the reference count and returns the new count
-    ///
-    /// Used for garbage collection and string deallocation.
-    /// The string is freed when the reference count reaches zero.
-    ///
-    /// # Panics
-    /// Panics in debug mode if reference count is already 1 or less
+/// Convert an Rc<JSString> into JSValue
+impl From<Rc<JSString>> for JSValue {
     #[inline(always)]
-    pub fn dec_ref(&mut self) -> i32 {
-        debug_assert!(self.header.ref_count > 0);
-        self.header.ref_count -= 1;
-        self.header.ref_count
-    }
-
-    /// Deallocates a JSString when its reference count reaches zero
-    ///
-    /// This is the main deallocation function that handles both regular strings
-    /// and atom strings. The process:
-    ///
-    /// 1. Decrements the reference count
-    /// 2. If count reaches zero:
-    ///    - For atom strings: calls JS_FreeAtomStruct to clean up atom table
-    ///    - For regular strings: removes from leak tracking list if enabled
-    ///    - Deallocates the string memory
-    /// 3. If count > 0: returns the string for continued use
-    ///
-    /// # Arguments
-    /// * `rt` - JavaScript runtime for memory management
-    ///
-    /// # Returns
-    /// * `None` - String was deallocated (ref count = 0)
-    /// * `Some(Box<Self>)` - String is still in use (ref count > 0)
-    pub fn free(mut self: Box<Self>, rt: &mut JSRuntime) -> Option<Box<Self>> {
-        debug_assert!(self.header.ref_count > 0);
-
-        self.header.ref_count -= 1;
-
-        if self.header.ref_count == 0 {
-            if self.atom_type().is_some() {
-                unsafe {
-                    JS_FreeAtomStruct(rt, NonNull::new(Box::into_raw(self)).unwrap());
-                }
-            } else {
-                #[cfg(feature = "dump_leaks")]
-                unsafe {
-                    crate::types::list_del(&mut self.link);
-                }
-            }
-            None
-        } else {
-            Some(self) // String still in use
-        }
-    }
-
-    #[cfg(feature = "dump_leaks")]
-    /// consume Box<JSString>, make into JSValue
-    pub fn into_value(mut self: Box<Self>, rt: &mut JSRuntime) -> JSValue {
-        unsafe {
-            crate::types::list_add_tail(&mut self.link, &mut rt.debug_string_list);
-        }
-        JS_MKPTR!(JSTag::String, Box::into_raw(self).cast())
-    }
-
-    #[cfg(not(feature = "dump_leaks"))]
-    /// consume Box<JSString>, make into JSValue
-    pub fn into_value(self: Box<Self>, rt: &mut JSRuntime) -> JSValue {
-        JS_MKPTR!(JSTag::String, Box::into_raw(self).cast())
+    fn from(value: Rc<JSString>) -> Self {
+        value.into_value()
     }
 }
 
 impl JSContext {
-    /// create string value with provieded raw content bytes as-is.
-    /// returns JS_EXCEPTION if fail.
+    /// create string value from string content.
     pub unsafe fn create_string_from_content(&mut self, content: StringContent) -> JSValue {
         if content == StringContent::Empty {
             unsafe { JS_ATOM_empty_string.to_value(self, true) }
-        } else if let Ok(s) = JSString::from_content(self.rt_mut(), content) {
-            s.into_value(self.rt_mut())
         } else {
-            self.JS_ThrowOutOfMemory();
-            JSValue::EXCEPTION
+            let s: Rc<JSString> = content.into();
+            s.into_value()
         }
     }
 
     /// create string jsvalue from an utf8 encoded str.
     pub fn create_string(&mut self, str: &str) -> JSValue {
         if str.is_empty() {
-            unsafe { JS_ATOM_empty_string.to_value(self, true) }
+            self.rt()
+                .get_atom_desc(JS_ATOM_empty_string)
+                .cloned()
+                .unwrap()
+                .into_value()
         } else if str.len() > JS_STRING_LEN_MAX {
             unsafe { self.JS_ThrowInternalError(c"string too long") }
-        } else if let Ok(ss) = JSString::from_str(self.rt_mut(), str) {
-            ss.into_value(self.rt_mut())
+        } else if let Ok(ss) = JSString::from_str(str) {
+            ss.into_value()
         } else {
             unsafe {
                 self.JS_ThrowOutOfMemory();
@@ -354,8 +250,8 @@ impl JSContext {
         } else if data.len() > JS_STRING_LEN_MAX {
             unsafe { self.JS_ThrowInternalError(c"string too long") }
         } else {
-            if let Ok(ss) = JSString::from_utf8(self.rt_mut(), data) {
-                ss.into_value(self.rt_mut())
+            if let Ok(ss) = JSString::from_utf8(data) {
+                ss.into_value()
             } else {
                 unsafe {
                     self.JS_ThrowOutOfMemory();
@@ -395,10 +291,7 @@ pub unsafe fn js_alloc_string(
 
 #[deprecated(note = "use JSString::free() instead")]
 pub unsafe fn js_free_string(rt: &mut JSRuntime, str: *mut JSString) {
-    debug_assert!(!str.is_null());
-    let s = Box::from_raw(str);
-    let r = s.free(rt);
-    debug_assert!(r.is_none());
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use StringContent::cmp() instead")]
@@ -507,6 +400,7 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSString) -> bool {
     }
 }
 
+/// `val` keeps ref count unchanged after calling this function.
 pub unsafe fn JS_ToStringInternal(
     ctx: *mut JSContext,
     val: JSValueConst,
@@ -554,10 +448,12 @@ pub unsafe fn JS_ToStringInternal(
     }
 }
 
+/// `val` keeps ref count unchanged after calling this function.
 pub unsafe fn JS_ToString(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
     JS_ToStringInternal(ctx, val, false)
 }
 
+/// `val` is consumed once.
 pub unsafe fn JS_ToStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
     let ret = JS_ToString(ctx, val);
     JS_FreeValue(ctx, val);
@@ -687,7 +583,7 @@ pub unsafe fn JS_ConcatString1(
 
 /// op1 and op2 are converted to strings.
 /// For convience, op1 or op2 = JS_EXCEPTION are accepted and return JSValue::EXCEPTION.
-/// op1 and op2 are freed
+/// op1 and op2 are consumed
 pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> JSValue {
     let str1 = if JS_VALUE_GET_TAG(op1) != JS_TAG_STRING {
         let v = JS_ToStringFree(ctx, op1);
@@ -695,44 +591,76 @@ pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -
             JS_FreeValue(ctx, op2);
             return JSValue::EXCEPTION;
         }
-        v.into_rc((*ctx).rt())
+        v
     } else {
-        op1.into_rc((*ctx).rt())
+        op1
     };
 
     let str2 = if JS_VALUE_GET_TAG(op2) != JS_TAG_STRING {
         let v = JS_ToStringFree(ctx, op2);
         if v.is_exception() {
+            JS_FreeValue(ctx, str1);
             return JSValue::EXCEPTION;
         }
-        v.into_rc((*ctx).rt())
+        v
     } else {
-        op2.into_rc((*ctx).rt())
+        op2
     };
 
-    let p1 = JS_VALUE_GET_STRING(*str1);
-    let p2 = JS_VALUE_GET_STRING(*str2);
+    let p1 = Rc::from_raw(JS_VALUE_GET_STRING(str1));
+    let p2 = Rc::from_raw(JS_VALUE_GET_STRING(str2));
 
-    if (*p1).is_empty() {
-        return str2.into();
-    } else if (*p2).is_empty() {
-        return str1.into();
+    if p1.is_empty() {
+        return p2.into_value();
+    } else if p2.is_empty() {
+        return p1.into_value();
     }
 
-    if (*p1).header.ref_count == 1 {
-        if (*p1).content.push(&(*p2).content).is_err() {
-            (*ctx).JS_ThrowOutOfMemory();
-            JSValue::EXCEPTION
-        } else {
-            str1.into()
+    match Rc::try_unwrap(p1) {
+        Ok(mut ss) => {
+            // p1 ref count == 1
+            match Rc::try_unwrap(ss.content) {
+                Ok(mut cc) => {
+                    if cc.push(&p2.content).is_err() {
+                        ss.content = Rc::new(cc);
+                        (*ctx).JS_ThrowOutOfMemory();
+                        JSValue::EXCEPTION
+                    } else {
+                        (*ctx).create_string_from_content(cc)
+                    }
+                }
+                Err(cc) => {
+                    if let Ok(mut cc2) = cc.copy_to_new() {
+                        if cc2.push(&p2.content()).is_err() {
+                            (*ctx).JS_ThrowOutOfMemory();
+                            JSValue::EXCEPTION
+                        } else {
+                            (*ctx).create_string_from_content(cc2)
+                        }
+                    } else {
+                        (*ctx).JS_ThrowOutOfMemory();
+                        JSValue::EXCEPTION
+                    }
+                }
+            }
+
+            // if ss.content.push(&p2.content).is_err() {
+            //     (*ctx).JS_ThrowOutOfMemory();
+            //     JSValue::EXCEPTION
+            // } else {
+            //     Rc::new(ss).into_value()
+            // }
         }
-    } else if let Ok(new_sc) = (*p1).content().clone().and_then(|mut s| {
-        s.push((*p2).content())?;
-        Ok(s)
-    }) {
-        (*ctx).create_string_from_content(new_sc)
-    } else {
-        JSValue::EXCEPTION
+        Err(ss) => {
+            if let Ok(new_sc) = ss.content().copy_to_new().and_then(|mut s| {
+                s.push(p2.content())?;
+                Ok(s)
+            }) {
+                (*ctx).create_string_from_content(new_sc)
+            } else {
+                JSValue::EXCEPTION
+            }
+        }
     }
 }
 
@@ -764,29 +692,23 @@ pub unsafe fn JS_NewString(ctx: *mut JSContext, str: &CStr) -> JSValue {
 }
 
 impl JSValue {
-    /// Convert a JSValue to String. the value will not be freed.
-    /// Returns either a CStr or a CString
+    /// Get utf8 string representation of JSValue `self`
+    /// Note: the `self` value keep ref count unchanged after calling this function
     pub unsafe fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
-        let mut str_val: Option<JSValue> = None;
-        let jss = if JS_VALUE_GET_TAG(self) == JSTag::String as i32 {
-            JS_VALUE_GET_STRING(self)
+        if JS_VALUE_GET_TAG(self) == JSTag::String as i32 {
+            let p = Rc::from_raw(JS_VALUE_GET_STRING(self));
+            let ret = p.content().to_str().as_ref() as *const str;
+            let _ = Rc::into_raw(p); // restore `self` value alive
+            Ok(Cow::Borrowed(ret.as_ref().unwrap()))
         } else {
             let ts = JS_ToString(ctx, self);
             if ts.is_exception() {
-                return Err(-1);
+                Err(-1)
+            } else {
+                let s = Rc::from_raw(JS_VALUE_GET_STRING(ts));
+                Ok(Cow::Owned(s.content().to_str().into_owned()))
             }
-            let s = JS_VALUE_GET_STRING(ts);
-            str_val.replace(ts);
-            s
-        };
-
-        let mut s = (*jss).content.to_str();
-        if let Some(sv) = str_val {
-            let _ = s.to_mut(); // owned
-            JS_FreeValue(ctx, sv);
         }
-
-        Ok(s)
     }
 }
 
@@ -836,7 +758,7 @@ pub unsafe fn JS_FreeCString(ctx: *mut JSContext, ptr: *const c_char) {
     // JS_FreeValue(ctx, JS_MKPTR!(JSTag::String, p.cast()));
 }
 
-pub unsafe fn js_string_obj_get_length(ctx: *const JSContext, obj: JSValueConst) -> usize {
+pub unsafe fn js_string_obj_get_length(obj: JSValueConst) -> usize {
     // This is a class exotic method: obj class_id is JS_CLASS_STRING
     let p = JS_VALUE_GET_OBJ(obj);
 
@@ -875,10 +797,13 @@ pub unsafe fn js_string_get_own_property(
     prop: JSAtom,
 ) -> i32 {
     // This is a class exotic method: obj class_id is JS_CLASS_STRING
+    let mut ret = 0;
+
     if prop.is_int_type() {
-        let p = JS_VALUE_GET_OBJ(obj).as_mut().unwrap();
+        let p = JS_VALUE_GET_OBJ(obj).as_ref().unwrap();
         if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_STRING {
-            let p1 = JS_VALUE_GET_STRING((*p).u.object_data).as_mut().unwrap();
+            let p1 = Rc::from_raw(JS_VALUE_GET_STRING((*p).u.object_data));
+
             let idx = __JS_AtomToUInt32(prop);
             if idx < p1.len() as u32 {
                 if !desc.is_null() {
@@ -889,12 +814,14 @@ pub unsafe fn js_string_get_own_property(
                     (*desc).setter = JSValue::UNDEFINED;
                 }
 
-                return 1;
+                ret = 1;
             }
+
+            let _ = Rc::into_raw(p1);
         }
     }
 
-    0
+    ret
 }
 
 pub unsafe fn js_string_define_own_property(
@@ -934,23 +861,34 @@ pub unsafe fn js_string_define_own_property(
         if JS_VALUE_GET_TAG((*p).u.object_data) != JS_TAG_STRING {
             def!();
         }
-        let p1 = JS_VALUE_GET_STRING((*p).u.object_data).as_mut().unwrap();
-        if idx >= (*p1).len() as u32 {
+
+        let p1 = Rc::from_raw(JS_VALUE_GET_STRING((*p).u.object_data));
+        let len = p1.len();
+        let nth_char = p1.content().chars().nth(idx as usize);
+        let _ = Rc::into_raw(p1);
+
+        if idx >= len as u32 {
             def!();
         }
         if !check_define_prop_flags(JS_PROP_ENUMERABLE, flags as _) {
             fail!();
         }
+
         // check that the same value is configured
         if flags & JS_PROP_HAS_VALUE as i32 != 0 {
             if JS_VALUE_GET_TAG(val) != JS_TAG_STRING {
                 fail!();
             }
-            let p2 = JS_VALUE_GET_STRING(val).as_mut().unwrap();
-            if (*p2).len() != 1 {
+
+            let p2 = Rc::from_raw(JS_VALUE_GET_STRING(val));
+            let len2 = p2.len();
+            let nth_char2 = p2.content().chars().next();
+            let _ = Rc::into_raw(p2);
+
+            if len2 != 1 {
                 fail!();
             }
-            if (*p1).content().chars().nth(idx as usize) != (*p2).content().chars().next() {
+            if nth_char != nth_char2 {
                 fail!();
             }
         }
@@ -967,7 +905,7 @@ pub unsafe fn js_string_delete_property(
 ) -> i32 {
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
-        if idx < js_string_obj_get_length(ctx, obj) as u32 {
+        if idx < js_string_obj_get_length(obj) as u32 {
             return 0;
         }
     }

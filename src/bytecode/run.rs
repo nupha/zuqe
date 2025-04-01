@@ -4,7 +4,7 @@ use crate::{
     array::JS_NewArray,
     atom::{
         consts::{JS_ATOM_return, JS_ATOM_throw},
-        JSAtom, JSAtomType, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
+        JSAtom, JSAtomInfo, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
     },
     bytecode::{
         arithmatic::{

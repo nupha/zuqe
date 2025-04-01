@@ -20,8 +20,7 @@ use super::{
     property::{JSProperty, JSPropertyUnion, JS_PROP_LENGTH, JS_PROP_WRITABLE},
 };
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct JSShapeProperty {
     // flags:   6 bits: JS_PROP_XXX
     // hash_next:  26 bits: 0 if last in list
@@ -155,11 +154,15 @@ impl JSShape {
             return Err(-1);
         }
 
+        let rt = ctx.rt();
         for (key, pr) in self.props.iter() {
-            unsafe {
-                JS_DupAtom(ctx, pr.atom);
-            }
-            props.insert(*key, *pr);
+            props.insert(
+                *key,
+                JSShapeProperty {
+                    bitfield: pr.bitfield,
+                    atom: pr.atom.dup(rt),
+                },
+            );
         }
 
         let mut sh2 = Box::new(Self {
