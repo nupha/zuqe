@@ -231,7 +231,6 @@ pub unsafe fn js_get_atom_index(rt: &JSRuntime, p: *const JSAtomStruct) -> JSAto
     unreachable!("use JSString::atom_type() instead");
 
     // let mut i: u32 = (*p).hash_next; /* atom_index */
-
     // if (*p).atom_type() != JSAtomType::Symbol {
     //     i = *rt
     //         .atom_hash
@@ -244,8 +243,6 @@ pub unsafe fn js_get_atom_index(rt: &JSRuntime, p: *const JSAtomStruct) -> JSAto
     //         p1 = *rt.atom_array.add(i as usize);
     //     }
     // }
-
-    // JSAtom(i)
 }
 
 #[inline(always)]
