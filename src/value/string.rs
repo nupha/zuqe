@@ -15,8 +15,9 @@ use crate::{
     types::{list_head, unlikely},
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING, JS_TAG_NULL, JS_TAG_STRING,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+        JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -692,21 +693,73 @@ pub unsafe fn JS_NewString(ctx: *mut JSContext, str: &CStr) -> JSValue {
 }
 
 impl JSValue {
+    /// get a reference to value's string description. won't effect value's ref_count.
+    /// will panic if value is not string type.
+    #[inline(always)]
+    pub fn string<'a>(self) -> &'a JSString {
+        debug_assert!(matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_STRING | JS_TAG_SYMBOL
+        ));
+        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+
+        unsafe { JS_VALUE_GET_PTR(self).cast::<JSString>().as_ref().unwrap() }
+    }
+
+    /// take string desciption out from value.
+    /// will panic if value is not string type.
+    pub unsafe fn take_string(self) -> Rc<JSString> {
+        debug_assert!(matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_STRING | JS_TAG_SYMBOL
+        ));
+
+        let p = JS_VALUE_GET_PTR(self).cast::<JSString>();
+        debug_assert!(!p.is_null());
+        Rc::from_raw(p)
+    }
+
+    /// run callback with value's string description. won't effect value' ref_count.
+    /// will panic if value is not string type.
+    pub fn with_string<R>(self, f: impl FnOnce(&Rc<JSString>) -> R) -> R {
+        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_STRING);
+        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+
+        let s = unsafe { self.take_string() };
+        debug_assert!(Rc::strong_count(&s) > 0);
+
+        let r = f(&s);
+
+        // restore string desciption
+        let _ = Rc::into_raw(s);
+
+        r
+    }
+
     /// Get utf8 string representation of JSValue `self`
     /// Note: the `self` value keep ref count unchanged after calling this function
     pub unsafe fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
         if JS_VALUE_GET_TAG(self) == JSTag::String as i32 {
-            let p = Rc::from_raw(JS_VALUE_GET_STRING(self));
-            let ret = p.content().to_str().as_ref() as *const str;
-            let _ = Rc::into_raw(p); // restore `self` value alive
-            Ok(Cow::Borrowed(ret.as_ref().unwrap()))
+            let cc = self.with_string(|p| p.content().clone());
+            debug_assert!(Rc::strong_count(&cc) > 1);
+
+            let ret = match cc.to_str() {
+                Cow::Borrowed(p) => {
+                    // use string description content pointer.
+                    Cow::Borrowed((p as *const str).as_ref().unwrap())
+                }
+                Cow::Owned(t) => Cow::Owned(t),
+            };
+
+            Ok(ret)
         } else {
-            let ts = JS_ToString(ctx, self);
-            if ts.is_exception() {
+            let tmp = JS_ToString(ctx, self);
+            if tmp.is_exception() {
                 Err(-1)
             } else {
-                let s = Rc::from_raw(JS_VALUE_GET_STRING(ts));
-                Ok(Cow::Owned(s.content().to_str().into_owned()))
+                Ok(Cow::Owned(
+                    tmp.take_string().content().to_str().into_owned(),
+                ))
             }
         }
     }

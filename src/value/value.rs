@@ -392,36 +392,6 @@ impl JSValue {
             Ok(self)
         }
     }
-
-    /// get a reference to value's string description. won't effect value's ref_count.
-    /// will panic if value is not string type.
-    #[inline(always)]
-    pub fn string<'a>(self) -> &'a JSString {
-        debug_assert!(matches!(
-            JS_VALUE_GET_TAG(self),
-            JS_TAG_STRING | JS_TAG_SYMBOL
-        ));
-        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
-
-        unsafe { JS_VALUE_GET_PTR(self).cast::<JSString>().as_ref().unwrap() }
-    }
-
-    /// run callback with value's string description. won't effect value' ref_count.
-    /// will panic if value is not string type.
-    pub fn with_string<R>(self, f: impl FnOnce(&Rc<JSString>) -> R) -> R {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_STRING);
-        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
-
-        let s = unsafe { Rc::from_raw(JS_VALUE_GET_PTR(self).cast::<JSString>()) };
-        debug_assert!(Rc::strong_count(&s) > 0);
-
-        let r = f(&s);
-
-        // restore string
-        let _ = Rc::into_raw(s);
-
-        r
-    }
 }
 
 /* same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing */

@@ -4,21 +4,19 @@ use std::{
     hash::Hash,
     num::NonZeroU16,
     os::raw::c_char,
-    ptr::NonNull,
     rc::Rc,
 };
 
 use crate::{
     context::JSContext,
-    mem::{js_free_rt, js_malloc_typed, js_mallocz_rt, js_realloc_rt},
+    mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
-    types::{likely, list_find},
+    types::likely,
     value::{
         object::JS_ToPropertyKey, JSString, JSTag, JSValue, JSValueConst, JS_DumpString,
-        JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToNumber, JS_ToNumberFree, JS_ToString,
-        StringContent, JS_TAG_SYMBOL, JS_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToNumberFree, JS_ToString, StringContent,
+        JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -337,28 +335,26 @@ pub unsafe fn print_atom(rt: *const JSRuntime, atom: JSAtom) {
 }
 
 impl JSContext {
-    /// create new (or reuse existing) atom for `str`.
+    /// create new or reuse existing atom for `str`.
     pub fn create_atom(&mut self, str: &str) -> Result<JSAtom, i32> {
         // format [xxxx]
         if str.starts_with('[') {
             let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
             let rt = self.rt_mut();
 
-            unsafe {
-                // We assume 8 bit non null strings, which is the case for these symbols
-                for i in JS_ATOM_Symbol_toPrimitive.0..JS_ATOM_INIT_COUNT {
-                    if let Some(astr) = rt.atom_slots.get(i as usize) {
-                        if astr.as_ref().unwrap().content().eq_str(name2) {
-                            return Ok(JSAtom(i).dup(rt));
-                        }
+            // We assume 8 bit non null strings, which is the case for these symbols
+            for i in JS_ATOM_Symbol_toPrimitive.0..JS_ATOM_INIT_COUNT {
+                if let Some(astr) = rt.atom_slots.get(i as usize) {
+                    if astr.as_ref().unwrap().content().eq_str(name2) {
+                        return Ok(JSAtom(i).dup(rt));
                     }
                 }
-
-                self.JS_ThrowInternalError(CStr::from_ptr(
-                    format!("unknown atom '{str}'\0").as_ptr().cast(),
-                ));
-                return Err(-1);
             }
+
+            self.JS_ThrowInternalError(unsafe {
+                CStr::from_ptr(format!("unknown atom '{str}'\0").as_ptr().cast())
+            });
+            return Err(-1);
         }
 
         if str.is_empty() || !is_digit(str.as_bytes()[0]) {
@@ -367,10 +363,10 @@ impl JSContext {
             }
         }
 
-        // temp val is consumed in this function.
         let tmp = self.create_string(str).check_exception()?;
-        self.rt_mut()
-            .add_atom_jsstring(unsafe { Rc::from_raw(JS_VALUE_GET_STRING(tmp)) })
+        self.rt_mut().add_atom_jsstring(unsafe {
+            Rc::from_raw(JS_VALUE_GET_STRING(tmp)) // <-- tmp is consumed here
+        })
     }
 }
 
@@ -497,22 +493,6 @@ pub unsafe fn __JS_FindAtom(
 #[deprecated(note = "use JSContext::create_atom() instead")]
 pub unsafe fn find_atom(ctx: *mut JSContext, name: &str) -> JSAtom {
     (*ctx).create_atom(name).unwrap_or(JS_ATOM_NULL)
-
-    // if name.starts_with('[') {
-    //     let name2 = &name[1..name.len() - 1]; // chop heading '[', tailing ']'
-
-    //     // We assume 8 bit non null strings, which is the case for these symbols
-    //     for a in JS_ATOM_Symbol_toPrimitive.0..JS_ATOM_INIT_COUNT {
-    //         let astr = *(*(*ctx).rt).atom_array.add(a as usize);
-    //         if (*astr).content().eq_str(name2) {
-    //             return JS_DupAtom(ctx, a.into());
-    //         }
-    //     }
-
-    //     unreachable!();
-    // } else {
-    //     (*ctx).create_atom(name).unwrap_or(JS_ATOM_NULL)
-    // }
 }
 
 pub unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
