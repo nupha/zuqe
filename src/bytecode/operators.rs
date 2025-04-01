@@ -52,7 +52,7 @@ pub unsafe fn js_operator_delete(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     if let Ok(ret) = ret {
         JS_FreeValue(ctx, op1);
         JS_FreeValue(ctx, op2);
-        *sp.offset(-2) = JS_NewBool(ctx, ret);
+        *sp.offset(-2) = JS_NewBool(ret);
         0
     } else {
         -1 // fail
@@ -66,7 +66,7 @@ pub unsafe fn js_operator_instanceof(ctx: *mut JSContext, sp: *mut JSValue) -> R
 
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
-    *sp.offset(-2) = JS_NewBool(ctx, ret);
+    *sp.offset(-2) = JS_NewBool(ret);
     Ok(())
 }
 
@@ -114,7 +114,7 @@ pub unsafe fn js_operator_in(ctx: *mut JSContext, sp: *mut JSValue) -> Result<()
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
 
-    *sp.offset(-2) = JS_NewBool(ctx, ret);
+    *sp.offset(-2) = JS_NewBool(ret);
     Ok(())
 }
 
@@ -148,7 +148,7 @@ pub unsafe fn js_operator_private_in(ctx: *mut JSContext, sp: *mut JSValue) -> R
 
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
-    *sp.offset(-2) = JS_NewBool(ctx, ret);
+    *sp.offset(-2) = JS_NewBool(ret);
 
     Ok(())
 }
@@ -744,7 +744,7 @@ pub unsafe fn js_for_of_next(ctx: *mut JSContext, sp: *mut JSValue, offset: i32)
     }
 
     *sp.offset(0) = value;
-    *sp.offset(1) = JS_NewBool(ctx, done);
+    *sp.offset(1) = JS_NewBool(done);
 
     0
 }
@@ -766,7 +766,7 @@ pub unsafe fn js_iterator_get_value_done(ctx: *mut JSContext, sp: *mut JSValue) 
 
     JS_FreeValue(ctx, obj);
     (*sp.offset(-1)) = value;
-    (*sp.offset(0)) = JS_NewBool(ctx, done);
+    (*sp.offset(0)) = JS_NewBool(done);
 
     0
 }

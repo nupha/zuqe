@@ -223,7 +223,7 @@ pub unsafe fn js_string_isWellFormed(
     let ret = js_string_find_invalid_codepoint(p) < 0;
     JS_FreeValue(ctx, str);
 
-    JS_NewBool(ctx, ret)
+    JS_NewBool(ret)
 }
 
 pub unsafe fn js_string_toWellFormed(
@@ -1067,7 +1067,7 @@ pub unsafe fn js_string_includes(
             if pos > len {
                 JS_FreeValue(ctx, str);
                 JS_FreeValue(ctx, v);
-                return JS_NewBool(ctx, ret);
+                return JS_NewBool(ret);
             }
         } else {
             pos -= v_len;
@@ -1087,7 +1087,7 @@ pub unsafe fn js_string_includes(
 
     JS_FreeValue(ctx, str);
     JS_FreeValue(ctx, v);
-    return JS_NewBool(ctx, ret);
+    return JS_NewBool(ret);
 }
 
 pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> i32 {

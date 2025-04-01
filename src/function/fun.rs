@@ -180,7 +180,7 @@ pub unsafe fn js_create_iterator_result(ctx: *mut JSContext, val: JSValue, done:
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
-    if JS_DefinePropertyValue(ctx, obj, JS_ATOM_done, JS_NewBool(ctx, done), JS_PROP_C_W_E) < 0 {
+    if JS_DefinePropertyValue(ctx, obj, JS_ATOM_done, JS_NewBool(done), JS_PROP_C_W_E) < 0 {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }

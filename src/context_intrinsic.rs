@@ -34,7 +34,7 @@ use crate::{
             JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
             JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
         },
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_NewBool, JS_NewInt32,
+        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_NewInt32,
     },
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
     JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
@@ -391,7 +391,7 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
             JS_CLASS_BOOLEAN,
         );
         (*ctx).class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
-        JS_SetObjectData(ctx, bool_proto, JS_NewBool(ctx, false));
+        JS_SetObjectData(ctx, bool_proto, JSValue::FALSE);
         JS_SetPropertyFunctionList(
             ctx,
             bool_proto,

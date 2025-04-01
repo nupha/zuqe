@@ -4,11 +4,10 @@ use crate::{
     bytecode::OpCode,
     context::JSContext,
     value::{
-        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_DupValue, JS_FreeValue,
+        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_FreeValue,
         JS_IsException, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree, JS_ToPrimitiveFree,
-        HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_UNDEFINED, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 
@@ -171,7 +170,7 @@ impl BinaryOp {
             BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a + b)),
             BinaryOp::HasString(a, b) => {
                 let s = unsafe { JS_ConcatString(ctx, a, b) };
-                if JS_IsException(s) {
+                if s.is_exception() {
                     unsafe {
                         JS_FreeValue(ctx, a);
                         JS_FreeValue(ctx, b);
@@ -351,9 +350,7 @@ macro_rules! rel {
                 if JS_VALUE_GET_TAG(s1) == JS_VALUE_GET_TAG(s2) {
                     // both is string
                     unsafe {
-                        let b = (*JS_VALUE_GET_STRING(s1))
-                            .content()
-                            .cmp((*JS_VALUE_GET_STRING(s2)).content());
+                        let b = s1.string().content().cmp(s2.string().content());
                         JS_FreeValue($ctx, s1);
                         JS_FreeValue($ctx, s2);
                         matches!(b, $op)
@@ -502,8 +499,8 @@ pub(super) unsafe fn op_binary_logic(
         *sp.offset(-2) = res;
         Ok(sp.offset(-1))
     } else {
-        *sp.offset(-2) = JS_UNDEFINED;
-        *sp.offset(-1) = JS_UNDEFINED;
+        *sp.offset(-2) = JSValue::UNDEFINED;
+        *sp.offset(-1) = JSValue::UNDEFINED;
         Err(-1)
     }
 }
@@ -616,59 +613,8 @@ pub unsafe fn js_strict_eq2(
     eq_mode: JSStrictEqModeEnum,
 ) -> bool {
     let res = op1.strict_eq2(op2, eq_mode);
-
-    // let tag1 = JS_VALUE_GET_NORM_TAG(op1);
-    // let tag2 = JS_VALUE_GET_NORM_TAG(op2);
-
-    // let res: bool = match (tag1, tag2) {
-    //     (JSTag::Int, JSTag::Int) | (JSTag::Bool, JSTag::Bool) => {
-    //         JS_VALUE_GET_INT(op1) == JS_VALUE_GET_INT(op2)
-    //     }
-    //     (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
-    //     (JSTag::String, JSTag::String) => op1.string().content() == op2.string().content(),
-    //     (JSTag::Symbol, JSTag::Symbol) => {
-    //         let p1 = JS_VALUE_GET_PTR(op1);
-    //         let p2 = JS_VALUE_GET_PTR(op2);
-    //         p1 == p2
-    //     }
-    //     (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(op1) == JS_VALUE_GET_OBJ(op2),
-    //     (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
-    //         let d1 = if tag1 == JSTag::Int {
-    //             JS_VALUE_GET_INT(op1) as f64
-    //         } else {
-    //             JS_VALUE_GET_FLOAT64(op1)
-    //         };
-    //         let d2 = if tag2 == JSTag::Int {
-    //             JS_VALUE_GET_FLOAT64(op2)
-    //         } else {
-    //             JS_VALUE_GET_FLOAT64(op2)
-    //         };
-
-    //         if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
-    //             if d1.is_nan() || d2.is_nan() {
-    //                 d1.is_nan() == d2.is_nan()
-    //             } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-    //                 d1 == d2 // +0 == -0
-    //             } else {
-    //                 let u1 = JSFloat64Union { d: d1 };
-    //                 let u2 = JSFloat64Union { d: d2 };
-    //                 u1.u64 == u2.u64 // +0 != -0
-    //             }
-    //         } else {
-    //             d1 == d2 // if NaN return false and +0 == -0
-    //         }
-    //     }
-
-    //     (JSTag::BigInt, _) | (_, JSTag::BigInt) => {
-    //         println!("BigInt is not supported");
-    //         false
-    //     }
-    //     _ => false,
-    // };
-
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
-
     res
 }
 
@@ -678,7 +624,6 @@ pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> b
     let res = op1.strict_eq(op2);
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
-
     res
 }
 
@@ -701,13 +646,6 @@ pub unsafe fn js_same_value_zero(
     op2: JSValueConst,
 ) -> bool {
     op1.is_same0(op2)
-
-    // js_strict_eq2(
-    //     ctx,
-    //     JS_DupValue(ctx, op1),
-    //     JS_DupValue(ctx, op2),
-    //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
-    // )
 }
 
 #[inline(always)]
@@ -731,8 +669,8 @@ pub unsafe fn js_eq(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Resu
 pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
     macro_rules! exception {
         () => {
-            (*sp.offset(-2)) = JS_UNDEFINED;
-            (*sp.offset(-1)) = JS_UNDEFINED;
+            (*sp.offset(-2)) = JSValue::UNDEFINED;
+            (*sp.offset(-1)) = JSValue::UNDEFINED;
             return Err(-1);
         };
     }
@@ -777,35 +715,46 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
                     break false;
                 } else {
                     op1 = JS_ToNumericFree(ctx, op1);
-                    if JS_IsException(op1) {
+                    if op1.is_exception() {
                         JS_FreeValue(ctx, op2);
                         exception!();
                     }
+
                     op2 = JS_ToNumericFree(ctx, op2);
-                    if JS_IsException(op2) {
+                    if op2.is_exception() {
                         JS_FreeValue(ctx, op1);
                         exception!();
                     }
                 }
-                js_strict_eq(ctx, op1, op2)
+
+                let r = op1.strict_eq(op2);
+                JS_FreeValue(ctx, op1);
+                JS_FreeValue(ctx, op2);
+                r
             }
 
             (JSTag::Object, number_tags!() | JSTag::String | JSTag::Symbol)
             | (number_tags!() | JSTag::String | JSTag::Symbol, JSTag::Object) => {
                 op1 = JS_ToPrimitiveFree(ctx, op1, HINT_NONE);
-                if JS_IsException(op1) {
+                if op1.is_exception() {
                     JS_FreeValue(ctx, op2);
                     exception!();
                 }
+
                 op2 = JS_ToPrimitiveFree(ctx, op2, HINT_NONE);
-                if JS_IsException(op2) {
+                if op2.is_exception() {
                     JS_FreeValue(ctx, op1);
                     exception!();
                 }
                 continue; // goto redo
             }
 
-            _ if tag1 == tag2 => js_strict_eq2(ctx, op1, op2, JSStrictEqModeEnum::JS_EQ_STRICT),
+            _ if tag1 == tag2 => {
+                let r = op1.strict_eq(op2);
+                JS_FreeValue(ctx, op1);
+                JS_FreeValue(ctx, op2);
+                r
+            }
             _ => {
                 let r = (JS_IsHTMLDDA(ctx, op1) && matches!(tag2, JSTag::Null | JSTag::Undefined))
                     || (JS_IsHTMLDDA(ctx, op2) && matches!(tag1, JSTag::Null | JSTag::Undefined));

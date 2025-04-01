@@ -17,7 +17,7 @@ pub unsafe fn js_boolean_constructor(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let val = JS_NewBool(ctx, JS_ToBool(ctx, *argv.offset(0)).unwrap_or(true));
+    let val = JS_NewBool(JS_ToBool(ctx, *argv.offset(0)).unwrap_or(true));
     if !JS_IsUndefined(new_target) {
         let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_BOOLEAN);
         if !JS_IsException(obj) {

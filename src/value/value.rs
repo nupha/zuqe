@@ -638,7 +638,7 @@ pub fn JS_IsUninitialized(v: JSValueConst) -> bool {
 #[deprecated(note = "use JSValue::is_string() instead")]
 #[inline]
 pub fn JS_IsString(v: JSValueConst) -> bool {
-    v.is_object()
+    v.is_string()
 }
 
 #[inline]

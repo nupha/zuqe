@@ -288,6 +288,7 @@ pub unsafe fn JS_EvalFunction(ctx: *mut JSContext, fun_obj: JSValue) -> JSValue 
     return JS_EvalFunctionInternal(ctx, fun_obj, (*ctx).global_obj, &[], std::ptr::null_mut());
 }
 
+/// `val` keep alive
 pub unsafe fn JS_EvalObject(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -295,8 +296,8 @@ pub unsafe fn JS_EvalObject(
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
-    if !JS_IsString(val) {
-        return JS_DupValue(ctx, val);
+    if !val.is_string() {
+        return val.dup(); // dup and return val
     }
 
     match val.to_utf8_string(ctx.as_mut().unwrap()) {

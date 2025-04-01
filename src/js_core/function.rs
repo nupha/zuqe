@@ -193,7 +193,7 @@ pub unsafe fn js_function_hasInstance(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if let Ok(b) = JS_OrdinaryIsInstanceOf(ctx, (*argv.offset(0)), this_val) {
-        JS_NewBool(ctx, b)
+        JS_NewBool(b)
     } else {
         JSValue::EXCEPTION
     }

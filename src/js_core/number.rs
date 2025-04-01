@@ -222,7 +222,7 @@ pub unsafe fn js_number_isInteger(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if let Ok(b) = (*argv.offset(0)).is_integer(ctx.as_mut().unwrap()) {
-        JS_NewBool(ctx, b)
+        JS_NewBool(b)
     } else {
         JSValue::EXCEPTION
     }
@@ -235,13 +235,15 @@ pub unsafe fn js_number_isSafeInteger(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if !JS_IsNumber(*argv.offset(0)) {
-        return JS_FALSE;
+        return JSValue::FALSE;
     }
+
     let mut d: f64 = 0.0;
     if JS_ToFloat64(ctx, &mut d, *argv.offset(0)) != 0 {
         return JSValue::EXCEPTION;
     }
-    return JS_NewBool(ctx, is_safe_integer(d));
+
+    JS_NewBool(is_safe_integer(d))
 }
 
 pub const js_number_funcs: [JSCFunctionListEntry; 12] = [

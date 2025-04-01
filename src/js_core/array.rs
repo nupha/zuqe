@@ -1123,7 +1123,7 @@ pub unsafe fn js_array_includes(
     }
 
     JS_FreeValue(ctx, obj);
-    JS_NewBool(ctx, res)
+    JS_NewBool(res)
 }
 
 pub unsafe fn js_array_join(
@@ -2389,7 +2389,7 @@ pub unsafe fn js_array_isArray(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if let Ok(ret) = JS_IsArray(ctx, *argv.offset(0)) {
-        JS_NewBool(ctx, ret)
+        JS_NewBool(ret)
     } else {
         JSValue::EXCEPTION
     }

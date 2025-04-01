@@ -146,7 +146,7 @@ pub unsafe fn js_object_defineProperty(
     match ret {
         Ok(b) => {
             if magic != 0 {
-                JS_NewBool(ctx, b)
+                JS_NewBool(b)
             } else {
                 JS_DupValue(ctx, obj)
             }
@@ -400,7 +400,7 @@ pub unsafe fn js_object_isExtensible(
     }
 
     if let Ok(ret) = JS_IsExtensible(ctx, obj) {
-        JS_NewBool(ctx, ret)
+        JS_NewBool(ret)
     } else {
         JSValue::EXCEPTION
     }
@@ -425,7 +425,7 @@ pub unsafe fn js_object_preventExtensions(
 
     if let Ok(ret) = JS_PreventExtensions(ctx, obj) {
         if reflect != 0 {
-            JS_NewBool(ctx, ret)
+            JS_NewBool(ret)
         } else {
             if !ret {
                 ctx.as_mut()
@@ -527,7 +527,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                         ctx,
                         ret,
                         JS_ATOM_writable,
-                        JS_NewBool(ctx, (desc.flags & JS_PROP_WRITABLE) != 0),
+                        JS_NewBool((desc.flags & JS_PROP_WRITABLE) != 0),
                         flags,
                     ) < 0
                 {
@@ -543,14 +543,14 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                 ctx,
                 ret,
                 JS_ATOM_enumerable,
-                JS_NewBool(ctx, (desc.flags & JS_PROP_ENUMERABLE) != 0),
+                JS_NewBool((desc.flags & JS_PROP_ENUMERABLE) != 0),
                 flags,
             ) < 0
                 || JS_DefinePropertyValue(
                     ctx,
                     ret,
                     JS_ATOM_configurable,
-                    JS_NewBool(ctx, (desc.flags & JS_PROP_CONFIGURABLE) != 0),
+                    JS_NewBool((desc.flags & JS_PROP_CONFIGURABLE) != 0),
                     flags,
                 ) < 0
             {
@@ -662,7 +662,7 @@ pub unsafe fn js_object_is(
     argc: i32,
     argv: *mut JSValue,
 ) -> JSValue {
-    JS_NewBool(ctx, (*argv.add(0)).is_same(*argv.add(1)))
+    JS_NewBool((*argv.add(0)).is_same(*argv.add(1)))
 }
 
 /// Object.assign(obj, source1)
@@ -994,7 +994,7 @@ pub unsafe fn js_object_hasOwn(
     if ret < 0 {
         JSValue::EXCEPTION
     } else {
-        JS_NewBool(ctx, ret != 0)
+        JS_NewBool(ret != 0)
     }
 }
 
@@ -1161,7 +1161,7 @@ pub unsafe fn js_object_hasOwnProperty(
     if ret < 0 {
         JSValue::EXCEPTION
     } else {
-        JS_NewBool(ctx, ret != 0)
+        JS_NewBool(ret != 0)
     }
 }
 
@@ -1208,7 +1208,7 @@ pub unsafe fn js_object_isPrototypeOf(
     JS_FreeValue(ctx, v1);
     JS_FreeValue(ctx, obj);
 
-    JS_NewBool(ctx, res)
+    JS_NewBool(res)
 }
 
 pub unsafe fn js_object_propertyIsEnumerable(
@@ -1237,11 +1237,11 @@ pub unsafe fn js_object_propertyIsEnumerable(
         return JSValue::EXCEPTION;
     }
     let res = if has_prop != 0 {
-        let r = JS_NewBool(ctx, (desc.flags & JS_PROP_ENUMERABLE) != 0);
+        let r = JS_NewBool(desc.flags & JS_PROP_ENUMERABLE != 0);
         js_free_desc(ctx, &mut desc);
         r
     } else {
-        JS_FALSE
+        JSValue::FALSE
     };
 
     JS_FreeAtom(ctx, prop);

@@ -17,12 +17,16 @@ use crate::{
 use super::object::{JSObject, JS_GetProperty, JS_IsFunction};
 
 #[inline(always)]
-pub fn JS_NewBool(ctx: *mut JSContext, val: bool) -> JSValue {
-    JS_MKVAL!(JSTag::Bool, if val { 1 } else { 0 })
+pub fn JS_NewBool(val: bool) -> JSValue {
+    if val {
+        JSValue::TRUE
+    } else {
+        JSValue::FALSE
+    }
 }
 
 #[inline(always)]
-pub fn JS_NewCatchOffset(ctx: *mut JSContext, val: i32) -> JSValue {
+pub fn JS_NewCatchOffset(val: i32) -> JSValue {
     JS_MKVAL!(JSTag::CatchOffset, val)
 }
 
