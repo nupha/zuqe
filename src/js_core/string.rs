@@ -1212,7 +1212,7 @@ pub unsafe fn js_string___GetSubstitution(
     let rp = JS_VALUE_GET_STRING(rep);
 
     if !JS_IsString(rep) || !JS_IsString(str) {
-        return ctx.as_mut().unwrap().JS_ThrowTypeError(c"not a string");
+        return (*ctx).JS_ThrowTypeError(c"not a string");
     }
 
     let captures_len = if !JS_IsUndefined(captures) {
@@ -1497,7 +1497,7 @@ pub unsafe fn js_thisStringValue(ctx: *mut JSContext, this_val: JSValueConst) ->
         }
     }
 
-    return ctx.as_mut().unwrap().JS_ThrowTypeError(c"not a string");
+    return (*ctx).JS_ThrowTypeError(c"not a string");
 }
 
 pub unsafe fn js_string_toLowerCase(

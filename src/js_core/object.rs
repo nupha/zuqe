@@ -393,7 +393,7 @@ pub unsafe fn js_object_isExtensible(
 
     if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
         return if reflect != 0 {
-            ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject()
+            (*ctx).JS_ThrowTypeErrorNotAnObject()
         } else {
             JS_FALSE
         };
@@ -1084,7 +1084,7 @@ pub unsafe fn js_object_toString(
         let atom = if let Ok(is_array) = JS_IsArray(ctx, obj) {
             if is_array {
                 JS_ATOM_Array
-            } else if JS_IsFunction(ctx, obj) {
+            } else if obj.is_function(ctx.as_ref().unwrap()) {
                 JS_ATOM_Function
             } else {
                 let p = JS_VALUE_GET_OBJ(obj);
@@ -1266,8 +1266,8 @@ pub unsafe fn js_object_set___proto__(
     this_val: JSValueConst,
     proto: JSValueConst,
 ) -> JSValue {
-    if JS_IsUndefined(this_val) || JS_IsNull(this_val) {
-        return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+    if this_val.is_undefined_or_null() {
+        return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
     if !JS_IsObject(proto) && !JS_IsNull(proto) {
         return JS_UNDEFINED;

@@ -58,94 +58,124 @@ pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl JSContext {
-    pub unsafe fn JS_ThrowTypeErrorOrFalse(&mut self, flags: i32, message: &CStr) -> i32 {
-        if (flags & JS_PROP_THROW as i32) != 0
-            || ((flags & JS_PROP_THROW_STRICT as i32) != 0 && is_strict_mode(self))
-        {
-            self.JS_ThrowError(JSErrorEnum::Type, message);
-            return -1;
-        } else {
-            return 0;
+    /// put `obj` to current_exception. Note: obj is consumed.
+    pub fn JS_Throw(&mut self, obj: JSValue) -> JSValue {
+        unsafe {
+            let old = self.rt_mut().current_exception.replace(obj);
+            JS_FreeValue(self, old); // free old exception value
         }
+        JSValue::EXCEPTION
     }
 
-    pub unsafe fn JS_ThrowTypeError(&mut self, message: &CStr) -> JSValue {
+    #[inline]
+    pub fn JS_ThrowInternalError(&mut self, message: &CStr) -> JSValue {
+        self.JS_ThrowError(JSErrorEnum::Internal, message)
+    }
+
+    pub fn JS_ThrowError2(
+        &mut self,
+        error_num: JSErrorEnum,
+        message: &CStr,
+        add_backtrace: bool,
+    ) -> JSValue {
+        let mut obj = unsafe {
+            JS_NewObjectProtoClass(
+                self,
+                self.native_error_proto[error_num as usize],
+                JS_CLASS_ERROR,
+            )
+        };
+
+        if obj.is_exception() {
+            // out of memory: throw JS_NULL to avoid recursing
+            obj = JSValue::NULL;
+        } else {
+            unsafe {
+                JS_DefinePropertyValue(
+                    self,
+                    obj,
+                    JS_ATOM_message,
+                    self.create_string(message.to_string_lossy().as_ref()),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                );
+            }
+        }
+        if add_backtrace {
+            unsafe {
+                build_backtrace(self, obj, std::ptr::null_mut(), Some(0), 0);
+            }
+        }
+
+        self.JS_Throw(obj)
+    }
+
+    pub fn JS_ThrowError(&mut self, error_num: JSErrorEnum, message: &CStr) -> JSValue {
+        let rt = self.rt();
+
+        // the backtrace is added later if called from a bytecode function
+        let sf = rt.current_stack_frame;
+        let add_backtrace = !rt.in_out_of_memory
+            && (sf.is_null() || unsafe { JS_GetFunctionBytecode((*sf).cur_func).is_null() });
+
+        self.JS_ThrowError2(error_num, message, add_backtrace)
+    }
+
+    #[inline]
+    pub fn JS_ThrowTypeError(&mut self, message: &CStr) -> JSValue {
         self.JS_ThrowError(JSErrorEnum::Type, message)
     }
 
-    pub unsafe fn JS_ThrowTypeErrorNotAnObject(&mut self) -> JSValue {
-        self.JS_ThrowTypeError(CStr::from_bytes_with_nul(b"not an object\0").unwrap())
+    #[inline]
+    pub fn JS_ThrowTypeErrorNotAnObject(&mut self) -> JSValue {
+        self.JS_ThrowTypeError(c"not an object")
     }
 
-    pub unsafe fn JS_ThrowTypeErrorNotASymbol(&mut self) -> JSValue {
-        self.JS_ThrowTypeError(CStr::from_bytes_with_nul(b"not a symbol\0").unwrap())
+    #[inline]
+    pub fn JS_ThrowTypeErrorNotASymbol(&mut self) -> JSValue {
+        self.JS_ThrowTypeError(c"not a symbol")
+    }
+
+    pub fn JS_ThrowTypeErrorInvalidClass(&mut self, class_id: JSClassID) -> JSValue {
+        let name = self.rt().class_array[class_id as usize].class_name;
+        self.JS_ThrowTypeError(unsafe {
+            CStr::from_ptr(
+                format!("{} object expected\0", name.to_str(self.rt()))
+                    .as_ptr()
+                    .cast(),
+            )
+        })
+    }
+
+    /// returns: true=exception raised; false=no exception raised
+    pub fn JS_ThrowTypeErrorOrFalse(&mut self, flags: u32, message: &CStr) -> bool {
+        if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
+        {
+            self.JS_ThrowTypeError(message);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// returns: true=exception raised; false=no exception raised
+    pub fn JS_ThrowTypeErrorReadOnly(&mut self, flags: u32, atom: JSAtom) -> bool {
+        self.JS_ThrowTypeErrorOrFalse(flags, unsafe {
+            CStr::from_ptr(
+                format!("'{}' is read-only\0", atom.to_str(self.rt()))
+                    .as_ptr()
+                    .cast(),
+            )
+        })
     }
 
     /// raise out of memory exception
-    pub unsafe fn JS_ThrowOutOfMemory(&mut self) -> JSValue {
+    pub fn JS_ThrowOutOfMemory(&mut self) -> JSValue {
         if !self.rt().in_out_of_memory {
             self.rt_mut().in_out_of_memory = true;
             self.JS_ThrowInternalError(&CStr::from_bytes_with_nul(b"out of memory\0").unwrap());
             self.rt_mut().in_out_of_memory = false;
         }
         JSValue::EXCEPTION
-    }
-
-    pub unsafe fn JS_ThrowInternalError(&mut self, message: &CStr) -> JSValue {
-        self.JS_ThrowError(JSErrorEnum::Internal, message)
-    }
-
-    pub unsafe fn JS_ThrowError2(
-        &mut self,
-        error_num: JSErrorEnum,
-        message: &CStr,
-        add_backtrace: bool,
-    ) -> JSValue {
-        let mut obj = JS_NewObjectProtoClass(
-            self,
-            self.native_error_proto[error_num as usize],
-            JS_CLASS_ERROR,
-        );
-
-        if JS_IsException(obj) {
-            /* out of memory: throw JS_NULL to avoid recursing */
-            obj = JSValue::NULL;
-        } else {
-            JS_DefinePropertyValue(
-                self,
-                obj,
-                JS_ATOM_message,
-                self.create_string(message.to_string_lossy().as_ref()),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            );
-        }
-        if add_backtrace {
-            build_backtrace(self, obj, std::ptr::null_mut(), Some(0), 0);
-        }
-        self.JS_Throw(obj)
-    }
-
-    pub unsafe fn JS_ThrowError(&mut self, error_num: JSErrorEnum, message: &CStr) -> JSValue {
-        let rt = self.rt();
-
-        /* the backtrace is added later if called from a bytecode function */
-        let sf = rt.current_stack_frame;
-        let add_backtrace = !rt.in_out_of_memory
-            && (sf.is_null() || (JS_GetFunctionBytecode((*sf).cur_func).is_null()));
-
-        self.JS_ThrowError2(error_num, message, add_backtrace)
-    }
-
-    /// WARNING: obj is consumed
-    pub unsafe fn JS_Throw(&mut self, obj: JSValue) -> JSValue {
-        let ex0 = self.rt_mut().current_exception.replace(obj);
-        JS_FreeValue(self, ex0); // free old exception value
-        JSValue::EXCEPTION
-    }
-
-    pub unsafe fn JS_ThrowTypeErrorInvalidClass(&mut self, class_id: JSClassID) -> JSValue {
-        let name = self.rt().class_array[class_id as usize].class_name;
-        JS_ThrowTypeErrorAtom(self, c"%s object expected", name)
     }
 }
 
@@ -306,29 +336,19 @@ pub unsafe fn build_backtrace(
     );
 }
 
-pub unsafe fn JS_ThrowTypeErrorReadOnly(ctx: *mut JSContext, flags: u32, atom: JSAtom) -> i32 {
-    if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx)) {
-        JS_ThrowTypeErrorAtom(ctx, c"'%s' is read-only", atom);
-        -1
-    } else {
-        0
-    }
-}
+// /// TODO: remove using libc
+// #[deprecated(note = "use JSContext::JS_ThrowTypeErr()")]
+// pub unsafe fn __JS_ThrowTypeErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
+//     let mut buf = [0u8; ATOM_GET_STR_BUF_SIZE];
 
-/// TODO: remove using libc
-pub unsafe fn __JS_ThrowTypeErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-    let mut buf = [0u8; ATOM_GET_STR_BUF_SIZE];
-
-    libc::snprintf(
-        buf.as_mut_ptr() as *mut libc::c_char,
-        buf.len(),
-        fmt.as_ptr() as *const libc::c_char,
-        atom.to_str((*ctx).rt()),
-    );
-    ctx.as_mut()
-        .unwrap()
-        .JS_ThrowTypeError(CStr::from_bytes_with_nul(buf.as_slice()).unwrap())
-}
+//     libc::snprintf(
+//         buf.as_mut_ptr() as *mut libc::c_char,
+//         buf.len(),
+//         fmt.as_ptr() as *const libc::c_char,
+//         atom.to_str((*ctx).rt()),
+//     );
+//     (*ctx).JS_ThrowTypeError(CStr::from_bytes_with_nul(buf.as_slice()).unwrap())
+// }
 
 // never use it directly
 pub unsafe fn __JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
@@ -347,10 +367,10 @@ pub unsafe fn JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSA
     __JS_ThrowSyntaxErrorAtom(ctx, fmt, atom)
 }
 
-#[inline(always)]
-pub unsafe fn JS_ThrowTypeErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-    __JS_ThrowTypeErrorAtom(ctx, fmt, atom)
-}
+// #[deprecated(note = "use JSContext::JS_ThrowTypeErr()")]
+// pub unsafe fn JS_ThrowTypeErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
+//     __JS_ThrowTypeErrorAtom(ctx, fmt, atom)
+// }
 
 pub unsafe fn JS_ThrowReferenceErrorUninitialized(ctx: *mut JSContext, name: JSAtom) -> JSValue {
     if name == JS_ATOM_NULL {
@@ -410,7 +430,14 @@ pub unsafe fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: *mut JSContext) -> JSVal
 }
 
 pub unsafe fn JS_ThrowTypeErrorPrivateNotFound(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
-    JS_ThrowTypeErrorAtom(ctx, c"private class field '%s' does not exist", atom)
+    (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+        format!(
+            "private class field '{}' does not exist\0",
+            atom.to_str((*ctx).rt())
+        )
+        .as_ptr()
+        .cast(),
+    ))
 }
 
 pub unsafe fn JS_ThrowRangeError(ctx: *mut JSContext, message: &CStr) -> JSValue {

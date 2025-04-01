@@ -139,7 +139,7 @@ pub unsafe fn js_map_constructor(
                 r
             } else {
                 if !JS_IsObject(item) {
-                    ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+                    (*ctx).JS_ThrowTypeErrorNotAnObject();
                     JS_FreeValue(ctx, item);
                     fail!(iter, next_method, adder);
                 }

@@ -1,4 +1,7 @@
-use std::{ffi::c_void, mem::ManuallyDrop};
+use std::{
+    ffi::{c_void, CStr},
+    mem::ManuallyDrop,
+};
 
 use crate::{
     array_buffer::JSArrayBuffer,
@@ -8,7 +11,7 @@ use crate::{
     },
     class::JSClassID,
     context::{JSContext, JS_FreeContext},
-    error::{JS_ThrowTypeErrorAtom, JS_ThrowTypeErrorPrivateNotFound},
+    error::JS_ThrowTypeErrorPrivateNotFound,
     function::{
         js_class_has_bytecode, js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction,
         JSCFunction, JSCFunctionDataRecord, JSObjectCFunc, JSObjectFunc, JS_CallFree,
@@ -109,6 +112,29 @@ impl Drop for JSObject {
 
         if self.class_id() == JS_CLASS_BYTECODE_FUNCTION {
             unsafe { ManuallyDrop::drop(&mut self.u.func) };
+        }
+    }
+}
+
+impl JSValue {
+    pub fn is_function(&self, ctx: &JSContext) -> bool {
+        if JS_VALUE_GET_TAG(*self) != JS_TAG_OBJECT {
+            return false;
+        }
+
+        let p = JS_VALUE_GET_OBJ(*self);
+        match unsafe { (*p).class_id() } {
+            JS_CLASS_BYTECODE_FUNCTION => true,
+            JS_CLASS_PROXY => {
+                //(*p).u.proxy_data.is_func as BOOL
+                unimplemented!()
+            }
+            cid => ctx
+                .rt()
+                .class_array
+                .get(cid as usize)
+                .and_then(|c| c.call)
+                .is_some(),
         }
     }
 }
@@ -362,14 +388,12 @@ pub unsafe fn JS_SetPrototypeInternal(
 ) -> Result<bool, i32> {
     if throw_flag {
         if JS_VALUE_GET_TAG(obj) == JS_TAG_NULL || JS_VALUE_GET_TAG(obj) == JS_TAG_UNDEFINED {
-            // C2RS: Adjusted goto to conditional logic
-            ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+            (*ctx).JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
     } else {
         if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
-            // C2RS: Adjusted goto to conditional logic
-            ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+            (*ctx).JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
     }
@@ -377,8 +401,7 @@ pub unsafe fn JS_SetPrototypeInternal(
     let p = JS_VALUE_GET_OBJ(obj);
     let proto = if JS_VALUE_GET_TAG(proto_val) != JS_TAG_OBJECT {
         if JS_VALUE_GET_TAG(proto_val) != JS_TAG_NULL {
-            // C2RS: Adjusted goto to conditional logic
-            ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+            (*ctx).JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
         std::ptr::null_mut()
@@ -543,25 +566,9 @@ pub unsafe fn js_autoinit_free(rt: *const JSRuntime, pr: *const JSProperty) {
     JS_FreeContext(js_autoinit_get_realm(pr));
 }
 
-#[inline(always)]
+#[deprecated(note = "use JSValue::is_function() instead")]
 pub unsafe fn JS_IsFunction(ctx: *mut JSContext, val: JSValueConst) -> bool {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-        return false;
-    }
-    let p = JS_VALUE_GET_OBJ(val);
-    match (*p).class_id() {
-        JS_CLASS_BYTECODE_FUNCTION => true,
-        JS_CLASS_PROXY => {
-            //(*p).u.proxy_data.is_func as BOOL
-            unimplemented!()
-        }
-        _ => (*ctx)
-            .rt()
-            .class_array
-            .get((*p).class_id() as usize)
-            .and_then(|c| c.call)
-            .is_some(),
-    }
+    val.is_function(ctx.as_ref().unwrap())
 }
 
 /// 检查给定的 JSValue是否是一个特定的 C 函数。不仅检查函数指针是否相同，还会检查 magic 值是否匹配
@@ -1046,10 +1053,7 @@ pub unsafe fn js_object_seal(
 
     match JS_PreventExtensions(ctx, obj) {
         Ok(false) => {
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
+            return (*ctx).JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
         }
         Err(_) => {
             return JSValue::EXCEPTION;
@@ -1133,22 +1137,20 @@ pub unsafe fn JS_CheckBrand(
     let mut pr = std::ptr::null_mut::<JSProperty>();
     let prs = find_own_property(&mut pr, home_obj, JS_ATOM_Private_brand);
     if prs.is_null() {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"expecting <brand> private field");
+        (*ctx).JS_ThrowTypeError(c"expecting <brand> private field");
         return Err(-1);
     }
 
     let brand = (*pr).u.value;
     // safety check
     if unlikely(JS_VALUE_GET_TAG(brand) != JS_TAG_SYMBOL) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
         return Err(-1);
     }
 
     // get the brand array of 'obj'
     if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
         return Err(-1);
     }
 
@@ -1220,14 +1222,14 @@ pub unsafe fn JS_DefinePrivateField(
     val: JSValue,
 ) -> i32 {
     if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
         JS_FreeValue(ctx, val);
         return -1;
     }
 
     // safety check
     if unlikely(JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotASymbol();
+        (*ctx).JS_ThrowTypeErrorNotASymbol();
         JS_FreeValue(ctx, val);
         return -1;
     }
@@ -1238,8 +1240,15 @@ pub unsafe fn JS_DefinePrivateField(
     let prs = find_own_property(&mut pr, p, prop);
 
     if !prs.is_null() {
-        JS_ThrowTypeErrorAtom(ctx, c"private class field '%s' already exists", prop);
-        // C2RS: goto fail replaced with early return logic
+        (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+            format!(
+                "private class field '{}' already exists\0",
+                prop.to_str((*ctx).rt())
+            )
+            .as_ptr()
+            .cast(),
+        ));
+
         JS_FreeValue(ctx, val);
         return -1;
     }
@@ -1286,14 +1295,14 @@ pub unsafe fn JS_SetPrivateField(
     val: JSValue,
 ) -> i32 {
     if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
         JS_FreeValue(ctx, val);
         return -1;
     }
 
     // ensure name must be a Symbol
     if JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotASymbol();
+        (*ctx).JS_ThrowTypeErrorNotASymbol();
         JS_FreeValue(ctx, val);
         return -1;
     }

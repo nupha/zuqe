@@ -85,7 +85,7 @@ pub unsafe fn get_typed_array(
     if JS_VALUE_GET_TAG(this_val) != JS_TAG_OBJECT {
         (*ctx).JS_ThrowTypeError(CStr::from_ptr(
             format!(
-                "not a {}\n",
+                "not a {}\0",
                 if is_dataview {
                     "DataView"
                 } else {
@@ -119,7 +119,7 @@ pub unsafe fn get_typed_array(
         if !((JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&(*p).class_id())) {
             (*ctx).JS_ThrowTypeError(CStr::from_ptr(
                 format!(
-                    "not a {}\n",
+                    "not a {}\0",
                     if is_dataview {
                         "DataView"
                     } else {

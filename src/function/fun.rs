@@ -223,7 +223,7 @@ pub unsafe fn check_function(ctx: *mut JSContext, obj: JSValueConst) -> Result<(
     if likely(JS_IsFunction(ctx, obj)) {
         Ok(())
     } else {
-        ctx.as_mut().unwrap().JS_ThrowTypeError(c"not a function");
+        (*ctx).JS_ThrowTypeError(c"not a function");
         Err(-1)
     }
 }

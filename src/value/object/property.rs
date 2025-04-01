@@ -10,10 +10,7 @@ use crate::{
         JS_ATOM_NULL,
     },
     context::{is_strict_mode, JSContext, JS_DupContext},
-    error::{
-        JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
-        JS_ThrowTypeErrorAtom, JS_ThrowTypeErrorReadOnly,
-    },
+    error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::{call_setter, JSVarRef, JS_CallFree},
     proxy::js_proxy_isExtensible,
     runtime::{js_autoinit_func_table, JSRuntime},
@@ -183,8 +180,11 @@ pub unsafe fn JS_DefineProperty(
             }
             /* property already exists */
             if !check_define_prop_flags((*prs).flags(), flags) {
-                return (*ctx)
-                    .JS_ThrowTypeErrorOrFalse(flags as _, c"property is not configurable");
+                return if (*ctx).JS_ThrowTypeErrorOrFalse(flags, c"property is not configurable") {
+                    0
+                } else {
+                    -1
+                };
             }
 
             if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_AUTOINIT {
@@ -234,16 +234,24 @@ pub unsafe fn JS_DefineProperty(
                     } else {
                         if ((*prs).flags() & JS_PROP_CONFIGURABLE) == 0 {
                             if flags & JS_PROP_HAS_GET != 0 && new_getter != (*pr).u.getset.getter {
-                                return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                                    flags as _,
+                                return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                    flags,
                                     c"property is not configurable",
-                                );
+                                ) {
+                                    0
+                                } else {
+                                    -1
+                                };
                             }
                             if flags & JS_PROP_HAS_SET != 0 && new_setter != (*pr).u.getset.setter {
-                                return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                                    flags as _,
+                                return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                    flags,
                                     c"property is not configurable",
-                                );
+                                ) {
+                                    0
+                                } else {
+                                    -1
+                                };
                             }
                         }
                     }
@@ -255,7 +263,7 @@ pub unsafe fn JS_DefineProperty(
                             );
                         }
                         if !new_getter.is_null() {
-                            JS_DupValue(ctx, getter);
+                            getter.dup();
                         }
                         (*pr).u.getset.getter = new_getter;
                     }
@@ -267,14 +275,14 @@ pub unsafe fn JS_DefineProperty(
                             );
                         }
                         if !new_setter.is_null() {
-                            JS_DupValue(ctx, setter);
+                            setter.dup();
                         }
                         (*pr).u.getset.setter = new_setter;
                     }
                 } else {
                     if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_GETSET {
                         /* convert to data descriptor */
-                        if p.as_mut().unwrap().js_shape_prepare_update(ctx, &mut prs) != 0 {
+                        if (*p).js_shape_prepare_update(ctx, &mut prs) != 0 {
                             return -1;
                         }
                         if !(*pr).u.getset.getter.is_null() {
@@ -298,10 +306,14 @@ pub unsafe fn JS_DefineProperty(
                             && (flags & JS_PROP_HAS_VALUE) != 0
                         {
                             if !val.is_same((*pr).u.value) {
-                                return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                                    flags as _,
+                                return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                    flags,
                                     c"property is not configurable",
-                                );
+                                ) {
+                                    0
+                                } else {
+                                    -1
+                                };
                             } else {
                                 return 1;
                             }
@@ -314,10 +326,14 @@ pub unsafe fn JS_DefineProperty(
                                 references, but they are write protected in module name
                                 spaces. */
                                 if !val.is_same(*(*(*pr).u.var_ref).pvalue) {
-                                    return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                                        flags as _,
+                                    return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                        flags,
                                         c"property is not configurable",
-                                    );
+                                    ) {
+                                        0
+                                    } else {
+                                        -1
+                                    };
                                 }
                             } else {
                                 /* update the reference */
@@ -329,20 +345,23 @@ pub unsafe fn JS_DefineProperty(
                         if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE
                         {
                             if (*p).class_id() == JS_CLASS_MODULE_NS {
-                                return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                                    flags as _,
+                                return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                    flags,
                                     c"module namespace properties have writable = false",
-                                );
+                                ) {
+                                    0
+                                } else {
+                                    -1
+                                };
                             }
                             if p.as_mut().unwrap().js_shape_prepare_update(ctx, &mut prs) != 0 {
                                 return -1;
                             }
-                            let val1 = JS_DupValue(ctx, *(*(*pr).u.var_ref).pvalue);
+                            let val1 = (*(*(*pr).u.var_ref).pvalue).dup();
                             if let Some(vr) = Box::from_raw((*pr).u.var_ref).free((*ctx).rt_mut()) {
-                                std::mem::forget(vr);
+                                Box::leak(vr);
                                 //  unreachable!();
                             }
-                            // free_var_ref((*ctx).rt, (*pr).u.var_ref);
                             (*pr).u.value = val1;
                             (*prs).set_flags((*prs).flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                         }
@@ -461,10 +480,14 @@ pub unsafe fn JS_DefineProperty(
                     if let Ok(b) = num.is_integer(ctx.as_mut().unwrap()) {
                         if !b {
                             JS_FreeValue(ctx, num);
-                            return (*ctx).JS_ThrowTypeErrorOrFalse(
-                                flags as _,
+                            return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                flags,
                                 c"non integer index in typed array",
-                            );
+                            ) {
+                                0
+                            } else {
+                                -1
+                            };
                         }
                     } else {
                         JS_FreeValue(ctx, num);
@@ -474,27 +497,36 @@ pub unsafe fn JS_DefineProperty(
                     let ret = JS_NumberIsNegativeOrMinusZero(ctx, num);
                     JS_FreeValue(ctx, num);
                     if ret {
-                        return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                            flags as _,
-                            c"negative index in typed array",
-                        );
+                        return if (*ctx)
+                            .JS_ThrowTypeErrorOrFalse(flags as _, c"negative index in typed array")
+                        {
+                            0
+                        } else {
+                            -1
+                        };
                     }
                     if !prop.is_int_type() {
                         // goto typed_array_oob
-                        return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                            flags as _,
-                            c"out-of-bound index in typed array",
-                        );
+                        return if (*ctx)
+                            .JS_ThrowTypeErrorOrFalse(flags, c"out-of-bound index in typed array")
+                        {
+                            0
+                        } else {
+                            -1
+                        };
                     }
                 }
 
                 let idx = __JS_AtomToUInt32(prop);
                 /* if the typed array is detached, p->u.array.count = 0 */
                 if idx >= (*p).u.array.count {
-                    return ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                        flags as _,
-                        c"out-of-bound index in typed array",
-                    );
+                    return if (*ctx)
+                        .JS_ThrowTypeErrorOrFalse(flags, c"out-of-bound index in typed array")
+                    {
+                        0
+                    } else {
+                        -1
+                    };
                 }
                 let prop_flags = get_prop_flags(
                     flags,
@@ -503,10 +535,13 @@ pub unsafe fn JS_DefineProperty(
                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
                     || prop_flags != (JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
                 {
-                    return ctx
-                        .as_mut()
-                        .unwrap()
-                        .JS_ThrowTypeErrorOrFalse(flags as _, c"invalid descriptor flags");
+                    return if (*ctx)
+                        .JS_ThrowTypeErrorOrFalse(flags as _, c"invalid descriptor flags")
+                    {
+                        0
+                    } else {
+                        -1
+                    };
                 }
                 if flags & JS_PROP_HAS_VALUE != 0 {
                     return JS_SetPropertyValue(
@@ -982,7 +1017,11 @@ pub unsafe fn JS_SetPropertyInternal(
 ) -> i32 {
     let err_read_only_prop = |ctx: *mut JSContext, val: JSValue| -> i32 {
         JS_FreeValue(ctx, val);
-        return JS_ThrowTypeErrorReadOnly(ctx, flags, prop);
+        return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, prop) {
+            0
+        } else {
+            -1
+        };
     };
 
     let err_typed_array_oob = |p1: *mut JSObject| -> i32 {
@@ -1171,12 +1210,26 @@ pub unsafe fn JS_SetPropertyInternal(
             match tag {
                 JSTag::Null => {
                     JS_FreeValue(ctx, val);
-                    JS_ThrowTypeErrorAtom(ctx, c"cannot set property '%s' of null", prop);
+                    (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                        format!(
+                            "cannot set property '{}' of null\0",
+                            prop.to_str((*ctx).rt())
+                        )
+                        .as_ptr()
+                        .cast(),
+                    ));
                     return -1;
                 }
                 JSTag::Undefined => {
                     JS_FreeValue(ctx, val);
-                    JS_ThrowTypeErrorAtom(ctx, c"cannot set property '%s' of undefined", prop);
+                    (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                        format!(
+                            "cannot set property '{}' of undefined\0",
+                            prop.to_str((*ctx).rt())
+                        )
+                        .as_ptr()
+                        .cast(),
+                    ));
                     return -1;
                 }
                 _ => {
@@ -1258,17 +1311,19 @@ pub unsafe fn JS_SetPropertyInternal(
     }
     if unlikely(p.is_null()) {
         JS_FreeValue(ctx, val);
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeErrorOrFalse(flags as _, c"not an object");
+        return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"not an object") {
+            0
+        } else {
+            -1
+        };
     }
     if unlikely(!(*p).detailed.extensible()) {
         JS_FreeValue(ctx, val);
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible");
+        return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible") {
+            0
+        } else {
+            -1
+        };
     }
 
     macro_rules! generic_create_prop {
@@ -1359,10 +1414,11 @@ pub unsafe fn JS_SetPropertyInternal(
                 JS_FreeValue(ctx, desc.getter);
                 JS_FreeValue(ctx, desc.setter);
                 JS_FreeValue(ctx, val);
-                return ctx
-                    .as_mut()
-                    .unwrap()
-                    .JS_ThrowTypeErrorOrFalse(flags as _, c"setter is forbidden");
+                return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"setter is forbidden") {
+                    0
+                } else {
+                    -1
+                };
             } else {
                 JS_FreeValue(ctx, desc.value);
                 if desc.flags & JS_PROP_WRITABLE == 0 || (*p).class_id() == JS_CLASS_MODULE_NS {
@@ -1509,8 +1565,10 @@ pub unsafe fn js_obj_to_desc(
     if JS_HasProperty(ctx, desc, JS_ATOM_get).unwrap_or(true) {
         flags |= JS_PROP_HAS_GET;
         getter = JS_GetProperty(ctx, desc, JS_ATOM_get);
-        if JS_IsException(getter) || !(JS_IsUndefined(getter) || JS_IsFunction(ctx, getter)) {
-            ctx.as_mut().unwrap().JS_ThrowTypeError(c"invalid getter");
+        if getter.is_exception()
+            || !(getter.is_undefined() || getter.is_function(ctx.as_ref().unwrap()))
+        {
+            (*ctx).JS_ThrowTypeError(c"invalid getter");
             fail!();
         }
     }
@@ -1518,8 +1576,10 @@ pub unsafe fn js_obj_to_desc(
     if JS_HasProperty(ctx, desc, JS_ATOM_set).unwrap_or(true) {
         flags |= JS_PROP_HAS_SET;
         setter = JS_GetProperty(ctx, desc, JS_ATOM_set);
-        if JS_IsException(setter) || !(JS_IsUndefined(setter) || JS_IsFunction(ctx, setter)) {
-            ctx.as_mut().unwrap().JS_ThrowTypeError(c"invalid setter");
+        if setter.is_exception()
+            || !(setter.is_undefined() || setter.is_function(ctx.as_ref().unwrap()))
+        {
+            (*ctx).JS_ThrowTypeError(c"invalid setter");
             fail!();
         }
     }
@@ -1527,9 +1587,7 @@ pub unsafe fn js_obj_to_desc(
     if (flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET)) != 0
         && (flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE)) != 0
     {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"cannot have setter/getter and value or writable");
+        (*ctx).JS_ThrowTypeError(c"cannot have setter/getter and value or writable");
         fail!();
     }
 
@@ -2127,24 +2185,38 @@ pub unsafe fn JS_GetPropertyInternal(
     let mut p = match JS_VALUE_GET_TAG(obj) {
         JS_TAG_OBJECT => JS_VALUE_GET_OBJ(obj),
         JS_TAG_NULL => {
-            return JS_ThrowTypeErrorAtom(ctx, c"cannot read property '%s' of null", prop);
+            return (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                format!(
+                    "cannot read property '{}' of null\0",
+                    prop.to_str((*ctx).rt())
+                )
+                .as_ptr()
+                .cast(),
+            ));
         }
         JS_TAG_UNDEFINED => {
-            return JS_ThrowTypeErrorAtom(ctx, c"cannot read property '%s' of undefined", prop);
+            return (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                format!(
+                    "cannot read property '{}' of undefined\0",
+                    prop.to_str((*ctx).rt())
+                )
+                .as_ptr()
+                .cast(),
+            ));
         }
         JS_TAG_EXCEPTION => {
             return JSValue::EXCEPTION;
         }
         JS_TAG_STRING => {
-            let p1 = JS_VALUE_GET_STRING(obj);
+            let ss = obj.string();
             if prop.is_int_type() {
                 let idx = __JS_AtomToUInt32(prop);
-                if idx < (*p1).len() as u32 {
-                    let ch = (*p1).content().chars().nth(idx as usize).unwrap();
+                if idx < ss.len() as u32 {
+                    let ch = ss.content().chars().nth(idx as usize).unwrap();
                     return (*ctx).create_string_from_char(ch);
                 }
             } else if prop == JS_ATOM_length {
-                return JSValue::from_i32((*p1).len() as i32);
+                return JSValue::from_i32(ss.len() as i32);
             }
 
             // cannot raise an exception
@@ -2480,7 +2552,7 @@ pub unsafe fn JS_CreateProperty(
             if ($idx + 1) > len {
                 let prop_flags0 = (*(*$p).shape).props.first().unwrap().1.flags();
                 if unlikely(!(prop_flags0 & JS_PROP_WRITABLE) != 0) {
-                    return if JS_ThrowTypeErrorReadOnly(ctx, flags, JS_ATOM_length) == 0 {
+                    return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
                         Ok(false)
                     } else {
                         Err(-1)
@@ -2518,8 +2590,7 @@ pub unsafe fn JS_CreateProperty(
                                 return if (*ctx).JS_ThrowTypeErrorOrFalse(
                                     flags as _,
                                     c"object is not extensible",
-                                ) == 0
-                                {
+                                ) {
                                     Ok(false)
                                 } else {
                                     Err(-1)
@@ -2552,11 +2623,10 @@ pub unsafe fn JS_CreateProperty(
                     if ret < 0 {
                         return Err(-1);
                     }
-                    return if ctx.as_mut().unwrap().JS_ThrowTypeErrorOrFalse(
-                        flags as _,
+                    return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                        flags,
                         c"cannot create numeric index in typed array",
-                    ) == 0
-                    {
+                    ) {
                         Ok(false)
                     } else {
                         Err(-1)
@@ -2581,11 +2651,8 @@ pub unsafe fn JS_CreateProperty(
                         }
 
                         if !JS_IsExtensible(ctx, JS_MKPTR!(JSTag::Object, p.cast()))? {
-                            return if ctx
-                                .as_mut()
-                                .unwrap()
+                            return if (*ctx)
                                 .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
-                                == 0
                             {
                                 Ok(false)
                             } else {
@@ -2599,7 +2666,7 @@ pub unsafe fn JS_CreateProperty(
     }
 
     if !(*p).detailed.extensible() {
-        return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible") == 0 {
+        return if (*ctx).JS_ThrowTypeErrorOrFalse(flags, c"object is not extensible") {
             Ok(false)
         } else {
             Err(-1)
@@ -2616,11 +2683,11 @@ pub unsafe fn JS_CreateProperty(
     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
         (*pr).u.getset.getter = std::ptr::null_mut();
         if (flags & JS_PROP_HAS_GET) != 0 && JS_IsFunction(ctx, getter) {
-            (*pr).u.getset.getter = JS_VALUE_GET_OBJ(JS_DupValue(ctx, getter));
+            (*pr).u.getset.getter = JS_VALUE_GET_OBJ(getter.dup());
         }
         (*pr).u.getset.setter = std::ptr::null_mut();
         if (flags & JS_PROP_HAS_SET) != 0 && JS_IsFunction(ctx, setter) {
-            (*pr).u.getset.setter = JS_VALUE_GET_OBJ(JS_DupValue(ctx, setter));
+            (*pr).u.getset.setter = JS_VALUE_GET_OBJ(setter.dup());
         }
     } else {
         if (flags & JS_PROP_HAS_VALUE) != 0 {

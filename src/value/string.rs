@@ -835,10 +835,11 @@ pub unsafe fn js_string_define_own_property(
 ) -> i32 {
     macro_rules! fail {
         () => {
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeErrorOrFalse(flags as _, c"property is not configurable");
+            return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"property is not configurable") {
+                0
+            } else {
+                -1
+            };
         };
     }
     macro_rules! def {

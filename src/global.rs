@@ -1,10 +1,9 @@
+use std::ffi::CStr;
+
 use crate::{
     atom::JSAtom,
     context::{is_strict_mode, JSContext},
-    error::{
-        JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration,
-        JS_ThrowTypeErrorAtom, JS_ThrowTypeErrorReadOnly,
-    },
+    error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
     types::unlikely,
     value::{
@@ -15,8 +14,7 @@ use crate::{
             JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD,
             JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
-        set_value, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsUninitialized,
-        JS_VALUE_GET_OBJ,
+        set_value, JSValue, JSValueConst, JS_FreeValue, JS_IsUninitialized, JS_VALUE_GET_OBJ,
     },
 };
 
@@ -34,7 +32,11 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
         }
     } else {
         if prs.is_null() && !(*p).detailed.extensible() {
-            JS_ThrowTypeErrorAtom(ctx, c"cannot define variable '%s'", prop);
+            (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
+                    .as_ptr()
+                    .cast(),
+            ));
             return -1;
         }
         if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
@@ -44,7 +46,11 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
                         || ((*prs).flags() & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
                             != (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
                 {
-                    JS_ThrowTypeErrorAtom(ctx, c"cannot define variable '%s'", prop);
+                    (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                        format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
+                            .as_ptr()
+                            .cast(),
+                    ));
                     return -1;
                 }
             }
@@ -173,13 +179,17 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSV
             return -1;
         }
         if unlikely((*prs).flags() & JS_PROP_WRITABLE == 0) {
-            return JS_ThrowTypeErrorReadOnly(ctx, JS_PROP_THROW, prop);
+            return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
+                0
+            } else {
+                -1
+            };
         }
-        *sp.offset(0) = JS_DupValue(ctx, (*ctx).global_var_obj);
+        *sp.offset(0) = (*ctx).global_var_obj.dup();
     } else {
         if let Ok(ret) = JS_HasProperty(ctx, (*ctx).global_obj, prop) {
             *sp.offset(0) = if ret {
-                JS_DupValue(ctx, (*ctx).global_obj)
+                (*ctx).global_obj.dup()
             } else {
                 JSValue::UNDEFINED
             };
@@ -228,7 +238,11 @@ pub unsafe fn JS_SetGlobalVar(ctx: *mut JSContext, prop: JSAtom, val: JSValue, f
             }
             if unlikely((*prs).flags() & JS_PROP_WRITABLE == 0) {
                 JS_FreeValue(ctx, val);
-                return JS_ThrowTypeErrorReadOnly(ctx, JS_PROP_THROW, prop);
+                return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
+                    0
+                } else {
+                    -1
+                };
             }
         }
         set_value(ctx, &mut (*pr).u.value, val);

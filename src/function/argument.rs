@@ -207,7 +207,7 @@ pub unsafe fn build_arg_list(
     array_arg: JSValueConst,
 ) -> *mut JSValue {
     if JS_VALUE_GET_TAG(array_arg) != JS_TAG_OBJECT {
-        ctx.as_mut().unwrap().JS_ThrowTypeError(c"not a object");
+        (*ctx).JS_ThrowTypeError(c"not a object");
         return std::ptr::null_mut();
     }
 

@@ -4,7 +4,7 @@ use crate::{
         JS_ATOM_NULL,
     },
     context::JSContext,
-    error::{JSErrorEnum, JS_ThrowRangeError, JS_ThrowTypeErrorReadOnly},
+    error::{JSErrorEnum, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::{js_free, js_free_rt, js_realloc2},
     proxy::js_proxy_isArray,
@@ -108,7 +108,11 @@ pub unsafe fn set_array_length(
         & JS_PROP_WRITABLE
         == 0
     {
-        return JS_ThrowTypeErrorReadOnly(ctx, flags, JS_ATOM_length);
+        return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+            0
+        } else {
+            -1
+        };
     }
 
     if likely((*p).detailed.fast_array()) {
@@ -191,10 +195,11 @@ pub unsafe fn set_array_length(
         );
 
         if cur_len > len {
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable");
+            return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable") {
+                0
+            } else {
+                -1
+            };
         }
     }
 
@@ -277,7 +282,11 @@ pub unsafe fn add_fast_array_element(
                 == 0
             {
                 JS_FreeValue(ctx, val);
-                return JS_ThrowTypeErrorReadOnly(ctx, flags, JS_ATOM_length);
+                return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                    0
+                } else {
+                    -1
+                };
             }
             (*p).prop_values[0].u.value = JSValue::from_i32(new_len as i32);
         }

@@ -57,7 +57,7 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
                 return ret;
             }
             JS_FreeValue(ctx, ret);
-            return ctx.as_mut().unwrap().JS_ThrowTypeError(c"toPrimitive");
+            return (*ctx).JS_ThrowTypeError(c"toPrimitive");
         }
     }
 

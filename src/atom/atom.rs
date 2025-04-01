@@ -480,11 +480,6 @@ pub unsafe fn __JS_FindAtom(
                 .as_ref()
                 .unwrap();
 
-            println!(
-                "[O.o] find atom {str}, atom({aid})={}",
-                p.content().to_str()
-            );
-
             if p.atom_info().unwrap().hint() == atom_type && p.content().eq_str(str) {
                 let a = JSAtom(u16::from(aid) as u32);
                 if !__JS_AtomIsConst(a) {

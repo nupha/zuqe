@@ -218,9 +218,11 @@ pub const JS_MODE_MATH: i32 = 1 << 2;
 pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
 
 #[inline(always)]
-pub unsafe fn is_strict_mode(ctx: *mut JSContext) -> bool {
-    let sf = (*ctx).rt.as_ref().current_stack_frame;
-    !sf.is_null() && (*sf).js_mode & JS_MODE_STRICT != 0
+pub fn is_strict_mode(ctx: *mut JSContext) -> bool {
+    unsafe {
+        let sf = (*ctx).rt.as_ref().current_stack_frame;
+        !sf.is_null() && (*sf).js_mode & JS_MODE_STRICT != 0
+    }
 }
 
 /// Represents atomic operations

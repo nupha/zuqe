@@ -24,9 +24,9 @@ use crate::{
     error::{
         JS_ThrowReferenceError, JS_ThrowReferenceErrorNotDefined,
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
-        JS_ThrowSyntaxErrorVarRedeclaration, JS_ThrowTypeErrorReadOnly,
-        JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
-        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED,
+        JS_ThrowSyntaxErrorVarRedeclaration, JS_THROW_ERROR_DELETE_SUPER,
+        JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL, JS_THROW_VAR_RO,
+        JS_THROW_VAR_UNINITIALIZED,
     },
     eval::{JS_EvalObject, JS_EVAL_TYPE_DIRECT},
     function::{
@@ -702,7 +702,7 @@ pub unsafe fn run_bytecodes(
 
                     match type_ {
                         JS_THROW_VAR_RO => {
-                            JS_ThrowTypeErrorReadOnly(ctx, JS_PROP_THROW, atom);
+                            ctx.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, atom);
                         }
                         JS_THROW_VAR_REDECL => {
                             JS_ThrowSyntaxErrorVarRedeclaration(ctx, atom);
