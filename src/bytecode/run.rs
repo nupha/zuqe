@@ -70,19 +70,19 @@ use crate::{
 pub unsafe fn run_bytecodes(
     b: &JSFunctionBytecode,
     func_home_obj: *mut JSObject,
-    sf: &mut JSStackFrame,      // 执行栈帧
-    caller_ctx: &mut JSContext, // 调用者context
-    this_obj: JSValue,
-    new_target: JSValue,
-    bytecodes: &[u8],      // 字节码
-    pc_offset: usize,      // 当前指令index地址
-    sp_base: *mut JSValue, // stack 起始地址指针
-    mut sp: *mut JSValue,  // 当前 stack 指针
+    sf: &mut JSStackFrame, // Execution stack frame for managing function call state
+    caller_ctx: &mut JSContext, // Context of the calling environment
+    this_obj: JSValue,     // The 'this' value for the function execution
+    new_target: JSValue,   // The new.target value for constructor calls
+    bytecodes: &[u8],      // Array of bytecode instructions to execute
+    pc_offset: usize,      // Current instruction pointer (program counter) offset
+    sp_base: *mut JSValue, // Base pointer of the stack
+    mut sp: *mut JSValue,  // Current stack pointer
     var_refs: &[NonNull<JSVarRef>],
     argc: i32,
     argv: *mut JSValue,
     mode: i32,
-    throwed: bool,
+    throwed: bool, // Indicates if an exception has been thrown
     local_buf: &mut [JSValue],
 ) -> JSValue {
     debug_assert!(pc_offset < bytecodes.len());
@@ -95,7 +95,7 @@ pub unsafe fn run_bytecodes(
     let mut pc = pc_base.add(pc_offset); // convert index to pointer
 
     if throwed {
-        // has throwed exception, handle it before execution.
+        // has thrown current exception, handle it before execution.
         let pc_offset = pc.offset_from(pc_base) as usize;
         let sp_offset = sp.offset_from(sp_base) as usize;
 
@@ -239,7 +239,7 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(1);
                 }
                 OpCode::PUSH_THIS => {
-                    /* OP_push_this is only called at the start of a function */
+                    // only called at the start of a function
                     let val = if mode & JS_MODE_STRICT == 0 {
                         match JS_VALUE_GET_TAG(this_obj) {
                             JS_TAG_OBJECT => this_obj.dup(),
@@ -343,55 +343,64 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(-1);
                 }
                 OpCode::NIP => {
-                    // a b ^ -> b ^
+                    // Stack operation: [a, b, ^] -> [b, ^] where ^ is stack top
+                    // Removes the second value from top and moves top value down
                     JS_FreeValue(ctx, SP![-2]);
                     SP![-2] = SP![-1];
                     SP_GO!(-1);
                 }
                 OpCode::NIP1 => {
-                    // a b c ^ -> b c ^
+                    // Stack operation: [a, b, c, ^] -> [b, c, ^] where ^ is stack top
+                    // Removes the third value from top and shifts remaining values down
                     JS_FreeValue(ctx, SP![-3]);
                     SP![-3] = SP![-2];
                     SP![-2] = SP![-1];
                     SP_GO!(-1);
                 }
                 OpCode::DUP => {
-                    // a ^ -> a a ^
+                    // Stack operation: [a, ^] -> [a, a, ^] where ^ is stack top
+                    // Duplicates the top value on the stack
                     SP![0] = SP![-1].dup();
                     SP_GO!(1);
                 }
                 OpCode::DUP2 => {
-                    // a b ^ -> a b a b ^
+                    // Stack operation: [a, b, ^] -> [a, b, a, b, ^] where ^ is stack top
+                    // Duplicates the top two values on the stack
                     SP![0] = SP![-2].dup();
                     SP![1] = SP![-1].dup();
                     SP_GO!(2);
                 }
                 OpCode::DUP3 => {
-                    // a b c ^ -> a b c a b c ^
+                    // Stack operation: [a, b, c, ^] -> [a, b, c, a, b, c, ^] where ^ is stack top
+                    // Duplicates the top three values on the stack
                     SP![0] = SP![-3].dup();
                     SP![1] = SP![-2].dup();
                     SP![2] = SP![-1].dup();
                     SP_GO!(3);
                 }
                 OpCode::DUP1 => {
-                    // a b ^ -> a a b ^
+                    // Stack operation: [a, b, ^] -> [a, a, b, ^] where ^ is stack top
+                    // Duplicates the second value from top and places it below top
                     SP![0] = SP![-1];
                     SP![-1] = SP![-2].dup();
                     SP_GO!(1);
                 }
                 OpCode::INSERT2 => {
-                    // obj a ^ -> a obj a ^
+                    // Stack operation: [obj, a, ^] -> [a, obj, a, ^] where ^ is stack top
+                    // Duplicates top value and inserts it under second position
                     SP![0] = SP![-1];
                     SP![-1] = SP![-2];
                     SP![-2] = SP![0].dup();
                     SP_GO!(1);
                 }
                 OpCode::INSERT3 => {
-                    // obj prop a ^ -> a obj prop a ^
+                    // Stack operation: [obj, prop, a, ^] -> [a, obj, prop, a, ^] where ^ is stack top
+                    // Duplicates top value and inserts it under third position
+                    // Uses array rotation for efficient stack manipulation
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 4);
                     lst.rotate_right(1);
 
-                    // now SP![0] is the value to dup and insert
+                    // After rotation, SP![0] contains the value to duplicate and insert
                     SP![-3] = SP![0].dup();
 
                     // SP![0] = SP![-1];
@@ -402,11 +411,13 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(1);
                 }
                 OpCode::INSERT4 => {
-                    // this obj prop a ^ -> a this obj prop a ^
+                    // Stack operation: [this, obj, prop, a, ^] -> [a, this, obj, prop, a, ^] where ^ is stack top
+                    // Duplicates top value and inserts it under fourth position
+                    // Uses array rotation for efficient stack manipulation
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-4), 5);
                     lst.rotate_right(1);
 
-                    // now SP![0] is the value to dup and insert
+                    // After rotation, SP![0] contains the value to duplicate and insert
                     SP![-4] = SP![0].dup();
 
                     // SP![0] = SP![-1];
@@ -418,7 +429,8 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(1); // move sp
                 }
                 OpCode::PERM3 => {
-                    // obj a fixed ^ -> a obj fixed ^
+                    // Stack operation: [obj, a, fixed, ^] -> [a, obj, fixed, ^] where ^ is stack top
+                    // Swaps the second and third values from top, keeping the fixed value in place
                     std::mem::swap(
                         sp.offset(-2).as_mut().unwrap(),
                         sp.offset(-3).as_mut().unwrap(),
@@ -429,8 +441,9 @@ pub unsafe fn run_bytecodes(
                     // SP![-3] = tmp;
                 }
                 OpCode::ROT3L => {
-                    // rotary shift left on 3 oprands
-                    // x a b ^ -> a b x ^
+                    // Stack operation: [x, a, b, ^] -> [a, b, x, ^] where ^ is stack top
+                    // Performs a left rotation on top three values
+                    // The leftmost value moves to the right, others shift left
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 3);
                     lst.rotate_left(1);
 
@@ -440,8 +453,9 @@ pub unsafe fn run_bytecodes(
                     // SP![0] = tmp;
                 }
                 OpCode::ROT4L => {
-                    // rotary shift left on 4 oprands
-                    // x a b c ^ -> a b c x ^
+                    // Stack operation: [x, a, b, c, ^] -> [a, b, c, x, ^] where ^ is stack top
+                    // Performs a left rotation on top four values
+                    // The leftmost value moves to the right, others shift left
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-4), 4);
                     lst.rotate_left(1);
 
@@ -463,8 +477,9 @@ pub unsafe fn run_bytecodes(
                     // SP![-1] = tmp;
                 }
                 OpCode::ROT3R => {
-                    // rotary shift right on 3 oprands
-                    // a b x ^ -> x a b ^
+                    // Stack operation: [a, b, x, ^] -> [x, a, b, ^] where ^ is stack top
+                    // Performs a right rotation on top three values
+                    // The rightmost value moves to the left, others shift right
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 3);
                     lst.rotate_right(1);
 
@@ -474,8 +489,9 @@ pub unsafe fn run_bytecodes(
                     // SP![-3] = tmp;
                 }
                 OpCode::PERM4 => {
-                    // rotary shift right on 3 opeands before the last operand.
-                    // obj prop a fixed ^ -> a obj prop fixed ^
+                    // Stack operation: [obj, prop, a, fixed, ^] -> [a, obj, prop, fixed, ^] where ^ is stack top
+                    // Performs a right rotation on three values before the fixed value
+                    // The rightmost value moves left, others shift right, fixed value stays in place
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-4), 3);
                     lst.rotate_right(1);
 
@@ -485,7 +501,9 @@ pub unsafe fn run_bytecodes(
                     // SP![-4] = tmp;
                 }
                 OpCode::PERM5 => {
-                    // this obj prop a fixed ^ -> a this obj prop fixed ^
+                    // Stack operation: [this, obj, prop, a, fixed, ^] -> [a, this, obj, prop, fixed, ^] where ^ is stack top
+                    // Performs a right rotation on four values before the fixed value
+                    // The rightmost value moves left, others shift right, fixed value stays in place
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-5), 4);
                     lst.rotate_right(1);
 
@@ -496,14 +514,17 @@ pub unsafe fn run_bytecodes(
                     // SP![-5] = tmp;
                 }
                 OpCode::SWAP => {
-                    // a b ^ -> b a ^
+                    // Stack operation: [a, b, ^] -> [b, a, ^] where ^ is stack top
+                    // Swaps the top two values on the stack
                     std::mem::swap(
                         sp.offset(-1).as_mut().unwrap(),
                         sp.offset(-2).as_mut().unwrap(),
                     );
                 }
                 OpCode::SWAP2 => {
-                    // a b c d ^ -> c d a b ^
+                    // Stack operation: [a, b, c, d, ^] -> [c, d, a, b, ^] where ^ is stack top
+                    // Swaps pairs of values: first with third, second with fourth
+                    // Effectively exchanges the top two pairs of values
                     std::mem::swap(
                         sp.offset(-1).as_mut().unwrap(),
                         sp.offset(-3).as_mut().unwrap(),
