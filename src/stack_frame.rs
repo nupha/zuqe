@@ -54,9 +54,10 @@ impl JSStackFrame {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
+    /// processing current exception, add backtrace information for example.
     /// return value:
-    /// - Some((pc, sp)): exception was catched, restart running with updated (pc, sp);
-    /// - None: exception is unrecovable, abort running
+    /// - Some((pc, sp)): exception was catched, continue execution with updated (pc, sp);
+    /// - None: exception is unrecovable, abort execution
     pub unsafe fn handle_exception(
         &mut self,
         ctx: &mut JSContext,
@@ -85,21 +86,22 @@ impl JSStackFrame {
                 sp -= 1;
                 let val = *sp_base.add(sp);
 
-                {
-                    print!(
-                        "[O.o]         pc={pc}, sp={sp}, tag={:?} {}, rc={:?}, obj_cls={:?} ",
-                        JS_VALUE_GET_NORM_TAG(val),
-                        JS_VALUE_GET_TAG(val),
-                        val.ref_count(),
-                        if JS_VALUE_GET_TAG(val) == JSTag::Object as i32 {
-                            (*JS_VALUE_GET_OBJ(val)).class_id()
-                        } else {
-                            9999
-                        }
-                    );
-                    val.dump(ctx.rt());
-                    println!();
-                }
+                // debug
+                // {
+                //     print!(
+                //         "[O.o]         pc={pc}, sp={sp}, tag={:?} {}, rc={:?}, obj_cls={:?} ",
+                //         JS_VALUE_GET_NORM_TAG(val),
+                //         JS_VALUE_GET_TAG(val),
+                //         val.ref_count(),
+                //         if JS_VALUE_GET_TAG(val) == JSTag::Object as i32 {
+                //             (*JS_VALUE_GET_OBJ(val)).class_id()
+                //         } else {
+                //             9999
+                //         }
+                //     );
+                //     val.dump(ctx.rt());
+                //     println!();
+                // }
 
                 JS_FreeValue(ctx, val);
 
@@ -109,7 +111,7 @@ impl JSStackFrame {
                         // enumerator: close it with a throw
                         JS_FreeValue(ctx, *sp_base.add(sp - 1)); // drop the `next` method
                         sp -= 1;
-                        JS_IteratorClose(ctx, *sp_base.add(sp - 1), true);
+                        JS_IteratorClose(ctx, *sp_base.add(sp - 1), true).unwrap();
                     } else {
                         *sp_base.add(sp) = ctx.rt_mut().current_exception.replace(JSValue::NULL);
                         sp += 1;
@@ -119,7 +121,7 @@ impl JSStackFrame {
             }
         }
 
-        None // abort with sp=0, pc unchanged
+        None // exception is uncatched, abort with sp=0, pc unchanged
     }
 
     /// clean-ups before exit

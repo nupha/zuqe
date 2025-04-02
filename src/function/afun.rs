@@ -29,7 +29,7 @@ pub struct JSAsyncFunctionState {
     pub this_val: JSValue, /* 'this' argument */
     pub argc: i32,         /* number of function arguments */
 
-    /* used to throw an exception in JS_CallInternal() */
+    /// used to throw an exception in JS_CallInternal()
     pub throw_flag: bool,
 
     /* TRUE if the function has returned. The stack frame is no longer valid */

@@ -111,10 +111,7 @@ pub unsafe fn JS_CallInternal(
                 &mut [],
             )
         } else {
-            caller_ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"not a function")
+            (*caller_ctx).JS_ThrowTypeError(c"not a function")
         };
     }
 

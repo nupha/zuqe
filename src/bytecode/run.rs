@@ -48,14 +48,15 @@ use crate::{
     value::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_CopyDataProperties, JS_DefineObjectName,
-            JS_DefinePrivateField, JS_DefineProperty, JS_DefinePropertyValue,
-            JS_DefinePropertyValueValue, JS_DeleteProperty, JS_GetPrivateField, JS_GetProperty,
-            JS_GetPropertyValue, JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto,
-            JS_SetPrivateField, JS_SetPropertyInternal, JS_SetPropertyValue,
-            JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
-            JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JS_DefineObjectNameComputed, JS_DefinePrivateField, JS_DefineProperty,
+            JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_DeleteProperty,
+            JS_GetPrivateField, JS_GetProperty, JS_GetPropertyInternal, JS_GetPropertyValue,
+            JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
+            JS_SetPropertyInternal, JS_SetPropertyValue, JS_SetPrototypeInternal, JS_ToObject,
+            JS_ToPropertyKey, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+            JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW,
+            JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsObject, JS_IsUninitialized, JS_NewBool,
         JS_NewCatchOffset, JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE,
@@ -81,7 +82,7 @@ pub unsafe fn run_bytecodes(
     argc: i32,
     argv: *mut JSValue,
     mode: i32,
-    throw: bool,
+    throwed: bool,
     local_buf: &mut [JSValue],
 ) -> JSValue {
     debug_assert!(pc_offset < bytecodes.len());
@@ -92,6 +93,27 @@ pub unsafe fn run_bytecodes(
 
     let pc_base = bytecodes.as_ptr();
     let mut pc = pc_base.add(pc_offset); // convert index to pointer
+
+    if throwed {
+        // has throwed exception, handle it before execution.
+        let pc_offset = pc.offset_from(pc_base) as usize;
+        let sp_offset = sp.offset_from(sp_base) as usize;
+
+        if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, pc_offset, sp_offset) {
+            // continue execution: update pc and sp.
+            pc = pc_base.offset(new_pc as _);
+            sp = sp_base.offset(new_sp as _);
+        } else {
+            // abort execution: sp=0, pc unchanged
+            sf.handle_exit(
+                ctx,
+                pc_offset,
+                0,
+                b.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
+            );
+            return JSValue::EXCEPTION;
+        }
+    }
 
     macro_rules! SP {
         [0] => {
@@ -143,52 +165,13 @@ pub unsafe fn run_bytecodes(
 
     enum State {
         Exception,
-        /// exit execution. reture value and is_generator flag
+        /// exit with return value and is_generator flag
         Done(JSValue, bool),
     }
 
-    let mut state: Option<State> = if throw { Some(State::Exception) } else { None };
-
     'restart: loop {
-        // dispatch state label
-        while let Some(label) = state.take() {
-            match label {
-                State::Exception => {
-                    // calc offset index from pc and sp pointers
-                    let pc_offset = pc.offset_from(pc_base) as usize;
-                    let sp_offset = sp.offset_from(sp_base) as usize;
-
-                    if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, pc_offset, sp_offset) {
-                        // continue running, update pc and sp pointer, and jump
-                        pc = pc_base.offset(new_pc as _);
-                        sp = sp_base.offset(new_sp as _);
-                        continue 'restart;
-                    } else {
-                        // abort with sp=0, pc unchanged
-                        sf.handle_exit(
-                            ctx,
-                            pc_offset,
-                            0,
-                            b.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        );
-                        return JSValue::EXCEPTION;
-                    }
-                }
-
-                State::Done(ret_val, is_generator) => {
-                    sf.handle_exit(
-                        ctx,
-                        pc.offset_from(pc_base) as usize,
-                        sp.offset_from(sp_base) as usize,
-                        is_generator,
-                    );
-                    return ret_val;
-                }
-            }
-        }
-
         // loop running bytecodes
-        loop {
+        let state: State = 'opcodes: loop {
             #[cfg(feature = "dump_bytecode")]
             {
                 print!("[O.o] RUN {:5}: ", pc.offset_from(pc_base));
@@ -267,7 +250,7 @@ pub unsafe fn run_bytecodes(
                         this_obj.dup()
                     };
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![0] = val;
                         SP_GO!(1);
@@ -285,7 +268,7 @@ pub unsafe fn run_bytecodes(
                     SP![0] = JS_NewObject(ctx);
                     SP_GO!(1);
                     if SP![-1].is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::SPECIAL_OBJECT => {
@@ -295,10 +278,10 @@ pub unsafe fn run_bytecodes(
                     match arg {
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_ARGUMENTS => {
                             SP![0] = js_build_arguments(ctx, argc, argv);
-                            if SP![0].is_exception() {
-                                state = Some(State::Exception);
-                            }
                             SP_GO!(1);
+                            if SP![-1].is_exception() {
+                                break State::Exception;
+                            }
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS => {
                             SP![0] = js_build_mapped_arguments(
@@ -308,10 +291,10 @@ pub unsafe fn run_bytecodes(
                                 sf,
                                 std::cmp::min(argc, b.arg_count as i32),
                             );
-                            if SP![0].is_exception() {
-                                state = Some(State::Exception);
-                            }
                             SP_GO!(1);
+                            if SP![-1].is_exception() {
+                                break State::Exception;
+                            }
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC => {
                             SP![0] = sf.cur_func.dup();
@@ -331,28 +314,29 @@ pub unsafe fn run_bytecodes(
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT => {
                             SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
-                            if SP![0].is_exception() {
-                                state = Some(State::Exception);
-                            }
                             SP_GO!(1);
+                            if SP![-1].is_exception() {
+                                break State::Exception;
+                            }
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_IMPORT_META => {
                             SP![0] = js_import_meta(ctx);
-                            if SP![0].is_exception() {
-                                state = Some(State::Exception);
+                            SP_GO!(1);
+                            if SP![-1].is_exception() {
+                                break State::Exception;
                             }
-                            SP_GO!(0);
                         }
                     }
                 }
                 OpCode::REST => {
                     let first = get_u16(pc);
                     PC_GO!(2);
+
                     SP![0] = js_build_rest(ctx, first as _, argc, argv);
-                    if SP![0].is_exception() {
-                        state = Some(State::Exception);
-                    }
                     SP_GO!(1);
+                    if SP![-1].is_exception() {
+                        break State::Exception;
+                    }
                 }
                 OpCode::DROP => {
                     JS_FreeValue(ctx, SP![-1]);
@@ -539,12 +523,13 @@ pub unsafe fn run_bytecodes(
                 OpCode::FCLOSURE => {
                     let id = get_u32(pc);
                     PC_GO!(4);
+
                     let bfunc = CPOOL![id].dup();
                     SP![0] = js_closure(ctx, bfunc, var_refs, sf);
-                    if SP![0].is_exception() {
-                        state = Some(State::Exception);
-                    }
                     SP_GO!(1);
+                    if SP![-1].is_exception() {
+                        break State::Exception;
+                    }
                 }
 
                 #[cfg(feature = "short_opcode")]
@@ -569,9 +554,9 @@ pub unsafe fn run_bytecodes(
                         0,
                     );
                     if ret_val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else if opcode == OpCode::TAIL_CALL {
-                        state = Some(State::Done(ret_val, false));
+                        break State::Done(ret_val, false);
                     } else {
                         for i in -1..call_argc as i32 {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -595,7 +580,7 @@ pub unsafe fn run_bytecodes(
                         0,
                     );
                     if ret_val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         for i in -2..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -608,7 +593,6 @@ pub unsafe fn run_bytecodes(
                 OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
                     let call_argc = get_u16(pc) as i32;
                     PC_GO!(2);
-                    debug_assert!(call_argc >= 0);
 
                     let call_argv = sp.offset(-call_argc as isize);
                     sf.cur_pc_offset = pc.offset_from(pc_base) as _;
@@ -624,9 +608,9 @@ pub unsafe fn run_bytecodes(
                     );
 
                     if ret_val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else if opcode == OpCode::TAIL_CALL_METHOD {
-                        state = Some(State::Done(ret_val, false));
+                        break State::Done(ret_val, false);
                     } else {
                         for i in -2..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -644,7 +628,7 @@ pub unsafe fn run_bytecodes(
                     // create array
                     let arr = JS_NewArray(ctx);
                     if arr.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         // push elements to array
                         let call_argv = sp.offset(-call_argc as isize);
@@ -659,16 +643,13 @@ pub unsafe fn run_bytecodes(
                             *call_argv.offset(i as isize) = JSValue::UNDEFINED;
                             if ret < 0 {
                                 JS_FreeValue(ctx, arr);
-                                state = Some(State::Exception);
-                                break;
+                                break 'opcodes State::Exception;
                             }
                         }
 
-                        if state.is_none() {
-                            sp = sp.offset(-call_argc as isize);
-                            SP![0] = arr;
-                            SP_GO!(1);
-                        }
+                        SP_GO!(-call_argc);
+                        SP![0] = arr;
+                        SP_GO!(1);
                     }
                 }
                 OpCode::APPLY => {
@@ -677,7 +658,7 @@ pub unsafe fn run_bytecodes(
 
                     let ret_val = js_function_apply(ctx, SP![-3], 2, sp.offset(-2), magic);
                     if ret_val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         JS_FreeValue(ctx, SP![-3]);
                         JS_FreeValue(ctx, SP![-2]);
@@ -689,10 +670,10 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::RETURN => {
                     SP_GO!(-1);
-                    state = Some(State::Done(*sp, false))
+                    break State::Done(SP![0], false);
                 }
                 OpCode::RETURN_UNDEF => {
-                    state = Some(State::Done(JSValue::UNDEFINED, false));
+                    break State::Done(JSValue::UNDEFINED, false);
                 }
                 OpCode::CHECK_CTOR_RETURN => {
                     // return TRUE if 'this' should be returned
@@ -701,7 +682,7 @@ pub unsafe fn run_bytecodes(
                             caller_ctx.JS_ThrowTypeError(
                                 c"derived class constructor must return an object or undefined",
                             );
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
                             SP![0] = JSValue::TRUE;
                             SP_GO!(1);
@@ -714,32 +695,32 @@ pub unsafe fn run_bytecodes(
                 OpCode::CHECK_CTOR => {
                     if new_target.is_undefined() {
                         ctx.JS_ThrowTypeError(c"class constructors must be invoked with 'new'");
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::CHECK_BRAND => {
                     if let Ok(b) = JS_CheckBrand(ctx, SP![-2], SP![-1]) {
                         if !b {
                             ctx.JS_ThrowTypeError(c"invalid brand on object");
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                     } else {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::ADD_BRAND => {
                     if JS_AddBrand(ctx, SP![-2], SP![-1]) < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         JS_FreeValue(ctx, SP![-2]);
                         JS_FreeValue(ctx, SP![-1]);
-                        sp = sp.offset(-2);
+                        SP_GO!(-2);
                     }
                 }
                 OpCode::THROW => {
                     SP_GO!(-1);
                     ctx.JS_Throw(SP![0]);
-                    state = Some(State::Exception);
+                    break State::Exception;
                 }
                 OpCode::THROW_ERROR => {
                     let atom = JSAtom(get_u32(pc));
@@ -768,7 +749,7 @@ pub unsafe fn run_bytecodes(
                             ));
                         }
                     }
-                    state = Some(State::Exception);
+                    break State::Exception;
                 }
                 OpCode::EVAL => {
                     let call_argc = get_u16(pc) as i32;
@@ -804,14 +785,14 @@ pub unsafe fn run_bytecodes(
                     };
 
                     if ret_val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         for i in -1..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
                         }
                         sp = sp.offset(-call_argc as isize - 1);
                         SP![0] = ret_val;
-                        sp = sp.offset(1);
+                        SP_GO!(1);
                     }
                 }
                 OpCode::APPLY_EVAL => {
@@ -821,7 +802,7 @@ pub unsafe fn run_bytecodes(
                     let mut len = 0;
                     let tab: *mut JSValue = build_arg_list(ctx, &mut len, SP![-1]);
                     if tab.is_null() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let ret_val = if SP![-2].is_same(ctx.eval_obj) {
                             JS_EvalObject(
@@ -836,14 +817,15 @@ pub unsafe fn run_bytecodes(
                         };
 
                         free_arg_list(ctx, tab, len);
+
                         if ret_val.is_exception() {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
                             JS_FreeValue(ctx, SP![-2]);
                             JS_FreeValue(ctx, SP![-1]);
-                            sp = sp.offset(-2);
+                            SP_GO!(-2);
                             SP![0] = ret_val;
-                            sp = sp.offset(1);
+                            SP_GO!(1);
                         }
                     }
                 }
@@ -855,7 +837,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_SUPER => {
                     let proto = JS_GetPrototype(ctx, SP![-1]);
                     if proto.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP![-1] = proto;
@@ -864,7 +846,8 @@ pub unsafe fn run_bytecodes(
                 OpCode::IMPORT => {
                     let val = js_dynamic_import(ctx, SP![-1]);
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
+                    } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP![-1] = val;
                     }
@@ -874,7 +857,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
                     let ret = JS_CheckGlobalVar(ctx, atom);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![0] = JS_NewBool(ret != 0);
                         SP_GO!(1);
@@ -886,10 +869,10 @@ pub unsafe fn run_bytecodes(
 
                     let val = JS_GetGlobalVar(ctx, atom, opcode == OpCode::GET_VAR);
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![0] = val;
-                        sp = sp.offset(1);
+                        SP_GO!(1);
                     }
                 }
                 OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
@@ -903,7 +886,7 @@ pub unsafe fn run_bytecodes(
                     );
                     SP_GO!(-1);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::PUT_VAR_STRICT => {
@@ -913,13 +896,13 @@ pub unsafe fn run_bytecodes(
                     // sp[-2] is TRUE or FALSE
                     if JS_VALUE_GET_INT(SP![-2]) == 0 {
                         JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
 
                     let ret = JS_SetGlobalVar(ctx, atom, SP![-1], 2);
-                    sp = sp.offset(-2);
+                    SP_GO!(-2);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::CHECK_DEFINE_VAR => {
@@ -927,7 +910,7 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_CheckDefineGlobalVar(ctx, atom, flags as _) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::DEFINE_VAR => {
@@ -935,7 +918,7 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_DefineGlobalVar(ctx, atom, flags as _) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::DEFINE_FUNC => {
@@ -943,7 +926,7 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_DefineGlobalFunction(ctx, atom, SP![-1], flags as _) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP_GO!(-1);
@@ -953,7 +936,7 @@ pub unsafe fn run_bytecodes(
                     let idx = get_u16(pc);
                     PC_GO!(2);
                     SP![0] = VAR![idx].dup();
-                    sp = sp.offset(1);
+                    SP_GO!(1);
                 }
                 OpCode::PUT_LOC => {
                     let idx = get_u16(pc);
@@ -1012,31 +995,44 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(2);
                     set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1].dup());
                 }
-                OpCode::GET_VAR_REF_CHECK
-                | OpCode::PUT_VAR_REF_CHECK
-                | OpCode::PUT_VAR_REF_CHECK_INIT => {
+                OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                     let idx = get_u16(pc);
                     PC_GO!(2);
 
-                    let val = var_refs[idx as usize].as_ref().pvalue;
-                    if JS_IsUninitialized(*val) {
+                    let pval = var_refs[idx as usize].as_ref().pvalue;
+                    if JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         if opcode == OpCode::GET_VAR_REF_CHECK {
                             // GET_VAR_REF_CHECK
-                            SP![0] = (*val).dup();
-                            sp = sp.offset(1);
+                            SP![0] = (*pval).dup();
+                            SP_GO!(1);
                         } else {
-                            // PUT_VAR_REF_CHECK, PUT_VAR_REF_CHECK_INIT
-                            set_value(ctx, val, SP![-1]);
+                            // PUT_VAR_REF_CHECK
+                            set_value(ctx, pval, SP![-1]);
                             SP_GO!(-1);
                         }
                     }
                 }
+                OpCode::PUT_VAR_REF_CHECK_INIT => {
+                    let idx = get_u16(pc);
+                    PC_GO!(2);
+
+                    let pval = var_refs[idx as usize].as_ref().pvalue;
+                    if !JS_IsUninitialized(*pval) {
+                        JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
+                        break State::Exception;
+                    } else {
+                        set_value(ctx, pval, SP![-1]);
+                        SP_GO!(-1);
+                    }
+                }
+
                 OpCode::GET_LOC_CHECK | OpCode::GET_LOC_CHECKTHIS => {
                     let idx = get_u16(pc);
                     PC_GO!(2);
+
                     let val = VAR![idx];
                     if JS_IsUninitialized(val) {
                         JS_ThrowReferenceErrorUninitialized2(
@@ -1049,10 +1045,10 @@ pub unsafe fn run_bytecodes(
                             idx,
                             false,
                         );
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![0] = val.dup();
-                        sp = sp.offset(1);
+                        SP_GO!(1);
                     }
                 }
                 OpCode::PUT_LOC_CHECK | OpCode::PUT_LOC_CHECK_INIT => {
@@ -1066,7 +1062,7 @@ pub unsafe fn run_bytecodes(
                         } else {
                             JS_ThrowReferenceError(ctx, c"'this' can be initialized only once");
                         }
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         set_value(ctx, pval, SP![-1]);
                         SP_GO!(-1);
@@ -1080,13 +1076,13 @@ pub unsafe fn run_bytecodes(
                 OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                     let atom = JSAtom(get_u32(pc));
                     let idx = get_u16(pc.add(4));
-                    pc = pc.offset(6);
+                    PC_GO!(6);
 
                     SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
-                    sp = sp.offset(1);
+                    SP_GO!(1);
 
                     if SP![-1].is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
                             let mut vr = var_refs[idx as usize];
@@ -1107,14 +1103,14 @@ pub unsafe fn run_bytecodes(
                                     SP![0] = atom.to_value(ctx, false);
                                     SP_GO!(1);
                                 } else {
-                                    if let Some(vr) = Box::from_raw(vr.as_ptr()).free(rt) {
-                                        Box::leak(vr); // var ref is still alive, don't drop
+                                    if let Some(p) = Box::from_raw(vr.as_ptr()).free(rt) {
+                                        Box::leak(p); // var ref is still alive, don't drop
                                     }
-                                    state = Some(State::Exception);
+                                    break State::Exception;
                                 };
                             }
                             Err(_) => {
-                                state = Some(State::Exception);
+                                break State::Exception;
                             }
                         }
                     }
@@ -1122,18 +1118,17 @@ pub unsafe fn run_bytecodes(
                 OpCode::MAKE_VAR_REF => {
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
-
                     if JS_GetGlobalVarRef(ctx, atom, sp) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
+                    } else {
+                        SP_GO!(2);
                     }
-                    sp = sp.offset(2);
                 }
                 OpCode::GOTO => {
                     let n = get_u32(pc) as i32; // plus or minus
                     PC_GO!(n);
-
                     if js_poll_interrupts(ctx) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
 
@@ -1146,7 +1141,7 @@ pub unsafe fn run_bytecodes(
                     } as usize);
 
                     if js_poll_interrupts(ctx) != 0 {
-                        state = Some(State::Exception);
+                        state = State::Exception;
                     }
                 }
 
@@ -1168,7 +1163,7 @@ pub unsafe fn run_bytecodes(
                     }
 
                     if js_poll_interrupts(ctx) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
 
@@ -1180,25 +1175,26 @@ pub unsafe fn run_bytecodes(
                 OpCode::CATCH => {
                     let diff = get_u32(pc) as i32;
                     SP![0] = JS_NewCatchOffset(pc.offset_from(pc_base) as i32 + diff);
-                    sp = sp.offset(1);
+                    SP_GO!(1);
                     PC_GO!(4);
                 }
                 OpCode::GOSUB => {
                     let diff = get_u32(pc) as i32;
                     /* XXX: should have a different tag to avoid security flaw */
                     SP![0] = JSValue::from_i32(pc.offset_from(pc_base) as i32 + 4);
-                    pc = pc.offset(diff as isize);
+                    SP_GO!(1);
+                    PC_GO!(diff);
                 }
                 OpCode::RET => {
                     let op1 = SP![-1];
                     if JS_VALUE_GET_TAG(op1) != JS_TAG_INT {
                         ctx.JS_ThrowInternalError(c"invalid ret value");
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let pos = JS_VALUE_GET_INT(op1);
                         if pos >= bytecodes.len() as i32 {
                             ctx.JS_ThrowInternalError(c"invalid ret value");
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
                             SP_GO!(-1);
                             pc = pc_base.offset(pos as isize);
@@ -1207,18 +1203,18 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::FOR_IN_START => {
                     if js_for_in_start(ctx, sp) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::FOR_IN_NEXT => {
                     if js_for_in_next(ctx, sp) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                     SP_GO!(2);
                 }
                 OpCode::FOR_OF_START => {
                     if js_for_of_start(ctx, sp, false) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                     SP_GO!(1);
                     SP![0] = JS_NewCatchOffset(0);
@@ -1228,13 +1224,13 @@ pub unsafe fn run_bytecodes(
                     let offset = -3 - *pc as i32;
                     PC_GO!(1);
                     if js_for_of_next(ctx, sp, offset) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                     SP_GO!(2);
                 }
                 OpCode::FOR_AWAIT_OF_START => {
                     if js_for_of_start(ctx, sp, true) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP_GO!(1);
                         SP![0] = JS_NewCatchOffset(0);
@@ -1243,25 +1239,25 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::ITERATOR_GET_VALUE_DONE => {
                     if js_iterator_get_value_done(ctx, sp) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP_GO!(1);
                     }
                 }
                 OpCode::ITERATOR_CHECK_OBJECT => {
-                    if !JS_IsObject(SP![-1]) {
+                    if !SP![-1].is_object() {
                         ctx.JS_ThrowTypeError(c"iterator must return an object");
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::ITERATOR_CLOSE => {
-                    /* iter_obj next catch_offset -> */
+                    // iter_obj next catch_offset ->
                     SP_GO!(-1); /* drop the catch offset to avoid getting caught by exception */
-                    JS_FreeValue(ctx, SP![-1]); /* drop the next method */
+                    JS_FreeValue(ctx, SP![-1]); // drop the next method
                     SP_GO!(-1);
                     if !SP![-1].is_undefined() {
                         if JS_IteratorClose(ctx, SP![-1], false).is_err() {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
                             JS_FreeValue(ctx, SP![-1]);
                         }
@@ -1269,34 +1265,36 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(-1);
                 }
                 OpCode::NIP_CATCH => {
-                    /* catch_offset ... ret_val -> ret_eval */
+                    // catch_offset ... ret_val -> ret_eval
                     SP_GO!(-1);
-                    let ret_val = *sp;
+                    let ret_val = SP![0];
                     while sp > sp_base && JS_VALUE_GET_TAG(SP![-1]) != JS_TAG_CATCH_OFFSET {
                         SP_GO!(-1);
-                        JS_FreeValue(ctx, *sp);
+                        JS_FreeValue(ctx, SP![0]);
                     }
                     if sp == sp_base {
                         ctx.JS_ThrowInternalError(c"nip_catch");
                         JS_FreeValue(ctx, ret_val);
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![-1] = ret_val;
                     }
                 }
                 OpCode::ITERATOR_NEXT => {
-                    /* stack: iter_obj next catch_offset val */
+                    // stack: iter_obj next catch_offset val
                     let ret = JS_Call(ctx, SP![-3], SP![-4], 1, sp.offset(-1));
                     if ret.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP![-1] = ret;
                     }
                 }
                 OpCode::ITERATOR_CALL => {
+                    // stack: iter_obj next catch_offset val
                     let flags = *pc as i32;
                     PC_GO!(1);
+
                     let method = JS_GetProperty(
                         ctx,
                         SP![-4],
@@ -1307,7 +1305,7 @@ pub unsafe fn run_bytecodes(
                         },
                     );
                     if method.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let ret_flag = if method.is_undefined_or_null() {
                             true
@@ -1319,7 +1317,7 @@ pub unsafe fn run_bytecodes(
                                 JS_CallFree(ctx, method, SP![-4], 1, sp.offset(-1))
                             };
                             if ret.is_exception() {
-                                state = Some(State::Exception);
+                                break State::Exception;
                             } else {
                                 JS_FreeValue(ctx, SP![-1]);
                                 SP![-1] = ret;
@@ -1327,10 +1325,8 @@ pub unsafe fn run_bytecodes(
                             false
                         };
 
-                        if state.is_none() {
-                            SP![0] = JS_NewBool(ret_flag);
-                            SP_GO!(1);
-                        }
+                        SP![0] = JS_NewBool(ret_flag);
+                        SP_GO!(1);
                     }
                 }
                 OpCode::LNOT => {
@@ -1348,7 +1344,7 @@ pub unsafe fn run_bytecodes(
 
                     let val = JS_GetProperty(ctx, SP![-1], atom);
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         if opcode == OpCode::GET_FIELD {
                             JS_FreeValue(ctx, SP![-1]);
@@ -1362,6 +1358,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::PUT_FIELD => {
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
+
                     let ret = JS_SetPropertyInternal(
                         ctx,
                         SP![-2],
@@ -1371,17 +1368,18 @@ pub unsafe fn run_bytecodes(
                         JS_PROP_THROW_STRICT,
                     );
                     JS_FreeValue(ctx, SP![-2]);
-                    sp = sp.offset(-2);
+                    SP_GO!(-2);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::PRIVATE_SYMBOL => {
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
+
                     let val = JS_NewSymbolFromAtom(ctx, atom, JSAtomTypeHint::Private);
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![0] = val;
                         SP_GO!(1);
@@ -1394,7 +1392,7 @@ pub unsafe fn run_bytecodes(
                     SP![-2] = val;
                     SP_GO!(-1);
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::PUT_PRIVATE_FIELD => {
@@ -1403,15 +1401,15 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-1]);
                     SP_GO!(-3);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::DEFINE_PRIVATE_FIELD => {
                     let ret = JS_DefinePrivateField(ctx, SP![-3], SP![-2], SP![-1]);
                     JS_FreeValue(ctx, SP![-2]);
-                    sp = sp.offset(-2);
+                    SP_GO!(-2);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::DEFINE_FIELD => {
@@ -1427,7 +1425,7 @@ pub unsafe fn run_bytecodes(
                     );
                     SP_GO!(-1);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::SET_NAME => {
@@ -1435,14 +1433,21 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
                     let ret = JS_DefineObjectName(ctx, SP![-1], atom, JS_PROP_CONFIGURABLE);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
+                    }
+                }
+                OpCode::SET_NAME_COMPUTED => {
+                    let ret =
+                        JS_DefineObjectNameComputed(ctx, SP![-1], SP![-2], JS_PROP_CONFIGURABLE);
+                    if ret < 0 {
+                        break State::Exception;
                     }
                 }
                 OpCode::SET_PROTO => {
                     let proto = SP![-1];
                     if proto.is_object() || proto.is_null() {
                         if JS_SetPrototypeInternal(ctx, SP![-2], proto, true).is_err() {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                         JS_FreeValue(ctx, proto);
                         SP_GO!(-1);
@@ -1461,7 +1466,7 @@ pub unsafe fn run_bytecodes(
                         a
                     };
                     if atom == JS_ATOM_NULL {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let mut op_flags = *pc;
                         PC_GO!(1);
@@ -1478,6 +1483,7 @@ pub unsafe fn run_bytecodes(
                         let mut value = JSValue::UNDEFINED;
                         let mut getter = JSValue::UNDEFINED;
                         let mut setter = JSValue::UNDEFINED;
+
                         match op_flags {
                             OP_DEFINE_METHOD_METHOD => {
                                 value = SP![-1];
@@ -1505,7 +1511,7 @@ pub unsafe fn run_bytecodes(
                         }
                         SP_GO!(if is_computed { -2 } else { -1 });
                         if ret < 0 {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                     }
                 }
@@ -1525,20 +1531,23 @@ pub unsafe fn run_bytecodes(
                     )
                     .is_err()
                     {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
-                OpCode::GET_ARRAY_EL | OpCode::GET_ARRAY_EL2 => {
+                OpCode::GET_ARRAY_EL => {
                     let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1]);
-                    if opcode == OpCode::GET_ARRAY_EL {
-                        JS_FreeValue(ctx, SP![-2]);
-                        SP![-2] = val;
-                        SP_GO!(-1);
-                    } else {
-                        SP![-1] = val;
-                    }
+                    JS_FreeValue(ctx, SP![-2]);
+                    SP![-2] = val;
+                    SP_GO!(-1);
                     if val.is_exception() {
-                        state = Some(State::Exception);
+                        break State::Exception;
+                    }
+                }
+                OpCode::GET_ARRAY_EL2 => {
+                    let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1]);
+                    SP![-1] = val;
+                    if val.is_exception() {
+                        break State::Exception;
                     }
                 }
                 OpCode::GET_REF_VALUE => {
@@ -1548,16 +1557,34 @@ pub unsafe fn run_bytecodes(
                             JS_ThrowReferenceErrorNotDefined(ctx, atom);
                             JS_FreeAtom(ctx, atom);
                         }
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1].dup());
                         if val.is_exception() {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
                             SP![0] = val;
                             SP_GO!(1);
                         }
                     }
+                }
+                OpCode::GET_SUPER_VALUE => {
+                    let atom = JS_ValueToAtom(ctx, SP![-1]);
+                    if atom == JS_ATOM_NULL {
+                        break State::Exception;
+                    }
+
+                    let val = JS_GetPropertyInternal(ctx, SP![-2], atom, SP![-3], false);
+                    JS_FreeAtom(ctx, atom);
+                    if val.is_exception() {
+                        break State::Exception;
+                    }
+
+                    JS_FreeValue(ctx, SP![-1]);
+                    JS_FreeValue(ctx, SP![-2]);
+                    JS_FreeValue(ctx, SP![-3]);
+                    SP![-3] = val;
+                    SP_GO!(-2);
                 }
                 OpCode::PUT_ARRAY_EL => {
                     let ret =
@@ -1565,7 +1592,7 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-3]);
                     SP_GO!(-3);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::PUT_REF_VALUE => {
@@ -1577,31 +1604,32 @@ pub unsafe fn run_bytecodes(
                                 JS_ThrowReferenceErrorNotDefined(ctx, atom);
                                 JS_FreeAtom(ctx, atom);
                             }
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
-                            if is_strict_mode(ctx) {
-                                flags |= JS_PROP_NO_ADD;
-                            }
+                            SP![-3] = (*ctx).global_obj.dup();
+                        }
+                    } else {
+                        if is_strict_mode(ctx) {
+                            flags |= JS_PROP_NO_ADD;
                         }
                     }
 
-                    if state.is_none() {
-                        let ret = JS_SetPropertyValue(ctx, SP![-3], SP![-2], SP![-1], flags);
-                        JS_FreeValue(ctx, SP![-3]);
-                        SP_GO!(-3);
-                        if ret < 0 {
-                            state = Some(State::Exception);
-                        }
+                    let ret = JS_SetPropertyValue(ctx, SP![-3], SP![-2], SP![-1], flags);
+                    JS_FreeValue(ctx, SP![-3]);
+                    SP_GO!(-3);
+                    if ret < 0 {
+                        break State::Exception;
                     }
                 }
                 OpCode::PUT_SUPER_VALUE => {
                     if JS_VALUE_GET_TAG(SP![-3]) != JS_TAG_OBJECT {
                         ctx.JS_ThrowTypeErrorNotAnObject();
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
+
                     let atom = JS_ValueToAtom(ctx, SP![-2]);
                     if atom == JS_ATOM_NULL {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         let ret = JS_SetPropertyInternal(
                             ctx,
@@ -1617,7 +1645,7 @@ pub unsafe fn run_bytecodes(
                         JS_FreeValue(ctx, SP![-2]);
                         SP_GO!(-4);
                         if ret < 0 {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                     }
                 }
@@ -1631,14 +1659,14 @@ pub unsafe fn run_bytecodes(
                     );
                     SP_GO!(-1);
                     if ret < 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::APPEND => {
                     // dest start_pos src ^ -> dest end_pos ^
                     // all elements of `src` append to `dest` array staring from `start_pos` index
                     if js_append_enumerate(ctx, sp) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         // drop `src`
                         SP_GO!(-1);
@@ -1663,7 +1691,7 @@ pub unsafe fn run_bytecodes(
                     )
                     .is_err()
                     {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
 
@@ -1694,10 +1722,9 @@ pub unsafe fn run_bytecodes(
                         SP![-2] = res;
                         SP_GO!(-1);
                     } else {
-                        // fail
-                        SP![-1] = JSValue::UNDEFINED; // original value was freed
-                        SP![-2] = JSValue::UNDEFINED; // original value was freed
-                        state = Some(State::Exception);
+                        SP![-1] = JSValue::UNDEFINED; // value has been freed
+                        SP![-2] = JSValue::UNDEFINED; // value has been freed
+                        break State::Exception;
                     }
                 }
                 OpCode::ADD_LOC => {
@@ -1709,14 +1736,14 @@ pub unsafe fn run_bytecodes(
 
                     let pv = VAR_PTR![idx];
 
-                    // In case of exception, following expression frees *pv and op1,
-                    // so we must duplicate *pv in advance
+                    // *pv and op1 will be consumed.
+                    // so we duplicate *pv in advance
                     if let Ok(val) = BinaryOp::new_slow(ctx, (*pv).dup(), op1, 3, Some(HINT_NONE))
                         .and_then(|bop| bop.add(ctx))
                     {
                         set_value(ctx, pv, val);
                     } else {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::PLUS | OpCode::NEG | OpCode::INC | OpCode::DEC => {
@@ -1737,7 +1764,7 @@ pub unsafe fn run_bytecodes(
                             SP![-1] = res;
                         } else {
                             SP![-1] = JSValue::UNDEFINED;
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                     }
                 }
@@ -1746,7 +1773,7 @@ pub unsafe fn run_bytecodes(
                     let n1 = JS_ToNumberFree(ctx, op1);
                     if n1.is_exception() {
                         SP![-1] = JSValue::UNDEFINED;
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP![-1] = n1;
                         if let Ok(res) = UnaryOp::new(ctx, n1.dup(), true).map(|unary| match opcode
@@ -1758,7 +1785,7 @@ pub unsafe fn run_bytecodes(
                             SP![0] = res;
                             SP_GO!(1);
                         } else {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                     }
                 }
@@ -1776,7 +1803,7 @@ pub unsafe fn run_bytecodes(
                     }) {
                         set_value(ctx, VAR_PTR![idx], res);
                     } else {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::NOT => {
@@ -1784,7 +1811,7 @@ pub unsafe fn run_bytecodes(
                         SP![-1] = res;
                     } else {
                         SP![-1] = JSValue::UNDEFINED;
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::SHL
@@ -1796,7 +1823,7 @@ pub unsafe fn run_bytecodes(
                     if let Ok(new_sp) = op_binary_logic(ctx, opcode, sp) {
                         sp = new_sp;
                     } else {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
 
@@ -1805,7 +1832,7 @@ pub unsafe fn run_bytecodes(
                         SP![-2] = JS_NewBool(b);
                         SP_GO!(-1);
                     } else {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
                 OpCode::EQ | OpCode::NEQ => {
@@ -1813,7 +1840,7 @@ pub unsafe fn run_bytecodes(
                         SP![-2] = JS_NewBool(b);
                         SP_GO!(-1);
                     } else {
-                        state = Some(State::Exception)
+                        break State::Exception;
                     }
                 }
                 OpCode::STRICT_EQ | OpCode::STRICT_NEQ => {
@@ -1832,21 +1859,21 @@ pub unsafe fn run_bytecodes(
 
                 OpCode::IN => {
                     if js_operator_in(ctx, sp).is_err() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP_GO!(-1);
                     }
                 }
                 OpCode::PRIVATE_IN => {
                     if js_operator_private_in(ctx, sp).is_err() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP_GO!(-1);
                     }
                 }
                 OpCode::INSTANCEOF => {
                     if js_operator_instanceof(ctx, sp).is_err() {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP_GO!(-1);
                     }
@@ -1859,7 +1886,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::DELETE => {
                     if js_operator_delete(ctx, sp) != 0 {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         SP_GO!(-1);
                     }
@@ -1874,7 +1901,7 @@ pub unsafe fn run_bytecodes(
                             SP_GO!(1);
                         }
                         Err(_) => {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         }
                     }
                 }
@@ -1883,7 +1910,7 @@ pub unsafe fn run_bytecodes(
                     _ => {
                         let ret_val = JS_ToPropertyKey(ctx, SP![-1]);
                         if ret_val.is_exception() {
-                            state = Some(State::Exception);
+                            break State::Exception;
                         } else {
                             JS_FreeValue(ctx, SP![-1]);
                             SP![-1] = ret_val;
@@ -1895,14 +1922,14 @@ pub unsafe fn run_bytecodes(
                     // must be tested first
                     if SP![-2].is_undefined_or_null() {
                         ctx.JS_ThrowTypeError(c"value has property");
-                        state = Some(State::Exception);
+                        break State::Exception;
                     } else {
                         match JS_VALUE_GET_TAG(SP![-1]) {
                             JS_TAG_INT | JS_TAG_STRING | JS_TAG_SYMBOL => {}
                             _ => {
                                 let ret_val = JS_ToPropertyKey(ctx, SP![-1]);
                                 if ret_val.is_exception() {
-                                    state = Some(State::Exception);
+                                    break State::Exception;
                                 } else {
                                     JS_FreeValue(ctx, SP![-1]);
                                     SP![-1] = ret_val;
@@ -1924,123 +1951,122 @@ pub unsafe fn run_bytecodes(
 
                     let obj = SP![-1];
                     if let Ok(ret) = JS_HasProperty(ctx, obj, atom) {
-                        if ret {
-                            let mut skip = false;
+                        let has_with = if ret {
                             if is_with != 0 {
                                 let r = js_has_unscopable(ctx, obj, atom);
                                 if r < 0 {
-                                    state = Some(State::Exception);
-                                    skip = true;
-                                } else if r != 0 {
-                                    // no with
-                                    /* if not jumping, drop the object argument */
-                                    JS_FreeValue(ctx, SP![-1]);
-                                    SP_GO!(-1);
-                                    skip = true;
+                                    break State::Exception;
                                 }
-                            }
 
-                            if !skip {
-                                match opcode {
-                                    OpCode::WITH_GET_VAR => {
-                                        let val = JS_GetProperty(ctx, obj, atom);
-                                        if val.is_exception() {
-                                            state = Some(State::Exception);
-                                        } else {
-                                            set_value(ctx, sp.offset(-1), val);
-                                        }
-                                    }
-                                    OpCode::WITH_PUT_VAR => {
-                                        // XXX: check if strict mode
-                                        let ret = JS_SetPropertyInternal(
-                                            ctx,
-                                            obj,
-                                            atom,
-                                            SP![-2],
-                                            obj,
-                                            JS_PROP_THROW_STRICT,
-                                        );
-                                        JS_FreeValue(ctx, SP![-1]);
-                                        SP_GO!(-2);
-                                        if ret < 0 {
-                                            state = Some(State::Exception);
-                                        }
-                                    }
-                                    OpCode::WITH_DELETE_VAR => {
-                                        if let Ok(ret) = JS_DeleteProperty(ctx, obj, atom, 0) {
-                                            JS_FreeValue(ctx, SP![-1]);
-                                            SP![-1] = JS_NewBool(ret);
-                                        } else {
-                                            state = Some(State::Exception);
-                                        }
-                                    }
-                                    OpCode::WITH_MAKE_REF => {
-                                        // produce a pair object/propname on the stack
-                                        SP![0] = atom.to_value(ctx, false);
-                                        SP_GO!(1);
-                                    }
-                                    OpCode::WITH_GET_REF => {
-                                        // produce a pair object/method on the stack
-                                        let val = JS_GetProperty(ctx, obj, atom);
-                                        if val.is_exception() {
-                                            state = Some(State::Exception);
-                                        } else {
-                                            SP![0] = val;
-                                            SP_GO!(1);
-                                        }
-                                    }
-                                    OpCode::WITH_GET_REF_UNDEF => {
-                                        /* produce a pair undefined/function on the stack */
-                                        let val = JS_GetProperty(ctx, obj, atom);
-                                        if val.is_exception() {
-                                            state = Some(State::Exception);
-                                        } else {
-                                            JS_FreeValue(ctx, SP![-1]);
-                                            SP![-1] = JSValue::UNDEFINED;
-                                            SP![0] = val;
-                                            SP_GO!(1);
-                                        }
-                                    }
-                                    _ => {
-                                        unreachable!()
-                                    }
+                                if r != 0 {
+                                    false // no with
+                                } else {
+                                    true
                                 }
-                                PC_GO!(diff - 5);
+                            } else {
+                                true
                             }
                         } else {
+                            false // no with
+                        };
+
+                        if has_with {
+                            match opcode {
+                                OpCode::WITH_GET_VAR => {
+                                    let val = JS_GetProperty(ctx, obj, atom);
+                                    if val.is_exception() {
+                                        break State::Exception;
+                                    } else {
+                                        set_value(ctx, sp.offset(-1), val);
+                                    }
+                                }
+                                OpCode::WITH_PUT_VAR => {
+                                    // XXX: check if strict mode
+                                    let ret = JS_SetPropertyInternal(
+                                        ctx,
+                                        obj,
+                                        atom,
+                                        SP![-2],
+                                        obj,
+                                        JS_PROP_THROW_STRICT,
+                                    );
+                                    JS_FreeValue(ctx, SP![-1]);
+                                    SP_GO!(-2);
+                                    if ret < 0 {
+                                        break State::Exception;
+                                    }
+                                }
+                                OpCode::WITH_DELETE_VAR => {
+                                    if let Ok(ret) = JS_DeleteProperty(ctx, obj, atom, 0) {
+                                        JS_FreeValue(ctx, SP![-1]);
+                                        SP![-1] = JS_NewBool(ret);
+                                    } else {
+                                        break State::Exception;
+                                    }
+                                }
+                                OpCode::WITH_MAKE_REF => {
+                                    // produce a pair object/propname on the stack
+                                    SP![0] = atom.to_value(ctx, false);
+                                    SP_GO!(1);
+                                }
+                                OpCode::WITH_GET_REF => {
+                                    // produce a pair object/method on the stack
+                                    let val = JS_GetProperty(ctx, obj, atom);
+                                    if val.is_exception() {
+                                        break State::Exception;
+                                    } else {
+                                        SP![0] = val;
+                                        SP_GO!(1);
+                                    }
+                                }
+                                OpCode::WITH_GET_REF_UNDEF => {
+                                    /* produce a pair undefined/function on the stack */
+                                    let val = JS_GetProperty(ctx, obj, atom);
+                                    if val.is_exception() {
+                                        break State::Exception;
+                                    } else {
+                                        JS_FreeValue(ctx, SP![-1]);
+                                        SP![-1] = JSValue::UNDEFINED;
+                                        SP![0] = val;
+                                        SP_GO!(1);
+                                    }
+                                }
+                                _ => {
+                                    unreachable!()
+                                }
+                            }
+                            PC_GO!(diff - 5);
+                        } else {
                             // no with
-                            /* if not jumping, drop the object argument */
+                            // if not jumping, drop the object argument
                             JS_FreeValue(ctx, SP![-1]);
                             SP_GO!(-1);
                         }
                     } else {
-                        state = Some(State::Exception);
+                        break State::Exception;
                     }
                 }
 
                 OpCode::AWAIT => {
-                    let ret_val = JSValue::from_i32(FUNC_RET_AWAIT);
-                    state = Some(State::Done(ret_val, true));
+                    break State::Done(JSValue::from_i32(FUNC_RET_AWAIT), true);
                 }
                 OpCode::YIELD => {
-                    let ret_val = JSValue::from_i32(FUNC_RET_YIELD);
-                    state = Some(State::Done(ret_val, true));
+                    break State::Done(JSValue::from_i32(FUNC_RET_YIELD), true);
                 }
                 OpCode::YIELD_STAR | OpCode::ASYNC_YIELD_STAR => {
-                    let ret_val = JSValue::from_i32(FUNC_RET_YIELD_STAR);
-                    state = Some(State::Done(ret_val, true));
+                    break State::Done(JSValue::from_i32(FUNC_RET_YIELD_STAR), true);
                 }
                 OpCode::RETURN_ASYNC => {
-                    state = Some(State::Done(JSValue::UNDEFINED, true));
+                    break State::Done(JSValue::UNDEFINED, true);
                 }
                 OpCode::INITIAL_YIELD => {
-                    state = Some(State::Done(JSValue::from_i32(FUNC_RET_INITIAL_YIELD), true));
+                    break State::Done(JSValue::from_i32(FUNC_RET_INITIAL_YIELD), true);
                 }
 
                 OpCode::NOP => {}
 
                 OpCode::IS_UNDEFINED_OR_NULL => {
-                    if matches!(JS_VALUE_GET_TAG(SP![-1]), JS_TAG_UNDEFINED | JS_TAG_NULL) {
+                    if SP![-1].is_undefined_or_null() {
                         SP![-1] = JSValue::TRUE;
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
@@ -2075,15 +2101,44 @@ pub unsafe fn run_bytecodes(
                         .as_ptr()
                         .cast(),
                     ));
-                    state = Some(State::Exception);
+                    break State::Exception;
                 }
             } // match opcode
+        }; // opcodes loop
 
-            if state.is_some() {
-                // exit bytecode loop
-                // will run label dispatch block above this loop
-                break;
+        // process state
+        match state {
+            State::Exception => {
+                // calc offset index from pc and sp pointers
+                let pc_offset = pc.offset_from(pc_base) as usize;
+                let sp_offset = sp.offset_from(sp_base) as usize;
+
+                if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, pc_offset, sp_offset) {
+                    // continue running, update pc and sp pointer, and jump
+                    pc = pc_base.offset(new_pc as _);
+                    sp = sp_base.offset(new_sp as _);
+                    continue 'restart;
+                } else {
+                    // abort with sp=0, pc unchanged
+                    sf.handle_exit(
+                        ctx,
+                        pc_offset,
+                        0,
+                        b.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    );
+                    return JSValue::EXCEPTION;
+                }
             }
-        } // bytecode loop
-    } // label dispatch loop
+
+            State::Done(ret_val, is_generator) => {
+                sf.handle_exit(
+                    ctx,
+                    pc.offset_from(pc_base) as usize,
+                    sp.offset_from(sp_base) as usize,
+                    is_generator,
+                );
+                return ret_val;
+            }
+        }
+    } // 'restart loop
 }
