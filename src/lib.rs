@@ -36,4 +36,4 @@ pub mod value;
 
 pub mod js_core;
 
-include!(concat!(env!("OUT_DIR"), "/js_std_class_def.rs"));
+include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));

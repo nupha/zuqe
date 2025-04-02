@@ -34,5 +34,5 @@ fn main() {
     gen_atoms(&out_path.join("atoms.rs"));
     gen_opcodes(&out_path.join("opcodes.rs"));
     gen_tokens(&out_path.join("tokens.rs"));
-    gen_std_class_defs(&out_path.join("js_std_class_def.rs"));
+    gen_std_class_defs(&out_path.join("std_class_def.rs"));
 }

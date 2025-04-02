@@ -2,12 +2,11 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_void},
     num::NonZeroU16,
-    ptr::NonNull,
     rc::Rc,
 };
 
 use crate::{
-    atom::{consts::JS_ATOM_INIT_COUNT, JSAtomInfo, JSAtomStruct, JS_FreeAtomRT, __JS_AtomIsConst},
+    atom::{JSAtomStruct, JS_FreeAtomRT},
     class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
     context::JSContext,
     function::{
@@ -17,7 +16,7 @@ use crate::{
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
     generator::js_generator_function_call,
     job::JSJobEntry,
-    js_std_class_def, list_entry,
+    list_entry,
     mem::{js_free_rt, JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{
         js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
@@ -33,6 +32,7 @@ use crate::{
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_STRING,
+    STD_CLASS_DEFS,
 };
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
@@ -193,7 +193,7 @@ impl JSRuntime {
             //
             // initialize builtin class protos
             //
-            rt.add_classes(&js_std_class_def, JS_CLASS_OBJECT)?;
+            rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
             rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
             rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;

@@ -7,7 +7,7 @@ struct StdClassDef {
     gc_mark: Option<&'static str>,
 }
 
-macro_rules! std_class_def {
+macro_rules! class_def {
     ($name:expr, $const_name:expr, $fin:expr, $mark:expr) => {
         StdClassDef {
             class_name: $name,
@@ -20,101 +20,101 @@ macro_rules! std_class_def {
 
 pub fn gen_std_class_defs(outfile: &Path) {
     let class_defs = vec![
-        std_class_def!("Object", "OBJECT", None, None),
-        std_class_def!(
+        class_def!("Object", "OBJECT", None, None),
+        class_def!(
             "Array",
             "ARRAY",
             Some("crate::array::js_array_finalizer"),
             Some("crate::array::js_array_mark")
         ),
-        std_class_def!("Error", "ERROR", None, None),
-        std_class_def!(
+        class_def!("Error", "ERROR", None, None),
+        class_def!(
             "Number",
             "NUMBER",
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
-        std_class_def!(
+        class_def!(
             "String",
             "STRING",
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Boolean",
             "BOOLEAN",
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Symbol",
             "SYMBOL",
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Arguments",
             "ARGUMENTS",
             Some("crate::array::js_array_finalizer"),
             Some("crate::array::js_array_mark")
         ),
-        std_class_def!("Arguments", "MAPPED_ARGUMENTS", None, None),
-        std_class_def!(
+        class_def!("Arguments", "MAPPED_ARGUMENTS", None, None),
+        class_def!(
             "Date",
             "DATE",
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
-        std_class_def!("Object", "MODULE_NS", None, None),
-        std_class_def!(
+        class_def!("Object", "MODULE_NS", None, None),
+        class_def!(
             "Function",
             "C_FUNCTION",
             Some("crate::class::js_c_function_finalizer"),
             Some("crate::class::js_c_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Function",
             "BYTECODE_FUNCTION",
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Function",
             "BOUND_FUNCTION",
             Some("crate::function::js_bound_function_finalizer"),
             Some("crate::function::js_bound_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Function",
             "C_FUNCTION_DATA",
             Some("crate::function::js_c_function_data_finalizer"),
             Some("crate::function::js_c_function_data_mark")
         ),
-        std_class_def!(
+        class_def!(
             "GeneratorFunction",
             "GENERATOR_FUNCTION",
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "ForInIterator",
             "FOR_IN_ITERATOR",
             Some("crate::iterator::js_for_in_iterator_finalizer"),
             Some("crate::iterator::js_for_in_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "RegExp",
             "REGEXP",
             Some("crate::regexp::js_regexp_finalizer"),
             None
         ),
-        std_class_def!(
+        class_def!(
             "ArrayBuffer",
             "ARRAY_BUFFER",
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
-        std_class_def!(
+        class_def!(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
             Some("crate::array_buffer::js_array_buffer_finalizer"),
@@ -123,75 +123,75 @@ pub fn gen_std_class_defs(outfile: &Path) {
         //
         // start of typed arrays
         //
-        std_class_def!(
+        class_def!(
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Int8Array",
             "INT8_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Uint8Array",
             "UINT8_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Int16Array",
             "INT16_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Uint16Array",
             "UINT16_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Int32Array",
             "INT32_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Uint32Array",
             "UINT32_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Float32Array",
             "FLOAT32_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Float64Array",
             "FLOAT64_ARRAY",
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         // end of typed arrays
-        std_class_def!("DataView", "DATAVIEW", None, None),
-        std_class_def!(
+        class_def!("DataView", "DATAVIEW", None, None),
+        class_def!(
             "BigInt",
             "BIG_INT",
             Some("crate::value::js_object_data_finalizer"),
@@ -200,61 +200,61 @@ pub fn gen_std_class_defs(outfile: &Path) {
         //
         //
         //
-        std_class_def!(
+        class_def!(
             "Map",
             "MAP",
             Some("crate::map::js_map_finalizer"),
             Some("crate::map::js_map_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Set",
             "SET",
             Some("crate::map::js_map_finalizer"),
             Some("crate::map::js_map_mark")
         ),
-        std_class_def!(
+        class_def!(
             "WeakMap",
             "WEAKMAP",
             Some("crate::map::js_map_finalizer"),
             Some("crate::map::js_map_mark")
         ),
-        std_class_def!(
+        class_def!(
             "WeakSet",
             "WEAKSET",
             Some("crate::map::js_map_finalizer"),
             Some("crate::map::js_map_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Map_Iterator",
             "MAP_ITERATOR",
             Some("crate::map::js_map_iterator_finalizer"),
             Some("crate::map::js_map_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Set_Iterator",
             "SET_ITERATOR",
             Some("crate::map::js_map_iterator_finalizer"),
             Some("crate::map::js_map_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Array_Iterator",
             "ARRAY_ITERATOR",
             Some("crate::array::js_array_iterator_finalizer"),
             Some("crate::array::js_array_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "String_Iterator",
             "STRING_ITERATOR",
             Some("crate::array::js_array_iterator_finalizer"),
             Some("crate::array::js_array_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
             Some("crate::regexp::js_regexp_iterator_finalizer"),
             Some("crate::regexp::js_regexp_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "Generator",
             "GENERATOR",
             Some("crate::generator::js_generator_finalizer"),
@@ -263,7 +263,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
         //
         // Proxy
         //
-        std_class_def!(
+        class_def!(
             "Proxy",
             "PROXY",
             Some("crate::proxy::js_proxy_finalizer"),
@@ -272,55 +272,55 @@ pub fn gen_std_class_defs(outfile: &Path) {
         //
         // async
         //
-        std_class_def!(
+        class_def!(
             "Promise",
             "PROMISE",
             Some("crate::promise::js_promise_finalizer"),
             Some("crate::promise::js_promise_mark")
         ),
-        std_class_def!(
+        class_def!(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
             Some("crate::promise::js_promise_resolve_function_finalizer"),
             Some("crate::promise::js_promise_resolve_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
             Some("crate::promise::js_promise_resolve_function_finalizer"),
             Some("crate::promise::js_promise_resolve_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "AsyncFunction",
             "ASYNC_FUNCTION",
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
             Some("crate::function::js_async_function_resolve_finalizer"),
             Some("crate::function::js_async_function_resolve_mark")
         ),
-        std_class_def!(
+        class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
             Some("crate::function::js_async_function_resolve_finalizer"),
             Some("crate::function::js_async_function_resolve_mark")
         ),
-        std_class_def!(
+        class_def!(
             "empty_string",
             "ASYNC_FROM_SYNC_ITERATOR",
             Some("crate::iterator::js_async_from_sync_iterator_finalizer"),
             Some("crate::iterator::js_async_from_sync_iterator_mark")
         ),
-        std_class_def!(
+        class_def!(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
-        std_class_def!(
+        class_def!(
             "AsyncGenerator",
             "ASYNC_GENERATOR",
             Some("crate::generator::js_async_generator_finalizer"),
@@ -337,7 +337,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
             .to_string(),
     );
     cdefs.push(format!(
-        "pub const js_std_class_def: [JSClassShortDef;{}] = [",
+        "pub const STD_CLASS_DEFS: [JSClassShortDef;{}] = [",
         class_defs.len()
     ));
 
