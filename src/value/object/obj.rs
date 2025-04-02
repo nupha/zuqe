@@ -502,7 +502,7 @@ pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
         reset_weak_ref(rt, p);
     }
 
-    // call finalizer
+    // call class finalizer
     if let Some(cb) = (*rt).class_array[(*p).class_id() as usize].finalizer {
         cb(rt, JS_MKPTR!(JSTag::Object, p.cast()));
     }

@@ -374,9 +374,10 @@ pub unsafe fn js_method_set_properties(
     0
 }
 
-/// 将可迭代对象 SP[-1] 中的所有元素，追加到目标数组 SP[-3] 从 SP[-2]起始的位置。
-/// 类似于 JavaScript 中的 [...iterable] 或者 array.push(...iterable) 操作。
-/// 操作完成后, SP[-3]数组中加入了来自SP[-1]的全部元素，SP[-1]没有变化，SP[-2]更新为结束位置index。
+/// 将可迭代对象`SP[-1]`中的所有元素，追加到目标数组`SP[-3]`从`SP[-2]`起始的位置。
+/// 类似于 JavaScript 中的 `[...iterable]` 或者 `array.push(...iterable)` 操作。
+///
+/// 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，`SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
 pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     if JS_VALUE_GET_TAG(*sp.offset(-2)) != JSTag::Int as i32 {
         (*ctx).JS_ThrowInternalError(c"invalid index for append");
@@ -386,8 +387,6 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
     let src = *sp.offset(-1); // the source iterator or array
     let dest = *sp.offset(-3); // the dest array
 
-    #[cfg(debug_assertions)]
-    let (src_obj, dest_obj) = (JS_VALUE_GET_OBJ(src), JS_VALUE_GET_OBJ(dest));
     #[cfg(debug_assertions)]
     let _src_rc0 = src.ref_count();
 
@@ -523,10 +522,6 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
 
     // update end index to SP[-2]
     *sp.offset(-2) = JSValue::from_i32(pos);
-
-    print!("[O.o] enumobj:");
-    enumobj.dump((*ctx).rt());
-    println!();
 
     JS_FreeValue(ctx, enumobj);
     JS_FreeValue(ctx, method);

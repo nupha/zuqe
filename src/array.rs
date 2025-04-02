@@ -637,7 +637,12 @@ pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS
 }
 
 pub unsafe fn js_array_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    unimplemented!();
+    let p = JS_VALUE_GET_OBJ(val);
+    let it = (*p).u.array_iterator_data;
+    if !it.is_null() {
+        JS_FreeValueRT(rt, (*it).obj);
+        js_free_rt(rt, it.cast());
+    }
 }
 
 pub unsafe fn js_array_iterator_mark(
@@ -645,5 +650,9 @@ pub unsafe fn js_array_iterator_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    unimplemented!();
+    let p = JS_VALUE_GET_OBJ(val);
+    let it = (*p).u.array_iterator_data;
+    if !it.is_null() {
+        JS_MarkValue(rt, (*it).obj, mark_func);
+    }
 }

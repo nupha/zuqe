@@ -383,14 +383,14 @@ pub unsafe fn run_bytecodes(
                 OpCode::DUP2 => {
                     // a b ^ -> a b a b ^
                     SP![0] = SP![-2].dup();
-                    *sp.add(1) = SP![-1].dup();
+                    SP![1] = SP![-1].dup();
                     SP_GO!(2);
                 }
                 OpCode::DUP3 => {
                     // a b c ^ -> a b c a b c ^
                     SP![0] = SP![-3].dup();
-                    *sp.add(1) = SP![-2].dup();
-                    *sp.add(2) = SP![-1].dup();
+                    SP![1] = SP![-2].dup();
+                    SP![2] = SP![-1].dup();
                     SP_GO!(3);
                 }
                 OpCode::DUP1 => {
@@ -400,98 +400,145 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(1);
                 }
                 OpCode::INSERT2 => {
-                    // obj a ^ -> a obj a ^ (dup_x1)
+                    // obj a ^ -> a obj a ^
                     SP![0] = SP![-1];
                     SP![-1] = SP![-2];
                     SP![-2] = SP![0].dup();
                     SP_GO!(1);
                 }
                 OpCode::INSERT3 => {
-                    /* obj prop a ^ -> a obj prop a ^ (dup_x2) */
-                    SP![0] = SP![-1];
-                    SP![-1] = SP![-2];
-                    SP![-2] = SP![-3];
+                    // obj prop a ^ -> a obj prop a ^
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 4);
+                    lst.rotate_right(1);
+
+                    // now SP![0] is the value to dup and insert
                     SP![-3] = SP![0].dup();
+
+                    // SP![0] = SP![-1];
+                    // SP![-1] = SP![-2];
+                    // SP![-2] = SP![-3];
+                    // SP![-3] = SP![0].dup();
+
                     SP_GO!(1);
                 }
                 OpCode::INSERT4 => {
-                    /* this obj prop a -> a this obj prop a */
-                    SP![0] = SP![-1];
-                    SP![-1] = SP![-2];
-                    SP![-2] = SP![-3];
-                    SP![-3] = SP![-4];
+                    // this obj prop a ^ -> a this obj prop a ^
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-4), 5);
+                    lst.rotate_right(1);
+
+                    // now SP![0] is the value to dup and insert
                     SP![-4] = SP![0].dup();
-                    SP_GO!(1);
+
+                    // SP![0] = SP![-1];
+                    // SP![-1] = SP![-2];
+                    // SP![-2] = SP![-3];
+                    // SP![-3] = SP![-4];
+                    // SP![-4] = SP![0].dup();
+
+                    SP_GO!(1); // move sp
                 }
                 OpCode::PERM3 => {
-                    // obj a b ^ -> a obj b ^
-                    let tmp = SP![-2];
-                    SP![-2] = SP![-3];
-                    SP![-3] = tmp;
+                    // obj a fixed ^ -> a obj fixed ^
+                    std::mem::swap(
+                        sp.offset(-2).as_mut().unwrap(),
+                        sp.offset(-3).as_mut().unwrap(),
+                    );
+
+                    // let tmp = SP![-2];
+                    // SP![-2] = SP![-3];
+                    // SP![-3] = tmp;
                 }
                 OpCode::ROT3L => {
                     // rotary shift left on 3 oprands
                     // x a b ^ -> a b x ^
-                    let tmp = SP![-3];
-                    SP![-3] = SP![-2];
-                    SP![-2] = SP![-1];
-                    SP![0] = tmp;
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 3);
+                    lst.rotate_left(1);
+
+                    // let tmp = SP![-3];
+                    // SP![-3] = SP![-2];
+                    // SP![-2] = SP![-1];
+                    // SP![0] = tmp;
                 }
                 OpCode::ROT4L => {
                     // rotary shift left on 4 oprands
                     // x a b c ^ -> a b c x ^
-                    let tmp = SP![-4];
-                    SP![-4] = SP![-3];
-                    SP![-3] = SP![-2];
-                    SP![-2] = SP![-1];
-                    SP![-1] = tmp;
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-4), 4);
+                    lst.rotate_left(1);
+
+                    // let tmp = SP![-4];
+                    // SP![-4] = SP![-3];
+                    // SP![-3] = SP![-2];
+                    // SP![-2] = SP![-1];
+                    // SP![-1] = tmp;
                 }
                 OpCode::ROT5L => {
-                    let tmp = SP![-5];
-                    SP![-5] = SP![-4];
-                    SP![-4] = SP![-3];
-                    SP![-3] = SP![-2];
-                    SP![-2] = SP![-1];
-                    SP![-1] = tmp;
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-5), 5);
+                    lst.rotate_left(1);
+
+                    // let tmp = SP![-5];
+                    // SP![-5] = SP![-4];
+                    // SP![-4] = SP![-3];
+                    // SP![-3] = SP![-2];
+                    // SP![-2] = SP![-1];
+                    // SP![-1] = tmp;
                 }
                 OpCode::ROT3R => {
                     // rotary shift right on 3 oprands
-                    // a b x ^ -> x a b
-                    let tmp = SP![-1];
-                    SP![-1] = SP![-2];
-                    SP![-2] = SP![-1];
-                    SP![-3] = tmp;
+                    // a b x ^ -> x a b ^
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 3);
+                    lst.rotate_right(1);
+
+                    // let tmp = SP![-1];
+                    // SP![-1] = SP![-2];
+                    // SP![-2] = SP![-1];
+                    // SP![-3] = tmp;
                 }
                 OpCode::PERM4 => {
-                    // rotary shift right on 3 opeands that before the last operand.
-                    // obj prop a b ^ -> a obj prop b ^
-                    let tmp = SP![-2];
-                    SP![-2] = SP![-3];
-                    SP![-3] = SP![-4];
-                    SP![-4] = tmp;
+                    // rotary shift right on 3 opeands before the last operand.
+                    // obj prop a fixed ^ -> a obj prop fixed ^
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-4), 3);
+                    lst.rotate_right(1);
+
+                    // let tmp = SP![-2];
+                    // SP![-2] = SP![-3];
+                    // SP![-3] = SP![-4];
+                    // SP![-4] = tmp;
                 }
                 OpCode::PERM5 => {
-                    // this obj prop a b ^ -> a this obj prop b ^
-                    let tmp = SP![-2];
-                    SP![-2] = SP![-3];
-                    SP![-3] = SP![-4];
-                    SP![-4] = SP![-5];
-                    SP![-5] = tmp;
+                    // this obj prop a fixed ^ -> a this obj prop fixed ^
+                    let lst = std::slice::from_raw_parts_mut(sp.offset(-5), 4);
+                    lst.rotate_right(1);
+
+                    // let tmp = SP![-2];
+                    // SP![-2] = SP![-3];
+                    // SP![-3] = SP![-4];
+                    // SP![-4] = SP![-5];
+                    // SP![-5] = tmp;
                 }
                 OpCode::SWAP => {
                     // a b ^ -> b a ^
-                    let tmp = SP![-1];
-                    SP![-2] = SP![-1];
-                    SP![-1] = tmp;
+                    std::mem::swap(
+                        sp.offset(-1).as_mut().unwrap(),
+                        sp.offset(-2).as_mut().unwrap(),
+                    );
                 }
                 OpCode::SWAP2 => {
                     // a b c d ^ -> c d a b ^
-                    let tmp1 = SP![-4];
-                    let tmp2 = SP![-3];
-                    SP![-4] = SP![-2];
-                    SP![-3] = SP![-1];
-                    SP![-2] = tmp1;
-                    SP![-1] = tmp2;
+                    std::mem::swap(
+                        sp.offset(-1).as_mut().unwrap(),
+                        sp.offset(-3).as_mut().unwrap(),
+                    );
+                    std::mem::swap(
+                        sp.offset(-2).as_mut().unwrap(),
+                        sp.offset(-4).as_mut().unwrap(),
+                    );
+
+                    // let tmp1 = SP![-4];
+                    // let tmp2 = SP![-3];
+                    // SP![-4] = SP![-2];
+                    // SP![-3] = SP![-1];
+                    // SP![-2] = tmp1;
+                    // SP![-1] = tmp2;
                 }
                 OpCode::FCLOSURE => {
                     let id = get_u32(pc);
@@ -594,6 +641,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::ARRAY_FROM => {
+                    // el1, el2 ... elN ^ -> array ^
                     let call_argc = get_u16(pc) as i32;
                     PC_GO!(2);
 
@@ -624,8 +672,6 @@ pub unsafe fn run_bytecodes(
                             sp = sp.offset(-call_argc as isize);
                             SP![0] = arr;
                             SP_GO!(1);
-
-                            println!("[O.o] created array, rc={:?}", arr.ref_count());
                         }
                     }
                 }
@@ -653,8 +699,8 @@ pub unsafe fn run_bytecodes(
                     goto = Some(GotoLabel::Done(JSValue::UNDEFINED, false));
                 }
                 OpCode::CHECK_CTOR_RETURN => {
-                    /* return TRUE if 'this' should be returned */
-                    if !JS_IsObject(SP![-1]) {
+                    // return TRUE if 'this' should be returned
+                    if !SP![-1].is_object() {
                         if !SP![-1].is_undefined() {
                             caller_ctx.JS_ThrowTypeError(
                                 c"derived class constructor must return an object or undefined",
@@ -1593,13 +1639,14 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::APPEND => {
-                    // dest start_pos src ^ -> dest end_pos src ^
+                    // dest start_pos src ^ -> dest end_pos ^
                     // all elements of `src` append to `dest` array staring from `start_pos` index
                     if js_append_enumerate(ctx, sp) != 0 {
                         goto = Some(GotoLabel::Exception);
                     } else {
+                        // drop `src`
                         SP_GO!(-1);
-                        JS_FreeValue(ctx, SP![0]); // free the `src`
+                        JS_FreeValue(ctx, SP![0]);
                     }
                 }
                 OpCode::COPY_DATA_PROPERTIES => {
