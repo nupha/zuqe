@@ -49,75 +49,75 @@ impl JSParseState {
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
-        let mut arg_count = 0;
+        match call_type {
+            FuncCallType::FUNC_CALL_TEMPLATE => {
+                let mut argc = 0;
+                self.parse_template(true, &mut argc)?;
+                self.emit_func_call(fd, call_type, opcode, argc as _);
+            }
+            FuncCallType::FUNC_CALL_NEW => {
+                emit_op(self, OpCode::DUP); // new.target = function
+            }
+            FuncCallType::FUNC_CALL_SUPER_CTOR => {
+                emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
+                emit_atom_dup(self, JS_ATOM_this_active_func);
+                emit_u16(self, 0);
 
-        if call_type == FuncCallType::FUNC_CALL_TEMPLATE {
-            self.parse_template(true, &mut arg_count)?;
-            self.emit_func_call(fd, call_type, opcode, arg_count as _);
-        } else if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {
-            emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-            emit_atom_dup(self, JS_ATOM_this_active_func);
-            emit_u16(self, 0);
+                emit_op(self, OpCode::GET_SUPER);
 
-            emit_op(self, OpCode::GET_SUPER);
-
-            emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-            emit_atom_dup(self, JS_ATOM_new_target);
-            emit_u16(self, 0);
-        } else if call_type == FuncCallType::FUNC_CALL_NEW {
-            emit_op(self, OpCode::DUP); /* new.target = function */
+                emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
+                emit_atom_dup(self, JS_ATOM_new_target);
+                emit_u16(self, 0);
+            }
+            FuncCallType::FUNC_CALL_NORMAL => {}
         }
 
-        /* parse arguments */
-        arg_count = 0;
-        while self.token.val != b')' as i32 {
+        // parse arguments
+        let mut arg_count = 0;
+
+        while self.token.val != ')' as i32 {
             if arg_count >= 65535 {
                 return Err(js_parse_error(self, c"Too many call arguments"));
             }
             if self.token.val == TOK_ELLIPSIS {
                 break;
             }
-            if self.parse_assign_expr().is_err() {
-                return Err(-1);
-            }
+
+            self.parse_assign_expr()?;
 
             arg_count += 1;
 
-            if self.token.val == b')' as i32 {
+            if self.token.val == ')' as i32 {
                 break;
             }
 
-            /* accept a trailing comma before the ')' */
+            // accept a trailing comma before the ')'
             self.parse_expect(CHAR_COMMA)?;
         }
 
         if self.token.val == TOK_ELLIPSIS {
+            // ellipsis args, e.g.: f(...[a,b,c]), f(a,b, ...[x,y,z])
             emit_op(self, OpCode::ARRAY_FROM);
             emit_u16(self, arg_count as _);
             emit_op(self, OpCode::PUSH_I32);
             emit_u32(self, arg_count as _);
 
-            /* on stack: array idx */
-            while self.token.val != CHAR_BRACKET_R {
+            // on stack: array idx
+            while self.token.val != ')' as i32 {
                 if self.token.val == TOK_ELLIPSIS {
-                    if self.next_token().is_err() {
-                        return Err(-1);
-                    }
-                    if self.parse_assign_expr().is_err() {
-                        return Err(-1);
-                    }
+                    self.next_token()?;
+                    self.parse_assign_expr()?;
 
                     /* XXX: could pass is_last indicator? */
                     emit_op(self, OpCode::APPEND);
                 } else {
-                    if self.parse_assign_expr().is_err() {
-                        return Err(-1);
-                    }
+                    self.parse_assign_expr()?;
+
                     /* array idx val */
                     emit_op(self, OpCode::DEFINE_ARRAY_EL);
                     emit_op(self, OpCode::INC);
                 }
-                if self.token.val == b')' as i32 {
+                if self.token.val == ')' as i32 {
                     break;
                 }
 
@@ -125,20 +125,18 @@ impl JSParseState {
                 self.parse_expect(CHAR_COMMA)?;
             } // while
 
-            if self.next_token().is_err() {
-                return Err(-1);
-            }
+            self.next_token()?;
 
-            /* drop the index */
+            // drop the index
             emit_op(self, OpCode::DROP);
 
-            /* apply function call */
+            // apply function call
             match opcode {
                 opcodes::OP_get_field
                 | opcodes::op_scope_get_private_field
                 | opcodes::OP_get_array_el
                 | opcodes::op_scope_get_ref => {
-                    /* obj func array -> func obj array */
+                    // obj func array -> func obj array
                     emit_op(self, OpCode::PERM3);
                     emit_op(self, OpCode::APPLY);
                     emit_u16(self, (call_type == FuncCallType::FUNC_CALL_NEW) as _);

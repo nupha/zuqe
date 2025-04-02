@@ -184,7 +184,7 @@ pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
 /* Note: it is important that no exception is returned by this function */
-pub unsafe fn is_backtrace_needed(ctx: *mut JSContext, obj: JSValueConst) -> bool {
+pub unsafe fn is_backtrace_needed(ctx: *const JSContext, obj: JSValueConst) -> bool {
     if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
         return false;
     }
@@ -266,7 +266,9 @@ unsafe fn inner_build_backtrace(
             backtrace_barrier = (*b).backtrace_barrier;
 
             if (*b).has_debug {
-                let line_num1 = (*b).find_line_num((*sf).cur_pc_offset as u32 - 1);
+                let line_num1 = (*b).find_line_num(
+                    ((*sf).cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
+                );
 
                 // let atom_str = JS_AtomToCString(ctx, (*b).debug.filename);
                 let atom_str = (*b)

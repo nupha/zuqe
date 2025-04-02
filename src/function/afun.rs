@@ -7,7 +7,7 @@ use crate::{
     error::JS_ThrowStackOverflow,
     gc::{
         add_gc_object, free_zero_refcount, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum,
-        JSGCPhaseEnum,
+        JSGCPhaseEnum, JS_MarkFunc,
     },
     mem::{js_free_rt, js_malloc_typed},
     runtime::{js_check_stack_overflow, JSRuntime},
@@ -202,4 +202,16 @@ pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionS
 
     JS_FreeValueRT(rt, sf.cur_func);
     JS_FreeValueRT(rt, (*s).this_val);
+}
+
+pub unsafe fn js_async_function_resolve_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_async_function_resolve_mark(
+    rt: *mut JSRuntime,
+    val: JSValueConst,
+    mark_func: JS_MarkFunc,
+) {
+    unimplemented!();
 }

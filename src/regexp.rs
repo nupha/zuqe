@@ -1,7 +1,9 @@
 use crate::{
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
+    gc::JS_MarkFunc,
     parse::JSParseState,
+    runtime::JSRuntime,
     value::{
         object::JS_GetProperty, JSString, JSValue, JSValueConst, JS_IsException, JS_IsObject,
         JS_IsUndefined, JS_ToBoolFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -154,4 +156,20 @@ pub unsafe fn js_is_regexp(ctx: *mut JSContext, obj: JSValueConst) -> Result<boo
     } else {
         Ok(false)
     }
+}
+
+pub unsafe fn js_regexp_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_regexp_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_regexp_iterator_mark(
+    rt: *mut JSRuntime,
+    val: JSValueConst,
+    mark_func: JS_MarkFunc,
+) {
+    unimplemented!();
 }

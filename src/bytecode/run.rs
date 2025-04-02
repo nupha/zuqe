@@ -359,11 +359,11 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(1);
                 }
                 OpCode::DROP => {
+                    JS_FreeValue(ctx, SP![-1]);
                     SP_GO!(-1);
-                    JS_FreeValue(ctx, *sp);
                 }
                 OpCode::NIP => {
-                    // a b -> b
+                    // a b ^ -> b ^
                     JS_FreeValue(ctx, SP![-2]);
                     SP![-2] = SP![-1];
                     SP_GO!(-1);
@@ -597,22 +597,24 @@ pub unsafe fn run_bytecodes(
                     let call_argc = get_u16(pc) as i32;
                     PC_GO!(2);
 
-                    let ret_val = JS_NewArray(ctx);
-                    if ret_val.is_exception() {
+                    // create array
+                    let arr = JS_NewArray(ctx);
+                    if arr.is_exception() {
                         goto = Some(GotoLabel::Exception);
                     } else {
+                        // push elements to array
                         let call_argv = sp.offset(-call_argc as isize);
                         for i in 0..call_argc {
                             let ret = JS_DefinePropertyValue(
                                 ctx,
-                                ret_val,
+                                arr,
                                 JSAtom::from_u32(i as u32),
                                 *call_argv.offset(i as isize),
                                 JS_PROP_C_W_E | JS_PROP_THROW,
                             );
                             *call_argv.offset(i as isize) = JSValue::UNDEFINED;
                             if ret < 0 {
-                                JS_FreeValue(ctx, ret_val);
+                                JS_FreeValue(ctx, arr);
                                 goto = Some(GotoLabel::Exception);
                                 break;
                             }
@@ -620,8 +622,10 @@ pub unsafe fn run_bytecodes(
 
                         if goto.is_none() {
                             sp = sp.offset(-call_argc as isize);
-                            SP![0] = ret_val;
+                            SP![0] = arr;
                             SP_GO!(1);
+
+                            println!("[O.o] created array, rc={:?}", arr.ref_count());
                         }
                     }
                 }
@@ -1589,11 +1593,13 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::APPEND => {
+                    // dest start_pos src ^ -> dest end_pos src ^
+                    // all elements of `src` append to `dest` array staring from `start_pos` index
                     if js_append_enumerate(ctx, sp) != 0 {
                         goto = Some(GotoLabel::Exception);
                     } else {
                         SP_GO!(-1);
-                        JS_FreeValue(ctx, SP![0]);
+                        JS_FreeValue(ctx, SP![0]); // free the `src`
                     }
                 }
                 OpCode::COPY_DATA_PROPERTIES => {

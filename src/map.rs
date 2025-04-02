@@ -1,7 +1,9 @@
 use crate::{
     context::JSContext,
+    gc::JS_MarkFunc,
     list_entry,
     mem::{js_malloc_typed, js_realloc2},
+    runtime::JSRuntime,
     types::{
         init_list_head, list_add_tail, list_empty, list_foreach, list_foreach_with_ret, list_head,
     },
@@ -226,4 +228,20 @@ pub unsafe fn map_hash_resize(ctx: *mut JSContext, s: *mut JSMapState) {
     (*s).hash_table = new_hash_table;
     (*s).hash_size = new_hash_size;
     (*s).record_count_threshold = new_hash_size * 2;
+}
+
+pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    unimplemented!();
+}
+
+pub unsafe fn js_map_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_map_iterator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    unimplemented!();
 }

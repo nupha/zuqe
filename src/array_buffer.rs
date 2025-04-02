@@ -102,3 +102,7 @@ pub unsafe fn js_array_buffer_constructor3(
 
     obj
 }
+
+pub unsafe fn js_array_buffer_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}

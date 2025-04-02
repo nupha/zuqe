@@ -104,7 +104,7 @@ impl JSParseState {
         self.free_token();
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum GotoLabel {
+        enum ISA {
             DefaultToken(char),
             SkipLineComment,
             HasIdent(char),
@@ -112,7 +112,7 @@ impl JSParseState {
             ParseNumber,
             Fail,
         }
-        let mut goto: Option<GotoLabel> = None;
+        let mut isa: Option<ISA> = None;
 
         let mut p = self.buf_ptr;
         self.last_ptr = self.buf_ptr;
@@ -128,12 +128,12 @@ impl JSParseState {
                     if p >= self.buf_end {
                         self.token.val = TOK_EOF;
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('\0'));
+                        isa = Some(ISA::DefaultToken('\0'));
                     }
                 }
                 '`' => {
                     if self.parse_template_part(p.offset(1)).is_err() {
-                        goto = Some(GotoLabel::Fail);
+                        isa = Some(ISA::Fail);
                     } else {
                         p = self.buf_ptr;
                     }
@@ -143,7 +143,7 @@ impl JSParseState {
                         .parse_string(c, true, p.offset(1), None, &mut p)
                         .is_err()
                     {
-                        goto = Some(GotoLabel::Fail);
+                        isa = Some(ISA::Fail);
                     }
                 }
                 c @ ('\r' | '\n') => {
@@ -152,7 +152,7 @@ impl JSParseState {
                         p = p.offset(1);
                     }
                     p = p.offset(1);
-                    goto = Some(GotoLabel::LineTerminator);
+                    isa = Some(ISA::LineTerminator);
                 }
                 // 0x0c='\f', 0x0b='\v'
                 '\u{000c}' | '\u{000b}' | ' ' | '\t' => {
@@ -201,7 +201,7 @@ impl JSParseState {
                         b'/' => {
                             // line comment
                             p = p.add(2);
-                            goto = Some(GotoLabel::SkipLineComment);
+                            isa = Some(ISA::SkipLineComment);
                         }
                         b'=' => {
                             p = p.offset(2);
@@ -214,14 +214,14 @@ impl JSParseState {
                     } // starts with '/'
                 }
                 '\\' => {
-                    goto = Some(GotoLabel::DefaultToken('\\'));
+                    isa = Some(ISA::DefaultToken('\\'));
                     if *p.add(1) == b'u' {
                         let mut p1 = p.add(1);
                         let cp = self.parse_string_escape(&mut p1, 1)?;
                         if let Some(c1) = char::from_u32(cp) {
                             if Self::is_ident_first(c1) {
                                 p = p1;
-                                goto = Some(GotoLabel::HasIdent(c1));
+                                isa = Some(ISA::HasIdent(c1));
                             } else {
                                 // syntax error?
                                 js_parse_error(self, c"syntax error");
@@ -236,7 +236,7 @@ impl JSParseState {
                 ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => {
                     // identifier
                     p = p.add(1);
-                    goto = Some(GotoLabel::HasIdent(ch));
+                    isa = Some(ISA::HasIdent(ch));
                 }
                 '#' => {
                     // private name
@@ -255,14 +255,14 @@ impl JSParseState {
 
                     if !Self::is_ident_first(c1) {
                         js_parse_error(self, c"invalid first charactor of private name");
-                        goto = Some(GotoLabel::Fail);
+                        isa = Some(ISA::Fail);
                     } else {
                         p = p1;
                         if let Ok((atom, _)) = self.parse_ident(&mut p, c1, true) {
                             self.token.u.ident.atom = atom;
                             self.token.val = TOK_PRIVATE_NAME;
                         } else {
-                            goto = Some(GotoLabel::Fail);
+                            isa = Some(ISA::Fail);
                         }
                     }
                 }
@@ -271,22 +271,22 @@ impl JSParseState {
                         p = p.add(3);
                         self.token.val = TOK_ELLIPSIS;
                     } else if (b'0'..=b'9').contains(&*p.add(1)) {
-                        goto = Some(GotoLabel::ParseNumber);
+                        isa = Some(ISA::ParseNumber);
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('.'))
+                        isa = Some(ISA::DefaultToken('.'))
                     }
                 }
                 '0' => {
                     // in strict mode, octal literals are not accepted
                     if is_digit(*p.add(1)) && (*self.cur_func).js_mode & JS_MODE_STRICT as u8 != 0 {
                         js_parse_error(self, c"octal literals are deprecated in strict mode");
-                        goto = Some(GotoLabel::Fail);
+                        isa = Some(ISA::Fail);
                     } else {
-                        goto = Some(GotoLabel::ParseNumber);
+                        isa = Some(ISA::ParseNumber);
                     }
                 }
                 '1'..='9' => {
-                    goto = Some(GotoLabel::ParseNumber);
+                    isa = Some(ISA::ParseNumber);
                 }
                 '*' => {
                     if *p.offset(1) == b'=' {
@@ -301,7 +301,7 @@ impl JSParseState {
                             self.token.val = TOK_POW;
                         }
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('*'));
+                        isa = Some(ISA::DefaultToken('*'));
                     }
                 }
                 '%' => {
@@ -309,7 +309,7 @@ impl JSParseState {
                         p = p.offset(2);
                         self.token.val = TOK_MOD_ASSIGN;
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('%'));
+                        isa = Some(ISA::DefaultToken('%'));
                     }
                 }
                 '+' => {
@@ -320,7 +320,7 @@ impl JSParseState {
                         p = p.offset(2);
                         self.token.val = TOK_INC;
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('+'));
+                        isa = Some(ISA::DefaultToken('+'));
                     }
                 }
                 '-' => {
@@ -342,7 +342,7 @@ impl JSParseState {
                             self.token.val = TOK_DEC;
                         }
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('-'));
+                        isa = Some(ISA::DefaultToken('-'));
                     }
                 }
                 '<' => {
@@ -366,7 +366,7 @@ impl JSParseState {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('<'));
+                        isa = Some(ISA::DefaultToken('<'));
                     }
                 }
                 '>' => {
@@ -390,7 +390,7 @@ impl JSParseState {
                             self.token.val = TOK_SAR;
                         }
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('>'));
+                        isa = Some(ISA::DefaultToken('>'));
                     }
                 }
                 '=' => {
@@ -420,7 +420,7 @@ impl JSParseState {
                             self.token.val = TOK_NEQ;
                         }
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('!'));
+                        isa = Some(ISA::DefaultToken('!'));
                     }
                 }
                 '&' => {
@@ -436,7 +436,7 @@ impl JSParseState {
                             self.token.val = TOK_LAND;
                         }
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('&'));
+                        isa = Some(ISA::DefaultToken('&'));
                     }
                 }
                 '^' => {
@@ -444,7 +444,7 @@ impl JSParseState {
                         p = p.offset(2);
                         self.token.val = TOK_XOR_ASSIGN;
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('^'))
+                        isa = Some(ISA::DefaultToken('^'))
                     }
                 }
                 '|' => {
@@ -460,7 +460,7 @@ impl JSParseState {
                             self.token.val = TOK_LOR;
                         }
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('|'));
+                        isa = Some(ISA::DefaultToken('|'));
                     }
                 }
                 '?' => {
@@ -478,7 +478,7 @@ impl JSParseState {
                         p = p.offset(2);
                         self.token.val = TOK_QUESTION_MARK_DOT;
                     } else {
-                        goto = Some(GotoLabel::DefaultToken('?'));
+                        isa = Some(ISA::DefaultToken('?'));
                     }
                 }
 
@@ -495,27 +495,27 @@ impl JSParseState {
                             if code.is_whitespace() {
                                 continue 'redo;
                             } else if JSParseState::is_ident_first(code) {
-                                goto = Some(GotoLabel::HasIdent(code));
+                                isa = Some(ISA::HasIdent(code));
                             } else {
                                 js_parse_error(self, c"unexpected character");
-                                goto = Some(GotoLabel::Fail);
+                                isa = Some(ISA::Fail);
                             }
                         }
                     }
                 }
                 c => {
-                    goto = Some(GotoLabel::DefaultToken(c));
+                    isa = Some(ISA::DefaultToken(c));
                 }
             } // match ch
 
-            // dispatch goto label
-            while let Some(lbl) = goto.take() {
-                match lbl {
-                    GotoLabel::DefaultToken(ch) => {
+            // handle token type
+            if let Some(what) = isa.take() {
+                match what {
+                    ISA::DefaultToken(ch) => {
                         self.token.val = ch as i32;
                         p = p.offset(1);
                     }
-                    GotoLabel::HasIdent(first_char) => {
+                    ISA::HasIdent(first_char) => {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
                             self.token.u.ident.atom = atom;
@@ -526,28 +526,30 @@ impl JSParseState {
                             // if yes convert token value to TOK_XXX
                             update_token_ident(self);
                         } else {
-                            goto = Some(GotoLabel::Fail);
+                            self.token.val = TOK_ERROR;
+                            return Err(-1);
                         }
                     }
-                    GotoLabel::LineTerminator => {
+                    ISA::LineTerminator => {
                         self.got_lf = true;
                         self.line_num += 1;
                         continue 'redo;
                     }
-                    GotoLabel::SkipLineComment => {
+                    ISA::SkipLineComment => {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     }
-                    GotoLabel::ParseNumber => {
+                    ISA::ParseNumber => {
                         // NOTE: p may be changed after calling next_token_parse_number()
                         if self
                             .next_token_parse_number(std::ptr::addr_of_mut!(p))
                             .is_err()
                         {
-                            goto = Some(GotoLabel::Fail);
+                            self.token.val = TOK_ERROR;
+                            return Err(-1);
                         }
                     }
-                    GotoLabel::Fail => {
+                    ISA::Fail => {
                         self.token.val = TOK_ERROR;
                         return Err(-1);
                     }

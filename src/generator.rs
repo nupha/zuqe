@@ -2,6 +2,7 @@ use crate::{
     class::js_create_from_ctor,
     context::JSContext,
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
+    gc::JS_MarkFunc,
     mem::{js_free, js_mallocz},
     runtime::JSRuntime,
     types::list_head,
@@ -105,4 +106,24 @@ pub unsafe fn js_generator_function_call(
     JS_SetOpaque(obj, s.cast());
 
     obj
+}
+
+pub unsafe fn js_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_generator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    unimplemented!();
+}
+
+pub unsafe fn js_async_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_async_generator_mark(
+    rt: *mut JSRuntime,
+    val: JSValueConst,
+    mark_func: JS_MarkFunc,
+) {
+    unimplemented!();
 }

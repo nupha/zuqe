@@ -784,12 +784,12 @@ pub unsafe fn JS_ToCStringLen(
     plen: *mut usize,
     val1: JSValueConst,
 ) -> *const c_char {
-    JS_ToCStringLen2(ctx, plen, val1, false)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::to_utf8_string() instead")]
 pub unsafe fn JS_ToCString(ctx: *mut JSContext, val1: JSValueConst) -> *const c_char {
-    JS_ToCStringLen2(ctx, std::ptr::null_mut(), val1, false)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "not used")]

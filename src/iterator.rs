@@ -83,48 +83,48 @@ pub unsafe fn JS_GetIterator2(
 
     if !JS_IsObject(enum_obj) {
         JS_FreeValue(ctx, enum_obj);
-        return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+        return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
 
     return enum_obj;
 }
 
 pub unsafe fn JS_GetIterator(ctx: *mut JSContext, obj: JSValueConst, is_async: bool) -> JSValue {
-    let mut method: JSValue;
-
-    if is_async {
-        method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_asyncIterator);
-        if JS_IsException(method) {
-            return method;
+    let method = if is_async {
+        let mut val = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_asyncIterator);
+        if val.is_exception() {
+            return JSValue::EXCEPTION;
         }
 
-        if JS_IsUndefined(method) || JS_IsNull(method) {
-            method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
-            if JS_IsException(method) {
-                return method;
+        if val.is_undefined_or_null() {
+            val = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
+            if val.is_exception() {
+                return val;
             }
-            let sync_iter = JS_GetIterator2(ctx, obj, method);
-            JS_FreeValue(ctx, method);
-            if JS_IsException(sync_iter) {
-                return sync_iter;
+
+            let sync_iter = JS_GetIterator2(ctx, obj, val);
+            JS_FreeValue(ctx, val);
+            if sync_iter.is_exception() {
+                return JSValue::EXCEPTION;
             }
+
             let ret = JS_CreateAsyncFromSyncIterator(ctx, sync_iter);
             JS_FreeValue(ctx, sync_iter);
             return ret;
         }
-    } else {
-        method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
-        if JS_IsException(method) {
-            return method;
-        }
-    }
 
-    if !JS_IsFunction(ctx, method) {
+        val
+    } else {
+        let val = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
+        if val.is_exception() {
+            return JSValue::EXCEPTION;
+        }
+        val
+    };
+
+    if !method.is_function(ctx.as_ref().unwrap()) {
         JS_FreeValue(ctx, method);
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"value is not iterable");
+        return (*ctx).JS_ThrowTypeError(c"value is not iterable");
     }
 
     let ret = JS_GetIterator2(ctx, obj, method);
@@ -326,6 +326,14 @@ pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSV
         // take ownership of Box<JSAsyncFromSyncIteratorData> and drop
         drop(Box::from_raw(s));
     }
+}
+
+pub unsafe fn js_async_from_sync_iterator_mark(
+    rt: *mut JSRuntime,
+    val: JSValueConst,
+    mark_func: JS_MarkFunc,
+) {
+    unimplemented!();
 }
 
 pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {

@@ -635,3 +635,15 @@ pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS
         JS_MarkValue(rt, *(*p).u.array.u.values.offset(i as isize), mark_func);
     }
 }
+
+pub unsafe fn js_array_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_array_iterator_mark(
+    rt: *mut JSRuntime,
+    val: JSValueConst,
+    mark_func: JS_MarkFunc,
+) {
+    unimplemented!();
+}

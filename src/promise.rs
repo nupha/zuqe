@@ -1,5 +1,7 @@
 use crate::{
     context::JSContext,
+    gc::JS_MarkFunc,
+    runtime::JSRuntime,
     types::list_head,
     value::{JSValue, JSValueConst, JS_UNDEFINED},
 };
@@ -43,4 +45,24 @@ pub unsafe fn js_new_promise_capability(
     ctor: JSValueConst,
 ) -> JSValue {
     unimplemented!()
+}
+
+pub unsafe fn js_promise_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_promise_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    unimplemented!();
+}
+
+pub unsafe fn js_promise_resolve_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    unimplemented!();
+}
+
+pub unsafe fn js_promise_resolve_function_mark(
+    rt: *mut JSRuntime,
+    val: JSValueConst,
+    mark_func: JS_MarkFunc,
+) {
+    unimplemented!();
 }

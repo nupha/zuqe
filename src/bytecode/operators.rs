@@ -374,24 +374,30 @@ pub unsafe fn js_method_set_properties(
     0
 }
 
-/// 实现 js数组的展开(spread)
-/// 将一个可迭代对象(iterable)的所有元素追加到目标数组中
-// 类似于 JavaScript 中的 [...iterable] 或者 array.push(...iterable) 操作
+/// 将可迭代对象 SP[-1] 中的所有元素，追加到目标数组 SP[-3] 从 SP[-2]起始的位置。
+/// 类似于 JavaScript 中的 [...iterable] 或者 array.push(...iterable) 操作。
+/// 操作完成后, SP[-3]数组中加入了来自SP[-1]的全部元素，SP[-1]没有变化，SP[-2]更新为结束位置index。
 pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     if JS_VALUE_GET_TAG(*sp.offset(-2)) != JSTag::Int as i32 {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowInternalError(c"invalid index for append");
+        (*ctx).JS_ThrowInternalError(c"invalid index for append");
         return -1;
     }
+
+    let src = *sp.offset(-1); // the source iterator or array
+    let dest = *sp.offset(-3); // the dest array
+
+    #[cfg(debug_assertions)]
+    let (src_obj, dest_obj) = (JS_VALUE_GET_OBJ(src), JS_VALUE_GET_OBJ(dest));
+    #[cfg(debug_assertions)]
+    let _src_rc0 = src.ref_count();
 
     // XXX: further optimisations:
     //       - use ctx->array_proto_values?
     //       - check if array_iterator_prototype next method is built-in and
     //         avoid constructing actual iterator object?
     //       - build this into js_for_of_start and use in all `for (x of o)` loops
-    let iterator = JS_GetProperty(ctx, *sp.offset(-1), JS_ATOM_Symbol_iterator);
-    if JS_IsException(iterator) {
+    let iterator = JS_GetProperty(ctx, src, JS_ATOM_Symbol_iterator);
+    if iterator.is_exception() {
         return -1;
     }
 
@@ -412,22 +418,21 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
     );
     JS_FreeValue(ctx, iterator);
 
-    let enumobj = JS_GetIterator(ctx, *sp.offset(-1), false);
-    if JS_IsException(enumobj) {
+    let enumobj = JS_GetIterator(ctx, src, false);
+    if enumobj.is_exception() {
         return -1;
     }
 
     let method = JS_GetProperty(ctx, enumobj, JS_ATOM_next);
-    if JS_IsException(method) {
+    if method.is_exception() {
         JS_FreeValue(ctx, enumobj);
         return -1;
     }
 
-    let mut pos = JS_VALUE_GET_INT(*sp.offset(-2));
-
+    // check if `src` is a fast array
     let mut arrp = std::ptr::null_mut::<JSValue>();
     let mut count32: u32 = 0;
-    if is_array_iterator
+    let is_fast_array = if is_array_iterator
         && JS_IsCFunction(
             ctx,
             method,
@@ -443,9 +448,10 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
             ),
             0,
         )
-        && js_get_fast_array(ctx, *sp.offset(-1), &mut arrp, &mut count32)
+        && js_get_fast_array(ctx, src, &mut arrp, &mut count32)
     {
-        let mut len = if let Ok(n) = js_get_length32(ctx, *sp.offset(-1)) {
+        // .length property of src array
+        let len = if let Ok(n) = js_get_length32(ctx, src) {
             n
         } else {
             JS_IteratorClose(ctx, enumobj, true);
@@ -453,60 +459,45 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
             JS_FreeValue(ctx, method);
             return -1;
         };
+        len == count32
+    } else {
+        false
+    };
 
-        // if len > count32, the elements >= count32 might be read in
-        // the prototypes and might have side effects
-        if len != count32 {
-            loop {
-                let mut done = false;
-                let value =
-                    JS_IteratorNext(ctx, enumobj, method, 0, std::ptr::null_mut(), &mut done);
-                if JS_IsException(value) {
-                    JS_IteratorClose(ctx, enumobj, true);
-                    JS_FreeValue(ctx, enumobj);
-                    JS_FreeValue(ctx, method);
-                    return -1;
-                }
+    // the index where append starts
+    let mut pos = JS_VALUE_GET_INT(*sp.offset(-2));
 
-                if done {
-                    break; // value is JS_UNDEFINED
-                }
+    if is_fast_array {
+        // fast path
+        for i in 0..count32 {
+            println!(
+                "[O.o] append element {i}, pos={pos}, {:?}",
+                (*arrp.offset(i as isize)).to_utf8_string(ctx.as_mut().unwrap())
+            );
 
-                if JS_DefinePropertyValueUint32(ctx, *sp.offset(-3), pos as _, value, JS_PROP_C_W_E)
-                    < 0
-                {
-                    JS_IteratorClose(ctx, enumobj, true);
-                    JS_FreeValue(ctx, enumobj);
-                    JS_FreeValue(ctx, method);
-                    return -1;
-                }
-                pos += 1;
+            if JS_DefinePropertyValueUint32(
+                ctx,
+                dest,
+                pos as _,
+                (*arrp.offset(i as isize)).dup(),
+                JS_PROP_C_W_E,
+            ) < 0
+            {
+                JS_IteratorClose(ctx, enumobj, true);
+                JS_FreeValue(ctx, enumobj);
+                JS_FreeValue(ctx, method);
+                return -1;
             }
-        } else {
-            // Handle fast arrays explicitly
-            for i in 0..count32 {
-                if JS_DefinePropertyValueUint32(
-                    ctx,
-                    *sp.offset(-3),
-                    pos as _,
-                    JS_DupValue(ctx, *arrp.offset(i as isize)),
-                    JS_PROP_C_W_E,
-                ) < 0
-                {
-                    // C2RS: goto exception replaced with explicit error handling
-                    JS_IteratorClose(ctx, enumobj, true);
-                    JS_FreeValue(ctx, enumobj);
-                    JS_FreeValue(ctx, method);
-                    return -1;
-                }
-                pos += 1;
-            }
+
+            pos += 1;
         }
     } else {
+        // general case: use iterator
         loop {
             let mut done = false;
             let value = JS_IteratorNext(ctx, enumobj, method, 0, std::ptr::null_mut(), &mut done);
-            if JS_IsException(value) {
+
+            if value.is_exception() {
                 JS_IteratorClose(ctx, enumobj, true);
                 JS_FreeValue(ctx, enumobj);
                 JS_FreeValue(ctx, method);
@@ -517,21 +508,32 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
                 break; // value is JS_UNDEFINED
             }
 
-            if JS_DefinePropertyValueUint32(ctx, *sp.offset(-3), pos as _, value, JS_PROP_C_W_E) < 0
-            {
+            if JS_DefinePropertyValueUint32(ctx, dest, pos as _, value, JS_PROP_C_W_E) < 0 {
                 JS_IteratorClose(ctx, enumobj, true);
                 JS_FreeValue(ctx, enumobj);
                 JS_FreeValue(ctx, method);
                 return -1;
             }
+
             pos += 1;
         }
     }
 
     // Note: could raise an error if too many elements
-    (*sp.offset(-2)) = JSValue::from_i32(pos as i32);
+
+    // update end index to SP[-2]
+    *sp.offset(-2) = JSValue::from_i32(pos);
+
+    print!("[O.o] enumobj:");
+    enumobj.dump((*ctx).rt());
+    println!();
+
     JS_FreeValue(ctx, enumobj);
     JS_FreeValue(ctx, method);
+
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(src.ref_count().unwrap_or(-1), _src_rc0.unwrap_or(-1));
+
     0
 }
 
