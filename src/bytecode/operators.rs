@@ -362,10 +362,9 @@ pub unsafe fn js_method_set_properties(
         name_str = JS_ConcatString3(ctx, c"set ", name_str, c"");
     }
 
-    if JS_IsException(name_str) {
+    if name_str.is_exception() {
         return -1;
     }
-
     if JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_name, name_str, JS_PROP_CONFIGURABLE) < 0 {
         return -1;
     }
@@ -428,6 +427,15 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
         return -1;
     }
 
+    macro_rules! fail {
+        () => {
+            JS_IteratorClose(ctx, enumobj, true).expect("TODO");
+            JS_FreeValue(ctx, enumobj);
+            JS_FreeValue(ctx, method);
+            return -1;
+        };
+    }
+
     // check if `src` is a fast array
     let mut arrp = std::ptr::null_mut::<JSValue>();
     let mut count32: u32 = 0;
@@ -453,10 +461,7 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
         let len = if let Ok(n) = js_get_length32(ctx, src) {
             n
         } else {
-            JS_IteratorClose(ctx, enumobj, true);
-            JS_FreeValue(ctx, enumobj);
-            JS_FreeValue(ctx, method);
-            return -1;
+            fail!();
         };
         len == count32
     } else {
@@ -469,11 +474,6 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
     if is_fast_array {
         // fast path
         for i in 0..count32 {
-            println!(
-                "[O.o] append element {i}, pos={pos}, {:?}",
-                (*arrp.offset(i as isize)).to_utf8_string(ctx.as_mut().unwrap())
-            );
-
             if JS_DefinePropertyValueUint32(
                 ctx,
                 dest,
@@ -482,10 +482,7 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
                 JS_PROP_C_W_E,
             ) < 0
             {
-                JS_IteratorClose(ctx, enumobj, true);
-                JS_FreeValue(ctx, enumobj);
-                JS_FreeValue(ctx, method);
-                return -1;
+                fail!();
             }
 
             pos += 1;
@@ -495,12 +492,8 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
         loop {
             let mut done = false;
             let value = JS_IteratorNext(ctx, enumobj, method, 0, std::ptr::null_mut(), &mut done);
-
             if value.is_exception() {
-                JS_IteratorClose(ctx, enumobj, true);
-                JS_FreeValue(ctx, enumobj);
-                JS_FreeValue(ctx, method);
-                return -1;
+                fail!();
             }
 
             if done {
@@ -508,10 +501,7 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
             }
 
             if JS_DefinePropertyValueUint32(ctx, dest, pos as _, value, JS_PROP_C_W_E) < 0 {
-                JS_IteratorClose(ctx, enumobj, true);
-                JS_FreeValue(ctx, enumobj);
-                JS_FreeValue(ctx, method);
-                return -1;
+                fail!();
             }
 
             pos += 1;

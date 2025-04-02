@@ -66,12 +66,6 @@ use crate::{
     JS_MKPTR,
 };
 
-enum GotoLabel {
-    Exception,
-    /// exit execution. reture value and is_generator flag
-    Done(JSValue, bool),
-}
-
 pub unsafe fn run_bytecodes(
     b: &JSFunctionBytecode,
     func_home_obj: *mut JSObject,
@@ -147,17 +141,19 @@ pub unsafe fn run_bytecodes(
         };
     }
 
-    let mut goto: Option<GotoLabel> = if throw {
-        Some(GotoLabel::Exception)
-    } else {
-        None
-    };
+    enum State {
+        Exception,
+        /// exit execution. reture value and is_generator flag
+        Done(JSValue, bool),
+    }
+
+    let mut state: Option<State> = if throw { Some(State::Exception) } else { None };
 
     'restart: loop {
         // dispatch state label
-        while let Some(label) = goto.take() {
+        while let Some(label) = state.take() {
             match label {
-                GotoLabel::Exception => {
+                State::Exception => {
                     // calc offset index from pc and sp pointers
                     let pc_offset = pc.offset_from(pc_base) as usize;
                     let sp_offset = sp.offset_from(sp_base) as usize;
@@ -179,7 +175,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
 
-                GotoLabel::Done(ret_val, is_generator) => {
+                State::Done(ret_val, is_generator) => {
                     sf.handle_exit(
                         ctx,
                         pc.offset_from(pc_base) as usize,
@@ -191,7 +187,7 @@ pub unsafe fn run_bytecodes(
             }
         }
 
-        // loop bytecodes
+        // loop running bytecodes
         loop {
             #[cfg(feature = "dump_bytecode")]
             {
@@ -271,7 +267,7 @@ pub unsafe fn run_bytecodes(
                         this_obj.dup()
                     };
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![0] = val;
                         SP_GO!(1);
@@ -289,7 +285,7 @@ pub unsafe fn run_bytecodes(
                     SP![0] = JS_NewObject(ctx);
                     SP_GO!(1);
                     if SP![-1].is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::SPECIAL_OBJECT => {
@@ -300,7 +296,7 @@ pub unsafe fn run_bytecodes(
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_ARGUMENTS => {
                             SP![0] = js_build_arguments(ctx, argc, argv);
                             if SP![0].is_exception() {
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                             }
                             SP_GO!(1);
                         }
@@ -313,7 +309,7 @@ pub unsafe fn run_bytecodes(
                                 std::cmp::min(argc, b.arg_count as i32),
                             );
                             if SP![0].is_exception() {
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                             }
                             SP_GO!(1);
                         }
@@ -336,14 +332,14 @@ pub unsafe fn run_bytecodes(
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT => {
                             SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
                             if SP![0].is_exception() {
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                             }
                             SP_GO!(1);
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_IMPORT_META => {
                             SP![0] = js_import_meta(ctx);
                             if SP![0].is_exception() {
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                             }
                             SP_GO!(0);
                         }
@@ -354,7 +350,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(2);
                     SP![0] = js_build_rest(ctx, first as _, argc, argv);
                     if SP![0].is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     SP_GO!(1);
                 }
@@ -546,7 +542,7 @@ pub unsafe fn run_bytecodes(
                     let bfunc = CPOOL![id].dup();
                     SP![0] = js_closure(ctx, bfunc, var_refs, sf);
                     if SP![0].is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     SP_GO!(1);
                 }
@@ -573,9 +569,9 @@ pub unsafe fn run_bytecodes(
                         0,
                     );
                     if ret_val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else if opcode == OpCode::TAIL_CALL {
-                        goto = Some(GotoLabel::Done(ret_val, false));
+                        state = Some(State::Done(ret_val, false));
                     } else {
                         for i in -1..call_argc as i32 {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -599,7 +595,7 @@ pub unsafe fn run_bytecodes(
                         0,
                     );
                     if ret_val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         for i in -2..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -628,9 +624,9 @@ pub unsafe fn run_bytecodes(
                     );
 
                     if ret_val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else if opcode == OpCode::TAIL_CALL_METHOD {
-                        goto = Some(GotoLabel::Done(ret_val, false));
+                        state = Some(State::Done(ret_val, false));
                     } else {
                         for i in -2..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -648,7 +644,7 @@ pub unsafe fn run_bytecodes(
                     // create array
                     let arr = JS_NewArray(ctx);
                     if arr.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         // push elements to array
                         let call_argv = sp.offset(-call_argc as isize);
@@ -663,12 +659,12 @@ pub unsafe fn run_bytecodes(
                             *call_argv.offset(i as isize) = JSValue::UNDEFINED;
                             if ret < 0 {
                                 JS_FreeValue(ctx, arr);
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                                 break;
                             }
                         }
 
-                        if goto.is_none() {
+                        if state.is_none() {
                             sp = sp.offset(-call_argc as isize);
                             SP![0] = arr;
                             SP_GO!(1);
@@ -681,7 +677,7 @@ pub unsafe fn run_bytecodes(
 
                     let ret_val = js_function_apply(ctx, SP![-3], 2, sp.offset(-2), magic);
                     if ret_val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         JS_FreeValue(ctx, SP![-3]);
                         JS_FreeValue(ctx, SP![-2]);
@@ -693,10 +689,10 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::RETURN => {
                     SP_GO!(-1);
-                    goto = Some(GotoLabel::Done(*sp, false))
+                    state = Some(State::Done(*sp, false))
                 }
                 OpCode::RETURN_UNDEF => {
-                    goto = Some(GotoLabel::Done(JSValue::UNDEFINED, false));
+                    state = Some(State::Done(JSValue::UNDEFINED, false));
                 }
                 OpCode::CHECK_CTOR_RETURN => {
                     // return TRUE if 'this' should be returned
@@ -705,7 +701,7 @@ pub unsafe fn run_bytecodes(
                             caller_ctx.JS_ThrowTypeError(
                                 c"derived class constructor must return an object or undefined",
                             );
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             SP![0] = JSValue::TRUE;
                             SP_GO!(1);
@@ -718,22 +714,22 @@ pub unsafe fn run_bytecodes(
                 OpCode::CHECK_CTOR => {
                     if new_target.is_undefined() {
                         ctx.JS_ThrowTypeError(c"class constructors must be invoked with 'new'");
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::CHECK_BRAND => {
                     if let Ok(b) = JS_CheckBrand(ctx, SP![-2], SP![-1]) {
                         if !b {
                             ctx.JS_ThrowTypeError(c"invalid brand on object");
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     } else {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::ADD_BRAND => {
                     if JS_AddBrand(ctx, SP![-2], SP![-1]) < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         JS_FreeValue(ctx, SP![-2]);
                         JS_FreeValue(ctx, SP![-1]);
@@ -743,7 +739,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::THROW => {
                     SP_GO!(-1);
                     ctx.JS_Throw(SP![0]);
-                    goto = Some(GotoLabel::Exception);
+                    state = Some(State::Exception);
                 }
                 OpCode::THROW_ERROR => {
                     let atom = JSAtom(get_u32(pc));
@@ -772,7 +768,7 @@ pub unsafe fn run_bytecodes(
                             ));
                         }
                     }
-                    goto = Some(GotoLabel::Exception);
+                    state = Some(State::Exception);
                 }
                 OpCode::EVAL => {
                     let call_argc = get_u16(pc) as i32;
@@ -808,7 +804,7 @@ pub unsafe fn run_bytecodes(
                     };
 
                     if ret_val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         for i in -1..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
@@ -825,7 +821,7 @@ pub unsafe fn run_bytecodes(
                     let mut len = 0;
                     let tab: *mut JSValue = build_arg_list(ctx, &mut len, SP![-1]);
                     if tab.is_null() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let ret_val = if SP![-2].is_same(ctx.eval_obj) {
                             JS_EvalObject(
@@ -841,7 +837,7 @@ pub unsafe fn run_bytecodes(
 
                         free_arg_list(ctx, tab, len);
                         if ret_val.is_exception() {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             JS_FreeValue(ctx, SP![-2]);
                             JS_FreeValue(ctx, SP![-1]);
@@ -859,7 +855,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_SUPER => {
                     let proto = JS_GetPrototype(ctx, SP![-1]);
                     if proto.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP![-1] = proto;
@@ -868,7 +864,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::IMPORT => {
                     let val = js_dynamic_import(ctx, SP![-1]);
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                         JS_FreeValue(ctx, SP![-1]);
                         SP![-1] = val;
                     }
@@ -878,7 +874,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
                     let ret = JS_CheckGlobalVar(ctx, atom);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![0] = JS_NewBool(ret != 0);
                         SP_GO!(1);
@@ -890,7 +886,7 @@ pub unsafe fn run_bytecodes(
 
                     let val = JS_GetGlobalVar(ctx, atom, opcode == OpCode::GET_VAR);
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![0] = val;
                         sp = sp.offset(1);
@@ -907,7 +903,7 @@ pub unsafe fn run_bytecodes(
                     );
                     SP_GO!(-1);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::PUT_VAR_STRICT => {
@@ -917,13 +913,13 @@ pub unsafe fn run_bytecodes(
                     // sp[-2] is TRUE or FALSE
                     if JS_VALUE_GET_INT(SP![-2]) == 0 {
                         JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
 
                     let ret = JS_SetGlobalVar(ctx, atom, SP![-1], 2);
                     sp = sp.offset(-2);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::CHECK_DEFINE_VAR => {
@@ -931,7 +927,7 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_CheckDefineGlobalVar(ctx, atom, flags as _) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::DEFINE_VAR => {
@@ -939,7 +935,7 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_DefineGlobalVar(ctx, atom, flags as _) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::DEFINE_FUNC => {
@@ -947,7 +943,7 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_DefineGlobalFunction(ctx, atom, SP![-1], flags as _) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP_GO!(-1);
@@ -1025,7 +1021,7 @@ pub unsafe fn run_bytecodes(
                     let val = var_refs[idx as usize].as_ref().pvalue;
                     if JS_IsUninitialized(*val) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         if opcode == OpCode::GET_VAR_REF_CHECK {
                             // GET_VAR_REF_CHECK
@@ -1053,7 +1049,7 @@ pub unsafe fn run_bytecodes(
                             idx,
                             false,
                         );
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![0] = val.dup();
                         sp = sp.offset(1);
@@ -1070,7 +1066,7 @@ pub unsafe fn run_bytecodes(
                         } else {
                             JS_ThrowReferenceError(ctx, c"'this' can be initialized only once");
                         }
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         set_value(ctx, pval, SP![-1]);
                         SP_GO!(-1);
@@ -1090,7 +1086,7 @@ pub unsafe fn run_bytecodes(
                     sp = sp.offset(1);
 
                     if SP![-1].is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
                             let mut vr = var_refs[idx as usize];
@@ -1114,11 +1110,11 @@ pub unsafe fn run_bytecodes(
                                     if let Some(vr) = Box::from_raw(vr.as_ptr()).free(rt) {
                                         Box::leak(vr); // var ref is still alive, don't drop
                                     }
-                                    goto = Some(GotoLabel::Exception);
+                                    state = Some(State::Exception);
                                 };
                             }
                             Err(_) => {
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                             }
                         }
                     }
@@ -1128,7 +1124,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
 
                     if JS_GetGlobalVarRef(ctx, atom, sp) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     sp = sp.offset(2);
                 }
@@ -1137,7 +1133,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(n);
 
                     if js_poll_interrupts(ctx) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
 
@@ -1150,7 +1146,7 @@ pub unsafe fn run_bytecodes(
                     } as usize);
 
                     if js_poll_interrupts(ctx) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
 
@@ -1172,7 +1168,7 @@ pub unsafe fn run_bytecodes(
                     }
 
                     if js_poll_interrupts(ctx) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
 
@@ -1197,12 +1193,12 @@ pub unsafe fn run_bytecodes(
                     let op1 = SP![-1];
                     if JS_VALUE_GET_TAG(op1) != JS_TAG_INT {
                         ctx.JS_ThrowInternalError(c"invalid ret value");
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let pos = JS_VALUE_GET_INT(op1);
                         if pos >= bytecodes.len() as i32 {
                             ctx.JS_ThrowInternalError(c"invalid ret value");
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             SP_GO!(-1);
                             pc = pc_base.offset(pos as isize);
@@ -1211,18 +1207,18 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::FOR_IN_START => {
                     if js_for_in_start(ctx, sp) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::FOR_IN_NEXT => {
                     if js_for_in_next(ctx, sp) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     SP_GO!(2);
                 }
                 OpCode::FOR_OF_START => {
                     if js_for_of_start(ctx, sp, false) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     SP_GO!(1);
                     SP![0] = JS_NewCatchOffset(0);
@@ -1232,13 +1228,13 @@ pub unsafe fn run_bytecodes(
                     let offset = -3 - *pc as i32;
                     PC_GO!(1);
                     if js_for_of_next(ctx, sp, offset) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     SP_GO!(2);
                 }
                 OpCode::FOR_AWAIT_OF_START => {
                     if js_for_of_start(ctx, sp, true) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP_GO!(1);
                         SP![0] = JS_NewCatchOffset(0);
@@ -1247,7 +1243,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::ITERATOR_GET_VALUE_DONE => {
                     if js_iterator_get_value_done(ctx, sp) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP_GO!(1);
                     }
@@ -1255,7 +1251,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::ITERATOR_CHECK_OBJECT => {
                     if !JS_IsObject(SP![-1]) {
                         ctx.JS_ThrowTypeError(c"iterator must return an object");
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::ITERATOR_CLOSE => {
@@ -1265,7 +1261,7 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(-1);
                     if !SP![-1].is_undefined() {
                         if JS_IteratorClose(ctx, SP![-1], false).is_err() {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             JS_FreeValue(ctx, SP![-1]);
                         }
@@ -1283,7 +1279,7 @@ pub unsafe fn run_bytecodes(
                     if sp == sp_base {
                         ctx.JS_ThrowInternalError(c"nip_catch");
                         JS_FreeValue(ctx, ret_val);
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![-1] = ret_val;
                     }
@@ -1292,7 +1288,7 @@ pub unsafe fn run_bytecodes(
                     /* stack: iter_obj next catch_offset val */
                     let ret = JS_Call(ctx, SP![-3], SP![-4], 1, sp.offset(-1));
                     if ret.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         JS_FreeValue(ctx, SP![-1]);
                         SP![-1] = ret;
@@ -1311,7 +1307,7 @@ pub unsafe fn run_bytecodes(
                         },
                     );
                     if method.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let ret_flag = if method.is_undefined_or_null() {
                             true
@@ -1323,7 +1319,7 @@ pub unsafe fn run_bytecodes(
                                 JS_CallFree(ctx, method, SP![-4], 1, sp.offset(-1))
                             };
                             if ret.is_exception() {
-                                goto = Some(GotoLabel::Exception);
+                                state = Some(State::Exception);
                             } else {
                                 JS_FreeValue(ctx, SP![-1]);
                                 SP![-1] = ret;
@@ -1331,7 +1327,7 @@ pub unsafe fn run_bytecodes(
                             false
                         };
 
-                        if goto.is_none() {
+                        if state.is_none() {
                             SP![0] = JS_NewBool(ret_flag);
                             SP_GO!(1);
                         }
@@ -1352,7 +1348,7 @@ pub unsafe fn run_bytecodes(
 
                     let val = JS_GetProperty(ctx, SP![-1], atom);
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         if opcode == OpCode::GET_FIELD {
                             JS_FreeValue(ctx, SP![-1]);
@@ -1377,7 +1373,7 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-2]);
                     sp = sp.offset(-2);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::PRIVATE_SYMBOL => {
@@ -1385,7 +1381,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
                     let val = JS_NewSymbolFromAtom(ctx, atom, JSAtomTypeHint::Private);
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![0] = val;
                         SP_GO!(1);
@@ -1398,7 +1394,7 @@ pub unsafe fn run_bytecodes(
                     SP![-2] = val;
                     SP_GO!(-1);
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::PUT_PRIVATE_FIELD => {
@@ -1407,7 +1403,7 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-1]);
                     SP_GO!(-3);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::DEFINE_PRIVATE_FIELD => {
@@ -1415,7 +1411,7 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-2]);
                     sp = sp.offset(-2);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::DEFINE_FIELD => {
@@ -1431,7 +1427,7 @@ pub unsafe fn run_bytecodes(
                     );
                     SP_GO!(-1);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::SET_NAME => {
@@ -1439,14 +1435,14 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
                     let ret = JS_DefineObjectName(ctx, SP![-1], atom, JS_PROP_CONFIGURABLE);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::SET_PROTO => {
                     let proto = SP![-1];
                     if proto.is_object() || proto.is_null() {
                         if JS_SetPrototypeInternal(ctx, SP![-2], proto, true).is_err() {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                         JS_FreeValue(ctx, proto);
                         SP_GO!(-1);
@@ -1465,7 +1461,7 @@ pub unsafe fn run_bytecodes(
                         a
                     };
                     if atom == JS_ATOM_NULL {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let mut op_flags = *pc;
                         PC_GO!(1);
@@ -1509,7 +1505,7 @@ pub unsafe fn run_bytecodes(
                         }
                         SP_GO!(if is_computed { -2 } else { -1 });
                         if ret < 0 {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     }
                 }
@@ -1529,7 +1525,7 @@ pub unsafe fn run_bytecodes(
                     )
                     .is_err()
                     {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::GET_ARRAY_EL | OpCode::GET_ARRAY_EL2 => {
@@ -1542,7 +1538,7 @@ pub unsafe fn run_bytecodes(
                         SP![-1] = val;
                     }
                     if val.is_exception() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::GET_REF_VALUE => {
@@ -1552,11 +1548,11 @@ pub unsafe fn run_bytecodes(
                             JS_ThrowReferenceErrorNotDefined(ctx, atom);
                             JS_FreeAtom(ctx, atom);
                         }
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1].dup());
                         if val.is_exception() {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             SP![0] = val;
                             SP_GO!(1);
@@ -1569,7 +1565,7 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-3]);
                     SP_GO!(-3);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::PUT_REF_VALUE => {
@@ -1581,7 +1577,7 @@ pub unsafe fn run_bytecodes(
                                 JS_ThrowReferenceErrorNotDefined(ctx, atom);
                                 JS_FreeAtom(ctx, atom);
                             }
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             if is_strict_mode(ctx) {
                                 flags |= JS_PROP_NO_ADD;
@@ -1589,23 +1585,23 @@ pub unsafe fn run_bytecodes(
                         }
                     }
 
-                    if goto.is_none() {
+                    if state.is_none() {
                         let ret = JS_SetPropertyValue(ctx, SP![-3], SP![-2], SP![-1], flags);
                         JS_FreeValue(ctx, SP![-3]);
                         SP_GO!(-3);
                         if ret < 0 {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     }
                 }
                 OpCode::PUT_SUPER_VALUE => {
                     if JS_VALUE_GET_TAG(SP![-3]) != JS_TAG_OBJECT {
                         ctx.JS_ThrowTypeErrorNotAnObject();
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                     let atom = JS_ValueToAtom(ctx, SP![-2]);
                     if atom == JS_ATOM_NULL {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         let ret = JS_SetPropertyInternal(
                             ctx,
@@ -1621,7 +1617,7 @@ pub unsafe fn run_bytecodes(
                         JS_FreeValue(ctx, SP![-2]);
                         SP_GO!(-4);
                         if ret < 0 {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     }
                 }
@@ -1635,14 +1631,14 @@ pub unsafe fn run_bytecodes(
                     );
                     SP_GO!(-1);
                     if ret < 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::APPEND => {
                     // dest start_pos src ^ -> dest end_pos ^
                     // all elements of `src` append to `dest` array staring from `start_pos` index
                     if js_append_enumerate(ctx, sp) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         // drop `src`
                         SP_GO!(-1);
@@ -1667,7 +1663,7 @@ pub unsafe fn run_bytecodes(
                     )
                     .is_err()
                     {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
 
@@ -1701,7 +1697,7 @@ pub unsafe fn run_bytecodes(
                         // fail
                         SP![-1] = JSValue::UNDEFINED; // original value was freed
                         SP![-2] = JSValue::UNDEFINED; // original value was freed
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::ADD_LOC => {
@@ -1720,7 +1716,7 @@ pub unsafe fn run_bytecodes(
                     {
                         set_value(ctx, pv, val);
                     } else {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::PLUS | OpCode::NEG | OpCode::INC | OpCode::DEC => {
@@ -1741,7 +1737,7 @@ pub unsafe fn run_bytecodes(
                             SP![-1] = res;
                         } else {
                             SP![-1] = JSValue::UNDEFINED;
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     }
                 }
@@ -1750,7 +1746,7 @@ pub unsafe fn run_bytecodes(
                     let n1 = JS_ToNumberFree(ctx, op1);
                     if n1.is_exception() {
                         SP![-1] = JSValue::UNDEFINED;
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP![-1] = n1;
                         if let Ok(res) = UnaryOp::new(ctx, n1.dup(), true).map(|unary| match opcode
@@ -1762,7 +1758,7 @@ pub unsafe fn run_bytecodes(
                             SP![0] = res;
                             SP_GO!(1);
                         } else {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     }
                 }
@@ -1780,7 +1776,7 @@ pub unsafe fn run_bytecodes(
                     }) {
                         set_value(ctx, VAR_PTR![idx], res);
                     } else {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::NOT => {
@@ -1788,7 +1784,7 @@ pub unsafe fn run_bytecodes(
                         SP![-1] = res;
                     } else {
                         SP![-1] = JSValue::UNDEFINED;
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::SHL
@@ -1800,7 +1796,7 @@ pub unsafe fn run_bytecodes(
                     if let Ok(new_sp) = op_binary_logic(ctx, opcode, sp) {
                         sp = new_sp;
                     } else {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
 
@@ -1809,7 +1805,7 @@ pub unsafe fn run_bytecodes(
                         SP![-2] = JS_NewBool(b);
                         SP_GO!(-1);
                     } else {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
                 OpCode::EQ | OpCode::NEQ => {
@@ -1817,7 +1813,7 @@ pub unsafe fn run_bytecodes(
                         SP![-2] = JS_NewBool(b);
                         SP_GO!(-1);
                     } else {
-                        goto = Some(GotoLabel::Exception)
+                        state = Some(State::Exception)
                     }
                 }
                 OpCode::STRICT_EQ | OpCode::STRICT_NEQ => {
@@ -1836,21 +1832,21 @@ pub unsafe fn run_bytecodes(
 
                 OpCode::IN => {
                     if js_operator_in(ctx, sp).is_err() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP_GO!(-1);
                     }
                 }
                 OpCode::PRIVATE_IN => {
                     if js_operator_private_in(ctx, sp).is_err() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP_GO!(-1);
                     }
                 }
                 OpCode::INSTANCEOF => {
                     if js_operator_instanceof(ctx, sp).is_err() {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP_GO!(-1);
                     }
@@ -1863,7 +1859,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::DELETE => {
                     if js_operator_delete(ctx, sp) != 0 {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         SP_GO!(-1);
                     }
@@ -1878,7 +1874,7 @@ pub unsafe fn run_bytecodes(
                             SP_GO!(1);
                         }
                         Err(_) => {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         }
                     }
                 }
@@ -1887,7 +1883,7 @@ pub unsafe fn run_bytecodes(
                     _ => {
                         let ret_val = JS_ToPropertyKey(ctx, SP![-1]);
                         if ret_val.is_exception() {
-                            goto = Some(GotoLabel::Exception);
+                            state = Some(State::Exception);
                         } else {
                             JS_FreeValue(ctx, SP![-1]);
                             SP![-1] = ret_val;
@@ -1899,14 +1895,14 @@ pub unsafe fn run_bytecodes(
                     // must be tested first
                     if SP![-2].is_undefined_or_null() {
                         ctx.JS_ThrowTypeError(c"value has property");
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     } else {
                         match JS_VALUE_GET_TAG(SP![-1]) {
                             JS_TAG_INT | JS_TAG_STRING | JS_TAG_SYMBOL => {}
                             _ => {
                                 let ret_val = JS_ToPropertyKey(ctx, SP![-1]);
                                 if ret_val.is_exception() {
-                                    goto = Some(GotoLabel::Exception);
+                                    state = Some(State::Exception);
                                 } else {
                                     JS_FreeValue(ctx, SP![-1]);
                                     SP![-1] = ret_val;
@@ -1933,7 +1929,7 @@ pub unsafe fn run_bytecodes(
                             if is_with != 0 {
                                 let r = js_has_unscopable(ctx, obj, atom);
                                 if r < 0 {
-                                    goto = Some(GotoLabel::Exception);
+                                    state = Some(State::Exception);
                                     skip = true;
                                 } else if r != 0 {
                                     // no with
@@ -1949,7 +1945,7 @@ pub unsafe fn run_bytecodes(
                                     OpCode::WITH_GET_VAR => {
                                         let val = JS_GetProperty(ctx, obj, atom);
                                         if val.is_exception() {
-                                            goto = Some(GotoLabel::Exception);
+                                            state = Some(State::Exception);
                                         } else {
                                             set_value(ctx, sp.offset(-1), val);
                                         }
@@ -1967,7 +1963,7 @@ pub unsafe fn run_bytecodes(
                                         JS_FreeValue(ctx, SP![-1]);
                                         SP_GO!(-2);
                                         if ret < 0 {
-                                            goto = Some(GotoLabel::Exception);
+                                            state = Some(State::Exception);
                                         }
                                     }
                                     OpCode::WITH_DELETE_VAR => {
@@ -1975,7 +1971,7 @@ pub unsafe fn run_bytecodes(
                                             JS_FreeValue(ctx, SP![-1]);
                                             SP![-1] = JS_NewBool(ret);
                                         } else {
-                                            goto = Some(GotoLabel::Exception);
+                                            state = Some(State::Exception);
                                         }
                                     }
                                     OpCode::WITH_MAKE_REF => {
@@ -1987,7 +1983,7 @@ pub unsafe fn run_bytecodes(
                                         // produce a pair object/method on the stack
                                         let val = JS_GetProperty(ctx, obj, atom);
                                         if val.is_exception() {
-                                            goto = Some(GotoLabel::Exception);
+                                            state = Some(State::Exception);
                                         } else {
                                             SP![0] = val;
                                             SP_GO!(1);
@@ -1997,7 +1993,7 @@ pub unsafe fn run_bytecodes(
                                         /* produce a pair undefined/function on the stack */
                                         let val = JS_GetProperty(ctx, obj, atom);
                                         if val.is_exception() {
-                                            goto = Some(GotoLabel::Exception);
+                                            state = Some(State::Exception);
                                         } else {
                                             JS_FreeValue(ctx, SP![-1]);
                                             SP![-1] = JSValue::UNDEFINED;
@@ -2018,30 +2014,27 @@ pub unsafe fn run_bytecodes(
                             SP_GO!(-1);
                         }
                     } else {
-                        goto = Some(GotoLabel::Exception);
+                        state = Some(State::Exception);
                     }
                 }
 
                 OpCode::AWAIT => {
                     let ret_val = JSValue::from_i32(FUNC_RET_AWAIT);
-                    goto = Some(GotoLabel::Done(ret_val, true));
+                    state = Some(State::Done(ret_val, true));
                 }
                 OpCode::YIELD => {
                     let ret_val = JSValue::from_i32(FUNC_RET_YIELD);
-                    goto = Some(GotoLabel::Done(ret_val, true));
+                    state = Some(State::Done(ret_val, true));
                 }
                 OpCode::YIELD_STAR | OpCode::ASYNC_YIELD_STAR => {
                     let ret_val = JSValue::from_i32(FUNC_RET_YIELD_STAR);
-                    goto = Some(GotoLabel::Done(ret_val, true));
+                    state = Some(State::Done(ret_val, true));
                 }
                 OpCode::RETURN_ASYNC => {
-                    goto = Some(GotoLabel::Done(JSValue::UNDEFINED, true));
+                    state = Some(State::Done(JSValue::UNDEFINED, true));
                 }
                 OpCode::INITIAL_YIELD => {
-                    goto = Some(GotoLabel::Done(
-                        JSValue::from_i32(FUNC_RET_INITIAL_YIELD),
-                        true,
-                    ));
+                    state = Some(State::Done(JSValue::from_i32(FUNC_RET_INITIAL_YIELD), true));
                 }
 
                 OpCode::NOP => {}
@@ -2082,11 +2075,11 @@ pub unsafe fn run_bytecodes(
                         .as_ptr()
                         .cast(),
                     ));
-                    goto = Some(GotoLabel::Exception);
+                    state = Some(State::Exception);
                 }
             } // match opcode
 
-            if goto.is_some() {
+            if state.is_some() {
                 // exit bytecode loop
                 // will run label dispatch block above this loop
                 break;
