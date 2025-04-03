@@ -186,13 +186,20 @@ pub unsafe fn js_array_at(
         idx = len + idx;
     }
 
-    let mut arrp = std::ptr::null_mut::<JSValue>();
-
-    let ret = if idx < 0 || idx >= len {
+    let ret: JSValue = if idx < 0 {
+        // bad index
         JSValue::UNDEFINED
-    } else if js_get_fast_array(ctx, obj, &mut arrp, &mut count) && idx < count as i64 {
-        (*arrp.offset(idx as isize)).dup()
+    } else if let Some(lst) = obj.fast_array_values().and_then(|a| {
+        if a.len() == len as usize {
+            Some(a)
+        } else {
+            None
+        }
+    }) {
+        // fast array
+        lst[idx as usize].dup()
     } else {
+        // slow array
         match JS_TryGetPropertyInt64(ctx, obj, idx) {
             Ok(Some(r)) => r,
             Ok(None) => JSValue::UNDEFINED,
@@ -235,50 +242,48 @@ pub unsafe fn js_array_with(
         return JSValue::EXCEPTION;
     }
 
-    let arr = (*ctx).create_array_with_capacity(len);
+    let arr = (*ctx).create_array(std::cmp::max(len, 0) as usize);
     if JS_IsException(arr) {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
     let p = JS_VALUE_GET_OBJ(arr);
-    let mut pval = (*p).u.array.u.values;
-    let mut arrp = std::ptr::null_mut::<JSValue>();
-    let mut count32: u32 = 0;
+    let dest = (*p).array_values_mut_unchecked();
 
-    if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 as i64 == len {
-        let mut i = 0;
-        while i < idx {
-            *pval = (*arrp.offset(i as isize)).dup();
-            i += 1;
-            pval = pval.offset(1);
+    if let Some(src) = obj.fast_array_values().and_then(|a| {
+        if a.len() == len as usize {
+            Some(a)
+        } else {
+            None
+        }
+    }) {
+        // fast array
+        for v in &src[0..(idx as usize)] {
+            dest.push(v.dup());
         }
 
-        *pval = (*argv.offset(1)).dup();
+        // the changed element
+        dest.push((*argv.offset(1)).dup());
 
-        i += 1;
-        pval = pval.offset(1);
-
-        while i < len {
-            *pval = (*arrp.offset(i as isize)).dup();
-            i += 1;
-            pval = pval.offset(1);
+        for v in &src[idx as usize..] {
+            dest.push(v.dup());
         }
     } else {
-        let mut i = 0;
-        while i < idx {
+        // slow array
+        // 0..idx
+        for i in 0..idx {
             match JS_TryGetPropertyInt64(ctx, obj, i) {
-                Ok(Some(r)) => {
-                    *pval = r;
+                Ok(Some(v)) => {
+                    dest.push(v.dup());
                 }
                 Ok(None) => {
-                    *pval = JSValue::UNDEFINED;
+                    dest.push(JSValue::UNDEFINED);
                 }
                 Err(_) => {
-                    while i < len {
-                        *pval = JSValue::UNDEFINED;
-                        i += 1;
-                        pval = pval.offset(1);
+                    // fill rest with undefined
+                    for _ in i..len {
+                        dest.push(JSValue::UNDEFINED);
                     }
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -286,22 +291,22 @@ pub unsafe fn js_array_with(
             }
         }
 
-        *pval = (*argv.offset(1)).dup();
-        i += 1;
-        pval = pval.offset(1);
-        while i < len {
+        // updated value
+        dest.push((*argv.offset(1)).dup());
+
+        // idx..end
+        for i in idx..len {
             match JS_TryGetPropertyInt64(ctx, obj, i) {
-                Ok(Some(r)) => {
-                    *pval = r;
+                Ok(Some(v)) => {
+                    dest.push(v.dup());
                 }
                 Ok(None) => {
-                    *pval = JSValue::UNDEFINED;
+                    dest.push(JSValue::UNDEFINED);
                 }
                 Err(_) => {
-                    while i < len {
-                        *pval = JSValue::UNDEFINED;
-                        i += 1;
-                        pval = pval.offset(1);
+                    // fill rest with undefined
+                    for _ in i..len {
+                        dest.push(JSValue::UNDEFINED);
                     }
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -309,6 +314,70 @@ pub unsafe fn js_array_with(
             }
         }
     }
+
+    // if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 as i64 == len {
+    //     let mut i = 0;
+    //     while i < idx {
+    //         *pval = (*arrp.offset(i as isize)).dup();
+    //         i += 1;
+    //         pval = pval.offset(1);
+    //     }
+
+    //     *pval = (*argv.offset(1)).dup();
+
+    //     i += 1;
+    //     pval = pval.offset(1);
+
+    //     while i < len {
+    //         *pval = (*arrp.offset(i as isize)).dup();
+    //         i += 1;
+    //         pval = pval.offset(1);
+    //     }
+    // } else {
+    //     let mut i = 0;
+    //     while i < idx {
+    //         match JS_TryGetPropertyInt64(ctx, obj, i) {
+    //             Ok(Some(r)) => {
+    //                 *pval = r;
+    //             }
+    //             Ok(None) => {
+    //                 *pval = JSValue::UNDEFINED;
+    //             }
+    //             Err(_) => {
+    //                 while i < len {
+    //                     *pval = JSValue::UNDEFINED;
+    //                     i += 1;
+    //                     pval = pval.offset(1);
+    //                 }
+    //                 JS_FreeValue(ctx, obj);
+    //                 return JSValue::EXCEPTION;
+    //             }
+    //         }
+    //     }
+
+    //     *pval = (*argv.offset(1)).dup();
+    //     i += 1;
+    //     pval = pval.offset(1);
+    //     while i < len {
+    //         match JS_TryGetPropertyInt64(ctx, obj, i) {
+    //             Ok(Some(r)) => {
+    //                 *pval = r;
+    //             }
+    //             Ok(None) => {
+    //                 *pval = JSValue::UNDEFINED;
+    //             }
+    //             Err(_) => {
+    //                 while i < len {
+    //                     *pval = JSValue::UNDEFINED;
+    //                     i += 1;
+    //                     pval = pval.offset(1);
+    //                 }
+    //                 JS_FreeValue(ctx, obj);
+    //                 return JSValue::EXCEPTION;
+    //             }
+    //         }
+    //     }
+    // }
 
     if JS_SetProperty(ctx, arr, JS_ATOM_length, JSValue::from_i64(len)) < 0 {
         JS_FreeValue(ctx, obj);
@@ -1260,6 +1329,7 @@ pub unsafe fn js_array_pop(
         let mut count32: u32 = 0;
 
         /* Special case fast arrays */
+
         if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 == len as u32 {
             let p = JS_VALUE_GET_OBJ(obj);
             if shift != 0 {
@@ -1274,12 +1344,11 @@ pub unsafe fn js_array_pop(
             if shift != 0 {
                 res = JS_GetPropertyInt64(ctx, obj, 0);
                 if JS_IsException(res) {
-                    // C2RS: goto exception replaced with early return logic
                     JS_FreeValue(ctx, res);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
-                if JS_CopySubArray(ctx, obj, 0, 1, len - 1, 1).is_err() {
+                if JS_CopySubArray(ctx, obj, 0, 1, len as usize - 1, 1).is_err() {
                     JS_FreeValue(ctx, res);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1334,7 +1403,7 @@ pub unsafe fn js_array_push(
 
     let mut from = len;
     if unshift != 0 && argc > 0 {
-        if JS_CopySubArray(ctx, obj, argc as _, 0, len, -1).is_err() {
+        if JS_CopySubArray(ctx, obj, argc as _, 0, len as usize, -1).is_err() {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
@@ -1477,68 +1546,68 @@ pub unsafe fn js_array_toReversed(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
+    let new_len = if let Ok(l) = js_get_length64(ctx, obj) {
         l
     } else {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     };
 
-    let arr = (*ctx).create_array_with_capacity(len);
-    if JS_IsException(arr) {
-        JS_FreeValue(ctx, arr);
+    let res_arr = (*ctx).create_array(std::cmp::max(new_len, 0) as _);
+    if JS_IsException(res_arr) {
+        JS_FreeValue(ctx, res_arr);
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
-    if len > 0 {
-        let p = JS_VALUE_GET_OBJ(arr);
-        let mut pval = (*p).u.array.u.values;
+    if new_len > 0 {
+        let p = JS_VALUE_GET_OBJ(res_arr);
+        let dest = (*p).array_values_mut_unchecked();
 
-        let mut arrp: *mut JSValue = std::ptr::null_mut();
-        let mut count32: u32 = 0;
-
-        if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 == len as u32 {
-            for i in (0..=len - 1).rev() {
-                *pval = (*arrp.offset(i as isize)).dup();
-                pval = pval.offset(1);
+        if let Some(src) = obj.fast_array_values().and_then(|a| {
+            if a.len() == new_len as usize {
+                Some(a)
+            } else {
+                None
+            }
+        }) {
+            // Fast path: fast array values
+            for v in src.iter().rev() {
+                dest.push(v.dup());
             }
         } else {
+            // slow array
             // Query order is observable; test262 expects descending order.
-            let mut i = len - 1;
-
+            let mut i = new_len - 1;
             while i >= 0 {
                 if let Ok(v) = JS_TryGetPropertyInt64(ctx, obj, i) {
                     if let Some(v) = v {
-                        *pval = v;
+                        dest.push(v);
                     }
                 } else {
                     // Exception; initialize remaining elements.
                     while i >= 0 {
-                        *pval = JSValue::UNDEFINED;
-                        pval = pval.offset(1);
+                        dest.push(JSValue::UNDEFINED);
                         i -= 1;
                     }
 
-                    JS_FreeValue(ctx, arr);
+                    JS_FreeValue(ctx, res_arr);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
-
-                pval = pval.offset(1);
                 i -= 1;
             }
         }
 
-        if JS_SetProperty(ctx, arr, JS_ATOM_length, JSValue::from_i64(len)) < 0 {
-            JS_FreeValue(ctx, arr);
+        if JS_SetProperty(ctx, res_arr, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
+            JS_FreeValue(ctx, res_arr);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
     }
 
     JS_FreeValue(ctx, obj);
-    arr
+    res_arr
 }
 
 pub unsafe fn js_array_sort(
@@ -1704,9 +1773,9 @@ pub unsafe fn js_array_slice(
             if JS_CopySubArray(
                 ctx,
                 obj,
-                start + item_count as i64,
-                start + del_count,
-                len - (start + del_count),
+                start as usize + item_count as usize,
+                start as usize + del_count as usize,
+                len as usize - (start + del_count) as usize,
                 if item_count as i64 <= del_count {
                     1
                 } else {
@@ -1793,94 +1862,91 @@ pub unsafe fn js_array_toSpliced(
         add = argc as i64 - 2;
     }
 
-    let newlen = len + add - del;
-    if newlen > MAX_SAFE_INTEGER {
+    let new_len = len + add - del;
+    if new_len > MAX_SAFE_INTEGER {
         (*ctx).JS_ThrowTypeError(c"invalid array length");
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
-    let arr = (*ctx).create_array_with_capacity(newlen);
-    if JS_IsException(arr) {
+    // create result array
+    let res_arr = (*ctx).create_array(std::cmp::max(new_len, 0) as _);
+    if res_arr.is_exception() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
-
-    if newlen <= 0 {
+    if new_len <= 0 {
         JS_FreeValue(ctx, obj);
-        return arr;
+        return res_arr;
     }
 
-    let p = JS_VALUE_GET_OBJ(arr);
-    let mut pval = (*p).u.array.u.values;
-    let last = (*p).u.array.u.values.add(newlen as usize);
+    let p = JS_VALUE_GET_OBJ(res_arr);
+    let new_lst = (*p).array_values_mut_unchecked();
 
     macro_rules! exception {
-        () => {
-            while pval != last {
-                *pval = JSValue::UNDEFINED;
-                pval = pval.offset(1);
+        ($i:expr) => {
+            // fill rest with undefined, because array finalizer will free elements too.
+            for _ in $i..new_len {
+                new_lst.push(JSValue::UNDEFINED);
             }
-            JS_FreeValue(ctx, arr);
+            JS_FreeValue(ctx, res_arr);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         };
     }
 
-    let mut arrp: *mut JSValue = std::ptr::null_mut();
-    let mut count32 = 0;
-
-    if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 == len as u32 {
-        for i in 0..start {
-            *pval = (*arrp.offset(i as isize)).dup();
-            pval = pval.offset(1);
+    if let Some(src) = obj.fast_array_values().and_then(|a| {
+        if a.len() == len as usize {
+            Some(a)
+        } else {
+            None
         }
+    }) {
+        // src fast array values
+        for v in &src[..start as usize] {
+            new_lst.push(v.dup());
+        }
+
         for j in 0..add {
-            *pval = (*argv.offset((2 + j) as isize)).dup();
-            pval = pval.offset(1);
+            new_lst.push((*argv.offset((2 + j) as isize)).dup());
         }
 
-        for i in (start + del)..len {
-            *pval = (*arrp.offset(i as isize)).dup();
-            pval = pval.offset(1);
+        for v in &src[(start + del) as usize..] {
+            new_lst.push(v.dup());
         }
     } else {
+        // slow array
         for i in 0..start {
             if let Ok(val) = JS_TryGetPropertyInt64(ctx, obj, i) {
                 if let Some(v) = val {
-                    *pval = v;
+                    new_lst.push(v);
                 }
-                pval = pval.offset(1);
             } else {
-                exception!();
+                exception!(i);
             }
         }
 
         for j in 0..add {
-            *pval = (*argv.offset((2 + j) as isize)).dup();
-            pval = pval.offset(1);
+            new_lst.push((*argv.offset((2 + j) as isize)).dup());
         }
 
         for i in (start + del)..len {
             if let Ok(val) = JS_TryGetPropertyInt64(ctx, obj, i) {
                 if let Some(v) = val {
-                    *pval = v;
+                    new_lst.push(v);
                 }
-                pval = pval.offset(1);
             } else {
-                exception!();
+                exception!(i);
             }
         }
     }
 
-    debug_assert_eq!(pval, last);
-
-    if JS_SetProperty(ctx, arr, JS_ATOM_length, JSValue::from_i64(newlen)) < 0 {
-        exception!();
+    if JS_SetProperty(ctx, res_arr, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
+        exception!(new_len);
     }
 
     JS_FreeValue(ctx, obj);
-    arr
+    res_arr
 }
 
 pub unsafe fn js_array_copyWithin(
@@ -1921,9 +1987,9 @@ pub unsafe fn js_array_copyWithin(
     if JS_CopySubArray(
         ctx,
         obj,
-        to,
-        from,
-        count,
+        to as _,
+        from as _,
+        count as _,
         if from < to && to < from + count {
             -1
         } else {

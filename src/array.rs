@@ -6,13 +6,13 @@ use crate::{
     context::JSContext,
     error::{JSErrorEnum, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::{js_free, js_free_rt, js_realloc2},
+    mem::js_free_rt,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
-    types::{likely, unlikely},
+    types::unlikely,
     value::{
         object::{
-            js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
+            js_dup_shape, js_get_length64, JSObject, JSObjectArray, JSProperty, JSPropertyUnion,
             JS_CreateDataPropertyUint32, JS_DeletePropertyInt64, JS_NewObjectFromShape,
             JS_SetProperty, JS_SetPropertyInt64, JS_ToObject, JS_TryGetPropertyInt64,
             JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
@@ -22,7 +22,8 @@ use crate::{
         JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
-    JS_CLASS_ARRAY, JS_CLASS_PROXY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
+    JS_CLASS_UINT8C_ARRAY,
 };
 
 impl JSValue {
@@ -30,40 +31,107 @@ impl JSValue {
     pub fn is_fast_array(self) -> bool {
         if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
             let p = JS_VALUE_GET_OBJ(self);
-            unsafe {
-                if (*p).class_id() == JS_CLASS_ARRAY && (*p).detailed.fast_array() {
-                    return true;
-                }
-            }
+            unsafe { (*p).detailed.fast_array() }
+        } else {
+            false
         }
+    }
 
-        false
+    /// get array values slice. returns None if obj does not have array values.
+    pub unsafe fn fast_array_values(&self) -> Option<&[JSValue]> {
+        if self.is_fast_array() {
+            let p = JS_VALUE_GET_OBJ(*self);
+            Some((*p).array_values_unchecked())
+        } else {
+            None
+        }
+    }
+
+    /// get fast array values. returns None if obj is not a fast array.
+    pub unsafe fn fast_array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
+        if self.is_fast_array() {
+            let p = JS_VALUE_GET_OBJ(*self);
+            Some((*p).array_values_mut_unchecked())
+        } else {
+            None
+        }
     }
 }
 
 impl JSContext {
-    /// capacity <=0 for unknown length, equivalent to JS_NewArray in this case.
-    /// returns EXCEPTION value if create fail, otherwise returns Array value
-    pub unsafe fn create_array_with_capacity(&mut self, capacity: i64) -> JSValue {
-        if capacity > i32::MAX as i64 {
+    /// create a fast array value. `capacity` indicates reserved space.
+    /// returns EXCEPTION value when fail, otherwise returns Array value
+    pub unsafe fn create_array(&mut self, capacity: usize) -> JSValue {
+        if capacity > i32::MAX as usize {
             return self.JS_ThrowError(JSErrorEnum::Range, c"invalid array length");
         }
 
         let arr = JS_NewArray(self);
-        if JS_IsException(arr) {
-            return arr;
+        if arr.is_exception() {
+            return JSValue::EXCEPTION;
         }
+
+        debug_assert!((*JS_VALUE_GET_OBJ(arr)).detailed.fast_array());
 
         if capacity > 0 {
             let p = JS_VALUE_GET_OBJ(arr);
-            if expand_fast_array(self, p, capacity as u32) < 0 {
+            if (*p)
+                .array_values_mut_unchecked()
+                .try_reserve_exact(capacity)
+                .is_err()
+            {
                 JS_FreeValue(self, arr);
                 return JSValue::EXCEPTION;
             }
-            (*(*p).u.array).count = capacity as u32;
         }
 
         arr
+    }
+}
+
+impl JSObject {
+    /// if object is a fast array, returns array values.
+    /// SAFETY: must ensure that object is a fat array, otherwise behavior is undefined.
+    pub unsafe fn array_values_unchecked(&self) -> &[JSValue] {
+        debug_assert!(
+            matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+                && self.detailed.fast_array()
+        );
+        (*self.u.array).data.values.as_slice()
+    }
+
+    /// if object is a fast array, returns array values.
+    pub fn array_values(&self) -> Option<&[JSValue]> {
+        if matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+            && self.detailed.fast_array()
+        {
+            Some(unsafe { (*self.u.array).data.values.as_slice() })
+        } else {
+            None
+        }
+    }
+
+    /// if object is a fast array, returns array values mut.
+    /// SAFETY: must ensure that object is a fat array, otherwise behavior is undefined.
+    pub unsafe fn array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
+        debug_assert!(
+            matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+                && self.detailed.fast_array(),
+            "class={}, is_fast_array={}",
+            self.class_id(),
+            self.detailed.fast_array()
+        );
+
+        &mut (*self.u.array).data.values
+    }
+
+    /// if object is a fast array, returns array values mut; otherwise returns None.
+    pub fn array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
+        if matches!(self.class_id(), JS_CLASS_ARRAY) && self.detailed.fast_array() {
+            Some(unsafe { &mut (*self.u.array).data.values })
+        } else {
+            None
+        }
     }
 }
 
@@ -94,7 +162,7 @@ pub unsafe fn set_array_length(
 ) -> i32 {
     /* Note: this call can reallocate the properties of 'p' */
     let len = if let Ok(n) = JS_ToArrayLengthFree(ctx, val, false) {
-        n
+        n as usize
     } else {
         return -1;
     };
@@ -115,39 +183,37 @@ pub unsafe fn set_array_length(
         };
     }
 
-    if likely((*p).detailed.fast_array()) {
-        let old_len = (*p).u.array.count;
+    if (*p).detailed.fast_array() {
+        let lst = (*p).array_values_mut_unchecked();
+        let old_len = lst.len();
         if len < old_len {
-            // C2RS: C for-loop converted to Rust range
-            for i in len..old_len {
-                JS_FreeValue(ctx, *(*p).u.array.u.values.offset(i as isize));
+            for v in lst.drain(len..old_len) {
+                JS_FreeValue(ctx, v);
             }
-            (*(*p).u.array).count = len;
         }
-
         (*p).prop_values[0] = JSProperty {
             u: JSPropertyUnion {
-                value: JSValue::from_u32(len),
+                value: JSValue::from_u32(len as _),
             },
         };
     } else {
-        /* Note: length is always a uint32 because the object is an array */
+        // Note: length is always a uint32 because the object is an array
         let mut cur_len = (*p)
             .prop_values
             .first()
             .map(|pr| pr.u.value)
             .ok_or(-1)
             .and_then(|v| JS_ToUint32(ctx, v))
-            .unwrap();
+            .unwrap() as usize;
 
         if len < cur_len {
             let mut sh = (*p).shape_mut().unwrap();
             let d = cur_len - len;
 
-            if d <= (*sh).props.len() as u32 {
-                /* faster to iterate */
+            if d <= (*sh).props.len() {
+                // faster to iterate
                 while cur_len > len {
-                    let atom = JS_NewAtomUInt32(ctx, cur_len - 1);
+                    let atom = JS_NewAtomUInt32(ctx, cur_len as u32 - 1);
                     let ret = p.as_mut().unwrap().delete_property(ctx, atom);
                     JS_FreeAtom(ctx, atom);
                     if unlikely(ret == 0) {
@@ -157,14 +223,15 @@ pub unsafe fn set_array_length(
                     cur_len -= 1;
                 }
             } else {
-                /* faster to iterate thru all the properties. Need two
-                passes in case one of the property is not
-                configurable */
+                // faster to iterate thru all the properties.
+                // Need two passes in case one of the property is not  configurable
                 cur_len = len;
 
                 for pr in sh.props.values_mut() {
-                    let mut idx = 0_u32;
-                    if pr.atom != JS_ATOM_NULL && JS_AtomIsArrayIndex(ctx, &mut idx, pr.atom) {
+                    let mut idx = 0_usize;
+                    if pr.atom != JS_ATOM_NULL
+                        && JS_AtomIsArrayIndex(ctx, &mut (idx as u32), pr.atom)
+                    {
                         if idx >= cur_len && pr.flags() & JS_PROP_CONFIGURABLE == 0 {
                             cur_len = idx + 1;
                         }
@@ -175,7 +242,7 @@ pub unsafe fn set_array_length(
                     let (_, pr) = (*sh).props.get_index(i).unwrap();
                     let mut idx = 0_u32;
                     if pr.atom != JS_ATOM_NULL && JS_AtomIsArrayIndex(ctx, &mut idx, (*pr).atom) {
-                        if idx >= cur_len {
+                        if idx as usize >= cur_len {
                             // remove the property
                             p.as_mut().unwrap().delete_property(ctx, pr.atom);
                             // WARNING: the shape may have been modified
@@ -191,7 +258,7 @@ pub unsafe fn set_array_length(
         set_value(
             ctx,
             &mut (*p).prop_values.first_mut().unwrap().u.value, // #0 is the length
-            JSValue::from_u32(cur_len),
+            JSValue::from_u32(cur_len as _),
         );
 
         if cur_len > len {
@@ -206,20 +273,16 @@ pub unsafe fn set_array_length(
     1
 }
 
-/* can be called on Array or Arguments objects. return < 0 if
-memory alloc error. */
-#[must_use]
+/// can be called on Array or Arguments objects. return < 0 if memory alloc error.
+/// returns -1 if fail.
 pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject) -> i32 {
-    if p.as_mut()
-        .unwrap()
-        .js_shape_prepare_update(ctx, std::ptr::null_mut())
-        != 0
-    {
+    debug_assert!((*p).detailed.fast_array());
+
+    if (*p).js_shape_prepare_update(ctx, std::ptr::null_mut()) != 0 {
         return -1;
     }
 
-    let len = (*p).u.array.count;
-    // /* resize the properties once to simplify the error handling */
+    // /* TODO: resize the properties once to simplify the error handling */
     // let sh: *mut JSShape = (*p).shape;
     // let new_count = (*sh).prop_count as usize + len as usize;
     // if new_count > (*sh).prop_size as usize {
@@ -228,50 +291,52 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
     //     }
     // }
 
-    let tab = (*p).u.array.u.values; // list of array values
-    for i in 0..len {
-        /* add_property cannot fail here but
-        __JS_AtomFromUInt32(i) fails for i > INT32_MAX */
-        let pr = p
-            .as_mut()
-            .unwrap()
+    for (i, v) in (*p)
+        .array_values_mut_unchecked()
+        .drain(..)
+        .into_iter()
+        .enumerate()
+    {
+        // add_property cannot fail here
+        // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
+        let pr = (*p)
             .add_property(
                 ctx.as_mut().unwrap(),
-                JSAtom::from_u32(i), // int as property name
+                JSAtom::from_u32(i as _), // int as property name
                 JS_PROP_C_W_E,
             )
             .expect("FIXME: add_property error");
-
-        (*pr).u.value = *tab.offset(i as _);
+        (*pr).u.value = v;
     }
 
-    // free array list mem
-    js_free(ctx, (*p).u.array.u.values.cast());
-
     (*(*p).u.array).count = 0;
-    (*(*p).u.array).u.values = std::ptr::null_mut(); /* fail safe */
     (*(*p).u.array).u1.size = 0;
     (*p).detailed.set_fast_array(false);
 
     0
 }
 
-// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p->fast_array =
-// TRUE and p->extensible = TRUE
+/// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p is fast_array and p is extensible.
+/// returns -1 if fail, 1 if append successfully, 0 if can't append due to read-only but flags indicates don't throw exception.
+/// Note: `val` is consumed.
 pub unsafe fn add_fast_array_element(
     ctx: *mut JSContext,
     p: *mut JSObject,
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    // extend the array by one
-    // XXX: convert to slow array if new_len > 2^31-1 elements
-    let new_len = (*p).u.array.count + 1;
+    let lst = (*p).array_values_mut_unchecked();
 
+    // extend the array by one
+    // XXX: convert to slow array if new_len > u32::MAX elements
+    let new_len = lst.len() + 1;
+
+    // first element in `prop_values` is the array length.
     // update the length if necessary. We assume that if the length is
     // not an integer, then if it >= 2^31.
-    if likely(JS_VALUE_GET_TAG((*p).prop_values.first().unwrap().u.value) == JS_TAG_INT) {
-        let array_len = JS_VALUE_GET_INT((*p).prop_values.first().unwrap().u.value) as u32;
+    let pr0 = (*p).prop_values.first().unwrap();
+    if JS_VALUE_GET_TAG(pr0.u.value) == JS_TAG_INT {
+        let array_len = JS_VALUE_GET_INT(pr0.u.value) as usize;
         if new_len > array_len {
             if (*p)
                 .shape()
@@ -291,46 +356,45 @@ pub unsafe fn add_fast_array_element(
             (*p).prop_values[0].u.value = JSValue::from_i32(new_len as i32);
         }
     }
-    if unlikely(new_len > (*p).u.array.u1.size) {
-        if expand_fast_array(ctx, p, new_len) != 0 {
+
+    if lst.len() == lst.capacity() {
+        if lst.try_reserve(1).is_err() {
             JS_FreeValue(ctx, val);
             return -1;
         }
     }
-    (*p).u
-        .array
-        .u
-        .values
-        .offset((new_len - 1) as isize)
-        .write(val);
-    (*(*p).u.array).count = new_len;
+
+    lst.push(val);
+    (*(*p).u.array).count = new_len as _;
 
     return 1;
 }
 
-/* return -1 if exception */
+/// return -1 if exception
+#[deprecated(note = "not used")]
 pub unsafe fn expand_fast_array(ctx: *mut JSContext, p: *mut JSObject, new_len: u32) -> i32 {
-    let mut slack: usize = 0;
+    unreachable!("unused");
+    // let mut slack: usize = 0;
 
-    /* XXX: potential arithmetic overflow */
-    let mut new_size = std::cmp::max(new_len, (*p).u.array.u1.size * 3 / 2);
-    let new_array_prop = js_realloc2(
-        ctx,
-        (*p).u.array.u.values.cast(),
-        std::mem::size_of::<JSValue>() * new_size as usize,
-        &mut slack,
-    )
-    .cast::<JSValue>();
-    if new_array_prop.is_null() {
-        return -1;
-    }
+    // /* XXX: potential arithmetic overflow */
+    // let mut new_size = std::cmp::max(new_len, (*p).u.array.u1.size * 3 / 2);
+    // let new_array_prop = js_realloc2(
+    //     ctx,
+    //     (*p).u.array.data.values.cast(),
+    //     std::mem::size_of::<JSValue>() * new_size as usize,
+    //     &mut slack,
+    // )
+    // .cast::<JSValue>();
+    // if new_array_prop.is_null() {
+    //     return -1;
+    // }
 
-    new_size += (slack / std::mem::size_of::<JSValue>()) as u32;
+    // new_size += (slack / std::mem::size_of::<JSValue>()) as u32;
 
-    (*(*p).u.array).u.values = new_array_prop;
-    (*(*p).u.array).u1.size = new_size;
+    // (*(*p).u.array).data.values = new_array_prop;
+    // (*(*p).u.array).u1.size = new_size;
 
-    return 0;
+    // return 0;
 }
 
 pub unsafe fn JS_ToArrayLengthFree(
@@ -419,94 +483,166 @@ pub unsafe fn JS_ToArrayLengthFree(
     Ok(len)
 }
 
+/// 将数组 obj 中从 from_pos 开始的 count 个元素复制到 to_pos 开始的位置。
+/// - 正向复制（dir > 0）：从 from_pos 到 from_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
+/// - 反向复制（dir < 0）：从 from_pos + count - 1 到 from_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
 pub unsafe fn JS_CopySubArray(
     ctx: *mut JSContext,
     obj: JSValueConst,
-    to_pos: i64,
-    from_pos: i64,
-    count: i64,
+    to_pos: usize,
+    from_pos: usize,
+    count: usize,
     dir: i32,
 ) -> Result<(), i32> {
-    let p = if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
+    let fast_array = if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
         let p0 = JS_VALUE_GET_OBJ(obj);
         if (*p0).class_id() != JS_CLASS_ARRAY || !(*p0).detailed.fast_array() {
-            std::ptr::null_mut()
+            None
         } else {
-            p0
+            Some(p0)
         }
     } else {
-        std::ptr::null_mut()
+        None
     };
 
-    let mut from: i64;
-    let mut to: i64;
-    let mut len: i64;
-    let mut i = 0;
+    if let Some(fa) = fast_array {
+        // `obj` is fast array
+        let lst = (*fa).array_values_mut_unchecked();
+        let len = lst.len();
 
-    while i < count {
-        if dir < 0 {
-            from = from_pos + count - i - 1;
-            to = to_pos + count - i - 1;
+        // calc actual copy count
+        let cnt1 = if from_pos + count > len {
+            if len > from_pos {
+                len - from_pos
+            } else {
+                0
+            }
         } else {
-            from = from_pos + i;
-            to = to_pos + i;
-        }
-        len = (*p).u.array.count as i64;
+            count
+        };
+        let cnt2 = if to_pos + count > len {
+            if len > to_pos {
+                len - to_pos
+            } else {
+                0
+            }
+        } else {
+            count
+        };
+        let cnt = std::cmp::min(cnt1, cnt2);
 
-        if !p.is_null()
-            && (*p).detailed.fast_array()
-            && from >= 0
-            && from < len
-            && to >= 0
-            && to < len
-        {
-            // Fast path for fast arrays. Since we don't look at the
-            // prototype chain, we can optimize only the cases where
-            // all the elements are present in the array.
-
-            let mut j: i64 = 0;
-            let mut l = count - i;
-
-            if dir < 0 {
-                l = std::cmp::min(l, from + 1);
-                l = std::cmp::min(l, to + 1);
-                j = 0;
-                while j < l {
-                    set_value(
-                        ctx,
-                        (*p).u.array.u.values.offset((to - j) as isize),
-                        JS_DupValue(ctx, *(*p).u.array.u.values.offset((from - j) as isize)),
-                    );
-                    j += 1;
+        if cnt > 0 {
+            if dir > 0 {
+                for i in 0..cnt {
+                    let v1 = lst[from_pos + i];
+                    let v0 = lst[to_pos + i].replace(v1.dup());
+                    JS_FreeValue(ctx, v0); // free old value
                 }
             } else {
-                l = std::cmp::min(l, len - from);
-                l = std::cmp::min(l, len - to);
-                j = 0;
-                while j < l {
-                    set_value(
-                        ctx,
-                        (*p).u.array.u.values.offset((to + j) as isize),
-                        JS_DupValue(ctx, *(*p).u.array.u.values.offset((from + j) as isize)),
-                    );
-                    j += 1;
+                for i in (0..cnt).rev() {
+                    let v1 = lst[from_pos + i];
+                    let v0 = lst[to_pos + i].replace(v1.dup());
+                    JS_FreeValue(ctx, v0); // free old value
                 }
             }
-            i += l;
-        } else {
-            match JS_TryGetPropertyInt64(ctx, obj, from)? {
+        }
+    } else {
+        // slow array
+        for i in 0..count {
+            match JS_TryGetPropertyInt64(ctx, obj, (from_pos + i) as i64)? {
                 Some(val) => {
-                    if JS_SetPropertyInt64(ctx, obj, to, val) < 0 {
+                    if JS_SetPropertyInt64(ctx, obj, (to_pos + i) as _, val) < 0 {
                         return Err(-1);
                     }
                 }
                 None => {
-                    JS_DeletePropertyInt64(ctx, obj, to, JS_PROP_THROW)?;
+                    JS_DeletePropertyInt64(ctx, obj, (to_pos + 1) as _, JS_PROP_THROW)?;
                 }
             }
-            i += 1;
         }
     }
+
+    // let p = if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
+    //     let p0 = JS_VALUE_GET_OBJ(obj);
+    //     if (*p0).class_id() != JS_CLASS_ARRAY || !(*p0).detailed.fast_array() {
+    //         std::ptr::null_mut()
+    //     } else {
+    //         p0
+    //     }
+    // } else {
+    //     std::ptr::null_mut()
+    // };
+
+    // let mut from: i64;
+    // let mut to: i64;
+    // let mut len: i64;
+
+    // let mut i = 0;
+    // while i < count {
+    //     if dir < 0 {
+    //         from = from_pos + count - i - 1;
+    //         to = to_pos + count - i - 1;
+    //     } else {
+    //         from = from_pos + i;
+    //         to = to_pos + i;
+    //     }
+
+    //     len = (*p).u.array.count as i64;
+
+    //     if !p.is_null()
+    //         && (*p).detailed.fast_array()
+    //         && from >= 0
+    //         && from < len
+    //         && to >= 0
+    //         && to < len
+    //     {
+    //         // Fast path for fast arrays. Since we don't look at the
+    //         // prototype chain, we can optimize only the cases where
+    //         // all the elements are present in the array.
+
+    //         let mut j: i64 = 0;
+    //         let mut l = count - i;
+
+    //         if dir < 0 {
+    //             l = std::cmp::min(l, from + 1);
+    //             l = std::cmp::min(l, to + 1);
+    //             j = 0;
+    //             while j < l {
+    //                 set_value(
+    //                     ctx,
+    //                     (*p).u.array.data.values.offset((to - j) as isize),
+    //                     JS_DupValue(ctx, *(*p).u.array.data.values.offset((from - j) as isize)),
+    //                 );
+    //                 j += 1;
+    //             }
+    //         } else {
+    //             l = std::cmp::min(l, len - from);
+    //             l = std::cmp::min(l, len - to);
+    //             j = 0;
+    //             while j < l {
+    //                 set_value(
+    //                     ctx,
+    //                     (*p).u.array.data.values.offset((to + j) as isize),
+    //                     JS_DupValue(ctx, *(*p).u.array.data.values.offset((from + j) as isize)),
+    //                 );
+    //                 j += 1;
+    //             }
+    //         }
+    //         i += l;
+    //     } else {
+    //         match JS_TryGetPropertyInt64(ctx, obj, from)? {
+    //             Some(val) => {
+    //                 if JS_SetPropertyInt64(ctx, obj, to, val) < 0 {
+    //                     return Err(-1);
+    //                 }
+    //             }
+    //             None => {
+    //                 JS_DeletePropertyInt64(ctx, obj, to, JS_PROP_THROW)?;
+    //             }
+    //         }
+    //         i += 1;
+    //     }
+    // }
 
     Ok(())
 }
@@ -545,23 +681,20 @@ pub unsafe fn js_array_push(
     let len = if let Ok(n) = js_get_length64(ctx, obj) {
         n
     } else {
-        // C2RS: goto exception replaced with early return logic
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     };
 
     let newLen = len + argc as i64;
     if newLen > MAX_SAFE_INTEGER {
-        ctx.as_mut().unwrap().JS_ThrowTypeError(c"Array loo long");
-        // C2RS: goto exception replaced with early return logic
+        (*ctx).JS_ThrowTypeError(c"Array loo long");
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
     let mut from = len;
     if unshift != 0 && argc > 0 {
-        if JS_CopySubArray(ctx, obj, argc as _, 0, len, -1).is_err() {
-            // C2RS: goto exception replaced with early return logic
+        if JS_CopySubArray(ctx, obj, argc as _, 0, len as _, -1).is_err() {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
@@ -576,14 +709,12 @@ pub unsafe fn js_array_push(
             JS_DupValue(ctx, *argv.offset(i as isize)),
         ) < 0
         {
-            // C2RS: goto exception replaced with early return logic
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
     }
 
     if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(newLen)) < 0 {
-        // C2RS: goto exception replaced with early return logic
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -593,27 +724,25 @@ pub unsafe fn js_array_push(
 }
 
 /// Access an Array's internal JSValue array if available
+#[deprecated(note = "use JSValue::fast_array_mut() instead")]
 pub unsafe fn js_get_fast_array(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
+    ctx: *const JSContext,
+    mut obj: JSValueConst,
     arrpp: *mut *mut JSValue,
     countp: *mut u32,
 ) -> bool {
-    // Try and handle fast arrays explicitly
-    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let p: *mut JSObject = JS_VALUE_GET_OBJ(obj);
-        if (*p).class_id() == JS_CLASS_ARRAY && (*p).detailed.fast_array() {
-            *countp = (*p).u.array.count;
-            *arrpp = (*p).u.array.u.values;
-            return true;
-        }
+    if let Some(lst) = obj.fast_array_values_mut() {
+        *countp = lst.len() as _;
+        *arrpp = lst.as_mut_ptr();
+        true
+    } else {
+        false
     }
-    return false;
 }
 
-#[deprecated(note = "use JSContext::create_array_with_capacity() instead")]
-pub unsafe fn js_allocate_fast_array(ctx: *mut JSContext, len: i64) -> JSValue {
-    (*ctx).create_array_with_capacity(len)
+#[deprecated(note = "use JSContext::create_array() instead")]
+pub unsafe fn js_allocate_fast_array(ctx: *const JSContext, len: i64) -> JSValue {
+    unreachable!("use JSContext::create_array() instead");
 }
 
 #[deprecated(note = "use JSValue::is_fast_array() instead")]
@@ -623,16 +752,19 @@ pub unsafe fn js_is_fast_array(ctx: *const JSContext, obj: JSValueConst) -> bool
 
 pub unsafe fn js_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let p = JS_VALUE_GET_OBJ(val);
-    for i in 0..(*p).u.array.count {
-        JS_FreeValueRT(rt, *(*p).u.array.u.values.add(i as usize));
+    if let Some(lst) = (*p).array_values_mut() {
+        for v in lst.drain(..) {
+            JS_FreeValueRT(rt, v);
+        }
     }
-    js_free_rt(rt, (*p).u.array.u.values.cast());
 }
 
 pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
-    for i in 0..(*p).u.array.count {
-        JS_MarkValue(rt, *(*p).u.array.u.values.offset(i as isize), mark_func);
+    let p = JS_VALUE_GET_OBJ(val);
+    if let Some(lst) = (*p).array_values() {
+        for v in lst {
+            JS_MarkValue(rt, *v, mark_func);
+        }
     }
 }
 

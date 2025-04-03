@@ -433,80 +433,91 @@ pub unsafe fn JS_DefineProperty(
             return 1;
         }
 
-        /* handle modification of fast array elements */
+        // modification of fast array elements
         if (*p).detailed.fast_array() {
-            if (*p).class_id() == JS_CLASS_ARRAY {
-                if prop.is_int_type() {
-                    let idx = __JS_AtomToUInt32(prop);
-                    if idx < (*p).u.array.count {
-                        let prop_flags = get_prop_flags(flags, JS_PROP_C_W_E);
-                        if prop_flags != JS_PROP_C_W_E {
-                            // convert_to_slow_array标签
-                            if convert_fast_array_to_array(ctx, p) != 0 {
-                                return -1;
-                            } else {
-                                continue; // redo_prop_update
+            match (*p).class_id() {
+                JS_CLASS_ARRAY => {
+                    let lst = (*p).array_values_mut_unchecked();
+                    if prop.is_int_type() {
+                        let idx = __JS_AtomToUInt32(prop) as usize;
+                        if idx < lst.len() {
+                            let prop_flags = get_prop_flags(flags, JS_PROP_C_W_E);
+                            if prop_flags != JS_PROP_C_W_E {
+                                if convert_fast_array_to_array(ctx, p) != 0 {
+                                    return -1;
+                                } else {
+                                    continue; // redo_prop_update
+                                }
                             }
-                        }
-                        if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-                            // convert_to_slow_array标签
-                            if convert_fast_array_to_array(ctx, p) != 0 {
-                                return -1;
-                            } else {
-                                continue; // redo_prop_update
+                            if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+                                if convert_fast_array_to_array(ctx, p) != 0 {
+                                    return -1;
+                                } else {
+                                    continue; // redo_prop_update
+                                }
                             }
+                            if flags & JS_PROP_HAS_VALUE != 0 {
+                                set_value(ctx, lst.get_mut(idx as usize).unwrap(), val.dup());
+                            }
+                            return 1;
                         }
-                        if flags & JS_PROP_HAS_VALUE != 0 {
-                            set_value(
-                                ctx,
-                                &mut *(*p).u.array.u.values.offset(idx as isize),
-                                val.dup(),
-                            );
-                        }
-                        return 1;
                     }
                 }
-            } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&(*p).class_id()) {
-                if !prop.is_int_type() {
-                    /* slow path with to handle all numeric indexes */
-                    let num = JS_AtomIsNumericIndex1(ctx, prop);
-                    if JS_IsUndefined(num) {
-                        break; // goto typed_array_done
-                    }
-                    if JS_IsException(num) {
-                        return -1;
-                    }
+                JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                    if !prop.is_int_type() {
+                        /* slow path with to handle all numeric indexes */
+                        let num = JS_AtomIsNumericIndex1(ctx, prop);
+                        if num.is_exception() {
+                            return -1;
+                        }
+                        if num.is_undefined() {
+                            break; // goto typed_array_done
+                        }
 
-                    if let Ok(b) = num.is_integer(ctx.as_mut().unwrap()) {
-                        if !b {
+                        if let Ok(b) = num.is_integer(ctx.as_mut().unwrap()) {
+                            if !b {
+                                JS_FreeValue(ctx, num);
+                                return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                    flags,
+                                    c"non integer index in typed array",
+                                ) {
+                                    0
+                                } else {
+                                    -1
+                                };
+                            }
+                        } else {
                             JS_FreeValue(ctx, num);
+                            return -1;
+                        };
+
+                        let ret = JS_NumberIsNegativeOrMinusZero(ctx, num);
+                        JS_FreeValue(ctx, num);
+                        if ret {
                             return if (*ctx).JS_ThrowTypeErrorOrFalse(
-                                flags,
-                                c"non integer index in typed array",
+                                flags as _,
+                                c"negative index in typed array",
                             ) {
                                 0
                             } else {
                                 -1
                             };
                         }
-                    } else {
-                        JS_FreeValue(ctx, num);
-                        return -1;
-                    };
-
-                    let ret = JS_NumberIsNegativeOrMinusZero(ctx, num);
-                    JS_FreeValue(ctx, num);
-                    if ret {
-                        return if (*ctx)
-                            .JS_ThrowTypeErrorOrFalse(flags as _, c"negative index in typed array")
-                        {
-                            0
-                        } else {
-                            -1
-                        };
+                        if !prop.is_int_type() {
+                            return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                flags,
+                                c"out-of-bound index in typed array",
+                            ) {
+                                0
+                            } else {
+                                -1
+                            };
+                        }
                     }
-                    if !prop.is_int_type() {
-                        // goto typed_array_oob
+
+                    let idx = __JS_AtomToUInt32(prop);
+                    /* if the typed array is detached, p->u.array.count = 0 */
+                    if idx >= (*p).u.array.count {
                         return if (*ctx)
                             .JS_ThrowTypeErrorOrFalse(flags, c"out-of-bound index in typed array")
                         {
@@ -515,45 +526,41 @@ pub unsafe fn JS_DefineProperty(
                             -1
                         };
                     }
-                }
-
-                let idx = __JS_AtomToUInt32(prop);
-                /* if the typed array is detached, p->u.array.count = 0 */
-                if idx >= (*p).u.array.count {
-                    return if (*ctx)
-                        .JS_ThrowTypeErrorOrFalse(flags, c"out-of-bound index in typed array")
-                    {
-                        0
-                    } else {
-                        -1
-                    };
-                }
-                let prop_flags = get_prop_flags(
-                    flags,
-                    JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                );
-                if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
-                    || prop_flags != (JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
-                {
-                    return if (*ctx)
-                        .JS_ThrowTypeErrorOrFalse(flags as _, c"invalid descriptor flags")
-                    {
-                        0
-                    } else {
-                        -1
-                    };
-                }
-                if flags & JS_PROP_HAS_VALUE != 0 {
-                    return JS_SetPropertyValue(
-                        ctx.as_mut().unwrap(),
-                        this_obj,
-                        JSValue::from_i32(idx as i32),
-                        val.dup(),
+                    let prop_flags = get_prop_flags(
                         flags,
+                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                     );
+                    if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
+                        || prop_flags
+                            != (JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
+                    {
+                        return if (*ctx)
+                            .JS_ThrowTypeErrorOrFalse(flags as _, c"invalid descriptor flags")
+                        {
+                            0
+                        } else {
+                            -1
+                        };
+                    }
+                    if flags & JS_PROP_HAS_VALUE != 0 {
+                        return JS_SetPropertyValue(
+                            ctx.as_mut().unwrap(),
+                            this_obj,
+                            JSValue::from_i32(idx as i32),
+                            val.dup(),
+                            flags,
+                        );
+                    }
+
+                    return 1;
                 }
 
-                return 1;
+                #[cfg(debug_assertions)]
+                JS_CLASS_ARGUMENTS => {}
+                _ => {
+                    #[cfg(debug_assertions)]
+                    unreachable!();
+                }
             }
         }
 
@@ -775,150 +782,146 @@ pub unsafe fn JS_SetPropertyValue(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    if likely(
-        JS_VALUE_GET_TAG(this_obj) == JSTag::Object as i32
-            && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32,
-    ) {
-        let mut d: f64 = 0.0;
-        let mut v: i32 = 0;
-
-        // 快速路径用于数组访问
+    if JS_VALUE_GET_TAG(this_obj) == JSTag::Object as i32
+        && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
+    {
         let p = JS_VALUE_GET_OBJ(this_obj);
         let idx = JS_VALUE_GET_INT(prop);
 
-        let mut slow_path = false;
         let mut ta_out_of_bound = false;
 
+        // early return using fast path if possible
         match (*p).class_id() {
             JS_CLASS_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // 快速路径用于向数组添加元素
-                    if idx != (*p).u.array.count as i32
-                        || !(*p).detailed.fast_array()
-                        || !(*p).detailed.extensible()
-                    {
-                        slow_path = true;
-                    } else {
+                // apply fast path using fast array
+                if (*p).detailed.fast_array() && (*p).detailed.extensible() {
+                    let lst = (*p).array_values_mut_unchecked();
+
+                    if idx < lst.len() as i32 {
+                        // update array element
+                        set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
+                        return 1;
+                    } else if idx == lst.len() as i32 {
                         // 检查原型链是否有数字属性
+                        let mut has_int_prop = false;
                         let mut p1 = (*p).shape().unwrap().proto;
-                        while !p1.is_null() && !slow_path {
+                        while !p1.is_null() && !has_int_prop {
                             let sh1 = (*p1).shape().unwrap();
                             if (*p1).class_id() == JS_CLASS_ARRAY {
                                 if !(*p1).detailed.fast_array() {
-                                    slow_path = true;
+                                    has_int_prop = true;
                                 }
                             } else if (*p1).class_id() == JS_CLASS_OBJECT {
                                 if sh1.has_small_array_index {
-                                    slow_path = true;
+                                    has_int_prop = true;
                                 }
                             } else {
-                                slow_path = true;
+                                has_int_prop = true;
                             }
                             p1 = sh1.proto;
                         }
 
-                        if !slow_path {
-                            // 添加元素
+                        if !has_int_prop {
+                            // append array element
                             return add_fast_array_element(ctx, p, val, flags);
                         }
                     }
                 }
-
-                if !slow_path {
-                    set_value(ctx, (*p).u.array.u.values.offset(idx as isize), val);
-                }
             }
             JS_CLASS_ARGUMENTS => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    slow_path = true;
-                } else {
-                    set_value(ctx, (*p).u.array.u.values.offset(idx as _), val);
+                let lst = (*p).array_values_mut_unchecked();
+                if idx < lst.len() as i32 {
+                    set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
+                    return 1;
                 }
             }
             JS_CLASS_UINT8C_ARRAY => {
+                let mut v = 0;
                 if JS_ToUint8ClampFree(ctx, &mut v, val) != 0 {
                     return -1;
                 }
-                if unlikely(idx >= (*p).u.array.count as i32) {
+                if idx >= (*p).u.array.count as i32 {
                     ta_out_of_bound = true;
                 } else {
-                    *(*p).u.array.u.uint8_ptr.offset(idx as _) = v as u8;
+                    *(*p).u.array.data.uint8_ptr.offset(idx as _) = v as u8;
+                    return 1;
                 }
             }
             JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                v = if let Ok(n) = val.to_i32_free(ctx) {
-                    n
+                let v = if let Ok(n) = val.to_i32_free(ctx) {
+                    n as u8
                 } else {
                     return -1;
                 };
                 if idx >= (*p).u.array.count as i32 {
                     ta_out_of_bound = true;
                 } else {
-                    *(*p).u.array.u.uint8_ptr.offset(idx as _) = v as u8;
+                    *(*p).u.array.data.uint8_ptr.offset(idx as _) = v;
+                    return 1;
                 }
             }
             JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
-                v = if let Ok(n) = val.to_i32_free(ctx) {
-                    n
+                let v = if let Ok(n) = val.to_i32_free(ctx) {
+                    n as u16
                 } else {
                     return -1;
                 };
                 if idx >= (*p).u.array.count as i32 {
                     ta_out_of_bound = true;
                 } else {
-                    *(*p).u.array.u.uint16_ptr.offset(idx as _) = v as u16;
+                    *(*p).u.array.data.uint16_ptr.offset(idx as _) = v as u16;
+                    return 1;
                 }
             }
             JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
-                v = if let Ok(n) = val.to_i32_free(ctx) {
-                    n
+                let v = if let Ok(n) = val.to_i32_free(ctx) {
+                    n as u32
                 } else {
                     return -1;
                 };
                 if idx >= (*p).u.array.count as i32 {
                     ta_out_of_bound = true;
                 } else {
-                    *(*p).u.array.u.uint32_ptr.offset(idx as _) = v as u32;
+                    *(*p).u.array.data.uint32_ptr.offset(idx as _) = v as u32;
+                    return 1;
                 }
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
                 unimplemented!()
             }
             JS_CLASS_FLOAT32_ARRAY => {
+                let mut d = 0.0;
                 if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
                     return -1;
                 }
                 if unlikely(idx >= (*p).u.array.count as i32) {
                     ta_out_of_bound = true;
                 } else {
-                    *(*p).u.array.u.float_ptr.offset(idx as _) = d as f32;
+                    *(*p).u.array.data.float_ptr.offset(idx as _) = d as f32;
+                    return 1;
                 }
             }
             JS_CLASS_FLOAT64_ARRAY => {
+                let mut d = 0.0;
                 if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
                     return -1;
                 }
                 if unlikely(idx >= (*p).u.array.count as i32) {
                     ta_out_of_bound = true;
                 } else {
-                    *(*p).u.array.u.double_ptr.offset(idx as _) = d;
+                    *(*p).u.array.data.double_ptr.offset(idx as _) = d;
+                    return 1;
                 }
             }
-            _ => {
-                slow_path = true;
-            }
+            _ => {}
         }
 
         if ta_out_of_bound {
             return 1;
         }
-
-        if !slow_path {
-            return 1;
-        }
     }
 
-    // slow_path 逻辑
+    // slow_path
     let atom = JS_ValueToAtom(ctx, prop);
     JS_FreeValue(ctx, prop);
     if unlikely(atom == JS_ATOM_NULL) {
@@ -1681,13 +1684,7 @@ impl JSObject {
         // for unhashed or cloned shape: add shape prop
         debug_assert_eq!(self.shape().unwrap().header.ref_count, 1);
 
-        if self
-            .shape
-            .as_mut()
-            .unwrap()
-            .add_shape_property(ctx, Some(self), prop, prop_flags)
-            != 0
-        {
+        if (*self.shape).add_shape_property(ctx, Some(self), prop, prop_flags) != 0 {
             return Err(-1);
         }
 
@@ -1731,25 +1728,35 @@ impl JSObject {
             if self.detailed.is_exotic() {
                 if self.detailed.fast_array() {
                     let mut idx: u32 = 0;
-                    if JS_AtomIsArrayIndex(ctx, &mut idx, atom) && idx < self.u.array.count {
-                        if matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
-                            if idx == self.u.array.count - 1 {
-                                JS_FreeValue(ctx, *self.u.array.u.values.offset(idx as isize));
-                                (*self.u.array).count = idx;
-                                return 1;
+                    if JS_AtomIsArrayIndex(ctx, &mut idx, atom) {
+                        match self.class_id() {
+                            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                                let lst = self.array_values_mut_unchecked();
+                                if idx == lst.len() as u32 - 1 {
+                                    JS_FreeValue(ctx, lst.pop().unwrap());
+                                    return 1;
+                                } else if idx < lst.len() as u32 {
+                                    // convert to slow array, then delete property
+                                    if convert_fast_array_to_array(ctx, self) != 0 {
+                                        return -1;
+                                    }
+                                    continue;
+                                }
                             }
-                            if convert_fast_array_to_array(ctx, self) != 0 {
-                                return -1;
+                            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                                if idx < self.u.array.count {
+                                    // can't delete element of a TypedArray
+                                    return 0;
+                                }
                             }
-
-                            continue; // C2RS: goto redo simulated with continue
-                        } else {
-                            return 0;
+                            _ => {
+                                unreachable!()
+                            }
                         }
                     }
                 } else {
-                    let class_id = self.class_id();
-                    let em = (*ctx).rt().class_array[class_id as usize].exotic;
+                    // use exotic delete_property callback
+                    let em = (*ctx).rt().class_array[self.class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = (*em).delete_property {
                             return cb(
@@ -2361,102 +2368,87 @@ pub unsafe fn JS_GetPropertyValue(
     if JS_VALUE_GET_TAG(this_obj) == JSTag::Object as i32
         && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
     {
-        /* fast path for array access */
-        let p = JS_VALUE_GET_OBJ(this_obj);
         let idx = JS_VALUE_GET_INT(prop);
+        let p = JS_VALUE_GET_OBJ(this_obj);
+
+        // return early for fast array and index within slice bound.
         match (*p).class_id() {
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                if idx >= (*p).u.array.count as i32 {
-                    // goto slow_path converted to control flow
-                } else {
-                    return JS_DupValue(ctx, *(*p).u.array.u.values.offset(idx as isize));
+                if let Some(lst) = (*p).array_values() {
+                    if idx < lst.len() as i32 {
+                        return lst[idx as usize].dup(); // use fast array value
+                    }
                 }
             }
             JS_CLASS_INT8_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // goto slow_path converted to control flow
-                } else {
-                    return JSValue::from_i32(*(*p).u.array.u.int8_ptr.offset(idx as isize) as i32);
+                if idx < (*p).u.array.count as i32 {
+                    return JSValue::from_i32(
+                        *(*p).u.array.data.int8_ptr.offset(idx as isize) as i32
+                    );
                 }
             }
             JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
-                    return JSValue::from_i32(*(*p).u.array.u.uint8_ptr.offset(idx as isize) as i32);
+                if idx < (*p).u.array.count as i32 {
+                    return JSValue::from_i32(
+                        *(*p).u.array.data.uint8_ptr.offset(idx as isize) as i32
+                    );
                 }
             }
             JS_CLASS_INT16_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
-                    return JSValue::from_i32(*(*p).u.array.u.int16_ptr.offset(idx as isize) as i32);
+                if idx < (*p).u.array.count as i32 {
+                    return JSValue::from_i32(
+                        *(*p).u.array.data.int16_ptr.offset(idx as isize) as i32
+                    );
                 }
             }
             JS_CLASS_UINT16_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
+                if idx < (*p).u.array.count as i32 {
                     return JSValue::from_i32(
-                        *(*p).u.array.u.uint16_ptr.offset(idx as isize) as i32
+                        *(*p).u.array.data.uint16_ptr.offset(idx as isize) as i32
                     );
                 }
             }
             JS_CLASS_INT32_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
-                    return JSValue::from_i32(*(*p).u.array.u.int32_ptr.offset(idx as isize));
+                if idx < (*p).u.array.count as i32 {
+                    return JSValue::from_i32(*(*p).u.array.data.int32_ptr.offset(idx as isize));
                 }
             }
             JS_CLASS_UINT32_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
-                    return JSValue::from_u32(*(*p).u.array.u.uint32_ptr.offset(idx as isize));
+                if idx < (*p).u.array.count as i32 {
+                    return JSValue::from_u32(*(*p).u.array.data.uint32_ptr.offset(idx as isize));
                 }
             }
             JS_CLASS_BIG_INT64_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
+                if idx < (*p).u.array.count as i32 {
                     //return JS_NewBigInt64(ctx, *(*p).u.array.u.int64_ptr.offset(idx as isize));
                     unimplemented!()
                 }
             }
             JS_CLASS_BIG_UINT64_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
+                if idx < (*p).u.array.count as i32 {
                     //return JS_NewBigUint64(ctx, *(*p).u.array.u.uint64_ptr.offset(idx as isize));
                     unimplemented!()
                 }
             }
             JS_CLASS_FLOAT32_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
+                if idx < (*p).u.array.count as i32 {
                     return JSValue::from_f64_as_is(
-                        *(*p).u.array.u.float_ptr.offset(idx as isize) as f64
+                        *(*p).u.array.data.float_ptr.offset(idx as isize) as f64,
                     );
                 }
             }
             JS_CLASS_FLOAT64_ARRAY => {
-                if unlikely(idx >= (*p).u.array.count as i32) {
-                    // C2RS: goto slow_path converted to control flow
-                } else {
+                if idx < (*p).u.array.count as i32 {
                     return JSValue::from_f64_as_is(
-                        *(*p).u.array.u.double_ptr.offset(idx as isize),
+                        *(*p).u.array.data.double_ptr.offset(idx as isize),
                     );
                 }
             }
-            _ => {
-                // C2RS: goto slow_path converted to control flow
-            }
+            _ => {}
         }
     }
 
-    // slow_path:
+    // slow path:
     atom = JS_ValueToAtom(ctx, prop);
     JS_FreeValue(ctx, prop);
     if unlikely(atom == JS_ATOM_NULL) {
@@ -2972,7 +2964,7 @@ pub unsafe fn js_get_length32(ctx: *mut JSContext, obj: JSValueConst) -> Result<
 /// Get object `length` property as i64
 pub unsafe fn js_get_length64(ctx: *mut JSContext, obj: JSValueConst) -> Result<i64, i32> {
     let len_val = JS_GetProperty(ctx, obj, JS_ATOM_length);
-    if JS_IsException(len_val) {
+    if len_val.is_exception() {
         Err(-1)
     } else {
         JS_ToLengthFree(ctx, len_val)

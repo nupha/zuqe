@@ -72,7 +72,7 @@ pub unsafe fn typed_array_init(
 
     (*p).u.typed_array = Box::into_raw(ta);
     (*(*p).u.array).count = len as u32;
-    (*(*p).u.array).u.ptr = (*abuf).data.offset(offset as isize).cast();
+    (*(*p).u.array).data.ptr = (*abuf).data.offset(offset as isize).cast();
 
     0
 }

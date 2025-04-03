@@ -1,3 +1,5 @@
+use std::mem::ManuallyDrop;
+
 use indexmap::IndexMap;
 
 use crate::{
@@ -247,12 +249,12 @@ pub unsafe fn JS_NewObjectFromShape(
         JS_CLASS_ARRAY => {
             obj.detailed.set_exotic(true);
             obj.detailed.set_fast_array(true);
-            (*obj.u.array).u.values = std::ptr::null_mut();
+            (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
             (*obj.u.array).count = 0;
             (*obj.u.array).u1.size = 0;
 
             // Array: the length property is always the first one
-            let pr: *mut JSProperty = if likely(sh == (*ctx).array_shape) {
+            let pr0: *mut JSProperty = if likely(sh == (*ctx).array_shape) {
                 obj.prop_values.first_mut().unwrap()
             } else {
                 /* only used for the first array */
@@ -264,22 +266,22 @@ pub unsafe fn JS_NewObjectFromShape(
                 )
                 .unwrap()
             };
-            (*pr).u.value = JSValue::ZERO;
+            (*pr0).u.value = JSValue::ZERO;
         }
-
-        JS_CLASS_C_FUNCTION => {
-            // obj.prop_values[0].u.value = JS_UNDEFINED;
-        }
-
-        JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+        JS_CLASS_ARGUMENTS => {
             obj.detailed.set_exotic(true);
             obj.detailed.set_fast_array(true);
-            (*obj.u.array).u.ptr = std::ptr::null_mut();
+            (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
+        }
+        JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+            obj.detailed.set_exotic(true);
+            obj.detailed.set_fast_array(true);
+            (*obj.u.array).data.ptr = std::ptr::null_mut();
             (*obj.u.array).count = 0;
         }
 
         JS_CLASS_DATAVIEW => {
-            (*obj.u.array).u.ptr = std::ptr::null_mut();
+            (*obj.u.array).data.ptr = std::ptr::null_mut();
             (*obj.u.array).count = 0;
         }
 
@@ -290,6 +292,11 @@ pub unsafe fn JS_NewObjectFromShape(
                 obj.detailed.set_exotic(true);
             }
         }
+
+        JS_CLASS_C_FUNCTION => {
+            // obj.prop_values[0].u.value = JS_UNDEFINED;
+        }
+
         JS_CLASS_REGEXP => {
             unimplemented!("JS_CLASS_REGEXP");
             // *(*p).u.regexp.pattern = std::ptr::null_mut();
@@ -316,6 +323,7 @@ pub unsafe fn JS_NewObjectFromShape(
     // take ownership of object
     let p = Box::into_raw(obj);
     debug_assert_eq!(p as usize, std::ptr::addr_of!((*p).header) as usize);
+
     add_gc_object(
         (*ctx).rt_mut(),
         &mut (*p).header,

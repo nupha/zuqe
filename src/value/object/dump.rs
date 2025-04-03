@@ -108,29 +108,37 @@ impl JSObject {
 
         if self.detailed.is_exotic() && self.detailed.fast_array() {
             print!("[ ");
-            for i in 0..self.u.array.count {
-                if i != 0 {
-                    print!(", ");
-                }
-                match self.class_id() {
-                    JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                        (*self.u.array.u.values.offset(i as isize)).dump(rt);
-                    }
-                    class_id
-                        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&class_id) =>
-                    {
-                        let size = 1 << typed_array_size_log2(class_id);
-                        let mut b = self.u.array.u.uint8_ptr.offset((i * size) as isize);
-                        let mut size = size;
-                        while size > 0 {
-                            print!("{:02X}", *b);
-                            b = b.offset(1);
-                            size -= 1;
+
+            match self.class_id() {
+                JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                    let lst = self.array_values_unchecked();
+                    for (i, v) in lst.iter().enumerate() {
+                        if i != 0 {
+                            print!(", ");
                         }
+                        v.dump(rt);
                     }
-                    _ => unimplemented!(),
                 }
+                class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
+                    let buf = std::slice::from_raw_parts(
+                        self.u.array.data.ptr.cast::<u8>(),
+                        self.u.array.count as usize,
+                    );
+
+                    // num of bytes: 1, 2, 4, 8
+                    let size = 1 << typed_array_size_log2(class_id);
+                    debug_assert_eq!(buf.len() % size, 0);
+
+                    for (i, b) in buf.iter().enumerate() {
+                        if i != 0 && i % size == 0 {
+                            print!(", ");
+                        }
+                        print!("{:02X}", *b);
+                    }
+                }
+                _ => unimplemented!(),
             }
+
             print!(" ] ");
         }
 

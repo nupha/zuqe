@@ -28,8 +28,8 @@ pub unsafe fn js_build_arguments(
         (*ctx).class_proto[JS_CLASS_OBJECT as usize],
         JS_CLASS_ARGUMENTS,
     );
-    if JS_IsException(val) {
-        return val;
+    if val.is_exception() {
+        return JSValue::EXCEPTION;
     }
 
     let p = JS_VALUE_GET_OBJ(val);
@@ -43,37 +43,33 @@ pub unsafe fn js_build_arguments(
     );
     (*pr).u.value = JSValue::from_i32(argc);
 
-    // initialize the fast array part
-    let tab = if argc > 0 {
-        let arr = js_malloc(ctx, std::mem::size_of::<JSValue>() * argc as usize).cast::<JSValue>();
-        if arr.is_null() {
+    // initialize fast array values
+    let tab = (*p).array_values_mut_unchecked();
+    if argc > 0 {
+        if tab.try_reserve_exact(argc as usize).is_err() {
             JS_FreeValue(ctx, val);
+            (*ctx).JS_ThrowOutOfMemory();
             return JSValue::EXCEPTION;
         }
         for i in 0..argc {
-            *arr.offset(i as isize) = JS_DupValue(ctx, *argv.offset(i as isize));
+            tab.push((*argv.offset(i as isize)).dup());
         }
-        arr
-    } else {
-        std::ptr::null_mut()
-    };
-
-    (*(*p).u.array).u.values = tab;
-    (*(*p).u.array).count = argc as _;
+    }
 
     JS_DefinePropertyValue(
         ctx,
         val,
         JS_ATOM_Symbol_iterator,
-        JS_DupValue(ctx, (*ctx).array_proto_values),
+        (*ctx).array_proto_values.dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
+
     // add callee property to throw a TypeError in strict mode
     JS_DefineProperty(
         ctx,
         val,
         JS_ATOM_callee,
-        JS_UNDEFINED,
+        JSValue::UNDEFINED,
         (*ctx).throw_type_error,
         (*ctx).throw_type_error,
         JS_PROP_HAS_GET | JS_PROP_HAS_SET,
@@ -203,62 +199,61 @@ pub unsafe fn js_build_rest(
 // XXX: should use ValueArray
 pub unsafe fn build_arg_list(
     ctx: *mut JSContext,
-    plen: *mut u32,
     array_arg: JSValueConst,
-) -> *mut JSValue {
+) -> Result<Box<[JSValue]>, i32> {
     if JS_VALUE_GET_TAG(array_arg) != JS_TAG_OBJECT {
-        (*ctx).JS_ThrowTypeError(c"not a object");
-        return std::ptr::null_mut();
+        (*ctx).JS_ThrowTypeError(c"not an object");
+        return Err(-1);
     }
 
     let len = if let Ok(n) = js_get_length32(ctx, array_arg) {
         n
     } else {
-        return std::ptr::null_mut();
+        return Err(-1);
     };
     if len > JS_MAX_LOCAL_VARS as u32 {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowInternalError(c"too many arguments");
-        return std::ptr::null_mut();
+        (*ctx).JS_ThrowInternalError(c"too many arguments");
+        return Err(-1);
     }
 
-    // avoid allocating 0 bytes
-    let tab = js_mallocz(
-        ctx,
-        std::mem::size_of::<JSValue>() * std::cmp::max(1, len as usize),
-    )
-    .cast::<JSValue>();
-    if tab.is_null() {
-        return std::ptr::null_mut();
+    let mut tab = Vec::<JSValue>::new();
+    if tab.try_reserve_exact(len as usize).is_err() {
+        (*ctx).JS_ThrowOutOfMemory();
+        return Err(-1);
     }
 
     let p = JS_VALUE_GET_OBJ(array_arg);
-    if ((*p).class_id() == JS_CLASS_ARRAY || (*p).class_id() == JS_CLASS_ARGUMENTS)
-        && (*p).detailed.fast_array()
-        && len == (*p).u.array.count
-    {
-        for i in 0..len {
-            *tab.offset(i as isize) = JS_DupValue(ctx, *(*p).u.array.u.values.offset(i as isize));
+    if let Some(src) = (*p).array_values().and_then(|a| {
+        if a.len() == len as usize {
+            Some(a)
+        } else {
+            None
         }
+    }) {
+        // values from fast array
+        tab.extend(src.iter().map(|v| v.dup()));
     } else {
+        // slow array
         for i in 0..len {
-            let ret = JS_GetPropertyUint32(ctx, array_arg, i);
-            if JS_IsException(ret) {
-                free_arg_list(ctx, tab, i);
-                return std::ptr::null_mut();
+            let val = JS_GetPropertyUint32(ctx, array_arg, i);
+            if val.is_exception() {
+                for v in tab.drain(..) {
+                    JS_FreeValue(ctx, v);
+                }
+                return Err(-1);
             }
-            *tab.offset(i as isize) = ret;
+            tab.push(val);
         }
     }
 
-    *plen = len;
-    tab
+    Ok(tab.into_boxed_slice())
 }
 
+#[deprecated(note = "unused")]
 pub unsafe fn free_arg_list(ctx: *mut JSContext, tab: *mut JSValue, len: u32) {
-    for i in 0..len {
-        JS_FreeValue(ctx, *tab.add(i as _));
-    }
-    js_free(ctx, tab.cast());
+    unreachable!("unused");
+    // for i in 0..len {
+    //     JS_FreeValue(ctx, *tab.add(i as _));
+    // }
+    // js_free(ctx, tab.cast());
 }

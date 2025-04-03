@@ -9,8 +9,8 @@ use crate::{
     context::{is_strict_mode, JSContext},
     error::{JS_SetUncatchableError, JS_ThrowStackOverflow},
     function::{
-        build_arg_list, check_function, free_arg_list, js_create_iterator_result,
-        JSAsyncFunctionState, JSCFunctionDataRecord, JSCFunctionEnum,
+        build_arg_list, check_function, js_create_iterator_result, JSAsyncFunctionState,
+        JSCFunctionDataRecord, JSCFunctionEnum,
     },
     runtime::js_check_stack_overflow,
     stack_frame::JSStackFrame,
@@ -745,19 +745,21 @@ pub unsafe fn js_function_apply(
         return JS_Call(ctx, this_val, this_arg, 0, std::ptr::null_mut());
     }
 
-    let mut len: u32 = 0;
-    let tab = build_arg_list(ctx, &mut len, array_arg);
-    if tab.is_null() {
-        return JSValue::EXCEPTION;
-    }
-
-    let ret = if magic & 1 != 0 {
-        JS_CallConstructor2(ctx, this_val, this_arg, len as _, tab)
+    let mut args = if let Ok(a) = build_arg_list(ctx, array_arg) {
+        a
     } else {
-        JS_Call(ctx, this_val, this_arg, len as _, tab)
+        return JSValue::EXCEPTION;
     };
 
-    free_arg_list(ctx, tab, len);
+    let ret = if magic & 1 != 0 {
+        JS_CallConstructor2(ctx, this_val, this_arg, args.len() as _, args.as_mut_ptr())
+    } else {
+        JS_Call(ctx, this_val, this_arg, args.len() as _, args.as_mut_ptr())
+    };
+
+    for v in args {
+        JS_FreeValue(ctx, v);
+    }
 
     ret
 }

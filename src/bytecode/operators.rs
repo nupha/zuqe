@@ -1,7 +1,6 @@
 use std::ptr::NonNull;
 
 use crate::{
-    array::js_get_fast_array,
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
@@ -436,10 +435,15 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
         };
     }
 
+    // .length property of the array
+    let len = if let Ok(l) = js_get_length32(ctx, src) {
+        l as usize
+    } else {
+        fail!();
+    };
+
     // check if `src` is a fast array
-    let mut arrp = std::ptr::null_mut::<JSValue>();
-    let mut count32: u32 = 0;
-    let is_fast_array = if is_array_iterator
+    let src_fast_array_values = if is_array_iterator
         && JS_IsCFunction(
             ctx,
             method,
@@ -454,37 +458,22 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
                     ) -> JSValue,
             ),
             0,
-        )
-        && js_get_fast_array(ctx, src, &mut arrp, &mut count32)
-    {
-        // .length property of src array
-        let len = if let Ok(n) = js_get_length32(ctx, src) {
-            n
-        } else {
-            fail!();
-        };
-        len == count32
+        ) {
+        src.fast_array_values()
+            .and_then(|a| if a.len() == len { Some(a) } else { None })
     } else {
-        false
+        None
     };
 
     // the index where append starts
     let mut pos = JS_VALUE_GET_INT(*sp.offset(-2));
 
-    if is_fast_array {
+    if let Some(lst) = src_fast_array_values {
         // fast path
-        for i in 0..count32 {
-            if JS_DefinePropertyValueUint32(
-                ctx,
-                dest,
-                pos as _,
-                (*arrp.offset(i as isize)).dup(),
-                JS_PROP_C_W_E,
-            ) < 0
-            {
+        for v in lst {
+            if JS_DefinePropertyValueUint32(ctx, dest, pos as _, (*v).dup(), JS_PROP_C_W_E) < 0 {
                 fail!();
             }
-
             pos += 1;
         }
     } else {

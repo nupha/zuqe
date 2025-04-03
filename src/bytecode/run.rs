@@ -30,10 +30,9 @@ use crate::{
     },
     eval::{JS_EvalObject, JS_EVAL_TYPE_DIRECT},
     function::{
-        build_arg_list, free_arg_list, js_build_arguments, js_build_mapped_arguments,
-        js_build_rest, js_closure, js_function_apply, js_poll_interrupts, JSFunctionBytecode,
-        JSFunctionKindEnum, JSVarRef, JS_Call, JS_CallConstructorInternal, JS_CallFree,
-        JS_CallInternal,
+        build_arg_list, js_build_arguments, js_build_mapped_arguments, js_build_rest, js_closure,
+        js_function_apply, js_poll_interrupts, JSFunctionBytecode, JSFunctionKindEnum, JSVarRef,
+        JS_Call, JS_CallConstructorInternal, JS_CallFree, JS_CallInternal,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
     global::{
@@ -820,24 +819,32 @@ pub unsafe fn run_bytecodes(
                     let scope_idx = get_u16(pc) as i32 - 1; // could be minus
                     PC_GO!(2);
 
-                    let mut len = 0;
-                    let tab: *mut JSValue = build_arg_list(ctx, &mut len, SP![-1]);
-                    if tab.is_null() {
-                        break State::Exception;
-                    } else {
+                    if let Ok(mut tab) = build_arg_list(ctx, SP![-1]) {
                         let ret_val = if SP![-2].is_same(ctx.eval_obj) {
                             JS_EvalObject(
                                 ctx,
                                 JSValue::UNDEFINED,
-                                if len > 0 { *tab } else { JSValue::UNDEFINED },
+                                if tab.len() > 0 {
+                                    tab[0]
+                                } else {
+                                    JSValue::UNDEFINED
+                                },
                                 JS_EVAL_TYPE_DIRECT,
                                 scope_idx,
                             )
                         } else {
-                            JS_Call(ctx, SP![-2], JSValue::UNDEFINED, len as _, tab)
+                            JS_Call(
+                                ctx,
+                                SP![-2],
+                                JSValue::UNDEFINED,
+                                tab.len() as _,
+                                tab.as_mut_ptr(),
+                            )
                         };
 
-                        free_arg_list(ctx, tab, len);
+                        for v in tab {
+                            JS_FreeValue(ctx, v);
+                        }
 
                         if ret_val.is_exception() {
                             break State::Exception;
@@ -848,7 +855,9 @@ pub unsafe fn run_bytecodes(
                             SP![0] = ret_val;
                             SP_GO!(1);
                         }
-                    }
+                    } else {
+                        break State::Exception;
+                    };
                 }
                 OpCode::REGEXP => {
                     SP![-2] =

@@ -117,12 +117,12 @@ impl Drop for JSObject {
                 JS_CLASS_BYTECODE_FUNCTION => {
                     ManuallyDrop::drop(&mut self.u.func);
                 }
-                JS_CLASS_ARRAY
+                cid @ (JS_CLASS_ARRAY
                 | JS_CLASS_ARGUMENTS
-                | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
+                    (*self.u.array).drop_data(cid);
                     ManuallyDrop::drop(&mut self.u.array);
                 }
-
                 _ => {}
             }
         }
@@ -316,11 +316,22 @@ pub union JSObjectUnion {
 
 pub struct JSObjectArray {
     pub u1: JSObjectArrayU1,
-    pub u: JSObjectArrayData,
+    pub data: JSObjectArrayData,
 
-    /// array length, 0..u32::MAX; 0 for a detached typed array
+    /// for typed array only: the array length, 0 means detached
     pub count: u32,
 }
+
+// TODO: replace with this
+// pub enum JSObjectArray {
+//     Empty,
+//     Owned(Vec<JSValue>),
+//     Borrowed {
+//         ptr: NonNull<c_void>,
+//         len: usize,
+//         typed_array: *const JSTypedArray,
+//     },
+// }
 
 #[derive(Clone, Copy)]
 pub union JSObjectArrayU1 {
@@ -329,11 +340,12 @@ pub union JSObjectArrayU1 {
 }
 
 pub union JSObjectArrayData {
-    /// JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
-    pub values: *mut JSValue,
+    /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
+    pub values: ManuallyDrop<Vec<JSValue>>,
 
-    /// JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
-    pub ptr: *mut std::ffi::c_void,
+    /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY.
+    /// pointer to start of ArrayBuffer buffer
+    pub ptr: *mut c_void,
 
     pub int8_ptr: *mut i8,    /* JS_CLASS_INT8_ARRAY */
     pub uint8_ptr: *mut u8,   /* JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY */
@@ -345,6 +357,17 @@ pub union JSObjectArrayData {
     pub uint64_ptr: *mut u64, /* JS_CLASS_UINT64_ARRAY */
     pub float_ptr: *mut f32,  /* JS_CLASS_FLOAT32_ARRAY */
     pub double_ptr: *mut f64, /* JS_CLASS_FLOAT64_ARRAY */
+}
+
+impl JSObjectArray {
+    /// drop payload data, use in JSObject::drop() only
+    #[inline(always)]
+    pub unsafe fn drop_data(&mut self, class_id: JSClassID) {
+        match class_id {
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => ManuallyDrop::drop(&mut self.data.values),
+            _ => {}
+        }
+    }
 }
 
 impl JSObject {
