@@ -12,7 +12,7 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_dup_shape, js_get_length64, JSObject, JSObjectArray, JSProperty, JSPropertyUnion,
+            js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
             JS_CreateDataPropertyUint32, JS_DeletePropertyInt64, JS_NewObjectFromShape,
             JS_SetProperty, JS_SetPropertyInt64, JS_ToObject, JS_TryGetPropertyInt64,
             JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
@@ -213,11 +213,11 @@ pub unsafe fn set_array_length(
             if d <= (*sh).props.len() {
                 // faster to iterate
                 while cur_len > len {
-                    let atom = JS_NewAtomUInt32(ctx, cur_len as u32 - 1);
-                    let ret = p.as_mut().unwrap().delete_property(ctx, atom);
+                    let atom = (*ctx).rt_mut().add_atom_u32(cur_len as u32 - 1);
+                    let ret = (*p).delete_property(ctx, atom);
                     JS_FreeAtom(ctx, atom);
-                    if unlikely(ret == 0) {
-                        /* unlikely case: property is not configurable */
+                    if ret == 0 {
+                        // unlikely case: property is not configurable
                         break;
                     }
                     cur_len -= 1;
@@ -276,7 +276,10 @@ pub unsafe fn set_array_length(
 /// can be called on Array or Arguments objects. return < 0 if memory alloc error.
 /// returns -1 if fail.
 pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject) -> i32 {
-    debug_assert!((*p).detailed.fast_array());
+    debug_assert!(
+        (*p).detailed.fast_array()
+            && matches!((*p).class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+    );
 
     if (*p).js_shape_prepare_update(ctx, std::ptr::null_mut()) != 0 {
         return -1;
