@@ -606,7 +606,7 @@ pub unsafe fn run_bytecodes(
                         for i in -2..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
                         }
-                        sp = sp.offset(-call_argc as isize - 2);
+                        SP_GO!(-(call_argc + 2));
                         SP![0] = ret_val;
                         SP_GO!(1);
                     }
@@ -636,7 +636,7 @@ pub unsafe fn run_bytecodes(
                         for i in -2..call_argc {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
                         }
-                        sp = sp.offset(-call_argc as isize - 2);
+                        SP_GO!(-(call_argc + 2));
                         SP![0] = ret_val;
                         SP_GO!(1);
                     }

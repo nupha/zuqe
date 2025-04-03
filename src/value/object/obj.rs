@@ -309,8 +309,11 @@ pub union JSObjectArrayU1 {
 
 #[derive(Clone, Copy)]
 pub union JSObjectArrayData {
-    pub values: *mut JSValue,       /* JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS */
-    pub ptr: *mut std::ffi::c_void, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY */
+    /// JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
+    pub values: *mut JSValue,
+
+    /// JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
+    pub ptr: *mut std::ffi::c_void,
 
     pub int8_ptr: *mut i8,    /* JS_CLASS_INT8_ARRAY */
     pub uint8_ptr: *mut u8,   /* JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY */
