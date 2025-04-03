@@ -60,7 +60,7 @@ impl JSContext {
                 JS_FreeValue(self, arr);
                 return JSValue::EXCEPTION;
             }
-            (*p).u.array.count = capacity as u32;
+            (*(*p).u.array).count = capacity as u32;
         }
 
         arr
@@ -122,7 +122,7 @@ pub unsafe fn set_array_length(
             for i in len..old_len {
                 JS_FreeValue(ctx, *(*p).u.array.u.values.offset(i as isize));
             }
-            (*p).u.array.count = len;
+            (*(*p).u.array).count = len;
         }
 
         (*p).prop_values[0] = JSProperty {
@@ -248,9 +248,9 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
     // free array list mem
     js_free(ctx, (*p).u.array.u.values.cast());
 
-    (*p).u.array.count = 0;
-    (*p).u.array.u.values = std::ptr::null_mut(); /* fail safe */
-    (*p).u.array.u1.size = 0;
+    (*(*p).u.array).count = 0;
+    (*(*p).u.array).u.values = std::ptr::null_mut(); /* fail safe */
+    (*(*p).u.array).u1.size = 0;
     (*p).detailed.set_fast_array(false);
 
     0
@@ -303,7 +303,7 @@ pub unsafe fn add_fast_array_element(
         .values
         .offset((new_len - 1) as isize)
         .write(val);
-    (*p).u.array.count = new_len;
+    (*(*p).u.array).count = new_len;
 
     return 1;
 }
@@ -327,8 +327,8 @@ pub unsafe fn expand_fast_array(ctx: *mut JSContext, p: *mut JSObject, new_len: 
 
     new_size += (slack / std::mem::size_of::<JSValue>()) as u32;
 
-    (*p).u.array.u.values = new_array_prop;
-    (*p).u.array.u1.size = new_size;
+    (*(*p).u.array).u.values = new_array_prop;
+    (*(*p).u.array).u1.size = new_size;
 
     return 0;
 }

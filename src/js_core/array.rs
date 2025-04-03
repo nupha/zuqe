@@ -1265,10 +1265,10 @@ pub unsafe fn js_array_pop(
             if shift != 0 {
                 res = *arrp.offset(0);
                 std::ptr::copy(arrp.offset(1), arrp, (count32 - 1) as usize);
-                (*p).u.array.count -= 1;
+                (*(*p).u.array).count -= 1;
             } else {
                 res = *arrp.offset((count32 - 1) as isize);
-                (*p).u.array.count -= 1;
+                (*(*p).u.array).count -= 1;
             }
         } else {
             if shift != 0 {

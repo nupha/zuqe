@@ -58,8 +58,8 @@ pub unsafe fn js_build_arguments(
         std::ptr::null_mut()
     };
 
-    (*p).u.array.u.values = tab;
-    (*p).u.array.count = argc as _;
+    (*(*p).u.array).u.values = tab;
+    (*(*p).u.array).count = argc as _;
 
     JS_DefinePropertyValue(
         ctx,

@@ -247,9 +247,9 @@ pub unsafe fn JS_NewObjectFromShape(
         JS_CLASS_ARRAY => {
             obj.detailed.set_exotic(true);
             obj.detailed.set_fast_array(true);
-            obj.u.array.u.values = std::ptr::null_mut();
-            obj.u.array.count = 0;
-            obj.u.array.u1.size = 0;
+            (*obj.u.array).u.values = std::ptr::null_mut();
+            (*obj.u.array).count = 0;
+            (*obj.u.array).u1.size = 0;
 
             // Array: the length property is always the first one
             let pr: *mut JSProperty = if likely(sh == (*ctx).array_shape) {
@@ -274,13 +274,13 @@ pub unsafe fn JS_NewObjectFromShape(
         JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
             obj.detailed.set_exotic(true);
             obj.detailed.set_fast_array(true);
-            obj.u.array.u.ptr = std::ptr::null_mut();
-            obj.u.array.count = 0;
+            (*obj.u.array).u.ptr = std::ptr::null_mut();
+            (*obj.u.array).count = 0;
         }
 
         JS_CLASS_DATAVIEW => {
-            obj.u.array.u.ptr = std::ptr::null_mut();
-            obj.u.array.count = 0;
+            (*obj.u.array).u.ptr = std::ptr::null_mut();
+            (*obj.u.array).count = 0;
         }
 
         JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL | JS_CLASS_DATE

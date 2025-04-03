@@ -31,9 +31,10 @@ use crate::{
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{list_add_tail, list_del, unlikely},
-    JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
-    JS_CLASS_C_FUNCTION, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_PROXY, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_MKPTR,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN,
+    JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_DATE,
+    JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
@@ -110,8 +111,20 @@ impl Drop for JSObject {
         debug_assert!(self.prop_values.is_empty());
         debug_assert!(self.first_weak_ref.is_null());
 
-        if self.class_id() == JS_CLASS_BYTECODE_FUNCTION {
-            unsafe { ManuallyDrop::drop(&mut self.u.func) };
+        // ManuallyDrop union
+        unsafe {
+            match self.class_id() {
+                JS_CLASS_BYTECODE_FUNCTION => {
+                    ManuallyDrop::drop(&mut self.u.func);
+                }
+                JS_CLASS_ARRAY
+                | JS_CLASS_ARGUMENTS
+                | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                    ManuallyDrop::drop(&mut self.u.array);
+                }
+
+                _ => {}
+            }
         }
     }
 }
@@ -268,8 +281,11 @@ impl JSObjectDetailed {
 #[repr(C)]
 pub union JSObjectUnion {
     pub opaque: *mut std::ffi::c_void,
-    pub bound_function: *mut JSBoundFunction, /* JS_CLASS_BOUND_FUNCTION */
-    pub c_function_data_record: *mut JSCFunctionDataRecord, /* JS_CLASS_C_FUNCTION_DATA */
+
+    /// JS_CLASS_BOUND_FUNCTION
+    pub bound_function: *mut JSBoundFunction,
+    /// JS_CLASS_C_FUNCTION_DATA
+    pub c_function_data_record: *mut JSCFunctionDataRecord,
     pub for_in_iterator: *mut JSForInIterator, /* JS_CLASS_FOR_IN_ITERATOR */
     pub array_buffer: *mut JSArrayBuffer, /* JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER */
     pub typed_array: *mut JSTypedArray,   /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW */
@@ -282,17 +298,22 @@ pub union JSObjectUnion {
     pub promise_data: *mut JSPromiseData,                             /* JS_CLASS_PROMISE */
     pub promise_function_data: *mut JSPromiseFunctionData, /* JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROMISE_REJECT_FUNCTION */
     pub async_function_data: *mut JSAsyncFunctionState, /* JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_FUNCTION_REJECT */
-    pub async_from_sync_iterator_data: *mut JSAsyncFromSyncIteratorData, /* JS_CLASS_ASYNC_FROM_SYNC_ITERATOR */
-    pub async_generator_data: *mut JSAsyncGeneratorData, /* JS_CLASS_ASYNC_GENERATOR */
-    pub func: ManuallyDrop<JSObjectFunc>, /* JS_CLASS_BYTECODE_FUNCTION: 12/24 bytes */
-    pub cfunc: JSObjectCFunc,             /* JS_CLASS_C_FUNCTION: 12/20 bytes */
-    pub array: JSObjectArray, /* JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS, JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY */
-    pub regexp: JSRegExp,     /* JS_CLASS_REGEXP: 8/16 bytes */
-    pub object_data: JSValue, /* for JS_SetObjectData(): 8/16/16 bytes */
+    /// JS_CLASS_ASYNC_FROM_SYNC_ITERATOR
+    pub async_from_sync_iterator_data: *mut JSAsyncFromSyncIteratorData,
+    /// JS_CLASS_ASYNC_GENERATOR
+    pub async_generator_data: *mut JSAsyncGeneratorData,
+    ///  JS_CLASS_BYTECODE_FUNCTION: 12/24 bytes
+    pub func: ManuallyDrop<JSObjectFunc>,
+    /// JS_CLASS_C_FUNCTION: 12/20 bytes
+    pub cfunc: JSObjectCFunc,
+    /// JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS, JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
+    pub array: ManuallyDrop<JSObjectArray>,
+    /// JS_CLASS_REGEXP: 8/16 bytes  
+    pub regexp: JSRegExp,
+    /// for JS_SetObjectData(): 8/16/16 bytes  
+    pub object_data: JSValue,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
 pub struct JSObjectArray {
     pub u1: JSObjectArrayU1,
     pub u: JSObjectArrayData,
@@ -307,7 +328,6 @@ pub union JSObjectArrayU1 {
     pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY */
 }
 
-#[derive(Clone, Copy)]
 pub union JSObjectArrayData {
     /// JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
     pub values: *mut JSValue,

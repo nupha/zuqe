@@ -1735,7 +1735,7 @@ impl JSObject {
                         if matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
                             if idx == self.u.array.count - 1 {
                                 JS_FreeValue(ctx, *self.u.array.u.values.offset(idx as isize));
-                                self.u.array.count = idx;
+                                (*self.u.array).count = idx;
                                 return 1;
                             }
                             if convert_fast_array_to_array(ctx, self) != 0 {
