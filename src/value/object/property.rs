@@ -2374,7 +2374,7 @@ pub unsafe fn JS_GetPropertyValue(
         // return early for fast array and index within slice bound.
         match (*p).class_id() {
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                if let Some(lst) = (*p).array_values() {
+                if let Some(lst) = (*p).fast_array_values() {
                     if idx < lst.len() as i32 {
                         return lst[idx as usize].dup(); // use fast array value
                     }

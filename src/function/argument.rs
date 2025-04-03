@@ -223,7 +223,7 @@ pub unsafe fn build_arg_list(
     }
 
     let p = JS_VALUE_GET_OBJ(array_arg);
-    if let Some(src) = (*p).array_values().and_then(|a| {
+    if let Some(src) = (*p).fast_array_values().and_then(|a| {
         if a.len() == len as usize {
             Some(a)
         } else {

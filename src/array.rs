@@ -26,38 +26,6 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY,
 };
 
-impl JSValue {
-    /// test if value is fast array
-    pub fn is_fast_array(self) -> bool {
-        if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
-            let p = JS_VALUE_GET_OBJ(self);
-            unsafe { (*p).detailed.fast_array() }
-        } else {
-            false
-        }
-    }
-
-    /// get array values slice. returns None if obj does not have array values.
-    pub unsafe fn fast_array_values(&self) -> Option<&[JSValue]> {
-        if self.is_fast_array() {
-            let p = JS_VALUE_GET_OBJ(*self);
-            Some((*p).array_values_unchecked())
-        } else {
-            None
-        }
-    }
-
-    /// get fast array values. returns None if obj is not a fast array.
-    pub unsafe fn fast_array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
-        if self.is_fast_array() {
-            let p = JS_VALUE_GET_OBJ(*self);
-            Some((*p).array_values_mut_unchecked())
-        } else {
-            None
-        }
-    }
-}
-
 impl JSContext {
     /// create a fast array value. `capacity` indicates reserved space.
     /// returns EXCEPTION value when fail, otherwise returns Array value
@@ -90,20 +58,10 @@ impl JSContext {
 }
 
 impl JSObject {
-    /// if object is a fast array, returns array values.
-    /// SAFETY: must ensure that object is a fat array, otherwise behavior is undefined.
-    pub unsafe fn array_values_unchecked(&self) -> &[JSValue] {
-        debug_assert!(
-            matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-                && self.detailed.fast_array()
-        );
-        (*self.u.array).data.values.as_slice()
-    }
-
-    /// if object is a fast array, returns array values.
-    pub fn array_values(&self) -> Option<&[JSValue]> {
-        if matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-            && self.detailed.fast_array()
+    /// if object is Array or Argument class, and is fast array, returns values slice.
+    pub fn fast_array_values(&self) -> Option<&[JSValue]> {
+        if self.detailed.fast_array()
+            && matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
         {
             Some(unsafe { (*self.u.array).data.values.as_slice() })
         } else {
@@ -111,8 +69,33 @@ impl JSObject {
         }
     }
 
-    /// if object is a fast array, returns array values mut.
-    /// SAFETY: must ensure that object is a fat array, otherwise behavior is undefined.
+    /// if object is Array or Argument class, and is fast array, returns values mut.
+    pub fn fast_array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
+        if self.detailed.fast_array()
+            && matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+        {
+            Some(unsafe { &mut (*self.u.array).data.values })
+        } else {
+            None
+        }
+    }
+
+    /// if object is Array or Argument class, and is fast array, returns values slice.
+    /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
+    pub unsafe fn array_values_unchecked(&self) -> &[JSValue] {
+        debug_assert!(
+            matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+                && self.detailed.fast_array(),
+            "class={}, is_fast_array={}",
+            self.class_id(),
+            self.detailed.fast_array()
+        );
+
+        (*self.u.array).data.values.as_slice()
+    }
+
+    /// if object is Array or Argument class, and is fast array, returns values mut.
+    /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
     pub unsafe fn array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
         debug_assert!(
             matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
@@ -124,14 +107,31 @@ impl JSObject {
 
         &mut (*self.u.array).data.values
     }
+}
 
-    /// if object is a fast array, returns array values mut; otherwise returns None.
-    pub fn array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
-        if matches!(self.class_id(), JS_CLASS_ARRAY) && self.detailed.fast_array() {
-            Some(unsafe { &mut (*self.u.array).data.values })
+impl JSValue {
+    /// test if value is fast array (could be one of Array, Argument, TypedArray fast array).
+    pub fn is_fast_array(self) -> bool {
+        if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
+            let p = JS_VALUE_GET_OBJ(self);
+            unsafe { (*p).detailed.fast_array() }
         } else {
-            None
+            false
         }
+    }
+
+    /// if value is Array or Argument class, and is fast array, returns values slice.
+    #[inline]
+    pub fn fast_array_values(&self) -> Option<&[JSValue]> {
+        let p = JS_VALUE_GET_OBJ(*self);
+        unsafe { (*p).fast_array_values() }
+    }
+
+    /// if value is Array or Argument class, and is fast array, returns values vec mut.
+    #[inline]
+    pub fn fast_array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
+        let p = JS_VALUE_GET_OBJ(*self);
+        unsafe { (*p).fast_array_values_mut() }
     }
 }
 
@@ -752,7 +752,7 @@ pub unsafe fn js_is_fast_array(ctx: *const JSContext, obj: JSValueConst) -> bool
 
 pub unsafe fn js_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let p = JS_VALUE_GET_OBJ(val);
-    if let Some(lst) = (*p).array_values_mut() {
+    if let Some(lst) = (*p).fast_array_values_mut() {
         for v in lst.drain(..) {
             JS_FreeValueRT(rt, v);
         }
@@ -761,7 +761,7 @@ pub unsafe fn js_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
 
 pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
     let p = JS_VALUE_GET_OBJ(val);
-    if let Some(lst) = (*p).array_values() {
+    if let Some(lst) = (*p).fast_array_values() {
         for v in lst {
             JS_MarkValue(rt, *v, mark_func);
         }

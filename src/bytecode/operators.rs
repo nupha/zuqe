@@ -15,23 +15,22 @@ use crate::{
         JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
     },
     stack_frame::JSStackFrame,
-    types::{likely, unlikely},
+    types::unlikely,
     value::{
         object::{
             find_own_property, js_free_prop_enum, js_get_length32, JSProperty, JSPropertyEnum,
             JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
             JS_DefinePropertyValue, JS_DefinePropertyValueUint32, JS_DeleteProperty,
             JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
-            JS_GetPrototypeFree, JS_HasProperty, JS_IsCFunction, JS_IsConstructor, JS_IsFunction,
-            JS_IsInstanceOf, JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit,
-            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            JS_GetPrototypeFree, JS_HasProperty, JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf,
+            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM,
+            JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_WRITABLE,
         },
-        JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_DupValue,
-        JS_FreeValue, JS_IsException, JS_IsNull, JS_IsObject, JS_IsUndefined, JS_NewBool,
-        JS_ToBoolFree, JS_FALSE, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
+        JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_FOR_IN_ITERATOR, JS_CLASS_OBJECT, JS_MKPTR,
 };
@@ -79,7 +78,7 @@ pub unsafe fn js_operator_typeof(ctx: *mut JSContext, op1: JSValueConst) -> JSAt
             let p = JS_VALUE_GET_OBJ(op1);
             if (*p).detailed.is_htmldda() {
                 JS_ATOM_undefined
-            } else if JS_IsFunction(ctx, op1) {
+            } else if op1.is_function(ctx.as_ref().unwrap()) {
                 JS_ATOM_function
             } else {
                 JS_ATOM_object
@@ -97,9 +96,7 @@ pub unsafe fn js_operator_in(ctx: *mut JSContext, sp: *mut JSValue) -> Result<()
     let op2 = *sp.offset(-1);
 
     if JS_VALUE_GET_TAG(op2) != JSTag::Object as i32 {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"invalid 'in' operand");
+        (*ctx).JS_ThrowTypeError(c"invalid 'in' operand");
         return Err(-1);
     }
 
@@ -122,19 +119,17 @@ pub unsafe fn js_operator_private_in(ctx: *mut JSContext, sp: *mut JSValue) -> R
     let op2 = *sp.offset(-1); // field name or method function
 
     if JS_VALUE_GET_TAG(op1) != JSTag::Object as i32 {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"invalid 'in' operand");
+        (*ctx).JS_ThrowTypeError(c"invalid 'in' operand");
         return Err(-1);
     }
 
-    let ret = if JS_IsObject(op2) {
+    let ret = if op2.is_object() {
         // method: use the brand
         JS_CheckBrand(ctx, op1, op2)?
     } else {
         // field
         let atom = JS_ValueToAtom(ctx, op2);
-        if unlikely(atom == JS_ATOM_NULL) {
+        if atom == JS_ATOM_NULL {
             return Err(-1);
         }
         let p = JS_VALUE_GET_OBJ(op1);
@@ -164,15 +159,15 @@ pub unsafe fn js_op_define_class(
     let mut bfunc = *sp.offset(-1);
     let mut parent_class = *sp.offset(-2);
 
-    let mut proto = JS_UNDEFINED;
-    let mut ctor = JS_UNDEFINED;
-    let mut parent_proto = JS_UNDEFINED;
+    let mut proto = JSValue::UNDEFINED;
+    let mut ctor = JSValue::UNDEFINED;
+    let mut parent_proto = JSValue::UNDEFINED;
 
     let is_fail = loop {
         if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
-            if JS_IsNull(parent_class) {
+            if parent_class.is_null() {
                 parent_proto = JSValue::NULL;
-                parent_class = JS_DupValue(ctx, (*ctx).function_proto);
+                parent_class = (*ctx).function_proto.dup();
             } else {
                 if !JS_IsConstructor(ctx, parent_class) {
                     ctx.as_mut()
@@ -182,38 +177,36 @@ pub unsafe fn js_op_define_class(
                 }
 
                 parent_proto = JS_GetProperty(ctx, parent_class, JS_ATOM_prototype);
-                if JS_IsException(parent_proto) {
+                if parent_proto.is_exception() {
                     break true; // fail
                 }
 
-                if !JS_IsNull(parent_proto) && !JS_IsObject(parent_proto) {
-                    ctx.as_mut()
-                        .unwrap()
-                        .JS_ThrowTypeError(c"parent prototype must be an object or null");
+                if !parent_proto.is_null() && !parent_proto.is_object() {
+                    (*ctx).JS_ThrowTypeError(c"parent prototype must be an object or null");
                     break true; // fail
                 }
             }
         } else {
-            /* parent_class is JS_UNDEFINED in this case */
-            parent_proto = JS_DupValue(ctx, (*ctx).class_proto[JS_CLASS_OBJECT as usize]);
-            parent_class = JS_DupValue(ctx, (*ctx).function_proto);
+            /* parent_class is JSValue::UNDEFINED in this case */
+            parent_proto = (*ctx).class_proto[JS_CLASS_OBJECT as usize].dup();
+            parent_class = (*ctx).function_proto.dup();
         }
 
         proto = JS_NewObjectProto(ctx, parent_proto);
-        if JS_IsException(proto) {
+        if proto.is_exception() {
             break true; // fail
         }
 
         let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
         debug_assert_eq!((*b).func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
         ctor = JS_NewObjectProtoClass(ctx, parent_class, JS_CLASS_BYTECODE_FUNCTION);
-        if JS_IsException(ctor) {
+        if ctor.is_exception() {
             break true; // fail
         }
 
         ctor = js_closure2(ctx, ctor, b, cur_var_refs, sf);
-        bfunc = JS_UNDEFINED;
-        if JS_IsException(ctor) {
+        bfunc = JSValue::UNDEFINED;
+        if ctor.is_exception() {
             break true; // fail
         }
 
@@ -243,22 +236,15 @@ pub unsafe fn js_op_define_class(
             ctx,
             proto,
             JS_ATOM_constructor,
-            JS_DupValue(ctx, ctor),
+            ctor.dup(),
             JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
         ) < 0
         {
             break true; // fail
         }
 
-        /* set the prototype property */
-        if JS_DefinePropertyValue(
-            ctx,
-            ctor,
-            JS_ATOM_prototype,
-            JS_DupValue(ctx, proto),
-            JS_PROP_THROW,
-        ) < 0
-        {
+        // set the prototype property
+        if JS_DefinePropertyValue(ctx, ctor, JS_ATOM_prototype, proto.dup(), JS_PROP_THROW) < 0 {
             break true; // fail
         }
 
@@ -280,8 +266,8 @@ pub unsafe fn js_op_define_class(
         JS_FreeValue(ctx, bfunc);
         JS_FreeValue(ctx, proto);
         JS_FreeValue(ctx, ctor);
-        *sp.offset(-2) = JS_UNDEFINED;
-        *sp.offset(-1) = JS_UNDEFINED;
+        *sp.offset(-2) = JSValue::UNDEFINED;
+        *sp.offset(-1) = JSValue::UNDEFINED;
         Err(-1)
     } else {
         Ok(())
@@ -290,11 +276,11 @@ pub unsafe fn js_op_define_class(
 
 pub unsafe fn js_has_unscopable(ctx: *mut JSContext, obj: JSValueConst, atom: JSAtom) -> i32 {
     let arr = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_unscopables);
-    if JS_IsException(arr) {
+    if arr.is_exception() {
         return -1;
     }
 
-    let ret = if JS_IsObject(arr) {
+    let ret = if arr.is_object() {
         let val = JS_GetProperty(ctx, arr, atom);
         JS_ToBoolFree(ctx, val).map_or(-1, |b| b as i32)
     } else {
@@ -336,7 +322,7 @@ pub unsafe fn js_method_set_home_object(
 
         // set new home object
         (*(*p).u.func).home_object = if JS_VALUE_GET_TAG(home_obj) == JSTag::Object as i32 {
-            JS_VALUE_GET_OBJ(JS_DupValue(ctx, home_obj))
+            JS_VALUE_GET_OBJ(home_obj.dup())
         } else {
             std::ptr::null_mut()
         };
@@ -486,7 +472,7 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
             }
 
             if done {
-                break; // value is JS_UNDEFINED
+                break; // value is JSValue::UNDEFINED
             }
 
             if JS_DefinePropertyValueUint32(ctx, dest, pos as _, value, JS_PROP_C_W_E) < 0 {
@@ -514,10 +500,11 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
 /* obj -> enum_obj */
 pub unsafe fn js_for_in_start(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     *sp.offset(-1) = build_for_in_iterator(ctx, *sp.offset(-1));
-    if JS_IsException(*sp.offset(-1)) {
-        return -1;
+    if (*sp.offset(-1)).is_exception() {
+        -1
+    } else {
+        0
     }
-    return 0;
 }
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
@@ -528,8 +515,8 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     // fail safe
     if JS_VALUE_GET_TAG(enum_obj) != JSTag::Object as i32 {
         // C2RS: goto done translated to return 0 with done logic
-        *sp.offset(0) = JS_UNDEFINED;
-        *sp.offset(1) = JS_TRUE;
+        *sp.offset(0) = JSValue::UNDEFINED;
+        *sp.offset(1) = JSValue::TRUE;
         return 0;
     }
 
@@ -538,8 +525,8 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     // 检查迭代器对象是否有效。
     if (*p).class_id() != JS_CLASS_FOR_IN_ITERATOR {
         // C2RS: goto done translated to return 0 with done logic
-        *sp.offset(0) = JS_UNDEFINED;
-        *sp.offset(1) = JS_TRUE;
+        *sp.offset(0) = JSValue::UNDEFINED;
+        *sp.offset(1) = JSValue::TRUE;
         return 0;
     }
 
@@ -549,9 +536,9 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     loop {
         if (*it).idx >= (*it).atom_count {
             // 当前对象的属性遍历完成，需要查找原型链
-            if JS_IsNull((*it).obj) || JS_IsUndefined((*it).obj) {
-                *sp.offset(0) = JS_UNDEFINED;
-                *sp.offset(1) = JS_TRUE;
+            if (*it).obj.is_undefined_or_null() {
+                *sp.offset(0) = JSValue::UNDEFINED;
+                *sp.offset(1) = JSValue::TRUE;
                 return 0;
             }
 
@@ -562,20 +549,20 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
                 }
                 if ret != 0 {
                     // C2RS: goto done translated to return 0 with done logic
-                    *sp.offset(0) = JS_UNDEFINED;
-                    *sp.offset(1) = JS_TRUE;
+                    *sp.offset(0) = JSValue::UNDEFINED;
+                    *sp.offset(1) = JSValue::TRUE;
                     return 0;
                 }
                 (*it).in_prototype_chain = true;
             }
 
             (*it).obj = JS_GetPrototypeFree(ctx, (*it).obj);
-            if JS_IsException((*it).obj) {
+            if (*it).obj.is_exception() {
                 return -1;
             }
-            if JS_IsNull((*it).obj) {
-                *sp.offset(0) = JS_UNDEFINED;
-                *sp.offset(1) = JS_TRUE;
+            if (*it).obj.is_null() {
+                *sp.offset(0) = JSValue::UNDEFINED;
+                *sp.offset(1) = JSValue::TRUE;
                 return 0;
             }
 
@@ -660,7 +647,7 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
 
     // return the property
     *sp.offset(0) = prop.to_value(ctx.as_mut().unwrap(), false); // 属性名
-    *sp.offset(1) = JS_FALSE; // 未完成标志
+    *sp.offset(1) = JSValue::FALSE; // 未完成标志
 
     0
 }
@@ -669,14 +656,14 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
 pub unsafe fn js_for_of_start(ctx: *mut JSContext, sp: *mut JSValue, is_async: bool) -> i32 {
     let op1 = *sp.offset(-1);
     let obj = JS_GetIterator(ctx, op1, is_async);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return -1;
     }
     JS_FreeValue(ctx, op1);
     *sp.offset(-1) = obj;
 
     let method = JS_GetProperty(ctx, obj, JS_ATOM_next);
-    if JS_IsException(method) {
+    if method.is_exception() {
         return -1;
     }
     *sp.offset(0) = method;
@@ -688,10 +675,10 @@ pub unsafe fn js_for_of_start(ctx: *mut JSContext, sp: *mut JSValue, is_async: b
 // to undefined. If 'done' is true, 'value' is always set to
 // undefined.
 pub unsafe fn js_for_of_next(ctx: *mut JSContext, sp: *mut JSValue, offset: i32) -> i32 {
-    let mut value: JSValue = JS_UNDEFINED;
+    let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
-    if likely(!JS_IsUndefined(*sp.offset(offset as isize))) {
+    if !(*sp.offset(offset as isize)).is_undefined() {
         value = JS_IteratorNext(
             ctx,
             *sp.offset(offset as isize),
@@ -700,22 +687,22 @@ pub unsafe fn js_for_of_next(ctx: *mut JSContext, sp: *mut JSValue, offset: i32)
             std::ptr::null_mut(),
             &mut done,
         );
-        if JS_IsException(value) {
-            // value is JS_UNDEFINED or JS_EXCEPTION
+        if value.is_exception() {
+            // value is JSValue::UNDEFINED or JS_EXCEPTION
             // replace the iteration object with undefined
             JS_FreeValue(ctx, *sp.offset(offset as isize));
-            *sp.offset(offset as isize) = JS_UNDEFINED;
+            *sp.offset(offset as isize) = JSValue::UNDEFINED;
             return -1;
         }
 
         if done {
-            // value is JS_UNDEFINED or JS_EXCEPTION
+            // value is JSValue::UNDEFINED or JS_EXCEPTION
             // replace the iteration object with undefined
             JS_FreeValue(ctx, *sp.offset(offset as isize));
-            *sp.offset(offset as isize) = JS_UNDEFINED;
+            *sp.offset(offset as isize) = JSValue::UNDEFINED;
 
             JS_FreeValue(ctx, value);
-            value = JS_UNDEFINED;
+            value = JSValue::UNDEFINED;
         }
     }
 
@@ -727,16 +714,14 @@ pub unsafe fn js_for_of_next(ctx: *mut JSContext, sp: *mut JSValue, offset: i32)
 
 pub unsafe fn js_iterator_get_value_done(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
     let obj = *sp.offset(-1);
-    if !JS_IsObject(obj) {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"iterator must return an object");
+    if !obj.is_object() {
+        (*ctx).JS_ThrowTypeError(c"iterator must return an object");
         return -1;
     }
 
     let mut done = false;
     let value = JS_IteratorGetCompleteValue(ctx, obj, &mut done);
-    if JS_IsException(value) {
+    if value.is_exception() {
         return -1;
     }
 
