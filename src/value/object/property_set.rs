@@ -31,7 +31,6 @@ use super::{
         JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK,
         JS_PROP_VARREF, JS_PROP_WRITABLE,
     },
-    property_create::JS_CreateProperty,
 };
 
 impl JSValue {
@@ -470,9 +469,8 @@ impl JSValue {
                     }
                 }
                 State::CreateProp => {
-                    let ret = JS_CreateProperty(
+                    let ret = (*p).create_property(
                         ctx,
-                        p,
                         prop,
                         val,
                         JSValue::UNDEFINED,

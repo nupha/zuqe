@@ -37,7 +37,7 @@ use super::{
         find_hashed_shape_prop, js_clone_shape, js_dup_shape, js_free_shape, js_shape_hash_link,
         JSShapeProperty,
     },
-    JS_CreateProperty, JS_SetProperty, JS_SetPropertyValue,
+    JS_SetProperty, JS_SetPropertyValue,
 };
 
 // Property flags
@@ -567,7 +567,7 @@ pub unsafe fn JS_DefineProperty(
     #[cfg(debug_assertions)]
     let _val_rc = val.ref_count();
 
-    let r = JS_CreateProperty(ctx, p, prop, val, getter, setter, flags);
+    let r = (*p).create_property(ctx.as_mut().unwrap(), prop, val, getter, setter, flags);
 
     #[cfg(debug_assertions)]
     if flags & JS_PROP_HAS_VALUE != 0 {
