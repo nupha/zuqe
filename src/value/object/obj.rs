@@ -39,29 +39,19 @@ use crate::{
 
 use super::{
     super::{
-        primitives::{JS_GetPrototypePrimitive, JS_ToBoolFree},
-        string::JS_ConcatString3,
-        symbol::{JS_AtomSymbolHasDescription, JS_NewSymbolFromAtom},
-        value::{
-            set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
-            JS_IsException, JS_IsNull, JS_IsObject, JS_IsUndefined, JS_TAG_NULL, JS_TAG_OBJECT,
-            JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_NORM_TAG,
-            JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
-        },
+        set_value, JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3,
+        JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException,
+        JS_IsNull, JS_IsObject, JS_IsUndefined, JS_NewSymbolFromAtom, JS_ToBoolFree, JS_TAG_NULL,
+        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_UNDEFINED,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
-    property::{
-        add_property, find_own_property, find_own_property1, free_property, JSProperty,
-        JSPropertyDescriptor, JSPropertyEnum, JS_DefineProperty, JS_DefinePropertyDesc,
-        JS_DefinePropertyValue, JS_GetOwnPropertyInternal, JS_GetProperty, JS_GPN_ENUM_ONLY,
-        JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE,
-        JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
-        JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
-    },
-    property_name::{js_free_desc, js_free_prop_enum, JS_GetOwnPropertyNamesInternal},
-    shape::{
-        find_hashed_shape_proto, js_dup_shape, js_free_shape, js_new_shape, JSShape,
-        JS_NewObjectFromShape,
-    },
+    add_property, find_hashed_shape_proto, find_own_property, find_own_property1, free_property,
+    js_dup_shape, js_free_desc, js_free_prop_enum, js_free_shape, js_new_shape, JSProperty,
+    JSPropertyDescriptor, JSPropertyEnum, JSShape, JS_DefineProperty, JS_DefinePropertyDesc,
+    JS_DefinePropertyValue, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal,
+    JS_GetProperty, JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
+    JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 #[repr(C)]

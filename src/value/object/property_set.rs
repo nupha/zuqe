@@ -3,13 +3,12 @@ use std::ffi::CStr;
 use crate::{
     array::{add_fast_array_element, set_array_length},
     atom::{
-        JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*, JS_FreeAtom, JS_NewAtom,
-        JS_NewAtomInt64, JS_ValueToAtom, JS_ATOM_NULL,
+        JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*, JS_FreeAtom, JS_ValueToAtom,
+        JS_ATOM_NULL,
     },
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
     function::call_setter,
-    types::unlikely,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT16_ARRAY,
@@ -18,9 +17,9 @@ use crate::{
 
 use super::{
     super::{
-        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue,
-        JS_GetPrototypePrimitive, JS_ToFloat64Free, JS_ToNumberFree, JS_ToUint8ClampFree,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive,
+        JS_ToFloat64Free, JS_ToNumberFree, JS_ToUint8ClampFree, JS_VALUE_GET_INT,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     obj::JSObject,
     property::{

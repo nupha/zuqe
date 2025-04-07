@@ -15,11 +15,9 @@ use crate::{
 
 use super::{
     obj::{JSObject, JS_ToObject},
-    property::{
-        JSPropertyDescriptor, JSPropertyEnum, JS_CreateDataPropertyUint32,
-        JS_GetOwnPropertyInternal, JS_GetProperty, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM,
-        JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF,
-    },
+    JSPropertyDescriptor, JSPropertyEnum, JS_CreateDataPropertyUint32, JS_GetOwnPropertyInternal,
+    JS_GetProperty, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE,
+    JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF,
 };
 
 // ptab and its atoms must be freed by the user.
