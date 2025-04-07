@@ -26,11 +26,12 @@ use super::{
     obj::JSObject,
     property::{
         find_own_property, JSProperty, JSPropertyDescriptor, JS_AutoInitProperty,
-        JS_CreateProperty, JS_DefineProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT,
-        JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW,
-        JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
+        JS_DefineProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT, JS_PROP_C_W_E,
+        JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
+        JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK,
+        JS_PROP_VARREF, JS_PROP_WRITABLE,
     },
+    property_create::JS_CreateProperty,
 };
 
 impl JSValue {
