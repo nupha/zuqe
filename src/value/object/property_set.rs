@@ -21,14 +21,12 @@ use super::{
         JS_ToFloat64Free, JS_ToNumberFree, JS_ToUint8ClampFree, JS_VALUE_GET_INT,
         JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
+    find_own_property,
     obj::JSObject,
-    property::{
-        find_own_property, JSProperty, JSPropertyDescriptor, JS_AutoInitProperty,
-        JS_DefineProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT, JS_PROP_C_W_E,
-        JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
-        JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK,
-        JS_PROP_VARREF, JS_PROP_WRITABLE,
-    },
+    JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_DefineProperty,
+    JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
+    JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
 impl JSValue {
