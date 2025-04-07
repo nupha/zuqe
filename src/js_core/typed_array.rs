@@ -16,7 +16,7 @@ use crate::{
     value::{
         object::{
             js_get_length64, JS_GetOpaque, JS_GetProperty, JS_GetPropertyUint32,
-            JS_SetPropertyUint32, JS_SpeciesConstructor,
+            JS_SpeciesConstructor,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsNull, JS_IsUndefined, JS_ToIndex,
         JS_ToLengthFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -195,14 +195,17 @@ pub unsafe fn js_typed_array_constructor_obj(
 
     for i in 0..len {
         let val = JS_GetPropertyUint32(ctx, arr, i as u32);
-        if JS_IsException(val) {
+        if val.is_exception() {
             JS_FreeValue(ctx, arr);
             JS_FreeValue(ctx, ret);
             JS_FreeValue(ctx, buffer);
             return JSValue::EXCEPTION;
         }
 
-        if JS_SetPropertyUint32(ctx, ret, i as u32, val) < 0 {
+        if ret
+            .set_property_u32(ctx.as_mut().unwrap(), i as u32, val)
+            .is_err()
+        {
             JS_FreeValue(ctx, arr);
             JS_FreeValue(ctx, ret);
             JS_FreeValue(ctx, buffer);
@@ -273,7 +276,10 @@ pub unsafe fn js_typed_array_constructor_ta(
                 return JSValue::EXCEPTION;
             }
 
-            if JS_SetPropertyUint32(ctx, obj, i as u32, val) < 0 {
+            if obj
+                .set_property_u32(ctx.as_mut().unwrap(), i as u32, val)
+                .is_err()
+            {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }

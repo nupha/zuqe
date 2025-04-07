@@ -85,8 +85,7 @@ impl JSObject {
                                 if prop_flags != JS_PROP_C_W_E {
                                     convert_to_array!(self, idx);
                                 }
-                                let r = add_fast_array_element(ctx, self, val.dup(), flags);
-                                return if r < 0 { Err(-1) } else { Ok(r != 0) };
+                                return add_fast_array_element(ctx, self, val.dup(), flags);
                             } else {
                                 convert_to_array!(self, idx);
                             }

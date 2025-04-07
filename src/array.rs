@@ -1,8 +1,5 @@
 use crate::{
-    atom::{
-        consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_NewAtomUInt32,
-        JS_ATOM_NULL,
-    },
+    atom::{consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_NULL},
     context::JSContext,
     error::{JSErrorEnum, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
@@ -14,8 +11,8 @@ use crate::{
         object::{
             js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
             JS_CreateDataPropertyUint32, JS_DeletePropertyInt64, JS_NewObjectFromShape,
-            JS_SetProperty, JS_SetPropertyInt64, JS_ToObject, JS_TryGetPropertyInt64,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_ToObject, JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         JS_IsException, JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT,
@@ -332,14 +329,14 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
 }
 
 /// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p is fast_array and p is extensible.
-/// returns -1 if fail, 1 if append successfully, 0 if can't append due to read-only but flags indicates don't throw exception.
+/// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
 /// Note: `val` is consumed.
 pub unsafe fn add_fast_array_element(
     ctx: *mut JSContext,
     p: *mut JSObject,
     val: JSValue,
     flags: u32,
-) -> i32 {
+) -> Result<bool, i32> {
     let lst = (*p).fast_array_values_mut_unchecked();
 
     // extend the array by one
@@ -363,9 +360,9 @@ pub unsafe fn add_fast_array_element(
             {
                 JS_FreeValue(ctx, val);
                 return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-                    0
+                    Ok(false)
                 } else {
-                    -1
+                    Err(-1)
                 };
             }
             (*p).prop_values[0].u.value = JSValue::from_i32(new_len as i32);
@@ -375,13 +372,13 @@ pub unsafe fn add_fast_array_element(
     if lst.len() == lst.capacity() {
         if lst.try_reserve(1).is_err() {
             JS_FreeValue(ctx, val);
-            return -1;
+            return Err(-1);
         }
     }
 
     lst.push(val);
 
-    return 1;
+    return Ok(true);
 }
 
 /// return -1 if exception
@@ -565,9 +562,7 @@ pub unsafe fn JS_CopySubArray(
         for i in 0..count {
             match JS_TryGetPropertyInt64(ctx, obj, (from_pos + i) as i64)? {
                 Some(val) => {
-                    if JS_SetPropertyInt64(ctx, obj, (to_pos + i) as _, val) < 0 {
-                        return Err(-1);
-                    }
+                    obj.set_property_i64(ctx.as_mut().unwrap(), (to_pos + i) as _, val)?;
                 }
                 None => {
                     JS_DeletePropertyInt64(ctx, obj, (to_pos + 1) as _, JS_PROP_THROW)?;
@@ -699,8 +694,8 @@ pub unsafe fn js_array_push(
         return JSValue::EXCEPTION;
     };
 
-    let newLen = len + argc as i64;
-    if newLen > MAX_SAFE_INTEGER {
+    let new_len = len + argc as i64;
+    if new_len > MAX_SAFE_INTEGER {
         (*ctx).JS_ThrowTypeError(c"Array loo long");
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -716,25 +711,33 @@ pub unsafe fn js_array_push(
     }
 
     for i in 0..argc {
-        if JS_SetPropertyInt64(
-            ctx,
-            obj,
-            from + i as i64,
-            JS_DupValue(ctx, *argv.offset(i as isize)),
-        ) < 0
+        if obj
+            .set_property_i64(
+                ctx.as_mut().unwrap(),
+                from + i as i64,
+                (*argv.offset(i as isize)).dup(),
+            )
+            .is_err()
         {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
     }
 
-    if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(newLen)) < 0 {
+    if obj
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_i64(new_len),
+        )
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
     JS_FreeValue(ctx, obj);
-    JSValue::from_i64(newLen)
+    JSValue::from_i64(new_len)
 }
 
 /// Access an Array's internal JSValue array if available

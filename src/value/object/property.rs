@@ -37,7 +37,6 @@ use super::{
         find_hashed_shape_prop, js_clone_shape, js_dup_shape, js_free_shape, js_shape_hash_link,
         JSShapeProperty,
     },
-    JS_SetProperty, JS_SetPropertyValue,
 };
 
 // Property flags
@@ -540,13 +539,14 @@ pub unsafe fn JS_DefineProperty(
                         };
                     }
                     if flags & JS_PROP_HAS_VALUE != 0 {
-                        return JS_SetPropertyValue(
-                            ctx.as_mut().unwrap(),
-                            this_obj,
-                            JSValue::from_i32(idx as i32),
-                            val.dup(),
-                            flags,
-                        );
+                        return this_obj
+                            .set_property_value(
+                                ctx.as_mut().unwrap(),
+                                JSValue::from_i32(idx as i32),
+                                val.dup(),
+                                flags,
+                            )
+                            .map_or(-1, |b| b as i32);
                     }
 
                     return 1;
@@ -2090,7 +2090,13 @@ pub unsafe fn JS_CopyDataProperties(
         }
 
         let ret = if setprop {
-            JS_SetProperty(ctx, target, (*tab_atom.offset(i as isize)).atom, val)
+            target
+                .set_property(
+                    ctx.as_mut().unwrap(),
+                    (*tab_atom.offset(i as isize)).atom,
+                    val,
+                )
+                .map_or(-1, |b| b as i32)
         } else {
             JS_DefinePropertyValue(
                 ctx,
@@ -2101,7 +2107,6 @@ pub unsafe fn JS_CopyDataProperties(
             )
         };
         if ret < 0 {
-            // C2RS: goto exception replaced with early return logic
             js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
             return Err(-1);
         }
@@ -2114,7 +2119,7 @@ pub unsafe fn JS_CopyDataProperties(
 /// Get object `length` property as u32
 pub unsafe fn js_get_length32(ctx: *mut JSContext, obj: JSValueConst) -> Result<u32, i32> {
     let len_val = JS_GetProperty(ctx, obj, JS_ATOM_length);
-    if JS_IsException(len_val) {
+    if len_val.is_exception() {
         Err(-1)
     } else {
         JS_ToUint32Free(ctx, len_val)

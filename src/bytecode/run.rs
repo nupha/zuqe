@@ -51,11 +51,10 @@ use crate::{
             JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_DeleteProperty,
             JS_GetPrivateField, JS_GetProperty, JS_GetPropertyInternal, JS_GetPropertyValue,
             JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
-            JS_SetPropertyValue, JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
+            JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
         JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
@@ -1616,10 +1615,10 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::PUT_ARRAY_EL => {
                     let ret =
-                        JS_SetPropertyValue(ctx, SP![-3], SP![-2], SP![-1], JS_PROP_THROW_STRICT);
+                        SP![-3].set_property_value(ctx, SP![-2], SP![-1], JS_PROP_THROW_STRICT);
                     JS_FreeValue(ctx, SP![-3]);
                     SP_GO!(-3);
-                    if ret < 0 {
+                    if ret.is_err() {
                         break State::Exception;
                     }
                 }
@@ -1642,10 +1641,10 @@ pub unsafe fn run_bytecodes(
                         }
                     }
 
-                    let ret = JS_SetPropertyValue(ctx, SP![-3], SP![-2], SP![-1], flags);
+                    let ret = SP![-3].set_property_value(ctx, SP![-2], SP![-1], flags);
                     JS_FreeValue(ctx, SP![-3]);
                     SP_GO!(-3);
-                    if ret < 0 {
+                    if ret.is_err() {
                         break State::Exception;
                     }
                 }

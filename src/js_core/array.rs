@@ -25,14 +25,13 @@ use crate::{
         object::{
             js_get_length64, JS_CreateDataPropertyUint32, JS_DefinePropertyValueInt64,
             JS_DeletePropertyInt64, JS_GetProperty, JS_GetPropertyInt64, JS_GetPropertyUint32,
-            JS_GetPropertyValue, JS_IsConstructor, JS_IsFunction, JS_SetProperty,
-            JS_SetPropertyInt64, JS_SetPropertyUint32, JS_SetPropertyValue, JS_ToObject,
+            JS_GetPropertyValue, JS_IsConstructor, JS_IsFunction, JS_ToObject,
             JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
-        JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException, JS_IsNull,
-        JS_IsNumber, JS_IsObject, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat,
-        JS_ToInt64Clamp, JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToString, JS_ToStringFree,
-        StringContent, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
+        JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
+        JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToString, JS_ToStringFree, StringContent,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY,
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -75,13 +74,27 @@ pub unsafe fn js_array_constructor(
             return JSValue::EXCEPTION;
         };
 
-        if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_u32(len)) < 0 {
+        if obj
+            .set_property(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_length,
+                JSValue::from_u32(len),
+            )
+            .is_err()
+        {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
     } else {
         for i in 0..argc {
-            if JS_SetPropertyUint32(ctx, obj, i as u32, (*argv.offset(i as isize)).dup()) < 0 {
+            if obj
+                .set_property_u32(
+                    ctx.as_mut().unwrap(),
+                    i as u32,
+                    (*argv.offset(i as isize)).dup(),
+                )
+                .is_err()
+            {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
@@ -382,7 +395,14 @@ pub unsafe fn js_array_with(
     //     }
     // }
 
-    if JS_SetProperty(ctx, arr, JS_ATOM_length, JSValue::from_i64(len)) < 0 {
+    if arr
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_i64(len),
+        )
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -483,7 +503,10 @@ pub unsafe fn js_array_concat(
         }
     }
 
-    if JS_SetProperty(ctx, arr, JS_ATOM_length, JSValue::from_i64(n)) < 0 {
+    if arr
+        .set_property(ctx.as_mut().unwrap(), JS_ATOM_length, JSValue::from_i64(n))
+        .is_err()
+    {
         JS_FreeValue(ctx, arr);
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -655,13 +678,14 @@ pub unsafe fn js_array_every(
                     }
                 }
                 s if s == special_map | special_TA => {
-                    if JS_SetPropertyValue(
-                        ctx.as_mut().unwrap(),
-                        ret,
-                        JSValue::from_i32(k as i32),
-                        res,
-                        JS_PROP_THROW,
-                    ) < 0
+                    if ret
+                        .set_property_value(
+                            ctx.as_mut().unwrap(),
+                            JSValue::from_i32(k as i32),
+                            res,
+                            JS_PROP_THROW,
+                        )
+                        .is_err()
                     {
                         JS_FreeValue(ctx, ret);
                         JS_FreeValue(ctx, obj);
@@ -897,7 +921,10 @@ pub unsafe fn js_array_fill(
 
     // XXX: should special case fast arrays
     while start < end {
-        if JS_SetPropertyInt64(ctx, obj, start, (*argv.offset(0)).dup()) < 0 {
+        if obj
+            .set_property_i64(ctx.as_mut().unwrap(), start, (*argv.offset(0)).dup())
+            .is_err()
+        {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
@@ -1370,7 +1397,14 @@ pub unsafe fn js_array_pop(
         }
     }
 
-    if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
+    if obj
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_i64(new_len),
+        )
+        .is_err()
+    {
         JS_FreeValue(ctx, res);
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -1412,13 +1446,27 @@ pub unsafe fn js_array_push(
     }
 
     for i in 0..argc {
-        if JS_SetPropertyInt64(ctx, obj, from + i as i64, (*argv.offset(i as isize)).dup()) < 0 {
+        if obj
+            .set_property_i64(
+                ctx.as_mut().unwrap(),
+                from + i as i64,
+                (*argv.offset(i as isize)).dup(),
+            )
+            .is_err()
+        {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
     }
 
-    if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(newLen)) < 0 {
+    if obj
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_i64(newLen),
+        )
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -1498,14 +1546,20 @@ pub unsafe fn js_array_reverse(
         };
 
         if h_present {
-            if JS_SetPropertyInt64(ctx, obj, l, hval) < 0 {
+            if obj
+                .set_property_i64(ctx.as_mut().unwrap(), l, hval)
+                .is_err()
+            {
                 JS_FreeValue(ctx, lval);
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
 
             if l_present {
-                if JS_SetPropertyInt64(ctx, obj, h, lval) < 0 {
+                if obj
+                    .set_property_i64(ctx.as_mut().unwrap(), h, lval)
+                    .is_err()
+                {
                     // XXX: why not free lval?
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1525,7 +1579,10 @@ pub unsafe fn js_array_reverse(
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
-                if JS_SetPropertyInt64(ctx, obj, h, lval) < 0 {
+                if obj
+                    .set_property_i64(ctx.as_mut().unwrap(), h, lval)
+                    .is_err()
+                {
                     // XXX: why not free lval?
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1600,7 +1657,14 @@ pub unsafe fn js_array_toReversed(
             }
         }
 
-        if JS_SetProperty(ctx, res_arr, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
+        if res_arr
+            .set_property(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_length,
+                JSValue::from_i64(new_len),
+            )
+            .is_err()
+        {
             JS_FreeValue(ctx, res_arr);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
@@ -1761,7 +1825,10 @@ pub unsafe fn js_array_slice(
         n += 1;
     }
 
-    if JS_SetProperty(ctx, arr, JS_ATOM_length, JSValue::from_i64(n)) < 0 {
+    if arr
+        .set_property(ctx.as_mut().unwrap(), JS_ATOM_length, JSValue::from_i64(n))
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
@@ -1801,12 +1868,13 @@ pub unsafe fn js_array_slice(
         }
 
         for i in 0..item_count {
-            if JS_SetPropertyInt64(
-                ctx,
-                obj,
-                start + i as i64,
-                (*argv.offset((i + 2) as isize)).dup(),
-            ) < 0
+            if obj
+                .set_property_i64(
+                    ctx.as_mut().unwrap(),
+                    start + i as i64,
+                    (*argv.offset((i + 2) as isize)).dup(),
+                )
+                .is_err()
             {
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, arr);
@@ -1814,7 +1882,14 @@ pub unsafe fn js_array_slice(
             }
         }
 
-        if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
+        if obj
+            .set_property(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_length,
+                JSValue::from_i64(new_len),
+            )
+            .is_err()
+        {
             JS_FreeValue(ctx, obj);
             JS_FreeValue(ctx, arr);
             return JSValue::EXCEPTION;
@@ -1942,7 +2017,14 @@ pub unsafe fn js_array_toSpliced(
         }
     }
 
-    if JS_SetProperty(ctx, res_arr, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
+    if res_arr
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_i64(new_len),
+        )
+        .is_err()
+    {
         exception!(new_len);
     }
 
@@ -2389,7 +2471,7 @@ pub unsafe fn js_array_from(
                 );
                 JS_FreeValue(ctx, v);
                 v = v2;
-                if JS_IsException(v) {
+                if v.is_exception() {
                     exception!();
                 }
             }
@@ -2402,7 +2484,14 @@ pub unsafe fn js_array_from(
         k = len;
     }
 
-    if JS_SetProperty(ctx, *r, JS_ATOM_length, JSValue::from_u32(k as u32)) < 0 {
+    if (*r)
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_u32(k as u32),
+        )
+        .is_err()
+    {
         exception!();
     }
 
@@ -2423,7 +2512,7 @@ pub unsafe fn js_array_of(
     } else {
         JS_NewArray(ctx)
     };
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
@@ -2441,7 +2530,14 @@ pub unsafe fn js_array_of(
         }
     }
 
-    if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_u32(argc as u32)) < 0 {
+    if obj
+        .set_property(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            JSValue::from_u32(argc as u32),
+        )
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
