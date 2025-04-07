@@ -6,14 +6,14 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         object::{
-            add_property, js_get_length32, JS_DefineProperty, JS_DefinePropertyValue,
-            JS_DefinePropertyValueUint32, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            add_property, js_get_length32, JS_DefinePropertyValueUint32, JS_NewObjectProtoClass,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
+            JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_OBJECT,
-        JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT,
+    JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT,
 };
 
 pub unsafe fn js_build_arguments(
@@ -54,18 +54,16 @@ pub unsafe fn js_build_arguments(
         }
     }
 
-    JS_DefinePropertyValue(
-        ctx,
-        val,
+    let _ = val.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_Symbol_iterator,
         (*ctx).array_proto_values.dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
 
     // add callee property to throw a TypeError in strict mode
-    JS_DefineProperty(
-        ctx,
-        val,
+    let _ = val.define_property(
+        ctx.as_mut().unwrap(),
         JS_ATOM_callee,
         JSValue::UNDEFINED,
         (*ctx).throw_type_error,
@@ -147,19 +145,18 @@ pub unsafe fn js_build_mapped_arguments(
         }
     }
 
-    JS_DefinePropertyValue(
-        ctx,
-        val,
+    let _ = val.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_Symbol_iterator,
         JS_DupValue(ctx, (*ctx).array_proto_values),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
+
     // callee returns this function in non strict mode
-    JS_DefinePropertyValue(
-        ctx,
-        val,
+    let _ = val.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_callee,
-        JS_DupValue(ctx, (*(*ctx).rt().current_stack_frame).cur_func),
+        (*(*ctx).rt().current_stack_frame).cur_func.dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
 

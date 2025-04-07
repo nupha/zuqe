@@ -13,8 +13,8 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         object::{
-            JSAutoInitIDEnum, JS_DefineAutoInitProperty, JS_DefinePropertyValue, JS_NewObjectClass,
-            JS_NewObjectProto, JS_SetConstructorBit, JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JS_DefineAutoInitProperty, JS_NewObjectClass, JS_NewObjectProto,
+            JS_SetConstructorBit, JS_PROP_WRITABLE,
         },
         JSValue, JS_FreeValue, JS_IsException, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
     },
@@ -242,13 +242,19 @@ pub unsafe fn js_closure(
             proto_class_id,
             JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
         ));
+
         let proto = JS_NewObjectProto(ctx, (*ctx).class_proto[proto_class_id as usize]);
-        if JS_IsException(proto) {
-            // C2RS: Original code uses goto fail, here we handle it with a conditional block.
+        if proto.is_exception() {
             JS_FreeValue(ctx, func_obj);
             return JSValue::EXCEPTION;
         }
-        JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_prototype, proto, JS_PROP_WRITABLE);
+
+        let _ = func_obj.define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_prototype,
+            proto,
+            JS_PROP_WRITABLE,
+        );
     } else if (*b).has_prototype {
         // add the 'prototype' property: delay instantiation to avoid
         // creating cycles for every javascript function. The prototype

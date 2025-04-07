@@ -29,8 +29,8 @@ use crate::{
     value::{
         object::{
             find_own_property1, JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty,
-            JS_DefinePropertyValue, JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass,
-            JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_ENUMERABLE,
+            JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeCString, JS_FreeValue,
         JS_IsException, JS_IsUndefined, JS_TAG_OBJECT, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_OBJ,
@@ -1104,13 +1104,13 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
 
     js_free(ctx, s.exported_names.cast());
 
-    JS_DefinePropertyValue(
-        ctx,
-        obj,
+    obj.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_Symbol_toStringTag,
         JS_ATOM_Module.to_value(ctx.as_mut().unwrap(), true),
         0,
-    );
+    )
+    .unwrap();
 
     p.detailed.set_extensible(false);
 

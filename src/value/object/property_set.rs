@@ -23,10 +23,10 @@ use super::{
     },
     find_own_property,
     obj::JSObject,
-    JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_DefineProperty,
-    JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
-    JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
+    JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_GetOwnPropertyInternal,
+    JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+    JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH,
+    JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
 impl JSValue {
@@ -305,9 +305,8 @@ impl JSValue {
                                             }
 
                                             if p == p1 {
-                                                let ret = JS_DefineProperty(
+                                                let ret = this_obj.define_property(
                                                     ctx,
-                                                    this_obj,
                                                     prop,
                                                     val,
                                                     JSValue::UNDEFINED,
@@ -315,12 +314,7 @@ impl JSValue {
                                                     JS_PROP_HAS_VALUE,
                                                 );
                                                 JS_FreeValue(ctx, val);
-                                                return match ret {
-                                                    0 => Ok(false),
-                                                    1 => Ok(true),
-                                                    -1 => Err(-1),
-                                                    _ => unreachable!(),
-                                                };
+                                                return ret;
                                             } else {
                                                 state = State::GeneralSet;
                                                 continue;
@@ -428,9 +422,8 @@ impl JSValue {
                                     continue;
                                 }
                             }
-                            let ret = JS_DefineProperty(
+                            let ret = this_obj.define_property(
                                 ctx,
-                                this_obj,
                                 prop,
                                 val,
                                 JSValue::UNDEFINED,
@@ -438,12 +431,7 @@ impl JSValue {
                                 JS_PROP_HAS_VALUE,
                             );
                             JS_FreeValue(ctx, val);
-                            return match ret {
-                                0 => Ok(false),
-                                1 => Ok(true),
-                                -1 => Err(-1),
-                                _ => unreachable!(),
-                            };
+                            return ret;
                         } else {
                             state = State::CreateProp;
                             continue;

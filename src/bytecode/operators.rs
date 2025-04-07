@@ -20,7 +20,7 @@ use crate::{
         object::{
             find_own_property, js_free_prop_enum, js_get_length32, JSProperty, JSPropertyEnum,
             JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_DefinePropertyValue, JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal,
+            JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal,
             JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototypeFree, JS_HasProperty,
             JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf, JS_NewObjectProto,
             JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
@@ -211,13 +211,13 @@ pub unsafe fn js_op_define_class(
 
         js_method_set_home_object(ctx, ctor, proto);
         JS_SetConstructorBit(ctx, ctor, true);
-        JS_DefinePropertyValue(
-            ctx,
-            ctor,
+        ctor.define_property_value(
+            ctx.as_mut().unwrap(),
             JS_ATOM_length,
             JSValue::from_i32((*b).defined_arg_count as _),
             JS_PROP_CONFIGURABLE,
-        );
+        )
+        .unwrap();
 
         if is_computed_name {
             if JS_DefineObjectNameComputed(ctx, ctor, *sp.offset(-3), JS_PROP_CONFIGURABLE) < 0 {
@@ -231,19 +231,28 @@ pub unsafe fn js_op_define_class(
 
         /* the constructor property must be first. It can be overriden by
         computed property names */
-        if JS_DefinePropertyValue(
-            ctx,
-            proto,
-            JS_ATOM_constructor,
-            ctor.dup(),
-            JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
-        ) < 0
+        if proto
+            .define_property_value(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_constructor,
+                ctor.dup(),
+                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
+            )
+            .is_err()
         {
             break true; // fail
         }
 
         // set the prototype property
-        if JS_DefinePropertyValue(ctx, ctor, JS_ATOM_prototype, proto.dup(), JS_PROP_THROW) < 0 {
+        if ctor
+            .define_property_value(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_prototype,
+                proto.dup(),
+                JS_PROP_THROW,
+            )
+            .is_err()
+        {
             break true; // fail
         }
 
@@ -349,7 +358,15 @@ pub unsafe fn js_method_set_properties(
     if name_str.is_exception() {
         return -1;
     }
-    if JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_name, name_str, JS_PROP_CONFIGURABLE) < 0 {
+    if func_obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_name,
+            name_str,
+            JS_PROP_CONFIGURABLE,
+        )
+        .is_err()
+    {
         return -1;
     }
 
@@ -611,14 +628,16 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
                     if ret != 0 {
                         continue; // already visited
                     }
+
                     // add to the visited property list
-                    if JS_DefinePropertyValue(
-                        ctx,
-                        enum_obj,
-                        prop,
-                        JSValue::NULL,
-                        JS_PROP_ENUMERABLE,
-                    ) < 0
+                    if enum_obj
+                        .define_property_value(
+                            ctx.as_mut().unwrap(),
+                            prop,
+                            JSValue::NULL,
+                            JS_PROP_ENUMERABLE,
+                        )
+                        .is_err()
                     {
                         return -1;
                     }

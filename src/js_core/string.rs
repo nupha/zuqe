@@ -11,9 +11,9 @@ use crate::{
     regexp::js_is_regexp,
     value::{
         object::{
-            js_get_length32, js_get_length64, JS_CreateDataPropertyUint32, JS_DefinePropertyValue,
-            JS_GetOpaque2, JS_GetProperty, JS_IsFunction, JS_SetObjectData, JS_ToObject,
-            JS_ToObjectFree, JS_PROP_CONFIGURABLE,
+            js_get_length32, js_get_length64, JS_CreateDataPropertyUint32, JS_GetOpaque2,
+            JS_GetProperty, JS_IsFunction, JS_SetObjectData, JS_ToObject, JS_ToObjectFree,
+            JS_PROP_CONFIGURABLE,
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
@@ -61,13 +61,13 @@ pub unsafe fn js_string_constructor(
         let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_STRING);
         if !obj.is_exception() {
             JS_SetObjectData(ctx, obj, tmp_str);
-            JS_DefinePropertyValue(
-                ctx,
-                obj,
+            obj.define_property_value(
+                ctx.as_mut().unwrap(),
                 JS_ATOM_length,
                 JSValue::from_i32(tmp_str.string().len() as _),
                 0,
-            );
+            )
+            .unwrap();
         }
         obj
     } else {

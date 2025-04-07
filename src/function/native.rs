@@ -9,8 +9,8 @@ use crate::{
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
-            JS_DefinePropertyValue, JS_GetOpaque, JS_GetProperty, JS_NewObject,
-            JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_GetOpaque, JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass,
+            JS_PROP_CONFIGURABLE,
         },
         JSValue, JSValueConst, JS_FreeValueRT, JS_IsException, JS_DEF_ALIAS, JS_DEF_CFUNC,
         JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
@@ -414,7 +414,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
         }
     }
 
-    JS_DefinePropertyValue(ctx, obj, atom, val, prop_flags as _);
+    let _ = obj.define_property_value(ctx.as_mut().unwrap(), atom, val, prop_flags as _);
 
     0
 }

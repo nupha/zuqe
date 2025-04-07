@@ -14,9 +14,9 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JSObject, JSPropertyDescriptor, JSPropertyEnum, JS_DefineProperty,
-            JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_GetProperty, JS_NewObject,
-            JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+            JSObject, JSPropertyDescriptor, JSPropertyEnum, JS_DefinePropertyValueStr,
+            JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
         JS_IsUndefined, JS_TAG_NULL, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -272,7 +272,7 @@ pub unsafe fn JS_NewClass1(
     (*rt).add_class_internal(class_id, class_def, name)
 }
 
-// Note: 'func_obj' is not necessarily a constructor
+/// Note: 'func_obj' is not necessarily a constructor
 pub unsafe fn JS_SetConstructor2(
     ctx: *mut JSContext,
     func_obj: JSValueConst,
@@ -280,20 +280,24 @@ pub unsafe fn JS_SetConstructor2(
     proto_flags: u32,
     ctor_flags: u32,
 ) {
-    JS_DefinePropertyValue(
-        ctx,
-        func_obj,
-        JS_ATOM_prototype,
-        JS_DupValue(ctx, proto),
-        proto_flags,
-    );
-    JS_DefinePropertyValue(
-        ctx,
-        proto,
-        JS_ATOM_constructor,
-        JS_DupValue(ctx, func_obj),
-        ctor_flags,
-    );
+    func_obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_prototype,
+            proto.dup(),
+            proto_flags,
+        )
+        .unwrap();
+
+    proto
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_constructor,
+            func_obj.dup(),
+            ctor_flags,
+        )
+        .unwrap();
+
     set_cycle_flag(ctx, func_obj);
     set_cycle_flag(ctx, proto);
 }
@@ -375,23 +379,27 @@ pub unsafe fn js_instantiate_prototype(
 ) -> JSValue {
     let this_val = JS_MKPTR!(JSTag::Object, p.cast());
     let obj = JS_NewObject(ctx);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
+
     set_cycle_flag(ctx, obj);
     set_cycle_flag(ctx, this_val);
-    let ret = JS_DefinePropertyValue(
-        ctx,
-        obj,
-        JS_ATOM_constructor,
-        JS_DupValue(ctx, this_val),
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
-    if ret < 0 {
+
+    if obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_constructor,
+            this_val.dup(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )
+        .is_ok()
+    {
+        obj
+    } else {
         JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
     }
-    return obj;
 }
 
 pub unsafe fn js_create_from_ctor(
@@ -446,15 +454,16 @@ unsafe fn js_arguments_define_own_property(
     }
 
     /* run the default define own property */
-    JS_DefineProperty(
-        ctx,
-        this_obj,
-        prop,
-        val,
-        getter,
-        setter,
-        flags as u32 | JS_PROP_NO_EXOTIC,
-    )
+    this_obj
+        .define_property(
+            ctx.as_mut().unwrap(),
+            prop,
+            val,
+            getter,
+            setter,
+            flags as u32 | JS_PROP_NO_EXOTIC,
+        )
+        .map_or(-1, |b| b as i32)
 }
 
 pub static js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

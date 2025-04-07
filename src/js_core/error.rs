@@ -5,11 +5,11 @@ use crate::{
     context::{JSContext, JS_GetActiveFunction},
     error::{build_backtrace, JSErrorEnum, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL},
     function::JS_GetFunctionRealm,
-    iterator::{iterator_to_array, JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
+    iterator::iterator_to_array,
     value::{
         object::{
-            JS_DefinePropertyValue, JS_GetProperty, JS_HasProperty, JS_NewObjectProtoClass,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_GetProperty, JS_HasProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
         JS_IsUndefined, JS_ToString,
@@ -70,16 +70,15 @@ pub unsafe fn js_error_constructor(
     let message = *argv.offset(arg_index as isize);
     arg_index += 1;
 
-    if !JS_IsUndefined(message) {
+    if !message.is_undefined() {
         let msg = JS_ToString(ctx, message);
-        if JS_IsException(msg) {
+        if msg.is_exception() {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
 
-        JS_DefinePropertyValue(
-            ctx,
-            obj,
+        let _ = obj.define_property_value(
+            ctx.as_mut().unwrap(),
             JS_ATOM_message,
             msg,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -89,7 +88,7 @@ pub unsafe fn js_error_constructor(
     if arg_index < argc {
         let options = *argv.offset(arg_index as isize);
 
-        if JS_IsObject(options) {
+        if options.is_object() {
             let present = if let Ok(b) = JS_HasProperty(ctx, options, JS_ATOM_cause) {
                 b
             } else {
@@ -103,9 +102,8 @@ pub unsafe fn js_error_constructor(
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
-                JS_DefinePropertyValue(
-                    ctx,
-                    obj,
+                let _ = obj.define_property_value(
+                    ctx.as_mut().unwrap(),
                     JS_ATOM_cause,
                     cause,
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -121,9 +119,8 @@ pub unsafe fn js_error_constructor(
             return JSValue::EXCEPTION;
         }
 
-        JS_DefinePropertyValue(
-            ctx,
-            obj,
+        let _ = obj.define_property_value(
+            ctx.as_mut().unwrap(),
             JS_ATOM_errors,
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,

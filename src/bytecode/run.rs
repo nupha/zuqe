@@ -47,9 +47,8 @@ use crate::{
     value::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_CopyDataProperties, JS_DefineObjectName,
-            JS_DefineObjectNameComputed, JS_DefinePrivateField, JS_DefineProperty,
-            JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_GetPrivateField,
-            JS_GetPropertyValue, JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto,
+            JS_DefineObjectNameComputed, JS_DefinePrivateField, JS_DefinePropertyValueValue,
+            JS_GetPrivateField, JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto,
             JS_SetPrivateField, JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey,
             JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
             JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
@@ -651,15 +650,14 @@ pub unsafe fn run_bytecodes(
                         // push elements to array
                         let call_argv = sp.offset(-call_argc as isize);
                         for i in 0..call_argc {
-                            let ret = JS_DefinePropertyValue(
+                            let ret = arr.define_property_value(
                                 ctx,
-                                arr,
                                 JSAtom::from_u32(i as u32),
                                 *call_argv.offset(i as isize),
                                 JS_PROP_C_W_E | JS_PROP_THROW,
                             );
                             *call_argv.offset(i as isize) = JSValue::UNDEFINED;
-                            if ret < 0 {
+                            if ret.is_err() {
                                 JS_FreeValue(ctx, arr);
                                 break 'opcodes State::Exception;
                             }
@@ -1441,15 +1439,14 @@ pub unsafe fn run_bytecodes(
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
 
-                    let ret = JS_DefinePropertyValue(
+                    let ret = SP![-2].define_property_value(
                         ctx,
-                        SP![-2],
                         atom,
                         SP![-1],
                         JS_PROP_C_W_E | JS_PROP_THROW,
                     );
                     SP_GO!(-1);
-                    if ret < 0 {
+                    if ret.is_err() {
                         break State::Exception;
                     }
                 }
@@ -1527,7 +1524,9 @@ pub unsafe fn run_bytecodes(
                         }
                         let mut ret = js_method_set_properties(ctx, SP![-1], atom, flags, obj);
                         if ret >= 0 {
-                            ret = JS_DefineProperty(ctx, obj, atom, value, getter, setter, flags);
+                            ret = obj
+                                .define_property(ctx, atom, value, getter, setter, flags)
+                                .map_or(-1, |b| b as i32);
                         }
                         JS_FreeValue(ctx, SP![-1]);
                         if is_computed {
@@ -1560,7 +1559,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::GET_ARRAY_EL => {
-                    let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1]);
+                    let val = SP![-2].get_property_value(ctx, SP![-1]);
                     JS_FreeValue(ctx, SP![-2]);
                     SP![-2] = val;
                     SP_GO!(-1);
@@ -1569,7 +1568,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::GET_ARRAY_EL2 => {
-                    let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1]);
+                    let val = SP![-2].get_property_value(ctx, SP![-1]);
                     SP![-1] = val;
                     if val.is_exception() {
                         break State::Exception;
@@ -1584,7 +1583,7 @@ pub unsafe fn run_bytecodes(
                         }
                         break State::Exception;
                     } else {
-                        let val = JS_GetPropertyValue(ctx, SP![-2], SP![-1].dup());
+                        let val = SP![-2].get_property_value(ctx, SP![-1].dup());
                         if val.is_exception() {
                             break State::Exception;
                         } else {

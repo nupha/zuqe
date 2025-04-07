@@ -12,9 +12,8 @@ use crate::{
     mem::js_malloc,
     value::{
         object::{
-            JS_DefinePropertyValue, JS_GetOwnProperty, JS_GetProperty, JS_IsConstructor,
-            JS_NewObjectProtoClass, JS_OrdinaryIsInstanceOf, JS_SetPrototypeInternal,
-            JS_PROP_CONFIGURABLE,
+            JS_GetOwnProperty, JS_GetProperty, JS_IsConstructor, JS_NewObjectProtoClass,
+            JS_OrdinaryIsInstanceOf, JS_SetPrototypeInternal, JS_PROP_CONFIGURABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_UNDEFINED, JS_VALUE_GET_FLOAT64,
@@ -117,9 +116,16 @@ pub unsafe fn js_function_bind(
         }
     };
 
-    JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE);
+    func_obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_length,
+            len_val,
+            JS_PROP_CONFIGURABLE,
+        )
+        .unwrap();
 
-    let mut name = JS_GetProperty(ctx, this_val, JS_ATOM_name);
+    let mut name = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_name);
     if name.is_exception() {
         JS_FreeValue(ctx, func_obj);
         return JSValue::EXCEPTION;
@@ -136,7 +142,14 @@ pub unsafe fn js_function_bind(
         return JSValue::EXCEPTION;
     }
 
-    JS_DefinePropertyValue(ctx, func_obj, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE);
+    func_obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_name,
+            bf_name,
+            JS_PROP_CONFIGURABLE,
+        )
+        .unwrap();
 
     func_obj
 }

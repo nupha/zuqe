@@ -13,8 +13,8 @@ use crate::{
     types::likely,
     value::{
         object::{
-            find_own_property, JSObject, JSProperty, JS_DefinePropertyValue, JS_IsFunction,
-            JS_NewObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_NORMAL, JS_PROP_TMASK,
+            find_own_property, JSObject, JSProperty, JS_IsFunction, JS_NewObject,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_NORMAL, JS_PROP_TMASK,
         },
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_NewBool,
         JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -176,15 +176,29 @@ pub unsafe fn js_create_iterator_result(ctx: *mut JSContext, val: JSValue, done:
         JS_FreeValue(ctx, val);
         return obj;
     }
-    if JS_DefinePropertyValue(ctx, obj, JS_ATOM_value, val, JS_PROP_C_W_E) < 0 {
+
+    if obj
+        .define_property_value(ctx.as_mut().unwrap(), JS_ATOM_value, val, JS_PROP_C_W_E)
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
-    if JS_DefinePropertyValue(ctx, obj, JS_ATOM_done, JS_NewBool(done), JS_PROP_C_W_E) < 0 {
+
+    if obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_done,
+            JS_NewBool(done),
+            JS_PROP_C_W_E,
+        )
+        .is_err()
+    {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
-    return obj;
+
+    obj
 }
 
 /// define `length`, `name` properties on func_obj
@@ -194,16 +208,15 @@ pub unsafe fn js_function_set_properties(
     name: JSAtom,
     len: i32,
 ) {
-    JS_DefinePropertyValue(
-        ctx,
-        func_obj,
+    let _ = func_obj.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_length,
         JSValue::from_i32(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non compatible with ES5.1: length is configurable
     );
-    JS_DefinePropertyValue(
-        ctx,
-        func_obj,
+
+    let _ = func_obj.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_name,
         name.to_value(ctx.as_mut().unwrap(), true),
         JS_PROP_CONFIGURABLE,

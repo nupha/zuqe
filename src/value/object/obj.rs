@@ -42,16 +42,16 @@ use super::{
         set_value, JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3,
         JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsUndefined, JS_NewSymbolFromAtom, JS_ToBoolFree, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_UNDEFINED,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     add_property, find_hashed_shape_proto, find_own_property, find_own_property1, free_property,
     js_dup_shape, js_free_desc, js_free_prop_enum, js_free_shape, js_new_shape, JSProperty,
-    JSPropertyDescriptor, JSPropertyEnum, JSShape, JS_DefineProperty, JS_DefinePropertyDesc,
-    JS_DefinePropertyValue, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal,
-    JS_GetProperty, JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
-    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    JSPropertyDescriptor, JSPropertyEnum, JSShape, JS_DefinePropertyDesc,
+    JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
+    JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK,
+    JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
+    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 #[repr(C)]
@@ -920,7 +920,7 @@ pub unsafe fn JS_ObjectDefineProperties(
     }
 
     let p = JS_VALUE_GET_OBJ(props);
-    let mut desc = JS_UNDEFINED;
+    let mut desc = JSValue::UNDEFINED;
     let mut atoms: *mut JSPropertyEnum = std::ptr::null_mut();
     let mut len: u32 = 0;
 
@@ -994,53 +994,6 @@ pub unsafe fn js_get_function_name(ctx: *mut JSContext, name: JSAtom) -> JSValue
         name_str = JS_ConcatString3(ctx, c"[", name_str, c"]");
     }
     return name_str;
-}
-
-pub unsafe fn JS_DefineObjectName(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    name: JSAtom,
-    flags: u32,
-) -> i32 {
-    if name != JS_ATOM_NULL
-        && JS_IsObject(obj)
-        && !js_object_has_name(ctx, obj)
-        && JS_DefinePropertyValue(
-            ctx,
-            obj,
-            JS_ATOM_name,
-            name.to_value(ctx.as_mut().unwrap(), true),
-            flags,
-        ) < 0
-    {
-        return -1;
-    }
-    return 0;
-}
-
-pub unsafe fn JS_DefineObjectNameComputed(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    str: JSValueConst,
-    flags: u32,
-) -> i32 {
-    if JS_IsObject(obj) && !js_object_has_name(ctx, obj) {
-        let prop = JS_ValueToAtom(ctx, str);
-        if prop == JS_ATOM_NULL {
-            return -1;
-        }
-
-        let name_str = js_get_function_name(ctx, prop);
-        JS_FreeAtom(ctx, prop);
-        if name_str.is_exception() {
-            return -1;
-        }
-        if JS_DefinePropertyValue(ctx, obj, JS_ATOM_name, name_str, flags) < 0 {
-            return -1;
-        }
-    }
-
-    0
 }
 
 // Note: all the fields are already sealed except length
@@ -1126,20 +1079,22 @@ pub unsafe fn js_object_seal(
                 js_free_desc(ctx, &mut desc);
             }
         }
-        if JS_DefineProperty(
-            ctx,
-            obj,
-            prop,
-            JS_UNDEFINED,
-            JS_UNDEFINED,
-            JS_UNDEFINED,
-            desc_flags,
-        ) < 0
+        if obj
+            .define_property(
+                ctx.as_mut().unwrap(),
+                prop,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                desc_flags,
+            )
+            .is_err()
         {
             js_free_prop_enum(ctx, props, len as _);
             return JSValue::EXCEPTION;
         }
     }
+
     js_free_prop_enum(ctx, props, len as _);
 
     obj.dup()
@@ -1242,7 +1197,7 @@ pub unsafe fn JS_AddBrand(ctx: *mut JSContext, obj: JSValueConst, home_obj: JSVa
         if pr.is_null() {
             return -1;
         }
-        (*pr).u.value = JS_UNDEFINED;
+        (*pr).u.value = JSValue::UNDEFINED;
     } else {
         JS_FreeAtom(ctx, brand_atom);
     }

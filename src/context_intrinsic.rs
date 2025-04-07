@@ -28,11 +28,11 @@ use crate::{
     },
     value::{
         object::{
-            get_proto_obj, js_new_shape2, js_object_seal, JS_DefineProperty,
-            JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_GetProperty, JS_NewObject,
-            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
+            get_proto_obj, js_new_shape2, js_object_seal, JS_DefinePropertyValueStr,
+            JS_GetProperty, JS_NewObject, JS_NewObjectProto, JS_NewObjectProtoClass,
+            JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH,
+            JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_NewInt32,
     },
@@ -77,20 +77,27 @@ pub unsafe fn JS_AddIntrinsicBasicObjects(ctx: &mut JSContext) {
         // standard Errors
         for i in 0..JS_NATIVE_ERROR_COUNT {
             let proto = JS_NewObjectProto(ctx, err_proto);
-            JS_DefinePropertyValue(
-                ctx,
-                proto,
-                JS_ATOM_name,
-                JS_NewAtomString(ctx, native_error_name[i]),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            );
-            JS_DefinePropertyValue(
-                ctx,
-                proto,
-                JS_ATOM_message,
-                JS_ATOM_empty_string.to_value(ctx, true),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            );
+
+            let name = JS_NewAtomString(ctx, native_error_name[i]);
+            proto
+                .define_property_value(
+                    ctx,
+                    JS_ATOM_name,
+                    name,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+
+            let msg = JS_ATOM_empty_string.to_value(ctx, true);
+            proto
+                .define_property_value(
+                    ctx,
+                    JS_ATOM_message,
+                    msg,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+
             ctx.native_error_proto[i as usize] = proto;
         }
     }
@@ -128,24 +135,28 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
 
         // add caller and arguments properties to throw a TypeError
         let obj1 = JS_NewCFunction(ctx, js_function_proto_caller, c"", 0);
-        JS_DefineProperty(
-            ctx,
-            (*ctx).function_proto,
-            JS_ATOM_caller,
-            JSValue::EXCEPTION,
-            obj1,
-            (*ctx).throw_type_error,
-            JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
-        );
-        JS_DefineProperty(
-            ctx,
-            (*ctx).function_proto,
-            JS_ATOM_arguments,
-            JSValue::EXCEPTION,
-            obj1,
-            (*ctx).throw_type_error,
-            JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
-        );
+        (*ctx)
+            .function_proto
+            .define_property(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_caller,
+                JSValue::EXCEPTION,
+                obj1,
+                (*ctx).throw_type_error,
+                JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+        (*ctx)
+            .function_proto
+            .define_property(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_arguments,
+                JSValue::EXCEPTION,
+                obj1,
+                (*ctx).throw_type_error,
+                JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
 
         JS_FreeValue(ctx, obj1);
         JS_FreeValue(
@@ -322,13 +333,14 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
             //     p_start = p;
             // }
 
-            JS_DefinePropertyValue(
-                ctx,
-                (*ctx).class_proto[JS_CLASS_ARRAY as usize],
-                JS_ATOM_Symbol_unscopables,
-                obj1,
-                JS_PROP_CONFIGURABLE,
-            );
+            (*ctx).class_proto[JS_CLASS_ARRAY as usize]
+                .define_property_value(
+                    ctx.as_mut().unwrap(),
+                    JS_ATOM_Symbol_unscopables,
+                    obj1,
+                    JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
         }
 
         // needed to initialize arguments[Symbol.iterator]
@@ -535,21 +547,25 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
     //
 
     (*ctx).eval_obj = JS_NewCFunction(ctx, js_global_eval, c"eval", 1);
-    JS_DefinePropertyValue(
-        ctx,
-        (*ctx).global_obj,
-        JS_ATOM_eval,
-        (*ctx).eval_obj.dup(),
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
+    (*ctx)
+        .global_obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_eval,
+            (*ctx).eval_obj.dup(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )
+        .unwrap();
 
-    JS_DefinePropertyValue(
-        ctx,
-        (*ctx).global_obj,
-        JS_ATOM_globalThis,
-        (*ctx).global_obj.dup(),
-        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    );
+    (*ctx)
+        .global_obj
+        .define_property_value(
+            ctx.as_mut().unwrap(),
+            JS_ATOM_globalThis,
+            (*ctx).global_obj.dup(),
+            JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+        )
+        .unwrap();
 }
 
 unsafe fn js_throw_type_error(

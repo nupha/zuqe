@@ -12,10 +12,10 @@ use crate::{
     value::{
         object::{
             js_free_prop_enum, js_get_length32, JSPropertyEnum, JS_CreateDataPropertyUint32,
-            JS_DefinePropertyValue, JS_GetOpaque, JS_GetOpaque2, JS_GetOwnPropertyNamesInternal,
-            JS_GetProperty, JS_GetPrototypeFree, JS_NewObjectClass, JS_NewObjectProtoClass,
-            JS_SetOpaque, JS_ToObject, JS_ToObjectFree, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM,
-            JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JS_GetOpaque, JS_GetOpaque2, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
+            JS_GetPrototypeFree, JS_NewObjectClass, JS_NewObjectProtoClass, JS_SetOpaque,
+            JS_ToObject, JS_ToObjectFree, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_ToStringCheckObject, JS_TAG_NULL,
@@ -631,13 +631,14 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     }
 
     for i in 0..(*it).atom_count {
-        if JS_DefinePropertyValue(
-            ctx,
-            enum_obj,
-            (*(*it).tab_atom.offset(i as isize)).atom,
-            JSValue::NULL,
-            JS_PROP_ENUMERABLE,
-        ) < 0
+        if enum_obj
+            .define_property_value(
+                ctx.as_mut().unwrap(),
+                (*(*it).tab_atom.offset(i as isize)).atom,
+                JSValue::NULL,
+                JS_PROP_ENUMERABLE,
+            )
+            .is_err()
         {
             return -1;
         }
@@ -681,7 +682,14 @@ pub unsafe fn iterator_to_array(ctx: *mut JSContext, items: JSValueConst) -> JSV
             break;
         }
 
-        if JS_DefinePropertyValue(ctx, r, JSAtom(k), v, JS_PROP_C_W_E | JS_PROP_THROW) < 0 {
+        if r.define_property_value(
+            ctx.as_mut().unwrap(),
+            JSAtom(k),
+            v,
+            JS_PROP_C_W_E | JS_PROP_THROW,
+        )
+        .is_err()
+        {
             JS_IteratorClose(ctx, iter, true);
             JS_FreeValue(ctx, next_method);
             JS_FreeValue(ctx, iter);

@@ -9,8 +9,8 @@ use crate::{
     value::{
         object::{
             add_property, find_own_property, find_own_property1, JSObject, JSProperty,
-            JS_DefineProperty, JS_HasProperty, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
-            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
+            JS_HasProperty, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
+            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
             JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
             JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
@@ -124,15 +124,17 @@ pub unsafe fn JS_DefineGlobalFunction(
             | JS_PROP_HAS_ENUMERABLE;
     }
 
-    if JS_DefineProperty(
-        ctx,
-        (*ctx).global_obj,
-        prop,
-        func,
-        JSValue::UNDEFINED,
-        JSValue::UNDEFINED,
-        flags,
-    ) < 0
+    if (*ctx)
+        .global_obj
+        .define_property(
+            ctx.as_mut().unwrap(),
+            prop,
+            func,
+            JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
+            flags,
+        )
+        .is_err()
     {
         return -1;
     }

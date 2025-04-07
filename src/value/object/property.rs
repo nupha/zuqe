@@ -12,23 +12,17 @@ use crate::{
     proxy::js_proxy_isExtensible,
     runtime::{js_autoinit_func_table, JSRuntime},
     types::unlikely,
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_PROXY,
-    JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
     super::{
-        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
-        JS_IsException, JS_IsObject, JS_IsUninitialized, JS_NumberIsNegativeOrMinusZero,
-        JS_ToBoolFree, JS_ToLengthFree, JS_ToStringInternal, JS_ToUint32Free, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
+        JS_IsObject, JS_IsUninitialized, JS_ToBoolFree, JS_ToLengthFree, JS_ToStringInternal,
+        JS_ToUint32Free, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    js_free_desc, js_free_prop_enum,
-    obj::{
-        js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, JSAutoInitIDEnum, JSObject,
-        JS_IsFunction,
-    },
-    JSShapeProperty, JS_DefinePropertyValue, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
+    js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, js_free_prop_enum,
+    JSAutoInitIDEnum, JSObject, JSShapeProperty, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
 };
 
 // Property flags
@@ -936,23 +930,20 @@ pub unsafe fn JS_CopyDataProperties(
         }
 
         let ret = if setprop {
-            target
-                .set_property(
-                    ctx.as_mut().unwrap(),
-                    (*tab_atom.offset(i as isize)).atom,
-                    val,
-                )
-                .map_or(-1, |b| b as i32)
+            target.set_property(
+                ctx.as_mut().unwrap(),
+                (*tab_atom.offset(i as isize)).atom,
+                val,
+            )
         } else {
-            JS_DefinePropertyValue(
-                ctx,
-                target,
+            target.define_property_value(
+                ctx.as_mut().unwrap(),
                 (*tab_atom.offset(i as isize)).atom,
                 val,
                 JS_PROP_C_W_E,
             )
         };
-        if ret < 0 {
+        if ret.is_err() {
             js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
             return Err(-1);
         }

@@ -9,20 +9,19 @@ use crate::{
     value::{
         object::{
             js_free_desc, js_free_prop_enum, JSPropertyDescriptor, JSPropertyEnum,
-            JS_CopyDataProperties, JS_DefineProperty, JS_DefinePropertyDesc,
-            JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_GetOwnPropertyInternal,
-            JS_GetOwnPropertyNames2, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
-            JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
-            JS_ObjectDefineProperties, JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject,
-            JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE,
-            JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_CopyDataProperties, JS_DefinePropertyDesc, JS_DefinePropertyValueValue,
+            JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2, JS_GetOwnPropertyNamesInternal,
+            JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject,
+            JS_NewObjectProto, JS_ObjectDefineProperties, JS_PreventExtensions,
+            JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+            JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
+            JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_TRUE, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
@@ -238,7 +237,7 @@ pub unsafe fn js_object_groupBy(
     }
 
     let groups = if is_map != 0 {
-        js_map_constructor(ctx, JS_UNDEFINED, 0, std::ptr::null_mut(), 0)
+        js_map_constructor(ctx, JSValue::UNDEFINED, 0, std::ptr::null_mut(), 0)
     } else {
         JS_NewObjectProto(ctx, JSValue::NULL)
     };
@@ -273,7 +272,7 @@ pub unsafe fn js_object_groupBy(
         }
 
         if done {
-            break; // v is JS_UNDEFINED
+            break; // v is JSValue::UNDEFINED
         }
 
         let key = JS_Call(
@@ -306,20 +305,20 @@ pub unsafe fn js_object_groupBy(
                 JS_FreeValue(ctx, groups);
                 return JSValue::EXCEPTION;
             }
-            (JS_GetProperty(ctx, groups, atom), atom)
+            (groups.get_property(ctx.as_mut().unwrap(), atom), atom)
         };
 
-        if JS_IsException(prop) {
+        if prop.is_exception() {
             JS_FreeValue(ctx, iter);
             JS_FreeValue(ctx, next);
             JS_FreeValue(ctx, groups);
             return JSValue::EXCEPTION;
         }
 
-        if JS_IsUndefined(prop) {
+        if prop.is_undefined() {
             // entry is missing, create the entry
             prop = JS_NewArray(ctx);
-            if JS_IsException(prop) {
+            if prop.is_exception() {
                 JS_FreeValue(ctx, iter);
                 JS_FreeValue(ctx, next);
                 JS_FreeValue(ctx, groups);
@@ -327,8 +326,7 @@ pub unsafe fn js_object_groupBy(
             }
             if is_map != 0 {
                 let res = js_map_set(ctx, groups, 2, [key, prop].as_ptr(), 0);
-                if JS_IsException(res) {
-                    // C2RS: goto exception replaced with cleanup and return
+                if res.is_exception() {
                     JS_FreeValue(ctx, iter);
                     JS_FreeValue(ctx, next);
                     JS_FreeValue(ctx, groups);
@@ -337,15 +335,15 @@ pub unsafe fn js_object_groupBy(
                     JS_FreeValue(ctx, res);
                 }
             } else {
-                if JS_DefinePropertyValue(
-                    ctx,
-                    groups,
-                    key_atom,
-                    JS_DupValue(ctx, prop),
-                    JS_PROP_C_W_E,
-                ) < 0
+                if groups
+                    .define_property_value(
+                        ctx.as_mut().unwrap(),
+                        key_atom,
+                        prop.dup(),
+                        JS_PROP_C_W_E,
+                    )
+                    .is_err()
                 {
-                    // C2RS: goto exception replaced with cleanup and return
                     JS_FreeValue(ctx, iter);
                     JS_FreeValue(ctx, next);
                     JS_FreeValue(ctx, groups);
@@ -355,7 +353,7 @@ pub unsafe fn js_object_groupBy(
         }
 
         let res = js_array_push(ctx, prop, 1, &v, 0);
-        if JS_IsException(res) {
+        if res.is_exception() {
             JS_FreeValue(ctx, iter);
             JS_FreeValue(ctx, next);
             JS_FreeValue(ctx, groups);
@@ -464,7 +462,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
         return JSValue::EXCEPTION;
     }
 
-    let mut ret = JS_UNDEFINED;
+    let mut ret = JSValue::UNDEFINED;
 
     if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
         let mut desc: JSPropertyDescriptor = std::mem::zeroed();
@@ -488,20 +486,22 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
 
             let flags = JS_PROP_C_W_E | JS_PROP_THROW;
             if desc.flags & JS_PROP_GETSET != 0 {
-                if JS_DefinePropertyValue(
-                    ctx,
-                    ret,
-                    JS_ATOM_get,
-                    JS_DupValue(ctx, desc.getter),
-                    flags,
-                ) < 0
-                    || JS_DefinePropertyValue(
-                        ctx,
-                        ret,
-                        JS_ATOM_set,
-                        JS_DupValue(ctx, desc.setter),
+                if ret
+                    .define_property_value(
+                        ctx.as_mut().unwrap(),
+                        JS_ATOM_get,
+                        desc.getter.dup(),
                         flags,
-                    ) < 0
+                    )
+                    .is_err()
+                    || ret
+                        .define_property_value(
+                            ctx.as_mut().unwrap(),
+                            JS_ATOM_set,
+                            desc.setter.dup(),
+                            flags,
+                        )
+                        .is_err()
                 {
                     // C2RS: goto exception1 replaced with early return logic
                     js_free_desc(ctx, &mut desc);
@@ -511,20 +511,22 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                     return JSValue::EXCEPTION;
                 }
             } else {
-                if JS_DefinePropertyValue(
-                    ctx,
-                    ret,
-                    JS_ATOM_value,
-                    JS_DupValue(ctx, desc.value),
-                    flags,
-                ) < 0
-                    || JS_DefinePropertyValue(
-                        ctx,
-                        ret,
-                        JS_ATOM_writable,
-                        JS_NewBool((desc.flags & JS_PROP_WRITABLE) != 0),
+                if ret
+                    .define_property_value(
+                        ctx.as_mut().unwrap(),
+                        JS_ATOM_value,
+                        desc.value.dup(),
                         flags,
-                    ) < 0
+                    )
+                    .is_err()
+                    || ret
+                        .define_property_value(
+                            ctx.as_mut().unwrap(),
+                            JS_ATOM_writable,
+                            JS_NewBool((desc.flags & JS_PROP_WRITABLE) != 0),
+                            flags,
+                        )
+                        .is_err()
                 {
                     // C2RS: goto exception1 replaced with early return logic
                     js_free_desc(ctx, &mut desc);
@@ -534,22 +536,23 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                     return JSValue::EXCEPTION;
                 }
             }
-            if JS_DefinePropertyValue(
-                ctx,
-                ret,
-                JS_ATOM_enumerable,
-                JS_NewBool((desc.flags & JS_PROP_ENUMERABLE) != 0),
-                flags,
-            ) < 0
-                || JS_DefinePropertyValue(
-                    ctx,
-                    ret,
-                    JS_ATOM_configurable,
-                    JS_NewBool((desc.flags & JS_PROP_CONFIGURABLE) != 0),
+            if ret
+                .define_property_value(
+                    ctx.as_mut().unwrap(),
+                    JS_ATOM_enumerable,
+                    JS_NewBool((desc.flags & JS_PROP_ENUMERABLE) != 0),
                     flags,
-                ) < 0
+                )
+                .is_err()
+                || ret
+                    .define_property_value(
+                        ctx.as_mut().unwrap(),
+                        JS_ATOM_configurable,
+                        JS_NewBool((desc.flags & JS_PROP_CONFIGURABLE) != 0),
+                        flags,
+                    )
+                    .is_err()
             {
-                // C2RS: goto exception1 replaced with early return logic
                 js_free_desc(ctx, &mut desc);
                 JS_FreeValue(ctx, ret);
                 JS_FreeAtom(ctx, atom);
@@ -571,7 +574,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let mut r = JS_UNDEFINED;
+    let mut r = JSValue::UNDEFINED;
     let obj = JS_ToObject(ctx, *argv.offset(0));
     if JS_IsException(obj) {
         return JSValue::EXCEPTION;
@@ -617,26 +620,25 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
         }
 
         let mut args = [obj, atomValue];
-        let desc = js_object_getOwnPropertyDescriptor(ctx, JS_UNDEFINED, 2, args.as_mut_ptr(), 0);
+        let desc =
+            js_object_getOwnPropertyDescriptor(ctx, JSValue::UNDEFINED, 2, args.as_mut_ptr(), 0);
         JS_FreeValue(ctx, atomValue);
-        if JS_IsException(desc) {
-            // C2RS: goto exception replaced with early return logic
+        if desc.is_exception() {
             js_free_prop_enum(ctx, props, len as _);
             JS_FreeValue(ctx, obj);
             JS_FreeValue(ctx, r);
             return JSValue::EXCEPTION;
         }
 
-        if !JS_IsUndefined(desc) {
-            if JS_DefinePropertyValue(
-                ctx,
-                r,
+        if !desc.is_undefined() {
+            if r.define_property_value(
+                ctx.as_mut().unwrap(),
                 (*props.offset(i as isize)).atom,
                 desc,
                 JS_PROP_C_W_E | JS_PROP_THROW,
-            ) < 0
+            )
+            .is_err()
             {
-                // C2RS: goto exception replaced with early return logic
                 js_free_prop_enum(ctx, props, len as _);
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, r);
@@ -757,15 +759,16 @@ pub unsafe fn js_object_seal(
             }
         }
 
-        if JS_DefineProperty(
-            ctx,
-            obj,
-            prop,
-            JS_UNDEFINED,
-            JS_UNDEFINED,
-            JS_UNDEFINED,
-            desc_flags,
-        ) < 0
+        if obj
+            .define_property(
+                ctx.as_mut().unwrap(),
+                prop,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                desc_flags,
+            )
+            .is_err()
         {
             js_free_prop_enum(ctx, props, len as _);
             return JSValue::EXCEPTION;
@@ -1265,11 +1268,11 @@ pub unsafe fn js_object_set___proto__(
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
     if !JS_IsObject(proto) && !JS_IsNull(proto) {
-        return JS_UNDEFINED;
+        return JSValue::UNDEFINED;
     }
 
     if JS_SetPrototypeInternal(ctx, this_val, proto, true).is_ok() {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     } else {
         JSValue::EXCEPTION
     }
@@ -1310,19 +1313,27 @@ pub unsafe fn js_object___defineGetter__(
 
     let (get, set) = if magic != 0 {
         flags |= JS_PROP_HAS_SET;
-        (JS_UNDEFINED, value)
+        (JSValue::UNDEFINED, value)
     } else {
         flags |= JS_PROP_HAS_GET;
-        (value, JS_UNDEFINED)
+        (value, JSValue::UNDEFINED)
     };
 
-    let ret = JS_DefineProperty(ctx, obj, atom, JS_UNDEFINED, get, set, flags);
+    let ret = obj.define_property(
+        ctx.as_mut().unwrap(),
+        atom,
+        JSValue::UNDEFINED,
+        get,
+        set,
+        flags,
+    );
     JS_FreeValue(ctx, obj);
     JS_FreeAtom(ctx, atom);
-    if ret < 0 {
+
+    if ret.is_err() {
         JSValue::EXCEPTION
     } else {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     }
 }
 
@@ -1370,7 +1381,7 @@ pub unsafe fn js_object___lookupGetter__(
                     },
                 );
             } else {
-                res = JS_UNDEFINED;
+                res = JSValue::UNDEFINED;
             }
             js_free_desc(ctx, &mut desc);
             break;
@@ -1384,7 +1395,7 @@ pub unsafe fn js_object___lookupGetter__(
             return JSValue::EXCEPTION;
         }
         if JS_IsNull(obj) {
-            res = JS_UNDEFINED;
+            res = JSValue::UNDEFINED;
             break;
         }
 

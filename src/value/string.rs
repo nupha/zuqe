@@ -25,8 +25,8 @@ use crate::{
 use super::{
     js_dtoa,
     object::{
-        check_define_prop_flags, JSPropertyDescriptor, JS_DefineProperty, JS_PROP_ENUMERABLE,
-        JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
+        check_define_prop_flags, JSPropertyDescriptor, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE,
+        JS_PROP_NO_EXOTIC,
     },
     primitives::JS_ToPrimitive,
     StringContent, JS_DTOA_VAR_FORMAT,
@@ -897,15 +897,16 @@ pub unsafe fn js_string_define_own_property(
     }
     macro_rules! def {
         () => {
-            return JS_DefineProperty(
-                ctx,
-                this_obj,
-                prop,
-                val,
-                getter,
-                setter,
-                flags as u32 | JS_PROP_NO_EXOTIC,
-            );
+            return this_obj
+                .define_property(
+                    ctx.as_mut().unwrap(),
+                    prop,
+                    val,
+                    getter,
+                    setter,
+                    flags as u32 | JS_PROP_NO_EXOTIC,
+                )
+                .map_or(-1, |b| b as i32);
         };
     }
 

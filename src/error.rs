@@ -14,8 +14,8 @@ use crate::{
     },
     value::{
         object::{
-            find_own_property1, JS_DefinePropertyValue, JS_GetProperty, JS_NewObjectProtoClass,
-            JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            find_own_property1, JS_GetProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
         JS_IsEmptyString, JS_IsException, JS_IsObject, JS_IsUndefined, JS_ToStringFree,
@@ -90,15 +90,13 @@ impl JSContext {
             // out of memory: throw JS_NULL to avoid recursing
             obj = JSValue::NULL;
         } else {
-            unsafe {
-                JS_DefinePropertyValue(
-                    self,
-                    obj,
-                    JS_ATOM_message,
-                    self.create_string(message.to_string_lossy().as_ref()),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                );
-            }
+            let s = self.create_string(message.to_string_lossy().as_ref());
+            let _ = obj.define_property_value(
+                self,
+                JS_ATOM_message,
+                s,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            );
         }
         if add_backtrace {
             unsafe {
@@ -222,16 +220,14 @@ unsafe fn inner_build_backtrace(
         dbuf.write_all(b"\n")?;
 
         let str = (*ctx).create_string(c_filename.to_string_lossy().as_ref());
-        JS_DefinePropertyValue(
-            ctx,
-            error_obj,
+        let _ = error_obj.define_property_value(
+            ctx.as_mut().unwrap(),
             JS_ATOM_fileName,
             str,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         );
-        JS_DefinePropertyValue(
-            ctx,
-            error_obj,
+        let _ = error_obj.define_property_value(
+            ctx.as_mut().unwrap(),
             JS_ATOM_lineNumber,
             JSValue::from_i32(line_num.map_or(-1, |x| x as i32)),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -326,9 +322,8 @@ pub unsafe fn build_backtrace(
         r
     };
 
-    JS_DefinePropertyValue(
-        ctx,
-        error_obj,
+    let _ = error_obj.define_property_value(
+        ctx.as_mut().unwrap(),
         JS_ATOM_stack,
         if ret.is_err() {
             JSValue::NULL

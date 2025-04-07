@@ -6,8 +6,7 @@ use crate::{
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
         object::{
-            seal_template_obj, JS_DefinePropertyValue, JS_DefinePropertyValueUint32,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            seal_template_obj, JS_DefinePropertyValueUint32, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JS_DupValue, JS_FreeValue, StringContent, JS_UNDEFINED, JS_VALUE_GET_STRING,
     },
@@ -111,11 +110,12 @@ impl JSParseState {
 
             raw_array = JS_NewArray(ctx).check_exception()?;
 
-            if JS_DefinePropertyValue(ctx, template_object, JS_ATOM_raw, raw_array, JS_PROP_THROW)
-                < 0
-            {
-                return Err(-1);
-            }
+            template_object.define_property_value(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_raw,
+                raw_array,
+                JS_PROP_THROW,
+            )?;
         }
 
         let mut depth = 0;
