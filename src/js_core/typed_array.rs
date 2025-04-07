@@ -14,10 +14,7 @@ use crate::{
         get_typed_array, typed_array_init, typed_array_is_detached, typed_array_size_log2,
     },
     value::{
-        object::{
-            js_get_length64, JS_GetOpaque, JS_GetProperty, JS_GetPropertyUint32,
-            JS_SpeciesConstructor,
-        },
+        object::{js_get_length64, JS_GetOpaque, JS_GetProperty, JS_SpeciesConstructor},
         JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsNull, JS_IsUndefined, JS_ToIndex,
         JS_ToLengthFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -194,7 +191,7 @@ pub unsafe fn js_typed_array_constructor_obj(
     }
 
     for i in 0..len {
-        let val = JS_GetPropertyUint32(ctx, arr, i as u32);
+        let val = arr.get_property_u32(ctx.as_mut().unwrap(), i as u32);
         if val.is_exception() {
             JS_FreeValue(ctx, arr);
             JS_FreeValue(ctx, ret);
@@ -270,7 +267,7 @@ pub unsafe fn js_typed_array_constructor_ta(
         );
     } else {
         for i in 0..len {
-            let val = JS_GetPropertyUint32(ctx, src_obj, i as u32);
+            let val = src_obj.get_property_u32(ctx.as_mut().unwrap(), i as u32);
             if val.is_exception() {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;

@@ -28,7 +28,7 @@ use super::{
         js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, JSAutoInitIDEnum, JSObject,
         JS_IsFunction,
     },
-    JSShapeProperty, JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPropertyUint32,
+    JSShapeProperty, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
 };
 
 // Property flags
@@ -1426,8 +1426,8 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                                 JS_PROP_WRITABLE | JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE;
                             (*desc).getter = JSValue::UNDEFINED;
                             (*desc).setter = JSValue::UNDEFINED;
-                            (*desc).value =
-                                JS_GetPropertyUint32(ctx, JS_MKPTR!(JSTag::Object, p.cast()), idx);
+                            (*desc).value = JS_MKPTR!(JSTag::Object, p.cast())
+                                .get_property_u32(ctx.as_mut().unwrap(), idx);
                         }
                         return 1;
                     }

@@ -13,10 +13,9 @@ use crate::{
         object::{
             js_free_prop_enum, js_get_length32, JSPropertyEnum, JS_CreateDataPropertyUint32,
             JS_DefinePropertyValue, JS_GetOpaque, JS_GetOpaque2, JS_GetOwnPropertyNamesInternal,
-            JS_GetProperty, JS_GetPropertyUint32, JS_GetPrototypeFree, JS_IsFunction,
-            JS_NewObjectClass, JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree,
-            JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JS_GetProperty, JS_GetPrototypeFree, JS_NewObjectClass, JS_NewObjectProtoClass,
+            JS_SetOpaque, JS_ToObject, JS_ToObjectFree, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM,
+            JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_ToStringCheckObject, JS_TAG_NULL,
@@ -464,16 +463,16 @@ pub unsafe fn js_array_iterator_next(
     match (*it).kind {
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => JSValue::from_u32(idx),
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-            let val = JS_GetPropertyUint32(ctx, (*it).obj, idx);
-            if JS_IsException(val) {
+            let val = (*it).obj.get_property_u32(ctx.as_mut().unwrap(), idx);
+            if val.is_exception() {
                 JSValue::EXCEPTION
             } else {
                 val
             }
         }
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-            let val = JS_GetPropertyUint32(ctx, (*it).obj, idx);
-            if JS_IsException(val) {
+            let val = (*it).obj.get_property_u32(ctx.as_mut().unwrap(), idx);
+            if val.is_exception() {
                 return JSValue::EXCEPTION;
             }
             let num = JSValue::from_u32(idx);

@@ -10,9 +10,8 @@ use crate::{
     value::{
         object::{
             js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
-            JS_CreateDataPropertyUint32, JS_NewObjectFromShape, JS_ToObject,
-            JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
-            JS_PROP_WRITABLE,
+            JS_CreateDataPropertyUint32, JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         JS_IsException, JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT,
@@ -561,7 +560,7 @@ pub unsafe fn JS_CopySubArray(
     } else {
         // slow array
         for i in 0..count {
-            match JS_TryGetPropertyInt64(ctx, obj, (from_pos + i) as i64)? {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), (from_pos + i) as i64)? {
                 Some(val) => {
                     obj.set_property_i64(ctx.as_mut().unwrap(), (to_pos + i) as _, val)?;
                 }

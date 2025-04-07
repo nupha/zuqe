@@ -2,15 +2,13 @@ use crate::{
     array::JS_NewArray,
     atom::{consts::*, JSAtom},
     context::JSContext,
-    mem::{js_free, js_malloc, js_mallocz},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
         object::{
             add_property, js_get_length32, JS_DefineProperty, JS_DefinePropertyValue,
-            JS_DefinePropertyValueUint32, JS_GetPropertyUint32, JS_NewObjectProtoClass,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-            JS_PROP_WRITABLE,
+            JS_DefinePropertyValueUint32, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_OBJECT,
         JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -235,7 +233,7 @@ pub unsafe fn build_arg_list(
     } else {
         // slow array
         for i in 0..len {
-            let val = JS_GetPropertyUint32(ctx, array_arg, i);
+            let val = array_arg.get_property_u32(ctx.as_mut().unwrap(), i);
             if val.is_exception() {
                 for v in tab.drain(..) {
                     JS_FreeValue(ctx, v);

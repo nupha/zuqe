@@ -12,26 +12,21 @@ use crate::{
             JS_CopyDataProperties, JS_DefineProperty, JS_DefinePropertyDesc,
             JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_GetOwnPropertyInternal,
             JS_GetOwnPropertyNames2, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
-            JS_GetPropertyUint32, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible,
-            JS_IsFunction, JS_NewObject, JS_NewObjectProto, JS_ObjectDefineProperties,
-            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
-            JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE, JS_PROP_THROW,
-            JS_PROP_WRITABLE,
+            JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
+            JS_ObjectDefineProperties, JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject,
+            JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE,
+            JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
         JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_NORM_TAG,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY,
-    JS_CLASS_BIG_INT, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_BOOLEAN,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_DATE, JS_CLASS_ERROR,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
-    JS_CLASS_INT8_ARRAY, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT16_ARRAY,
-    JS_CLASS_UINT32_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT8_ARRAY, JS_MKPTR,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
+    JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
+    JS_CLASS_REGEXP, JS_CLASS_STRING,
 };
 
 use super::mapset::{js_map_constructor, js_map_get, js_map_set};
@@ -922,10 +917,10 @@ pub unsafe fn js_object_fromEntries(
             return JSValue::EXCEPTION;
         }
 
-        let key = JS_GetPropertyUint32(ctx, item, 0);
-        if JS_IsException(key) {
+        let key = item.get_property_u32(ctx.as_mut().unwrap(), 0);
+        if key.is_exception() {
             JS_FreeValue(ctx, item);
-            if JS_IsObject(iter) {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, iter, true);
             }
@@ -935,11 +930,11 @@ pub unsafe fn js_object_fromEntries(
             return JSValue::EXCEPTION;
         }
 
-        let value = JS_GetPropertyUint32(ctx, item, 1);
-        if JS_IsException(value) {
+        let value = item.get_property_u32(ctx.as_mut().unwrap(), 1);
+        if value.is_exception() {
             JS_FreeValue(ctx, key);
             JS_FreeValue(ctx, item);
-            if JS_IsObject(iter) {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, iter, true);
             }

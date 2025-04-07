@@ -12,8 +12,8 @@ use crate::{
     value::{
         object::{
             js_get_length32, js_get_length64, JS_CreateDataPropertyUint32, JS_DefinePropertyValue,
-            JS_GetOpaque2, JS_GetProperty, JS_GetPropertyInt64, JS_GetPropertyValue, JS_IsFunction,
-            JS_SetObjectData, JS_ToObject, JS_ToObjectFree, JS_PROP_CONFIGURABLE,
+            JS_GetOpaque2, JS_GetProperty, JS_IsFunction, JS_SetObjectData, JS_ToObject,
+            JS_ToObjectFree, JS_PROP_CONFIGURABLE,
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
@@ -1316,11 +1316,11 @@ pub unsafe fn js_string___GetSubstitution(
             }
 
             if k >= 1 && k < captures_len {
-                let s = JS_GetPropertyInt64(ctx, captures, k as i64);
-                if JS_IsException(s) {
+                let s = captures.get_property_i64(ctx.as_mut().unwrap(), k as i64);
+                if s.is_exception() {
                     return JSValue::EXCEPTION;
                 }
-                if !JS_IsUndefined(s) {
+                if !s.is_undefined() {
                     let sval = JS_ToStringFree(ctx, s);
                     if sval.is_exception() {
                         return JSValue::EXCEPTION;
@@ -1339,18 +1339,18 @@ pub unsafe fn js_string___GetSubstitution(
                     return JSValue::EXCEPTION;
                 }
             }
-        } else if c == '<' && !JS_IsUndefined(namedCaptures) {
+        } else if c == '<' && !namedCaptures.is_undefined() {
             if let Some(k) = (*rp).content().find_char('>', j as _) {
                 let name = js_sub_string(ctx, rp, j as _, k as _);
-                if JS_IsException(name) {
+                if name.is_exception() {
                     return JSValue::EXCEPTION;
                 }
 
-                let capture = JS_GetPropertyValue(ctx, namedCaptures, name);
-                if JS_IsException(capture) {
+                let capture = namedCaptures.get_property_value(ctx.as_mut().unwrap(), name);
+                if capture.is_exception() {
                     return JSValue::EXCEPTION;
                 }
-                if !JS_IsUndefined(capture) {
+                if !capture.is_undefined() {
                     let sval = JS_ToStringFree(ctx, capture);
                     if sval.is_exception() {
                         return JSValue::EXCEPTION;
@@ -1761,7 +1761,7 @@ pub unsafe fn js_string_raw(
     let mut res_string = StringContent::Empty;
 
     for i in 0..n {
-        let tmp = JS_ToStringFree(ctx, JS_GetPropertyInt64(ctx, raw, i));
+        let tmp = JS_ToStringFree(ctx, raw.get_property_i64(ctx.as_mut().unwrap(), i));
         if tmp.is_exception() {
             JS_FreeValue(ctx, cooked);
             JS_FreeValue(ctx, raw);

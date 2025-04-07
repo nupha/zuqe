@@ -24,9 +24,8 @@ use crate::{
         check_exception_free,
         object::{
             js_get_length64, JS_CreateDataPropertyUint32, JS_DefinePropertyValueInt64,
-            JS_GetProperty, JS_GetPropertyInt64, JS_GetPropertyUint32, JS_GetPropertyValue,
-            JS_IsConstructor, JS_IsFunction, JS_ToObject, JS_TryGetPropertyInt64,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
+            JS_GetProperty, JS_IsConstructor, JS_IsFunction, JS_ToObject, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
@@ -216,7 +215,7 @@ pub unsafe fn js_array_at(
         lst[idx as usize].dup()
     } else {
         // slow array
-        match JS_TryGetPropertyInt64(ctx, obj, idx) {
+        match obj.try_get_property_i64(ctx.as_mut().unwrap(), idx) {
             Ok(Some(r)) => r,
             Ok(None) => JSValue::UNDEFINED,
             Err(_) => JSValue::EXCEPTION,
@@ -289,7 +288,7 @@ pub unsafe fn js_array_with(
         // slow array
         // 0..idx
         for i in 0..idx {
-            match JS_TryGetPropertyInt64(ctx, obj, i) {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
                 Ok(Some(v)) => {
                     dest.push(v.dup());
                 }
@@ -312,7 +311,7 @@ pub unsafe fn js_array_with(
 
         // idx..end
         for i in idx..len {
-            match JS_TryGetPropertyInt64(ctx, obj, i) {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
                 Ok(Some(v)) => {
                     dest.push(v.dup());
                 }
@@ -458,7 +457,7 @@ pub unsafe fn js_array_concat(
             }
 
             for k in 0..len {
-                match JS_TryGetPropertyInt64(ctx, e, k) {
+                match e.try_get_property_i64(ctx.as_mut().unwrap(), k) {
                     Ok(Some(val)) => {
                         if JS_DefinePropertyValueInt64(
                             ctx,
@@ -614,7 +613,9 @@ pub unsafe fn js_array_every(
         let mut val: JSValueRc = JSValue::UNDEFINED.into_rc((*ctx).rt());
 
         if special & special_TA as i32 != 0 {
-            val = JS_GetPropertyInt64(ctx, obj, k).into_rc((*ctx).rt());
+            val = obj
+                .get_property_i64(ctx.as_mut().unwrap(), k)
+                .into_rc((*ctx).rt());
             if val.is_exception() {
                 JS_FreeValue(ctx, ret);
                 JS_FreeValue(ctx, obj);
@@ -622,7 +623,7 @@ pub unsafe fn js_array_every(
             }
             present = true;
         } else {
-            match JS_TryGetPropertyInt64(ctx, obj, k) {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), k) {
                 Ok(Some(r)) => {
                     val = r.into_rc((*ctx).rt());
                     present = true;
@@ -799,15 +800,15 @@ pub unsafe fn js_array_reduce(
             k += 1;
 
             if special & special_TA as i32 != 0 {
-                acc = JS_GetPropertyInt64(ctx, obj, k1);
-                if JS_IsException(acc) {
+                acc = obj.get_property_i64(ctx.as_mut().unwrap(), k1);
+                if acc.is_exception() {
                     JS_FreeValue(ctx, acc);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
                 break;
             } else {
-                match JS_TryGetPropertyInt64(ctx, obj, k1) {
+                match obj.try_get_property_i64(ctx.as_mut().unwrap(), k1) {
                     Ok(Some(r)) => {
                         acc = r;
                         break;
@@ -833,8 +834,8 @@ pub unsafe fn js_array_reduce(
         k += 1;
 
         let present = if special & special_TA as i32 != 0 {
-            val = JS_GetPropertyInt64(ctx, obj, k1);
-            if JS_IsException(val) {
+            val = obj.get_property_i64(ctx.as_mut().unwrap(), k1);
+            if val.is_exception() {
                 JS_FreeValue(ctx, acc);
                 JS_FreeValue(ctx, val);
                 JS_FreeValue(ctx, obj);
@@ -842,7 +843,7 @@ pub unsafe fn js_array_reduce(
             }
             true
         } else {
-            match JS_TryGetPropertyInt64(ctx, obj, k1) {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), k1) {
                 Ok(Some(r)) => {
                     val = r;
                     true
@@ -980,14 +981,14 @@ pub unsafe fn js_array_find(
     // TODO(bnoordhuis) add fast path for fast arrays
     while k != end {
         let index_val = JSValue::from_i64(k);
-        if JS_IsException(index_val) {
+        if index_val.is_exception() {
             JS_FreeValue(ctx, index_val);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
 
-        let val = JS_GetPropertyValue(ctx, obj, index_val);
-        if JS_IsException(val) {
+        let val = obj.get_property_value(ctx.as_mut().unwrap(), index_val);
+        if val.is_exception() {
             JS_FreeValue(ctx, index_val);
             JS_FreeValue(ctx, val);
             JS_FreeValue(ctx, obj);
@@ -1001,7 +1002,7 @@ pub unsafe fn js_array_find(
             3,
             [val, index_val, this_val].as_mut_ptr(),
         );
-        if JS_IsException(res) {
+        if res.is_exception() {
             JS_FreeValue(ctx, index_val);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
@@ -1073,7 +1074,7 @@ pub unsafe fn js_array_indexOf(
             }
         }
         while n < len {
-            match JS_TryGetPropertyInt64(ctx, obj, n) {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), n) {
                 Ok(Some(v)) => {
                     if js_strict_eq2(
                         ctx,
@@ -1130,7 +1131,7 @@ pub unsafe fn js_array_lastIndexOf(
 
         // XXX: should special case fast arrays
         for n in (0..=cnt).rev() {
-            match JS_TryGetPropertyInt64(ctx, obj, n) {
+            match obj.try_get_property_i64(ctx.as_mut().unwrap(), n) {
                 Ok(Some(v)) => {
                     if js_strict_eq2(
                         ctx,
@@ -1202,8 +1203,8 @@ pub unsafe fn js_array_includes(
         }
 
         while n < len {
-            let val = JS_GetPropertyInt64(ctx, obj, n);
-            if JS_IsException(val) {
+            let val = obj.get_property_i64(ctx.as_mut().unwrap(), n);
+            if val.is_exception() {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
@@ -1272,7 +1273,9 @@ pub unsafe fn js_array_join(
             }
         }
 
-        let mut el = JS_GetPropertyUint32(ctx, obj, i as u32).into_rc((*ctx).rt());
+        let mut el = obj
+            .get_property_u32(ctx.as_mut().unwrap(), i as u32)
+            .into_rc((*ctx).rt());
         if el.is_exception() {
             JS_FreeValue(ctx, sep);
             JS_FreeValue(ctx, obj);
@@ -1370,7 +1373,7 @@ pub unsafe fn js_array_pop(
             };
         } else {
             if shift != 0 {
-                res = JS_GetPropertyInt64(ctx, obj, 0);
+                res = obj.get_property_i64(ctx.as_mut().unwrap(), 0);
                 if res.is_exception() {
                     JS_FreeValue(ctx, res);
                     JS_FreeValue(ctx, obj);
@@ -1382,7 +1385,7 @@ pub unsafe fn js_array_pop(
                     return JSValue::EXCEPTION;
                 }
             } else {
-                res = JS_GetPropertyInt64(ctx, obj, new_len);
+                res = obj.get_property_i64(ctx.as_mut().unwrap(), new_len);
                 if res.is_exception() {
                     JS_FreeValue(ctx, res);
                     JS_FreeValue(ctx, obj);
@@ -1522,7 +1525,7 @@ pub unsafe fn js_array_reverse(
     let mut hval = JSValue::UNDEFINED;
 
     while l < h {
-        let l_present = match JS_TryGetPropertyInt64(ctx, obj, l) {
+        let l_present = match obj.try_get_property_i64(ctx.as_mut().unwrap(), l) {
             Ok(Some(v)) => {
                 lval = v;
                 true
@@ -1535,7 +1538,7 @@ pub unsafe fn js_array_reverse(
             }
         };
 
-        let h_present = match JS_TryGetPropertyInt64(ctx, obj, h) {
+        let h_present = match obj.try_get_property_i64(ctx.as_mut().unwrap(), h) {
             Ok(Some(v)) => {
                 hval = v;
                 true
@@ -1647,7 +1650,7 @@ pub unsafe fn js_array_toReversed(
             // Query order is observable; test262 expects descending order.
             let mut i = new_len - 1;
             while i >= 0 {
-                if let Ok(v) = JS_TryGetPropertyInt64(ctx, obj, i) {
+                if let Ok(v) = obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
                     if let Some(v) = v {
                         dest.push(v);
                     }
@@ -1814,7 +1817,7 @@ pub unsafe fn js_array_slice(
 
     // Copy the remaining elements if any (handle case of inherited properties)
     while k < final_ {
-        match JS_TryGetPropertyInt64(ctx, obj, k) {
+        match obj.try_get_property_i64(ctx.as_mut().unwrap(), k) {
             Ok(Some(v)) => {
                 if JS_CreateDataPropertyUint32(ctx, arr, n as _, v, JS_PROP_THROW) < 0 {
                     JS_FreeValue(ctx, obj);
@@ -2005,7 +2008,7 @@ pub unsafe fn js_array_toSpliced(
     } else {
         // slow array
         for i in 0..start {
-            if let Ok(val) = JS_TryGetPropertyInt64(ctx, obj, i) {
+            if let Ok(val) = obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
                 if let Some(v) = val {
                     new_lst.push(v);
                 }
@@ -2019,7 +2022,7 @@ pub unsafe fn js_array_toSpliced(
         }
 
         for i in (start + del)..len {
-            if let Ok(val) = JS_TryGetPropertyInt64(ctx, obj, i) {
+            if let Ok(val) = obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
                 if let Some(v) = val {
                     new_lst.push(v);
                 }
@@ -2181,14 +2184,14 @@ unsafe fn JS_FlattenIntoArray(
     let mut sourceIndex: i64 = 0;
 
     while sourceIndex < sourceLen {
-        match JS_TryGetPropertyInt64(ctx, source, sourceIndex) {
+        match source.try_get_property_i64(ctx.as_mut().unwrap(), sourceIndex) {
             Ok(Some(mut element)) => {
-                if !JS_IsUndefined(mapperFunction) {
+                if !mapperFunction.is_undefined() {
                     let mut args = [element, JSValue::from_i64(sourceIndex), source];
                     element = JS_Call(ctx, mapperFunction, thisArg, 3, args.as_mut_ptr());
                     JS_FreeValue(ctx, args[0]);
                     JS_FreeValue(ctx, args[1]);
-                    if JS_IsException(element) {
+                    if element.is_exception() {
                         return -1;
                     }
                 }
@@ -2468,8 +2471,8 @@ pub unsafe fn js_array_from(
         }
 
         for i in 0..len {
-            let mut v = JS_GetPropertyInt64(ctx, *arrayLike, i);
-            if JS_IsException(v) {
+            let mut v = (*arrayLike).get_property_i64(ctx.as_mut().unwrap(), i);
+            if v.is_exception() {
                 exception!();
             }
 

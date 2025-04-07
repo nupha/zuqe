@@ -8,9 +8,7 @@ use crate::{
     mem::{js_malloc, js_malloc_typed},
     types::init_list_head,
     value::{
-        object::{
-            JS_GetOpaque2, JS_GetProperty, JS_GetPropertyUint32, JS_IsFunction, JS_SetOpaque,
-        },
+        object::{JS_GetOpaque2, JS_GetProperty, JS_IsFunction, JS_SetOpaque},
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsNull, JS_IsObject,
         JS_IsUndefined, JS_UNDEFINED,
     },
@@ -144,15 +142,15 @@ pub unsafe fn js_map_constructor(
                     fail!(iter, next_method, adder);
                 }
 
-                let key = JS_GetPropertyUint32(ctx, item, 0);
-                if JS_IsException(key) {
+                let key = item.get_property_u32(ctx.as_mut().unwrap(), 0);
+                if key.is_exception() {
                     JS_FreeValue(ctx, item);
                     JS_FreeValue(ctx, key);
                     fail!(iter, next_method, adder);
                 }
 
-                let value = JS_GetPropertyUint32(ctx, item, 1);
-                if JS_IsException(value) {
+                let value = item.get_property_u32(ctx.as_mut().unwrap(), 1);
+                if value.is_exception() {
                     JS_FreeValue(ctx, item);
                     JS_FreeValue(ctx, key);
                     JS_FreeValue(ctx, value);
@@ -162,7 +160,7 @@ pub unsafe fn js_map_constructor(
                 let r = JS_Call(ctx, adder, obj, 2, [key, value].as_mut_ptr());
                 JS_FreeValue(ctx, key);
                 JS_FreeValue(ctx, value);
-                if JS_IsException(r) {
+                if r.is_exception() {
                     JS_FreeValue(ctx, item);
                     fail!(iter, next_method, adder);
                 }
