@@ -76,6 +76,7 @@ pub struct JSClassExoticMethods {
     pub get_property:
         Option<unsafe fn(*mut JSContext, JSValueConst, JSAtom, JSValueConst) -> JSValue>,
 
+    /// returns 0,1,-1
     pub set_property: Option<
         unsafe fn(*mut JSContext, JSValueConst, JSAtom, JSValueConst, JSValueConst, c_int) -> c_int,
     >,

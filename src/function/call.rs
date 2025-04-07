@@ -689,6 +689,7 @@ pub unsafe fn js_call_bound_function(
     // }
 }
 
+/// returns 0, 1, -1
 pub unsafe fn call_setter(
     ctx: *mut JSContext,
     setter: *mut JSObject,

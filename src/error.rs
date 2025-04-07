@@ -157,6 +157,7 @@ impl JSContext {
         }
     }
 
+    /// flags: 1=raise exception; 0=don't raise exception
     /// returns: true=exception raised; false=no exception raised
     pub fn JS_ThrowTypeErrorReadOnly(&mut self, flags: u32, atom: JSAtom) -> bool {
         self.JS_ThrowTypeErrorOrFalse(flags, unsafe {

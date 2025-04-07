@@ -165,7 +165,8 @@ pub unsafe fn JS_IsArray(ctx: *mut JSContext, val: JSValueConst) -> Result<bool,
     }
 }
 
-/* set the array length and remove the array elements if necessary. */
+/// set the array length and remove the array elements if necessary.
+/// returns 0,1,-1
 pub unsafe fn set_array_length(
     ctx: *mut JSContext,
     p: *mut JSObject,
