@@ -24,9 +24,9 @@ use crate::{
         check_exception_free,
         object::{
             js_get_length64, JS_CreateDataPropertyUint32, JS_DefinePropertyValueInt64,
-            JS_DeletePropertyInt64, JS_GetProperty, JS_GetPropertyInt64, JS_GetPropertyUint32,
-            JS_GetPropertyValue, JS_IsConstructor, JS_IsFunction, JS_ToObject,
-            JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
+            JS_GetProperty, JS_GetPropertyInt64, JS_GetPropertyUint32, JS_GetPropertyValue,
+            JS_IsConstructor, JS_IsFunction, JS_ToObject, JS_TryGetPropertyInt64,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
@@ -1389,7 +1389,10 @@ pub unsafe fn js_array_pop(
                     return JSValue::EXCEPTION;
                 }
             }
-            if JS_DeletePropertyInt64(ctx, obj, new_len, JS_PROP_THROW).is_err() {
+            if obj
+                .delete_property_i64(ctx.as_mut().unwrap(), new_len, JS_PROP_THROW)
+                .is_err()
+            {
                 JS_FreeValue(ctx, res);
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
@@ -1566,7 +1569,10 @@ pub unsafe fn js_array_reverse(
                 }
                 lval = JSValue::UNDEFINED;
             } else {
-                if JS_DeletePropertyInt64(ctx, obj, h, JS_PROP_THROW).is_err() {
+                if obj
+                    .delete_property_i64(ctx.as_mut().unwrap(), h, JS_PROP_THROW)
+                    .is_err()
+                {
                     JS_FreeValue(ctx, lval);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1574,7 +1580,10 @@ pub unsafe fn js_array_reverse(
             }
         } else {
             if l_present {
-                if JS_DeletePropertyInt64(ctx, obj, l, JS_PROP_THROW).is_err() {
+                if obj
+                    .delete_property_i64(ctx.as_mut().unwrap(), l, JS_PROP_THROW)
+                    .is_err()
+                {
                     JS_FreeValue(ctx, lval);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1859,7 +1868,10 @@ pub unsafe fn js_array_slice(
 
             while k > new_len {
                 k -= 1;
-                if JS_DeletePropertyInt64(ctx, obj, k, JS_PROP_THROW).is_err() {
+                if obj
+                    .delete_property_i64(ctx.as_mut().unwrap(), k, JS_PROP_THROW)
+                    .is_err()
+                {
                     JS_FreeValue(ctx, obj);
                     JS_FreeValue(ctx, arr);
                     return JSValue::EXCEPTION;

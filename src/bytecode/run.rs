@@ -48,9 +48,9 @@ use crate::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_CopyDataProperties, JS_DefineObjectName,
             JS_DefineObjectNameComputed, JS_DefinePrivateField, JS_DefineProperty,
-            JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_DeleteProperty,
-            JS_GetPrivateField, JS_GetProperty, JS_GetPropertyInternal, JS_GetPropertyValue,
-            JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
+            JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_GetPrivateField,
+            JS_GetProperty, JS_GetPropertyInternal, JS_GetPropertyValue, JS_GetPrototype,
+            JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
             JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey, JS_PROP_CONFIGURABLE,
             JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
             JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
@@ -1920,8 +1920,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::DELETE_VAR => {
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
-
-                    match JS_DeleteProperty(ctx, ctx.global_obj, atom, 0) {
+                    match ctx.global_obj.delete_property(ctx, atom, 0) {
                         Ok(ret) => {
                             SP![0] = JS_NewBool(ret);
                             SP_GO!(1);
@@ -2022,7 +2021,7 @@ pub unsafe fn run_bytecodes(
                                     }
                                 }
                                 OpCode::WITH_DELETE_VAR => {
-                                    if let Ok(ret) = JS_DeleteProperty(ctx, obj, atom, 0) {
+                                    if let Ok(ret) = obj.delete_property(ctx, atom, 0) {
                                         JS_FreeValue(ctx, SP![-1]);
                                         SP![-1] = JS_NewBool(ret);
                                     } else {

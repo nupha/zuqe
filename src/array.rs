@@ -10,9 +10,9 @@ use crate::{
     value::{
         object::{
             js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
-            JS_CreateDataPropertyUint32, JS_DeletePropertyInt64, JS_NewObjectFromShape,
-            JS_ToObject, JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_CreateDataPropertyUint32, JS_NewObjectFromShape, JS_ToObject,
+            JS_TryGetPropertyInt64, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
+            JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         JS_IsException, JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT,
@@ -224,11 +224,10 @@ pub unsafe fn set_array_length(
                 // faster to iterate
                 while cur_len > len {
                     let atom = (*ctx).rt_mut().add_atom_u32(cur_len as u32 - 1);
-                    let ret = (*p).delete_property(ctx, atom);
+                    let ret = (*p).delete_property(ctx.as_mut().unwrap(), atom);
                     JS_FreeAtom(ctx, atom);
-                    if ret == 0 {
-                        // unlikely case: property is not configurable
-                        break;
+                    if ret == Ok(false) {
+                        break; // unlikely case: property is not configurable
                     }
                     cur_len -= 1;
                 }
@@ -238,7 +237,7 @@ pub unsafe fn set_array_length(
                 cur_len = len;
 
                 for pr in sh.props.values_mut() {
-                    let mut idx = 0_usize;
+                    let idx = 0_usize;
                     if pr.atom != JS_ATOM_NULL
                         && JS_AtomIsArrayIndex(ctx, &mut (idx as u32), pr.atom)
                     {
@@ -254,7 +253,9 @@ pub unsafe fn set_array_length(
                     if pr.atom != JS_ATOM_NULL && JS_AtomIsArrayIndex(ctx, &mut idx, (*pr).atom) {
                         if idx as usize >= cur_len {
                             // remove the property
-                            p.as_mut().unwrap().delete_property(ctx, pr.atom);
+                            (*p).delete_property(ctx.as_mut().unwrap(), pr.atom)
+                                .unwrap();
+
                             // WARNING: the shape may have been modified
                             sh = (*p).shape_mut().unwrap();
                         }
@@ -565,7 +566,11 @@ pub unsafe fn JS_CopySubArray(
                     obj.set_property_i64(ctx.as_mut().unwrap(), (to_pos + i) as _, val)?;
                 }
                 None => {
-                    JS_DeletePropertyInt64(ctx, obj, (to_pos + 1) as _, JS_PROP_THROW)?;
+                    obj.delete_property_i64(
+                        ctx.as_mut().unwrap(),
+                        (to_pos + 1) as _,
+                        JS_PROP_THROW,
+                    )?;
                 }
             }
         }

@@ -20,13 +20,12 @@ use crate::{
         object::{
             find_own_property, js_free_prop_enum, js_get_length32, JSProperty, JSPropertyEnum,
             JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_DefinePropertyValue, JS_DefinePropertyValueUint32, JS_DeleteProperty,
-            JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
-            JS_GetPrototypeFree, JS_HasProperty, JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf,
-            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM,
-            JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_WRITABLE,
+            JS_DefinePropertyValue, JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal,
+            JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototypeFree, JS_HasProperty,
+            JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf, JS_NewObjectProto,
+            JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET,
+            JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
@@ -44,7 +43,7 @@ pub unsafe fn js_operator_delete(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
         return -1;
     }
 
-    let ret = JS_DeleteProperty(ctx, op1, atom, JS_PROP_THROW_STRICT);
+    let ret = op1.delete_property(ctx.as_mut().unwrap(), atom, JS_PROP_THROW_STRICT);
     JS_FreeAtom(ctx, atom);
 
     if let Ok(ret) = ret {
@@ -53,7 +52,7 @@ pub unsafe fn js_operator_delete(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
         *sp.offset(-2) = JS_NewBool(ret);
         0
     } else {
-        -1 // fail
+        -1
     }
 }
 
