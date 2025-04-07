@@ -22,7 +22,7 @@ use crate::{
         JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
     JS_CLASS_UINT8C_ARRAY,
 };
 
@@ -44,7 +44,7 @@ impl JSContext {
         if capacity > 0 {
             let p = JS_VALUE_GET_OBJ(arr);
             if (*p)
-                .array_values_mut_unchecked()
+                .fast_array_values_mut_unchecked()
                 .try_reserve_exact(capacity)
                 .is_err()
             {
@@ -82,7 +82,7 @@ impl JSObject {
 
     /// if object is Array or Argument class, and is fast array, returns values slice.
     /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
-    pub unsafe fn array_values_unchecked(&self) -> &[JSValue] {
+    pub unsafe fn fast_array_values_unchecked(&self) -> &[JSValue] {
         debug_assert!(
             matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
                 && self.detailed.fast_array(),
@@ -96,7 +96,7 @@ impl JSObject {
 
     /// if object is Array or Argument class, and is fast array, returns values mut.
     /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
-    pub unsafe fn array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
+    pub unsafe fn fast_array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
         debug_assert!(
             matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
                 && self.detailed.fast_array(),
@@ -106,6 +106,18 @@ impl JSObject {
         );
 
         &mut (*self.u.array).data.values
+    }
+
+    /// get array object length.
+    /// will panic if `self` is not an Array, Argument, or TypedArray.
+    pub unsafe fn array_length_unchecked(&self) -> usize {
+        match self.class_id() {
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => self.fast_array_values_unchecked().len(),
+            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW => {
+                (*self.u.array).typed_array_count as usize
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -184,7 +196,7 @@ pub unsafe fn set_array_length(
     }
 
     if (*p).detailed.fast_array() {
-        let lst = (*p).array_values_mut_unchecked();
+        let lst = (*p).fast_array_values_mut_unchecked();
         let old_len = lst.len();
         if len < old_len {
             for v in lst.drain(len..old_len) {
@@ -295,7 +307,7 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
     // }
 
     for (i, v) in (*p)
-        .array_values_mut_unchecked()
+        .fast_array_values_mut_unchecked()
         .drain(..)
         .into_iter()
         .enumerate()
@@ -312,7 +324,6 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
         (*pr).u.value = v;
     }
 
-    (*(*p).u.array).count = 0;
     (*(*p).u.array).u1.size = 0;
     (*p).detailed.set_fast_array(false);
 
@@ -328,7 +339,7 @@ pub unsafe fn add_fast_array_element(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    let lst = (*p).array_values_mut_unchecked();
+    let lst = (*p).fast_array_values_mut_unchecked();
 
     // extend the array by one
     // XXX: convert to slow array if new_len > u32::MAX elements
@@ -368,7 +379,6 @@ pub unsafe fn add_fast_array_element(
     }
 
     lst.push(val);
-    (*(*p).u.array).count = new_len as _;
 
     return 1;
 }
@@ -510,7 +520,7 @@ pub unsafe fn JS_CopySubArray(
 
     if let Some(fa) = fast_array {
         // `obj` is fast array
-        let lst = (*fa).array_values_mut_unchecked();
+        let lst = (*fa).fast_array_values_mut_unchecked();
         let len = lst.len();
 
         // calc actual copy count

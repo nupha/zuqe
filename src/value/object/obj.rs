@@ -319,7 +319,7 @@ pub struct JSObjectArray {
     pub data: JSObjectArrayData,
 
     /// for typed array only: the array length, 0 means detached
-    pub count: u32,
+    pub(crate) typed_array_count: u32,
 }
 
 // TODO: replace with this

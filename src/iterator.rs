@@ -442,7 +442,7 @@ pub unsafe fn js_array_iterator_next(
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             fail!();
         }
-        (*p).u.array.count
+        (*p).array_length_unchecked() as u32
     } else {
         if let Ok(n) = js_get_length32(ctx, (*it).obj) {
             n
@@ -533,7 +533,7 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
             // no enumerable property, is fast array.
             // we only store the number of elements
             (*it).is_array = true;
-            (*it).atom_count = (*p).u.array.count;
+            (*it).atom_count = (*p).array_length_unchecked() as u32;
         }
     }
 

@@ -437,7 +437,7 @@ unsafe fn js_arguments_define_own_property(
     /* convert to normal array when redefining an existing numeric field */
     if (*p).detailed.fast_array()
         && JS_AtomIsArrayIndex(ctx, &mut idx, prop)
-        && idx < (*p).u.array.count
+        && idx < (*p).array_length_unchecked() as u32
     {
         if convert_fast_array_to_array(ctx, p) != 0 {
             return -1;

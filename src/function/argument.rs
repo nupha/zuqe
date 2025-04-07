@@ -44,7 +44,7 @@ pub unsafe fn js_build_arguments(
     (*pr).u.value = JSValue::from_i32(argc);
 
     // initialize fast array values
-    let tab = (*p).array_values_mut_unchecked();
+    let tab = (*p).fast_array_values_mut_unchecked();
     if argc > 0 {
         if tab.try_reserve_exact(argc as usize).is_err() {
             JS_FreeValue(ctx, val);

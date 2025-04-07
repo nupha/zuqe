@@ -3,9 +3,8 @@ use std::ffi::CStr;
 use crate::{
     class::JSClassID,
     context::JSContext,
-    error::JS_ThrowTypeErrorDetachedArrayBuffer,
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::{js_malloc_typed, js_mallocz},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
     types::{list_add_tail, list_del, list_head},
     value::{
@@ -71,7 +70,7 @@ pub unsafe fn typed_array_init(
     list_add_tail(&mut ta.link, &mut (*abuf).array_list);
 
     (*p).u.typed_array = Box::into_raw(ta);
-    (*(*p).u.array).count = len as u32;
+    (*(*p).u.array).typed_array_count = len as u32;
     (*(*p).u.array).data.ptr = (*abuf).data.offset(offset as isize).cast();
 
     0
@@ -134,22 +133,6 @@ pub unsafe fn get_typed_array(
     }
 
     p
-}
-
-pub unsafe fn js_typed_array_get_length_internal(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-) -> Result<u32, i32> {
-    let p = get_typed_array(ctx, obj, false);
-    if p.is_null() {
-        return Err(-1);
-    }
-    if typed_array_is_detached(ctx, p) {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        return Err(-1);
-    }
-
-    Ok((*p).u.array.count)
 }
 
 pub unsafe fn js_typed_array_finalizer(rt: *mut JSRuntime, val: JSValue) {

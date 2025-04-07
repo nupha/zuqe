@@ -11,8 +11,7 @@ use crate::{
     mem::js_free_rt,
     runtime::JSRuntime,
     typed_array::{
-        get_typed_array, js_typed_array_get_length_internal, typed_array_init,
-        typed_array_is_detached, typed_array_size_log2,
+        get_typed_array, typed_array_init, typed_array_is_detached, typed_array_size_log2,
     },
     value::{
         object::{
@@ -234,7 +233,7 @@ pub unsafe fn js_typed_array_constructor_ta(
     }
 
     let ta = (*p).u.typed_array;
-    let len = (*p).u.array.count;
+    let len = (*p).array_length_unchecked();
     let src_buffer = (*ta).buffer;
     let src_abuf = (*src_buffer).u.array_buffer;
     let size_log2 = typed_array_size_log2(classid as _);
@@ -268,13 +267,13 @@ pub unsafe fn js_typed_array_constructor_ta(
         );
     } else {
         for i in 0..len {
-            let val = JS_GetPropertyUint32(ctx, src_obj, i);
-            if JS_IsException(val) {
+            let val = JS_GetPropertyUint32(ctx, src_obj, i as u32);
+            if val.is_exception() {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
 
-            if JS_SetPropertyUint32(ctx, obj, i, val) < 0 {
+            if JS_SetPropertyUint32(ctx, obj, i as u32, val) < 0 {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
@@ -349,4 +348,20 @@ pub unsafe fn js_typed_array_create(
     }
 
     ret
+}
+
+pub unsafe fn js_typed_array_get_length_internal(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+) -> Result<u32, i32> {
+    let p = get_typed_array(ctx, obj, false);
+    if p.is_null() {
+        return Err(-1);
+    }
+    if typed_array_is_detached(ctx, p) {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
+    }
+
+    Ok((*p).array_length_unchecked() as u32)
 }

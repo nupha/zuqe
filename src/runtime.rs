@@ -394,11 +394,11 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     rt.atom_hash_lut.clear();
     for mut a in rt.atom_slots.drain(..) {
         if let Some(p) = a.take() {
-            println!(
-                "[O.o] atom {}, rc={}",
-                p.content().to_str(),
-                Rc::strong_count(&p)
-            );
+            // println!(
+            //     "[O.o] atom {}, rc={}",
+            //     p.content().to_str(),
+            //     Rc::strong_count(&p)
+            // );
 
             // if __JS_AtomIsConst(p.atom_type().unwrap().atom()) {
             //     drop(p);

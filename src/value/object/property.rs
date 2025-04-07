@@ -437,7 +437,7 @@ pub unsafe fn JS_DefineProperty(
         if (*p).detailed.fast_array() {
             match (*p).class_id() {
                 JS_CLASS_ARRAY => {
-                    let lst = (*p).array_values_mut_unchecked();
+                    let lst = (*p).fast_array_values_mut_unchecked();
                     if prop.is_int_type() {
                         let idx = __JS_AtomToUInt32(prop) as usize;
                         if idx < lst.len() {
@@ -517,7 +517,7 @@ pub unsafe fn JS_DefineProperty(
 
                     let idx = __JS_AtomToUInt32(prop);
                     /* if the typed array is detached, p->u.array.count = 0 */
-                    if idx >= (*p).u.array.count {
+                    if idx >= (*p).array_length_unchecked() as u32 {
                         return if (*ctx)
                             .JS_ThrowTypeErrorOrFalse(flags, c"out-of-bound index in typed array")
                         {
@@ -795,7 +795,7 @@ pub unsafe fn JS_SetPropertyValue(
             JS_CLASS_ARRAY => {
                 // apply fast path using fast array
                 if (*p).detailed.fast_array() && (*p).detailed.extensible() {
-                    let lst = (*p).array_values_mut_unchecked();
+                    let lst = (*p).fast_array_values_mut_unchecked();
 
                     if idx < lst.len() as i32 {
                         // update array element
@@ -829,7 +829,7 @@ pub unsafe fn JS_SetPropertyValue(
                 }
             }
             JS_CLASS_ARGUMENTS => {
-                let lst = (*p).array_values_mut_unchecked();
+                let lst = (*p).fast_array_values_mut_unchecked();
                 if idx < lst.len() as i32 {
                     set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
                     return 1;
@@ -840,7 +840,7 @@ pub unsafe fn JS_SetPropertyValue(
                 if JS_ToUint8ClampFree(ctx, &mut v, val) != 0 {
                     return -1;
                 }
-                if idx >= (*p).u.array.count as i32 {
+                if idx >= (*p).array_length_unchecked() as i32 {
                     ta_out_of_bound = true;
                 } else {
                     *(*p).u.array.data.uint8_ptr.offset(idx as _) = v as u8;
@@ -853,7 +853,7 @@ pub unsafe fn JS_SetPropertyValue(
                 } else {
                     return -1;
                 };
-                if idx >= (*p).u.array.count as i32 {
+                if idx >= (*p).array_length_unchecked() as i32 {
                     ta_out_of_bound = true;
                 } else {
                     *(*p).u.array.data.uint8_ptr.offset(idx as _) = v;
@@ -866,7 +866,7 @@ pub unsafe fn JS_SetPropertyValue(
                 } else {
                     return -1;
                 };
-                if idx >= (*p).u.array.count as i32 {
+                if idx >= (*p).array_length_unchecked() as i32 {
                     ta_out_of_bound = true;
                 } else {
                     *(*p).u.array.data.uint16_ptr.offset(idx as _) = v as u16;
@@ -879,7 +879,7 @@ pub unsafe fn JS_SetPropertyValue(
                 } else {
                     return -1;
                 };
-                if idx >= (*p).u.array.count as i32 {
+                if idx >= (*p).array_length_unchecked() as i32 {
                     ta_out_of_bound = true;
                 } else {
                     *(*p).u.array.data.uint32_ptr.offset(idx as _) = v as u32;
@@ -894,7 +894,7 @@ pub unsafe fn JS_SetPropertyValue(
                 if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
                     return -1;
                 }
-                if unlikely(idx >= (*p).u.array.count as i32) {
+                if idx >= (*p).array_length_unchecked() as i32 {
                     ta_out_of_bound = true;
                 } else {
                     *(*p).u.array.data.float_ptr.offset(idx as _) = d as f32;
@@ -906,7 +906,7 @@ pub unsafe fn JS_SetPropertyValue(
                 if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
                     return -1;
                 }
-                if unlikely(idx >= (*p).u.array.count as i32) {
+                if idx >= (*p).array_length_unchecked() as i32 {
                     ta_out_of_bound = true;
                 } else {
                     *(*p).u.array.data.double_ptr.offset(idx as _) = d;
@@ -1097,7 +1097,7 @@ pub unsafe fn JS_SetPropertyInternal(
                 if (*proto).detailed.fast_array() {
                     if prop.is_int_type() {
                         let idx = __JS_AtomToUInt32(prop);
-                        if idx < (*proto).u.array.count {
+                        if idx < (*proto).array_length_unchecked() as u32 {
                             if unlikely(target == proto) {
                                 return Some(JS_SetPropertyValue(
                                     ctx.as_mut().unwrap(),
@@ -1379,8 +1379,8 @@ pub unsafe fn JS_SetPropertyInternal(
             if (*p).class_id() == JS_CLASS_ARRAY && (*p).detailed.fast_array() && prop.is_int_type()
             {
                 let idx = __JS_AtomToUInt32(prop);
-                if idx == (*p).u.array.count {
-                    /* fast case */
+                if idx == (*(*p).u.array).data.values.len() as u32 {
+                    // fast case
                     return add_fast_array_element(ctx, p, val, flags);
                 } else {
                     generic_create_prop!(p);
@@ -1731,7 +1731,7 @@ impl JSObject {
                     if JS_AtomIsArrayIndex(ctx, &mut idx, atom) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                                let lst = self.array_values_mut_unchecked();
+                                let lst = self.fast_array_values_mut_unchecked();
                                 if idx == lst.len() as u32 - 1 {
                                     JS_FreeValue(ctx, lst.pop().unwrap());
                                     return 1;
@@ -1744,7 +1744,7 @@ impl JSObject {
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                                if idx < self.u.array.count {
+                                if idx < self.array_length_unchecked() as u32 {
                                     // can't delete element of a TypedArray
                                     return 0;
                                 }
@@ -2282,23 +2282,23 @@ pub unsafe fn JS_GetPropertyInternal(
             if (*p).detailed.fast_array() {
                 if prop.is_int_type() {
                     let idx = __JS_AtomToUInt32(prop);
-                    if idx < (*p).u.array.count {
-                        /* we avoid duplicating the code */
+                    if idx < (*p).array_length_unchecked() as u32 {
                         return JS_GetPropertyUint32(ctx, JS_MKPTR!(JSTag::Object, p.cast()), idx);
-                    } else if (*p).class_id() >= JS_CLASS_UINT8C_ARRAY
-                        && (*p).class_id() <= JS_CLASS_FLOAT64_ARRAY
+                    } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
+                        .contains(&(*p).class_id())
                     {
                         return JSValue::UNDEFINED;
                     }
-                } else if (*p).class_id() >= JS_CLASS_UINT8C_ARRAY
-                    && (*p).class_id() <= JS_CLASS_FLOAT64_ARRAY
+                } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
+                    .contains(&(*p).class_id())
                 {
                     let ret = JS_AtomIsNumericIndex(ctx, prop);
                     if ret != 0 {
-                        if ret < 0 {
-                            return JSValue::EXCEPTION;
-                        }
-                        return JSValue::UNDEFINED;
+                        return if ret < 0 {
+                            JSValue::EXCEPTION
+                        } else {
+                            JSValue::UNDEFINED
+                        };
                     }
                 }
             } else {
@@ -2381,64 +2381,64 @@ pub unsafe fn JS_GetPropertyValue(
                 }
             }
             JS_CLASS_INT8_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_i32(
                         *(*p).u.array.data.int8_ptr.offset(idx as isize) as i32
                     );
                 }
             }
             JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_i32(
                         *(*p).u.array.data.uint8_ptr.offset(idx as isize) as i32
                     );
                 }
             }
             JS_CLASS_INT16_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_i32(
                         *(*p).u.array.data.int16_ptr.offset(idx as isize) as i32
                     );
                 }
             }
             JS_CLASS_UINT16_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_i32(
                         *(*p).u.array.data.uint16_ptr.offset(idx as isize) as i32
                     );
                 }
             }
             JS_CLASS_INT32_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_i32(*(*p).u.array.data.int32_ptr.offset(idx as isize));
                 }
             }
             JS_CLASS_UINT32_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_u32(*(*p).u.array.data.uint32_ptr.offset(idx as isize));
                 }
             }
             JS_CLASS_BIG_INT64_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     //return JS_NewBigInt64(ctx, *(*p).u.array.u.int64_ptr.offset(idx as isize));
                     unimplemented!()
                 }
             }
             JS_CLASS_BIG_UINT64_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     //return JS_NewBigUint64(ctx, *(*p).u.array.u.uint64_ptr.offset(idx as isize));
                     unimplemented!()
                 }
             }
             JS_CLASS_FLOAT32_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_f64_as_is(
                         *(*p).u.array.data.float_ptr.offset(idx as isize) as f64,
                     );
                 }
             }
             JS_CLASS_FLOAT64_ARRAY => {
-                if idx < (*p).u.array.count as i32 {
+                if idx < (*p).array_length_unchecked() as i32 {
                     return JSValue::from_f64_as_is(
                         *(*p).u.array.data.double_ptr.offset(idx as isize),
                     );
@@ -2577,7 +2577,7 @@ pub unsafe fn JS_CreateProperty(
                 if (*p).detailed.fast_array() {
                     if prop.is_int_type() {
                         idx = __JS_AtomToUInt32(prop);
-                        if idx == (*p).u.array.count {
+                        if idx == (*p).u.array.data.values.len() as u32 {
                             if !(*p).detailed.extensible() {
                                 return if (*ctx).JS_ThrowTypeErrorOrFalse(
                                     flags as _,
@@ -2805,7 +2805,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                 /* specific case for fast arrays */
                 if prop.is_int_type() {
                     let idx = __JS_AtomToUInt32(prop);
-                    if idx < (*p).u.array.count {
+                    if idx < (*p).array_length_unchecked() as u32 {
                         if !desc.is_null() {
                             (*desc).flags =
                                 JS_PROP_WRITABLE | JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE;

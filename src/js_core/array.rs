@@ -20,7 +20,6 @@ use crate::{
         JS_IteratorNext,
     },
     runtime::js_check_stack_overflow,
-    typed_array::js_typed_array_get_length_internal,
     value::{
         check_exception_free,
         object::{
@@ -39,7 +38,11 @@ use crate::{
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
 };
 
-use super::{js_get_this, object::js_object_toString, typed_array::js_typed_array___speciesCreate};
+use super::{
+    js_get_this,
+    object::js_object_toString,
+    typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
+};
 
 const special_find: i16 = 0;
 const special_findIndex: i16 = 1;
@@ -249,7 +252,7 @@ pub unsafe fn js_array_with(
     }
 
     let p = JS_VALUE_GET_OBJ(arr);
-    let dest = (*p).array_values_mut_unchecked();
+    let dest = (*p).fast_array_values_mut_unchecked();
 
     if let Some(src) = obj.fast_array_values().and_then(|a| {
         if a.len() == len as usize {
@@ -1311,7 +1314,7 @@ pub unsafe fn js_array_pop(
     argv: *mut JSValueConst,
     shift: i32,
 ) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
+    let mut obj = JS_ToObject(ctx, this_val);
     let len = if let Ok(l) = js_get_length64(ctx, obj) {
         l
     } else {
@@ -1320,30 +1323,28 @@ pub unsafe fn js_array_pop(
     };
 
     let mut res = JSValue::UNDEFINED;
-    let mut newLen = 0;
+    let mut new_len = 0;
 
     if len > 0 {
-        newLen = len - 1;
+        new_len = len - 1;
 
-        let mut arrp: *mut JSValue = std::ptr::null_mut();
-        let mut count32: u32 = 0;
-
-        /* Special case fast arrays */
-
-        if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 == len as u32 {
-            let p = JS_VALUE_GET_OBJ(obj);
-            if shift != 0 {
-                res = *arrp.offset(0);
-                std::ptr::copy(arrp.offset(1), arrp, (count32 - 1) as usize);
-                (*(*p).u.array).count -= 1;
+        if let Some(lst) = obj.fast_array_values_mut().and_then(|a| {
+            if a.len() == len as usize {
+                Some(a)
             } else {
-                res = *arrp.offset((count32 - 1) as isize);
-                (*(*p).u.array).count -= 1;
+                None
             }
+        }) {
+            // fast array
+            res = if shift != 0 {
+                lst.remove(0)
+            } else {
+                lst.pop().unwrap()
+            };
         } else {
             if shift != 0 {
                 res = JS_GetPropertyInt64(ctx, obj, 0);
-                if JS_IsException(res) {
+                if res.is_exception() {
                     JS_FreeValue(ctx, res);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1354,14 +1355,14 @@ pub unsafe fn js_array_pop(
                     return JSValue::EXCEPTION;
                 }
             } else {
-                res = JS_GetPropertyInt64(ctx, obj, newLen);
-                if JS_IsException(res) {
+                res = JS_GetPropertyInt64(ctx, obj, new_len);
+                if res.is_exception() {
                     JS_FreeValue(ctx, res);
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }
             }
-            if JS_DeletePropertyInt64(ctx, obj, newLen, JS_PROP_THROW).is_err() {
+            if JS_DeletePropertyInt64(ctx, obj, new_len, JS_PROP_THROW).is_err() {
                 JS_FreeValue(ctx, res);
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
@@ -1369,7 +1370,7 @@ pub unsafe fn js_array_pop(
         }
     }
 
-    if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(newLen)) < 0 {
+    if JS_SetProperty(ctx, obj, JS_ATOM_length, JSValue::from_i64(new_len)) < 0 {
         JS_FreeValue(ctx, res);
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -1562,7 +1563,7 @@ pub unsafe fn js_array_toReversed(
 
     if new_len > 0 {
         let p = JS_VALUE_GET_OBJ(res_arr);
-        let dest = (*p).array_values_mut_unchecked();
+        let dest = (*p).fast_array_values_mut_unchecked();
 
         if let Some(src) = obj.fast_array_values().and_then(|a| {
             if a.len() == new_len as usize {
@@ -1881,7 +1882,7 @@ pub unsafe fn js_array_toSpliced(
     }
 
     let p = JS_VALUE_GET_OBJ(res_arr);
-    let new_lst = (*p).array_values_mut_unchecked();
+    let new_lst = (*p).fast_array_values_mut_unchecked();
 
     macro_rules! exception {
         ($i:expr) => {

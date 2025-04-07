@@ -250,7 +250,6 @@ pub unsafe fn JS_NewObjectFromShape(
             obj.detailed.set_exotic(true);
             obj.detailed.set_fast_array(true);
             (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
-            (*obj.u.array).count = 0;
             (*obj.u.array).u1.size = 0;
 
             // Array: the length property is always the first one
@@ -277,12 +276,12 @@ pub unsafe fn JS_NewObjectFromShape(
             obj.detailed.set_exotic(true);
             obj.detailed.set_fast_array(true);
             (*obj.u.array).data.ptr = std::ptr::null_mut();
-            (*obj.u.array).count = 0;
+            (*obj.u.array).typed_array_count = 0;
         }
 
         JS_CLASS_DATAVIEW => {
             (*obj.u.array).data.ptr = std::ptr::null_mut();
-            (*obj.u.array).count = 0;
+            (*obj.u.array).typed_array_count = 0;
         }
 
         JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL | JS_CLASS_DATE
