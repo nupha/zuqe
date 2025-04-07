@@ -9,10 +9,10 @@ use crate::{
     value::{
         object::{
             add_property, find_own_property, find_own_property1, JSObject, JSProperty,
-            JS_DefineProperty, JS_GetPropertyInternal, JS_HasProperty, JS_PROP_CONFIGURABLE,
-            JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-            JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW,
-            JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE,
+            JS_DefineProperty, JS_HasProperty, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
+            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
+            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_IsUninitialized, JS_VALUE_GET_OBJ,
     },
@@ -154,9 +154,8 @@ pub unsafe fn JS_GetGlobalVar(ctx: *mut JSContext, prop: JSAtom, throw_ref_error
         return (*pr).u.value.dup();
     }
 
-    JS_GetPropertyInternal(
-        ctx,
-        (*ctx).global_obj,
+    (*ctx).global_obj.get_property_internal(
+        ctx.as_mut().unwrap(),
         prop,
         (*ctx).global_obj,
         throw_ref_error,

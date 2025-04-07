@@ -115,7 +115,7 @@ pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: *const JSValue, hint: i32
 }
 
 /* Only works for primitive types, otherwise return JS_NULL. */
-pub unsafe fn JS_GetPrototypePrimitive(ctx: *mut JSContext, val: JSValueConst) -> JSValueConst {
+pub unsafe fn JS_GetPrototypePrimitive(ctx: *const JSContext, val: JSValueConst) -> JSValueConst {
     match JS_VALUE_GET_NORM_TAG(val) {
         JSTag::BigFloat | JSTag::BigDecimal | JSTag::BigInt => {
             unimplemented!()

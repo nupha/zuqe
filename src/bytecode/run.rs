@@ -49,12 +49,12 @@ use crate::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_CopyDataProperties, JS_DefineObjectName,
             JS_DefineObjectNameComputed, JS_DefinePrivateField, JS_DefineProperty,
             JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_GetPrivateField,
-            JS_GetProperty, JS_GetPropertyInternal, JS_GetPropertyValue, JS_GetPrototype,
-            JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
-            JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
-            JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JS_GetPropertyValue, JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto,
+            JS_SetPrivateField, JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
         JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
@@ -1323,9 +1323,8 @@ pub unsafe fn run_bytecodes(
                     let flags = *pc as i32;
                     PC_GO!(1);
 
-                    let method = JS_GetProperty(
+                    let method = SP![-4].get_property(
                         ctx,
-                        SP![-4],
                         if flags & 1 != 0 {
                             JS_ATOM_throw
                         } else {
@@ -1369,8 +1368,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
-
-                    let val = JS_GetProperty(ctx, SP![-1], atom);
+                    let val = SP![-1].get_property(ctx, atom);
                     if val.is_exception() {
                         break State::Exception;
                     } else {
@@ -1601,7 +1599,7 @@ pub unsafe fn run_bytecodes(
                         break State::Exception;
                     }
 
-                    let val = JS_GetPropertyInternal(ctx, SP![-2], atom, SP![-3], false);
+                    let val = SP![-2].get_property_internal(ctx, atom, SP![-3], false);
                     JS_FreeAtom(ctx, atom);
                     if val.is_exception() {
                         break State::Exception;
@@ -1998,7 +1996,7 @@ pub unsafe fn run_bytecodes(
                         if has_with {
                             match opcode {
                                 OpCode::WITH_GET_VAR => {
-                                    let val = JS_GetProperty(ctx, obj, atom);
+                                    let val = obj.get_property(ctx, atom);
                                     if val.is_exception() {
                                         break State::Exception;
                                     } else {
@@ -2035,7 +2033,7 @@ pub unsafe fn run_bytecodes(
                                 }
                                 OpCode::WITH_GET_REF => {
                                     // produce a pair object/method on the stack
-                                    let val = JS_GetProperty(ctx, obj, atom);
+                                    let val = obj.get_property(ctx, atom);
                                     if val.is_exception() {
                                         break State::Exception;
                                     } else {
@@ -2044,8 +2042,8 @@ pub unsafe fn run_bytecodes(
                                     }
                                 }
                                 OpCode::WITH_GET_REF_UNDEF => {
-                                    /* produce a pair undefined/function on the stack */
-                                    let val = JS_GetProperty(ctx, obj, atom);
+                                    // produce a pair undefined/function on the stack
+                                    let val = obj.get_property(ctx, atom);
                                     if val.is_exception() {
                                         break State::Exception;
                                     } else {
