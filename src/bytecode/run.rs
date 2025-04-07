@@ -51,17 +51,16 @@ use crate::{
             JS_DefinePropertyValue, JS_DefinePropertyValueValue, JS_DeleteProperty,
             JS_GetPrivateField, JS_GetProperty, JS_GetPropertyInternal, JS_GetPropertyValue,
             JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
-            JS_SetPropertyInternal, JS_SetPropertyValue, JS_SetPrototypeInternal, JS_ToObject,
-            JS_ToPropertyKey, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW,
-            JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JS_SetPropertyValue, JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JS_FreeValue, JS_IsObject, JS_IsUninitialized, JS_NewBool,
-        JS_NewCatchOffset, JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE,
-        JS_TAG_CATCH_OFFSET, JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
+        JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
+        JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -1389,9 +1388,8 @@ pub unsafe fn run_bytecodes(
                     let atom = JSAtom(get_u32(pc));
                     PC_GO!(4);
 
-                    let ret = JS_SetPropertyInternal(
+                    let ret = SP![-2].set_property_internal(
                         ctx,
-                        SP![-2],
                         atom,
                         SP![-1],
                         SP![-2],
@@ -1399,7 +1397,7 @@ pub unsafe fn run_bytecodes(
                     );
                     JS_FreeValue(ctx, SP![-2]);
                     SP_GO!(-2);
-                    if ret < 0 {
+                    if ret.is_err() {
                         break State::Exception;
                     }
                 }
@@ -1661,9 +1659,8 @@ pub unsafe fn run_bytecodes(
                     if atom == JS_ATOM_NULL {
                         break State::Exception;
                     } else {
-                        let ret = JS_SetPropertyInternal(
+                        let ret = SP![-3].set_property_internal(
                             ctx,
-                            SP![-3],
                             atom,
                             SP![-1],
                             SP![-4],
@@ -1674,7 +1671,7 @@ pub unsafe fn run_bytecodes(
                         JS_FreeValue(ctx, SP![-3]);
                         JS_FreeValue(ctx, SP![-2]);
                         SP_GO!(-4);
-                        if ret < 0 {
+                        if ret.is_err() {
                             break State::Exception;
                         }
                     }
@@ -2012,9 +2009,8 @@ pub unsafe fn run_bytecodes(
                                 }
                                 OpCode::WITH_PUT_VAR => {
                                     // XXX: check if strict mode
-                                    let ret = JS_SetPropertyInternal(
+                                    let ret = obj.set_property_internal(
                                         ctx,
-                                        obj,
                                         atom,
                                         SP![-2],
                                         obj,
@@ -2022,7 +2018,7 @@ pub unsafe fn run_bytecodes(
                                     );
                                     JS_FreeValue(ctx, SP![-1]);
                                     SP_GO!(-2);
-                                    if ret < 0 {
+                                    if ret.is_err() {
                                         break State::Exception;
                                     }
                                 }
