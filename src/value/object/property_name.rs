@@ -279,121 +279,102 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
 
 pub unsafe fn JS_GetOwnPropertyNames2(
     ctx: *mut JSContext,
-    obj1: JSValueConst,
+    target: JSValueConst,
     flags: i32,
     kind: JSIteratorKindEnum,
 ) -> JSValue {
-    let obj = JS_ToObject(ctx, obj1);
+    let obj = JS_ToObject(ctx, target);
     if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
+    // result array
+    let ret_array = JS_NewArray(ctx);
+    if ret_array.is_exception() {
+        JS_FreeValue(ctx, obj);
+        return JSValue::EXCEPTION;
+    }
+
     let p = JS_VALUE_GET_OBJ(obj);
-    let mut atoms: *mut PropertyEnum = std::ptr::null_mut();
-    let mut len: u32 = 0;
+    let mut idx: u32 = 0;
 
-    macro_rules! exception {
-        () => {
-            // js_free_prop_enum(ctx, atoms, len as usize);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(atoms, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
-
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
-    }
-
-    if JS_GetOwnPropertyNamesInternal(ctx, &mut atoms, &mut len, p, flags & !JS_GPN_ENUM_ONLY)
-        .is_err()
-    {
-        exception!();
-    }
-
-    let ret_val = JS_NewArray(ctx);
-    if ret_val.is_exception() {
-        exception!();
-    }
-
-    let mut j: u32 = 0;
-    for i in 0..len {
-        let atom = (*atoms.offset(i as isize)).atom;
-        if flags & JS_GPN_ENUM_ONLY != 0 {
-            let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-            let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, atom);
-            if res < 0 {
-                exception!();
-            }
-            if res == 0 {
-                continue;
-            }
-            js_free_desc(ctx, &mut desc);
-            if desc.flags & JS_PROP_ENUMERABLE == 0 {
-                continue;
-            }
-        }
-
-        let val: JSValue;
-
-        match kind {
-            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                val = atom.to_value(ctx.as_mut().unwrap(), false);
-                if JS_IsException(val) {
-                    exception!();
+    let r = (*p).own_property_names_foreach(
+        ctx.as_mut().unwrap(),
+        flags & !JS_GPN_ENUM_ONLY,
+        |cx, name| {
+            if flags & JS_GPN_ENUM_ONLY != 0 {
+                let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+                let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, name.atom);
+                if res < 0 {
+                    return Err(-1);
+                }
+                if res == 0 {
+                    return Ok(());
+                }
+                js_free_desc(ctx, &mut desc);
+                if desc.flags & JS_PROP_ENUMERABLE == 0 {
+                    return Ok(()); // skip non enumerable
                 }
             }
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                val = JS_GetProperty(ctx, obj, atom);
-                if JS_IsException(val) {
-                    exception!();
+
+            let val: JSValue;
+            match kind {
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
+                    val = name.atom.to_value(cx, false);
+                    if val.is_exception() {
+                        return Err(-1);
+                    }
+                }
+                JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                    val = obj.get_property(cx, name.atom);
+                    if val.is_exception() {
+                        return Err(-1);
+                    }
+                }
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                    val = JS_NewArray(cx);
+                    if val.is_exception() {
+                        return Err(-1);
+                    }
+                    let key = name.atom.to_value(cx, false);
+                    if key.is_exception() {
+                        JS_FreeValue(ctx, val);
+                        return Err(-1);
+                    }
+                    if JS_CreateDataPropertyUint32(ctx, val, 0, key, JS_PROP_THROW) < 0 {
+                        JS_FreeValue(ctx, val);
+                        return Err(-1);
+                    }
+                    let value = obj.get_property(cx, name.atom);
+                    if value.is_exception() {
+                        JS_FreeValue(ctx, val);
+                        return Err(-1);
+                    }
+                    if JS_CreateDataPropertyUint32(ctx, val, 1, value, JS_PROP_THROW) < 0 {
+                        JS_FreeValue(ctx, val);
+                        return Err(-1);
+                    }
                 }
             }
-            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                val = JS_NewArray(ctx);
-                if JS_IsException(val) {
-                    exception!();
-                }
-                let key: JSValue = atom.to_value(ctx.as_mut().unwrap(), false);
-                if JS_IsException(key) {
-                    JS_FreeValue(ctx, val);
-                    exception!();
-                }
-                if JS_CreateDataPropertyUint32(ctx, val, 0, key, JS_PROP_THROW) < 0 {
-                    JS_FreeValue(ctx, val);
-                    exception!();
-                }
 
-                let value = JS_GetProperty(ctx, obj, atom);
-                if JS_IsException(value) {
-                    JS_FreeValue(ctx, val);
-                    exception!();
-                }
-                if JS_CreateDataPropertyUint32(ctx, val, 1, value, JS_PROP_THROW) < 0 {
-                    JS_FreeValue(ctx, val);
-                    exception!();
-                }
+            // append to result array
+            if JS_CreateDataPropertyUint32(ctx, ret_array, idx as _, val, 0) < 0 {
+                return Err(-1);
             }
-        }
 
-        if JS_CreateDataPropertyUint32(ctx, ret_val, j as _, val, 0) < 0 {
-            exception!();
-        }
-
-        j += 1;
-    }
-
-    // js_free_prop_enum(ctx, atoms, len as _);
-    for item in
-        Box::from_raw(std::slice::from_raw_parts_mut(atoms, len as usize) as *mut [PropertyEnum])
-    {
-        JS_FreeAtom(ctx, item.atom);
-    }
+            idx += 1;
+            Ok(())
+        },
+    );
 
     JS_FreeValue(ctx, obj);
 
-    ret_val
+    if r.is_err() {
+        JS_FreeValue(ctx, ret_array);
+        JSValue::EXCEPTION
+    } else {
+        ret_array
+    }
 }
 
 // #[deprecated]
