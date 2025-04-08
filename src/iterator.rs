@@ -540,7 +540,7 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
     }
 
     if (*it).is_array == false {
-        // it's not an array
+        // not an array
         let mut tab_atom = std::ptr::null_mut::<PropertyEnum>();
         let mut tab_atom_count: u32 = 0;
 

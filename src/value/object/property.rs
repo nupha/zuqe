@@ -1,8 +1,8 @@
 use std::ffi::c_void;
 
 use crate::{
-    atom::{JSAtom, JS_AtomIsNumericIndex, JS_FreeAtom, __JS_AtomToUInt32, consts::*},
-    context::{JSContext, JS_DupContext},
+    atom::{JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
+    context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
     function::JSVarRef,
     proxy::js_proxy_isExtensible,
@@ -13,12 +13,12 @@ use crate::{
 
 use super::{
     super::{
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
-        JS_IsObject, JS_IsUninitialized, JS_ToBoolFree, JS_ToLengthFree, JS_ToStringInternal,
-        JS_ToUint32Free, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_IsObject,
+        JS_IsUninitialized, JS_ToBoolFree, JS_ToLengthFree, JS_ToStringInternal, JS_ToUint32Free,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, JSAutoInitIDEnum,
-    JSObject, JSShapeProperty, JS_GetOwnPropertyNamesInternal, JS_GetProperty, PropertyEnum,
+    js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, JSObject,
+    JSShapeProperty, JS_GetProperty,
 };
 
 // Property flags
@@ -635,47 +635,6 @@ pub unsafe fn JS_AutoInitProperty(
         (*pr).u.value = val;
         0
     }
-}
-
-pub unsafe fn JS_DefineAutoInitProperty(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    prop: JSAtom,
-    id: JSAutoInitIDEnum,
-    opaque: *mut std::ffi::c_void,
-    flags: u32,
-) -> Result<bool, i32> {
-    if JS_VALUE_GET_TAG(this_obj) != JSTag::Object as i32 {
-        return Ok(false);
-    }
-
-    let p = JS_VALUE_GET_OBJ(this_obj).as_mut().unwrap();
-
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    if !find_own_property(std::ptr::addr_of_mut!(pr), p, prop).is_null() {
-        // property already exists
-        unreachable!();
-    }
-
-    // Specialized CreateProperty
-    let pr = p
-        .add_property(
-            ctx.as_mut().unwrap(),
-            prop,
-            (flags & JS_PROP_C_W_E) | JS_PROP_AUTOINIT,
-        )?
-        .as_mut()
-        .unwrap();
-
-    pr.u.init.realm_and_id = JS_DupContext(ctx) as usize;
-    debug_assert!(((*pr).u.init.realm_and_id & 3) == 0);
-
-    pr.u.init.realm_and_id |= id as usize; // id: 0,1,2
-    debug_assert!(matches!((*pr).u.init.realm_and_id & 3, 0 | 1 | 2));
-
-    pr.u.init.opaque = opaque;
-
-    Ok(true)
 }
 
 /* return Err() if exception (Proxy object only) or TRUE/FALSE */

@@ -31,7 +31,6 @@ use crate::{
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{list_add_tail, list_del, unlikely},
-    value::object::PropertyEnum,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN,
     JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_DATE,
     JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY,
@@ -48,10 +47,10 @@ use super::{
     },
     add_property, find_hashed_shape_proto, find_own_property, find_own_property1, free_property,
     js_dup_shape, js_free_desc, js_free_shape, js_new_shape, JSProperty, JSPropertyDescriptor,
-    JSShape, JS_DefinePropertyDesc, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal,
-    JS_GetProperty, JS_IsExtensible, JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
-    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    JSShape, JS_GetOwnPropertyInternal, JS_GetProperty, JS_IsExtensible, JS_NewObjectFromShape,
+    JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK,
+    JS_PROP_WRITABLE,
 };
 
 #[repr(C)]
