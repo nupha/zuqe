@@ -18,14 +18,13 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            find_own_property, js_free_prop_enum, js_get_length32, JSProperty, JSPropertyEnum,
-            JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal,
-            JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototypeFree, JS_HasProperty,
-            JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf, JS_NewObjectProto,
-            JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            find_own_property, js_get_length32, JSProperty, JS_CheckBrand, JS_DefineObjectName,
+            JS_DefineObjectNameComputed, JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal,
+            JS_GetProperty, JS_GetPrototypeFree, JS_HasProperty, JS_IsCFunction, JS_IsConstructor,
+            JS_IsInstanceOf, JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit,
+            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
@@ -587,23 +586,38 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
                 return -1;
             }
 
-            let mut tab_atom = std::ptr::null_mut::<JSPropertyEnum>();
-            let mut tab_atom_count: u32 = 0;
-            if JS_GetOwnPropertyNamesInternal(
-                ctx,
-                &mut tab_atom,
-                &mut tab_atom_count,
-                JS_VALUE_GET_OBJ((*it).obj),
-                JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-            )
-            .is_err()
+            if let Ok(mut tab_atom) = (*JS_VALUE_GET_OBJ((*it).obj))
+                .get_own_property_names_internal(
+                    ctx.as_mut().unwrap(),
+                    JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
+                    true,
+                )
             {
+                (*it).atom_count = tab_atom.len() as _;
+                (*it).tab_atom = tab_atom.as_mut_ptr();
+                Box::leak(tab_atom);
+                (*it).idx = 0;
+            } else {
                 return -1;
             }
-            js_free_prop_enum(ctx, (*it).tab_atom, (*it).atom_count as _);
-            (*it).tab_atom = tab_atom;
-            (*it).atom_count = tab_atom_count;
-            (*it).idx = 0;
+
+            // let mut tab_atom = std::ptr::null_mut::<JSPropertyEnum>();
+            // let mut tab_atom_count: u32 = 0;
+            // if JS_GetOwnPropertyNamesInternal(
+            //     ctx,
+            //     &mut tab_atom,
+            //     &mut tab_atom_count,
+            //     JS_VALUE_GET_OBJ((*it).obj),
+            //     JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
+            // )
+            // .is_err()
+            // {
+            //     return -1;
+            // }
+            // js_free_prop_enum(ctx, (*it).tab_atom, (*it).atom_count as _);
+            // (*it).tab_atom = tab_atom;
+            // (*it).atom_count = tab_atom_count;
+            // (*it).idx = 0;
         } else {
             // 遍历当前对象的属性
             if (*it).is_array {

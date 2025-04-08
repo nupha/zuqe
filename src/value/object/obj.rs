@@ -31,6 +31,7 @@ use crate::{
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{list_add_tail, list_del, unlikely},
+    value::object::PropertyEnum,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN,
     JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_DATE,
     JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY,
@@ -46,12 +47,11 @@ use super::{
         JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     add_property, find_hashed_shape_proto, find_own_property, find_own_property1, free_property,
-    js_dup_shape, js_free_desc, js_free_prop_enum, js_free_shape, js_new_shape, JSProperty,
-    JSPropertyDescriptor, JSPropertyEnum, JSShape, JS_DefinePropertyDesc,
-    JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
-    JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK,
-    JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
-    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    js_dup_shape, js_free_desc, js_free_shape, js_new_shape, JSProperty, JSPropertyDescriptor,
+    JSShape, JS_DefinePropertyDesc, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal,
+    JS_GetProperty, JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
+    JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 #[repr(C)]
@@ -364,6 +364,63 @@ impl JSObject {
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
         self.detailed.class_id()
+    }
+}
+
+impl JSValue {
+    /// Seal object if the value is an object, otherwise returns the value duplicated.
+    pub unsafe fn seal(self, ctx: &mut JSContext, freeze_flag: bool) -> Self {
+        if !self.is_object() {
+            return self.dup();
+        }
+
+        match JS_PreventExtensions(ctx, self) {
+            Ok(false) => {
+                return ctx.JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
+            }
+            Err(_) => {
+                return JSValue::EXCEPTION;
+            }
+            _ => {}
+        }
+
+        let p = JS_VALUE_GET_OBJ(self);
+        let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
+
+        let res = (*p).own_property_names_foreach(ctx, flags, |cx, item| {
+            let prop = item.atom;
+            let mut desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
+
+            if freeze_flag {
+                let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+                let res = JS_GetOwnPropertyInternal(cx, &mut desc, p, prop);
+                if res < 0 {
+                    return Err(-1);
+                }
+                if res != 0 {
+                    if desc.flags & JS_PROP_WRITABLE != 0 {
+                        desc_flags |= JS_PROP_HAS_WRITABLE;
+                    }
+                    js_free_desc(cx, &mut desc);
+                }
+            }
+
+            self.define_property(
+                cx,
+                prop,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                desc_flags,
+            )
+            .map(|_| ())
+        });
+
+        if res.is_err() {
+            JSValue::EXCEPTION
+        } else {
+            self.dup()
+        }
     }
 }
 
@@ -921,12 +978,17 @@ pub unsafe fn JS_ObjectDefineProperties(
 
     let p = JS_VALUE_GET_OBJ(props);
     let mut desc = JSValue::UNDEFINED;
-    let mut atoms: *mut JSPropertyEnum = std::ptr::null_mut();
+    let mut atoms: *mut PropertyEnum = std::ptr::null_mut();
     let mut len: u32 = 0;
 
     macro_rules! exit {
         ( $ret:expr) => {
-            js_free_prop_enum(ctx, atoms, len as usize);
+            //js_free_prop_enum(ctx, atoms, len as usize);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(atoms, len as usize) as *mut [PropertyEnum]
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
             JS_FreeValue(ctx, props);
             JS_FreeValue(ctx, desc);
             return $ret;
@@ -1035,69 +1097,64 @@ pub unsafe fn js_object_seal(
     argv: *mut JSValueConst,
     freeze_flag: i32,
 ) -> JSValue {
-    let obj = argv.offset(0).read();
-    if !JS_IsObject(obj) {
-        return JS_DupValue(ctx, obj);
-    }
+    let obj = *argv.offset(0);
+    obj.seal(ctx.as_mut().unwrap(), freeze_flag != 0)
 
-    match JS_PreventExtensions(ctx, obj) {
-        Ok(false) => {
-            return (*ctx).JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
-        }
-        Err(_) => {
-            return JSValue::EXCEPTION;
-        }
-        _ => {}
-    }
+    // if !obj.is_object() {
+    //     return obj.dup();
+    // }
 
-    let p = JS_VALUE_GET_OBJ(obj);
-    let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
+    // match JS_PreventExtensions(ctx, obj) {
+    //     Ok(false) => {
+    //         return (*ctx).JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
+    //     }
+    //     Err(_) => {
+    //         return JSValue::EXCEPTION;
+    //     }
+    //     _ => {}
+    // }
 
-    let mut props: *mut JSPropertyEnum = std::mem::zeroed();
-    let mut len: u32 = 0;
-    if JS_GetOwnPropertyNamesInternal(ctx, &mut props, &mut len, p, flags).is_err() {
-        return JSValue::EXCEPTION;
-    }
+    // let p = JS_VALUE_GET_OBJ(obj);
+    // let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
 
-    let mut desc_flags: u32;
-    for i in 0..len {
-        let prop = props.offset(i as isize).read().atom;
+    // if let Ok(props) = (*p).get_own_property_names_internal(ctx.as_mut().unwrap(), flags, false) {
+    //     for pe in props {
+    //         let prop = pe.atom;
+    //         let mut desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
-        desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
-        if freeze_flag != 0 {
-            let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-            let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
-            if res < 0 {
-                // C2RS: goto exception; 转换为 rust 的异常处理逻辑
-                js_free_prop_enum(ctx, props, len as _);
-                return JSValue::EXCEPTION;
-            }
-            if res != 0 {
-                if desc.flags & JS_PROP_WRITABLE != 0 {
-                    desc_flags |= JS_PROP_HAS_WRITABLE;
-                }
-                js_free_desc(ctx, &mut desc);
-            }
-        }
-        if obj
-            .define_property(
-                ctx.as_mut().unwrap(),
-                prop,
-                JSValue::UNDEFINED,
-                JSValue::UNDEFINED,
-                JSValue::UNDEFINED,
-                desc_flags,
-            )
-            .is_err()
-        {
-            js_free_prop_enum(ctx, props, len as _);
-            return JSValue::EXCEPTION;
-        }
-    }
+    //         if freeze_flag != 0 {
+    //             let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+    //             let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
+    //             if res < 0 {
+    //                 return JSValue::EXCEPTION;
+    //             }
+    //             if res != 0 {
+    //                 if desc.flags & JS_PROP_WRITABLE != 0 {
+    //                     desc_flags |= JS_PROP_HAS_WRITABLE;
+    //                 }
+    //                 js_free_desc(ctx, &mut desc);
+    //             }
+    //         }
 
-    js_free_prop_enum(ctx, props, len as _);
+    //         if obj
+    //             .define_property(
+    //                 ctx.as_mut().unwrap(),
+    //                 prop,
+    //                 JSValue::UNDEFINED,
+    //                 JSValue::UNDEFINED,
+    //                 JSValue::UNDEFINED,
+    //                 desc_flags,
+    //             )
+    //             .is_err()
+    //         {
+    //             return JSValue::EXCEPTION;
+    //         }
+    //     }
 
-    obj.dup()
+    //     obj.dup()
+    // } else {
+    //     JSValue::EXCEPTION
+    // }
 }
 
 // return a boolean telling if the brand of the home object of 'func'

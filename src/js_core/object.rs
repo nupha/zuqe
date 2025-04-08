@@ -8,15 +8,15 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, js_free_prop_enum, JSPropertyDescriptor, JSPropertyEnum,
-            JS_CopyDataProperties, JS_DefinePropertyDesc, JS_DefinePropertyValueValue,
-            JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2, JS_GetOwnPropertyNamesInternal,
-            JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject,
-            JS_NewObjectProto, JS_ObjectDefineProperties, JS_PreventExtensions,
-            JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
-            JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
+            js_free_desc, JSPropertyDescriptor, JS_CopyDataProperties, JS_DefinePropertyDesc,
+            JS_DefinePropertyValueValue, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2,
+            JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree,
+            JS_IsExtensible, JS_NewObject, JS_NewObjectProto, JS_ObjectDefineProperties,
+            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, PropertyEnum,
+            JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE,
+            JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
@@ -581,7 +581,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
     }
 
     let p = JS_VALUE_GET_OBJ(obj);
-    let mut props = std::ptr::null_mut::<JSPropertyEnum>();
+    let mut props = std::ptr::null_mut::<PropertyEnum>();
     let mut len: u32 = 0;
 
     if JS_GetOwnPropertyNamesInternal(
@@ -599,9 +599,14 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
     }
 
     r = JS_NewObject(ctx);
-    if JS_IsException(r) {
-        // C2RS: goto exception replaced with early return logic
-        js_free_prop_enum(ctx, props, len as _);
+    if r.is_exception() {
+        //js_free_prop_enum(ctx, props, len as _);
+        for item in Box::from_raw(
+            std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+        ) {
+            JS_FreeAtom(ctx, item.atom);
+        }
+
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -611,9 +616,14 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
             .atom
             .to_value(ctx.as_mut().unwrap(), false);
 
-        if JS_IsException(atomValue) {
-            // C2RS: goto exception replaced with early return logic
-            js_free_prop_enum(ctx, props, len as _);
+        if atomValue.is_exception() {
+            // js_free_prop_enum(ctx, props, len as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
+
             JS_FreeValue(ctx, obj);
             JS_FreeValue(ctx, r);
             return JSValue::EXCEPTION;
@@ -624,7 +634,13 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
             js_object_getOwnPropertyDescriptor(ctx, JSValue::UNDEFINED, 2, args.as_mut_ptr(), 0);
         JS_FreeValue(ctx, atomValue);
         if desc.is_exception() {
-            js_free_prop_enum(ctx, props, len as _);
+            //js_free_prop_enum(ctx, props, len as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
+
             JS_FreeValue(ctx, obj);
             JS_FreeValue(ctx, r);
             return JSValue::EXCEPTION;
@@ -639,7 +655,14 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
             )
             .is_err()
             {
-                js_free_prop_enum(ctx, props, len as _);
+                //js_free_prop_enum(ctx, props, len as _);
+                for item in
+                    Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
+                        as *mut [PropertyEnum])
+                {
+                    JS_FreeAtom(ctx, item.atom);
+                }
+
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, r);
                 return JSValue::EXCEPTION;
@@ -647,7 +670,13 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
         }
     }
 
-    js_free_prop_enum(ctx, props, len as _);
+    //js_free_prop_enum(ctx, props, len as _);
+    for item in
+        Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum])
+    {
+        JS_FreeAtom(ctx, item.atom);
+    }
+
     JS_FreeValue(ctx, obj);
 
     r
@@ -726,7 +755,7 @@ pub unsafe fn js_object_seal(
 
     let p = JS_VALUE_GET_OBJ(obj);
 
-    let mut props = std::ptr::null_mut::<JSPropertyEnum>();
+    let mut props = std::ptr::null_mut::<PropertyEnum>();
     let mut len: u32 = 0;
     if JS_GetOwnPropertyNamesInternal(
         ctx,
@@ -748,7 +777,13 @@ pub unsafe fn js_object_seal(
             let mut desc: JSPropertyDescriptor = std::mem::zeroed();
             let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
             if res < 0 {
-                js_free_prop_enum(ctx, props, len as _);
+                // js_free_prop_enum(ctx, props, len as _);
+                for item in
+                    Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
+                        as *mut [PropertyEnum])
+                {
+                    JS_FreeAtom(ctx, item.atom);
+                }
                 return JSValue::EXCEPTION;
             }
             if res != 0 {
@@ -770,13 +805,24 @@ pub unsafe fn js_object_seal(
             )
             .is_err()
         {
-            js_free_prop_enum(ctx, props, len as _);
+            //js_free_prop_enum(ctx, props, len as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
             return JSValue::EXCEPTION;
         }
     }
 
-    js_free_prop_enum(ctx, props, len as _);
-    JS_DupValue(ctx, obj)
+    //js_free_prop_enum(ctx, props, len as _);
+    for item in
+        Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum])
+    {
+        JS_FreeAtom(ctx, item.atom);
+    }
+
+    obj.dup()
 }
 
 pub unsafe fn js_object_isSealed(
@@ -794,7 +840,7 @@ pub unsafe fn js_object_isSealed(
 
     let p = JS_VALUE_GET_OBJ(obj);
 
-    let mut props: *mut JSPropertyEnum = std::ptr::null_mut();
+    let mut props: *mut PropertyEnum = std::ptr::null_mut();
     let mut len: u32 = 0;
     if JS_GetOwnPropertyNamesInternal(
         ctx,
@@ -814,7 +860,12 @@ pub unsafe fn js_object_isSealed(
         let mut desc: JSPropertyDescriptor = std::mem::zeroed();
         let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
         if res < 0 {
-            js_free_prop_enum(ctx, props, len as _);
+            // js_free_prop_enum(ctx, props, len as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
             return JSValue::EXCEPTION;
         }
         if res != 0 {
@@ -822,21 +873,33 @@ pub unsafe fn js_object_isSealed(
             if (desc.flags & JS_PROP_CONFIGURABLE != 0)
                 || (is_frozen != 0 && (desc.flags & JS_PROP_WRITABLE != 0))
             {
-                js_free_prop_enum(ctx, props, len as _);
-                return JS_FALSE;
+                //js_free_prop_enum(ctx, props, len as _);
+                for item in
+                    Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
+                        as *mut [PropertyEnum])
+                {
+                    JS_FreeAtom(ctx, item.atom);
+                }
+
+                return JSValue::FALSE;
             }
         }
     }
 
     match JS_IsExtensible(ctx, obj) {
         Ok(b) => {
-            js_free_prop_enum(ctx, props, len as _);
+            //js_free_prop_enum(ctx, props, len as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
 
             // returns value of !b
             if b {
-                JS_FALSE
+                JSValue::FALSE
             } else {
-                JS_TRUE
+                JSValue::TRUE
             }
         }
         Err(_) => {

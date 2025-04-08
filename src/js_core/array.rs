@@ -108,8 +108,6 @@ pub unsafe fn JS_ArraySpeciesCreate(
     obj: JSValueConst,
     len_val: JSValueConst,
 ) -> JSValue {
-    let mut realm: *mut JSContext = std::ptr::null_mut();
-
     let res = if let Ok(b) = JS_IsArray(ctx, obj) {
         if !b {
             return js_array_constructor(ctx, JSValue::UNDEFINED, 1, [len_val].as_mut_ptr());

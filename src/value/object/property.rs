@@ -1,11 +1,7 @@
-use std::ffi::{c_void, CStr};
+use std::ffi::c_void;
 
 use crate::{
-    array::{convert_fast_array_to_array, set_array_length, JS_ToArrayLengthFree},
-    atom::{
-        JSAtom, JS_AtomIsNumericIndex, JS_AtomIsNumericIndex1, JS_FreeAtom, JS_NewAtom,
-        JS_ValueToAtom, __JS_AtomToUInt32, consts::*, JS_ATOM_NULL,
-    },
+    atom::{JSAtom, JS_AtomIsNumericIndex, JS_FreeAtom, __JS_AtomToUInt32, consts::*},
     context::{JSContext, JS_DupContext},
     error::JS_ThrowReferenceErrorUninitialized,
     function::JSVarRef,
@@ -21,8 +17,8 @@ use super::{
         JS_IsObject, JS_IsUninitialized, JS_ToBoolFree, JS_ToLengthFree, JS_ToStringInternal,
         JS_ToUint32Free, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, js_free_prop_enum,
-    JSAutoInitIDEnum, JSObject, JSShapeProperty, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
+    js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, JSAutoInitIDEnum,
+    JSObject, JSShapeProperty, JS_GetOwnPropertyNamesInternal, JS_GetProperty, PropertyEnum,
 };
 
 // Property flags
@@ -58,21 +54,16 @@ pub const PROP_TYPE_SET: i32 = 3;
 pub const PROP_TYPE_STAR: i32 = 4;
 pub const PROP_TYPE_ASYNC: i32 = 5;
 pub const PROP_TYPE_ASYNC_STAR: i32 = 6;
-pub const PROP_TYPE_PRIVATE: i32 = (1 << 4);
+pub const PROP_TYPE_PRIVATE: i32 = 1 << 4;
 
 // Get property names flags
-pub const JS_GPN_STRING_MASK: i32 = (1 << 0);
-pub const JS_GPN_SYMBOL_MASK: i32 = (1 << 1);
-pub const JS_GPN_PRIVATE_MASK: i32 = (1 << 2);
+pub const JS_GPN_STRING_MASK: i32 = 1 << 0;
+pub const JS_GPN_SYMBOL_MASK: i32 = 1 << 1;
+pub const JS_GPN_PRIVATE_MASK: i32 = 1 << 2;
 /* only include the enumerable properties */
-pub const JS_GPN_ENUM_ONLY: i32 = (1 << 4);
+pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
 /* set theJSPropertyEnum.is_enumerable field */
-pub const JS_GPN_SET_ENUM: i32 = (1 << 5);
-
-pub struct JSPropertyEnum {
-    pub is_enumerable: bool,
-    pub atom: JSAtom,
-}
+pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
 pub struct JSPropertyDescriptor {
     pub flags: u32,
@@ -858,7 +849,7 @@ pub unsafe fn JS_CopyDataProperties(
         return Ok(());
     }
 
-    let mut tab_atom: *mut JSPropertyEnum = std::ptr::null_mut();
+    let mut tab_atom: *mut PropertyEnum = std::ptr::null_mut();
     let mut tab_atom_count: u32 = 0;
 
     let mut desc: JSPropertyDescriptor = std::mem::zeroed();
@@ -894,10 +885,17 @@ pub unsafe fn JS_CopyDataProperties(
             if r != 0 {
                 // ERR or TRUE
                 if r < 0 {
-                    // C2RS: goto exception replaced with early return logic
-                    js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+                    // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+                    for item in Box::from_raw(std::slice::from_raw_parts_mut(
+                        tab_atom,
+                        tab_atom_count as _,
+                    ) as *mut [PropertyEnum])
+                    {
+                        JS_FreeAtom(ctx, item.atom);
+                    }
                     return Err(-1);
                 }
+
                 continue;
             }
         }
@@ -907,8 +905,14 @@ pub unsafe fn JS_CopyDataProperties(
             let ret =
                 JS_GetOwnPropertyInternal(ctx, &mut desc, p, (*tab_atom.offset(i as isize)).atom);
             if ret < 0 {
-                // C2RS: goto exception replaced with early return logic
-                js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+                // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+                for item in Box::from_raw(std::slice::from_raw_parts_mut(
+                    tab_atom,
+                    tab_atom_count as _,
+                ) as *mut [PropertyEnum])
+                {
+                    JS_FreeAtom(ctx, item.atom);
+                }
                 return Err(-1);
             }
             if ret == 0 {
@@ -923,9 +927,14 @@ pub unsafe fn JS_CopyDataProperties(
         }
 
         let val = JS_GetProperty(ctx, source, (*tab_atom.offset(i as isize)).atom);
-        if JS_IsException(val) {
-            // C2RS: goto exception replaced with early return logic
-            js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        if val.is_exception() {
+            // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
+                    as *mut [PropertyEnum],
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
             return Err(-1);
         }
 
@@ -944,12 +953,24 @@ pub unsafe fn JS_CopyDataProperties(
             )
         };
         if ret.is_err() {
-            js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+            //js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+            for item in Box::from_raw(
+                std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
+                    as *mut [PropertyEnum],
+            ) {
+                JS_FreeAtom(ctx, item.atom);
+            }
             return Err(-1);
         }
     }
 
-    js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+    // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+    for item in Box::from_raw(
+        std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _) as *mut [PropertyEnum],
+    ) {
+        JS_FreeAtom(ctx, item.atom);
+    }
+
     Ok(())
 }
 

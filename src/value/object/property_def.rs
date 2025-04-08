@@ -36,7 +36,8 @@ impl JSValue {
        if JS_PROP_NO_EXOTIC is set, do not call the exotic
        define_own_property callback.
     */
-    /// Note: property `val` is duplicated inside.
+    /// Note: property `val` is duplicated inside. `prop` keeps ref count unchanged after calling.
+
     pub unsafe fn define_property(
         self,
         ctx: &mut JSContext,

@@ -91,11 +91,8 @@ impl Drop for JSShape {
 }
 
 impl JSShape {
-    pub fn new() -> Box<Self> {
-        todo!()
-    }
-
-    /// Append property defination to shape
+    /// Append property defination to shape.
+    /// `atom` keeps ref count unchanged after calling.
     pub unsafe fn add_shape_property(
         &mut self,
         ctx: &mut JSContext,

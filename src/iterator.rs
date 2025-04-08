@@ -1,6 +1,6 @@
 use crate::{
     array::{js_create_array, JS_NewArray},
-    atom::{consts::*, JSAtom, JS_FreeAtomRT},
+    atom::{consts::*, JSAtom, JS_FreeAtom, JS_FreeAtomRT},
     context::JSContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
@@ -11,11 +11,11 @@ use crate::{
     typed_array::typed_array_is_detached,
     value::{
         object::{
-            js_free_prop_enum, js_get_length32, JSPropertyEnum, JS_CreateDataPropertyUint32,
-            JS_GetOpaque, JS_GetOpaque2, JS_GetOwnPropertyNamesInternal, JS_GetProperty,
-            JS_GetPrototypeFree, JS_NewObjectClass, JS_NewObjectProtoClass, JS_SetOpaque,
-            JS_ToObject, JS_ToObjectFree, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            js_get_length32, JS_CreateDataPropertyUint32, JS_GetOpaque, JS_GetOpaque2,
+            JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototypeFree, JS_NewObjectClass,
+            JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum,
+            JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_ToStringCheckObject, JS_TAG_NULL,
@@ -52,7 +52,10 @@ pub struct JSForInIterator {
     pub atom_count: u32,
     pub in_prototype_chain: bool,
     pub is_array: bool,
-    pub tab_atom: *mut JSPropertyEnum, /* is_array = FALSE */
+
+    /// is_array = FALSE
+    /// TODO: use Box<[ PropertyEnum]>
+    pub tab_atom: *mut PropertyEnum,
 }
 
 #[derive(Debug)]
@@ -64,8 +67,8 @@ pub struct JSAsyncFromSyncIteratorData {
 impl Default for JSAsyncFromSyncIteratorData {
     fn default() -> Self {
         Self {
-            sync_iter: JS_UNDEFINED,
-            next_method: JS_UNDEFINED,
+            sync_iter: JSValue::UNDEFINED,
+            next_method: JSValue::UNDEFINED,
         }
     }
 }
@@ -538,7 +541,7 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
 
     if (*it).is_array == false {
         // it's not an array
-        let mut tab_atom = std::ptr::null_mut::<JSPropertyEnum>();
+        let mut tab_atom = std::ptr::null_mut::<PropertyEnum>();
         let mut tab_atom_count: u32 = 0;
 
         if JS_GetOwnPropertyNamesInternal(
@@ -569,7 +572,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     let p = JS_VALUE_GET_OBJ(enum_obj);
     let it = (*p).u.for_in_iterator;
 
-    let mut tab_atom = std::ptr::null_mut::<JSPropertyEnum>();
+    let mut tab_atom = std::ptr::null_mut::<PropertyEnum>();
     let mut tab_atom_count: u32 = 0;
 
     // check if there are enumerable properties in the prototype chain (fast path)
@@ -597,7 +600,14 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
             return -1;
         }
 
-        js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        for item in Box::from_raw(std::slice::from_raw_parts_mut(
+            tab_atom,
+            tab_atom_count as usize,
+        )) {
+            JS_FreeAtom(ctx, item.atom);
+        }
+
         if tab_atom_count != 0 {
             JS_FreeValue(ctx, obj1);
             break;

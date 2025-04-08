@@ -15,6 +15,7 @@ use super::{
 
 impl JSObject {
     /// Note: the property value is initialized to undefined. Returns Err if memory error.
+    /// `prop` keeps ref count unchanged after calling.
     pub unsafe fn add_property(
         &mut self,
         ctx: &mut JSContext,
@@ -65,6 +66,7 @@ impl JSObject {
     }
 
     /// A detailed version of add_property()
+    /// `prop` keeps ref count unchanged after calling.
     /// `val`, `getter` and `setter` keep their ref count unchanged after calling this function
     pub unsafe fn create_property(
         &mut self,

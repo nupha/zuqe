@@ -14,8 +14,8 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JSObject, JSPropertyDescriptor, JSPropertyEnum, JS_DefinePropertyValueStr,
-            JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JSObject, JSPropertyDescriptor, JS_DefinePropertyValueStr, JS_GetProperty,
+            JS_NewObject, JS_NewObjectProtoClass, PropertyEnum, JS_PROP_CONFIGURABLE,
             JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
@@ -53,9 +53,8 @@ pub struct JSClassExoticMethods {
     pub get_own_property:
         Option<unsafe fn(*mut JSContext, *mut JSPropertyDescriptor, JSValueConst, JSAtom) -> c_int>,
 
-    pub get_own_property_names: Option<
-        unsafe fn(*mut JSContext, *mut *mut JSPropertyEnum, *mut u32, JSValueConst) -> c_int,
-    >,
+    pub get_own_property_names:
+        Option<unsafe fn(*mut JSContext, *mut *mut PropertyEnum, *mut u32, JSValueConst) -> c_int>,
 
     pub delete_property: Option<unsafe fn(*mut JSContext, JSValueConst, JSAtom) -> c_int>,
 

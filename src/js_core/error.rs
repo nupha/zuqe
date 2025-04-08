@@ -24,15 +24,7 @@ pub unsafe fn js_error_constructor(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let mut obj: JSValue = mem::zeroed();
-    let mut msg: JSValue = mem::zeroed();
-
-    let message: JSValueConst;
-    let options: JSValueConst;
-    let mut arg_index: i32 = 0;
-
     if JS_IsUndefined(new_target) {
-        // C2RS: Adjusted to use pointer dereference for assignment
         let active_function = JS_GetActiveFunction(ctx);
         new_target = active_function;
     }
