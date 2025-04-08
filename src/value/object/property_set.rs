@@ -136,6 +136,7 @@ impl JSValue {
                                 return Ok(true);
                             }
                             f if f & JS_PROP_LENGTH != 0 => {
+                                // set .length property of an Array
                                 debug_assert!((*p).class_id() == JS_CLASS_ARRAY);
                                 debug_assert_eq!(prop, JS_ATOM_length);
                                 return match set_array_length(ctx, p, val, flags) {

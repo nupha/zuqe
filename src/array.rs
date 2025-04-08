@@ -176,7 +176,7 @@ pub unsafe fn set_array_length(
         return -1;
     };
 
-    /* JS_ToArrayLengthFree() must be done before the read-only test */
+    // JS_ToArrayLengthFree() must be done before the read-only test
     if (*p)
         .shape()
         .and_then(|sh| sh.props.get_index(0))
@@ -186,9 +186,9 @@ pub unsafe fn set_array_length(
         == 0
     {
         return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-            0
-        } else {
             -1
+        } else {
+            0
         };
     }
 
@@ -216,17 +216,17 @@ pub unsafe fn set_array_length(
             .unwrap() as usize;
 
         if len < cur_len {
-            let mut sh = (*p).shape_mut().unwrap();
+            let mut sh = (*p).shape().unwrap();
             let d = cur_len - len;
 
-            if d <= (*sh).props.len() {
+            if d <= sh.props.len() {
                 // faster to iterate
                 while cur_len > len {
                     let atom = (*ctx).rt_mut().add_atom_u32(cur_len as u32 - 1);
                     let ret = (*p).delete_property(ctx.as_mut().unwrap(), atom);
                     JS_FreeAtom(ctx, atom);
-                    if ret == Ok(false) {
-                        break; // unlikely case: property is not configurable
+                    if let Ok(false) = ret {
+                        break; // property is not configurable
                     }
                     cur_len -= 1;
                 }
@@ -235,7 +235,7 @@ pub unsafe fn set_array_length(
                 // Need two passes in case one of the property is not  configurable
                 cur_len = len;
 
-                for pr in sh.props.values_mut() {
+                for pr in sh.props.values() {
                     let idx = 0_usize;
                     if pr.atom != JS_ATOM_NULL
                         && JS_AtomIsArrayIndex(ctx, &mut (idx as u32), pr.atom)
@@ -246,8 +246,8 @@ pub unsafe fn set_array_length(
                     }
                 }
 
-                for i in 0..(*sh).props.len() {
-                    let (_, pr) = (*sh).props.get_index(i).unwrap();
+                for i in 0..sh.props.len() {
+                    let (_, pr) = sh.props.get_index(i).unwrap();
                     let mut idx = 0_u32;
                     if pr.atom != JS_ATOM_NULL && JS_AtomIsArrayIndex(ctx, &mut idx, (*pr).atom) {
                         if idx as usize >= cur_len {
@@ -256,7 +256,7 @@ pub unsafe fn set_array_length(
                                 .unwrap();
 
                             // WARNING: the shape may have been modified
-                            sh = (*p).shape_mut().unwrap();
+                            sh = (*p).shape().unwrap();
                         }
                     }
                 }
@@ -273,9 +273,9 @@ pub unsafe fn set_array_length(
 
         if cur_len > len {
             return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable") {
-                0
-            } else {
                 -1
+            } else {
+                0
             };
         }
     }

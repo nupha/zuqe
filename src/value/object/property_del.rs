@@ -1,10 +1,8 @@
 use crate::{
     array::convert_fast_array_to_array,
-    atom::{
-        JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_NewAtomInt64, JS_ATOM_MAX_INT, JS_ATOM_NULL,
-    },
+    atom::{JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_MAX_INT, JS_ATOM_NULL},
     context::{is_strict_mode, JSContext},
-    value::{JSTag, JSValueConst, JS_DupValue, JS_IsException, JS_VALUE_GET_OBJ},
+    value::{JSTag, JSValueConst, JS_VALUE_GET_OBJ},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
@@ -16,15 +14,16 @@ use super::{
 };
 
 impl JSObject {
+    /// delete a property. returns false if the property is not configurable; true is delete is successful
     pub unsafe fn delete_property(
         &mut self,
         ctx: &mut JSContext,
-        atom: JSAtom,
+        prop: JSAtom,
     ) -> Result<bool, i32> {
         let sh = self.shape_mut().unwrap();
         let mut idx_and_flags: Option<(usize, u32)> = None;
 
-        if let Some((idx, _, prs)) = sh.props.get_full_mut(&atom) {
+        if let Some((idx, _, prs)) = sh.props.get_full_mut(&prop) {
             let flags = prs.flags();
             if flags & JS_PROP_CONFIGURABLE == 0 {
                 return Ok(false);
@@ -46,7 +45,7 @@ impl JSObject {
             free_property((*ctx).rt_mut(), &mut val, flags);
 
             // remove shape property of current self.shape
-            let prs = self.shape_mut().unwrap().props.shift_remove(&atom).unwrap();
+            let prs = self.shape_mut().unwrap().props.shift_remove(&prop).unwrap();
             JS_FreeAtom(ctx, prs.atom);
 
             return Ok(true);
@@ -57,7 +56,7 @@ impl JSObject {
                 if self.detailed.fast_array() {
                     let mut idx: u32 = 0;
 
-                    if JS_AtomIsArrayIndex(ctx, &mut idx, atom) {
+                    if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 let lst = self.fast_array_values_mut_unchecked();
@@ -91,7 +90,7 @@ impl JSObject {
                             return match cb(
                                 ctx,
                                 JS_MKPTR!(JSTag::Object, self as *mut JSObject as _),
-                                atom,
+                                prop,
                             ) {
                                 0 => Ok(false),
                                 1 => Ok(true),
