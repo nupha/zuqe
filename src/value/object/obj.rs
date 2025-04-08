@@ -724,7 +724,8 @@ pub unsafe fn JS_IsCFunction(
     }
     let p = JS_VALUE_GET_OBJ(val);
     if (*p).class_id() == JS_CLASS_C_FUNCTION {
-        (*p).u.cfunc.c_function.generic == func && (*p).u.cfunc.magic == magic as i16
+        std::ptr::fn_addr_eq((*p).u.cfunc.c_function.generic, func)
+            && (*p).u.cfunc.magic == magic as i16
     } else {
         false
     }

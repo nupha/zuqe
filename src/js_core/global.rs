@@ -25,9 +25,10 @@ pub unsafe fn js_global_isNaN(
 
     // XXX: does this work for bigfloat?
     if JS_ToFloat64(ctx, &mut d, *argv.offset(0)) != 0 {
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
+    } else {
+        JS_NewBool(f64::is_nan(d))
     }
-    return JS_NewBool(f64::is_nan(d));
 }
 
 pub unsafe fn js_global_isFinite(

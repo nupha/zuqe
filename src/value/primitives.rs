@@ -26,7 +26,7 @@ pub fn JS_NewBool(val: bool) -> JSValue {
 }
 
 #[inline(always)]
-pub fn JS_NewCatchOffset(val: i32) -> JSValue {
+pub const fn JS_NewCatchOffset(val: i32) -> JSValue {
     JS_MKVAL!(JSTag::CatchOffset, val)
 }
 
@@ -135,7 +135,7 @@ pub unsafe fn JS_ToBoolFree(ctx: *mut JSContext, val: JSValue) -> Result<bool, i
         JS_TAG_INT | JS_TAG_BOOL => Ok(JS_VALUE_GET_INT(val) != 0),
         JS_TAG_EXCEPTION => Err(-1),
         JS_TAG_STRING => {
-            let ret = (*JS_VALUE_GET_STRING(val)).len() != 0;
+            let ret = !(*JS_VALUE_GET_STRING(val)).is_empty();
             JS_FreeValue(ctx, val);
             Ok(ret)
         }

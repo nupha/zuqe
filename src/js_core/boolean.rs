@@ -23,9 +23,9 @@ pub unsafe fn js_boolean_constructor(
         if !JS_IsException(obj) {
             JS_SetObjectData(ctx, obj, val);
         }
-        return obj;
+        obj
     } else {
-        return val;
+        val
     }
 }
 
@@ -42,7 +42,8 @@ pub unsafe fn js_thisBooleanValue(ctx: *mut JSContext, this_val: JSValueConst) -
             }
         }
     }
-    return (*ctx).JS_ThrowTypeError(c"not a boolean");
+
+    (*ctx).JS_ThrowTypeError(c"not a boolean")
 }
 
 pub unsafe fn js_boolean_toString(

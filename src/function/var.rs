@@ -776,7 +776,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
 
                 if OPTIMIZE {
                     // remove dead code
-                    push_vec_slice(&mut bc_out, bc_buf.add(pos), len as _);
+                    push_vec_slice(&mut bc_out, bc_buf.add(pos), len as _).expect("TODO");
 
                     let mut line = -1_i32;
                     pos = skip_dead_code(s, bc_buf, bc_len, pos + len, &mut line);

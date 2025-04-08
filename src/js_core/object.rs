@@ -181,7 +181,7 @@ pub unsafe fn js_object_getPrototypeOf(
             return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
         }
     }
-    return JS_GetPrototype(ctx, val);
+    JS_GetPrototype(ctx, val)
 }
 
 pub unsafe fn js_object_setPrototypeOf(
@@ -192,9 +192,10 @@ pub unsafe fn js_object_setPrototypeOf(
 ) -> JSValue {
     let obj = *argv.offset(0);
     if JS_SetPrototypeInternal(ctx, obj, *argv.offset(1), true).is_err() {
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
+    } else {
+        obj.dup()
     }
-    return JS_DupValue(ctx, obj);
 }
 
 // magic = 1 if called as Reflect.defineProperty
@@ -1555,7 +1556,7 @@ pub unsafe fn js_object___lookupGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let mut res = JSValue::EXCEPTION;
+    let mut res: JSValue;
 
     loop {
         let mut desc: JSPropertyDescriptor = std::mem::zeroed();

@@ -130,7 +130,7 @@ pub unsafe fn js_typed_array_constructor(
         return JSValue::EXCEPTION;
     }
 
-    return obj;
+    obj
 }
 
 pub unsafe fn js_typed_array_constructor_obj(

@@ -130,9 +130,9 @@ impl StringContent {
                         Self::Utf8(d)
                     } else {
                         let d = s.encode_utf16().try_collect::<Vec<_>>()?;
-                        Self::Utf16(d.into())
+                        Self::Utf16(d)
                     };
-                    std::mem::replace(self, cc);
+                    let _ = std::mem::replace(self, cc);
                 }
                 Self::Utf8(d) => {
                     if s.is_ascii() {
@@ -146,7 +146,7 @@ impl StringContent {
                             w.push(c);
                         }
                         w.shrink_to_fit();
-                        std::mem::replace(self, Self::Utf16(w));
+                        let _ = std::mem::replace(self, Self::Utf16(w));
                     }
                 }
                 Self::Utf16(w) => {
@@ -172,7 +172,7 @@ impl StringContent {
             (Self::Empty, _) => sref.to_owned()?,
             (Self::Utf16(mut s1), Self::Utf16(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
-                    std::mem::replace(self, Self::Utf16(s1));
+                    let _ = std::mem::replace(self, Self::Utf16(s1));
                     return Err(e);
                 } else {
                     s1.extend_from_slice(&s2.as_slice()[sref.ranges.clone()]);
@@ -181,7 +181,7 @@ impl StringContent {
             }
             (Self::Utf8(mut s1), Self::Utf8(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
-                    std::mem::replace(self, Self::Utf8(s1));
+                    let _ = std::mem::replace(self, Self::Utf8(s1));
                     return Err(e);
                 } else {
                     s1.extend_from_slice(&s2.as_slice()[sref.ranges.clone()]);
@@ -190,7 +190,7 @@ impl StringContent {
             }
             (Self::Utf16(mut s1), Self::Utf8(s2)) => {
                 if let Err(e) = s1.try_reserve(s2.len()) {
-                    std::mem::replace(self, Self::Utf16(s1));
+                    let _ = std::mem::replace(self, Self::Utf16(s1));
                     return Err(e);
                 }
 
@@ -214,14 +214,14 @@ impl StringContent {
                         Self::Utf16(buf)
                     }
                     Err(e) => {
-                        std::mem::replace(self, Self::Utf8(s1));
+                        let _ = std::mem::replace(self, Self::Utf8(s1));
                         return Err(e);
                     }
                 }
             }
         };
 
-        std::mem::replace(self, new_content);
+        let _ = std::mem::replace(self, new_content);
         Ok(())
     }
 
@@ -234,7 +234,7 @@ impl StringContent {
         match self {
             Self::Empty => {
                 let d = s8.iter().copied().try_collect::<Vec<_>>()?;
-                std::mem::replace(self, Self::Utf8(d.into()));
+                let _ = std::mem::replace(self, Self::Utf8(d));
             }
             Self::Utf8(d) => {
                 d.try_reserve(d.len())?;
@@ -252,7 +252,7 @@ impl StringContent {
         match self {
             Self::Empty => {
                 let d = s16.iter().copied().try_collect::<Vec<_>>()?;
-                std::mem::replace(self, Self::Utf16(d.into()));
+                let _ = std::mem::replace(self, Self::Utf16(d));
             }
             Self::Utf8(d) => {
                 if s16.iter().any(|&u| u >= 0x80) {
@@ -260,7 +260,7 @@ impl StringContent {
                     let mut w = Vec::<u16>::try_with_capacity(d.len() + s16.len())?;
                     w.extend(unsafe { std::str::from_utf8_unchecked(d) }.encode_utf16());
                     w.extend_from_slice(s16);
-                    std::mem::replace(self, Self::Utf16(w));
+                    let _ = std::mem::replace(self, Self::Utf16(w));
                 } else {
                     // s is ascii string
                     d.try_reserve(s16.len())?;
@@ -323,10 +323,10 @@ impl StringContent {
 
                         let mut a = Vec::from_raw_parts(ptr, len, cap * 2);
                         a.shrink_to_fit();
-                        std::mem::replace(self, Self::Utf8(a));
+                        let _ = std::mem::replace(self, Self::Utf8(a));
                     }
                 } else {
-                    std::mem::replace(self, Self::Utf16(d.into()));
+                    let _ = std::mem::replace(self, Self::Utf16(d));
                 }
             }
             Self::Utf8(s) => {
@@ -404,12 +404,8 @@ impl StringContent {
     }
 
     #[inline(always)]
-    pub fn is_utf16(&self) -> bool {
-        if let Self::Utf16(_) = self {
-            true
-        } else {
-            false
-        }
+    pub const fn is_utf16(&self) -> bool {
+        matches!(self, Self::Utf16(_))
     }
 
     pub fn trim(&mut self, left: bool, right: bool) {
@@ -552,7 +548,7 @@ impl StringContent {
         let mut ret: u32 = 0;
 
         for (i, c) in self.chars().enumerate() {
-            if c.is_digit(10) {
+            if c.is_ascii_digit() {
                 if i == 0 && c == '0' {
                     return if len != 1 { Err(-1) } else { Ok(0) };
                 }
@@ -785,7 +781,7 @@ pub struct StringContentSlice<'a> {
     ranges: Range<usize>,
 }
 
-impl<'a> StringContentSlice<'a> {
+impl StringContentSlice<'_> {
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.ranges.len()
@@ -804,10 +800,10 @@ impl<'a> StringContentSlice<'a> {
             let mut res = StringContent::with_capacity(len, self.src.is_utf16())?;
             match self.src {
                 StringContent::Utf8(src) => {
-                    res.push_u8_slice(&src[self.ranges.clone()]);
+                    let _ = res.push_u8_slice(&src[self.ranges.clone()]);
                 }
                 StringContent::Utf16(src) => {
-                    res.push_u16_slice(&src[self.ranges.clone()]);
+                    let _ = res.push_u16_slice(&src[self.ranges.clone()]);
                 }
                 _ => unreachable!(),
             }
@@ -817,6 +813,6 @@ impl<'a> StringContentSlice<'a> {
 }
 
 #[inline(always)]
-fn hash_char(c: u32, h: u32) -> u32 {
+const fn hash_char(c: u32, h: u32) -> u32 {
     h.wrapping_mul(263).wrapping_add(c)
 }

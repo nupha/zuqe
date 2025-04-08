@@ -52,8 +52,8 @@ pub unsafe fn JS_AtomSymbolHasDescription(ctx: *mut JSContext, atom: JSAtom) -> 
 
     let p = (*ctx).rt().get_atom_desc(atom).unwrap().as_ref();
 
-    return matches!(
+    matches!(
         p.atom_info().unwrap(),
         JSAtomInfo::Symbol(_) | JSAtomInfo::GlobalSymbol(_)
-    ) && !((*p).len() == 0 && (*p).is_wide_char());
+    ) && !((*p).len() == 0 && (*p).is_wide_char())
 }

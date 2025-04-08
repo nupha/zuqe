@@ -28,7 +28,8 @@ pub unsafe fn js_thisNumberValue(ctx: *mut JSContext, this_val: JSValueConst) ->
             }
         }
     }
-    return (*ctx).JS_ThrowTypeError(c"not a number");
+
+    (*ctx).JS_ThrowTypeError(c"not a number")
 }
 
 pub unsafe fn js_number_valueOf(
@@ -45,7 +46,7 @@ pub unsafe fn js_get_radix(ctx: *mut JSContext, val: JSValueConst) -> i32 {
     if JS_ToInt32Sat(ctx, &mut radix, val) != 0 {
         return -1;
     }
-    if radix < 2 || radix > 36 {
+    if !(2..=36).contains(&radix) {
         JS_ThrowRangeError(ctx, c"radix must be between 2 and 36");
         return -1;
     }
@@ -142,13 +143,14 @@ pub unsafe fn js_number_toExponential(
         f = 0;
         0
     } else {
-        if f < 0 || f > 100 {
+        if !(0..=100).contains(&f) {
             return JS_ThrowRangeError(ctx, c"invalid number of digits");
         }
         f += 1;
         JS_DTOA_FIXED_FORMAT
     };
-    return js_dtoa(ctx, d, 10, f, flags | JS_DTOA_FORCE_EXP);
+
+    js_dtoa(ctx, d, 10, f, flags | JS_DTOA_FORCE_EXP)
 }
 
 pub unsafe fn js_number_toPrecision(
@@ -157,11 +159,10 @@ pub unsafe fn js_number_toPrecision(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let val;
     let mut p: i32 = 0;
     let mut d: f64 = 0.0;
 
-    val = js_thisNumberValue(ctx, this_val);
+    let val = js_thisNumberValue(ctx, this_val);
     if JS_IsException(val) {
         return val;
     }
@@ -178,10 +179,11 @@ pub unsafe fn js_number_toPrecision(
     if !d.is_finite() {
         return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
     }
-    if p < 1 || p > 100 {
+    if !(1..=100).contains(&p) {
         return JS_ThrowRangeError(ctx, c"invalid number of digits");
     }
-    return js_dtoa(ctx, d, 10, p, JS_DTOA_FIXED_FORMAT);
+
+    js_dtoa(ctx, d, 10, p, JS_DTOA_FIXED_FORMAT)
 }
 
 pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
@@ -200,9 +202,10 @@ pub unsafe fn js_number_isNaN(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if !JS_IsNumber(*argv.offset(0)) {
-        return JS_FALSE;
+        JSValue::FALSE
+    } else {
+        js_global_isNaN(ctx, this_val, argc, argv)
     }
-    return js_global_isNaN(ctx, this_val, argc, argv);
 }
 pub unsafe fn js_number_isFinite(
     ctx: *mut JSContext,
@@ -211,9 +214,10 @@ pub unsafe fn js_number_isFinite(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if !JS_IsNumber(*argv.offset(0)) {
-        return JS_FALSE;
+        JSValue::FALSE
+    } else {
+        js_global_isFinite(ctx, this_val, argc, argv)
     }
-    return js_global_isFinite(ctx, this_val, argc, argv);
 }
 pub unsafe fn js_number_isInteger(
     ctx: *mut JSContext,
@@ -254,7 +258,7 @@ pub const js_number_funcs: [JSCFunctionListEntry; 12] = [
     JS_CFUNC_DEF!(c"isFinite", 1, js_number_isFinite),
     JS_CFUNC_DEF!(c"isInteger", 1, js_number_isInteger),
     JS_CFUNC_DEF!(c"isSafeInteger", 1, js_number_isSafeInteger),
-    JS_PROP_DOUBLE_DEF!(c"MAX_VALUE", 1.7976931348623157e+308, 0),
+    JS_PROP_DOUBLE_DEF!(c"MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
     JS_PROP_DOUBLE_DEF!(c"MIN_VALUE", 5e-324, 0),
     JS_PROP_DOUBLE_DEF!(c"NaN", f64::NAN, 0),
     JS_PROP_DOUBLE_DEF!(c"NEGATIVE_INFINITY", -f64::INFINITY, 0),

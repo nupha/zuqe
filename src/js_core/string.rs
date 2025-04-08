@@ -20,7 +20,7 @@ use crate::{
         JS_NewBool, JS_NewString, JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat,
         JS_ToInt64Sat, JS_ToString, JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32,
         StringContent, JS_NAN, JS_STRING_LEN_MAX, JS_TAG_INT, JS_TAG_OBJECT, JS_TAG_STRING,
-        JS_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+        JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
         JS_VALUE_GET_TAG,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
@@ -133,7 +133,7 @@ pub unsafe fn js_string_charAt(
 
     let ret = if idx < 0 || idx >= (*p).len() as i32 {
         if is_at != 0 {
-            JS_UNDEFINED
+            JSValue::UNDEFINED
         } else {
             (*ctx).create_string("")
         }
@@ -165,7 +165,7 @@ pub unsafe fn js_string_codePointAt(
     }
 
     let ret = if idx < 0 || idx >= (*p).len() as i32 {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     } else {
         let c = (*p).content().chars().nth(idx as usize).unwrap();
         JSValue::from_i32(c as u32 as i32)
@@ -358,18 +358,15 @@ pub unsafe fn js_string_replace(
     let searchValue = *argv.offset(0);
     let replaceValue = *argv.offset(1);
 
-    let mut search_str = JS_UNDEFINED;
-    let mut replaceValue_str = JS_UNDEFINED;
-    let mut str = JS_UNDEFINED;
+    let mut search_str = JSValue::UNDEFINED;
+    let mut replaceValue_str = JSValue::UNDEFINED;
+    let mut str = JSValue::UNDEFINED;
 
     // let mut b_s: StringBuffer = std::mem::zeroed();
     // let b = &mut b_s;
 
-    if JS_IsUndefined(O) || JS_IsNull(O) {
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"cannot convert to object");
+    if O.is_undefined_or_null() {
+        return (*ctx).JS_ThrowTypeError(c"cannot convert to object");
     }
 
     macro_rules! exception {
@@ -436,7 +433,7 @@ pub unsafe fn js_string_replace(
             } else if endOfLastMatch >= (*sp).len() as i32 {
                 -1
             } else {
-                endOfLastMatch as i32 + 1
+                endOfLastMatch + 1
             }
         } else {
             (*sp)
@@ -462,7 +459,7 @@ pub unsafe fn js_string_replace(
                 JS_Call(
                     ctx,
                     replaceValue,
-                    JS_UNDEFINED,
+                    JSValue::UNDEFINED,
                     3,
                     [search_str, JSValue::from_i32(pos), str].as_mut_ptr(),
                 ),
@@ -470,14 +467,14 @@ pub unsafe fn js_string_replace(
         } else {
             js_string___GetSubstitution(
                 ctx,
-                JS_UNDEFINED,
+                JSValue::UNDEFINED,
                 6,
                 [
                     search_str,
                     str,
                     JSValue::from_i32(pos),
-                    JS_UNDEFINED,
-                    JS_UNDEFINED,
+                    JSValue::UNDEFINED,
+                    JSValue::UNDEFINED,
                     replaceValue_str,
                 ]
                 .as_mut_ptr(),
@@ -563,13 +560,10 @@ pub unsafe fn js_string_split(
     let mut args: [JSValueConst; 2] = [JSValueConst::default(); 2];
     let mut lengthA: u32 = 0;
 
-    let mut sp: *mut JSString = std::ptr::null_mut();
-    let mut rp: *mut JSString = std::ptr::null_mut();
-
-    let mut S = JS_UNDEFINED;
-    let mut A = JS_UNDEFINED;
-    let mut R = JS_UNDEFINED;
-    let mut T = JS_UNDEFINED;
+    let mut S = JSValue::UNDEFINED;
+    let mut A = JSValue::UNDEFINED;
+    let mut R = JSValue::UNDEFINED;
+    let mut T = JSValue::UNDEFINED;
 
     macro_rules! done {
         () => {
@@ -728,8 +722,7 @@ pub unsafe fn js_string_substring(
 
     let ret = js_sub_string(ctx, p, start, end);
     JS_FreeValue(ctx, str);
-
-    return ret;
+    ret
 }
 
 pub unsafe fn js_string_substr(
@@ -764,7 +757,7 @@ pub unsafe fn js_string_substr(
     }
     ret = js_sub_string(ctx, p, a, a + n);
     JS_FreeValue(ctx, str);
-    return ret;
+    ret
 }
 
 pub unsafe fn js_string_slice(
@@ -796,7 +789,7 @@ pub unsafe fn js_string_slice(
     let ret = js_sub_string(ctx, p, start, std::cmp::max(end, start));
     JS_FreeValue(ctx, str);
 
-    return ret;
+    ret
 }
 
 pub unsafe fn js_string_pad(
@@ -811,7 +804,7 @@ pub unsafe fn js_string_pad(
         return JSValue::EXCEPTION;
     }
 
-    let mut v = JS_UNDEFINED;
+    let mut v = JSValue::UNDEFINED;
     // let mut b_s: StringBuffer = std::mem::zeroed();
     // let b = &mut b_s;
     let mut c = ' ';
@@ -860,7 +853,7 @@ pub unsafe fn js_string_pad(
         }
 
         p1 = JS_VALUE_GET_STRING(v);
-        if (*p1).len() == 0 {
+        if (*p1).is_empty() {
             JS_FreeValue(ctx, v);
             return str;
         }
@@ -942,12 +935,12 @@ pub unsafe fn js_string_repeat(
     if JS_ToInt64Sat(ctx, &mut val, *argv.offset(0)) != 0 {
         fail!();
     }
-    if val < 0 || val > 2147483647 {
+    if !(0..=2147483647).contains(&val) {
         JS_ThrowRangeError(ctx, c"invalid repeat count");
         fail!();
     }
 
-    let mut n = val as usize;
+    let n = val as usize;
     let p = JS_VALUE_GET_STRING(str);
     let len = (*p).len();
     if len == 0 || n == 1 {
@@ -960,12 +953,11 @@ pub unsafe fn js_string_repeat(
         fail!();
     }
 
-    let mut res_string =
-        if let Ok(s) = StringContent::with_capacity(n as usize * len, (*p).is_wide_char()) {
-            s
-        } else {
-            fail!();
-        };
+    let mut res_string = if let Ok(s) = StringContent::with_capacity(n * len, (*p).is_wide_char()) {
+        s
+    } else {
+        fail!();
+    };
 
     res_string
         .push_chars_iter(std::iter::repeat_n((*p).content().chars(), n).flatten())
@@ -1087,7 +1079,8 @@ pub unsafe fn js_string_includes(
 
     JS_FreeValue(ctx, str);
     JS_FreeValue(ctx, v);
-    return JS_NewBool(ret);
+
+    JS_NewBool(ret)
 }
 
 pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> i32 {
@@ -1124,7 +1117,7 @@ pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> 
         }
     }
 
-    return 0;
+    0
 }
 
 pub unsafe fn js_string_match(
@@ -1168,10 +1161,10 @@ pub unsafe fn js_string_match(
     }
 
     let mut args_len = 1;
-    let mut args: [JSValueConst; 2] = [JS_UNDEFINED; 2];
+    let mut args: [JSValueConst; 2] = [JSValue::UNDEFINED; 2];
     args[0] = regexp;
 
-    let mut str = JS_UNDEFINED;
+    let mut str = JSValue::UNDEFINED;
 
     if atom == JS_ATOM_Symbol_matchAll {
         str = JS_NewString(ctx, c"g");
@@ -1193,7 +1186,7 @@ pub unsafe fn js_string_match(
     let result = JS_InvokeFree(ctx, rx, atom, 1, &mut S);
     JS_FreeValue(ctx, S);
 
-    return result;
+    result
 }
 
 pub unsafe fn js_string___GetSubstitution(
@@ -1279,7 +1272,7 @@ pub unsafe fn js_string___GetSubstitution(
             if sval.is_exception() {
                 return JSValue::EXCEPTION;
             }
-            let r = res_string.push(&(*JS_VALUE_GET_STRING(sval)).content());
+            let r = res_string.push((*JS_VALUE_GET_STRING(sval)).content());
             JS_FreeValue(ctx, sval);
             if r.is_err() {
                 return JSValue::EXCEPTION;
@@ -1302,11 +1295,11 @@ pub unsafe fn js_string___GetSubstitution(
             {
                 return JSValue::EXCEPTION;
             }
-        } else if c.is_digit(10) {
+        } else if c.is_ascii_digit() {
             let mut k = c as u32 - '0' as u32;
             if j < len as u16 {
                 let c1 = (*rp).content().chars().nth(j as usize).unwrap();
-                if c1.is_digit(10) {
+                if c1.is_ascii_digit() {
                     let k1 = k * 10 + (c1 as u32 - '0' as u32);
                     if k1 >= 1 && k1 < captures_len {
                         k = k1;
@@ -1418,7 +1411,7 @@ pub unsafe fn string_cmp(p1: *mut JSString, p2: *mut JSString, x1: i32, x2: i32,
     let mut it1 = (*p1).content().chars().skip(x1 as usize);
     let mut it2 = (*p2).content().chars().skip(x2 as usize);
 
-    for i in 0..len {
+    for _ in 0..len {
         match (it1.next(), it2.next()) {
             (Some(c1), Some(c2)) => {
                 if c1 > c2 {
@@ -1497,7 +1490,7 @@ pub unsafe fn js_thisStringValue(ctx: *mut JSContext, this_val: JSValueConst) ->
         }
     }
 
-    return (*ctx).JS_ThrowTypeError(c"not a string");
+    (*ctx).JS_ThrowTypeError(c"not a string")
 }
 
 pub unsafe fn js_string_toLowerCase(
@@ -1513,7 +1506,7 @@ pub unsafe fn js_string_toLowerCase(
     }
 
     let p = JS_VALUE_GET_STRING(val);
-    if (*p).len() == 0 {
+    if (*p).is_empty() {
         return val;
     }
 

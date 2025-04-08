@@ -172,22 +172,22 @@ mod nnb_value {
     }
 
     #[inline(always)]
-    pub fn JS_VALUE_GET_FLOAT64(v: JSValue) -> f64 {
+    pub const fn JS_VALUE_GET_FLOAT64(v: JSValue) -> f64 {
         unsafe { v.u.float64 }
     }
 
     #[inline(always)]
-    pub fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
+    pub const fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
         tag == super::JS_TAG_FLOAT64 as i32
     }
 
     #[inline(always)]
-    pub fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
+    pub const fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
         v.tag as i32
     }
 
     #[inline(always)]
-    pub fn JS_VALUE_GET_PTR(v: JSValue) -> *mut std::ffi::c_void {
+    pub const fn JS_VALUE_GET_PTR(v: JSValue) -> *mut std::ffi::c_void {
         unsafe { v.u.ptr }
     }
 }
@@ -656,13 +656,13 @@ pub unsafe fn JS_ToIndex(ctx: *mut JSContext, plen: *mut u64, val: JSValueConst)
     if JS_ToInt64Sat(ctx, &mut v as *mut i64, val) != 0 {
         return -1;
     }
-    if v < 0 || v > MAX_SAFE_INTEGER {
+    if !(0..=MAX_SAFE_INTEGER).contains(&v) {
         JS_ThrowRangeError(ctx, c"invalid array index");
         *plen = 0;
         return -1;
     }
     *plen = v as u64;
-    return 0;
+    0
 }
 
 pub const HINT_STRING: i32 = 0;

@@ -124,7 +124,7 @@ impl JSString {
     /// Returns a reference to the underlying string content
     /// Used for string operations and comparisons
     #[inline(always)]
-    pub fn content(&self) -> &Rc<StringContent> {
+    pub const fn content(&self) -> &Rc<StringContent> {
         &self.content
     }
 
@@ -481,7 +481,7 @@ pub unsafe fn JS_ToStringCheckObject(ctx: *mut JSContext, val: JSValueConst) -> 
 
 #[inline(always)]
 pub unsafe fn JS_IsEmptyString(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_STRING && (*JS_VALUE_GET_STRING(v)).len() == 0
+    JS_VALUE_GET_TAG(v) == JS_TAG_STRING && (*JS_VALUE_GET_STRING(v)).is_empty()
 }
 
 /// Note: string value `str2` is consumed inside.
@@ -632,7 +632,7 @@ pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -
                 }
                 Err(cc) => {
                     if let Ok(mut cc2) = cc.copy_to_new() {
-                        if cc2.push(&p2.content()).is_err() {
+                        if cc2.push(p2.content()).is_err() {
                             (*ctx).JS_ThrowOutOfMemory();
                             JSValue::EXCEPTION
                         } else {
@@ -837,7 +837,7 @@ pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> b
     if !ptr.is_null() {
         *ptr = p;
     }
-    return true;
+    true
 }
 
 //
@@ -854,8 +854,8 @@ pub unsafe fn js_string_get_own_property(
 
     if prop.is_int_type() {
         let p = JS_VALUE_GET_OBJ(obj).as_ref().unwrap();
-        if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_STRING {
-            let p1 = Rc::from_raw(JS_VALUE_GET_STRING((*p).u.object_data));
+        if JS_VALUE_GET_TAG(p.u.object_data) == JS_TAG_STRING {
+            let p1 = Rc::from_raw(JS_VALUE_GET_STRING(p.u.object_data));
 
             let idx = __JS_AtomToUInt32(prop);
             if idx < p1.len() as u32 {
@@ -913,11 +913,11 @@ pub unsafe fn js_string_define_own_property(
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
         let p = JS_VALUE_GET_OBJ(this_obj).as_mut().unwrap();
-        if JS_VALUE_GET_TAG((*p).u.object_data) != JS_TAG_STRING {
+        if JS_VALUE_GET_TAG(p.u.object_data) != JS_TAG_STRING {
             def!();
         }
 
-        let p1 = Rc::from_raw(JS_VALUE_GET_STRING((*p).u.object_data));
+        let p1 = Rc::from_raw(JS_VALUE_GET_STRING(p.u.object_data));
         let len = p1.len();
         let nth_char = p1.content().chars().nth(idx as usize);
         let _ = Rc::into_raw(p1);
@@ -947,7 +947,7 @@ pub unsafe fn js_string_define_own_property(
                 fail!();
             }
         }
-        return 1;
+        1
     } else {
         def!();
     }
@@ -964,7 +964,7 @@ pub unsafe fn js_string_delete_property(
             return 0;
         }
     }
-    return 0;
+    0
 }
 
 pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

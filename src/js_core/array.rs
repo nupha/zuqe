@@ -1264,10 +1264,10 @@ pub unsafe fn js_array_join(
         if i > 0 {
             // append separator
             if c >= 0 {
-                content.push_u8(c as u8);
+                let _ = content.push_u8(c as u8);
             } else {
                 debug_assert!(!p.is_null());
-                content.push((*p).content());
+                let _ = content.push((*p).content());
             }
         }
 
