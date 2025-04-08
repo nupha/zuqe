@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use smallvec::SmallVec;
 
 use crate::{
@@ -9,16 +7,14 @@ use crate::{
     iterator::JSIteratorKindEnum,
     mem::js_free,
     value::{
-        js_string_obj_get_length, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_IsException,
-        JS_VALUE_GET_OBJ,
+        js_string_obj_get_length, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_VALUE_GET_OBJ,
     },
     JS_CLASS_STRING, JS_MKPTR,
 };
 
 use super::{
-    obj::{JSObject, JS_ToObject},
-    JSPropertyDescriptor, JS_CreateDataPropertyUint32, JS_GetOwnPropertyInternal, JS_GetProperty,
-    JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+    JSObject, JSPropertyDescriptor, JS_CreateDataPropertyUint32, JS_GetOwnPropertyInternal,
+    JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +250,132 @@ impl JSObject {
 
         Ok(lst.into_boxed_slice())
     }
+
+    /// Collect own property names of `self` object, return an array of keys, values, or key-values.
+    /// returns Err when fail.
+    /// Equivelent to js expression: Object.keys, Object.values, Object.entries
+    pub fn get_own_property_names2(
+        &self,
+        ctx: &mut JSContext,
+        flags: i32,
+        kind: JSIteratorKindEnum,
+    ) -> JSValue {
+        // result array
+        let ret_array = unsafe { JS_NewArray(ctx) };
+        if ret_array.is_exception() {
+            return JSValue::EXCEPTION;
+        }
+
+        let mut idx: u32 = 0;
+
+        let r = unsafe {
+            self.own_property_names_foreach(ctx, flags & !JS_GPN_ENUM_ONLY, |cx, name| {
+                if flags & JS_GPN_ENUM_ONLY != 0 {
+                    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+                    let res = JS_GetOwnPropertyInternal(
+                        cx,
+                        &mut desc,
+                        self as *const JSObject as *mut JSObject,
+                        name.atom,
+                    );
+                    if res < 0 {
+                        return Err(-1);
+                    }
+                    if res == 0 {
+                        return Ok(());
+                    }
+                    js_free_desc(cx, &mut desc);
+                    if desc.flags & JS_PROP_ENUMERABLE == 0 {
+                        return Ok(()); // skip non enumerable
+                    }
+                }
+
+                let val: JSValue;
+                match kind {
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
+                        val = name.atom.to_value(cx, false);
+                        if val.is_exception() {
+                            return Err(-1);
+                        }
+                    }
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                        val = JS_MKPTR!(
+                            JSTag::Object,
+                            (self as *const JSObject as *mut JSObject).cast()
+                        )
+                        .get_property(cx, name.atom);
+                        if val.is_exception() {
+                            return Err(-1);
+                        }
+                    }
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                        val = JS_NewArray(cx);
+                        if val.is_exception() {
+                            return Err(-1);
+                        }
+                        let key = name.atom.to_value(cx, false);
+                        if key.is_exception() {
+                            JS_FreeValue(cx, val);
+                            return Err(-1);
+                        }
+                        if JS_CreateDataPropertyUint32(cx, val, 0, key, JS_PROP_THROW) < 0 {
+                            JS_FreeValue(cx, val);
+                            return Err(-1);
+                        }
+
+                        let value = JS_MKPTR!(
+                            JSTag::Object,
+                            (self as *const JSObject as *mut JSObject).cast()
+                        )
+                        .get_property(cx, name.atom);
+                        if value.is_exception() {
+                            JS_FreeValue(cx, val);
+                            return Err(-1);
+                        }
+                        if JS_CreateDataPropertyUint32(cx, val, 1, value, JS_PROP_THROW) < 0 {
+                            JS_FreeValue(cx, val);
+                            return Err(-1);
+                        }
+                    }
+                }
+
+                // append to result array
+                if JS_CreateDataPropertyUint32(cx, ret_array, idx as _, val, 0) < 0 {
+                    return Err(-1);
+                }
+
+                idx += 1;
+                Ok(())
+            })
+        };
+
+        if r.is_err() {
+            unsafe {
+                JS_FreeValue(ctx, ret_array);
+            }
+            JSValue::EXCEPTION
+        } else {
+            ret_array
+        }
+    }
+}
+
+impl JSValue {
+    /// Get own property names and return an array of keys, values, or key-values.
+    /// returns Err when fail.
+    pub fn get_own_property_names2(
+        self,
+        ctx: &mut JSContext,
+        flags: i32,
+        kind: JSIteratorKindEnum,
+    ) -> JSValue {
+        let obj = unsafe { JS_ToObject(ctx, self).into_rc(ctx.rt()) };
+        if obj.is_exception() {
+            JSValue::EXCEPTION
+        } else {
+            unsafe { (*JS_VALUE_GET_OBJ(*obj)).get_own_property_names2(ctx, flags, kind) }
+        }
+    }
 }
 
 // ptab and its atoms must be freed by the user.
@@ -277,104 +399,14 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     Ok(())
 }
 
+#[deprecated(note = "use JSValue::get_own_property_names2() instead")]
 pub unsafe fn JS_GetOwnPropertyNames2(
     ctx: *mut JSContext,
     target: JSValueConst,
     flags: i32,
     kind: JSIteratorKindEnum,
 ) -> JSValue {
-    let obj = JS_ToObject(ctx, target);
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    // result array
-    let ret_array = JS_NewArray(ctx);
-    if ret_array.is_exception() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    let p = JS_VALUE_GET_OBJ(obj);
-    let mut idx: u32 = 0;
-
-    let r = (*p).own_property_names_foreach(
-        ctx.as_mut().unwrap(),
-        flags & !JS_GPN_ENUM_ONLY,
-        |cx, name| {
-            if flags & JS_GPN_ENUM_ONLY != 0 {
-                let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, name.atom);
-                if res < 0 {
-                    return Err(-1);
-                }
-                if res == 0 {
-                    return Ok(());
-                }
-                js_free_desc(ctx, &mut desc);
-                if desc.flags & JS_PROP_ENUMERABLE == 0 {
-                    return Ok(()); // skip non enumerable
-                }
-            }
-
-            let val: JSValue;
-            match kind {
-                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                    val = name.atom.to_value(cx, false);
-                    if val.is_exception() {
-                        return Err(-1);
-                    }
-                }
-                JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                    val = obj.get_property(cx, name.atom);
-                    if val.is_exception() {
-                        return Err(-1);
-                    }
-                }
-                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                    val = JS_NewArray(cx);
-                    if val.is_exception() {
-                        return Err(-1);
-                    }
-                    let key = name.atom.to_value(cx, false);
-                    if key.is_exception() {
-                        JS_FreeValue(ctx, val);
-                        return Err(-1);
-                    }
-                    if JS_CreateDataPropertyUint32(ctx, val, 0, key, JS_PROP_THROW) < 0 {
-                        JS_FreeValue(ctx, val);
-                        return Err(-1);
-                    }
-                    let value = obj.get_property(cx, name.atom);
-                    if value.is_exception() {
-                        JS_FreeValue(ctx, val);
-                        return Err(-1);
-                    }
-                    if JS_CreateDataPropertyUint32(ctx, val, 1, value, JS_PROP_THROW) < 0 {
-                        JS_FreeValue(ctx, val);
-                        return Err(-1);
-                    }
-                }
-            }
-
-            // append to result array
-            if JS_CreateDataPropertyUint32(ctx, ret_array, idx as _, val, 0) < 0 {
-                return Err(-1);
-            }
-
-            idx += 1;
-            Ok(())
-        },
-    );
-
-    JS_FreeValue(ctx, obj);
-
-    if r.is_err() {
-        JS_FreeValue(ctx, ret_array);
-        JSValue::EXCEPTION
-    } else {
-        ret_array
-    }
+    target.get_own_property_names2(ctx.as_mut().unwrap(), flags, kind)
 }
 
 // #[deprecated]

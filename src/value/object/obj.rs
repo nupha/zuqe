@@ -45,12 +45,12 @@ use super::{
         JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
-    add_property, find_hashed_shape_proto, find_own_property, find_own_property1, free_property,
-    js_dup_shape, js_free_desc, js_free_shape, js_new_shape, JSProperty, JSPropertyDescriptor,
-    JSShape, JS_GetOwnPropertyInternal, JS_GetProperty, JS_IsExtensible, JS_NewObjectFromShape,
-    JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK,
-    JS_PROP_WRITABLE,
+    add_property, find_hashed_shape_proto, find_own_property, free_property, js_dup_shape,
+    js_free_desc, js_free_shape, js_new_shape, JSProperty, JSPropertyDescriptor, JSShape,
+    JSShapeProperty, JS_GetOwnPropertyInternal, JS_GetProperty, JS_IsExtensible,
+    JS_NewObjectFromShape, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+    JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW,
+    JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 #[repr(C)]
@@ -1032,12 +1032,15 @@ pub unsafe fn js_get_function_name(ctx: *mut JSContext, name: JSAtom) -> JSValue
 // Note: all the fields are already sealed except length
 pub unsafe fn seal_template_obj(ctx: *mut JSContext, obj: JSValueConst) -> i32 {
     let p = JS_VALUE_GET_OBJ(obj);
-    let mut prs = find_own_property1(p, JS_ATOM_length);
-    if !prs.is_null() {
-        if p.as_mut().unwrap().js_update_property_flags(
+
+    if let Some(prs) = (*p).find_own_property1_mut(JS_ATOM_length) {
+        let prs_flags = prs.flags();
+        let mut prs = prs as *mut JSShapeProperty;
+
+        if (*p).js_update_property_flags(
             ctx,
             std::ptr::addr_of_mut!(prs),
-            (*prs).flags() & !(JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE),
+            prs_flags & !(JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE),
         ) != 0
         {
             return -1;

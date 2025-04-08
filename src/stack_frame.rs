@@ -5,10 +5,7 @@ use crate::{
     error::{build_backtrace, is_backtrace_needed, JS_IsUncatchableError},
     iterator::JS_IteratorClose,
     types::{list_empty, list_head},
-    value::{
-        JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
-    },
+    value::{JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
 };
 
 /// Represents a stack frame in the JavaScript execution context
@@ -64,7 +61,7 @@ impl JSStackFrame {
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
-        if is_backtrace_needed(ctx, ctx.rt().current_exception) {
+        if is_backtrace_needed(ctx.rt().current_exception) {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;

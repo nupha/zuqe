@@ -1139,7 +1139,7 @@ pub unsafe fn js_module_ns_autoinit(
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
 unsafe fn js_module_ns_has(ctx: *mut JSContext, obj: JSValueConst, atom: JSAtom) -> i32 {
-    find_own_property1(JS_VALUE_GET_OBJ(obj), atom).is_null() as i32
+    (*JS_VALUE_GET_OBJ(obj)).find_own_property1(atom).is_none() as i32
 }
 
 pub static js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

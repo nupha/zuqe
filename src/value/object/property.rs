@@ -254,6 +254,18 @@ impl JSObject {
         }
         return 0;
     }
+
+    /// get shape property
+    #[inline(always)]
+    pub unsafe fn find_own_property1(&self, atom: JSAtom) -> Option<&JSShapeProperty> {
+        self.shape().and_then(|sh| sh.props.get(&atom))
+    }
+
+    /// get shape property
+    #[inline(always)]
+    pub unsafe fn find_own_property1_mut(&mut self, atom: JSAtom) -> Option<&mut JSShapeProperty> {
+        self.shape_mut().and_then(|sh| sh.props.get_mut(&atom))
+    }
 }
 
 impl JSValue {

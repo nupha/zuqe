@@ -14,8 +14,8 @@ use crate::{
     },
     value::{
         object::{
-            find_own_property1, JS_GetProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
-            JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            JS_GetProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
+            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
         JS_IsEmptyString, JS_IsException, JS_IsObject, JS_IsUndefined, JS_ToStringFree,
@@ -183,7 +183,7 @@ pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
 /* Note: it is important that no exception is returned by this function */
-pub unsafe fn is_backtrace_needed(ctx: *const JSContext, obj: JSValueConst) -> bool {
+pub unsafe fn is_backtrace_needed(obj: JSValueConst) -> bool {
     if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
         return false;
     }
@@ -192,8 +192,7 @@ pub unsafe fn is_backtrace_needed(ctx: *const JSContext, obj: JSValueConst) -> b
     if (*p).class_id() != JS_CLASS_ERROR {
         return false;
     }
-
-    if !find_own_property1(p, JS_ATOM_stack).is_null() {
+    if (*p).find_own_property1(JS_ATOM_stack).is_some() {
         return false;
     }
 

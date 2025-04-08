@@ -8,10 +8,10 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            add_property, find_own_property, find_own_property1, JSObject, JSProperty,
-            JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD,
-            JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE,
+            find_own_property, JSObject, JSProperty, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
+            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
+            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_IsUninitialized, JS_VALUE_GET_OBJ,
     },
@@ -21,29 +21,31 @@ use crate::{
 // XXX: could support exotic global object.
 pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: u32) -> i32 {
     let p = JS_VALUE_GET_OBJ((*ctx).global_obj);
-    let prs = find_own_property1(p, prop);
 
-    // XXX: should handle JS_PROP_AUTOINIT
-    if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
-        if !prs.is_null() && (*prs).flags() & JS_PROP_CONFIGURABLE == 0 {
-            JS_ThrowSyntaxErrorVarRedeclaration(ctx, prop);
-            return -1;
-        }
-    } else {
-        if prs.is_null() && !(*p).detailed.extensible() {
-            (*ctx).JS_ThrowTypeError(CStr::from_ptr(
-                format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
-                    .as_ptr()
-                    .cast(),
-            ));
-            return -1;
-        }
-        if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
-            if !prs.is_null() {
-                if (*prs).flags() & JS_PROP_CONFIGURABLE == 0
-                    && (((*prs).flags() & JS_PROP_TMASK) == JS_PROP_GETSET
-                        || ((*prs).flags() & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
-                            != (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE))
+    if let Some(prs) = (*p).find_own_property1(prop) {
+        let prs_flags = prs.flags();
+
+        // XXX: should handle JS_PROP_AUTOINIT
+        if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
+            if prs_flags & JS_PROP_CONFIGURABLE == 0 {
+                JS_ThrowSyntaxErrorVarRedeclaration(ctx, prop);
+                return -1;
+            }
+        } else {
+            if !(*p).detailed.extensible() {
+                (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+                    format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
+                        .as_ptr()
+                        .cast(),
+                ));
+                return -1;
+            }
+
+            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
+                if prs_flags & JS_PROP_CONFIGURABLE == 0
+                    && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
+                        || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
+                            != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                 {
                     (*ctx).JS_ThrowTypeError(CStr::from_ptr(
                         format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
@@ -58,8 +60,7 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
 
     // check if there already is a lexical declaration
     let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-    let prs = find_own_property1(p, prop);
-    if !prs.is_null() {
+    if (*p).find_own_property1(prop).is_some() {
         JS_ThrowSyntaxErrorVarRedeclaration(ctx, prop);
         return -1;
     }
@@ -85,21 +86,16 @@ pub unsafe fn JS_DefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, def_flags: u
         val = JSValue::UNDEFINED;
     }
 
-    let prs = find_own_property1(p, prop);
-    if !prs.is_null() {
+    if (*p).find_own_property1(prop).is_some() {
         return 0;
-    }
-    if !(*p).detailed.extensible() {
+    } else if !(*p).detailed.extensible() {
         return 0;
+    } else if let Ok(pr) = (*p).add_property(ctx.as_mut().unwrap(), prop, flags) {
+        (*pr).u.value = val;
+        0
+    } else {
+        -1
     }
-
-    let pr = add_property(ctx, p, prop, flags);
-    if pr.is_null() {
-        return -1;
-    }
-
-    (*pr).u.value = val;
-    0
 }
 
 // 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
@@ -111,10 +107,13 @@ pub unsafe fn JS_DefineGlobalFunction(
     def_flags: u32,
 ) -> i32 {
     let p = JS_VALUE_GET_OBJ((*ctx).global_obj);
-    let prs = find_own_property1(p, prop);
 
     let mut flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
-    if prs.is_null() || ((*prs).flags() & JS_PROP_CONFIGURABLE) != 0 {
+
+    if (*p).find_own_property1(prop).map_or(
+        true,                                          // not exists
+        |prs| prs.flags() & JS_PROP_CONFIGURABLE != 0, // writable
+    ) {
         flags |= JS_PROP_ENUMERABLE
             | JS_PROP_WRITABLE
             | def_flags
@@ -206,9 +205,7 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSV
 pub unsafe fn JS_CheckGlobalVar(ctx: *mut JSContext, prop: JSAtom) -> i32 {
     // no exotic behavior is possible in global_var_obj
     let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-    let prs = find_own_property1(p, prop);
-
-    if !prs.is_null() {
+    if (*p).find_own_property1(prop).is_some() {
         1
     } else {
         if let Ok(ret) = (*ctx).global_obj.has_property(ctx.as_mut().unwrap(), prop) {

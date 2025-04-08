@@ -9,12 +9,12 @@ use crate::{
     value::{
         object::{
             js_free_desc, JSPropertyDescriptor, JS_DefinePropertyDesc, JS_DefinePropertyValueValue,
-            JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2, JS_GetProperty, JS_GetPrototype,
-            JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
-            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
-            JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_GetOwnPropertyInternal, JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree,
+            JS_IsExtensible, JS_NewObject, JS_NewObjectProto, JS_PreventExtensions,
+            JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+            JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
+            JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
@@ -257,9 +257,8 @@ pub unsafe fn js_object_getOwnPropertyNames(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    JS_GetOwnPropertyNames2(
-        ctx,
-        *argv.offset(0),
+    (*argv.offset(0)).get_own_property_names2(
+        ctx.as_mut().unwrap(),
         JS_GPN_STRING_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
@@ -271,9 +270,8 @@ pub unsafe fn js_object_getOwnPropertySymbols(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    JS_GetOwnPropertyNames2(
-        ctx,
-        *argv.offset(0),
+    (*argv.offset(0)).get_own_property_names2(
+        ctx.as_mut().unwrap(),
         JS_GPN_SYMBOL_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
@@ -290,9 +288,8 @@ pub unsafe fn js_object_keys(
         ..=JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i32)
         .contains(&kind));
 
-    JS_GetOwnPropertyNames2(
-        ctx,
-        *argv.offset(0),
+    (*argv.offset(0)).get_own_property_names2(
+        ctx.as_mut().unwrap(),
         JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK,
         std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8),
     )
