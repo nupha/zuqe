@@ -156,19 +156,19 @@ impl JSAtom {
         }
     }
 
-    /// convert atom to JSValue. Atom description is duplicated inside.
-    /// will return JSValue::EXCEPTION if failed.
+    /// Convert `self` atom to JSValue, returns EXCEPTION on failure.
+    /// Note: atom is duplicated inside.
     pub unsafe fn to_value(self, ctx: &mut JSContext, force_string: bool) -> JSValue {
         if self.is_int_type() {
             ctx.create_string_from_utf8(format!("{}", __JS_AtomToUInt32(self)).into_bytes())
         } else {
-            let p = ctx.rt().get_atom_desc(self).expect("INVALID ATOM").clone();
-            if let JSAtomInfo::String(_) = p.atom_info().unwrap() {
-                p.into_value()
+            let a = ctx.rt().get_atom_desc(self).expect("INVALID ATOM").clone();
+            if let JSAtomInfo::String(_) = a.atom_info().unwrap() {
+                a.into_value()
             } else if force_string {
-                p.into_value()
+                a.into_value()
             } else {
-                JS_MKPTR!(JSTag::Symbol, Rc::into_raw(p).cast::<c_void>() as _)
+                JS_MKPTR!(JSTag::Symbol, Rc::into_raw(a).cast::<c_void>() as _)
             }
         }
     }

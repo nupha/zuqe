@@ -49,7 +49,7 @@ use super::{
     add_property, find_hashed_shape_proto, find_own_property, find_own_property1, free_property,
     js_dup_shape, js_free_desc, js_free_shape, js_new_shape, JSProperty, JSPropertyDescriptor,
     JSShape, JS_DefinePropertyDesc, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNamesInternal,
-    JS_GetProperty, JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+    JS_GetProperty, JS_IsExtensible, JS_NewObjectFromShape, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
     JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
     JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
@@ -368,8 +368,8 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// Seal object if the value is an object, otherwise returns the value duplicated.
-    pub unsafe fn seal(self, ctx: &mut JSContext, freeze_flag: bool) -> Self {
+    /// Seal object if the value is an object, otherwise returns the value itself duplicated.
+    pub unsafe fn seal(self, ctx: &mut JSContext, freeze: bool) -> Self {
         if !self.is_object() {
             return self.dup();
         }
@@ -387,11 +387,11 @@ impl JSValue {
         let p = JS_VALUE_GET_OBJ(self);
         let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
 
-        let res = (*p).own_property_names_foreach(ctx, flags, |cx, item| {
-            let prop = item.atom;
-            let mut desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
+        let r = (*p).own_property_names_foreach(ctx, flags, |cx, name| {
+            let prop = name.atom;
+            let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
-            if freeze_flag {
+            if freeze {
                 let mut desc: JSPropertyDescriptor = std::mem::zeroed();
                 let res = JS_GetOwnPropertyInternal(cx, &mut desc, p, prop);
                 if res < 0 {
@@ -399,7 +399,7 @@ impl JSValue {
                 }
                 if res != 0 {
                     if desc.flags & JS_PROP_WRITABLE != 0 {
-                        desc_flags |= JS_PROP_HAS_WRITABLE;
+                        flags |= JS_PROP_HAS_WRITABLE;
                     }
                     js_free_desc(cx, &mut desc);
                 }
@@ -411,15 +411,61 @@ impl JSValue {
                 JSValue::UNDEFINED,
                 JSValue::UNDEFINED,
                 JSValue::UNDEFINED,
-                desc_flags,
+                flags,
             )
             .map(|_| ())
         });
 
-        if res.is_err() {
+        if r.is_err() {
             JSValue::EXCEPTION
         } else {
             self.dup()
+        }
+    }
+
+    /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
+    pub unsafe fn is_sealed(self, ctx: &mut JSContext, is_frozen: bool) -> Result<bool, i32> {
+        if !self.is_object() {
+            return Ok(true);
+        }
+
+        let p = JS_VALUE_GET_OBJ(self);
+        let mut check_unsealed: Option<bool> = None;
+
+        let r = (*p).own_property_names_foreach(
+            ctx,
+            JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+            |cx, name| {
+                if check_unsealed.is_none() {
+                    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+                    let res = JS_GetOwnPropertyInternal(cx, &mut desc, p, name.atom);
+                    if res < 0 {
+                        return Err(-1);
+                    }
+                    if res != 0 {
+                        js_free_desc(cx, &mut desc);
+                        if desc.flags & JS_PROP_CONFIGURABLE != 0
+                            || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
+                        {
+                            // has any writable prop - not sealed
+                            check_unsealed.replace(true);
+                        }
+                    }
+                }
+
+                Ok(())
+            },
+        );
+
+        if r.is_err() {
+            return Err(-1);
+        }
+
+        if check_unsealed.is_some() {
+            // not sealed
+            Ok(false)
+        } else {
+            JS_IsExtensible(ctx, self)
         }
     }
 }
@@ -853,10 +899,10 @@ pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
 }
 
 pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    macro_rules! goto_set_value {
+    macro_rules! set_value {
         ($o:expr) => {
-            if !JS_IsException($o) {
-                JS_SetObjectData(ctx, $o, JS_DupValue(ctx, val));
+            if !$o.is_exception() {
+                JS_SetObjectData(ctx, $o, val.dup());
             }
             return $o;
         };
@@ -864,10 +910,7 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
 
     match JS_VALUE_GET_NORM_TAG(val) {
         JSTag::Null | JSTag::Undefined => {
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"cannot convert to object");
+            return (*ctx).JS_ThrowTypeError(c"cannot convert to object");
         }
         JSTag::Object => {
             return val.dup();
@@ -886,21 +929,18 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
         }
         JSTag::Int | JSTag::Float64 => {
             let obj = JS_NewObjectClass(ctx, JS_CLASS_NUMBER);
-            goto_set_value!(obj);
+            set_value!(obj);
         }
         JSTag::String => {
             let obj = JS_NewObjectClass(ctx, JS_CLASS_STRING);
-            goto_set_value!(obj);
+            set_value!(obj);
         }
         JSTag::Symbol => {
             let obj = JS_NewObjectClass(ctx, JS_CLASS_SYMBOL);
-            goto_set_value!(obj);
+            set_value!(obj);
         }
         _ => {
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"cannot convert to object");
+            return (*ctx).JS_ThrowTypeError(c"cannot convert to object");
         }
     }
 }
@@ -959,76 +999,6 @@ pub unsafe fn JS_GetPrototypeFree(ctx: *mut JSContext, obj: JSValue) -> JSValue 
     let ret = JS_GetPrototype(ctx, obj);
     JS_FreeValue(ctx, obj);
     return ret;
-}
-
-pub unsafe fn JS_ObjectDefineProperties(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    properties: JSValueConst,
-) -> Result<(), i32> {
-    if !JS_IsObject(obj) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    let mut props = JS_ToObject(ctx, properties);
-    if JS_IsException(props) {
-        return Err(-1);
-    }
-
-    let p = JS_VALUE_GET_OBJ(props);
-    let mut desc = JSValue::UNDEFINED;
-    let mut atoms: *mut PropertyEnum = std::ptr::null_mut();
-    let mut len: u32 = 0;
-
-    macro_rules! exit {
-        ( $ret:expr) => {
-            //js_free_prop_enum(ctx, atoms, len as usize);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(atoms, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
-            JS_FreeValue(ctx, props);
-            JS_FreeValue(ctx, desc);
-            return $ret;
-        };
-    }
-
-    if JS_GetOwnPropertyNamesInternal(
-        ctx,
-        &mut atoms,
-        &mut len,
-        p,
-        JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
-    )
-    .is_err()
-    {
-        exit!(Err(-1));
-    }
-
-    for i in 0..len {
-        JS_FreeValue(ctx, desc);
-
-        desc = JS_GetProperty(ctx, props, (*atoms.offset(i as isize)).atom);
-        if JS_IsException(desc) {
-            exit!(Err(-1));
-        }
-
-        if JS_DefinePropertyDesc(
-            ctx,
-            obj,
-            (*atoms.offset(i as isize)).atom,
-            desc,
-            JS_PROP_THROW,
-        )
-        .is_err()
-        {
-            exit!(Err(-1));
-        }
-    }
-
-    exit!(Ok(()));
 }
 
 // return TRUE if 'obj' has a non empty 'name' string

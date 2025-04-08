@@ -10,18 +10,17 @@ use crate::{
         object::{
             js_free_desc, JSPropertyDescriptor, JS_CopyDataProperties, JS_DefinePropertyDesc,
             JS_DefinePropertyValueValue, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2,
-            JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree,
-            JS_IsExtensible, JS_NewObject, JS_NewObjectProto, JS_ObjectDefineProperties,
-            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, PropertyEnum,
+            JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject,
+            JS_NewObjectProto, JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject,
             JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
             JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_WRITABLE,
-            JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_TRUE, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        MAX_SAFE_INTEGER,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
@@ -29,6 +28,95 @@ use crate::{
 };
 
 use super::mapset::{js_map_constructor, js_map_get, js_map_set};
+
+pub unsafe fn JS_ObjectDefineProperties(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    properties: JSValueConst,
+) -> Result<(), i32> {
+    if !obj.is_object() {
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
+        return Err(-1);
+    }
+
+    let props = JS_ToObject(ctx, properties);
+    if props.is_exception() {
+        return Err(-1);
+    }
+
+    let p = JS_VALUE_GET_OBJ(props);
+
+    let r = (*p).own_property_names_foreach(
+        ctx.as_mut().unwrap(),
+        JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+        |cx, name| {
+            let desc = props.get_property(cx, name.atom);
+            if desc.is_exception() {
+                Err(-1)
+            } else {
+                let r = JS_DefinePropertyDesc(ctx, obj, name.atom, desc, JS_PROP_THROW).map(|_| ());
+                JS_FreeValue(ctx, desc);
+                r
+            }
+        },
+    );
+
+    JS_FreeValue(ctx, props);
+    r
+
+    // let mut atoms: *mut PropertyEnum = std::ptr::null_mut();
+    // let mut len: u32 = 0;
+    // let mut desc = JSValue::UNDEFINED;
+
+    // macro_rules! exit {
+    //     ( $ret:expr) => {
+    //         //js_free_prop_enum(ctx, atoms, len as usize);
+    //         for item in Box::from_raw(
+    //             std::slice::from_raw_parts_mut(atoms, len as usize) as *mut [PropertyEnum]
+    //         ) {
+    //             JS_FreeAtom(ctx, item.atom);
+    //         }
+    //         JS_FreeValue(ctx, props);
+    //         JS_FreeValue(ctx, desc);
+    //         return $ret;
+    //     };
+    // }
+
+    // if JS_GetOwnPropertyNamesInternal(
+    //     ctx,
+    //     &mut atoms,
+    //     &mut len,
+    //     p,
+    //     JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+    // )
+    // .is_err()
+    // {
+    //     exit!(Err(-1));
+    // }
+
+    // for i in 0..len {
+    //     JS_FreeValue(ctx, desc);
+
+    //     desc = JS_GetProperty(ctx, props, (*atoms.offset(i as isize)).atom);
+    //     if desc.is_exception() {
+    //         exit!(Err(-1));
+    //     }
+
+    //     if JS_DefinePropertyDesc(
+    //         ctx,
+    //         obj,
+    //         (*atoms.offset(i as isize)).atom,
+    //         desc,
+    //         JS_PROP_THROW,
+    //     )
+    //     .is_err()
+    //     {
+    //         exit!(Err(-1));
+    //     }
+    // }
+
+    // exit!(Ok(()));
+}
 
 pub unsafe fn js_object_constructor(
     ctx: *mut JSContext,
@@ -574,112 +662,156 @@ pub unsafe fn js_object_getOwnPropertyDescriptors(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let mut r = JSValue::UNDEFINED;
     let obj = JS_ToObject(ctx, *argv.offset(0));
-    if JS_IsException(obj) {
+    if obj.is_exception() {
+        return JSValue::EXCEPTION;
+    }
+
+    let res_obj = JS_NewObject(ctx);
+    if res_obj.is_exception() {
+        JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
     let p = JS_VALUE_GET_OBJ(obj);
-    let mut props = std::ptr::null_mut::<PropertyEnum>();
-    let mut len: u32 = 0;
 
-    if JS_GetOwnPropertyNamesInternal(
-        ctx,
-        &mut props,
-        &mut len,
-        p,
+    let r = (*p).own_property_names_foreach(
+        ctx.as_mut().unwrap(),
         JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
-    )
-    .is_err()
-    {
-        // C2RS: goto exception replaced with early return logic
+        |cx, name| {
+            let atom_value = name.atom.to_value(ctx.as_mut().unwrap(), false);
+            if atom_value.is_exception() {
+                return Err(-1);
+            }
+
+            let desc = js_object_getOwnPropertyDescriptor(
+                ctx,
+                JSValue::UNDEFINED,
+                2,
+                [obj, atom_value].as_mut_ptr(),
+                0,
+            );
+            JS_FreeValue(ctx, atom_value);
+
+            if desc.is_exception() {
+                Err(-1)
+            } else if !desc.is_undefined() {
+                res_obj
+                    .define_property_value(cx, name.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)
+                    .map(|_| ())
+            } else {
+                Ok(())
+            }
+        },
+    );
+
+    if r.is_err() {
+        JS_FreeValue(ctx, res_obj);
         JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
+    } else {
+        res_obj
     }
 
-    r = JS_NewObject(ctx);
-    if r.is_exception() {
-        //js_free_prop_enum(ctx, props, len as _);
-        for item in Box::from_raw(
-            std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
-        ) {
-            JS_FreeAtom(ctx, item.atom);
-        }
+    // let mut props = std::ptr::null_mut::<PropertyEnum>();
+    // let mut len: u32 = 0;
 
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    // if JS_GetOwnPropertyNamesInternal(
+    //     ctx,
+    //     &mut props,
+    //     &mut len,
+    //     p,
+    //     JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+    // )
+    // .is_err()
+    // {
+    //     // C2RS: goto exception replaced with early return logic
+    //     JS_FreeValue(ctx, obj);
+    //     return JSValue::EXCEPTION;
+    // }
 
-    for i in 0..len {
-        let atomValue = (*props.offset(i as isize))
-            .atom
-            .to_value(ctx.as_mut().unwrap(), false);
+    // r = JS_NewObject(ctx);
+    // if r.is_exception() {
+    //     //js_free_prop_enum(ctx, props, len as _);
+    //     for item in Box::from_raw(
+    //         std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+    //     ) {
+    //         JS_FreeAtom(ctx, item.atom);
+    //     }
 
-        if atomValue.is_exception() {
-            // js_free_prop_enum(ctx, props, len as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
+    //     JS_FreeValue(ctx, obj);
+    //     return JSValue::EXCEPTION;
+    // }
 
-            JS_FreeValue(ctx, obj);
-            JS_FreeValue(ctx, r);
-            return JSValue::EXCEPTION;
-        }
+    // for i in 0..len {
+    //     let atomValue = (*props.offset(i as isize))
+    //         .atom
+    //         .to_value(ctx.as_mut().unwrap(), false);
 
-        let mut args = [obj, atomValue];
-        let desc =
-            js_object_getOwnPropertyDescriptor(ctx, JSValue::UNDEFINED, 2, args.as_mut_ptr(), 0);
-        JS_FreeValue(ctx, atomValue);
-        if desc.is_exception() {
-            //js_free_prop_enum(ctx, props, len as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
+    //     if atomValue.is_exception() {
+    //         // js_free_prop_enum(ctx, props, len as _);
+    //         for item in Box::from_raw(
+    //             std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+    //         ) {
+    //             JS_FreeAtom(ctx, item.atom);
+    //         }
 
-            JS_FreeValue(ctx, obj);
-            JS_FreeValue(ctx, r);
-            return JSValue::EXCEPTION;
-        }
+    //         JS_FreeValue(ctx, obj);
+    //         JS_FreeValue(ctx, r);
+    //         return JSValue::EXCEPTION;
+    //     }
 
-        if !desc.is_undefined() {
-            if r.define_property_value(
-                ctx.as_mut().unwrap(),
-                (*props.offset(i as isize)).atom,
-                desc,
-                JS_PROP_C_W_E | JS_PROP_THROW,
-            )
-            .is_err()
-            {
-                //js_free_prop_enum(ctx, props, len as _);
-                for item in
-                    Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
-                        as *mut [PropertyEnum])
-                {
-                    JS_FreeAtom(ctx, item.atom);
-                }
+    //     let mut args = [obj, atomValue];
+    //     let desc =
+    //         js_object_getOwnPropertyDescriptor(ctx, JSValue::UNDEFINED, 2, args.as_mut_ptr(), 0);
+    //     JS_FreeValue(ctx, atomValue);
+    //     if desc.is_exception() {
+    //         //js_free_prop_enum(ctx, props, len as _);
+    //         for item in Box::from_raw(
+    //             std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+    //         ) {
+    //             JS_FreeAtom(ctx, item.atom);
+    //         }
 
-                JS_FreeValue(ctx, obj);
-                JS_FreeValue(ctx, r);
-                return JSValue::EXCEPTION;
-            }
-        }
-    }
+    //         JS_FreeValue(ctx, obj);
+    //         JS_FreeValue(ctx, r);
+    //         return JSValue::EXCEPTION;
+    //     }
 
-    //js_free_prop_enum(ctx, props, len as _);
-    for item in
-        Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum])
-    {
-        JS_FreeAtom(ctx, item.atom);
-    }
+    //     if !desc.is_undefined() {
+    //         if r.define_property_value(
+    //             ctx.as_mut().unwrap(),
+    //             (*props.offset(i as isize)).atom,
+    //             desc,
+    //             JS_PROP_C_W_E | JS_PROP_THROW,
+    //         )
+    //         .is_err()
+    //         {
+    //             //js_free_prop_enum(ctx, props, len as _);
+    //             for item in
+    //                 Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
+    //                     as *mut [PropertyEnum])
+    //             {
+    //                 JS_FreeAtom(ctx, item.atom);
+    //             }
 
-    JS_FreeValue(ctx, obj);
+    //             JS_FreeValue(ctx, obj);
+    //             JS_FreeValue(ctx, r);
+    //             return JSValue::EXCEPTION;
+    //         }
+    //     }
+    // }
 
-    r
+    // //js_free_prop_enum(ctx, props, len as _);
+    // for item in
+    //     Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum])
+    // {
+    //     JS_FreeAtom(ctx, item.atom);
+    // }
+
+    // JS_FreeValue(ctx, obj);
+
+    // r
 }
 
 pub unsafe fn js_object_is(
@@ -735,94 +867,96 @@ pub unsafe fn js_object_seal(
     argv: *mut JSValueConst,
     freeze_flag: i32,
 ) -> JSValue {
-    let obj = *argv.offset(0);
-    if !JS_IsObject(obj) {
-        return JS_DupValue(ctx, obj);
-    }
+    (*argv.offset(0)).seal(ctx.as_mut().unwrap(), freeze_flag != 0)
 
-    match JS_PreventExtensions(ctx, obj) {
-        Err(_) => {
-            return JSValue::EXCEPTION;
-        }
-        Ok(false) => {
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
-        }
-        Ok(true) => {}
-    }
+    // let obj = *argv.offset(0);
+    // if !JS_IsObject(obj) {
+    //     return JS_DupValue(ctx, obj);
+    // }
 
-    let p = JS_VALUE_GET_OBJ(obj);
+    // match JS_PreventExtensions(ctx, obj) {
+    //     Err(_) => {
+    //         return JSValue::EXCEPTION;
+    //     }
+    //     Ok(false) => {
+    //         return ctx
+    //             .as_mut()
+    //             .unwrap()
+    //             .JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
+    //     }
+    //     Ok(true) => {}
+    // }
 
-    let mut props = std::ptr::null_mut::<PropertyEnum>();
-    let mut len: u32 = 0;
-    if JS_GetOwnPropertyNamesInternal(
-        ctx,
-        &mut props,
-        &mut len,
-        p,
-        JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
-    )
-    .is_err()
-    {
-        return JSValue::EXCEPTION;
-    }
+    // let p = JS_VALUE_GET_OBJ(obj);
 
-    for i in 0..len {
-        let prop = (*props.offset(i as isize)).atom;
-        let mut desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
+    // let mut props = std::ptr::null_mut::<PropertyEnum>();
+    // let mut len: u32 = 0;
+    // if JS_GetOwnPropertyNamesInternal(
+    //     ctx,
+    //     &mut props,
+    //     &mut len,
+    //     p,
+    //     JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+    // )
+    // .is_err()
+    // {
+    //     return JSValue::EXCEPTION;
+    // }
 
-        if freeze_flag != 0 {
-            let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-            let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
-            if res < 0 {
-                // js_free_prop_enum(ctx, props, len as _);
-                for item in
-                    Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
-                        as *mut [PropertyEnum])
-                {
-                    JS_FreeAtom(ctx, item.atom);
-                }
-                return JSValue::EXCEPTION;
-            }
-            if res != 0 {
-                if desc.flags & JS_PROP_WRITABLE != 0 {
-                    desc_flags |= JS_PROP_HAS_WRITABLE;
-                }
-                js_free_desc(ctx, &mut desc);
-            }
-        }
+    // for i in 0..len {
+    //     let prop = (*props.offset(i as isize)).atom;
+    //     let mut desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
-        if obj
-            .define_property(
-                ctx.as_mut().unwrap(),
-                prop,
-                JSValue::UNDEFINED,
-                JSValue::UNDEFINED,
-                JSValue::UNDEFINED,
-                desc_flags,
-            )
-            .is_err()
-        {
-            //js_free_prop_enum(ctx, props, len as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
-            return JSValue::EXCEPTION;
-        }
-    }
+    //     if freeze_flag != 0 {
+    //         let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+    //         let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
+    //         if res < 0 {
+    //             // js_free_prop_enum(ctx, props, len as _);
+    //             for item in
+    //                 Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
+    //                     as *mut [PropertyEnum])
+    //             {
+    //                 JS_FreeAtom(ctx, item.atom);
+    //             }
+    //             return JSValue::EXCEPTION;
+    //         }
+    //         if res != 0 {
+    //             if desc.flags & JS_PROP_WRITABLE != 0 {
+    //                 desc_flags |= JS_PROP_HAS_WRITABLE;
+    //             }
+    //             js_free_desc(ctx, &mut desc);
+    //         }
+    //     }
 
-    //js_free_prop_enum(ctx, props, len as _);
-    for item in
-        Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum])
-    {
-        JS_FreeAtom(ctx, item.atom);
-    }
+    //     if obj
+    //         .define_property(
+    //             ctx.as_mut().unwrap(),
+    //             prop,
+    //             JSValue::UNDEFINED,
+    //             JSValue::UNDEFINED,
+    //             JSValue::UNDEFINED,
+    //             desc_flags,
+    //         )
+    //         .is_err()
+    //     {
+    //         //js_free_prop_enum(ctx, props, len as _);
+    //         for item in Box::from_raw(
+    //             std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+    //         ) {
+    //             JS_FreeAtom(ctx, item.atom);
+    //         }
+    //         return JSValue::EXCEPTION;
+    //     }
+    // }
 
-    obj.dup()
+    // //js_free_prop_enum(ctx, props, len as _);
+    // for item in
+    //     Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum])
+    // {
+    //     JS_FreeAtom(ctx, item.atom);
+    // }
+
+    // obj.dup()
 }
 
 pub unsafe fn js_object_isSealed(
@@ -832,81 +966,85 @@ pub unsafe fn js_object_isSealed(
     argv: *mut JSValueConst,
     is_frozen: i32,
 ) -> JSValue {
-    let obj = *argv.offset(0);
-
-    if !JS_IsObject(obj) {
-        return JS_TRUE;
+    match (*argv.offset(0)).is_sealed(ctx.as_mut().unwrap(), is_frozen != 0) {
+        Ok(true) => JSValue::TRUE,
+        Ok(false) => JSValue::FALSE,
+        Err(_) => JSValue::EXCEPTION,
     }
 
-    let p = JS_VALUE_GET_OBJ(obj);
+    // if !JS_IsObject(obj) {
+    //     return JS_TRUE;
+    // }
 
-    let mut props: *mut PropertyEnum = std::ptr::null_mut();
-    let mut len: u32 = 0;
-    if JS_GetOwnPropertyNamesInternal(
-        ctx,
-        &mut props,
-        &mut len,
-        p,
-        JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
-    )
-    .is_err()
-    {
-        return JSValue::EXCEPTION;
-    }
+    // let p = JS_VALUE_GET_OBJ(obj);
 
-    for i in 0..len {
-        let prop = (*props.offset(i as isize)).atom;
+    // let mut props: *mut PropertyEnum = std::ptr::null_mut();
+    // let mut len: u32 = 0;
+    // if JS_GetOwnPropertyNamesInternal(
+    //     ctx,
+    //     &mut props,
+    //     &mut len,
+    //     p,
+    //     JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+    // )
+    // .is_err()
+    // {
+    //     return JSValue::EXCEPTION;
+    // }
 
-        let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-        let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
-        if res < 0 {
-            // js_free_prop_enum(ctx, props, len as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
-            return JSValue::EXCEPTION;
-        }
-        if res != 0 {
-            js_free_desc(ctx, &mut desc);
-            if (desc.flags & JS_PROP_CONFIGURABLE != 0)
-                || (is_frozen != 0 && (desc.flags & JS_PROP_WRITABLE != 0))
-            {
-                //js_free_prop_enum(ctx, props, len as _);
-                for item in
-                    Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
-                        as *mut [PropertyEnum])
-                {
-                    JS_FreeAtom(ctx, item.atom);
-                }
+    // for i in 0..len {
+    //     let prop = (*props.offset(i as isize)).atom;
 
-                return JSValue::FALSE;
-            }
-        }
-    }
+    //     let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+    //     let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
+    //     if res < 0 {
+    //         // js_free_prop_enum(ctx, props, len as _);
+    //         for item in Box::from_raw(
+    //             std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+    //         ) {
+    //             JS_FreeAtom(ctx, item.atom);
+    //         }
+    //         return JSValue::EXCEPTION;
+    //     }
+    //     if res != 0 {
+    //         js_free_desc(ctx, &mut desc);
+    //         if (desc.flags & JS_PROP_CONFIGURABLE != 0)
+    //             || (is_frozen != 0 && (desc.flags & JS_PROP_WRITABLE != 0))
+    //         {
+    //             //js_free_prop_enum(ctx, props, len as _);
+    //             for item in
+    //                 Box::from_raw(std::slice::from_raw_parts_mut(props, len as usize)
+    //                     as *mut [PropertyEnum])
+    //             {
+    //                 JS_FreeAtom(ctx, item.atom);
+    //             }
 
-    match JS_IsExtensible(ctx, obj) {
-        Ok(b) => {
-            //js_free_prop_enum(ctx, props, len as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
+    //             return JSValue::FALSE;
+    //         }
+    //     }
+    // }
 
-            // returns value of !b
-            if b {
-                JSValue::FALSE
-            } else {
-                JSValue::TRUE
-            }
-        }
-        Err(_) => {
-            // should do js_free_prop_enum(ctx, props, len as _)?
-            JSValue::EXCEPTION
-        }
-    }
+    // match JS_IsExtensible(ctx, obj) {
+    //     Ok(b) => {
+    //         //js_free_prop_enum(ctx, props, len as _);
+    //         for item in Box::from_raw(
+    //             std::slice::from_raw_parts_mut(props, len as usize) as *mut [PropertyEnum]
+    //         ) {
+    //             JS_FreeAtom(ctx, item.atom);
+    //         }
+
+    //         // returns value of !b
+    //         if b {
+    //             JSValue::FALSE
+    //         } else {
+    //             JSValue::TRUE
+    //         }
+    //     }
+    //     Err(_) => {
+    //         // should do js_free_prop_enum(ctx, props, len as _)?
+    //         JSValue::EXCEPTION
+    //     }
+    // }
 }
 
 pub unsafe fn js_object_fromEntries(

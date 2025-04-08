@@ -198,6 +198,7 @@ impl JSValue {
         }
     }
 
+    /// returned value has ref_count increased by 1.
     #[inline(always)]
     pub fn get_property(self, ctx: &mut JSContext, prop: JSAtom) -> JSValue {
         unsafe { self.get_property_internal(ctx, prop, self, false) }

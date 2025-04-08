@@ -590,7 +590,6 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
                 .get_own_property_names_internal(
                     ctx.as_mut().unwrap(),
                     JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-                    true,
                 )
             {
                 (*it).atom_count = tab_atom.len() as _;
