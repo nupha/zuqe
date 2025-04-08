@@ -103,67 +103,13 @@ pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValu
     JS_ToStringInternal(ctx, val, true)
 }
 
+#[deprecated(note = "use JSValue::has_property() instead")]
 pub unsafe fn JS_HasProperty(
     ctx: *mut JSContext,
     obj: JSValueConst,
     prop: JSAtom,
 ) -> Result<bool, i32> {
-    if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
-        return Ok(false);
-    }
-
-    let mut p = JS_VALUE_GET_OBJ(obj);
-
-    loop {
-        if (*p).detailed.is_exotic() {
-            let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
-            if !em.is_null() && (*em).has_property.is_some() {
-                // has_property can free the prototype
-                let obj1 = JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, p.cast()));
-                let ret = ((*em).has_property.unwrap())(ctx, obj1, prop);
-                JS_FreeValue(ctx, obj1);
-
-                return match ret {
-                    -1 => Err(-1),
-                    n => Ok(n != 0),
-                };
-            }
-        }
-
-        // JS_GetOwnPropertyInternal can free the prototype
-        JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, p.cast()));
-        let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, prop);
-        JS_FreeValue(ctx, JS_MKPTR!(JSTag::Object, p.cast()));
-
-        match ret {
-            -1 => {
-                return Err(-1);
-            }
-            0 => {
-                if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&(*p).class_id()) {
-                    match JS_AtomIsNumericIndex(ctx, prop) {
-                        -1 => {
-                            return Err(-1);
-                        }
-                        0 => {}
-                        _ => {
-                            return Ok(false);
-                        }
-                    }
-                }
-
-                p = (*p).shape().unwrap().proto;
-                if p.is_null() {
-                    break;
-                }
-            }
-            _ => {
-                return Ok(true);
-            }
-        }
-    }
-
-    Ok(false)
+    obj.has_property(ctx.as_mut().unwrap(), prop)
 }
 
 /// Descriptor config object to JSPropertyDescriptor
@@ -311,6 +257,77 @@ impl JSObject {
 }
 
 impl JSValue {
+    pub fn has_property(self, ctx: &mut JSContext, prop: JSAtom) -> Result<bool, i32> {
+        if JS_VALUE_GET_TAG(self) != JSTag::Object as i32 {
+            return Ok(false);
+        }
+
+        let mut p = JS_VALUE_GET_OBJ(self);
+
+        loop {
+            if unsafe { (*p).detailed.is_exotic() } {
+                if let Some(f) = unsafe {
+                    ctx.rt().class_array[(*p).class_id() as usize]
+                        .exotic
+                        .as_ref()
+                        .and_then(|x| x.has_property)
+                } {
+                    // has_property can free the prototype, dup it
+                    let obj1 = JS_MKPTR!(JSTag::Object, p.cast()).dup();
+
+                    unsafe {
+                        let ret = f(ctx, obj1, prop);
+                        JS_FreeValue(ctx, obj1);
+
+                        return match ret {
+                            -1 => Err(-1),
+                            n => Ok(n != 0),
+                        };
+                    }
+                }
+            }
+
+            unsafe {
+                // JS_GetOwnPropertyInternal can free the prototype
+                let o = JS_MKPTR!(JSTag::Object, p.cast());
+                o.dup();
+                let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, prop);
+                JS_FreeValue(ctx, o);
+
+                match ret {
+                    -1 => {
+                        return Err(-1);
+                    }
+                    0 => {
+                        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
+                            .contains(&(*p).class_id())
+                        {
+                            match JS_AtomIsNumericIndex(ctx, prop) {
+                                -1 => {
+                                    return Err(-1);
+                                }
+                                0 => {}
+                                _ => {
+                                    return Ok(false);
+                                }
+                            }
+                        }
+
+                        p = (*p).shape().unwrap().proto;
+                        if p.is_null() {
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
     /// copy and assign enumerable properties from `source` value to `self`.
     /// equivelent to js `Object::assign(self, source)`
     pub unsafe fn copy_properties_from(
@@ -490,236 +507,6 @@ impl JSValue {
         // Ok(())
     }
 }
-
-// /* Note: the property value is not initialized. Returns Err if memory error. */
-// pub unsafe fn add_property(
-//     ctx: &mut JSContext,
-//     p: &mut JSObject,
-//     prop: JSAtom,
-//     prop_flags: u32,
-// ) -> Result<*mut JSProperty, i32> {
-//     let sh = p.shape.as_mut().unwrap();
-
-//     if sh.is_hashed {
-//         /* try to find an existing shape */
-//         match find_hashed_shape_prop(ctx.rt.as_mut().unwrap(), sh, prop, prop_flags) {
-//             Some(new_sh) => {
-//                 /* matching shape found: use it */
-//                 /*  the property array may need to be resized */
-//                 if (*new_sh).prop_size != sh.prop_size {
-//                     let new_prop = js_realloc(
-//                         ctx,
-//                         p.prop.cast(),
-//                         std::mem::size_of::<JSProperty>() * (*new_sh).prop_size as usize,
-//                     );
-//                     if new_prop.is_null() {
-//                         return Err(-1);
-//                     }
-//                     p.prop = new_prop.cast();
-//                 }
-//                 p.shape = js_dup_shape(new_sh);
-//                 js_free_shape(ctx.rt, p.shape.as_mut().unwrap());
-
-//                 return Ok(p.prop.offset((*new_sh).prop_count as isize - 1));
-//             }
-//             None => {
-//                 /* if the shape is shared, clone it */
-//                 let new_sh = sh.clone(ctx)?; //js_clone_shape(ctx, sh)?;
-//                 let raw_sh = Box::into_raw(new_sh);
-//                 /* hash the cloned shape */
-//                 (*raw_sh).is_hashed = true;
-//                 js_shape_hash_link(ctx.rt.as_mut().unwrap(), raw_sh);
-//                 js_free_shape(ctx.rt, p.shape.as_mut().unwrap());
-//                 p.shape = raw_sh;
-//             }
-//         };
-//     }
-
-//     debug_assert_eq!((*p.shape).header.ref_count, 1);
-
-//     if add_shape_property(ctx, &mut p.shape, p, prop, prop_flags) != 0 {
-//         Err(-1)
-//     } else {
-//         Ok(p.prop.add((*p.shape).prop_count as usize - 1))
-//     }
-// }
-
-// pub unsafe fn delete_property(ctx: *mut JSContext, p: *mut JSObject, atom: JSAtom) -> i32 {
-//     let mut sh = (*p).shape;
-//     let mut prop = get_shape_prop(sh);
-
-//     let h1 = (atom as isize) & (*sh).prop_hash_mask as isize;
-//     let mut h = *prop_hash_end(sh).offset(-h1 - 1);
-//     let mut lpr = std::ptr::null_mut::<JSShapeProperty>();
-
-//     loop {
-//         while h != 0 {
-//             let mut pr = prop.offset(h as isize - 1);
-
-//             if likely((*pr).atom == atom) {
-//                 if (*pr).flags() & JS_PROP_CONFIGURABLE == 0 {
-//                     return 0;
-//                 }
-
-//                 let lpr_idx = if !lpr.is_null() {
-//                     lpr.offset_from(get_shape_prop(sh))
-//                 } else {
-//                     0
-//                 };
-
-//                 if js_shape_prepare_update(ctx, p, &mut pr) != 0 {
-//                     return -1;
-//                 }
-//                 sh = (*p).shape;
-//                 prop = get_shape_prop(sh);
-
-//                 if !lpr.is_null() {
-//                     lpr = prop.offset(lpr_idx);
-//                     (*lpr).set_hash_next((*pr).hash_next());
-//                 } else {
-//                     *prop_hash_end(sh).offset(-h1 - 1) = (*pr).hash_next();
-//                 }
-
-//                 (*sh).deleted_prop_count += 1;
-
-//                 let pr1 = (*p).prop.offset(h as isize - 1);
-//                 free_property((*ctx).rt, pr1, (*pr).flags());
-//                 JS_FreeAtom(ctx, (*pr).atom);
-//                 (*pr).set_flags(0);
-//                 (*pr).atom = JS_ATOM_NULL;
-//                 (*pr1).u.value = JSValue::UNDEFINED;
-
-//                 if (*sh).deleted_prop_count >= 8
-//                     && (*sh).deleted_prop_count >= (*sh).prop_count as i32 / 2
-//                 {
-//                     compact_properties(ctx, p);
-//                 }
-//                 return 1;
-//             }
-//             lpr = pr;
-//             h = (*pr).hash_next();
-//         }
-
-//         if (*p).detailed.is_exotic() {
-//             if (*p).detailed.fast_array() {
-//                 let mut idx: u32 = 0;
-//                 if JS_AtomIsArrayIndex(ctx, &mut idx, atom) && idx < (*p).u.array.count {
-//                     if (*p).class_id() == JS_CLASS_ARRAY
-//                         || (*p).class_id() == JS_CLASS_ARGUMENTS
-//                     {
-//                         if idx == (*p).u.array.count - 1 {
-//                             JS_FreeValue(ctx, *(*p).u.array.u.values.offset(idx as isize));
-//                             (*p).u.array.count = idx;
-//                             return 1;
-//                         }
-//                         if convert_fast_array_to_array(ctx, p) != 0 {
-//                             return -1;
-//                         }
-
-//                         continue; // C2RS: goto redo simulated with continue
-//                     } else {
-//                         return 0;
-//                     }
-//                 }
-//             } else {
-//                 let class_id = (*p).class_id();
-//                 let em = (*(*(*ctx).rt).class_array.offset(class_id as _)).exotic;
-//                 if !em.is_null() {
-//                     if let Some(cb) = (*em).delete_property {
-//                         return cb(ctx, JS_MKPTR!(JS_TAG_OBJECT, p.cast()), atom);
-//                     }
-//                 }
-//             }
-//         }
-
-//         return 1;
-//     }
-// }
-
-// // remove the deleted properties.
-// pub unsafe fn compact_properties(ctx: *mut JSContext, p: *mut JSObject) -> i32 {
-//     let mut sh = (*p).shape;
-//     debug_assert!(!(*sh).is_hashed);
-//     debug_assert!(sh.is_aligned());
-
-//     let new_size = std::cmp::max(
-//         JS_PROP_INITIAL_SIZE,
-//         (*sh).prop_count as u32 - (*sh).deleted_prop_count as u32,
-//     );
-//     assert!(new_size <= (*sh).prop_size as u32);
-
-//     let mut new_hash_size = (*sh).prop_hash_mask + 1;
-//     while (new_hash_size / 2) >= new_size {
-//         new_hash_size = new_hash_size / 2;
-//     }
-//     let new_hash_mask = new_hash_size - 1;
-
-//     // resize the hash table and the properties
-//     let old_sh = sh;
-
-//     // sh_alloc memory layou: prop_hash array + JSShape + JSProperty array
-//     let sh_alloc = js_malloc(ctx, get_shape_size(new_hash_size as _, new_size as usize));
-//     if sh_alloc.is_null() {
-//         return -1;
-//     }
-
-//     sh = get_shape_from_alloc(sh_alloc.cast(), new_hash_size as _);
-//     list_del(&mut (*old_sh).header.link);
-//     std::ptr::copy_nonoverlapping(old_sh, sh, std::mem::size_of::<JSShape>());
-//     list_add_tail(&mut (*sh).header.link, &mut (*(*ctx).rt).gc_obj_list);
-
-//     // Initialize new hash table
-//     let hash_start = prop_hash_end(sh).offset(-(new_hash_size as isize));
-//     std::ptr::write_bytes(
-//         hash_start as *mut u8,
-//         0,
-//         std::mem::size_of::<u32>() * new_hash_size as usize,
-//     );
-
-//     let mut old_pr = (*old_sh).prop.as_mut_ptr();
-//     let mut pr = (*sh).prop.as_mut_ptr();
-//     let prop = (*p).prop;
-//     let mut j = 0;
-
-//     for i in 0..(*sh).prop_count {
-//         if (*old_pr).atom != JS_ATOM_NULL {
-//             (*pr).atom = (*old_pr).atom;
-//             (*pr).set_flags((*old_pr).flags());
-//             let h = ((*old_pr).atom as usize) & (new_hash_mask as usize);
-//             let hash_entry = prop_hash_end(sh).offset(-(h as isize + 1));
-//             (*pr).set_hash_next(*hash_entry);
-//             *hash_entry = j + 1;
-//             *prop.offset(j as isize) = *prop.offset(i as isize);
-//             j += 1;
-//             pr = pr.offset(1);
-//         }
-//         old_pr = old_pr.offset(1);
-//     }
-//     assert_eq!(
-//         j,
-//         ((*sh).prop_count as u32 - (*sh).deleted_prop_count as u32)
-//     );
-
-//     (*sh).prop_hash_mask = new_hash_mask;
-//     (*sh).prop_size = new_size as i32;
-//     (*sh).deleted_prop_count = 0;
-//     (*sh).prop_count = j as i32;
-
-//     (*p).shape = sh;
-//     js_free(ctx, get_alloc_from_shape(old_sh).cast());
-
-//     // reduce the size of the object properties
-//     let new_prop = js_realloc(
-//         ctx,
-//         (*p).prop as *mut _,
-//         std::mem::size_of::<JSProperty>() * new_size as usize,
-//     );
-//     if !new_prop.is_null() {
-//         (*p).prop = new_prop.cast();
-//     }
-
-//     0
-// }
 
 pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags: u32) {
     if unlikely(prop_flags & JS_PROP_TMASK != 0) {

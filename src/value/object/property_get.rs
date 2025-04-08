@@ -2,17 +2,17 @@ use std::ffi::CStr;
 
 use crate::{
     atom::{
-        JSAtom, JS_AtomIsNumericIndex, JS_FreeAtom, JS_NewAtomInt64, JS_ValueToAtom,
-        __JS_AtomToUInt32, consts::*, JS_ATOM_MAX_INT, JS_ATOM_NULL,
+        JSAtom, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom, __JS_AtomToUInt32, consts::*,
+        JS_ATOM_MAX_INT, JS_ATOM_NULL,
     },
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::JS_CallFree,
-    types::{likely, unlikely},
+    types::unlikely,
     value::{
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_GetPrototypePrimitive,
-        JS_IsException, JS_IsUninitialized, JS_TAG_EXCEPTION, JS_TAG_NULL, JS_TAG_OBJECT,
-        JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive, JS_IsUninitialized,
+        JS_TAG_EXCEPTION, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED,
+        JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
@@ -21,8 +21,8 @@ use crate::{
 };
 
 use super::{
-    find_own_property, JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_HasProperty,
-    JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_TMASK, JS_PROP_VARREF,
+    find_own_property, JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_PROP_AUTOINIT,
+    JS_PROP_GETSET, JS_PROP_TMASK, JS_PROP_VARREF,
 };
 
 impl JSValue {
@@ -339,7 +339,7 @@ impl JSValue {
     ) -> Result<Option<JSValue>, i32> {
         if (idx as u64) <= JS_ATOM_MAX_INT as u64 {
             // fast path
-            if unsafe { JS_HasProperty(ctx, self, JSAtom::from_u32(idx as u32))? } {
+            if self.has_property(ctx, JSAtom::from_u32(idx as u32))? {
                 let val = self.get_property_value(ctx, JSValue::from_i32(idx as i32));
                 if val.is_exception() {
                     Err(-1)
@@ -352,7 +352,7 @@ impl JSValue {
         } else {
             let prop = ctx.rt_mut().add_atom_i64(idx);
             let ret = if prop != JS_ATOM_NULL {
-                unsafe { JS_HasProperty(ctx, self, prop) }.and_then(|b| {
+                self.has_property(ctx, prop).and_then(|b| {
                     if b {
                         let val = self.get_property_value(ctx, JSValue::from_i32(idx as i32));
                         if val.is_exception() {

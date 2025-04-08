@@ -48,7 +48,7 @@ use crate::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
             JS_DefinePrivateField, JS_DefinePropertyValueValue, JS_GetPrivateField,
-            JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
+            JS_GetPrototype, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
             JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey, JS_PROP_CONFIGURABLE,
             JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
             JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
@@ -1971,7 +1971,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(9);
 
                     let obj = SP![-1];
-                    if let Ok(ret) = JS_HasProperty(ctx, obj, atom) {
+                    if let Ok(ret) = obj.has_property(ctx, atom) {
                         let has_with = if ret {
                             if is_with != 0 {
                                 let r = js_has_unscopable(ctx, obj, atom);

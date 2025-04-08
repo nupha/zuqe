@@ -9,10 +9,9 @@ use crate::{
     value::{
         object::{
             add_property, find_own_property, find_own_property1, JSObject, JSProperty,
-            JS_HasProperty, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
-            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
-            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_TMASK, JS_PROP_WRITABLE,
+            JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD,
+            JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_IsUninitialized, JS_VALUE_GET_OBJ,
     },
@@ -188,7 +187,7 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSV
         }
         *sp.offset(0) = (*ctx).global_var_obj.dup();
     } else {
-        if let Ok(ret) = JS_HasProperty(ctx, (*ctx).global_obj, prop) {
+        if let Ok(ret) = (*ctx).global_obj.has_property(ctx.as_mut().unwrap(), prop) {
             *sp.offset(0) = if ret {
                 (*ctx).global_obj.dup()
             } else {
@@ -212,7 +211,7 @@ pub unsafe fn JS_CheckGlobalVar(ctx: *mut JSContext, prop: JSAtom) -> i32 {
     if !prs.is_null() {
         1
     } else {
-        if let Ok(ret) = JS_HasProperty(ctx, (*ctx).global_obj, prop) {
+        if let Ok(ret) = (*ctx).global_obj.has_property(ctx.as_mut().unwrap(), prop) {
             ret as i32
         } else {
             -1

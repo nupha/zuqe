@@ -1,5 +1,3 @@
-use std::mem;
-
 use crate::{
     atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
     context::{JSContext, JS_GetActiveFunction},
@@ -7,12 +5,8 @@ use crate::{
     function::JS_GetFunctionRealm,
     iterator::iterator_to_array,
     value::{
-        object::{
-            JS_GetProperty, JS_HasProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
-            JS_PROP_WRITABLE,
-        },
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
-        JS_IsUndefined, JS_ToString,
+        object::{JS_GetProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_ToString,
     },
     JS_CLASS_ERROR,
 };
@@ -24,16 +18,17 @@ pub unsafe fn js_error_constructor(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    if JS_IsUndefined(new_target) {
+    if new_target.is_undefined() {
         let active_function = JS_GetActiveFunction(ctx);
         new_target = active_function;
     }
 
     let mut proto = JS_GetProperty(ctx, new_target, JS_ATOM_prototype);
-    if JS_IsException(proto) {
+    if proto.is_exception() {
         return proto;
     }
-    if !JS_IsObject(proto) {
+
+    if !proto.is_object() {
         JS_FreeValue(ctx, proto);
         let realm = JS_GetFunctionRealm(ctx, new_target);
         if realm.is_null() {
@@ -45,12 +40,12 @@ pub unsafe fn js_error_constructor(
             (*realm).native_error_proto[magic as usize]
         };
 
-        proto = JS_DupValue(ctx, proto1);
+        proto = proto1.dup();
     }
 
     let obj = JS_NewObjectProtoClass(ctx, proto, JS_CLASS_ERROR);
     JS_FreeValue(ctx, proto);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return obj;
     }
 
@@ -81,7 +76,8 @@ pub unsafe fn js_error_constructor(
         let options = *argv.offset(arg_index as isize);
 
         if options.is_object() {
-            let present = if let Ok(b) = JS_HasProperty(ctx, options, JS_ATOM_cause) {
+            let present = if let Ok(b) = options.has_property(ctx.as_mut().unwrap(), JS_ATOM_cause)
+            {
                 b
             } else {
                 JS_FreeValue(ctx, obj);
@@ -106,7 +102,7 @@ pub unsafe fn js_error_constructor(
 
     if magic == JSErrorEnum::Aggregate as i32 {
         let error_list = iterator_to_array(ctx, *argv.offset(0));
-        if JS_IsException(error_list) {
+        if error_list.is_exception() {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
