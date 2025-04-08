@@ -369,12 +369,12 @@ impl JSObject {
 
 impl JSValue {
     /// Seal object if the value is an object, otherwise returns the value itself duplicated.
-    pub unsafe fn seal(self, ctx: &mut JSContext, freeze: bool) -> Self {
+    pub fn seal(self, ctx: &mut JSContext, freeze: bool) -> Self {
         if !self.is_object() {
             return self.dup();
         }
 
-        match JS_PreventExtensions(ctx, self) {
+        match unsafe { JS_PreventExtensions(ctx, self) } {
             Ok(false) => {
                 return ctx.JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
             }
@@ -387,34 +387,36 @@ impl JSValue {
         let p = JS_VALUE_GET_OBJ(self);
         let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
 
-        let r = (*p).own_property_names_foreach(ctx, flags, |cx, name| {
-            let prop = name.atom;
-            let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
+        let r = unsafe {
+            (*p).own_property_names_foreach(ctx, flags, |cx, name| {
+                let prop = name.atom;
+                let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
-            if freeze {
-                let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                let res = JS_GetOwnPropertyInternal(cx, &mut desc, p, prop);
-                if res < 0 {
-                    return Err(-1);
-                }
-                if res != 0 {
-                    if desc.flags & JS_PROP_WRITABLE != 0 {
-                        flags |= JS_PROP_HAS_WRITABLE;
+                if freeze {
+                    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+                    let res = JS_GetOwnPropertyInternal(cx, &mut desc, p, prop);
+                    if res < 0 {
+                        return Err(-1);
                     }
-                    js_free_desc(cx, &mut desc);
+                    if res != 0 {
+                        if desc.flags & JS_PROP_WRITABLE != 0 {
+                            flags |= JS_PROP_HAS_WRITABLE;
+                        }
+                        js_free_desc(cx, &mut desc);
+                    }
                 }
-            }
 
-            self.define_property(
-                cx,
-                prop,
-                JSValue::UNDEFINED,
-                JSValue::UNDEFINED,
-                JSValue::UNDEFINED,
-                flags,
-            )
-            .map(|_| ())
-        });
+                self.define_property(
+                    cx,
+                    prop,
+                    JSValue::UNDEFINED,
+                    JSValue::UNDEFINED,
+                    JSValue::UNDEFINED,
+                    flags,
+                )
+                .map(|_| ())
+            })
+        };
 
         if r.is_err() {
             JSValue::EXCEPTION

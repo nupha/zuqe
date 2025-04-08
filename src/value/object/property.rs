@@ -310,6 +310,187 @@ impl JSObject {
     }
 }
 
+impl JSValue {
+    /// copy and assign enumerable properties from `source` value to `self`.
+    /// equivelent to js `Object::assign(self, source)`
+    pub unsafe fn copy_properties_from(
+        self,
+        ctx: &mut JSContext,
+        source: Self,
+        excluded: Self,
+        setprop: bool,
+    ) -> Result<(), i32> {
+        if JS_VALUE_GET_TAG(source) != JSTag::Object as i32 {
+            return Ok(());
+        }
+        let pexcl = if JS_VALUE_GET_TAG(excluded) == JSTag::Object as i32 {
+            JS_VALUE_GET_OBJ(excluded)
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let src_obj = JS_VALUE_GET_OBJ(source);
+        let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
+
+        if (*src_obj).detailed.is_exotic() {
+            if ctx.rt().class_array[(*src_obj).class_id() as usize]
+                .exotic
+                .as_ref()
+                .and_then(|x| x.get_own_property_names)
+                .is_some()
+            {
+                // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
+                // introduces a visible change
+                gpn_flags &= !JS_GPN_ENUM_ONLY;
+            }
+        }
+
+        (*src_obj).own_property_names_foreach(ctx, gpn_flags, |cx, name| {
+            let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+
+            if !pexcl.is_null() {
+                let r = JS_GetOwnPropertyInternal(cx, std::ptr::null_mut(), pexcl, name.atom);
+                if r < 0 {
+                    return Err(-1);
+                } else if r != 0 {
+                    return Ok(()); // is excluded prop, skip
+                }
+            }
+
+            if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
+                // test if the property is enumerable
+                let ret = JS_GetOwnPropertyInternal(cx, &mut desc, src_obj, name.atom);
+                if ret < 0 {
+                    return Err(-1);
+                } else if ret == 0 {
+                    return Ok(()); // prop not exist, skip
+                }
+
+                let is_enumerable = desc.flags & JS_PROP_ENUMERABLE != 0;
+                js_free_desc(cx, &mut desc);
+                if !is_enumerable {
+                    return Ok(()); // skip non enumerable
+                }
+            }
+
+            let val = JS_GetProperty(cx, source, name.atom);
+            if val.is_exception() {
+                return Err(-1);
+            }
+            if setprop {
+                self.set_property(cx, name.atom, val)?;
+            } else {
+                self.define_property_value(cx, name.atom, val, JS_PROP_C_W_E)?;
+            }
+
+            Ok(())
+        })
+
+        // let mut tab_atom: *mut PropertyEnum = std::ptr::null_mut();
+        // let mut tab_atom_count: u32 = 0;
+        // JS_GetOwnPropertyNamesInternal(ctx, &mut tab_atom, &mut tab_atom_count, p, gpn_flags)?;
+
+        // for i in 0..tab_atom_count {
+        //     if !pexcl.is_null() {
+        //         let r = JS_GetOwnPropertyInternal(
+        //             ctx,
+        //             std::ptr::null_mut(),
+        //             pexcl,
+        //             (*tab_atom.offset(i as isize)).atom,
+        //         );
+        //         if r != 0 {
+        //             // ERR or TRUE
+        //             if r < 0 {
+        //                 // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        //                 for item in Box::from_raw(std::slice::from_raw_parts_mut(
+        //                     tab_atom,
+        //                     tab_atom_count as _,
+        //                 ) as *mut [PropertyEnum])
+        //                 {
+        //                     JS_FreeAtom(ctx, item.atom);
+        //                 }
+        //                 return Err(-1);
+        //             }
+
+        //             continue;
+        //         }
+        //     }
+
+        //     if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
+        //         // test if the property is enumerable
+        //         let ret =
+        //             JS_GetOwnPropertyInternal(ctx, &mut desc, p, (*tab_atom.offset(i as isize)).atom);
+        //         if ret < 0 {
+        //             // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        //             for item in Box::from_raw(std::slice::from_raw_parts_mut(
+        //                 tab_atom,
+        //                 tab_atom_count as _,
+        //             ) as *mut [PropertyEnum])
+        //             {
+        //                 JS_FreeAtom(ctx, item.atom);
+        //             }
+        //             return Err(-1);
+        //         }
+        //         if ret == 0 {
+        //             continue;
+        //         }
+
+        //         let is_enumerable = (desc.flags & JS_PROP_ENUMERABLE) != 0;
+        //         js_free_desc(ctx, &mut desc);
+        //         if !is_enumerable {
+        //             continue;
+        //         }
+        //     }
+
+        //     let val = JS_GetProperty(ctx, source, (*tab_atom.offset(i as isize)).atom);
+        //     if val.is_exception() {
+        //         // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        //         for item in Box::from_raw(
+        //             std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
+        //                 as *mut [PropertyEnum],
+        //         ) {
+        //             JS_FreeAtom(ctx, item.atom);
+        //         }
+        //         return Err(-1);
+        //     }
+
+        //     let ret = if setprop {
+        //         target.set_property(
+        //             ctx.as_mut().unwrap(),
+        //             (*tab_atom.offset(i as isize)).atom,
+        //             val,
+        //         )
+        //     } else {
+        //         target.define_property_value(
+        //             ctx.as_mut().unwrap(),
+        //             (*tab_atom.offset(i as isize)).atom,
+        //             val,
+        //             JS_PROP_C_W_E,
+        //         )
+        //     };
+        //     if ret.is_err() {
+        //         //js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        //         for item in Box::from_raw(
+        //             std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
+        //                 as *mut [PropertyEnum],
+        //         ) {
+        //             JS_FreeAtom(ctx, item.atom);
+        //         }
+        //         return Err(-1);
+        //     }
+        // }
+
+        // // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
+        // for item in Box::from_raw(
+        //     std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _) as *mut [PropertyEnum],
+        // ) {
+        //     JS_FreeAtom(ctx, item.atom);
+        // }
+
+        // Ok(())
+    }
+}
+
 // /* Note: the property value is not initialized. Returns Err if memory error. */
 // pub unsafe fn add_property(
 //     ctx: &mut JSContext,
@@ -832,12 +1013,13 @@ pub unsafe fn JS_GetOwnProperty(
     prop: JSAtom,
 ) -> i32 {
     if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
         return -1;
     }
     return JS_GetOwnPropertyInternal(ctx, desc, JS_VALUE_GET_OBJ(obj), prop);
 }
 
+#[deprecated(note = "use JSValue::copy_properties_from() instead")]
 pub unsafe fn JS_CopyDataProperties(
     ctx: *mut JSContext,
     target: JSValueConst,
@@ -845,133 +1027,7 @@ pub unsafe fn JS_CopyDataProperties(
     excluded: JSValueConst,
     setprop: bool,
 ) -> Result<(), i32> {
-    if JS_VALUE_GET_TAG(source) != JSTag::Object as i32 {
-        return Ok(());
-    }
-
-    let mut tab_atom: *mut PropertyEnum = std::ptr::null_mut();
-    let mut tab_atom_count: u32 = 0;
-
-    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-
-    let pexcl = if JS_VALUE_GET_TAG(excluded) == JSTag::Object as i32 {
-        JS_VALUE_GET_OBJ(excluded)
-    } else {
-        std::ptr::null_mut()
-    };
-
-    let p = JS_VALUE_GET_OBJ(source);
-
-    let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
-    if (*p).detailed.is_exotic() {
-        let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
-        // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
-        // introduces a visible change
-        if !em.is_null() && (*em).get_own_property_names.is_some() {
-            gpn_flags &= !JS_GPN_ENUM_ONLY;
-        }
-    }
-
-    JS_GetOwnPropertyNamesInternal(ctx, &mut tab_atom, &mut tab_atom_count, p, gpn_flags)?;
-
-    for i in 0..tab_atom_count {
-        if !pexcl.is_null() {
-            let r = JS_GetOwnPropertyInternal(
-                ctx,
-                std::ptr::null_mut(),
-                pexcl,
-                (*tab_atom.offset(i as isize)).atom,
-            );
-            if r != 0 {
-                // ERR or TRUE
-                if r < 0 {
-                    // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-                    for item in Box::from_raw(std::slice::from_raw_parts_mut(
-                        tab_atom,
-                        tab_atom_count as _,
-                    ) as *mut [PropertyEnum])
-                    {
-                        JS_FreeAtom(ctx, item.atom);
-                    }
-                    return Err(-1);
-                }
-
-                continue;
-            }
-        }
-
-        if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-            // test if the property is enumerable
-            let ret =
-                JS_GetOwnPropertyInternal(ctx, &mut desc, p, (*tab_atom.offset(i as isize)).atom);
-            if ret < 0 {
-                // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-                for item in Box::from_raw(std::slice::from_raw_parts_mut(
-                    tab_atom,
-                    tab_atom_count as _,
-                ) as *mut [PropertyEnum])
-                {
-                    JS_FreeAtom(ctx, item.atom);
-                }
-                return Err(-1);
-            }
-            if ret == 0 {
-                continue;
-            }
-
-            let is_enumerable = (desc.flags & JS_PROP_ENUMERABLE) != 0;
-            js_free_desc(ctx, &mut desc);
-            if !is_enumerable {
-                continue;
-            }
-        }
-
-        let val = JS_GetProperty(ctx, source, (*tab_atom.offset(i as isize)).atom);
-        if val.is_exception() {
-            // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
-                    as *mut [PropertyEnum],
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
-            return Err(-1);
-        }
-
-        let ret = if setprop {
-            target.set_property(
-                ctx.as_mut().unwrap(),
-                (*tab_atom.offset(i as isize)).atom,
-                val,
-            )
-        } else {
-            target.define_property_value(
-                ctx.as_mut().unwrap(),
-                (*tab_atom.offset(i as isize)).atom,
-                val,
-                JS_PROP_C_W_E,
-            )
-        };
-        if ret.is_err() {
-            //js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-            for item in Box::from_raw(
-                std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
-                    as *mut [PropertyEnum],
-            ) {
-                JS_FreeAtom(ctx, item.atom);
-            }
-            return Err(-1);
-        }
-    }
-
-    // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-    for item in Box::from_raw(
-        std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _) as *mut [PropertyEnum],
-    ) {
-        JS_FreeAtom(ctx, item.atom);
-    }
-
-    Ok(())
+    target.copy_properties_from(ctx.as_mut().unwrap(), source, excluded, setprop)
 }
 
 /// Get object `length` property as u32

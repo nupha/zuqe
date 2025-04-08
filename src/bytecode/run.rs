@@ -46,14 +46,13 @@ use crate::{
     utils::{get_u16, get_u32},
     value::{
         object::{
-            JSObject, JS_AddBrand, JS_CheckBrand, JS_CopyDataProperties, JS_DefineObjectName,
-            JS_DefineObjectNameComputed, JS_DefinePrivateField, JS_DefinePropertyValueValue,
-            JS_GetPrivateField, JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto,
-            JS_SetPrivateField, JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JSObject, JS_AddBrand, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
+            JS_DefinePrivateField, JS_DefinePropertyValueValue, JS_GetPrivateField,
+            JS_GetPrototype, JS_HasProperty, JS_NewObject, JS_NewObjectProto, JS_SetPrivateField,
+            JS_SetPrototypeInternal, JS_ToObject, JS_ToPropertyKey, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
+            JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
         JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
@@ -1705,14 +1704,14 @@ pub unsafe fn run_bytecodes(
                     let mask = *pc as i32;
                     PC_GO!(1);
 
-                    if JS_CopyDataProperties(
-                        ctx,
-                        SP![-1 - (mask & 3)],
-                        SP![-1 - ((mask >> 2) & 7)],
-                        SP![-1 - ((mask >> 5) & 7)],
-                        false,
-                    )
-                    .is_err()
+                    if SP![-1 - (mask & 3)]
+                        .copy_properties_from(
+                            ctx,
+                            SP![-1 - ((mask >> 2) & 7)],
+                            SP![-1 - ((mask >> 5) & 7)],
+                            false,
+                        )
+                        .is_err()
                     {
                         break State::Exception;
                     }

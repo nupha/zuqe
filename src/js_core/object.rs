@@ -8,14 +8,13 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSPropertyDescriptor, JS_CopyDataProperties, JS_DefinePropertyDesc,
-            JS_DefinePropertyValueValue, JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2,
-            JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject,
-            JS_NewObjectProto, JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject,
-            JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-            JS_PROP_WRITABLE,
+            js_free_desc, JSPropertyDescriptor, JS_DefinePropertyDesc, JS_DefinePropertyValueValue,
+            JS_GetOwnPropertyInternal, JS_GetOwnPropertyNames2, JS_GetProperty, JS_GetPrototype,
+            JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
+            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
+            JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
@@ -841,13 +840,14 @@ pub unsafe fn js_object_assign(
         if !a.is_undefined_or_null() {
             let s = JS_ToObject(ctx, a);
             if s.is_exception() {
-                // C2RS: goto exception replaced with conditional logic
                 JS_FreeValue(ctx, obj);
-                JS_FreeValue(ctx, s);
                 return JSValue::EXCEPTION;
             }
 
-            if JS_CopyDataProperties(ctx, obj, s, JSValue::UNDEFINED, true).is_err() {
+            if obj
+                .copy_properties_from(ctx.as_mut().unwrap(), s, JSValue::UNDEFINED, true)
+                .is_err()
+            {
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, s);
                 return JSValue::EXCEPTION;
