@@ -545,8 +545,8 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
         return 0;
     }
 
-    let mut prop: JSAtom;
     let it = (*p).u.for_in_iterator;
+    let mut prop: JSAtom;
 
     loop {
         if (*it).idx >= (*it).atom_count {
@@ -586,45 +586,25 @@ pub unsafe fn js_for_in_next(ctx: *mut JSContext, sp: *mut JSValue) -> i32 {
                 return -1;
             }
 
-            if let Ok(mut tab_atom) = (*JS_VALUE_GET_OBJ((*it).obj))
-                .get_own_property_names_internal(
-                    ctx.as_mut().unwrap(),
-                    JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-                )
-            {
-                (*it).atom_count = tab_atom.len() as _;
-                (*it).tab_atom = tab_atom.as_mut_ptr();
-                Box::leak(tab_atom);
+            if let Ok(names) = (*JS_VALUE_GET_OBJ((*it).obj)).get_own_property_names_internal(
+                ctx.as_mut().unwrap(),
+                JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
+            ) {
+                (*it).atom_count = names.len() as _;
+                (*it).tab_atom = names;
                 (*it).idx = 0;
             } else {
                 return -1;
             }
-
-            // let mut tab_atom = std::ptr::null_mut::<JSPropertyEnum>();
-            // let mut tab_atom_count: u32 = 0;
-            // if JS_GetOwnPropertyNamesInternal(
-            //     ctx,
-            //     &mut tab_atom,
-            //     &mut tab_atom_count,
-            //     JS_VALUE_GET_OBJ((*it).obj),
-            //     JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-            // )
-            // .is_err()
-            // {
-            //     return -1;
-            // }
-            // js_free_prop_enum(ctx, (*it).tab_atom, (*it).atom_count as _);
-            // (*it).tab_atom = tab_atom;
-            // (*it).atom_count = tab_atom_count;
-            // (*it).idx = 0;
         } else {
             // 遍历当前对象的属性
+
             if (*it).is_array {
                 prop = JSAtom::from_u32((*it).idx);
                 (*it).idx += 1;
             } else {
-                prop = (*(*it).tab_atom.offset((*it).idx as isize)).atom;
-                let is_enumerable = (*(*it).tab_atom.offset((*it).idx as isize)).is_enumerable;
+                prop = (*it).tab_atom[(*it).idx as usize].atom;
+                let is_enumerable = (*it).tab_atom[(*it).idx as usize].is_enumerable;
 
                 (*it).idx += 1;
                 if (*it).in_prototype_chain {

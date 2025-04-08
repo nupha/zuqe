@@ -1,21 +1,20 @@
 use crate::{
     array::{js_create_array, JS_NewArray},
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_FreeAtomRT},
+    atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
     gc::{JS_MarkFunc, JS_MarkValue},
     map::JSMapRecord,
-    mem::{js_free, js_free_rt, js_malloc},
+    mem::{js_free_rt, js_malloc, js_malloc_typed},
     runtime::JSRuntime,
     typed_array::typed_array_is_detached,
     value::{
         object::{
             js_get_length32, JS_CreateDataPropertyUint32, JS_GetOpaque, JS_GetOpaque2,
-            JS_GetOwnPropertyNamesInternal, JS_GetProperty, JS_GetPrototypeFree, JS_NewObjectClass,
-            JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum,
-            JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JS_GetProperty, JS_GetPrototypeFree, JS_NewObjectClass, JS_NewObjectProtoClass,
+            JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
+            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_ToStringCheckObject, JS_TAG_NULL,
@@ -52,10 +51,7 @@ pub struct JSForInIterator {
     pub atom_count: u32,
     pub in_prototype_chain: bool,
     pub is_array: bool,
-
-    /// is_array = FALSE
-    /// TODO: use Box<[ PropertyEnum]>
-    pub tab_atom: *mut PropertyEnum,
+    pub tab_atom: Box<[PropertyEnum]>,
 }
 
 #[derive(Debug)]
@@ -146,7 +142,7 @@ pub unsafe fn JS_IteratorNext2(
 ) -> JSValue {
     // fast path for the built-in iterators (avoid creating the
     // intermediate result object)
-    if JS_IsObject(method) {
+    if method.is_object() {
         let p = JS_VALUE_GET_OBJ(method);
 
         if (*p).class_id() == JS_CLASS_C_FUNCTION
@@ -344,13 +340,12 @@ pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
 
     JS_FreeValueRT(rt, (*it).obj);
     if !(*it).is_array {
-        for i in 0..(*it).atom_count {
-            JS_FreeAtomRT(rt, (*(*it).tab_atom.offset(i as isize)).atom);
+        for x in (*it).tab_atom.iter() {
+            JS_FreeAtomRT(rt, x.atom);
         }
-        js_free_rt(rt, (*it).tab_atom as *mut _);
     }
 
-    js_free_rt(rt, it as *mut _);
+    drop(Box::from_raw(it));
 }
 
 pub unsafe fn js_for_in_iterator_mark(
@@ -488,6 +483,7 @@ pub unsafe fn js_array_iterator_next(
     }
 }
 
+/// `obj` is consumed.
 pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValue {
     let tag = JS_VALUE_GET_TAG(obj);
     let obj = if !matches!(tag, JS_TAG_OBJECT | JS_TAG_NULL | JS_TAG_UNDEFINED) {
@@ -496,70 +492,63 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
         obj
     };
 
-    let it = js_malloc(ctx, std::mem::size_of::<JSForInIterator>()).cast::<JSForInIterator>();
-    if it.is_null() {
+    let mut it = if let Some(p) = js_malloc_typed::<JSForInIterator>(ctx, 1, false) {
+        Box::from_raw(p.as_ptr())
+    } else {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
-    }
+    };
 
     let enum_obj = JS_NewObjectProtoClass(ctx, JSValue::NULL, JS_CLASS_FOR_IN_ITERATOR);
-    if JS_IsException(enum_obj) {
-        js_free(ctx, it as *mut _);
+    if enum_obj.is_exception() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
-    (*it).is_array = false;
-    (*it).obj = obj;
-    (*it).idx = 0;
-    (*it).tab_atom = std::ptr::null_mut();
-    (*it).atom_count = 0;
-    (*it).in_prototype_chain = false;
 
+    it.is_array = false;
+    it.obj = obj;
+    it.idx = 0;
+    it.atom_count = 0;
+    it.tab_atom = Box::new([]);
+    it.in_prototype_chain = false;
+
+    if tag == JS_TAG_OBJECT {
+        let p = JS_VALUE_GET_OBJ(obj);
+
+        if (*p).detailed.fast_array() {
+            // check that there are no enumerable normal fields
+            if !(*p)
+                .shape()
+                .unwrap()
+                .props
+                .iter()
+                .any(|(_, prs)| (*prs).flags() & JS_PROP_ENUMERABLE != 0)
+            {
+                // no enumerable property, is fast array.
+                // we only store the number of elements
+                it.is_array = true;
+                it.atom_count = (*p).array_length_unchecked() as u32;
+            }
+        }
+
+        if !it.is_array {
+            // not an array - get own property names list
+            if let Ok(names) = (*p).get_own_property_names_internal(
+                ctx.as_mut().unwrap(),
+                JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
+            ) {
+                it.atom_count = names.len() as _;
+                it.tab_atom = names;
+            } else {
+                JS_FreeValue(ctx, enum_obj);
+                return JSValue::EXCEPTION;
+            }
+        }
+    }
+
+    // attach JSForInIterator to enum object
     let p1 = JS_VALUE_GET_OBJ(enum_obj);
-    (*p1).u.for_in_iterator = it;
-
-    if tag == JS_TAG_NULL || tag == JS_TAG_UNDEFINED {
-        return enum_obj;
-    }
-
-    let p = JS_VALUE_GET_OBJ(obj);
-    if (*p).detailed.fast_array() {
-        // check that there are no enumerable normal fields
-        if !(*p)
-            .shape()
-            .unwrap()
-            .props
-            .iter()
-            .any(|(_, prs)| (*prs).flags() & JS_PROP_ENUMERABLE != 0)
-        {
-            // no enumerable property, is fast array.
-            // we only store the number of elements
-            (*it).is_array = true;
-            (*it).atom_count = (*p).array_length_unchecked() as u32;
-        }
-    }
-
-    if (*it).is_array == false {
-        // not an array
-        let mut tab_atom = std::ptr::null_mut::<PropertyEnum>();
-        let mut tab_atom_count: u32 = 0;
-
-        if JS_GetOwnPropertyNamesInternal(
-            ctx,
-            &mut tab_atom,
-            &mut tab_atom_count,
-            p,
-            JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-        )
-        .is_err()
-        {
-            JS_FreeValue(ctx, enum_obj);
-            return JSValue::EXCEPTION;
-        }
-
-        (*it).tab_atom = tab_atom;
-        (*it).atom_count = tab_atom_count;
-    }
+    (*p1).u.for_in_iterator = Box::into_raw(it);
 
     enum_obj
 }
@@ -572,43 +561,35 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     let p = JS_VALUE_GET_OBJ(enum_obj);
     let it = (*p).u.for_in_iterator;
 
-    let mut tab_atom = std::ptr::null_mut::<PropertyEnum>();
-    let mut tab_atom_count: u32 = 0;
-
     // check if there are enumerable properties in the prototype chain (fast path)
-    let mut obj1 = JS_DupValue(ctx, (*it).obj);
+    let mut obj1 = (*it).obj.dup();
+
     loop {
         obj1 = JS_GetPrototypeFree(ctx, obj1);
-        if JS_IsNull(obj1) {
+
+        if obj1.is_null() {
             break;
-        }
-        if JS_IsException(obj1) {
+        } else if obj1.is_exception() {
             JS_FreeValue(ctx, obj1);
             return -1;
         }
 
-        if JS_GetOwnPropertyNamesInternal(
-            ctx,
-            &mut tab_atom,
-            &mut tab_atom_count,
-            JS_VALUE_GET_OBJ(obj1),
+        // count own property names
+        let mut props_count: u32 = 0;
+        let r = (*JS_VALUE_GET_OBJ(obj1)).own_property_names_foreach(
+            ctx.as_mut().unwrap(),
             JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
-        )
-        .is_err()
-        {
+            |_, _| {
+                props_count += 1;
+                Ok(())
+            },
+        );
+        if r.is_err() {
             JS_FreeValue(ctx, obj1);
             return -1;
         }
 
-        // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-        for item in Box::from_raw(std::slice::from_raw_parts_mut(
-            tab_atom,
-            tab_atom_count as usize,
-        )) {
-            JS_FreeAtom(ctx, item.atom);
-        }
-
-        if tab_atom_count != 0 {
+        if props_count != 0 {
             JS_FreeValue(ctx, obj1);
             break;
         }
@@ -622,29 +603,25 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
 
     JS_FreeValue(ctx, obj1);
 
-    // slow_path logic handled here
+    // slow_path
     if (*it).is_array {
-        if JS_GetOwnPropertyNamesInternal(
-            ctx,
-            &mut tab_atom,
-            &mut tab_atom_count,
-            JS_VALUE_GET_OBJ((*it).obj),
+        if let Ok(names) = (*JS_VALUE_GET_OBJ((*it).obj)).get_own_property_names_internal(
+            ctx.as_mut().unwrap(),
             JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-        )
-        .is_err()
-        {
+        ) {
+            (*it).is_array = false;
+            (*it).atom_count = names.len() as _;
+            (*it).tab_atom = names;
+        } else {
             return -1;
         }
-        (*it).is_array = false;
-        (*it).tab_atom = tab_atom;
-        (*it).atom_count = tab_atom_count;
     }
 
-    for i in 0..(*it).atom_count {
+    for name in (*it).tab_atom.iter() {
         if enum_obj
             .define_property_value(
                 ctx.as_mut().unwrap(),
-                (*(*it).tab_atom.offset(i as isize)).atom,
+                name.atom,
                 JSValue::NULL,
                 JS_PROP_ENUMERABLE,
             )
