@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 
 use crate::{
-    array::{convert_fast_array_to_array, set_array_length, JS_ToArrayLengthFree},
+    array::{convert_fast_array_to_array, JS_ToArrayLengthFree},
     atom::{
         JSAtom, JS_AtomIsNumericIndex1, JS_FreeAtom, JS_NewAtom, JS_ValueToAtom, __JS_AtomToUInt32,
         consts::JS_ATOM_name, JS_ATOM_NULL,
@@ -267,13 +267,14 @@ impl JSValue {
                                     (*prs).flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE),
                                 );
                             }
-                        } else if ((*prs).flags() & JS_PROP_LENGTH) != 0 {
+                        } else if (*prs).flags() & JS_PROP_LENGTH != 0 {
                             let res = if flags & JS_PROP_HAS_VALUE != 0 {
-                                /* Note: no JS code is executable because 'val' is guaranted to be a Uint32 */
-                                set_array_length(ctx, p, val.dup(), flags)
+                                // Note: no JS code is executable because 'val' is guaranted to be a Uint32
+                                (*p).set_array_length(ctx, val.dup(), flags)
                             } else {
-                                1
+                                Ok(true)
                             };
+
                             /* still need to reset the writable flag if
                             needed.  The JS_PROP_LENGTH is kept because the
                             Uint32 test is still done if the length
@@ -295,12 +296,8 @@ impl JSValue {
                                     return Err(-1);
                                 }
                             }
-                            return match res {
-                                0 => Ok(false),
-                                1 => Ok(true),
-                                -1 => Err(-1),
-                                _ => unreachable!(),
-                            };
+
+                            return res;
                         } else {
                             if flags & JS_PROP_HAS_VALUE != 0 {
                                 JS_FreeValue(ctx, (*pr).u.value);

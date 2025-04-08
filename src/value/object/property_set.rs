@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 
 use crate::{
-    array::{add_fast_array_element, set_array_length},
+    array::add_fast_array_element,
     atom::{
         JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*, JS_FreeAtom, JS_ValueToAtom,
         JS_ATOM_NULL,
@@ -136,15 +136,10 @@ impl JSValue {
                                 return Ok(true);
                             }
                             f if f & JS_PROP_LENGTH != 0 => {
-                                // set .length property of an Array
+                                // set .length property of an array object
                                 debug_assert!((*p).class_id() == JS_CLASS_ARRAY);
                                 debug_assert_eq!(prop, JS_ATOM_length);
-                                return match set_array_length(ctx, p, val, flags) {
-                                    0 => Ok(false),
-                                    1 => Ok(true),
-                                    -1 => Err(-1),
-                                    _ => unreachable!(),
-                                };
+                                return (*p).set_array_length(ctx, val, flags);
                             }
                             f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
                                 return match call_setter(

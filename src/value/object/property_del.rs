@@ -15,11 +15,7 @@ use super::{
 
 impl JSObject {
     /// delete a property. returns false if the property is not configurable; true is delete is successful
-    pub unsafe fn delete_property(
-        &mut self,
-        ctx: &mut JSContext,
-        prop: JSAtom,
-    ) -> Result<bool, i32> {
+    pub fn delete_property(&mut self, ctx: &mut JSContext, prop: JSAtom) -> Result<bool, i32> {
         let sh = self.shape_mut().unwrap();
         let mut idx_and_flags: Option<(usize, u32)> = None;
 
@@ -30,7 +26,7 @@ impl JSObject {
             }
 
             let mut prs = prs as *mut JSShapeProperty;
-            if self.js_shape_prepare_update(ctx, std::ptr::addr_of_mut!(prs)) != 0 {
+            if unsafe { self.js_shape_prepare_update(ctx, std::ptr::addr_of_mut!(prs)) } != 0 {
                 return Err(-1);
             }
 
@@ -42,11 +38,15 @@ impl JSObject {
         if let Some((idx, flags)) = idx_and_flags {
             // remove and free property value
             let mut val = self.prop_values.remove(idx);
-            free_property((*ctx).rt_mut(), &mut val, flags);
+            unsafe {
+                free_property((*ctx).rt_mut(), &mut val, flags);
+            }
 
             // remove shape property of current self.shape
             let prs = self.shape_mut().unwrap().props.shift_remove(&prop).unwrap();
-            JS_FreeAtom(ctx, prs.atom);
+            unsafe {
+                JS_FreeAtom(ctx, prs.atom);
+            }
 
             return Ok(true);
         }
@@ -56,23 +56,25 @@ impl JSObject {
                 if self.detailed.fast_array() {
                     let mut idx: u32 = 0;
 
-                    if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
+                    if unsafe { JS_AtomIsArrayIndex(ctx, &mut idx, prop) } {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                                let lst = self.fast_array_values_mut_unchecked();
+                                let lst = unsafe { self.fast_array_values_mut_unchecked() };
                                 if idx == lst.len() as u32 - 1 {
-                                    JS_FreeValue(ctx, lst.pop().unwrap());
+                                    unsafe {
+                                        JS_FreeValue(ctx, lst.pop().unwrap());
+                                    }
                                     return Ok(true);
                                 } else if idx < lst.len() as u32 {
                                     // convert to slow array, then delete property
-                                    if convert_fast_array_to_array(ctx, self) != 0 {
+                                    if unsafe { convert_fast_array_to_array(ctx, self) } != 0 {
                                         return Err(-1);
                                     }
                                     continue;
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                                if idx < self.array_length_unchecked() as u32 {
+                                if idx < unsafe { self.array_length_unchecked() } as u32 {
                                     // can't delete element of a TypedArray
                                     return Ok(false);
                                 }
@@ -86,12 +88,14 @@ impl JSObject {
                     // use exotic delete_property callback
                     let em = ctx.rt().class_array[self.class_id() as usize].exotic;
                     if !em.is_null() {
-                        if let Some(cb) = (*em).delete_property {
-                            return match cb(
-                                ctx,
-                                JS_MKPTR!(JSTag::Object, self as *mut JSObject as _),
-                                prop,
-                            ) {
+                        if let Some(cb) = unsafe { (*em).delete_property } {
+                            return match unsafe {
+                                cb(
+                                    ctx,
+                                    JS_MKPTR!(JSTag::Object, self as *mut JSObject as _),
+                                    prop,
+                                )
+                            } {
                                 0 => Ok(false),
                                 1 => Ok(true),
                                 -1 => Err(-1),

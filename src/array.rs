@@ -11,7 +11,7 @@ use crate::{
         object::{
             js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
             JS_CreateDataPropertyUint32, JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         JS_IsException, JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT,
@@ -115,6 +115,138 @@ impl JSObject {
             _ => unreachable!(),
         }
     }
+
+    /// set the length property of an array-like object.
+    /// returns
+    /// - true if length is updated,
+    /// - false if can't update length property and JS_THROW flag is not set,
+    /// - Err if can't update length property ahd JS_THOW flag is set.
+    pub fn set_array_length(
+        &mut self,
+        ctx: &mut JSContext,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let len = unsafe { JS_ToArrayLengthFree(ctx, val, false)? as usize };
+
+        // check if length property is writable?
+        if self
+            .shape()
+            .and_then(|sh| {
+                // #0 is length
+                debug_assert!(
+                    sh.props[0].flags() & JS_PROP_LENGTH != 0,
+                    "Object don't have length property"
+                );
+                sh.props.get_index(0)
+            })
+            .map(|(_, p)| p.flags())
+            .unwrap()
+            & JS_PROP_WRITABLE
+            == 0
+        {
+            return if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                Err(-1)
+            } else {
+                Ok(false)
+            };
+        }
+
+        if self.detailed.fast_array() {
+            let lst = unsafe { self.fast_array_values_mut_unchecked() };
+            let old_len = lst.len();
+            if len < old_len {
+                for el in lst.drain(len..old_len) {
+                    unsafe {
+                        JS_FreeValue(ctx, el);
+                    }
+                }
+            }
+            self.prop_values[0] = JSProperty {
+                u: JSPropertyUnion {
+                    value: JSValue::from_u32(len as _),
+                },
+            };
+        } else {
+            // Note: length is always a uint32 because the object is an array
+            let mut cur_len = self
+                .prop_values
+                .first()
+                .map(|pr| unsafe { pr.u.value })
+                .ok_or(-1)
+                .and_then(|v| unsafe { JS_ToUint32(ctx, v) })
+                .unwrap() as usize;
+
+            if len < cur_len {
+                let mut sh = self.shape().unwrap();
+                let d = cur_len - len;
+
+                if d <= sh.props.len() {
+                    // faster to iterate
+                    while cur_len > len {
+                        let atom = ctx.rt_mut().add_atom_u32(cur_len as u32 - 1);
+                        let ret = self.delete_property(ctx, atom);
+                        unsafe {
+                            JS_FreeAtom(ctx, atom);
+                        }
+                        if let Ok(false) = ret {
+                            break; // property is not configurable
+                        }
+                        cur_len -= 1;
+                    }
+                } else {
+                    // faster to iterate thru all the properties.
+                    // Need two passes in case one of the property is not  configurable
+                    cur_len = len;
+
+                    for pr in sh.props.values() {
+                        let idx = 0_usize;
+                        if pr.atom != JS_ATOM_NULL
+                            && unsafe { JS_AtomIsArrayIndex(ctx, &mut (idx as u32), pr.atom) }
+                        {
+                            if idx >= cur_len && pr.flags() & JS_PROP_CONFIGURABLE == 0 {
+                                cur_len = idx + 1;
+                            }
+                        }
+                    }
+
+                    for i in 0..sh.props.len() {
+                        let (_, pr) = sh.props.get_index(i).unwrap();
+                        let mut idx = 0_u32;
+                        if pr.atom != JS_ATOM_NULL
+                            && unsafe { JS_AtomIsArrayIndex(ctx, &mut idx, pr.atom) }
+                        {
+                            if idx as usize >= cur_len {
+                                self.delete_property(ctx, pr.atom).unwrap();
+                                // WARNING: the shape may have been modified
+                                sh = self.shape().unwrap();
+                            }
+                        }
+                    }
+                }
+            } else {
+                cur_len = len;
+            }
+
+            unsafe {
+                set_value(
+                    ctx,
+                    &mut self.prop_values.first_mut().unwrap().u.value, // #0 is the `length`
+                    JSValue::from_u32(cur_len as _),
+                );
+            }
+
+            if cur_len > len {
+                return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable") {
+                    Err(-1)
+                } else {
+                    Ok(false)
+                };
+            }
+        }
+
+        Ok(true)
+    }
 }
 
 impl JSValue {
@@ -163,124 +295,15 @@ pub unsafe fn JS_IsArray(ctx: *mut JSContext, val: JSValueConst) -> Result<bool,
 
 /// set the array length and remove the array elements if necessary.
 /// returns 0,1,-1
+#[deprecated(note = "use JSObject::set_array_length() instead")]
 pub unsafe fn set_array_length(
     ctx: *mut JSContext,
     p: *mut JSObject,
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    /* Note: this call can reallocate the properties of 'p' */
-    let len = if let Ok(n) = JS_ToArrayLengthFree(ctx, val, false) {
-        n as usize
-    } else {
-        return -1;
-    };
-
-    // JS_ToArrayLengthFree() must be done before the read-only test
-    if (*p)
-        .shape()
-        .and_then(|sh| sh.props.get_index(0))
-        .map(|(_, p)| p.flags())
-        .unwrap()
-        & JS_PROP_WRITABLE
-        == 0
-    {
-        return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-            -1
-        } else {
-            0
-        };
-    }
-
-    if (*p).detailed.fast_array() {
-        let lst = (*p).fast_array_values_mut_unchecked();
-        let old_len = lst.len();
-        if len < old_len {
-            for v in lst.drain(len..old_len) {
-                JS_FreeValue(ctx, v);
-            }
-        }
-        (*p).prop_values[0] = JSProperty {
-            u: JSPropertyUnion {
-                value: JSValue::from_u32(len as _),
-            },
-        };
-    } else {
-        // Note: length is always a uint32 because the object is an array
-        let mut cur_len = (*p)
-            .prop_values
-            .first()
-            .map(|pr| pr.u.value)
-            .ok_or(-1)
-            .and_then(|v| JS_ToUint32(ctx, v))
-            .unwrap() as usize;
-
-        if len < cur_len {
-            let mut sh = (*p).shape().unwrap();
-            let d = cur_len - len;
-
-            if d <= sh.props.len() {
-                // faster to iterate
-                while cur_len > len {
-                    let atom = (*ctx).rt_mut().add_atom_u32(cur_len as u32 - 1);
-                    let ret = (*p).delete_property(ctx.as_mut().unwrap(), atom);
-                    JS_FreeAtom(ctx, atom);
-                    if let Ok(false) = ret {
-                        break; // property is not configurable
-                    }
-                    cur_len -= 1;
-                }
-            } else {
-                // faster to iterate thru all the properties.
-                // Need two passes in case one of the property is not  configurable
-                cur_len = len;
-
-                for pr in sh.props.values() {
-                    let idx = 0_usize;
-                    if pr.atom != JS_ATOM_NULL
-                        && JS_AtomIsArrayIndex(ctx, &mut (idx as u32), pr.atom)
-                    {
-                        if idx >= cur_len && pr.flags() & JS_PROP_CONFIGURABLE == 0 {
-                            cur_len = idx + 1;
-                        }
-                    }
-                }
-
-                for i in 0..sh.props.len() {
-                    let (_, pr) = sh.props.get_index(i).unwrap();
-                    let mut idx = 0_u32;
-                    if pr.atom != JS_ATOM_NULL && JS_AtomIsArrayIndex(ctx, &mut idx, (*pr).atom) {
-                        if idx as usize >= cur_len {
-                            // remove the property
-                            (*p).delete_property(ctx.as_mut().unwrap(), pr.atom)
-                                .unwrap();
-
-                            // WARNING: the shape may have been modified
-                            sh = (*p).shape().unwrap();
-                        }
-                    }
-                }
-            }
-        } else {
-            cur_len = len;
-        }
-
-        set_value(
-            ctx,
-            &mut (*p).prop_values.first_mut().unwrap().u.value, // #0 is the length
-            JSValue::from_u32(cur_len as _),
-        );
-
-        if cur_len > len {
-            return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable") {
-                -1
-            } else {
-                0
-            };
-        }
-    }
-
-    1
+    (*p).set_array_length(ctx.as_mut().unwrap(), val, flags)
+        .map_or(-1, |b| b as i32)
 }
 
 /// can be called on Array or Arguments objects. return < 0 if memory alloc error.
