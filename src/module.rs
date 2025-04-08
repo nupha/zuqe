@@ -28,9 +28,9 @@ use crate::{
     },
     value::{
         object::{
-            find_own_property1, JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty,
-            JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_ENUMERABLE,
-            JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_NewObjectClass,
+            JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
+            JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeCString, JS_FreeValue,
         JS_IsException, JS_IsUndefined, JS_TAG_OBJECT, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_OBJ,

@@ -22,47 +22,79 @@ use super::{
 };
 
 // Property flags
+/// Indicates if a property can be modified or deleted
 pub const JS_PROP_CONFIGURABLE: u32 = 1 << 0;
+/// Indicates if a property's value can be changed
 pub const JS_PROP_WRITABLE: u32 = 1 << 1;
+/// Indicates if a property appears in enumeration of object's properties
 pub const JS_PROP_ENUMERABLE: u32 = 1 << 2;
+/// Combined flag for configurable, writable and enumerable properties
 pub const JS_PROP_C_W_E: u32 = JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE;
+/// Special flag for length property
 pub const JS_PROP_LENGTH: u32 = 1 << 3;
+/// Mask for property type
 pub const JS_PROP_TMASK: u32 = 3 << 4;
+/// Normal property type
 pub const JS_PROP_NORMAL: u32 = 0 << 4;
+/// Getter/setter property type
 pub const JS_PROP_GETSET: u32 = 1 << 4;
+/// Variable reference property type
 pub const JS_PROP_VARREF: u32 = 2 << 4;
+/// Auto-initialized property type
 pub const JS_PROP_AUTOINIT: u32 = 3 << 4;
 
 // Property definition flags
+/// Base shift for property definition flags
 pub const JS_PROP_HAS_SHIFT: u32 = 8;
+/// Property has configurable attribute
 pub const JS_PROP_HAS_CONFIGURABLE: u32 = 1 << 8;
+/// Property has writable attribute
 pub const JS_PROP_HAS_WRITABLE: u32 = 1 << 9;
+/// Property has enumerable attribute
 pub const JS_PROP_HAS_ENUMERABLE: u32 = 1 << 10;
+/// Property has getter function
 pub const JS_PROP_HAS_GET: u32 = 1 << 11;
+/// Property has setter function
 pub const JS_PROP_HAS_SET: u32 = 1 << 12;
+/// Property has value
 pub const JS_PROP_HAS_VALUE: u32 = 1 << 13;
+/// Throw error on failed operation
 pub const JS_PROP_THROW: u32 = 1 << 14;
+/// Throw error in strict mode
 pub const JS_PROP_THROW_STRICT: u32 = 1 << 15;
+/// Prevent adding new properties
 pub const JS_PROP_NO_ADD: u32 = 1 << 16;
+/// Prevent exotic object behavior
 pub const JS_PROP_NO_EXOTIC: u32 = 1 << 17;
 
 // Property types
+/// Regular identifier property
 pub const PROP_TYPE_IDENT: i32 = 0;
+/// Variable property
 pub const PROP_TYPE_VAR: i32 = 1;
+/// Getter property
 pub const PROP_TYPE_GET: i32 = 2;
+/// Setter property
 pub const PROP_TYPE_SET: i32 = 3;
+/// Generator property
 pub const PROP_TYPE_STAR: i32 = 4;
+/// Async property
 pub const PROP_TYPE_ASYNC: i32 = 5;
+/// Async generator property
 pub const PROP_TYPE_ASYNC_STAR: i32 = 6;
+/// Private property
 pub const PROP_TYPE_PRIVATE: i32 = 1 << 4;
 
 // Get property names flags
+/// Include string properties
 pub const JS_GPN_STRING_MASK: i32 = 1 << 0;
+/// Include symbol properties
 pub const JS_GPN_SYMBOL_MASK: i32 = 1 << 1;
+/// Include private properties
 pub const JS_GPN_PRIVATE_MASK: i32 = 1 << 2;
-/* only include the enumerable properties */
+/// Only include enumerable properties
 pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
-/* set theJSPropertyEnum.is_enumerable field */
+/// Set the is_enumerable field in JSPropertyEnum
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
 pub struct JSPropertyDescriptor {
@@ -216,8 +248,9 @@ pub unsafe fn js_obj_to_desc(
 }
 
 impl JSObject {
-    /// Grow prop values list to expected new length, extended elements will be initialized to value `undefined`.
-    /// If new_length is less than or equal to current length, nothing to do.
+    /// Grows the property values array to accommodate more properties.
+    /// Takes a new length and extends the array with undefined values if needed.
+    /// Returns error if memory allocation fails.
     pub(super) unsafe fn grow_prop_value_slots(&mut self, new_length: usize) -> Result<(), i32> {
         if new_length > self.prop_values.len() {
             let grow = new_length - self.prop_values.len();
@@ -240,6 +273,9 @@ impl JSObject {
         Ok(())
     }
 
+    /// Updates the flags of a property in the object's shape.
+    /// Takes a context pointer, property shape pointer pointer, and new flags.
+    /// Returns 0 on success, -1 on failure.
     pub unsafe fn js_update_property_flags(
         &mut self,
         ctx: *mut JSContext,
@@ -255,13 +291,15 @@ impl JSObject {
         return 0;
     }
 
-    /// get shape property
+    /// Finds a property in the object's shape by its atom name.
+    /// Returns immutable reference to property if found, None if not found.
     #[inline(always)]
     pub unsafe fn find_own_property1(&self, atom: JSAtom) -> Option<&JSShapeProperty> {
         self.shape().and_then(|sh| sh.props.get(&atom))
     }
 
-    /// get shape property
+    /// Finds a property in the object's shape by its atom name.
+    /// Returns mutable reference to property if found, None if not found.
     #[inline(always)]
     pub unsafe fn find_own_property1_mut(&mut self, atom: JSAtom) -> Option<&mut JSShapeProperty> {
         self.shape_mut().and_then(|sh| sh.props.get_mut(&atom))
@@ -402,7 +440,7 @@ impl JSValue {
                 }
             }
 
-            let val = JS_GetProperty(cx, source, name.atom);
+            let val = source.get_property(cx, name.atom);
             if val.is_exception() {
                 return Err(-1);
             }
@@ -414,109 +452,6 @@ impl JSValue {
 
             Ok(())
         })
-
-        // let mut tab_atom: *mut PropertyEnum = std::ptr::null_mut();
-        // let mut tab_atom_count: u32 = 0;
-        // JS_GetOwnPropertyNamesInternal(ctx, &mut tab_atom, &mut tab_atom_count, p, gpn_flags)?;
-
-        // for i in 0..tab_atom_count {
-        //     if !pexcl.is_null() {
-        //         let r = JS_GetOwnPropertyInternal(
-        //             ctx,
-        //             std::ptr::null_mut(),
-        //             pexcl,
-        //             (*tab_atom.offset(i as isize)).atom,
-        //         );
-        //         if r != 0 {
-        //             // ERR or TRUE
-        //             if r < 0 {
-        //                 // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-        //                 for item in Box::from_raw(std::slice::from_raw_parts_mut(
-        //                     tab_atom,
-        //                     tab_atom_count as _,
-        //                 ) as *mut [PropertyEnum])
-        //                 {
-        //                     JS_FreeAtom(ctx, item.atom);
-        //                 }
-        //                 return Err(-1);
-        //             }
-
-        //             continue;
-        //         }
-        //     }
-
-        //     if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-        //         // test if the property is enumerable
-        //         let ret =
-        //             JS_GetOwnPropertyInternal(ctx, &mut desc, p, (*tab_atom.offset(i as isize)).atom);
-        //         if ret < 0 {
-        //             // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-        //             for item in Box::from_raw(std::slice::from_raw_parts_mut(
-        //                 tab_atom,
-        //                 tab_atom_count as _,
-        //             ) as *mut [PropertyEnum])
-        //             {
-        //                 JS_FreeAtom(ctx, item.atom);
-        //             }
-        //             return Err(-1);
-        //         }
-        //         if ret == 0 {
-        //             continue;
-        //         }
-
-        //         let is_enumerable = (desc.flags & JS_PROP_ENUMERABLE) != 0;
-        //         js_free_desc(ctx, &mut desc);
-        //         if !is_enumerable {
-        //             continue;
-        //         }
-        //     }
-
-        //     let val = JS_GetProperty(ctx, source, (*tab_atom.offset(i as isize)).atom);
-        //     if val.is_exception() {
-        //         // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-        //         for item in Box::from_raw(
-        //             std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
-        //                 as *mut [PropertyEnum],
-        //         ) {
-        //             JS_FreeAtom(ctx, item.atom);
-        //         }
-        //         return Err(-1);
-        //     }
-
-        //     let ret = if setprop {
-        //         target.set_property(
-        //             ctx.as_mut().unwrap(),
-        //             (*tab_atom.offset(i as isize)).atom,
-        //             val,
-        //         )
-        //     } else {
-        //         target.define_property_value(
-        //             ctx.as_mut().unwrap(),
-        //             (*tab_atom.offset(i as isize)).atom,
-        //             val,
-        //             JS_PROP_C_W_E,
-        //         )
-        //     };
-        //     if ret.is_err() {
-        //         //js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-        //         for item in Box::from_raw(
-        //             std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _)
-        //                 as *mut [PropertyEnum],
-        //         ) {
-        //             JS_FreeAtom(ctx, item.atom);
-        //         }
-        //         return Err(-1);
-        //     }
-        // }
-
-        // // js_free_prop_enum(ctx, tab_atom, tab_atom_count as _);
-        // for item in Box::from_raw(
-        //     std::slice::from_raw_parts_mut(tab_atom, tab_atom_count as _) as *mut [PropertyEnum],
-        // ) {
-        //     JS_FreeAtom(ctx, item.atom);
-        // }
-
-        // Ok(())
     }
 }
 
@@ -546,13 +481,24 @@ pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags:
     }
 }
 
+/// Computes the effective property flags by combining input flags with default flags
+/// If a flag is specified in JS_PROP_HAS_x, it takes precedence over def_flags
 #[inline(always)]
+pub fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
+    let mask = (flags >> JS_PROP_HAS_SHIFT) & JS_PROP_C_W_E;
+    (flags & mask) | (def_flags & !mask)
+}
+
+/// Finds a property in an object by its atom name
+#[deprecated(note = "use JSObject::find_own_property1() instead")]
 pub unsafe fn find_own_property1(p: *mut JSObject, atom: JSAtom) -> *mut JSShapeProperty {
-    (*p).shape_mut()
-        .and_then(|sh| sh.props.get_mut(&atom))
+    (*p).find_own_property1_mut(atom)
         .map_or(std::ptr::null_mut(), |p| p as *mut JSShapeProperty)
 }
 
+/// Finds a property and its value in an object by atom name
+/// Sets ppr to the property value pointer if found, null otherwise
+/// Returns the property shape pointer if found, null otherwise
 #[inline(always)]
 pub unsafe fn find_own_property(
     ppr: *mut *mut JSProperty,
@@ -568,17 +514,8 @@ pub unsafe fn find_own_property(
     }
 }
 
-/* compute the property flags. For each flag: (JS_PROP_HAS_x forces
-   it, otherwise def_flags is used)
-   Note: makes assumption about the bit pattern of the flags
-*/
-#[inline(always)]
-pub fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
-    let mask = (flags >> JS_PROP_HAS_SHIFT) & JS_PROP_C_W_E;
-    (flags & mask) | (def_flags & !mask)
-}
-
-// return FALSE if not OK
+/// Checks if property flags are valid for property definition
+/// Returns false if the flags are invalid
 pub unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
     let has_accessor;
     let is_getset;
