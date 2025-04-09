@@ -57,7 +57,7 @@ use crate::{
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
         JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
         JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -1119,7 +1119,7 @@ pub unsafe fn run_bytecodes(
 
                         match var_ref {
                             Ok(vr) => {
-                                if let Ok(pr) = (*JS_VALUE_GET_OBJ(SP![-1])).add_property(
+                                if let Ok(pr) = SP![-1].object().add_property(
                                     ctx,
                                     atom,
                                     JS_PROP_WRITABLE | JS_PROP_VARREF,

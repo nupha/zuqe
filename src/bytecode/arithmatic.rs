@@ -7,8 +7,7 @@ use crate::{
         object::JSObject, JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString,
         JS_FreeValue, JS_IsException, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree,
         JS_ToPrimitiveFree, HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 

@@ -98,8 +98,8 @@ pub unsafe fn async_func_init(
     let sf = &mut s.frame;
     init_list_head(&mut sf.var_ref_list);
 
-    let p = JS_VALUE_GET_OBJ(func_obj).as_mut().unwrap();
-    let b = (*p).u.func.function_bytecode.as_mut().unwrap();
+    let p = func_obj.object();
+    let b = p.u.func.function_bytecode.as_mut().unwrap();
 
     sf.js_mode = b.js_mode as i32 | JS_MODE_ASYNC;
     sf.cur_pc_offset = b.bytecode_offset as usize; // initialized to start of bytecode

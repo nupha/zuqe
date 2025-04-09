@@ -26,8 +26,8 @@ use crate::{
             JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
-        JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_FOR_IN_ITERATOR, JS_CLASS_OBJECT, JS_MKPTR,
 };
@@ -129,8 +129,7 @@ pub unsafe fn js_operator_private_in(ctx: &mut JSContext, sp: *mut JSValue) -> R
         if atom == JS_ATOM_NULL {
             return Err(-1);
         }
-        let p = JS_VALUE_GET_OBJ(op1);
-        let prs = (*p).find_own_property1(atom);
+        let prs = op1.object().find_own_property1(atom);
         JS_FreeAtom(ctx, atom);
         prs.is_some()
     };
@@ -304,22 +303,22 @@ pub unsafe fn js_method_set_home_object(
         return;
     }
 
-    let p = JS_VALUE_GET_OBJ(func_obj);
-    if !js_class_has_bytecode((*p).class_id()) {
+    let p = func_obj.object();
+    if !js_class_has_bytecode(p.class_id()) {
         return;
     }
 
-    let b = (*p).u.func.function_bytecode;
+    let b = p.u.func.function_bytecode;
     if (*b).need_home_object {
         // free current home object
-        let p1 = (*p).u.func.home_object;
+        let p1 = p.u.func.home_object;
         if !p1.is_null() {
             JS_FreeValue(ctx, JS_MKPTR!(JSTag::Object, p1.cast()));
         }
 
         // set new home object
-        (*(*p).u.func).home_object = if JS_VALUE_GET_TAG(home_obj) == JSTag::Object as i32 {
-            JS_VALUE_GET_OBJ(home_obj.dup())
+        (*p.u.func).home_object = if JS_VALUE_GET_TAG(home_obj) == JSTag::Object as i32 {
+            home_obj.dup().object()
         } else {
             std::ptr::null_mut()
         };
@@ -526,17 +525,17 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
         return 0;
     }
 
-    let p = JS_VALUE_GET_OBJ(enum_obj);
+    let p = enum_obj.object();
 
     // 检查迭代器对象是否有效。
-    if (*p).class_id() != JS_CLASS_FOR_IN_ITERATOR {
+    if p.class_id() != JS_CLASS_FOR_IN_ITERATOR {
         // C2RS: goto done translated to return 0 with done logic
         *sp.offset(0) = JSValue::UNDEFINED;
         *sp.offset(1) = JSValue::TRUE;
         return 0;
     }
 
-    let it = (*p).u.for_in_iterator;
+    let it = p.u.for_in_iterator;
     let mut prop: JSAtom;
 
     loop {
@@ -577,7 +576,9 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
                 return -1;
             }
 
-            if let Ok(names) = (*JS_VALUE_GET_OBJ((*it).obj))
+            if let Ok(names) = (*it)
+                .obj
+                .object()
                 .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
             {
                 (*it).atom_count = names.len() as _;
@@ -588,7 +589,6 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
             }
         } else {
             // 遍历当前对象的属性
-
             if (*it).is_array {
                 prop = JSAtom::from_u32((*it).idx);
                 (*it).idx += 1;
@@ -602,7 +602,7 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
                     let ret = JS_GetOwnPropertyInternal(
                         ctx,
                         std::ptr::null_mut(),
-                        JS_VALUE_GET_OBJ(enum_obj),
+                        enum_obj.object(),
                         prop,
                     );
                     if ret < 0 {
@@ -626,12 +626,8 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
             }
 
             // check if the property was deleted
-            let ret = JS_GetOwnPropertyInternal(
-                ctx,
-                std::ptr::null_mut(),
-                JS_VALUE_GET_OBJ((*it).obj),
-                prop,
-            );
+            let ret =
+                JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), (*it).obj.object(), prop);
             if ret < 0 {
                 return ret;
             }

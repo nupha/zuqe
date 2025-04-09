@@ -10,16 +10,16 @@ use crate::{
     },
     module::{
         js_create_module_function, js_free_module_def, js_inner_module_evaluation, js_link_module,
-        js_new_module_def, js_resolve_module, JSModuleDef, JSModuleStatus, JS_NewModuleValue,
+        js_resolve_module, JSModuleDef, JSModuleStatus, JS_NewModuleValue,
     },
     parse::JSParseState,
     promise::JS_NewPromiseCapability,
     stack_frame::JSStackFrame,
-    unicode::{unicode_from_utf8, CP_LS, CP_PS, UTF8_CHAR_LEN_MAX},
+    unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsString,
-        JS_IsUndefined, JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE, JS_TAG_OBJECT, JS_UNDEFINED,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsUndefined,
+        JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -78,11 +78,11 @@ pub unsafe fn __JS_EvalInternal(
         debug_assert!(!sf.is_null());
         debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
 
-        let p = JS_VALUE_GET_OBJ((*sf).cur_func);
-        debug_assert!(js_class_has_bytecode((*p).class_id()));
+        let ob = (*sf).cur_func.object();
+        debug_assert!(js_class_has_bytecode(ob.class_id()));
 
-        b = (*p).u.func.function_bytecode;
-        var_refs = (*(*p).u.func).var_refs.as_slice();
+        b = ob.u.func.function_bytecode;
+        var_refs = (*ob.u.func).var_refs.as_slice();
         js_mode = (*b).js_mode as _;
     } else {
         js_mode = 0;
@@ -93,14 +93,20 @@ pub unsafe fn __JS_EvalInternal(
             js_mode |= JS_MODE_STRIP as u32;
         }
         if eval_type == JS_EVAL_TYPE_MODULE {
-            let module_name = JS_NewAtom(ctx, filename);
-            if module_name == JS_ATOM_NULL {
+            let module_name = if let Ok(a) = (*ctx).create_atom(filename.to_string_lossy().as_ref())
+            {
+                a
+            } else {
                 return JSValue::EXCEPTION;
-            }
-            m = js_new_module_def(ctx, module_name);
-            if m.is_null() {
+            };
+
+            // js_new_module_def(ctx, module_name);
+            m = if let Ok(p) = JSModuleDef::new(ctx.as_mut().unwrap(), module_name) {
+                Box::into_raw(p)
+            } else {
                 return JSValue::EXCEPTION;
-            }
+            };
+
             js_mode |= JS_MODE_STRICT as u32;
         }
     }
@@ -168,7 +174,7 @@ pub unsafe fn __JS_EvalInternal(
 
     // create the function object and all the enclosed functions
     let mut fun_obj = js_create_function(ctx.as_mut().unwrap(), fd);
-    if JS_IsException(fun_obj) {
+    if fun_obj.is_exception() {
         fail1!(m);
     }
 

@@ -8,9 +8,9 @@ use crate::{
         init_list_head, list_add_tail, list_empty, list_foreach, list_foreach_with_ret, list_head,
     },
     value::{
-        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FLOAT64_NAN,
-        JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_FLOAT64_NAN, JS_TAG_IS_FLOAT64,
+        JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
 };
 
@@ -76,13 +76,13 @@ impl JSMapState {
         mr.empty = false;
         mr.key = unsafe {
             if self.is_weak {
-                let p = JS_VALUE_GET_OBJ(key);
+                let p = key.object();
                 // Add the weak reference
-                mr.next_weak_ref = (*p).first_weak_ref;
-                (*p).first_weak_ref = mr.as_mut() as *mut _;
+                mr.next_weak_ref = p.first_weak_ref;
+                p.first_weak_ref = mr.as_mut() as *mut _;
                 key
             } else {
-                JS_DupValue(ctx, key)
+                key.dup()
             }
         };
 

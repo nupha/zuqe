@@ -1224,17 +1224,17 @@ pub unsafe fn js_create_module_var(
 pub unsafe fn js_create_module_bytecode_function(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32 {
     let bfunc = (*m).func_obj;
     let func_obj = JS_NewObjectProtoClass(ctx, (*ctx).function_proto, JS_CLASS_BYTECODE_FUNCTION);
-    if JS_IsException(func_obj) {
+    if func_obj.is_exception() {
         return -1;
     }
 
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
-    let p = JS_VALUE_GET_OBJ(func_obj);
+    let p = func_obj.object();
 
     (*b).header.ref_count += 1;
-    (*(*p).u.func).function_bytecode = b;
-    (*(*p).u.func).home_object = std::ptr::null_mut();
-    (*(*p).u.func).var_refs = Vec::new();
+    (*p.u.func).function_bytecode = b;
+    (*p.u.func).home_object = std::ptr::null_mut();
+    (*p.u.func).var_refs = Vec::new();
 
     if (*b).closure_var_count != 0 {
         let mut var_refs = if let Ok(a) =
@@ -1262,7 +1262,7 @@ pub unsafe fn js_create_module_bytecode_function(ctx: *mut JSContext, m: *mut JS
             }
         }
 
-        (*(*p).u.func).var_refs = var_refs;
+        (*p.u.func).var_refs = var_refs;
     }
 
     (*m).func_obj = func_obj;

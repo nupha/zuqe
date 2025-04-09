@@ -427,7 +427,7 @@ pub struct JumpSlot {
     pub label: i32,
 }
 
-#[deprecated(note = "use JSModuleDef::new() instead")]
+#[deprecated(note = "use JSFunctionDef::new() instead")]
 pub unsafe fn js_new_function_def(
     ctx: *mut JSContext,
     parent: *mut JSFunctionDef,
