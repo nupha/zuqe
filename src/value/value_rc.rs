@@ -31,7 +31,7 @@ impl Clone for JSValueRc {
 
 impl From<JSValueRc> for JSValue {
     fn from(mut v: JSValueRc) -> Self {
-        // reset inner value to undefined
+        // take out inner value, and reset inner value to undefined
         std::mem::replace(&mut v.value, JSValue::UNDEFINED)
     }
 }

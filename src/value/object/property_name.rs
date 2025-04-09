@@ -28,41 +28,8 @@ pub struct PropertyEnum {
     pub atom: JSAtom,
     pub is_enumerable: bool,
     pub isa: PropertyEnumIsa,
+    pub exotic: bool,
 }
-
-// pub struct PropertyEnumList<'a> {
-//     ctx: &'a mut JSContext,
-//     list: SmallVec<[PropertyEnum; 32]>,
-// }
-
-// impl<'a> PropertyEnumList<'a> {
-//     #[inline(always)]
-//     pub fn len(&self) -> usize {
-//         self.list.len()
-//     }
-
-//     #[inline(always)]
-//     pub fn as_slice(&self) -> &[PropertyEnum] {
-//         &self.list
-//     }
-
-//     /// take ownership of the inner list.
-//     /// Note: this will give out ownership, thus elements' atom should be freed by caller.
-//     pub fn into_boxed_slice(mut self) -> Box<[PropertyEnum]> {
-//         let a = std::mem::replace(&mut self.list, SmallVec::new());
-//         a.into_boxed_slice()
-//     }
-// }
-
-// impl<'a> Drop for PropertyEnumList<'a> {
-//     fn drop(&mut self) {
-//         for p in self.list.iter() {
-//             unsafe {
-//                 JS_FreeAtom(self.ctx, p.atom);
-//             }
-//         }
-//     }
-// }
 
 impl JSObject {
     /// Iterates over all own properties of object `self` and executes `callback` for each property.
@@ -81,7 +48,11 @@ impl JSObject {
     /// Important:
     /// - Property atoms are not cloned when passed to callback
     /// - Iteration stops immediately if callback returns an error
-    /// - Property order is not guaranteed
+    ///
+    /// Property order:
+    /// 1. In defination order
+    /// 1. Then indices (if is array or string)
+    /// 1. Then exotic properties (if has exotic `get_own_property_names`)
     pub unsafe fn own_property_names_foreach(
         &self,
         ctx: &mut JSContext,
@@ -109,6 +80,7 @@ impl JSObject {
                         atom,
                         is_enumerable,
                         isa,
+                        exotic: false,
                     },
                 )?;
             }
@@ -124,6 +96,7 @@ impl JSObject {
                                 atom: JSAtom::from_u32(i as u32),
                                 is_enumerable: true,
                                 isa: PropertyEnumIsa::Index(i as u32),
+                                exotic: false,
                             },
                         )?;
                     }
@@ -141,6 +114,7 @@ impl JSObject {
                                 atom: JSAtom::from_u32(i as u32),
                                 is_enumerable: true,
                                 isa: PropertyEnumIsa::Index(i as u32),
+                                exotic: false,
                             },
                         )?;
                     }
@@ -165,7 +139,7 @@ impl JSObject {
                     return Err(-1);
                 }
 
-                // Note: exotic keys are not reordered and comes after the object own properties.
+                // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
                 for i in 0..exotic_count {
@@ -184,13 +158,13 @@ impl JSObject {
                             } else {
                                 PropertyEnumIsa::Symbol
                             };
-
                             has_err = callback(
                                 ctx,
                                 PropertyEnum {
                                     atom,
                                     is_enumerable,
                                     isa,
+                                    exotic: true,
                                 },
                             )
                             .is_err();
@@ -211,14 +185,21 @@ impl JSObject {
         Ok(())
     }
 
-    /// Get own property names list.
-    /// Returned list elements' atom is duplicated, and should be freed by caller.
+    /// Gets all property names that belong to this object
+    ///
+    /// Returns a sorted list containing:
+    /// - Property names (numbers, strings, symbols)
+    /// - Sorted by: numbers first, then strings, symbols, and exotic names
+    /// - Each atom is cloned (dup) so that it needs to be freed by caller
+    /// - Can be filtered using flags
     pub unsafe fn get_own_property_names_internal(
         &self,
         ctx: &mut JSContext,
         flags: i32,
     ) -> Result<Box<[PropertyEnum]>, i32> {
         let mut lst = Vec::<PropertyEnum>::with_capacity(16);
+        let mut sort_cnt = 0;
+
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if lst.len() == lst.capacity() {
                 if lst.try_reserve_exact(16).is_err() {
@@ -227,8 +208,13 @@ impl JSObject {
                 }
             }
 
+            if !pp.exotic {
+                sort_cnt += 1;
+            }
+
             pp.atom.dup(cx.rt()); // dup atom
             lst.push(pp);
+
             Ok(())
         });
 
@@ -240,31 +226,35 @@ impl JSObject {
             return Err(-1);
         }
 
-        lst.sort_by(|p1, p2| match (p1.isa, p2.isa) {
-            (PropertyEnumIsa::Index(i1), PropertyEnumIsa::Index(i2)) => {
-                i1.cmp(&i2) // for both index, order by integer
-            }
-            (
-                PropertyEnumIsa::String | PropertyEnumIsa::Symbol,
-                PropertyEnumIsa::String | PropertyEnumIsa::Symbol,
-            ) => {
-                // string vs symbol: keep insert sequence
-                std::cmp::Ordering::Equal
-            }
-            (PropertyEnumIsa::Index(_), _) => {
-                // index always comes before string or symbol
-                std::cmp::Ordering::Less
-            }
-            (_, PropertyEnumIsa::Index(_)) => {
-                // index always comes before string or symbol
-                std::cmp::Ordering::Greater
-            }
-        });
+        // Note: sort owned number, string, symbol only, exotic keys are not sorted.
+        if sort_cnt > 0 {
+            lst[0..sort_cnt].sort_by(|p1, p2| match (p1.isa, p2.isa) {
+                (PropertyEnumIsa::Index(i1), PropertyEnumIsa::Index(i2)) => {
+                    i1.cmp(&i2) // for both index, order by integer
+                }
+                (
+                    PropertyEnumIsa::String | PropertyEnumIsa::Symbol,
+                    PropertyEnumIsa::String | PropertyEnumIsa::Symbol,
+                ) => {
+                    // string vs symbol: keep insert sequence
+                    std::cmp::Ordering::Equal
+                }
+                (PropertyEnumIsa::Index(_), _) => {
+                    // index always comes before string or symbol
+                    std::cmp::Ordering::Less
+                }
+                (_, PropertyEnumIsa::Index(_)) => {
+                    // index always comes before string or symbol
+                    std::cmp::Ordering::Greater
+                }
+            });
+        }
 
         Ok(lst.into_boxed_slice())
     }
 
     /// Collect own property names of `self` object, return an array of keys, values, or key-values.
+    /// Result sorting order refer to that of `get_own_property_names_internal`.
     /// returns Err when fail.
     /// Equivelent to js expression: Object.keys, Object.values, Object.entries
     pub fn get_own_property_names2(
@@ -273,113 +263,137 @@ impl JSObject {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSValue {
-        // result array
-        let ret_array = unsafe { JS_NewArray(ctx) };
+        // make result array
+        let ret_array = unsafe { JS_NewArray(ctx).into_rc(ctx.rt()) };
         if ret_array.is_exception() {
             return JSValue::EXCEPTION;
         }
 
-        let mut idx: u32 = 0;
+        if let Ok(lst) =
+            unsafe { self.get_own_property_names_internal(ctx, flags & !JS_GPN_ENUM_ONLY) }
+        {
+            let has_err: bool = 'outer: loop {
+                let mut idx: u32 = 0;
 
-        let r = unsafe {
-            self.own_property_names_foreach(ctx, flags & !JS_GPN_ENUM_ONLY, |cx, name| {
-                if flags & JS_GPN_ENUM_ONLY != 0 {
-                    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                    let res = JS_GetOwnPropertyInternal(
-                        cx,
-                        &mut desc,
-                        self as *const JSObject as *mut JSObject,
-                        name.atom,
-                    );
-                    if res < 0 {
-                        return Err(-1);
-                    }
-                    if res == 0 {
-                        return Ok(());
-                    }
-                    js_free_desc(cx, &mut desc);
-                    if desc.flags & JS_PROP_ENUMERABLE == 0 {
-                        return Ok(()); // skip non enumerable
-                    }
-                }
+                for name in lst.iter() {
+                    unsafe {
+                        if flags & JS_GPN_ENUM_ONLY != 0 {
+                            let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+                            let res = JS_GetOwnPropertyInternal(
+                                ctx,
+                                &mut desc,
+                                self as *const JSObject as *mut JSObject,
+                                name.atom,
+                            );
+                            if res < 0 {
+                                break 'outer true;
+                            }
+                            if res == 0 {
+                                continue;
+                            }
+                            js_free_desc(ctx, &mut desc);
+                            if desc.flags & JS_PROP_ENUMERABLE == 0 {
+                                continue; // skip non enumerable
+                            }
+                        }
 
-                let val: JSValue;
-                match kind {
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                        val = name.atom.to_value(cx, false);
-                        if val.is_exception() {
-                            return Err(-1);
+                        let val: JSValue;
+                        match kind {
+                            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
+                                val = name.atom.to_value(ctx, false);
+                                if val.is_exception() {
+                                    break 'outer true;
+                                }
+                            }
+                            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                                val = JS_MKPTR!(
+                                    JSTag::Object,
+                                    (self as *const JSObject as *mut JSObject).cast()
+                                )
+                                .get_property(ctx, name.atom);
+                                if val.is_exception() {
+                                    break 'outer true;
+                                }
+                            }
+                            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                                val = JS_NewArray(ctx);
+                                if val.is_exception() {
+                                    break 'outer true;
+                                }
+                                let key = name.atom.to_value(ctx, false);
+                                if key.is_exception() {
+                                    JS_FreeValue(ctx, val);
+                                    break 'outer true;
+                                }
+                                if val
+                                    .create_data_property_u32(ctx, 0, key, JS_PROP_THROW)
+                                    .is_err()
+                                {
+                                    JS_FreeValue(ctx, val);
+                                    break 'outer true;
+                                }
+
+                                let value = JS_MKPTR!(
+                                    JSTag::Object,
+                                    (self as *const JSObject as *mut JSObject).cast()
+                                )
+                                .get_property(ctx, name.atom);
+                                if value.is_exception() {
+                                    JS_FreeValue(ctx, val);
+                                    break 'outer true;
+                                }
+                                if val
+                                    .create_data_property_u32(ctx, 1, value, JS_PROP_THROW)
+                                    .is_err()
+                                {
+                                    JS_FreeValue(ctx, val);
+                                    break 'outer true;
+                                }
+                            }
                         }
-                    }
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                        val = JS_MKPTR!(
-                            JSTag::Object,
-                            (self as *const JSObject as *mut JSObject).cast()
-                        )
-                        .get_property(cx, name.atom);
-                        if val.is_exception() {
-                            return Err(-1);
-                        }
-                    }
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                        val = JS_NewArray(cx);
-                        if val.is_exception() {
-                            return Err(-1);
-                        }
-                        let key = name.atom.to_value(cx, false);
-                        if key.is_exception() {
-                            JS_FreeValue(cx, val);
-                            return Err(-1);
-                        }
-                        if val
-                            .create_data_property_u32(cx, 0, key, JS_PROP_THROW)
+
+                        // append to result array
+                        if ret_array
+                            .create_data_property_u32(ctx, idx as _, val, 0)
                             .is_err()
                         {
-                            JS_FreeValue(cx, val);
-                            return Err(-1);
+                            break 'outer true;
                         }
 
-                        let value = JS_MKPTR!(
-                            JSTag::Object,
-                            (self as *const JSObject as *mut JSObject).cast()
-                        )
-                        .get_property(cx, name.atom);
-                        if value.is_exception() {
-                            JS_FreeValue(cx, val);
-                            return Err(-1);
-                        }
-                        if val
-                            .create_data_property_u32(cx, 1, value, JS_PROP_THROW)
-                            .is_err()
-                        {
-                            JS_FreeValue(cx, val);
-                            return Err(-1);
-                        }
+                        idx += 1;
                     }
+                } // for
+
+                break 'outer false;
+            };
+
+            for name in lst.iter() {
+                unsafe {
+                    JS_FreeAtom(ctx, name.atom);
                 }
-
-                // append to result array
-                ret_array.create_data_property_u32(cx, idx as _, val, 0)?;
-
-                idx += 1;
-                Ok(())
-            })
-        };
-
-        if r.is_err() {
-            unsafe {
-                JS_FreeValue(ctx, ret_array);
             }
-            JSValue::EXCEPTION
+            if has_err {
+                JSValue::EXCEPTION
+            } else {
+                ret_array.into()
+            }
         } else {
-            ret_array
+            JSValue::EXCEPTION
         }
     }
 }
 
 impl JSValue {
-    /// Get own property names and return an array of keys, values, or key-values.
-    /// returns Err when fail.
+    /// Returns an value (Array object) containing the own properties of `self` value
+    /// based on the specified iteration kind.
+    ///
+    /// This method converts the value to an object and returns either:
+    /// - An array of property keys (for kind = KEY)
+    /// - An array of property values (for kind = VALUE)
+    /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
+    ///
+    /// Properties are sorted according to the standard JavaScript property enumeration order.
+    /// Returns JSValue::EXCEPTION if the operation fails.
     pub fn get_own_property_names2(
         self,
         ctx: &mut JSContext,

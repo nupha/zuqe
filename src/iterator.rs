@@ -377,14 +377,13 @@ pub unsafe fn js_create_array_iterator(
     } else {
         (JS_CLASS_ARRAY_ITERATOR, JS_ToObject(ctx, this_val))
     };
-    if JS_IsException(arr) {
+    if arr.is_exception() {
         JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
     }
 
     let enum_obj = JS_NewObjectClass(ctx, class_id);
-    if JS_IsException(enum_obj) {
-        // C2RS: goto fail translated to return with cleanup logic
+    if enum_obj.is_exception() {
         JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
     }
@@ -429,7 +428,7 @@ pub unsafe fn js_array_iterator_next(
     if it.is_null() {
         fail!();
     }
-    if JS_IsUndefined((*it).obj) {
+    if (*it).obj.is_undefined() {
         done!();
     }
 
