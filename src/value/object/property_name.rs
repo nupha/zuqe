@@ -13,9 +13,8 @@ use crate::{
 };
 
 use super::{
-    js_free_desc, JSObject, JSPropertyDescriptor, JS_CreateDataPropertyUint32,
-    JS_GetOwnPropertyInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
-    JS_PROP_ENUMERABLE, JS_PROP_THROW,
+    js_free_desc, JSObject, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_ToObject,
+    JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,7 +318,10 @@ impl JSObject {
                             JS_FreeValue(cx, val);
                             return Err(-1);
                         }
-                        if JS_CreateDataPropertyUint32(cx, val, 0, key, JS_PROP_THROW) < 0 {
+                        if val
+                            .create_data_property_u32(cx, 0, key, JS_PROP_THROW)
+                            .is_err()
+                        {
                             JS_FreeValue(cx, val);
                             return Err(-1);
                         }
@@ -333,7 +335,10 @@ impl JSObject {
                             JS_FreeValue(cx, val);
                             return Err(-1);
                         }
-                        if JS_CreateDataPropertyUint32(cx, val, 1, value, JS_PROP_THROW) < 0 {
+                        if val
+                            .create_data_property_u32(cx, 1, value, JS_PROP_THROW)
+                            .is_err()
+                        {
                             JS_FreeValue(cx, val);
                             return Err(-1);
                         }
@@ -341,9 +346,7 @@ impl JSObject {
                 }
 
                 // append to result array
-                if JS_CreateDataPropertyUint32(cx, ret_array, idx as _, val, 0) < 0 {
-                    return Err(-1);
-                }
+                ret_array.create_data_property_u32(cx, idx as _, val, 0)?;
 
                 idx += 1;
                 Ok(())

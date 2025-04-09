@@ -11,9 +11,8 @@ use crate::{
     regexp::js_is_regexp,
     value::{
         object::{
-            js_get_length32, js_get_length64, JS_CreateDataPropertyUint32, JS_GetOpaque2,
-            JS_GetProperty, JS_IsFunction, JS_SetObjectData, JS_ToObject, JS_ToObjectFree,
-            JS_PROP_CONFIGURABLE,
+            js_get_length32, js_get_length64, JS_GetOpaque2, JS_GetProperty, JS_IsFunction,
+            JS_SetObjectData, JS_ToObject, JS_ToObjectFree, JS_PROP_CONFIGURABLE,
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
@@ -603,7 +602,7 @@ pub unsafe fn js_string_split(
     }
     lengthA = 0;
 
-    let lim = if JS_IsUndefined(limit) {
+    let lim = if limit.is_undefined() {
         u32::MAX
     } else {
         if let Ok(x) = JS_ToUint32(ctx, limit) {
@@ -613,15 +612,15 @@ pub unsafe fn js_string_split(
         }
     };
 
-    let sp = JS_VALUE_GET_STRING(S);
-    let s = (*sp).len() as i32;
+    let sp = S.string();
+    let s = sp.len() as i32;
     R = JS_ToString(ctx, separator);
-    if JS_IsException(R) {
+    if R.is_exception() {
         exception!();
     }
 
-    let rp = JS_VALUE_GET_STRING(R);
-    let r = (*rp).len() as i32;
+    let rp = R.string();
+    let r = rp.len() as i32;
     let mut p = 0;
     if lim == 0 {
         done!();
@@ -630,9 +629,12 @@ pub unsafe fn js_string_split(
     macro_rules! add_tail {
         () => {
             T = js_sub_string(ctx, sp, p, s);
-            if JS_IsException(T) {
+            if T.is_exception() {
                 exception!();
-            } else if JS_CreateDataPropertyUint32(ctx, A, lengthA as _, T, 0) < 0 {
+            } else if A
+                .create_data_property_u32(ctx.as_mut().unwrap(), lengthA as _, T, 0)
+                .is_err()
+            {
                 exception!();
             } else {
                 done!();
@@ -666,7 +668,9 @@ pub unsafe fn js_string_split(
         if JS_IsException(T) {
             exception!();
         }
-        if JS_CreateDataPropertyUint32(ctx, A, lengthA as _, T, 0) < 0 {
+        if A.create_data_property_u32(ctx.as_mut().unwrap(), lengthA as _, T, 0)
+            .is_err()
+        {
             exception!();
         }
 
@@ -970,7 +974,7 @@ pub unsafe fn js_string_repeat(
 
 pub unsafe fn js_sub_string(
     ctx: *mut JSContext,
-    p: *mut JSString,
+    p: *const JSString,
     start: i32,
     end: i32,
 ) -> JSValue {
@@ -978,7 +982,7 @@ pub unsafe fn js_sub_string(
     let end = std::cmp::min(end, (*p).len() as i32);
 
     if start == 0 && end == (*p).len() as i32 {
-        JS_DupValue(ctx, JS_MKPTR!(JSTag::String, p.cast()))
+        JS_MKPTR!(JSTag::String, (p as *mut JSString).cast()).dup()
     } else {
         let count = if end > start { end - start } else { 0 };
         if count > 0 {

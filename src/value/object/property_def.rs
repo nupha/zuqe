@@ -612,6 +612,31 @@ impl JSValue {
         ret
     }
 
+    /// `val` is consumed.
+    #[inline(always)]
+    pub fn create_data_property_u32(
+        self,
+        ctx: &mut JSContext,
+        idx: i64,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.define_property_value_i64(
+            ctx,
+            idx,
+            val,
+            flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
+        )
+
+        // JS_DefinePropertyValueValue(
+        //     ctx,
+        //     this_obj,
+        //     JSValue::from_i64(idx),
+        //     val,
+        //     flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
+        // )
+    }
+
     /// define property from descriptor object configuration.
     /// `desc` keeps ref count unchanged after calling.
     pub fn define_property_desc(
@@ -817,6 +842,7 @@ pub unsafe fn JS_DefinePropertyValueValue(
         .map_or(-1, |b| b as i32)
 }
 
+#[deprecated(note = "use JSValue::create_data_property_u32() instead")]
 pub unsafe fn JS_CreateDataPropertyUint32(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -824,13 +850,9 @@ pub unsafe fn JS_CreateDataPropertyUint32(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    JS_DefinePropertyValueValue(
-        ctx,
-        this_obj,
-        JSValue::from_i64(idx),
-        val,
-        flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
-    )
+    this_obj
+        .create_data_property_u32(ctx.as_mut().unwrap(), idx, val, flags)
+        .map_or(-1, |b| b as i32)
 }
 
 #[deprecated(note = "use JSValue::defined_property_value_u32() instead")]

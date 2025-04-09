@@ -10,8 +10,8 @@ use crate::{
     value::{
         object::{
             js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
-            JS_CreateDataPropertyUint32, JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
+            JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         JS_IsException, JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT,
@@ -685,18 +685,19 @@ pub unsafe fn JS_CopySubArray(
 
 pub unsafe fn js_create_array(ctx: *mut JSContext, len: i32, tab: *const JSValueConst) -> JSValue {
     let obj = JS_NewArray(ctx);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
     for i in 0..len {
-        if JS_CreateDataPropertyUint32(
-            ctx,
-            obj,
-            i as _,
-            JS_DupValue(ctx, *tab.offset(i as isize)),
-            0,
-        ) < 0
+        if obj
+            .create_data_property_u32(
+                ctx.as_mut().unwrap(),
+                i as _,
+                (*tab.offset(i as isize)).dup(),
+                0,
+            )
+            .is_err()
         {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;

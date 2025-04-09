@@ -23,8 +23,8 @@ use crate::{
     value::{
         check_exception_free,
         object::{
-            js_get_length64, JS_CreateDataPropertyUint32, JS_GetProperty, JS_IsConstructor,
-            JS_IsFunction, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
+            js_get_length64, JS_GetProperty, JS_IsConstructor, JS_IsFunction, JS_ToObject,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
@@ -1734,7 +1734,7 @@ pub unsafe fn js_array_slice(
     // let mut count32: u32 = 0;
     // let mut i: u32 = 0;
 
-    let obj = JS_ToObject(ctx, this_val);
+    let mut obj = JS_ToObject(ctx, this_val);
     let len = if let Ok(l) = js_get_length64(ctx, obj) {
         l
     } else {
@@ -1749,12 +1749,10 @@ pub unsafe fn js_array_slice(
         return JSValue::EXCEPTION;
     }
 
-    let mut item_count: u32 = 0;
-    let mut del_count = 0;
-    let mut final_ = 0;
-    let mut count = 0;
+    let item_count: u32;
+    let mut del_count: i64 = 0;
 
-    if splice != 0 {
+    let count = if splice != 0 {
         if argc == 0 {
             item_count = 0;
             del_count = 0;
@@ -1773,49 +1771,42 @@ pub unsafe fn js_array_slice(
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
-        count = del_count;
+        del_count
     } else {
         item_count = 0; /* avoid warning */
-        final_ = len;
-        if !JS_IsUndefined(*argv.offset(1)) {
+        let mut final_ = len;
+        if !(*argv.offset(1)).is_undefined() {
             if JS_ToInt64Clamp(ctx, &mut final_, *argv.offset(1), 0, len, len) != 0 {
-                // C2RS: goto exception replaced with return logic
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
         }
-        count = std::cmp::max(final_ - start, 0);
-    }
+        std::cmp::max(final_ - start, 0)
+    };
 
     let len_val = JSValue::from_i64(count);
     let arr = JS_ArraySpeciesCreate(ctx, obj, len_val);
-    if JS_IsException(arr) {
+    if arr.is_exception() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
-    final_ = start + count;
-
+    let final_ = start + count;
     let mut k = start;
     let mut n = 0;
 
-    // The fast array test on arr ensures that
-    // JS_CreateDataPropertyUint32() won't modify obj in case arr is
-    // an exotic object
-    // Special case fast arrays
-    let mut arrp: *mut JSValue = std::ptr::null_mut();
-    let mut count32 = 0;
-
-    if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && arr.is_fast_array() {
+    if let Some(lst) = obj.fast_array_values() {
+        // in case of fast array
         // XXX: should share code with fast array constructor
-        while k < final_ && k < count32 as i64 {
-            if JS_CreateDataPropertyUint32(
-                ctx,
-                arr,
-                n as _,
-                (*arrp.offset(k as isize)).dup(),
-                JS_PROP_THROW,
-            ) < 0
+        while k < final_ && k < lst.len() as i64 {
+            if arr
+                .create_data_property_u32(
+                    ctx.as_mut().unwrap(),
+                    n as _,
+                    lst[k as usize].dup(),
+                    JS_PROP_THROW,
+                )
+                .is_err()
             {
                 JS_FreeValue(ctx, obj);
                 JS_FreeValue(ctx, arr);
@@ -1831,7 +1822,10 @@ pub unsafe fn js_array_slice(
     while k < final_ {
         match obj.try_get_property_i64(ctx.as_mut().unwrap(), k) {
             Ok(Some(v)) => {
-                if JS_CreateDataPropertyUint32(ctx, arr, n as _, v, JS_PROP_THROW) < 0 {
+                if arr
+                    .create_data_property_u32(ctx.as_mut().unwrap(), n as _, v, JS_PROP_THROW)
+                    .is_err()
+                {
                     JS_FreeValue(ctx, obj);
                     JS_FreeValue(ctx, arr);
                     return JSValue::EXCEPTION;
@@ -2561,13 +2555,14 @@ pub unsafe fn js_array_of(
     }
 
     for i in 0..argc {
-        if JS_CreateDataPropertyUint32(
-            ctx,
-            obj,
-            i as _,
-            (*argv.offset(i as isize)).dup(),
-            JS_PROP_THROW,
-        ) < 0
+        if obj
+            .create_data_property_u32(
+                ctx.as_mut().unwrap(),
+                i as _,
+                (*argv.offset(i as isize)).dup(),
+                JS_PROP_THROW,
+            )
+            .is_err()
         {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;

@@ -6,15 +6,15 @@ use crate::{
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
     gc::{JS_MarkFunc, JS_MarkValue},
     map::JSMapRecord,
-    mem::{js_free_rt, js_malloc, js_malloc_typed},
+    mem::{js_malloc, js_malloc_typed},
     runtime::JSRuntime,
     typed_array::typed_array_is_detached,
     value::{
         object::{
-            js_get_length32, JS_CreateDataPropertyUint32, JS_GetOpaque, JS_GetOpaque2,
-            JS_GetProperty, JS_GetPrototypeFree, JS_NewObjectClass, JS_NewObjectProtoClass,
-            JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
-            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            js_get_length32, JS_GetOpaque, JS_GetOpaque2, JS_GetProperty, JS_GetPrototypeFree,
+            JS_NewObjectClass, JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree,
+            PropertyEnum, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_ToStringCheckObject, JS_TAG_NULL,
@@ -736,7 +736,10 @@ pub unsafe fn js_array_from_iterator(
             break;
         }
 
-        if JS_CreateDataPropertyUint32(ctx, arr, k, val, JS_PROP_THROW) < 0 {
+        if arr
+            .create_data_property_u32(ctx.as_mut().unwrap(), k, val, JS_PROP_THROW)
+            .is_err()
+        {
             JS_FreeValue(ctx, next_method);
             JS_FreeValue(ctx, iter);
             JS_FreeValue(ctx, arr);
