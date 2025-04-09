@@ -65,7 +65,7 @@ impl<'a> Drop for PropertyEnumList<'a> {
 }
 
 impl JSObject {
-    /// Call closure on each property name of the object.
+    /// Call closure on each property name of the object, name may occure in undefined order.
     /// Note: property name atom is not duplicated in calling `callback`,
     /// if you want to keep the atom referenced, dup it by yourself.
     /// When encounter error in callback or getting property names, returns Err and abort iteration immediately.
