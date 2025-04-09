@@ -30,45 +30,58 @@ pub struct PropertyEnum {
     pub isa: PropertyEnumIsa,
 }
 
-pub struct PropertyEnumList<'a> {
-    ctx: &'a mut JSContext,
-    list: SmallVec<[PropertyEnum; 32]>,
-}
+// pub struct PropertyEnumList<'a> {
+//     ctx: &'a mut JSContext,
+//     list: SmallVec<[PropertyEnum; 32]>,
+// }
 
-impl<'a> PropertyEnumList<'a> {
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.list.len()
-    }
+// impl<'a> PropertyEnumList<'a> {
+//     #[inline(always)]
+//     pub fn len(&self) -> usize {
+//         self.list.len()
+//     }
 
-    #[inline(always)]
-    pub fn as_slice(&self) -> &[PropertyEnum] {
-        &self.list
-    }
+//     #[inline(always)]
+//     pub fn as_slice(&self) -> &[PropertyEnum] {
+//         &self.list
+//     }
 
-    /// take ownership of the inner list.
-    /// Note: this will give out ownership, thus elements' atom should be freed by caller.
-    pub fn into_boxed_slice(mut self) -> Box<[PropertyEnum]> {
-        let a = std::mem::replace(&mut self.list, SmallVec::new());
-        a.into_boxed_slice()
-    }
-}
+//     /// take ownership of the inner list.
+//     /// Note: this will give out ownership, thus elements' atom should be freed by caller.
+//     pub fn into_boxed_slice(mut self) -> Box<[PropertyEnum]> {
+//         let a = std::mem::replace(&mut self.list, SmallVec::new());
+//         a.into_boxed_slice()
+//     }
+// }
 
-impl<'a> Drop for PropertyEnumList<'a> {
-    fn drop(&mut self) {
-        for p in self.list.iter() {
-            unsafe {
-                JS_FreeAtom(self.ctx, p.atom);
-            }
-        }
-    }
-}
+// impl<'a> Drop for PropertyEnumList<'a> {
+//     fn drop(&mut self) {
+//         for p in self.list.iter() {
+//             unsafe {
+//                 JS_FreeAtom(self.ctx, p.atom);
+//             }
+//         }
+//     }
+// }
 
 impl JSObject {
-    /// Call closure on each property name of the object, name may occure in undefined order.
-    /// Note: property name atom is not duplicated in calling `callback`,
-    /// if you want to keep the atom referenced, dup it by yourself.
-    /// When encounter error in callback or getting property names, returns Err and abort iteration immediately.
+    /// Iterates over all own properties of object `self` and executes `callback` for each property.
+    ///
+    /// This method handles three types of properties:
+    /// - Regular object properties
+    /// - Array indices (for fast arrays)
+    /// - String object indices
+    /// - Exotic object properties
+    ///
+    /// The `callback` receives property information including:
+    /// - The property name (as an atom)
+    /// - Whether it is enumerable
+    /// - The property type (index, string, or symbol)
+    ///
+    /// Important:
+    /// - Property atoms are not cloned when passed to callback
+    /// - Iteration stops immediately if callback returns an error
+    /// - Property order is not guaranteed
     pub unsafe fn own_property_names_foreach(
         &self,
         ctx: &mut JSContext,
