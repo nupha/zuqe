@@ -33,14 +33,14 @@ enough to call the interrupt callback often. */
 pub const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
 
 #[inline(never)]
-pub unsafe fn __js_poll_interrupts(ctx: *mut JSContext) -> i32 {
-    let rt = (*ctx).rt.as_mut();
-    (*ctx).interrupt_counter = JS_INTERRUPT_COUNTER_INIT;
+pub unsafe fn __js_poll_interrupts(ctx: &mut JSContext) -> i32 {
+    let rt = ctx.rt.as_mut();
+    ctx.interrupt_counter = JS_INTERRUPT_COUNTER_INIT;
 
     if let Some(cb) = rt.interrupt_handler {
         if cb(rt, rt.interrupt_opaque) != 0 {
             // XXX: should set a specific flag to avoid catching
-            ctx.as_mut().unwrap().JS_ThrowInternalError(c"interrupted");
+            ctx.JS_ThrowInternalError(c"interrupted");
             JS_SetUncatchableError(ctx, rt.current_exception, true);
             return -1;
         }
@@ -50,9 +50,9 @@ pub unsafe fn __js_poll_interrupts(ctx: *mut JSContext) -> i32 {
 }
 
 #[inline(always)]
-pub unsafe fn js_poll_interrupts(ctx: *mut JSContext) -> i32 {
-    (*ctx).interrupt_counter -= 1;
-    if unlikely((*ctx).interrupt_counter <= 0) {
+pub unsafe fn js_poll_interrupts(ctx: &mut JSContext) -> i32 {
+    ctx.interrupt_counter -= 1;
+    if ctx.interrupt_counter <= 0 {
         __js_poll_interrupts(ctx)
     } else {
         0
@@ -61,7 +61,7 @@ pub unsafe fn js_poll_interrupts(ctx: *mut JSContext) -> i32 {
 
 /* argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0. */
 pub unsafe fn JS_CallInternal(
-    caller_ctx: *mut JSContext,
+    caller_ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     new_target: JSValueConst,
@@ -73,7 +73,7 @@ pub unsafe fn JS_CallInternal(
         return JSValue::EXCEPTION;
     }
 
-    let rt = (*caller_ctx).rt.as_mut();
+    let rt = caller_ctx.rt.as_mut();
 
     if JS_VALUE_GET_TAG(func_obj) != JSTag::Object as i32 {
         return if (flags & JS_CALL_FLAG_GENERATOR) != 0 {
@@ -96,7 +96,7 @@ pub unsafe fn JS_CallInternal(
                 b,
                 (*p).u.func.home_object,
                 sf,
-                caller_ctx.as_mut().unwrap(),
+                caller_ctx,
                 this_obj,
                 new_target,
                 &b.binary[b.bytecode_offset as usize..],
@@ -111,7 +111,7 @@ pub unsafe fn JS_CallInternal(
                 &mut [],
             )
         } else {
-            (*caller_ctx).JS_ThrowTypeError(c"not a function")
+            caller_ctx.JS_ThrowTypeError(c"not a function")
         };
     }
 
@@ -147,10 +147,7 @@ pub unsafe fn JS_CallInternal(
 
             ret
         } else {
-            caller_ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"not a function")
+            caller_ctx.JS_ThrowTypeError(c"not a function")
         };
     }
 
@@ -236,7 +233,7 @@ pub unsafe fn JS_CallInternal(
             b,
             (*p).u.func.home_object,
             sf,
-            caller_ctx.as_mut().unwrap(),
+            caller_ctx,
             this_obj,
             new_target,
             &b.binary[b.bytecode_offset as usize..],
@@ -259,7 +256,7 @@ pub unsafe fn JS_CallInternal(
 }
 
 pub unsafe fn JS_Call(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
@@ -278,7 +275,7 @@ pub unsafe fn JS_Call(
 
 /// call func_obj, and free func_obj
 pub unsafe fn JS_CallFree(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
@@ -299,7 +296,7 @@ pub unsafe fn JS_CallFree(
 
 // argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) == 0.
 pub unsafe fn JS_CallConstructorInternal(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     new_target: JSValueConst,
     argc: i32,
@@ -310,22 +307,19 @@ pub unsafe fn JS_CallConstructorInternal(
         return JSValue::EXCEPTION;
     }
     if unlikely(JS_VALUE_GET_TAG(func_obj) != JS_TAG_OBJECT) {
-        return ctx.as_mut().unwrap().JS_ThrowTypeError(c"not a function");
+        return ctx.JS_ThrowTypeError(c"not a function");
     }
 
     let p = JS_VALUE_GET_OBJ(func_obj).as_mut().unwrap();
 
     if unlikely(!p.detailed.is_constructor()) {
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"not a constructor");
+        return ctx.JS_ThrowTypeError(c"not a constructor");
     }
 
     flags |= JS_CALL_FLAG_CONSTRUCTOR;
 
     if (*p).class_id() != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = (*ctx).rt().class_array[(*p).class_id() as usize].call {
+        return if let Some(cb) = ctx.rt().class_array[(*p).class_id() as usize].call {
             cb(
                 ctx,
                 func_obj,
@@ -335,7 +329,7 @@ pub unsafe fn JS_CallConstructorInternal(
                 flags,
             )
         } else {
-            (*ctx).JS_ThrowTypeError(c"not a function")
+            ctx.JS_ThrowTypeError(c"not a function")
         };
     }
 
@@ -358,7 +352,7 @@ pub unsafe fn JS_CallConstructorInternal(
         }
 
         let ret = JS_CallInternal(ctx, func_obj, this, new_target, argc, argv, flags);
-        return if JS_VALUE_GET_TAG(ret) == JS_TAG_OBJECT || JS_IsException(ret) {
+        return if JS_VALUE_GET_TAG(ret) == JS_TAG_OBJECT || ret.is_exception() {
             JS_FreeValue(ctx, this);
             ret
         } else {
@@ -369,7 +363,7 @@ pub unsafe fn JS_CallConstructorInternal(
 }
 
 pub unsafe fn JS_CallConstructor2(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     new_target: JSValueConst,
     argc: i32,
@@ -385,8 +379,9 @@ pub unsafe fn JS_CallConstructor2(
     )
 }
 
+#[inline(always)]
 pub unsafe fn JS_CallConstructor(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     argc: i32,
     argv: *mut JSValueConst,
@@ -395,14 +390,14 @@ pub unsafe fn JS_CallConstructor(
 }
 
 pub unsafe fn JS_Invoke(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     this_val: crate::value::JSValueConst,
     atom: JSAtom,
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
     let func_obj: JSValue;
-    func_obj = this_val.get_property(ctx.as_mut().unwrap(), atom);
+    func_obj = this_val.get_property(ctx, atom);
     if func_obj.is_exception() {
         return func_obj;
     }
@@ -410,7 +405,7 @@ pub unsafe fn JS_Invoke(
 }
 
 pub unsafe fn JS_InvokeFree(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     this_val: JSValue,
     atom: JSAtom,
     argc: i32,
@@ -422,14 +417,14 @@ pub unsafe fn JS_InvokeFree(
 }
 
 pub unsafe fn js_call_c_function(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     mut this_obj: JSValueConst,
     argc: i32,
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    let rt = (*ctx).rt.as_mut();
+    let rt = ctx.rt.as_mut();
 
     let p = JS_VALUE_GET_OBJ(func_obj);
     let cproto = (*p).u.cfunc.cproto;
@@ -447,7 +442,7 @@ pub unsafe fn js_call_c_function(
     sf.prev_frame = rt.current_stack_frame;
     rt.current_stack_frame = sf;
 
-    let ctx = (*p).u.cfunc.realm.as_mut().unwrap(); // change the current realm
+    let realm = (*p).u.cfunc.realm.as_mut().unwrap(); // change the current realm
 
     let mut local_buf: Option<SmallVec<[JSValue; 16]>> = None;
     if unlikely(argc < arg_count as i32) {
@@ -491,13 +486,13 @@ pub unsafe fn js_call_c_function(
             ) {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     if cproto == JSCFunctionEnum::Constructor {
-                        exit!(ctx.JS_ThrowTypeError(c"must be called with new"));
+                        exit!(realm.JS_ThrowTypeError(c"must be called with new"));
                     } else {
                         this_obj = JSValue::UNDEFINED;
                     }
                 }
             }
-            ret_val = (func.generic)(ctx, this_obj, argc, arg_buf as *mut JSValue);
+            ret_val = (func.generic)(realm, this_obj, argc, arg_buf as *mut JSValue);
         }
         JSCFunctionEnum::ConstructorMagic
         | JSCFunctionEnum::ConstructorOrFuncMagic
@@ -508,31 +503,36 @@ pub unsafe fn js_call_c_function(
             ) {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     if cproto == JSCFunctionEnum::ConstructorMagic {
-                        exit!(ctx.JS_ThrowTypeError(c"must be called with new"));
+                        exit!(realm.JS_ThrowTypeError(c"must be called with new"));
                     } else {
                         this_obj = JSValue::UNDEFINED;
                     }
                 }
             }
-            ret_val =
-                (func.generic_magic)(ctx, this_obj, argc, arg_buf as _, (*p).u.cfunc.magic as i32);
+            ret_val = (func.generic_magic)(
+                realm,
+                this_obj,
+                argc,
+                arg_buf as _,
+                (*p).u.cfunc.magic as i32,
+            );
         }
         JSCFunctionEnum::Getter => {
-            ret_val = (func.getter)(ctx, this_obj);
+            ret_val = (func.getter)(realm, this_obj);
         }
         JSCFunctionEnum::Setter => {
-            ret_val = (func.setter)(ctx, this_obj, *arg_buf.offset(0));
+            ret_val = (func.setter)(realm, this_obj, *arg_buf.offset(0));
         }
         JSCFunctionEnum::GetterMagic => {
-            ret_val = (func.getter_magic)(ctx, this_obj, (*p).u.cfunc.magic as _);
+            ret_val = (func.getter_magic)(realm, this_obj, (*p).u.cfunc.magic as _);
         }
         JSCFunctionEnum::SetterMagic => {
             ret_val =
-                (func.setter_magic)(ctx, this_obj, *arg_buf.offset(0), (*p).u.cfunc.magic as _);
+                (func.setter_magic)(realm, this_obj, *arg_buf.offset(0), (*p).u.cfunc.magic as _);
         }
         JSCFunctionEnum::FF => {
             let mut d1: f64 = 0.0;
-            ret_val = if unlikely(JS_ToFloat64(ctx, &mut d1, *arg_buf.offset(0)) != 0) {
+            ret_val = if unlikely(JS_ToFloat64(realm, &mut d1, *arg_buf.offset(0)) != 0) {
                 JSValue::EXCEPTION
             } else {
                 JSValue::from_f64((func.f_f)(d1))
@@ -541,8 +541,8 @@ pub unsafe fn js_call_c_function(
         JSCFunctionEnum::FFF => {
             let mut d1: f64 = 0.0;
             let mut d2: f64 = 0.0;
-            ret_val = if unlikely(JS_ToFloat64(ctx, &mut d1, *arg_buf.offset(0)) != 0)
-                || unlikely(JS_ToFloat64(ctx, &mut d2, *arg_buf.offset(1)) != 0)
+            ret_val = if unlikely(JS_ToFloat64(realm, &mut d1, *arg_buf.offset(0)) != 0)
+                || unlikely(JS_ToFloat64(realm, &mut d2, *arg_buf.offset(1)) != 0)
             {
                 JSValue::EXCEPTION
             } else {
@@ -552,7 +552,7 @@ pub unsafe fn js_call_c_function(
         JSCFunctionEnum::IteratorNext => {
             let mut done = 0;
             ret_val = (func.iterator_next)(
-                ctx,
+                realm,
                 this_obj,
                 argc,
                 arg_buf,
@@ -560,7 +560,7 @@ pub unsafe fn js_call_c_function(
                 (*p).u.cfunc.magic as _,
             );
             if !JS_IsException(ret_val) && done != 2 {
-                ret_val = js_create_iterator_result(ctx, ret_val, done != 0);
+                ret_val = js_create_iterator_result(realm, ret_val, done != 0);
             }
         }
     }
@@ -570,7 +570,7 @@ pub unsafe fn js_call_c_function(
 }
 
 pub unsafe fn js_c_function_data_call(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_val: JSValueConst,
     argc: i32,
@@ -618,7 +618,7 @@ pub unsafe fn js_c_function_data_call(
 }
 
 pub unsafe fn js_call_bound_function(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
@@ -630,7 +630,7 @@ pub unsafe fn js_call_bound_function(
     let arg_count = bf.argc + argc;
 
     let alloca_size = SIZEOF_JSVALUE * arg_count as usize;
-    if js_check_stack_overflow((*ctx).rt_mut(), alloca_size) {
+    if js_check_stack_overflow(ctx.rt_mut(), alloca_size) {
         return JS_ThrowStackOverflow(ctx);
     }
 
@@ -668,30 +668,11 @@ pub unsafe fn js_call_bound_function(
             )
         }
     })
-
-    // original C code
-    // let arg_buf = alloca(alloca_size) as *mut JSValueConst; // gcc code
-    // for i in 0..(*bf).argc {
-    //     *arg_buf.offset(i as isize) = *(bf.argv.as_ptr().offset(i as isize));
-    // }
-    // for i in 0..argc {
-    //     *arg_buf.offset(bf.argc as isize + i as isize) = *argv.offset(i as isize);
-    // }
-
-    // if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-    //     let mut new_target = this_obj;
-    //     if js_same_value(ctx, func_obj, new_target) {
-    //         new_target = bf.func_obj;
-    //     }
-    //     JS_CallConstructor2(ctx, (*bf).func_obj, new_target, arg_count, arg_buf)
-    // } else {
-    //     JS_Call(ctx, (*bf).func_obj, (*bf).this_val, arg_count, arg_buf)
-    // }
 }
 
 /// returns 0, 1, -1
 pub unsafe fn call_setter(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     setter: *mut JSObject,
     this_obj: JSValueConst,
     val: JSValue,
@@ -716,9 +697,7 @@ pub unsafe fn call_setter(
         if (flags & JS_PROP_THROW) != 0
             || ((flags & JS_PROP_THROW_STRICT) != 0 && is_strict_mode(ctx))
         {
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"no setter for property");
+            ctx.JS_ThrowTypeError(c"no setter for property");
             return -1;
         }
         return 0;
@@ -743,7 +722,13 @@ pub unsafe fn js_function_apply(
         || JS_VALUE_GET_TAG(array_arg) == JS_TAG_NULL)
         && magic != 2
     {
-        return JS_Call(ctx, this_val, this_arg, 0, std::ptr::null_mut());
+        return JS_Call(
+            ctx.as_mut().unwrap(),
+            this_val,
+            this_arg,
+            0,
+            std::ptr::null_mut(),
+        );
     }
 
     let mut args = if let Ok(a) = build_arg_list(ctx, array_arg) {
@@ -753,9 +738,21 @@ pub unsafe fn js_function_apply(
     };
 
     let ret = if magic & 1 != 0 {
-        JS_CallConstructor2(ctx, this_val, this_arg, args.len() as _, args.as_mut_ptr())
+        JS_CallConstructor2(
+            ctx.as_mut().unwrap(),
+            this_val,
+            this_arg,
+            args.len() as _,
+            args.as_mut_ptr(),
+        )
     } else {
-        JS_Call(ctx, this_val, this_arg, args.len() as _, args.as_mut_ptr())
+        JS_Call(
+            ctx.as_mut().unwrap(),
+            this_val,
+            this_arg,
+            args.len() as _,
+            args.as_mut_ptr(),
+        )
     };
 
     for v in args {

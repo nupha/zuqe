@@ -50,7 +50,7 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
             }
             .to_value(ctx.as_mut().unwrap(), true);
 
-            let ret = JS_CallFree(ctx, method, val, 1, &mut arg);
+            let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 1, &mut arg);
             JS_FreeValue(ctx, arg);
             if ret.is_exception() {
                 return goto_exception(ctx, val);
@@ -85,7 +85,7 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
         }
 
         if method.is_function(ctx.as_ref().unwrap()) {
-            let ret = JS_CallFree(ctx, method, val, 0, std::ptr::null_mut());
+            let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 0, std::ptr::null_mut());
             if ret.is_exception() {
                 return goto_exception(ctx, val);
             }

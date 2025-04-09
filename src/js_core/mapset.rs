@@ -131,7 +131,7 @@ pub unsafe fn js_map_constructor(
             }
 
             let ret = if is_set {
-                let r = JS_Call(ctx, adder, obj, 1, [item].as_mut_ptr());
+                let r = JS_Call(ctx.as_mut().unwrap(), adder, obj, 1, [item].as_mut_ptr());
                 if r.is_exception() {
                     JS_FreeValue(ctx, item);
                     fail!(iter, next_method, adder);
@@ -159,7 +159,13 @@ pub unsafe fn js_map_constructor(
                     fail!(iter, next_method, adder);
                 }
 
-                let r = JS_Call(ctx, adder, obj, 2, [key, value].as_mut_ptr());
+                let r = JS_Call(
+                    ctx.as_mut().unwrap(),
+                    adder,
+                    obj,
+                    2,
+                    [key, value].as_mut_ptr(),
+                );
                 JS_FreeValue(ctx, key);
                 JS_FreeValue(ctx, value);
                 if r.is_exception() {

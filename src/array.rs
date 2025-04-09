@@ -237,7 +237,7 @@ impl JSObject {
             }
 
             if cur_len > len {
-                return if (*ctx).JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable") {
+                return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, c"not configurable") {
                     Err(-1)
                 } else {
                     Ok(false)
@@ -460,30 +460,11 @@ pub unsafe fn JS_ToArrayLengthFree(
         }
 
         JSTag::BigInt => {
-            // let p = JS_VALUE_GET_PTR(val) as *mut JSBigFloat;
-            // let mut a = std::mem::MaybeUninit::<bf_t>::uninit();
-            // let res;
-            // // C2RS: pointer cast for len
-            // bf_get_int32(
-            //     &mut len as *mut u32 as *mut i32,
-            //     &(*p).num,
-            //     BF_GET_INT_MOD as i32,
-            // );
-            // bf_init((*ctx).bf_ctx, a.as_mut_ptr() as *mut _);
-            // bf_set_ui(a.as_mut_ptr(), len as u64);
-            // res = bf_cmp_eq(a.as_ptr(), &(*p).num);
-            // bf_delete(a.as_mut_ptr());
-            // JS_FreeValue(ctx, val);
-            // if res == 0 {
-            //     // C2RS: goto fail replaced with direct return
-            //     JS_ThrowRangeError(ctx, b"invalid array length\0".as_ptr() as *const _);
-            //     return -1;
-            // }
             unimplemented!()
         }
         _ if is_array_ctor => {
             let v = JS_ToNumberFree(ctx, val);
-            if JS_IsException(v) {
+            if v.is_exception() {
                 return Err(-1);
             }
 

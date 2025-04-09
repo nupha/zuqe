@@ -38,7 +38,7 @@ pub type JSClassGCMark =
     ::core::option::Option<unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: JS_MarkFunc)>;
 
 pub type JSClassCall = unsafe fn(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValue,
     this_val: JSValue,
     argc: ::core::ffi::c_int,

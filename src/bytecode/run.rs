@@ -1629,7 +1629,7 @@ pub unsafe fn run_bytecodes(
                             }
                             break State::Exception;
                         } else {
-                            SP![-3] = (*ctx).global_obj.dup();
+                            SP![-3] = ctx.global_obj.dup();
                         }
                     } else {
                         if is_strict_mode(ctx) {

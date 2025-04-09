@@ -465,7 +465,13 @@ pub unsafe fn JS_ToLocaleStringFree(ctx: *mut JSContext, val: JSValue) -> JSValu
     if val.is_undefined() || val.is_null() {
         JS_ToStringFree(ctx, val)
     } else {
-        JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, 0, std::ptr::null_mut())
+        JS_InvokeFree(
+            ctx.as_mut().unwrap(),
+            val,
+            JS_ATOM_toLocaleString,
+            0,
+            std::ptr::null_mut(),
+        )
     }
 }
 

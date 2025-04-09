@@ -773,7 +773,7 @@ pub unsafe fn JS_IsInstanceOf(
 
     if !method.is_undefined_or_null() {
         let mut val = val;
-        let ret = JS_CallFree(ctx, method, obj, 1, &mut val);
+        let ret = JS_CallFree(ctx.as_mut().unwrap(), method, obj, 1, &mut val);
         return JS_ToBoolFree(ctx, ret);
     }
 
@@ -838,7 +838,7 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
                     }
 
                     // must check for timeout to avoid infinite loop
-                    if js_poll_interrupts(ctx) != 0 {
+                    if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
                         JS_FreeValue(ctx, obj1);
                         break Err(-1);
                     }

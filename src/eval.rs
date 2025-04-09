@@ -227,7 +227,13 @@ pub unsafe fn JS_EvalFunctionInternal(
     match JS_VALUE_GET_TAG(fun_obj) {
         JS_TAG_FUNCTION_BYTECODE => {
             let fun_closure = js_closure(ctx, fun_obj, var_refs, sf);
-            JS_CallFree(ctx, fun_closure, this_obj, 0, std::ptr::null_mut())
+            JS_CallFree(
+                ctx.as_mut().unwrap(),
+                fun_closure,
+                this_obj,
+                0,
+                std::ptr::null_mut(),
+            )
         }
         JS_TAG_MODULE => {
             let m = JS_VALUE_GET_PTR(fun_obj).cast::<JSModuleDef>();
@@ -378,7 +384,7 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
         debug_assert!((*m).eval_has_exception);
 
         let ret_val = JS_Call(
-            ctx,
+            ctx.as_mut().unwrap(),
             *(*m).resolving_funcs.as_ptr().offset(1), // reject
             JS_UNDEFINED,
             1,
@@ -397,7 +403,7 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
             debug_assert_eq!((*m).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
             let mut value = JS_UNDEFINED;
             let ret_val = JS_Call(
-                ctx,
+                ctx.as_mut().unwrap(),
                 *(*m).resolving_funcs.as_ptr().offset(0), // resolve
                 JS_UNDEFINED,
                 1,

@@ -142,13 +142,12 @@ pub unsafe fn async_func_init(
     Box::into_raw(s)
 }
 
-pub unsafe fn async_func_resume(ctx: *mut JSContext, s: *mut JSAsyncFunctionState) -> JSValue {
+pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionState) -> JSValue {
     assert!(!(*s).is_completed);
 
-    let rt = (*ctx).rt_mut();
     let sf = &mut (*s).frame;
 
-    let mut ret = if js_check_stack_overflow(rt, 0) {
+    let mut ret = if js_check_stack_overflow(ctx.rt_mut(), 0) {
         JS_ThrowStackOverflow(ctx)
     } else {
         /* the tag does not matter provided it is not an object */
@@ -157,26 +156,26 @@ pub unsafe fn async_func_resume(ctx: *mut JSContext, s: *mut JSAsyncFunctionStat
             ctx,
             func_obj,
             (*s).this_val,
-            JS_UNDEFINED,
+            JSValue::UNDEFINED,
             (*s).argc,
             sf.arg_base_ptr,
             JS_CALL_FLAG_GENERATOR,
         )
     };
 
-    if JS_IsException(ret) || JS_IsUndefined(ret) {
-        if JS_IsUndefined(ret) {
+    if ret.is_undefined_or_null() {
+        if ret.is_undefined() {
             debug_assert!(sf.cur_sp_offset > 0);
             let sp_base = sf.stack_base_ptr();
-            ret = (*sp_base.as_ptr().add(sf.cur_sp_offset - 1)).replace(JS_UNDEFINED);
+            ret = (*sp_base.as_ptr().add(sf.cur_sp_offset - 1)).replace(JSValue::UNDEFINED);
         }
         /* end of execution */
         (*s).is_completed = true;
 
         /* close the closure variables. */
-        sf.close_var_refs(ctx.as_mut().unwrap());
+        sf.close_var_refs(ctx);
 
-        async_func_free_frame(rt, s);
+        async_func_free_frame(ctx.rt_mut(), s);
     }
 
     ret

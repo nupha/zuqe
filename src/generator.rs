@@ -65,7 +65,7 @@ pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut JSGeneratorDat
 }
 
 pub unsafe fn js_generator_function_call(
-    ctx: *mut JSContext,
+    ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
@@ -74,7 +74,7 @@ pub unsafe fn js_generator_function_call(
 ) -> JSValue {
     macro_rules! fail {
         ($s:expr) => {
-            free_generator_stack_rt((*ctx).rt_mut(), $s);
+            free_generator_stack_rt(ctx.rt_mut(), $s);
             js_free(ctx, $s.cast());
             return JSValue::EXCEPTION;
         };

@@ -389,7 +389,7 @@ pub unsafe fn js_string_replace(
             return JSValue::EXCEPTION;
         } else if !replacer.is_undefined_or_null() {
             return JS_CallFree(
-                ctx,
+                ctx.as_mut().unwrap(),
                 replacer,
                 searchValue,
                 2,
@@ -455,7 +455,7 @@ pub unsafe fn js_string_replace(
             JS_ToStringFree(
                 ctx,
                 JS_Call(
-                    ctx,
+                    ctx.as_mut().unwrap(),
                     replaceValue,
                     JSValue::UNDEFINED,
                     3,
@@ -587,7 +587,13 @@ pub unsafe fn js_string_split(
         if !splitter.is_undefined_or_null() {
             args[0] = O;
             args[1] = limit;
-            return JS_CallFree(ctx, splitter, separator, 2, args.as_mut_ptr());
+            return JS_CallFree(
+                ctx.as_mut().unwrap(),
+                splitter,
+                separator,
+                2,
+                args.as_mut_ptr(),
+            );
         }
     }
 
@@ -1154,7 +1160,7 @@ pub unsafe fn js_string_match(
             }
         }
         if !matcher.is_undefined_or_null() {
-            return JS_CallFree(ctx, matcher, regexp, 1, &mut O);
+            return JS_CallFree(ctx.as_mut().unwrap(), matcher, regexp, 1, &mut O);
         }
     }
 
@@ -1179,14 +1185,19 @@ pub unsafe fn js_string_match(
         args_len += 1;
     }
 
-    let rx = JS_CallConstructor(ctx, (*ctx).regexp_ctor, args_len, args.as_mut_ptr());
+    let rx = JS_CallConstructor(
+        ctx.as_mut().unwrap(),
+        (*ctx).regexp_ctor,
+        args_len,
+        args.as_mut_ptr(),
+    );
     JS_FreeValue(ctx, str);
     if rx.is_exception() {
         JS_FreeValue(ctx, S);
         return JSValue::EXCEPTION;
     }
 
-    let result = JS_InvokeFree(ctx, rx, atom, 1, &mut S);
+    let result = JS_InvokeFree(ctx.as_mut().unwrap(), rx, atom, 1, &mut S);
     JS_FreeValue(ctx, S);
 
     result

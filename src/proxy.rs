@@ -83,7 +83,13 @@ pub unsafe fn js_proxy_isExtensible(ctx: *mut JSContext, obj: JSValueConst) -> R
     if JS_IsUndefined(method) {
         return JS_IsExtensible(ctx, (*s).target);
     }
-    let ret = JS_CallFree(ctx, method, (*s).handler, 1, &mut (*s).target);
+    let ret = JS_CallFree(
+        ctx.as_mut().unwrap(),
+        method,
+        (*s).handler,
+        1,
+        &mut (*s).target,
+    );
     if JS_IsException(ret) {
         return Err(-1);
     }
@@ -112,7 +118,13 @@ pub unsafe fn js_proxy_preventExtensions(
         return JS_PreventExtensions(ctx, (*s).target);
     }
 
-    let ret = JS_CallFree(ctx, method, (*s).handler, 1, &mut (*s).target);
+    let ret = JS_CallFree(
+        ctx.as_mut().unwrap(),
+        method,
+        (*s).handler,
+        1,
+        &mut (*s).target,
+    );
     if JS_IsException(ret) {
         return Err(-1);
     }
@@ -140,7 +152,13 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: *mut JSContext, obj: JSValueConst) ->
         return JS_GetPrototype(ctx, (*s).target);
     }
 
-    let ret = JS_CallFree(ctx, method, (*s).handler, 1, &mut (*s).target);
+    let ret = JS_CallFree(
+        ctx.as_mut().unwrap(),
+        method,
+        (*s).handler,
+        1,
+        &mut (*s).target,
+    );
     if JS_IsException(ret) {
         return ret;
     }
@@ -197,7 +215,13 @@ pub unsafe fn js_proxy_setPrototypeOf(
     }
 
     let mut args = [(*s).target, proto_val];
-    let ret = JS_CallFree(ctx, method, (*s).handler, 2, args.as_mut_ptr());
+    let ret = JS_CallFree(
+        ctx.as_mut().unwrap(),
+        method,
+        (*s).handler,
+        2,
+        args.as_mut_ptr(),
+    );
     if JS_IsException(ret) {
         return Err(-1);
     }

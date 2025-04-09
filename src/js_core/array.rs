@@ -149,7 +149,7 @@ pub unsafe fn JS_ArraySpeciesCreate(
     if ctor.is_undefined() {
         js_array_constructor(ctx, JSValue::UNDEFINED, 1, [len_val].as_mut_ptr())
     } else {
-        let ret = JS_CallConstructor(ctx, ctor, 1, [len_val].as_mut_ptr());
+        let ret = JS_CallConstructor(ctx.as_mut().unwrap(), ctor, 1, [len_val].as_mut_ptr());
         JS_FreeValue(ctx, ctor);
         ret
     }
@@ -653,7 +653,7 @@ pub unsafe fn js_array_every(
             }
 
             let mut args: [JSValue; 3] = [*val, index_val, obj];
-            let res = JS_Call(ctx, func, this_arg, 3, args.as_mut_ptr());
+            let res = JS_Call(ctx.as_mut().unwrap(), func, this_arg, 3, args.as_mut_ptr());
             JS_FreeValue(ctx, index_val);
             if JS_IsException(res) {
                 JS_FreeValue(ctx, ret);
@@ -739,7 +739,13 @@ pub unsafe fn js_array_every(
         }
 
         args[0] = ret;
-        let res = JS_Invoke(ctx, arr, JS_ATOM_set, 1, args.as_mut_ptr());
+        let res = JS_Invoke(
+            ctx.as_mut().unwrap(),
+            arr,
+            JS_ATOM_set,
+            1,
+            args.as_mut_ptr(),
+        );
         if check_exception_free(ctx, res) {
             JS_FreeValue(ctx, ret);
             JS_FreeValue(ctx, obj);
@@ -879,7 +885,7 @@ pub unsafe fn js_array_reduce(
             }
 
             let acc1 = JS_Call(
-                ctx,
+                ctx.as_mut().unwrap(),
                 func,
                 JSValue::UNDEFINED,
                 4,
@@ -1008,7 +1014,7 @@ pub unsafe fn js_array_find(
         }
 
         let res = JS_Call(
-            ctx,
+            ctx.as_mut().unwrap(),
             func,
             this_arg,
             3,
@@ -1342,7 +1348,7 @@ pub unsafe fn js_array_toString(
         JS_FreeValue(ctx, method);
         js_object_toString(ctx, obj, 0, std::ptr::null_mut())
     } else {
-        JS_CallFree(ctx, method, obj, 0, std::ptr::null_mut())
+        JS_CallFree(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut())
     };
 
     JS_FreeValue(ctx, obj);
@@ -2194,7 +2200,13 @@ unsafe fn JS_FlattenIntoArray(
             Ok(Some(mut element)) => {
                 if !mapperFunction.is_undefined() {
                     let mut args = [element, JSValue::from_i64(sourceIndex), source];
-                    element = JS_Call(ctx, mapperFunction, thisArg, 3, args.as_mut_ptr());
+                    element = JS_Call(
+                        ctx.as_mut().unwrap(),
+                        mapperFunction,
+                        thisArg,
+                        3,
+                        args.as_mut_ptr(),
+                    );
                     JS_FreeValue(ctx, args[0]);
                     JS_FreeValue(ctx, args[1]);
                     if element.is_exception() {
@@ -2403,7 +2415,7 @@ pub unsafe fn js_array_from(
     if !iter.is_undefined() {
         JS_FreeValue(ctx, iter);
         r = if JS_IsConstructor(ctx, this_val) {
-            JS_CallConstructor(ctx, this_val, 0, std::ptr::null_mut())
+            JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 0, std::ptr::null_mut())
         } else {
             JS_NewArray(ctx)
         }
@@ -2433,7 +2445,7 @@ pub unsafe fn js_array_from(
 
             if mapping {
                 let v2 = JS_Call(
-                    ctx,
+                    ctx.as_mut().unwrap(),
                     mapfn,
                     this_arg,
                     2,
@@ -2474,7 +2486,7 @@ pub unsafe fn js_array_from(
 
         let mut args = [JSValue::from_i64(len)];
         r = if JS_IsConstructor(ctx, this_val) {
-            JS_CallConstructor(ctx, this_val, 1, args.as_mut_ptr())
+            JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 1, args.as_mut_ptr())
         } else {
             js_array_constructor(ctx, JSValue::UNDEFINED, 1, args.as_mut_ptr())
         }
@@ -2493,7 +2505,7 @@ pub unsafe fn js_array_from(
 
             if mapping {
                 let v2 = JS_Call(
-                    ctx,
+                    ctx.as_mut().unwrap(),
                     mapfn,
                     this_arg,
                     2,
@@ -2546,7 +2558,12 @@ pub unsafe fn js_array_of(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let obj = if JS_IsConstructor(ctx, this_val) {
-        JS_CallConstructor(ctx, this_val, 1, [JSValue::from_i32(argc)].as_mut_ptr())
+        JS_CallConstructor(
+            ctx.as_mut().unwrap(),
+            this_val,
+            1,
+            [JSValue::from_i32(argc)].as_mut_ptr(),
+        )
     } else {
         JS_NewArray(ctx)
     };

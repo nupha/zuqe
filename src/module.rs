@@ -1538,7 +1538,13 @@ pub unsafe fn js_inner_module_linking(
         }
 
         // initialize the global variables
-        let ret_val = JS_Call(ctx, (*m).func_obj, JS_TRUE, 0, std::ptr::null_mut());
+        let ret_val = JS_Call(
+            ctx.as_mut().unwrap(),
+            (*m).func_obj,
+            JS_TRUE,
+            0,
+            std::ptr::null_mut(),
+        );
         if JS_IsException(ret_val) {
             return -1;
         }

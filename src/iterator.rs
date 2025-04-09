@@ -74,7 +74,7 @@ pub unsafe fn JS_GetIterator2(
     obj: JSValueConst,
     method: JSValueConst,
 ) -> JSValue {
-    let enum_obj = JS_Call(ctx, method, obj, 0, std::ptr::null_mut());
+    let enum_obj = JS_Call(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut());
     if JS_IsException(enum_obj) {
         return enum_obj;
     }
@@ -164,7 +164,7 @@ pub unsafe fn JS_IteratorNext2(
         }
     }
 
-    let obj = JS_Call(ctx, method, enum_obj, argc, argv);
+    let obj = JS_Call(ctx.as_mut().unwrap(), method, enum_obj, argc, argv);
     if JS_IsException(obj) {
         *pdone = 0;
         return JSValue::EXCEPTION;
@@ -237,7 +237,13 @@ pub unsafe fn JS_IteratorClose(
         res = -1;
     } else {
         if !method.is_undefined_or_null() {
-            let ret = JS_CallFree(ctx, method, enum_obj, 0, std::ptr::null_mut());
+            let ret = JS_CallFree(
+                ctx.as_mut().unwrap(),
+                method,
+                enum_obj,
+                0,
+                std::ptr::null_mut(),
+            );
             if !is_exception_pending {
                 if ret.is_exception() {
                     res = -1;
@@ -594,7 +600,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
         }
 
         // must check for timeout to avoid infinite loop
-        if js_poll_interrupts(ctx) != 0 {
+        if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
             JS_FreeValue(ctx, obj1);
             return -1;
         }

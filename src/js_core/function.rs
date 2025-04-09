@@ -29,9 +29,21 @@ pub unsafe fn js_function_call(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if argc <= 0 {
-        JS_Call(ctx, this_val, JS_UNDEFINED, 0, std::ptr::null_mut())
+        JS_Call(
+            ctx.as_mut().unwrap(),
+            this_val,
+            JS_UNDEFINED,
+            0,
+            std::ptr::null_mut(),
+        )
     } else {
-        JS_Call(ctx, this_val, *argv.offset(0), argc - 1, argv.offset(1))
+        JS_Call(
+            ctx.as_mut().unwrap(),
+            this_val,
+            *argv.offset(0),
+            argc - 1,
+            argv.offset(1),
+        )
     }
 }
 

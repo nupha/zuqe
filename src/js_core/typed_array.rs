@@ -319,7 +319,7 @@ pub unsafe fn js_typed_array_create(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let ret = JS_CallConstructor(ctx, ctor, argc, argv);
+    let ret = JS_CallConstructor(ctx.as_mut().unwrap(), ctor, argc, argv);
     if ret.is_exception() {
         return ret;
     }

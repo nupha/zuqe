@@ -364,7 +364,7 @@ pub unsafe fn js_object_groupBy(
         }
 
         let key = JS_Call(
-            ctx,
+            ctx.as_mut().unwrap(),
             cb,
             (*ctx).global_obj,
             2,
@@ -1330,7 +1330,13 @@ pub unsafe fn js_object_toLocaleString(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    JS_Invoke(ctx, this_val, JS_ATOM_toString, 0, std::ptr::null_mut())
+    JS_Invoke(
+        ctx.as_mut().unwrap(),
+        this_val,
+        JS_ATOM_toString,
+        0,
+        std::ptr::null_mut(),
+    )
 }
 
 pub unsafe fn js_object_valueOf(
@@ -1403,7 +1409,7 @@ pub unsafe fn js_object_isPrototypeOf(
         }
 
         // avoid infinite loop (possible with proxies)
-        if js_poll_interrupts(ctx) != 0 {
+        if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
             JS_FreeValue(ctx, v1);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
@@ -1607,7 +1613,7 @@ pub unsafe fn js_object___lookupGetter__(
         }
 
         // avoid infinite loop (possible with proxies)
-        if js_poll_interrupts(ctx) != 0 {
+        if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
             JS_FreeAtom(ctx, prop);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
