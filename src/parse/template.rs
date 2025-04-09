@@ -5,10 +5,8 @@ use crate::{
     parse::emit::{emit_atom_dup, emit_op, emit_push_const, emit_u16},
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
-        object::{
-            seal_template_obj, JS_DefinePropertyValueUint32, JS_PROP_ENUMERABLE, JS_PROP_THROW,
-        },
-        JS_DupValue, JS_FreeValue, StringContent, JS_UNDEFINED, JS_VALUE_GET_STRING,
+        object::{seal_template_obj, JS_PROP_ENUMERABLE, JS_PROP_THROW},
+        JSValue, JS_FreeValue, StringContent, JS_UNDEFINED,
     },
 };
 
@@ -124,16 +122,12 @@ impl JSParseState {
             let mut cooked = self.token;
 
             if call {
-                if JS_DefinePropertyValueUint32(
-                    ctx,
-                    raw_array,
+                raw_array.define_property_value_u32(
+                    ctx.as_mut().unwrap(),
                     depth as _,
-                    JS_DupValue(ctx, self.token.u.str.str),
+                    self.token.u.str.str.dup(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
-                ) < 0
-                {
-                    return Err(-1);
-                }
+                )?;
 
                 // re-parse the string with escape sequences but do not throw a
                 // syntax error if it contains invalid sequences
@@ -141,28 +135,24 @@ impl JSParseState {
                     .parse_string('`', false, p, Some(&mut cooked), &mut p)
                     .is_err()
                 {
-                    cooked.u.str.str = JS_UNDEFINED;
+                    cooked.u.str.str = JSValue::UNDEFINED;
                 }
 
-                if JS_DefinePropertyValueUint32(
-                    ctx,
-                    template_object,
+                template_object.define_property_value_u32(
+                    ctx.as_mut().unwrap(),
                     depth as _,
                     cooked.u.str.str,
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
-                ) < 0
-                {
-                    return Err(-1);
-                }
+                )?;
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
                 JS_FreeValue(ctx, self.token.u.str.str);
-                self.token.u.str.str = JS_UNDEFINED;
+                self.token.u.str.str = JSValue::UNDEFINED;
 
                 self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
-                let str = JS_VALUE_GET_STRING(cooked.u.str.str);
-                if (*str).len() != 0 || depth == 0 {
+                let str = cooked.u.str.str.string();
+                if depth == 0 || !str.is_empty() {
                     let ret = emit_push_const(self, cooked.u.str.str, true);
                     JS_FreeValue(self.ctx, cooked.u.str.str);
                     if ret != 0 {

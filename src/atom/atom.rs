@@ -78,8 +78,8 @@ pub struct JSAtom(pub(crate) u32);
 impl JSAtom {
     /// create atom for u32 integer
     #[inline(always)]
-    pub fn from_u32(n: u32) -> JSAtom {
-        JSAtom(n | JS_ATOM_TAG_INT)
+    pub fn from_u32(n: u32) -> Self {
+        Self(n | JS_ATOM_TAG_INT)
     }
 
     /// test if the atom is int type
@@ -587,7 +587,7 @@ pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
     } else if tag == JSTag::Symbol as i32 {
         js_symbol_to_atom(ctx, val).dup((*ctx).rt())
     } else {
-        let tmp = JS_ToPropertyKey(ctx, val); // should be freed inside this function
+        let tmp = JS_ToPropertyKey(ctx, val);
         if tmp.is_exception() {
             JS_ATOM_NULL
         } else if JS_VALUE_GET_TAG(tmp) == JSTag::Symbol as i32 {
@@ -595,7 +595,7 @@ pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
         } else {
             let a = (*ctx)
                 .rt_mut()
-                .add_atom_jsstring(Rc::from_raw(JS_VALUE_GET_STRING(tmp)));
+                .add_atom_jsstring(Rc::from_raw(tmp.string()));
 
             a.unwrap_or(JS_ATOM_NULL)
         }

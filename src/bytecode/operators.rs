@@ -19,12 +19,11 @@ use crate::{
     value::{
         object::{
             js_get_length32, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal, JS_GetProperty,
-            JS_GetPrototypeFree, JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf,
-            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM,
-            JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_WRITABLE,
+            JS_GetOwnPropertyInternal, JS_GetProperty, JS_GetPrototypeFree, JS_IsCFunction,
+            JS_IsConstructor, JS_IsInstanceOf, JS_NewObjectProto, JS_NewObjectProtoClass,
+            JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
@@ -470,7 +469,15 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
     if let Some(lst) = src_fast_array_values {
         // fast path
         for v in lst {
-            if JS_DefinePropertyValueUint32(ctx, dest, pos as _, (*v).dup(), JS_PROP_C_W_E) < 0 {
+            if dest
+                .define_property_value_u32(
+                    ctx.as_mut().unwrap(),
+                    pos as _,
+                    (*v).dup(),
+                    JS_PROP_C_W_E,
+                )
+                .is_err()
+            {
                 fail!();
             }
             pos += 1;
@@ -488,7 +495,10 @@ pub unsafe fn js_append_enumerate(ctx: *mut JSContext, sp: *mut JSValue) -> i32 
                 break; // value is JSValue::UNDEFINED
             }
 
-            if JS_DefinePropertyValueUint32(ctx, dest, pos as _, value, JS_PROP_C_W_E) < 0 {
+            if dest
+                .define_property_value_u32(ctx.as_mut().unwrap(), pos as _, value, JS_PROP_C_W_E)
+                .is_err()
+            {
                 fail!();
             }
 

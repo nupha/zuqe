@@ -8,13 +8,13 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSPropertyDescriptor, JS_DefinePropertyDesc, JS_DefinePropertyValueValue,
-            JS_GetOwnPropertyInternal, JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree,
-            JS_IsExtensible, JS_NewObject, JS_NewObjectProto, JS_PreventExtensions,
-            JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
-            JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
+            js_free_desc, JSPropertyDescriptor, JS_DefinePropertyDesc, JS_GetOwnPropertyInternal,
+            JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject,
+            JS_NewObjectProto, JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject,
+            JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
@@ -1146,11 +1146,19 @@ pub unsafe fn js_object_fromEntries(
             return JSValue::EXCEPTION;
         }
 
-        if JS_DefinePropertyValueValue(ctx, obj, key, value, JS_PROP_C_W_E | JS_PROP_THROW) < 0 {
+        if obj
+            .define_property_value_value(
+                ctx.as_mut().unwrap(),
+                key,
+                value,
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )
+            .is_err()
+        {
             JS_FreeValue(ctx, item);
-            if JS_IsObject(iter) {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, iter, true);
+                JS_IteratorClose(ctx, iter, true).expect("TODO");
             }
             JS_FreeValue(ctx, next_method);
             JS_FreeValue(ctx, iter);

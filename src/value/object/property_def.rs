@@ -32,11 +32,9 @@ impl JSValue {
        JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_HAS_ENUMERABLE,
        JS_PROP_THROW, JS_PROP_NO_EXOTIC.
        If JS_PROP_THROW is set, return an exception instead of FALSE.
-       if JS_PROP_NO_EXOTIC is set, do not call the exotic
-       define_own_property callback.
+       if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
-    /// Note: property `val` is duplicated inside. `prop` keeps ref count unchanged after calling.
-
+    /// Both `prop`, `val`, `getter`, `setter` keep ref count unchanged after calling.
     pub unsafe fn define_property(
         self,
         ctx: &mut JSContext,
@@ -99,7 +97,7 @@ impl JSValue {
                             std::ptr::null_mut()
                         };
 
-                        if ((*prs).flags() & JS_PROP_TMASK) != JS_PROP_GETSET {
+                        if prs.flags() & JS_PROP_TMASK != JS_PROP_GETSET {
                             if (*p).js_shape_prepare_update(ctx, &mut (prs as *mut JSShapeProperty))
                                 != 0
                             {
@@ -496,7 +494,7 @@ impl JSValue {
     }
 
     /// shortcut to add or redefine a new property value.
-    /// Note: property value is consumed.
+    /// Note: `prop` keep ref count unchanged, `val` is consumed.
     pub fn define_property_value(
         self,
         ctx: &mut JSContext,
@@ -511,7 +509,7 @@ impl JSValue {
             self.define_property(
                 ctx,
                 prop,
-                val, // will be duplicated inside
+                val, // keep ref count unchanged
                 JSValue::UNDEFINED,
                 JSValue::UNDEFINED,
                 flags
@@ -540,6 +538,7 @@ impl JSValue {
         ret
     }
 
+    /// Note: `val` is consumed.
     pub fn define_property_value_str(
         self,
         ctx: &mut JSContext,
@@ -548,6 +547,64 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = ctx.create_atom(prop)?;
+        let ret = self.define_property_value(ctx, atom, val, flags);
+        unsafe {
+            JS_FreeAtom(ctx, atom);
+        }
+        ret
+    }
+
+    /// Note: both `prop` and `val` are consumed.
+    pub fn define_property_value_value(
+        self,
+        ctx: &mut JSContext,
+        prop: JSValue,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let atom = unsafe {
+            let a = JS_ValueToAtom(ctx, prop);
+            JS_FreeValue(ctx, prop);
+            a
+        };
+
+        if atom == JS_ATOM_NULL {
+            unsafe {
+                JS_FreeValue(ctx, val);
+            }
+            return Err(-1);
+        }
+
+        let ret = self.define_property_value(ctx, atom, val, flags);
+        unsafe {
+            JS_FreeAtom(ctx, atom);
+        }
+        ret
+    }
+
+    /// Note: `val` is consumed.
+    #[inline(always)]
+    pub fn define_property_value_u32(
+        self,
+        ctx: &mut JSContext,
+        idx: u32,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.define_property_value(ctx, JSAtom::from_u32(idx), val, flags)
+    }
+
+    /// Note: `val` is consumed.
+    #[inline(always)]
+    pub fn define_property_value_i64(
+        self,
+        ctx: &mut JSContext,
+        idx: i64,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        // self.define_property_value_value(ctx, JSValue::from_i64(idx), val, flags)
+        let atom = ctx.rt_mut().add_atom_i64(idx);
         let ret = self.define_property_value(ctx, atom, val, flags);
         unsafe {
             JS_FreeAtom(ctx, atom);
@@ -615,6 +672,7 @@ pub unsafe fn JS_DefinePropertyValueStr(
         .map_or(-1, |b| b as i32)
 }
 
+#[deprecated(note = "use JSValue::defined_property_value_value() instead")]
 pub unsafe fn JS_DefinePropertyValueValue(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -622,15 +680,9 @@ pub unsafe fn JS_DefinePropertyValueValue(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    let atom = JS_ValueToAtom(ctx, prop);
-    JS_FreeValue(ctx, prop);
-    if unlikely(atom == JS_ATOM_NULL) {
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-    let ret = JS_DefinePropertyValue(ctx, this_obj, atom, val, flags);
-    JS_FreeAtom(ctx, atom);
-    return ret;
+    this_obj
+        .define_property_value_value(ctx.as_mut().unwrap(), prop, val, flags)
+        .map_or(-1, |b| b as i32)
 }
 
 pub unsafe fn JS_CreateDataPropertyUint32(
@@ -649,6 +701,7 @@ pub unsafe fn JS_CreateDataPropertyUint32(
     )
 }
 
+#[deprecated(note = "use JSValue::defined_property_value_u32() instead")]
 pub unsafe fn JS_DefinePropertyValueUint32(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -656,9 +709,12 @@ pub unsafe fn JS_DefinePropertyValueUint32(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    JS_DefinePropertyValueValue(ctx, this_obj, JSValue::from_u32(idx), val, flags)
+    this_obj
+        .define_property_value_u32(ctx.as_mut().unwrap(), idx, val, flags)
+        .map_or(-1, |b| b as i32)
 }
 
+#[deprecated(note = "use JSValue::defined_property_value_i64() instead")]
 pub unsafe fn JS_DefinePropertyValueInt64(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -666,7 +722,9 @@ pub unsafe fn JS_DefinePropertyValueInt64(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    JS_DefinePropertyValueValue(ctx, this_obj, JSValue::from_i64(idx), val, flags)
+    this_obj
+        .define_property_value_i64(ctx.as_mut().unwrap(), idx, val, flags)
+        .map_or(-1, |b| b as i32)
 }
 
 pub unsafe fn JS_DefinePropertyDesc(

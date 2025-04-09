@@ -23,9 +23,8 @@ use crate::{
     value::{
         check_exception_free,
         object::{
-            js_get_length64, JS_CreateDataPropertyUint32, JS_DefinePropertyValueInt64,
-            JS_GetProperty, JS_IsConstructor, JS_IsFunction, JS_ToObject, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_THROW,
+            js_get_length64, JS_CreateDataPropertyUint32, JS_GetProperty, JS_IsConstructor,
+            JS_IsFunction, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
@@ -457,13 +456,14 @@ pub unsafe fn js_array_concat(
             for k in 0..len {
                 match e.try_get_property_i64(ctx.as_mut().unwrap(), k) {
                     Ok(Some(val)) => {
-                        if JS_DefinePropertyValueInt64(
-                            ctx,
-                            arr,
-                            n,
-                            val,
-                            JS_PROP_C_W_E | JS_PROP_THROW,
-                        ) < 0
+                        if arr
+                            .define_property_value_i64(
+                                ctx.as_mut().unwrap(),
+                                n,
+                                val,
+                                JS_PROP_C_W_E | JS_PROP_THROW,
+                            )
+                            .is_err()
                         {
                             JS_FreeValue(ctx, arr);
                             JS_FreeValue(ctx, obj);
@@ -489,13 +489,20 @@ pub unsafe fn js_array_concat(
                 return JSValue::EXCEPTION;
             }
 
-            if JS_DefinePropertyValueInt64(ctx, arr, n, e.dup(), JS_PROP_C_W_E | JS_PROP_THROW) < 0
+            if arr
+                .define_property_value_i64(
+                    ctx.as_mut().unwrap(),
+                    n,
+                    e.dup(),
+                    JS_PROP_C_W_E | JS_PROP_THROW,
+                )
+                .is_err()
             {
-                // C2RS: goto exception replaced with early return logic
                 JS_FreeValue(ctx, arr);
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
+
             n += 1;
         }
     }
@@ -668,8 +675,14 @@ pub unsafe fn js_array_every(
                     }
                 }
                 special_map => {
-                    if JS_DefinePropertyValueInt64(ctx, ret, k, res, JS_PROP_C_W_E | JS_PROP_THROW)
-                        < 0
+                    if ret
+                        .define_property_value_i64(
+                            ctx.as_mut().unwrap(),
+                            k,
+                            res,
+                            JS_PROP_C_W_E | JS_PROP_THROW,
+                        )
+                        .is_err()
                     {
                         JS_FreeValue(ctx, ret);
                         JS_FreeValue(ctx, obj);
@@ -693,13 +706,14 @@ pub unsafe fn js_array_every(
                 }
                 s if s == special_filter || s == special_filter | special_TA => {
                     if JS_ToBoolFree(ctx, res).unwrap_or(true) {
-                        if JS_DefinePropertyValueInt64(
-                            ctx,
-                            ret,
-                            n,
-                            val.dup(),
-                            JS_PROP_C_W_E | JS_PROP_THROW,
-                        ) < 0
+                        if ret
+                            .define_property_value_i64(
+                                ctx.as_mut().unwrap(),
+                                n,
+                                val.dup(),
+                                JS_PROP_C_W_E | JS_PROP_THROW,
+                            )
+                            .is_err()
                         {
                             JS_FreeValue(ctx, ret);
                             JS_FreeValue(ctx, obj);
@@ -2236,13 +2250,14 @@ unsafe fn JS_FlattenIntoArray(
                     return -1;
                 }
 
-                if JS_DefinePropertyValueInt64(
-                    ctx,
-                    target,
-                    targetIndex,
-                    element,
-                    JS_PROP_C_W_E | JS_PROP_THROW,
-                ) < 0
+                if target
+                    .define_property_value_i64(
+                        ctx.as_mut().unwrap(),
+                        targetIndex,
+                        element,
+                        JS_PROP_C_W_E | JS_PROP_THROW,
+                    )
+                    .is_err()
                 {
                     return -1;
                 }
@@ -2377,8 +2392,8 @@ pub unsafe fn js_array_from(
 
     macro_rules! exception_close {
         () => {
-            if !JS_IsUndefined(stack[0]) {
-                JS_IteratorClose(ctx, stack[0], true);
+            if !stack[0].is_undefined() {
+                JS_IteratorClose(ctx, stack[0], true).unwrap();
             }
             exception!();
         };
@@ -2391,7 +2406,7 @@ pub unsafe fn js_array_from(
         };
     }
 
-    if !JS_IsUndefined(iter) {
+    if !iter.is_undefined() {
         JS_FreeValue(ctx, iter);
         r = if JS_IsConstructor(ctx, this_val) {
             JS_CallConstructor(ctx, this_val, 0, std::ptr::null_mut())
@@ -2432,12 +2447,20 @@ pub unsafe fn js_array_from(
                 );
                 JS_FreeValue(ctx, v);
                 v = v2;
-                if JS_IsException(v) {
+                if v.is_exception() {
                     exception_close!();
                 }
             }
 
-            if JS_DefinePropertyValueInt64(ctx, *r, k, v, JS_PROP_C_W_E | JS_PROP_THROW) < 0 {
+            if (*r)
+                .define_property_value_i64(
+                    ctx.as_mut().unwrap(),
+                    k,
+                    v,
+                    JS_PROP_C_W_E | JS_PROP_THROW,
+                )
+                .is_err()
+            {
                 exception_close!();
             }
 
@@ -2489,7 +2512,15 @@ pub unsafe fn js_array_from(
                 }
             }
 
-            if JS_DefinePropertyValueInt64(ctx, *r, i, v, JS_PROP_C_W_E | JS_PROP_THROW) < 0 {
+            if (*r)
+                .define_property_value_i64(
+                    ctx.as_mut().unwrap(),
+                    i,
+                    v,
+                    JS_PROP_C_W_E | JS_PROP_THROW,
+                )
+                .is_err()
+            {
                 exception!();
             }
         }

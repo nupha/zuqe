@@ -67,7 +67,7 @@ impl JSObject {
 
     /// A detailed version of add_property()
     /// `prop` keeps ref count unchanged after calling.
-    /// `val`, `getter` and `setter` keep their ref count unchanged after calling this function
+    /// Both `prop`, `val`, `getter` and `setter` keep ref count unchanged after calling.
     pub unsafe fn create_property(
         &mut self,
         ctx: &mut JSContext,

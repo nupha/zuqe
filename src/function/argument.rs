@@ -6,9 +6,8 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         object::{
-            add_property, js_get_length32, JS_DefinePropertyValueUint32, JS_NewObjectProtoClass,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-            JS_PROP_WRITABLE,
+            add_property, js_get_length32, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_OBJECT,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -131,15 +130,15 @@ pub unsafe fn js_build_mapped_arguments(
 
     // the arguments not mapped to the arguments of the function can be normal properties
     for i in arg_count..argc {
-        if JS_DefinePropertyValueUint32(
-            ctx,
-            val,
-            i as _,
-            JS_DupValue(ctx, *argv.offset(i as isize)),
-            JS_PROP_C_W_E,
-        ) < 0
+        if val
+            .define_property_value_u32(
+                ctx.as_mut().unwrap(),
+                i as _,
+                (*argv.offset(i as isize)).dup(),
+                JS_PROP_C_W_E,
+            )
+            .is_err()
         {
-            // C2RS: goto fail replaced with explicit cleanup and return
             JS_FreeValue(ctx, val);
             return JSValue::EXCEPTION;
         }
@@ -170,19 +169,20 @@ pub unsafe fn js_build_rest(
     argv: *const JSValueConst,
 ) -> JSValue {
     let val = JS_NewArray(ctx);
-    if JS_IsException(val) {
+    if val.is_exception() {
         return val;
     }
 
     for i in first..argc {
-        let ret = JS_DefinePropertyValueUint32(
-            ctx,
-            val,
-            (i - first) as _,
-            JS_DupValue(ctx, *argv.offset(i as isize)),
-            JS_PROP_C_W_E,
-        );
-        if ret < 0 {
+        if val
+            .define_property_value_u32(
+                ctx.as_mut().unwrap(),
+                (i - first) as _,
+                (*argv.offset(i as isize)).dup(),
+                JS_PROP_C_W_E,
+            )
+            .is_err()
+        {
             JS_FreeValue(ctx, val);
             return JSValue::EXCEPTION;
         }
