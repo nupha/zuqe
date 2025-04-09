@@ -8,7 +8,6 @@ use crate::{
     },
     context::{JSContext, JS_DupContext},
     types::unlikely,
-    value::object::find_own_property,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MODULE_NS,
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
@@ -19,11 +18,11 @@ use super::{
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     check_define_prop_flags, get_prop_flags, js_free_desc, js_get_function_name, js_obj_to_desc,
-    js_object_has_name, JSAutoInitIDEnum, JSProperty, JSPropertyDescriptor, JSShapeProperty,
-    JS_AutoInitProperty, JS_IsFunction, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH,
-    JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
+    js_object_has_name, JSAutoInitIDEnum, JSPropertyDescriptor, JSShapeProperty,
+    JS_AutoInitProperty, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+    JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
+    JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK,
+    JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
 impl JSValue {
@@ -758,11 +757,10 @@ pub unsafe fn JS_DefineAutoInitProperty(
 
     let p = JS_VALUE_GET_OBJ(this_obj).as_mut().unwrap();
 
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    if !find_own_property(std::ptr::addr_of_mut!(pr), p, prop).is_null() {
-        // property already exists
-        unreachable!();
-    }
+    debug_assert!(
+        (*p).find_own_property1(prop).is_none(),
+        "auto init property already exists"
+    );
 
     // Specialized CreateProperty
     let pr = p

@@ -21,12 +21,12 @@ use crate::{
 };
 
 use super::{
-    find_own_property, JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_PROP_AUTOINIT,
-    JS_PROP_GETSET, JS_PROP_TMASK, JS_PROP_VARREF,
+    JSPropertyDescriptor, JS_AutoInitProperty, JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_TMASK,
+    JS_PROP_VARREF,
 };
 
 impl JSValue {
-    /// returned value has its ref_count increased by 1.
+    /// Note: returned value ref_count is duplicared.
     pub(crate) unsafe fn get_property_internal(
         self,
         ctx: &mut JSContext,
@@ -82,10 +82,8 @@ impl JSValue {
         }
 
         loop {
-            let mut pr: *mut JSProperty = std::ptr::null_mut();
-            let prs = find_own_property(&mut pr, p, prop);
-            if !prs.is_null() {
-                match (*prs).flags() & JS_PROP_TMASK {
+            if let Some((prs, pr)) = (*p).find_own_property_mut(prop) {
+                match prs.flags() & JS_PROP_TMASK {
                     JS_PROP_GETSET => {
                         return if (*pr).u.getset.getter.is_null() {
                             JSValue::UNDEFINED
@@ -97,9 +95,9 @@ impl JSValue {
                         };
                     }
                     JS_PROP_VARREF => {
-                        let val = *(*pr).u.var_ref.as_ref().unwrap().pvalue;
+                        let val = *pr.u.var_ref.as_ref().unwrap().pvalue;
                         return if JS_IsUninitialized(val) {
-                            JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom)
+                            JS_ThrowReferenceErrorUninitialized(ctx, prs.atom)
                         } else {
                             val.dup()
                         };
@@ -113,14 +111,13 @@ impl JSValue {
                         }
                     }
                     0 => {
-                        return (*pr).u.value.dup();
+                        return pr.u.value.dup();
                     }
                     _ => unreachable!(),
                 }
             }
 
             if (*p).detailed.is_exotic() {
-                // exotic behaviors
                 if (*p).detailed.fast_array() {
                     if prop.is_int_type() {
                         let idx = __JS_AtomToUInt32(prop);
@@ -144,7 +141,7 @@ impl JSValue {
                         }
                     }
                 } else {
-                    let em = (*ctx).rt().class_array[(*p).class_id() as usize].exotic;
+                    let em = ctx.rt().class_array[(*p).class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = (*em).get_property {
                             /* XXX: should pass throw_ref_error */

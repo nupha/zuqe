@@ -36,6 +36,7 @@ impl JSShapeProperty {
     const NEXT_HASH_MASK: u32 = 0x03FF_FFFF; // lower 26-bits
     const FLAGS_MASK: u32 = 0xFC00_0000; // upper 6-bits
 
+    #[inline(always)]
     pub fn flags(&self) -> u32 {
         (self.bitfield & Self::FLAGS_MASK) >> 26
     }

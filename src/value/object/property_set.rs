@@ -21,12 +21,11 @@ use super::{
         JS_ToFloat64Free, JS_ToNumberFree, JS_ToUint8ClampFree, JS_VALUE_GET_INT,
         JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    find_own_property,
     obj::JSObject,
-    JSProperty, JSPropertyDescriptor, JS_AutoInitProperty, JS_GetOwnPropertyInternal,
-    JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH,
-    JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
+    JSPropertyDescriptor, JS_AutoInitProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT,
+    JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW,
+    JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
 impl JSValue {
@@ -123,16 +122,14 @@ impl JSValue {
         loop {
             match state {
                 State::FastPath => {
-                    // when self == this_obj
-                    let mut pr: *mut JSProperty = std::ptr::null_mut();
-                    let prs = find_own_property(&mut pr, p1, prop);
-                    if !prs.is_null() {
-                        match (*prs).flags() {
+                    // in case self == this_obj
+                    if let Some((prs, pr)) = (*p1).find_own_property_mut(prop) {
+                        match prs.flags() {
                             f if f & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH)
                                 == JS_PROP_WRITABLE =>
                             {
                                 // fast case
-                                set_value(ctx, &mut (*pr).u.value, val);
+                                set_value(ctx, &mut pr.u.value, val);
                                 return Ok(true);
                             }
                             f if f & JS_PROP_LENGTH != 0 => {
@@ -144,7 +141,7 @@ impl JSValue {
                             f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
                                 return match call_setter(
                                     ctx,
-                                    (*pr).u.getset.setter,
+                                    pr.u.getset.setter,
                                     this_obj,
                                     val,
                                     flags,
@@ -163,7 +160,7 @@ impl JSValue {
                                     state = State::ErrReadOnly;
                                     continue;
                                 }
-                                set_value(ctx, (*(*pr).u.var_ref).pvalue, val);
+                                set_value(ctx, (*pr.u.var_ref).pvalue, val);
                                 return Ok(true);
                             }
                             f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {
@@ -184,29 +181,23 @@ impl JSValue {
                     }
                 }
                 State::TrySetter => {
-                    let mut pr: *mut JSProperty = std::ptr::null_mut();
-                    let prs = find_own_property(&mut pr, p1, prop);
-                    if !prs.is_null() {
-                        if (*prs).flags() & JS_PROP_TMASK == JS_PROP_GETSET {
-                            return match call_setter(
-                                ctx,
-                                (*pr).u.getset.setter,
-                                this_obj,
-                                val,
-                                flags,
-                            ) {
+                    if let Some((prs, pr)) = (*p1).find_own_property_mut(prop) {
+                        let pr_flags = prs.flags();
+                        if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
+                            return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags)
+                            {
                                 0 => Ok(false),
                                 1 => Ok(true),
                                 -1 => Err(-1),
                                 _ => unreachable!(),
                             };
-                        } else if (*prs).flags() & JS_PROP_TMASK == JS_PROP_AUTOINIT {
+                        } else if pr_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
                             // Instantiate property and retry (potentially useless)
                             if JS_AutoInitProperty(ctx, p1, prop, pr, prs) != 0 {
                                 return Err(-1);
                             }
                             continue; // state keep current
-                        } else if (*prs).flags() & JS_PROP_WRITABLE == 0 {
+                        } else if pr_flags & JS_PROP_WRITABLE == 0 {
                             state = State::ErrReadOnly;
                             continue;
                         }
@@ -251,7 +242,7 @@ impl JSValue {
                                 }
                             }
                         } else {
-                            let em = (*ctx).rt().class_array[(*p1).class_id() as usize].exotic;
+                            let em = ctx.rt().class_array[(*p1).class_id() as usize].exotic;
                             if !em.is_null() {
                                 if let Some(cb) = (*em).set_property {
                                     /* set_property can free the prototype */
