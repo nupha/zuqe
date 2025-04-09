@@ -2363,7 +2363,7 @@ pub unsafe fn js_array_from(
 
     if argc > 1 {
         mapfn = *argv.offset(1);
-        if !JS_IsUndefined(mapfn) {
+        if !mapfn.is_undefined() {
             if check_function(ctx, mapfn).is_err() {
                 return JSValue::EXCEPTION;
             }
@@ -2375,8 +2375,8 @@ pub unsafe fn js_array_from(
         }
     }
 
-    let iter = JS_GetProperty(ctx, items, JS_ATOM_Symbol_iterator);
-    if JS_IsException(iter) {
+    let iter = items.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_iterator);
+    if iter.is_exception() {
         return JSValue::EXCEPTION;
     }
 
@@ -2415,7 +2415,7 @@ pub unsafe fn js_array_from(
 
         stack[0] = items.dup();
 
-        if js_for_of_start(ctx, &mut stack[1], false) != 0 {
+        if js_for_of_start(ctx.as_mut().unwrap(), &mut stack[1], false) != 0 {
             exception!();
         }
 
