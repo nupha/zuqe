@@ -1,5 +1,3 @@
-use smallvec::SmallVec;
-
 use crate::{
     array::JS_NewArray,
     atom::{JSAtom, JSAtomKindEnum, JS_AtomIsArrayIndex, JS_FreeAtom},
@@ -253,10 +251,18 @@ impl JSObject {
         Ok(lst.into_boxed_slice())
     }
 
-    /// Collect own property names of `self` object, return an array of keys, values, or key-values.
-    /// Result sorting order refer to that of `get_own_property_names_internal`.
-    /// returns Err when fail.
-    /// Equivelent to js expression: Object.keys, Object.values, Object.entries
+    /// Gets an array containing object properties based on specified iteration mode
+    ///
+    /// # Arguments
+    /// * `ctx` - JavaScript context
+    /// * `flags` - Property filter flags
+    /// * `kind` - Iteration mode (keys, values, or entries)
+    ///
+    /// # Returns
+    /// * Array of property keys, values or [key,value] pairs
+    /// * Exception if operation fails
+    ///
+    /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_names2(
         &self,
         ctx: &mut JSContext,

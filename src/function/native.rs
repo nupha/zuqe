@@ -9,13 +9,11 @@ use crate::{
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
-            JS_GetOpaque, JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass,
-            JS_PROP_CONFIGURABLE,
+            JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
         },
         JSValue, JSValueConst, JS_FreeValueRT, JS_IsException, JS_DEF_ALIAS, JS_DEF_CFUNC,
         JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
-        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_UNDEFINED,
-        JS_VALUE_GET_OBJ,
+        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_VALUE_GET_OBJ,
     },
     JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
 };
@@ -290,21 +288,17 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                 .create_atom((*e).u.alias.name.to_string_lossy().as_ref())
                 .expect("TODO");
 
-            match (*e).u.alias.base {
-                -1 => {
-                    val = JS_GetProperty(ctx, obj, atom1);
-                }
-                0 => {
-                    val = JS_GetProperty(ctx, (*ctx).global_obj, atom1);
-                }
-                1 => {
-                    val = JS_GetProperty(ctx, (*ctx).class_proto[JS_CLASS_ARRAY as usize], atom1);
-                }
+            val = match (*e).u.alias.base {
+                -1 => obj.get_property(ctx.as_mut().unwrap(), atom1),
+                0 => (*ctx).global_obj.get_property(ctx.as_mut().unwrap(), atom1),
+                1 => (*ctx).class_proto[JS_CLASS_ARRAY as usize]
+                    .get_property(ctx.as_mut().unwrap(), atom1),
                 _ => {
                     unreachable!(); // abort();
                 }
-            }
+            };
             JS_FreeAtom(ctx, atom1);
+
             if atom == JS_ATOM_Symbol_toPrimitive {
                 // Symbol.toPrimitive functions are not writable
                 prop_flags = JS_PROP_CONFIGURABLE as u8;
@@ -356,7 +350,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                     (*e).magic,
                 )
             } else {
-                JS_UNDEFINED
+                JSValue::UNDEFINED
             };
 
             let setter = if let Some(t) = (*e).u.getset.set {
@@ -379,7 +373,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                     (*e).magic,
                 )
             } else {
-                JS_UNDEFINED
+                JSValue::UNDEFINED
             };
 
             JS_DefinePropertyGetSet(ctx, obj, atom, getter, setter, prop_flags as _);
@@ -395,7 +389,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
             val = JSValue::from_f64_as_is((*e).u.f64);
         }
         JS_DEF_PROP_UNDEFINED => {
-            val = JS_UNDEFINED;
+            val = JSValue::UNDEFINED;
         }
         JS_DEF_PROP_STRING | JS_DEF_OBJECT => {
             JS_DefineAutoInitProperty(

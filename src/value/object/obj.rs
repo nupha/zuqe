@@ -33,16 +33,15 @@ use crate::{
 use super::{
     super::{
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_DupValue,
-        JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException, JS_IsNull,
-        JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree,
+        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     find_hashed_shape_proto, free_property, js_dup_shape, js_free_desc, js_free_shape,
     js_new_shape, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
-    JS_GetOwnPropertyInternal, JS_GetProperty, JS_IsExtensible, JS_NewObjectFromShape,
-    JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK,
-    JS_PROP_WRITABLE,
+    JS_GetOwnPropertyInternal, JS_IsExtensible, JS_NewObjectFromShape, JS_GPN_STRING_MASK,
+    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
+    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 #[repr(C)]
@@ -760,26 +759,26 @@ pub unsafe fn JS_IsInstanceOf(
     val: JSValueConst,
     obj: JSValueConst,
 ) -> Result<bool, i32> {
-    if !JS_IsObject(obj) {
+    if !obj.is_object() {
         ctx.as_mut()
             .unwrap()
             .JS_ThrowTypeError(c"invalid 'instanceof' right operand");
         return Err(-1);
     }
 
-    let method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_hasInstance);
-    if JS_IsException(method) {
+    let method = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_hasInstance);
+    if method.is_exception() {
         return Err(-1);
     }
 
-    if !JS_IsNull(method) && !JS_IsUndefined(method) {
+    if !method.is_undefined_or_null() {
         let mut val = val;
         let ret = JS_CallFree(ctx, method, obj, 1, &mut val);
         return JS_ToBoolFree(ctx, ret);
     }
 
     // legacy case
-    if !JS_IsFunction(ctx, obj) {
+    if !obj.is_function(ctx.as_ref().unwrap()) {
         ctx.as_mut()
             .unwrap()
             .JS_ThrowTypeError(c"invalid 'instanceof' right operand");
@@ -794,7 +793,7 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     val: JSValueConst,
     obj: JSValueConst,
 ) -> Result<bool, i32> {
-    if !JS_IsFunction(ctx, obj) {
+    if !obj.is_function(ctx.as_ref().unwrap()) {
         return Ok(false);
     }
 
@@ -808,7 +807,7 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
         return Ok(false);
     }
-    let obj_proto = JS_GetProperty(ctx, obj, JS_ATOM_prototype);
+    let obj_proto = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
     if JS_VALUE_GET_TAG(obj_proto) != JS_TAG_OBJECT {
         if !obj_proto.is_exception() {
             ctx.as_mut()
@@ -1128,29 +1127,29 @@ pub unsafe fn JS_SpeciesConstructor(
     obj: JSValueConst,
     defaultConstructor: JSValueConst,
 ) -> JSValue {
-    if !JS_IsObject(obj) {
+    if !obj.is_object() {
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
 
-    let ctor = JS_GetProperty(ctx, obj, JS_ATOM_constructor);
-    if JS_IsException(ctor) {
+    let ctor = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
+    if ctor.is_exception() {
         return ctor;
     }
-    if JS_IsUndefined(ctor) {
+    if ctor.is_undefined() {
         return defaultConstructor.dup();
     }
-    if !JS_IsObject(ctor) {
+    if !ctor.is_object() {
         JS_FreeValue(ctx, ctor);
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
 
-    let species = JS_GetProperty(ctx, ctor, JS_ATOM_Symbol_species);
+    let species = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_species);
     JS_FreeValue(ctx, ctor);
-    if JS_IsException(species) {
+    if species.is_exception() {
         return species;
     }
 
-    if JS_IsUndefined(species) || JS_IsNull(species) {
+    if species.is_undefined_or_null() {
         return defaultConstructor.dup();
     }
 

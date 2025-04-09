@@ -8,9 +8,8 @@ use crate::{
     mem::{js_malloc, js_malloc_typed},
     types::init_list_head,
     value::{
-        object::{JS_GetOpaque2, JS_GetProperty, JS_IsFunction, JS_SetOpaque},
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsNull, JS_IsObject,
-        JS_IsUndefined, JS_UNDEFINED,
+        object::{JS_GetOpaque2, JS_SetOpaque},
+        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
     },
     JS_CLASS_MAP,
 };
@@ -71,17 +70,20 @@ pub unsafe fn js_map_constructor(
     let arr = if argc > 0 {
         *argv.offset(0)
     } else {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     };
 
-    if !JS_IsUndefined(arr) && !JS_IsNull(arr) {
-        let adder = JS_GetProperty(ctx, obj, if is_set { JS_ATOM_add } else { JS_ATOM_set });
-        if JS_IsException(adder) {
+    if !arr.is_undefined_or_null() {
+        let adder = obj.get_property(
+            ctx.as_mut().unwrap(),
+            if is_set { JS_ATOM_add } else { JS_ATOM_set },
+        );
+        if adder.is_exception() {
             JS_FreeValue(ctx, adder);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
-        if !JS_IsFunction(ctx, adder) {
+        if !adder.is_function(ctx.as_ref().unwrap()) {
             ctx.as_mut()
                 .unwrap()
                 .JS_ThrowTypeError(c"set/add is not a function");
@@ -92,8 +94,8 @@ pub unsafe fn js_map_constructor(
         }
 
         let iter = JS_GetIterator(ctx, arr, false);
-        if JS_IsException(iter) {
-            if JS_IsObject(iter) {
+        if iter.is_exception() {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, iter, true);
             }
@@ -103,9 +105,9 @@ pub unsafe fn js_map_constructor(
             return JSValue::EXCEPTION;
         }
 
-        let next_method = JS_GetProperty(ctx, iter, JS_ATOM_next);
-        if JS_IsException(next_method) {
-            if JS_IsObject(iter) {
+        let next_method = iter.get_property(ctx.as_mut().unwrap(), JS_ATOM_next);
+        if next_method.is_exception() {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, iter, true);
             }
@@ -119,7 +121,7 @@ pub unsafe fn js_map_constructor(
         loop {
             let mut done = false;
             let item = JS_IteratorNext(ctx, iter, next_method, 0, std::ptr::null_mut(), &mut done);
-            if JS_IsException(item) {
+            if item.is_exception() {
                 fail!(iter, next_method, adder);
             }
 
@@ -130,13 +132,13 @@ pub unsafe fn js_map_constructor(
 
             let ret = if is_set {
                 let r = JS_Call(ctx, adder, obj, 1, [item].as_mut_ptr());
-                if JS_IsException(r) {
+                if r.is_exception() {
                     JS_FreeValue(ctx, item);
                     fail!(iter, next_method, adder);
                 }
                 r
             } else {
-                if !JS_IsObject(item) {
+                if !item.is_object() {
                     (*ctx).JS_ThrowTypeErrorNotAnObject();
                     JS_FreeValue(ctx, item);
                     fail!(iter, next_method, adder);
@@ -195,7 +197,7 @@ pub unsafe fn js_map_get(
     let key = map_normalize_key(ctx, *argv.offset(0));
     let mr = map_find_record(ctx, s, key);
     if mr.is_null() {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     } else {
         JS_DupValue(ctx, (*mr).value)
     }
@@ -219,7 +221,7 @@ pub unsafe fn js_map_set(
     }
 
     let value = if magic & MAGIC_SET != 0 {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     } else {
         *argv.offset(1)
     };

@@ -16,10 +16,10 @@ use crate::{
     stack_frame::JSStackFrame,
     types::{init_list_head, likely, unlikely},
     value::{
-        object::{JSObject, JS_GetOpaque, JS_GetProperty, JS_PROP_THROW, JS_PROP_THROW_STRICT},
+        object::{JSObject, JS_GetOpaque, JS_PROP_THROW, JS_PROP_THROW_STRICT},
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_ToFloat64,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT, SIZEOF_JSVALUE,
+        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT, SIZEOF_JSVALUE,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_OBJECT, JS_MKPTR,
 };
@@ -269,7 +269,7 @@ pub unsafe fn JS_Call(
         ctx,
         func_obj,
         this_obj,
-        JS_UNDEFINED,
+        JSValue::UNDEFINED,
         argc,
         argv,
         JS_CALL_FLAG_COPY_ARGV,
@@ -288,7 +288,7 @@ pub unsafe fn JS_CallFree(
         ctx,
         func_obj,
         this_obj,
-        JS_UNDEFINED,
+        JSValue::UNDEFINED,
         argc,
         argv,
         JS_CALL_FLAG_COPY_ARGV,
@@ -402,8 +402,8 @@ pub unsafe fn JS_Invoke(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let func_obj: JSValue;
-    func_obj = JS_GetProperty(ctx, this_val, atom);
-    if JS_IsException(func_obj) {
+    func_obj = this_val.get_property(ctx.as_mut().unwrap(), atom);
+    if func_obj.is_exception() {
         return func_obj;
     }
     JS_CallFree(ctx, func_obj, this_val, argc, argv)
@@ -457,7 +457,7 @@ pub unsafe fn js_call_c_function(
         }
         // empty slots, if any
         for _ in argc..arg_count as i32 {
-            arr.push(JS_UNDEFINED);
+            arr.push(JSValue::UNDEFINED);
         }
 
         (*sf).arg_count = arg_count as _;
@@ -493,7 +493,7 @@ pub unsafe fn js_call_c_function(
                     if cproto == JSCFunctionEnum::Constructor {
                         exit!(ctx.JS_ThrowTypeError(c"must be called with new"));
                     } else {
-                        this_obj = JS_UNDEFINED;
+                        this_obj = JSValue::UNDEFINED;
                     }
                 }
             }
@@ -510,7 +510,7 @@ pub unsafe fn js_call_c_function(
                     if cproto == JSCFunctionEnum::ConstructorMagic {
                         exit!(ctx.JS_ThrowTypeError(c"must be called with new"));
                     } else {
-                        this_obj = JS_UNDEFINED;
+                        this_obj = JSValue::UNDEFINED;
                     }
                 }
             }
@@ -593,7 +593,7 @@ pub unsafe fn js_c_function_data_call(
                 args[i] = *argv.offset(i as isize);
             }
             for i in argc as usize..s.length as usize {
-                args[i] = JS_UNDEFINED;
+                args[i] = JSValue::UNDEFINED;
             }
 
             (s.func)(

@@ -14,12 +14,12 @@ use crate::{
     },
     value::{
         object::{
-            JS_GetProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
-            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
-        JS_IsEmptyString, JS_IsException, JS_IsObject, JS_IsUndefined, JS_ToStringFree,
-        JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_IsEmptyString, JS_IsObject, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
 };
@@ -489,23 +489,23 @@ pub unsafe fn js_error_toString(
         return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
     }
 
-    let mut name = JS_GetProperty(ctx, this_val, JS_ATOM_name);
-    name = if JS_IsUndefined(name) {
+    let mut name = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_name);
+    name = if name.is_undefined() {
         JS_ATOM_Error.to_value(ctx.as_mut().unwrap(), true)
     } else {
         JS_ToStringFree(ctx, name)
     };
-    if JS_IsException(name) {
+    if name.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let mut msg = JS_GetProperty(ctx, this_val, JS_ATOM_message);
-    if JS_IsUndefined(msg) {
+    let mut msg = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_message);
+    if msg.is_undefined() {
         msg = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
     } else {
         msg = JS_ToStringFree(ctx, msg);
     }
-    if JS_IsException(msg) {
+    if msg.is_exception() {
         JS_FreeValue(ctx, name);
         return JSValue::EXCEPTION;
     }

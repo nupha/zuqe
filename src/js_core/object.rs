@@ -8,16 +8,16 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_GetProperty,
-            JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
+            js_free_desc, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_GetPrototype,
+            JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
             JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
             JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
             JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
             JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_IsNull, JS_IsObject, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
         MAX_SAFE_INTEGER,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
@@ -315,13 +315,12 @@ pub unsafe fn js_object_groupBy(
     }
 
     let iter = JS_GetIterator(ctx, *argv.offset(0), false);
-    if JS_IsException(iter) {
+    if iter.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let next = JS_GetProperty(ctx, iter, JS_ATOM_next);
-    if JS_IsException(next) {
-        // C2RS: goto exception replaced with early return logic
+    let next = iter.get_property(ctx.as_mut().unwrap(), JS_ATOM_next);
+    if next.is_exception() {
         JS_FreeValue(ctx, iter);
         return JSValue::EXCEPTION;
     }
@@ -332,8 +331,7 @@ pub unsafe fn js_object_groupBy(
         JS_NewObjectProto(ctx, JSValue::NULL)
     };
 
-    if JS_IsException(groups) {
-        // C2RS: goto exception replaced with early return logic
+    if groups.is_exception() {
         JS_FreeValue(ctx, iter);
         JS_FreeValue(ctx, next);
         return JSValue::EXCEPTION;
@@ -1077,10 +1075,9 @@ pub unsafe fn js_object_fromEntries(
         return JSValue::EXCEPTION;
     }
 
-    let next_method = JS_GetProperty(ctx, iter, JS_ATOM_next);
-    if JS_IsException(next_method) {
-        // goto fail
-        if JS_IsObject(iter) {
+    let next_method = iter.get_property(ctx.as_mut().unwrap(), JS_ATOM_next);
+    if next_method.is_exception() {
+        if iter.is_object() {
             // close the iterator object, preserving pending exception
             JS_IteratorClose(ctx, iter, true);
         }
@@ -1093,8 +1090,8 @@ pub unsafe fn js_object_fromEntries(
     loop {
         let mut done = false;
         let item = JS_IteratorNext(ctx, iter, next_method, 0, std::ptr::null_mut(), &mut done);
-        if JS_IsException(item) {
-            if JS_IsObject(iter) {
+        if item.is_exception() {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, iter, true);
             }
@@ -1109,12 +1106,10 @@ pub unsafe fn js_object_fromEntries(
             break;
         }
 
-        if !JS_IsObject(item) {
+        if !item.is_object() {
             ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-            // goto fail1
             JS_FreeValue(ctx, item);
-            // goto fail
-            if JS_IsObject(iter) {
+            if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, iter, true);
             }
@@ -1315,12 +1310,12 @@ pub unsafe fn js_object_toString(
             return JSValue::EXCEPTION;
         };
 
-        tag = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_toStringTag);
+        tag = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toStringTag);
         JS_FreeValue(ctx, obj);
-        if JS_IsException(tag) {
+        if tag.is_exception() {
             return JSValue::EXCEPTION;
         }
-        if !JS_IsString(tag) {
+        if !tag.is_string() {
             JS_FreeValue(ctx, tag);
             tag = atom.to_value(ctx.as_mut().unwrap(), true);
         }

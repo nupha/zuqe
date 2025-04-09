@@ -4,7 +4,8 @@ use crate::runtime::JSRuntime;
 
 use super::{JSValue, JS_FreeValueRT};
 
-/// JSValue with ref count management
+/// A reference-counted wrapper for JSValue that provides automatic memory management
+/// and safe access to the underlying JSValue.
 pub struct JSValueRc {
     rt: NonNull<JSRuntime>,
     value: JSValue,
@@ -13,6 +14,7 @@ pub struct JSValueRc {
 impl Deref for JSValueRc {
     type Target = JSValue;
 
+    /// Automatically dereferences to access the inner JSValue
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -20,6 +22,8 @@ impl Deref for JSValueRc {
 }
 
 impl Clone for JSValueRc {
+    /// Dup the inner JSValue
+    #[inline(always)]
     fn clone(&self) -> Self {
         let v = self.value.dup();
         Self {
@@ -30,13 +34,15 @@ impl Clone for JSValueRc {
 }
 
 impl From<JSValueRc> for JSValue {
+    /// Converts JSValueRc to JSValue while resetting the underlying JSValue to undefined
+    #[inline(always)]
     fn from(mut v: JSValueRc) -> Self {
-        // take out inner value, and reset inner value to undefined
         std::mem::replace(&mut v.value, JSValue::UNDEFINED)
     }
 }
 
 impl Drop for JSValueRc {
+    /// Automatically frees associated resources in the JavaScript runtime when JSValueRc is destroyed
     fn drop(&mut self) {
         unsafe {
             JS_FreeValueRT(self.rt.as_mut(), self.value);
@@ -45,6 +51,7 @@ impl Drop for JSValueRc {
 }
 
 impl JSValue {
+    /// Wraps a JSValue into a reference-counted JSValueRc
     #[inline]
     pub fn into_rc(self, rt: &JSRuntime) -> JSValueRc {
         JSValueRc {

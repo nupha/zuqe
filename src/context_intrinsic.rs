@@ -28,10 +28,10 @@ use crate::{
     },
     value::{
         object::{
-            get_proto_obj, js_new_shape2, js_object_seal, JS_GetProperty, JS_NewObject,
-            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
+            get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
+            JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE,
+            JS_PROP_LENGTH, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_NewInt32,
     },
@@ -343,14 +343,12 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
         }
 
         // needed to initialize arguments[Symbol.iterator]
-        (*ctx).array_proto_values = JS_GetProperty(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_ARRAY as usize],
-            JS_ATOM_values,
-        );
+        (*ctx).array_proto_values = (*ctx).class_proto[JS_CLASS_ARRAY as usize]
+            .get_property(ctx.as_mut().unwrap(), JS_ATOM_values);
 
         (*ctx).class_proto[JS_CLASS_ARRAY_ITERATOR as usize] =
             JS_NewObjectProto(ctx, (*ctx).iterator_proto);
+
         JS_SetPropertyFunctionList(
             ctx,
             (*ctx).class_proto[JS_CLASS_ARRAY_ITERATOR as usize],

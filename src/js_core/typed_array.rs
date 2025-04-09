@@ -14,8 +14,8 @@ use crate::{
         get_typed_array, typed_array_init, typed_array_is_detached, typed_array_size_log2,
     },
     value::{
-        object::{js_get_length64, JS_GetOpaque, JS_GetProperty, JS_SpeciesConstructor},
-        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsNull, JS_IsUndefined, JS_ToIndex,
+        object::{js_get_length64, JS_GetOpaque, JS_SpeciesConstructor},
+        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToIndex,
         JS_ToLengthFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
@@ -142,13 +142,12 @@ pub unsafe fn js_typed_array_constructor_obj(
     let size_log2 = typed_array_size_log2(classid as _);
 
     let ret = js_create_from_ctor(ctx, new_target, classid as _);
-    if JS_IsException(ret) {
+    if ret.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let iter = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
-    if JS_IsException(iter) {
-        // C2RS: goto fail replaced with conditional logic
+    let iter = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_iterator);
+    if iter.is_exception() {
         JS_FreeValue(ctx, ret);
         return JSValue::EXCEPTION;
     }
@@ -156,11 +155,11 @@ pub unsafe fn js_typed_array_constructor_obj(
     let arr: JSValue;
     let len: i64;
 
-    if !JS_IsUndefined(iter) && !JS_IsNull(iter) {
+    if !iter.is_undefined_or_null() {
         let mut len1: u32 = 0;
         arr = js_array_from_iterator(ctx, &mut len1 as *mut u32, obj, iter);
         JS_FreeValue(ctx, iter);
-        if JS_IsException(arr) {
+        if arr.is_exception() {
             JS_FreeValue(ctx, ret);
             return JSValue::EXCEPTION;
         }
@@ -176,8 +175,7 @@ pub unsafe fn js_typed_array_constructor_obj(
     }
 
     let buffer = js_array_buffer_constructor1(ctx, JSValue::UNDEFINED, (len as u64) << size_log2);
-    if JS_IsException(buffer) {
-        // C2RS: goto fail replaced with conditional logic
+    if buffer.is_exception() {
         JS_FreeValue(ctx, arr);
         JS_FreeValue(ctx, ret);
         return JSValue::EXCEPTION;
@@ -221,7 +219,7 @@ pub unsafe fn js_typed_array_constructor_ta(
     classid: i32,
 ) -> JSValue {
     let obj = js_create_from_ctor(ctx, new_target, classid as JSClassID);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return obj;
     }
 
@@ -239,7 +237,7 @@ pub unsafe fn js_typed_array_constructor_ta(
     let size_log2 = typed_array_size_log2(classid as _);
 
     let buffer = js_array_buffer_constructor1(ctx, JSValue::UNDEFINED, (len as u64) << size_log2);
-    if JS_IsException(buffer) {
+    if buffer.is_exception() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -322,7 +320,7 @@ pub unsafe fn js_typed_array_create(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let ret = JS_CallConstructor(ctx, ctor, argc, argv);
-    if JS_IsException(ret) {
+    if ret.is_exception() {
         return ret;
     }
 

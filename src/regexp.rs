@@ -5,8 +5,8 @@ use crate::{
     parse::JSParseState,
     runtime::JSRuntime,
     value::{
-        object::JS_GetProperty, JSString, JSValue, JSValueConst, JS_IsException, JS_IsObject,
-        JS_IsUndefined, JS_ToBoolFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_REGEXP,
 };
@@ -140,15 +140,15 @@ pub unsafe fn js_get_regexp(
 }
 
 pub unsafe fn js_is_regexp(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    if !JS_IsObject(obj) {
+    if !obj.is_object() {
         return Ok(false);
     }
 
-    let m = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_match);
-    if JS_IsException(m) {
+    let m = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_match);
+    if m.is_exception() {
         return Err(-1);
     }
-    if !JS_IsUndefined(m) {
+    if !m.is_undefined() {
         return JS_ToBoolFree(ctx, m);
     }
     if !js_get_regexp(ctx, obj, false).is_null() {

@@ -5,16 +5,16 @@ use crate::{
     gc::{JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
     value::{
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
-        JS_IsNull, JS_IsUndefined, HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_TAG_BIG_INT,
-        JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_INT, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_TAG_OBJECT,
-        JS_TAG_STRING, JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
+        HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_TAG_BIG_INT, JS_TAG_BOOL,
+        JS_TAG_EXCEPTION, JS_TAG_INT, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
+        JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
         JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_MKVAL,
 };
 
-use super::object::{JSObject, JS_GetProperty, JS_IsFunction};
+use super::object::JSObject;
 
 #[inline(always)]
 pub fn JS_NewBool(val: bool) -> JSValue {
@@ -35,14 +35,14 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
     hint &= !HINT_FORCE_ORDINARY;
 
     if !force_ordinary {
-        let method = JS_GetProperty(ctx, val, JS_ATOM_Symbol_toPrimitive);
-        if JS_IsException(method) {
+        let method = val.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toPrimitive);
+        if method.is_exception() {
             return goto_exception(ctx, val);
         }
 
         /* ECMA says *If exoticToPrim is not undefined* but tests in
         test262 use null as a non callable converter */
-        if !JS_IsUndefined(method) && !JS_IsNull(method) {
+        if !method.is_undefined_or_null() {
             let mut arg = match hint {
                 HINT_STRING => JS_ATOM_string,
                 HINT_NUMBER => JS_ATOM_number,
@@ -52,7 +52,7 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
 
             let ret = JS_CallFree(ctx, method, val, 1, &mut arg);
             JS_FreeValue(ctx, arg);
-            if JS_IsException(ret) {
+            if ret.is_exception() {
                 return goto_exception(ctx, val);
             }
 
@@ -79,14 +79,14 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
         } else {
             JS_ATOM_valueOf
         };
-        let method = JS_GetProperty(ctx, val, method_name);
-        if JS_IsException(method) {
+        let method = val.get_property(ctx.as_mut().unwrap(), method_name);
+        if method.is_exception() {
             return goto_exception(ctx, val);
         }
 
-        if JS_IsFunction(ctx, method) {
+        if method.is_function(ctx.as_ref().unwrap()) {
             let ret = JS_CallFree(ctx, method, val, 0, std::ptr::null_mut());
-            if JS_IsException(ret) {
+            if ret.is_exception() {
                 return goto_exception(ctx, val);
             }
             if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {

@@ -23,8 +23,8 @@ use crate::{
     value::{
         check_exception_free,
         object::{
-            js_get_length64, JS_GetProperty, JS_IsConstructor, JS_IsFunction, JS_ToObject,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
+            js_get_length64, JS_IsConstructor, JS_IsFunction, JS_ToObject, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
@@ -116,7 +116,7 @@ pub unsafe fn JS_ArraySpeciesCreate(
         return JSValue::EXCEPTION;
     };
 
-    let mut ctor = JS_GetProperty(ctx, obj, JS_ATOM_constructor);
+    let mut ctor = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
     if ctor.is_exception() {
         return ctor;
     }
@@ -135,7 +135,7 @@ pub unsafe fn JS_ArraySpeciesCreate(
     }
 
     if ctor.is_object() {
-        let species = JS_GetProperty(ctx, ctor, JS_ATOM_Symbol_species);
+        let species = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_species);
         JS_FreeValue(ctx, ctor);
         if species.is_exception() {
             return species;
@@ -160,7 +160,7 @@ pub unsafe fn JS_isConcatSpreadable(ctx: *mut JSContext, obj: JSValueConst) -> R
         return Ok(false);
     }
 
-    let tmp = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_isConcatSpreadable);
+    let tmp = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_isConcatSpreadable);
     if tmp.is_exception() {
         return Err(-1);
     }
@@ -1330,12 +1330,12 @@ pub unsafe fn js_array_toString(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let obj = JS_ToObject(ctx, this_val);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let method = JS_GetProperty(ctx, obj, JS_ATOM_join);
-    let ret = if JS_IsException(method) {
+    let method = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_join);
+    let ret = if method.is_exception() {
         JSValue::EXCEPTION
     } else if !JS_IsFunction(ctx, method) {
         // Use intrinsic Object.prototype.toString

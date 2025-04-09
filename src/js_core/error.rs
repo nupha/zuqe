@@ -5,8 +5,8 @@ use crate::{
     function::JS_GetFunctionRealm,
     iterator::iterator_to_array,
     value::{
-        object::{JS_GetProperty, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_ToString,
+        object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+        JSValue, JSValueConst, JS_FreeValue, JS_ToString,
     },
     JS_CLASS_ERROR,
 };
@@ -23,7 +23,7 @@ pub unsafe fn js_error_constructor(
         new_target = active_function;
     }
 
-    let mut proto = JS_GetProperty(ctx, new_target, JS_ATOM_prototype);
+    let mut proto = new_target.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
     if proto.is_exception() {
         return proto;
     }
@@ -85,8 +85,8 @@ pub unsafe fn js_error_constructor(
             };
 
             if present {
-                let cause = JS_GetProperty(ctx, options, JS_ATOM_cause);
-                if JS_IsException(cause) {
+                let cause = options.get_property(ctx.as_mut().unwrap(), JS_ATOM_cause);
+                if cause.is_exception() {
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
                 }

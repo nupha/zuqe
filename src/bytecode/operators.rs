@@ -19,10 +19,10 @@ use crate::{
     value::{
         object::{
             js_get_length32, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_GetOwnPropertyInternal, JS_GetProperty, JS_GetPrototypeFree, JS_IsCFunction,
-            JS_IsConstructor, JS_IsInstanceOf, JS_NewObjectProto, JS_NewObjectProtoClass,
-            JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_GetOwnPropertyInternal, JS_GetPrototypeFree, JS_IsCFunction, JS_IsConstructor,
+            JS_IsInstanceOf, JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit,
+            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
             JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,

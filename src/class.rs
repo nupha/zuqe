@@ -14,11 +14,11 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JSObject, JSPropertyDescriptor, JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass,
-            PropertyEnum, JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+            JSObject, JSPropertyDescriptor, JS_NewObject, JS_NewObjectProtoClass, PropertyEnum,
+            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
-        JS_IsUndefined, JS_TAG_NULL, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     *,
 };
@@ -408,22 +408,22 @@ pub unsafe fn js_create_from_ctor(
     ctor: JSValueConst,
     class_id: JSClassID,
 ) -> JSValue {
-    let proto = if JS_IsUndefined(ctor) {
-        JS_DupValue(ctx, (*ctx).class_proto[class_id as usize])
+    let proto = if ctor.is_undefined() {
+        (*ctx).class_proto[class_id as usize].dup()
     } else {
-        let pr = JS_GetProperty(ctx, ctor, JS_ATOM_prototype);
-        if JS_IsException(pr) {
-            return pr;
+        let p = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
+        if p.is_exception() {
+            return p;
         }
-        if !JS_IsObject(pr) {
-            JS_FreeValue(ctx, pr);
+        if !p.is_object() {
+            JS_FreeValue(ctx, p);
             let realm = JS_GetFunctionRealm(ctx, ctor);
             if realm.is_null() {
                 return JSValue::EXCEPTION;
             }
-            JS_DupValue(ctx, (*realm).class_proto[class_id as usize])
+            (*realm).class_proto[class_id as usize].dup()
         } else {
-            pr
+            p
         }
     };
 

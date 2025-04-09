@@ -12,12 +12,12 @@ use crate::{
     mem::js_malloc,
     value::{
         object::{
-            JS_GetOwnProperty, JS_GetProperty, JS_IsConstructor, JS_NewObjectProtoClass,
-            JS_OrdinaryIsInstanceOf, JS_SetPrototypeInternal, JS_PROP_CONFIGURABLE,
+            JS_GetOwnProperty, JS_IsConstructor, JS_NewObjectProtoClass, JS_OrdinaryIsInstanceOf,
+            JS_SetPrototypeInternal, JS_PROP_CONFIGURABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_UNDEFINED, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING,
+        JS_IsString, JS_IsUndefined, JS_NewBool, JS_UNDEFINED, JS_VALUE_GET_FLOAT64,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_BOUND_FUNCTION,
 };
@@ -85,7 +85,7 @@ pub unsafe fn js_function_bind(
     let len_val = if ret == 0 {
         JSValue::ZERO
     } else {
-        let length = JS_GetProperty(ctx, this_val, JS_ATOM_length);
+        let length = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_length);
         match JS_VALUE_GET_NORM_TAG(length) {
             JSTag::Int => {
                 let n = JS_VALUE_GET_INT(length);
@@ -190,8 +190,8 @@ pub unsafe fn js_function_toString(
             _ => c"function ",
         };
         let suff = c"() {\n    [native code]\n}";
-        let mut name = JS_GetProperty(ctx, this_val, JS_ATOM_name);
-        if JS_IsUndefined(name) {
+        let mut name = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_name);
+        if name.is_undefined() {
             name = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
         }
 
@@ -301,21 +301,18 @@ pub unsafe fn js_function_constructor(
 
     if !JS_IsUndefined(new_target) {
         // set the prototype
-        let mut proto = JS_GetProperty(ctx, new_target, JS_ATOM_prototype);
-        if JS_IsException(proto) {
+        let mut proto = new_target.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
+        if proto.is_exception() {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
-        if !JS_IsObject(proto) {
+        if !proto.is_object() {
             let realm = JS_GetFunctionRealm(ctx, new_target);
             if realm.is_null() {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
             }
-            proto = JS_DupValue(
-                ctx,
-                (*realm).class_proto[func_kind_to_class_id[func_kind as usize] as usize],
-            );
+            proto = (*realm).class_proto[func_kind_to_class_id[func_kind as usize] as usize].dup();
         }
 
         let ret = JS_SetPrototypeInternal(ctx, obj, proto, true);

@@ -13,12 +13,12 @@ use crate::{
 
 use super::{
     super::{
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_IsObject,
-        JS_IsUninitialized, JS_ToBoolFree, JS_ToLengthFree, JS_ToStringInternal, JS_ToUint32Free,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
+        JS_IsUninitialized, JS_ToLengthFree, JS_ToStringInternal, JS_ToUint32Free,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, JSObject,
-    JSShapeProperty, JS_GetProperty,
+    JSShapeProperty,
 };
 
 // Property flags
@@ -646,7 +646,7 @@ pub unsafe fn JS_CopyDataProperties(
 
 /// Get object `length` property as u32
 pub unsafe fn js_get_length32(ctx: *mut JSContext, obj: JSValueConst) -> Result<u32, i32> {
-    let len_val = JS_GetProperty(ctx, obj, JS_ATOM_length);
+    let len_val = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_length);
     if len_val.is_exception() {
         Err(-1)
     } else {
@@ -656,7 +656,7 @@ pub unsafe fn js_get_length32(ctx: *mut JSContext, obj: JSValueConst) -> Result<
 
 /// Get object `length` property as i64
 pub unsafe fn js_get_length64(ctx: *mut JSContext, obj: JSValueConst) -> Result<i64, i32> {
-    let len_val = JS_GetProperty(ctx, obj, JS_ATOM_length);
+    let len_val = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_length);
     if len_val.is_exception() {
         Err(-1)
     } else {

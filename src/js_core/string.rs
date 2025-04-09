@@ -11,16 +11,15 @@ use crate::{
     regexp::js_is_regexp,
     value::{
         object::{
-            js_get_length32, js_get_length64, JS_GetOpaque2, JS_GetProperty, JS_IsFunction,
-            JS_SetObjectData, JS_ToObject, JS_ToObjectFree, JS_PROP_CONFIGURABLE,
+            js_get_length32, js_get_length64, JS_GetOpaque2, JS_SetObjectData, JS_ToObject,
+            JS_ToObjectFree, JS_PROP_CONFIGURABLE,
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
-        JS_NewBool, JS_NewString, JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat,
-        JS_ToInt64Sat, JS_ToString, JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32,
-        StringContent, JS_NAN, JS_STRING_LEN_MAX, JS_TAG_INT, JS_TAG_OBJECT, JS_TAG_STRING,
-        JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
-        JS_VALUE_GET_TAG,
+        JS_NewBool, JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
+        JS_ToString, JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
+        JS_STRING_LEN_MAX, JS_TAG_INT, JS_TAG_OBJECT, JS_TAG_STRING, JS_VALUE_GET_INT,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
     JS_ITERATOR_NEXT_DEF, JS_MKPTR, JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
@@ -378,17 +377,17 @@ pub unsafe fn js_string_replace(
         };
     }
 
-    if !JS_IsUndefined(searchValue) && !JS_IsNull(searchValue) {
+    if !searchValue.is_undefined_or_null() {
         if is_replaceAll != 0 {
             if check_regexp_g_flag(ctx, searchValue) < 0 {
                 return JSValue::EXCEPTION;
             }
         }
 
-        let replacer = JS_GetProperty(ctx, searchValue, JS_ATOM_Symbol_replace);
-        if JS_IsException(replacer) {
+        let replacer = searchValue.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_replace);
+        if replacer.is_exception() {
             return JSValue::EXCEPTION;
-        } else if !JS_IsUndefined(replacer) && !JS_IsNull(replacer) {
+        } else if !replacer.is_undefined_or_null() {
             return JS_CallFree(
                 ctx,
                 replacer,
@@ -402,24 +401,24 @@ pub unsafe fn js_string_replace(
     //string_buffer_init(ctx, b, 0);
 
     str = JS_ToString(ctx, O);
-    if JS_IsException(str) {
+    if str.is_exception() {
         exception!();
     }
     search_str = JS_ToString(ctx, searchValue);
-    if JS_IsException(search_str) {
+    if search_str.is_exception() {
         exception!();
     }
 
-    let functionalReplace = JS_IsFunction(ctx, replaceValue);
+    let functionalReplace = replaceValue.is_function(ctx.as_ref().unwrap());
     if !functionalReplace {
         replaceValue_str = JS_ToString(ctx, replaceValue);
-        if JS_IsException(replaceValue_str) {
+        if replaceValue_str.is_exception() {
             exception!();
         }
     }
 
-    let sp = JS_VALUE_GET_STRING(str);
-    let searchp = JS_VALUE_GET_STRING(search_str);
+    let sp = str.string();
+    let searchp = search_str.string();
     let mut is_first = true;
     let mut endOfLastMatch = 0_i32;
 
@@ -580,12 +579,12 @@ pub unsafe fn js_string_split(
         };
     }
 
-    if !JS_IsUndefined(separator) && !JS_IsNull(separator) {
-        let splitter = JS_GetProperty(ctx, separator, JS_ATOM_Symbol_split);
-        if JS_IsException(splitter) {
+    if !separator.is_undefined_or_null() {
+        let splitter = separator.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_split);
+        if splitter.is_exception() {
             return JSValue::EXCEPTION;
         }
-        if !JS_IsUndefined(splitter) && !JS_IsNull(splitter) {
+        if !splitter.is_undefined_or_null() {
             args[0] = O;
             args[1] = limit;
             return JS_CallFree(ctx, splitter, separator, 2, args.as_mut_ptr());
@@ -593,11 +592,11 @@ pub unsafe fn js_string_split(
     }
 
     S = JS_ToString(ctx, O);
-    if JS_IsException(S) {
+    if S.is_exception() {
         exception!();
     }
     A = JS_NewArray(ctx);
-    if JS_IsException(A) {
+    if A.is_exception() {
         exception!();
     }
     lengthA = 0;
@@ -642,7 +641,7 @@ pub unsafe fn js_string_split(
         };
     }
 
-    if JS_IsUndefined(separator) {
+    if separator.is_undefined() {
         add_tail!();
     }
     if s == 0 {
@@ -693,11 +692,11 @@ pub unsafe fn js_string_substring(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
+    if str.is_exception() {
         return str;
     }
 
-    let p = JS_VALUE_GET_STRING(str);
+    let p = str.string();
 
     let mut a = 0_i32;
     if JS_ToInt32Clamp(ctx, &mut a, *argv.offset(0), 0, (*p).len() as i32, 0) != 0 {
@@ -1095,11 +1094,11 @@ pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> 
     };
 
     if ret {
-        let mut flags = JS_GetProperty(ctx, regexp, JS_ATOM_flags);
-        if JS_IsException(flags) {
+        let mut flags = regexp.get_property(ctx.as_mut().unwrap(), JS_ATOM_flags);
+        if flags.is_exception() {
             return -1;
         }
-        if JS_IsUndefined(flags) || JS_IsNull(flags) {
+        if flags.is_undefined_or_null() {
             ctx.as_mut()
                 .unwrap()
                 .JS_ThrowTypeError(c"cannot convert to object");
@@ -1107,11 +1106,11 @@ pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> 
         }
 
         flags = JS_ToStringFree(ctx, flags);
-        if JS_IsException(flags) {
+        if flags.is_exception() {
             return -1;
         }
 
-        let idx = (*JS_VALUE_GET_STRING(flags)).content().find_char('g', 0);
+        let idx = flags.string().content().find_char('g', 0);
         JS_FreeValue(ctx, flags);
         if idx.is_none() {
             ctx.as_mut()
@@ -1135,16 +1134,16 @@ pub unsafe fn js_string_match(
     let regexp: JSValueConst = *argv.offset(0);
     let atom = JSAtom(magic as u32);
 
-    if JS_IsUndefined(O) || JS_IsNull(O) {
+    if O.is_undefined_or_null() {
         return ctx
             .as_mut()
             .unwrap()
             .JS_ThrowTypeError(c"cannot convert to object");
     }
 
-    if !JS_IsUndefined(regexp) && !JS_IsNull(regexp) {
-        let matcher = JS_GetProperty(ctx, regexp, atom);
-        if JS_IsException(matcher) {
+    if !regexp.is_undefined_or_null() {
+        let matcher = regexp.get_property(ctx.as_mut().unwrap(), atom);
+        if matcher.is_exception() {
             return JSValue::EXCEPTION;
         }
 
@@ -1154,13 +1153,13 @@ pub unsafe fn js_string_match(
                 return JSValue::EXCEPTION;
             }
         }
-        if !JS_IsUndefined(matcher) && !JS_IsNull(matcher) {
+        if !matcher.is_undefined_or_null() {
             return JS_CallFree(ctx, matcher, regexp, 1, &mut O);
         }
     }
 
     let mut S = JS_ToString(ctx, O);
-    if JS_IsException(S) {
+    if S.is_exception() {
         return JSValue::EXCEPTION;
     }
 
@@ -1171,8 +1170,8 @@ pub unsafe fn js_string_match(
     let mut str = JSValue::UNDEFINED;
 
     if atom == JS_ATOM_Symbol_matchAll {
-        str = JS_NewString(ctx, c"g");
-        if JS_IsException(str) {
+        str = (*ctx).create_string_from_char('g');
+        if str.is_exception() {
             JS_FreeValue(ctx, S);
             return JSValue::EXCEPTION;
         }
@@ -1182,7 +1181,7 @@ pub unsafe fn js_string_match(
 
     let rx = JS_CallConstructor(ctx, (*ctx).regexp_ctor, args_len, args.as_mut_ptr());
     JS_FreeValue(ctx, str);
-    if JS_IsException(rx) {
+    if rx.is_exception() {
         JS_FreeValue(ctx, S);
         return JSValue::EXCEPTION;
     }
@@ -1737,12 +1736,12 @@ pub unsafe fn js_string_raw(
     // raw(temp,...a)
 
     let cooked = JS_ToObject(ctx, *argv.offset(0));
-    if JS_IsException(cooked) {
+    if cooked.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let raw = JS_ToObjectFree(ctx, JS_GetProperty(ctx, cooked, JS_ATOM_raw));
-    if JS_IsException(raw) {
+    let raw = JS_ToObjectFree(ctx, cooked.get_property(ctx.as_mut().unwrap(), JS_ATOM_raw));
+    if raw.is_exception() {
         JS_FreeValue(ctx, cooked);
         return JSValue::EXCEPTION;
     }
