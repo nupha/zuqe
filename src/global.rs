@@ -8,8 +8,8 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            find_own_property, JSObject, JSProperty, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
-            JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
+            JSObject, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
+            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
             JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
             JS_PROP_TMASK, JS_PROP_WRITABLE,
         },
@@ -144,14 +144,13 @@ pub unsafe fn JS_GetGlobalVar(ctx: *mut JSContext, prop: JSAtom, throw_ref_error
     // no exotic behavior is possible in global_var_obj
     let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
 
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let prs = find_own_property(&mut pr, p, prop);
-    if !prs.is_null() {
+    if let Some((prs, pr)) = (*p).find_own_property(prop) {
         // XXX: should handle JS_PROP_TMASK properties
-        if unlikely(JS_IsUninitialized((*pr).u.value)) {
-            return JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
-        }
-        return (*pr).u.value.dup();
+        return if unlikely(JS_IsUninitialized(pr.u.value)) {
+            JS_ThrowReferenceErrorUninitialized(ctx, prs.atom)
+        } else {
+            pr.u.value.dup()
+        };
     }
 
     (*ctx).global_obj.get_property_internal(
@@ -167,17 +166,13 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSV
     // no exotic behavior is possible in global_var_obj
     let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
 
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let prs = find_own_property(&mut pr, p, prop);
-    if !prs.is_null() {
+    if let Some((prs, pr)) = (*p).find_own_property(prop) {
         // XXX: should handle JS_PROP_AUTOINIT properties?
-        // XXX: conformance: do these tests in
-        //           OP_put_var_ref/OP_get_var_ref ?
-        if unlikely(JS_IsUninitialized((*pr).u.value)) {
-            JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
+        // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
+        if JS_IsUninitialized(pr.u.value) {
+            JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
             return -1;
-        }
-        if unlikely((*prs).flags() & JS_PROP_WRITABLE == 0) {
+        } else if prs.flags() & JS_PROP_WRITABLE == 0 {
             return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
                 -1
             } else {
@@ -222,18 +217,16 @@ pub unsafe fn JS_CheckGlobalVar(ctx: *mut JSContext, prop: JSAtom) -> i32 {
 pub unsafe fn JS_SetGlobalVar(ctx: *mut JSContext, prop: JSAtom, val: JSValue, flag: u32) -> i32 {
     // no exotic behavior is possible in global_var_obj
     let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-    let mut pr = std::ptr::null_mut();
-    let prs = find_own_property(&mut pr, p, prop);
 
-    if !prs.is_null() {
+    if let Some((prs, pr)) = (*p).find_own_property_mut(prop) {
         // XXX: should handle JS_PROP_AUTOINIT properties?
         if flag != 1 {
-            if unlikely(JS_IsUninitialized((*pr).u.value)) {
+            if unlikely(JS_IsUninitialized(pr.u.value)) {
                 JS_FreeValue(ctx, val);
-                JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
+                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                 return -1;
             }
-            if unlikely((*prs).flags() & JS_PROP_WRITABLE == 0) {
+            if prs.flags() & JS_PROP_WRITABLE == 0 {
                 JS_FreeValue(ctx, val);
                 return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
                     -1
@@ -242,17 +235,18 @@ pub unsafe fn JS_SetGlobalVar(ctx: *mut JSContext, prop: JSAtom, val: JSValue, f
                 };
             }
         }
-        set_value(ctx, &mut (*pr).u.value, val);
+
+        set_value(ctx, &mut pr.u.value, val);
         return 0;
-    }
+    } else {
+        let mut flags1 = JS_PROP_THROW_STRICT;
+        if is_strict_mode(ctx) {
+            flags1 |= JS_PROP_NO_ADD;
+        }
 
-    let mut flags1 = JS_PROP_THROW_STRICT;
-    if is_strict_mode(ctx) {
-        flags1 |= JS_PROP_NO_ADD;
+        (*ctx)
+            .global_obj
+            .set_property_internal(ctx.as_mut().unwrap(), prop, val, (*ctx).global_obj, flags1)
+            .map_or(-1, |b| b as i32)
     }
-
-    (*ctx)
-        .global_obj
-        .set_property_internal(ctx.as_mut().unwrap(), prop, val, (*ctx).global_obj, flags1)
-        .map_or(-1, |b| b as i32)
 }

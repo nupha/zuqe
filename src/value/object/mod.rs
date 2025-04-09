@@ -1,5 +1,6 @@
 mod dump;
 mod obj;
+mod private;
 mod property;
 mod property_create;
 mod property_def;
@@ -10,6 +11,6 @@ mod property_set;
 mod shape;
 
 pub use {
-    dump::*, obj::*, property::*, property_create::*, property_def::*, property_del::*,
+    dump::*, obj::*, private::*, property::*, property_create::*, property_def::*, property_del::*,
     property_get::*, property_name::*, property_set::*, shape::*,
 };

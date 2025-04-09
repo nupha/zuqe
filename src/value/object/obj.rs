@@ -1,20 +1,13 @@
-use std::{
-    ffi::{c_void, CStr},
-    mem::ManuallyDrop,
-};
+use std::{ffi::c_void, mem::ManuallyDrop};
 
 use crate::{
     array_buffer::JSArrayBuffer,
-    atom::{
-        consts::*, js_symbol_to_atom, JSAtom, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom,
-        JS_ATOM_NULL,
-    },
+    atom::{consts::*, JSAtom},
     class::JSClassID,
     context::{JSContext, JS_FreeContext},
-    error::JS_ThrowTypeErrorPrivateNotFound,
     function::{
-        js_class_has_bytecode, js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction,
-        JSCFunction, JSCFunctionDataRecord, JSObjectCFunc, JSObjectFunc, JS_CallFree,
+        js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction,
+        JSCFunctionDataRecord, JSObjectCFunc, JSObjectFunc, JS_CallFree,
     },
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
     generator::{JSAsyncGeneratorData, JSGeneratorData},
@@ -39,18 +32,17 @@ use crate::{
 
 use super::{
     super::{
-        set_value, JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3,
-        JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException,
-        JS_IsNull, JS_IsObject, JS_IsUndefined, JS_NewSymbolFromAtom, JS_ToBoolFree, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_DupValue,
+        JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException, JS_IsNull,
+        JS_IsObject, JS_IsUndefined, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    add_property, find_hashed_shape_proto, find_own_property, free_property, js_dup_shape,
-    js_free_desc, js_free_shape, js_new_shape, JSProperty, JSPropertyDescriptor, JSShape,
-    JSShapeProperty, JS_GetOwnPropertyInternal, JS_GetProperty, JS_IsExtensible,
-    JS_NewObjectFromShape, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-    JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW,
-    JS_PROP_TMASK, JS_PROP_WRITABLE,
+    find_hashed_shape_proto, free_property, js_dup_shape, js_free_desc, js_free_shape,
+    js_new_shape, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
+    JS_GetOwnPropertyInternal, JS_GetProperty, JS_IsExtensible, JS_NewObjectFromShape,
+    JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK,
+    JS_PROP_WRITABLE,
 };
 
 #[repr(C)]
@@ -1004,22 +996,21 @@ pub unsafe fn JS_GetPrototypeFree(ctx: *mut JSContext, obj: JSValue) -> JSValue 
 }
 
 // return TRUE if 'obj' has a non empty 'name' string
-pub unsafe fn js_object_has_name(ctx: *const JSContext, obj: JSValueConst) -> bool {
-    let mut pr: *mut JSProperty = std::ptr::null_mut();
-    let prs = find_own_property(&mut pr, JS_VALUE_GET_OBJ(obj), JS_ATOM_name);
-    if prs.is_null() {
-        return false;
+pub unsafe fn js_object_has_name(obj: JSValueConst) -> bool {
+    if let Some((prs, pr)) = (*JS_VALUE_GET_OBJ(obj)).find_own_property(JS_ATOM_name) {
+        if prs.flags() & JS_PROP_TMASK != JS_PROP_NORMAL {
+            true
+        } else {
+            let val = pr.u.value;
+            if JS_VALUE_GET_TAG(val) != JS_TAG_STRING {
+                true
+            } else {
+                !val.string().is_empty()
+            }
+        }
+    } else {
+        false
     }
-    if (*prs).flags() & JS_PROP_TMASK != JS_PROP_NORMAL {
-        return true;
-    }
-
-    let val = (*pr).u.value;
-    if JS_VALUE_GET_TAG(val) != JS_TAG_STRING {
-        return true;
-    }
-    let p = JS_VALUE_GET_STRING(val);
-    return (*p).len() != 0;
 }
 
 pub unsafe fn js_get_function_name(ctx: *mut JSContext, name: JSAtom) -> JSValue {
@@ -1130,219 +1121,6 @@ pub unsafe fn js_object_seal(
     // } else {
     //     JSValue::EXCEPTION
     // }
-}
-
-// return a boolean telling if the brand of the home object of 'func'
-// is present on 'obj'
-pub unsafe fn JS_CheckBrand(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    func: JSValueConst,
-) -> Result<bool, i32> {
-    // get the home object of 'func'
-    if unlikely(JS_VALUE_GET_TAG(func) != JS_TAG_OBJECT) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    let p1 = JS_VALUE_GET_OBJ(func);
-    if !js_class_has_bytecode((*p1).class_id()) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    let home_obj = (*p1).u.func.home_object;
-    if home_obj.is_null() {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let prs = find_own_property(&mut pr, home_obj, JS_ATOM_Private_brand);
-    if prs.is_null() {
-        (*ctx).JS_ThrowTypeError(c"expecting <brand> private field");
-        return Err(-1);
-    }
-
-    let brand = (*pr).u.value;
-    // safety check
-    if unlikely(JS_VALUE_GET_TAG(brand) != JS_TAG_SYMBOL) {
-        (*ctx).JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    // get the brand array of 'obj'
-    if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        (*ctx).JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    let p = JS_VALUE_GET_OBJ(obj);
-    let prs = find_own_property(&mut pr, p, js_symbol_to_atom(ctx, brand));
-
-    Ok(!prs.is_null())
-}
-
-// add a private brand field to 'home_obj' if not already present and
-// if obj is != null add a private brand to it
-pub unsafe fn JS_AddBrand(ctx: *mut JSContext, obj: JSValueConst, home_obj: JSValueConst) -> i32 {
-    if unlikely(JS_VALUE_GET_TAG(home_obj) != JS_TAG_OBJECT) {
-        ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-        return -1;
-    }
-
-    let p = JS_VALUE_GET_OBJ(home_obj);
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let mut prs = find_own_property(&mut pr, p, JS_ATOM_Private_brand);
-
-    let brand = if prs.is_null() {
-        // if the brand is not present, add it
-        let br = JS_NewSymbolFromAtom(ctx, JS_ATOM_brand, JSAtomTypeHint::Private);
-        if JS_IsException(br) {
-            return -1;
-        }
-        pr = add_property(ctx, p, JS_ATOM_Private_brand, JS_PROP_C_W_E);
-        if pr.is_null() {
-            JS_FreeValue(ctx, br);
-            return -1;
-        }
-        (*pr).u.value = JS_DupValue(ctx, br);
-        br
-    } else {
-        JS_DupValue(ctx, (*pr).u.value)
-    };
-    let brand_atom = js_symbol_to_atom(ctx, brand);
-
-    if JS_IsObject(obj) {
-        let p1 = JS_VALUE_GET_OBJ(obj);
-        prs = find_own_property(&mut pr, p1, brand_atom);
-        if unlikely(!prs.is_null()) {
-            JS_FreeAtom(ctx, brand_atom);
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"private method is already present");
-            return -1;
-        }
-
-        pr = add_property(ctx, p1, brand_atom, JS_PROP_C_W_E);
-        JS_FreeAtom(ctx, brand_atom);
-        if pr.is_null() {
-            return -1;
-        }
-        (*pr).u.value = JSValue::UNDEFINED;
-    } else {
-        JS_FreeAtom(ctx, brand_atom);
-    }
-
-    0
-}
-
-// Private fields can be added even on non extensible objects or Proxies
-pub unsafe fn JS_DefinePrivateField(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    name: JSValueConst,
-    val: JSValue,
-) -> i32 {
-    if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        (*ctx).JS_ThrowTypeErrorNotAnObject();
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-
-    // safety check
-    if unlikely(JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL) {
-        (*ctx).JS_ThrowTypeErrorNotASymbol();
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-
-    let prop = js_symbol_to_atom(ctx, name);
-    let p = JS_VALUE_GET_OBJ(obj);
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let prs = find_own_property(&mut pr, p, prop);
-
-    if !prs.is_null() {
-        (*ctx).JS_ThrowTypeError(CStr::from_ptr(
-            format!(
-                "private class field '{}' already exists\0",
-                prop.to_str((*ctx).rt())
-            )
-            .as_ptr()
-            .cast(),
-        ));
-
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-
-    pr = add_property(ctx, p, prop, JS_PROP_C_W_E);
-    if unlikely(pr.is_null()) {
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-    (*pr).u.value = val;
-    0
-}
-
-pub unsafe fn JS_GetPrivateField(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    name: JSValueConst,
-) -> JSValue {
-    if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
-    }
-    // safety check
-    if unlikely(JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL) {
-        return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotASymbol();
-    }
-
-    let prop = js_symbol_to_atom(ctx, name as JSValue);
-    let p = JS_VALUE_GET_OBJ(obj);
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let prs = find_own_property(&mut pr, p, prop);
-
-    if prs.is_null() {
-        JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
-        return JSValue::EXCEPTION;
-    }
-
-    JS_DupValue(ctx, (*pr).u.value)
-}
-
-pub unsafe fn JS_SetPrivateField(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    name: JSValueConst,
-    val: JSValue,
-) -> i32 {
-    if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
-        (*ctx).JS_ThrowTypeErrorNotAnObject();
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-
-    // ensure name must be a Symbol
-    if JS_VALUE_GET_TAG(name) != JS_TAG_SYMBOL {
-        (*ctx).JS_ThrowTypeErrorNotASymbol();
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-
-    let prop = js_symbol_to_atom(ctx, name as JSValue);
-    let p = JS_VALUE_GET_OBJ(obj);
-    let mut pr = std::ptr::null_mut::<JSProperty>();
-    let prs = find_own_property(&mut pr, p, prop);
-
-    if prs.is_null() {
-        JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-
-    set_value(ctx, &mut (*pr).u.value, val);
-    0
 }
 
 pub unsafe fn JS_SpeciesConstructor(

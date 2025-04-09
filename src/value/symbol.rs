@@ -1,7 +1,7 @@
-use std::{ffi::c_void, ptr::NonNull, rc::Rc};
+use std::{ffi::c_void, rc::Rc};
 
 use crate::{
-    atom::{JSAtom, JSAtomInfo, JSAtomTypeHint, JS_ATOM_HASH_SYMBOL},
+    atom::{JSAtom, JSAtomInfo, JSAtomTypeHint},
     context::JSContext,
     JS_MKPTR,
 };

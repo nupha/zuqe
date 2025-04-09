@@ -701,7 +701,7 @@ pub unsafe fn JS_DefineObjectName(
 ) -> i32 {
     if name != JS_ATOM_NULL
         && obj.is_object()
-        && !js_object_has_name(ctx, obj)
+        && !js_object_has_name(obj)
         && obj
             .define_property_value(
                 ctx.as_mut().unwrap(),
@@ -722,7 +722,7 @@ pub unsafe fn JS_DefineObjectNameComputed(
     str: JSValueConst,
     flags: u32,
 ) -> i32 {
-    if obj.is_object() && !js_object_has_name(ctx, obj) {
+    if obj.is_object() && !js_object_has_name(obj) {
         let prop = JS_ValueToAtom(ctx, str);
         if prop == JS_ATOM_NULL {
             return -1;
