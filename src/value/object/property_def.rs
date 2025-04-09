@@ -539,6 +539,21 @@ impl JSValue {
 
         ret
     }
+
+    pub fn define_property_value_str(
+        self,
+        ctx: &mut JSContext,
+        prop: &str,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let atom = ctx.create_atom(prop)?;
+        let ret = self.define_property_value(ctx, atom, val, flags);
+        unsafe {
+            JS_FreeAtom(ctx, atom);
+        }
+        ret
+    }
 }
 
 /* allowed flags:
@@ -582,6 +597,7 @@ pub unsafe fn JS_DefinePropertyValue(
         .map_or(-1, |b| b as i32)
 }
 
+#[deprecated(note = "use JSValue::defined_property_value_str() instead")]
 pub unsafe fn JS_DefinePropertyValueStr(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
@@ -589,10 +605,14 @@ pub unsafe fn JS_DefinePropertyValueStr(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    let atom = JS_NewAtom(ctx, prop);
-    let ret = JS_DefinePropertyValue(ctx, this_obj, atom, val, flags);
-    JS_FreeAtom(ctx, atom);
-    ret
+    this_obj
+        .define_property_value_str(
+            ctx.as_mut().unwrap(),
+            prop.to_string_lossy().as_ref(),
+            val,
+            flags,
+        )
+        .map_or(-1, |b| b as i32)
 }
 
 pub unsafe fn JS_DefinePropertyValueValue(

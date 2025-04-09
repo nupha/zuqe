@@ -28,11 +28,10 @@ use crate::{
     },
     value::{
         object::{
-            get_proto_obj, js_new_shape2, js_object_seal, JS_DefinePropertyValueStr,
-            JS_GetProperty, JS_NewObject, JS_NewObjectProto, JS_NewObjectProtoClass,
-            JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH,
-            JS_PROP_WRITABLE,
+            get_proto_obj, js_new_shape2, js_object_seal, JS_GetProperty, JS_NewObject,
+            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+            JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_NewInt32,
     },
@@ -289,31 +288,31 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
         {
             // initialize Array.prototype[Symbol.unscopables]
             let unscopables = [
-                "copyWithin\0",
-                "entries\0",
-                "fill\0",
-                "find\0",
-                "findIndex\0",
-                "findLast\0",
-                "findLastIndex\0",
-                "flat\0",
-                "flatMap\0",
-                "includes\0",
-                "keys\0",
-                "toReversed\0",
-                "toSorted\0",
-                "toSpliced\0",
-                "values\0",
+                "copyWithin",
+                "entries",
+                "fill",
+                "find",
+                "findIndex",
+                "findLast",
+                "findLastIndex",
+                "flat",
+                "flatMap",
+                "includes",
+                "keys",
+                "toReversed",
+                "toSorted",
+                "toSpliced",
+                "values",
             ];
             let obj1 = JS_NewObjectProto(ctx, JSValue::NULL);
             for s in unscopables {
-                JS_DefinePropertyValueStr(
-                    ctx,
-                    obj1,
-                    CStr::from_bytes_with_nul_unchecked(s.as_bytes()),
+                obj1.define_property_value_str(
+                    ctx.as_mut().unwrap(),
+                    s,
                     JSValue::TRUE,
                     JS_PROP_C_W_E,
-                );
+                )
+                .unwrap();
             }
 
             // let unscopables: &[u8] = b"copyWithin\0entries\0fill\0find\0findIndex\0findLast\0findLastIndex\0flat\0flatMap\0includes\0keys\0toReversed\0toSorted\0toSpliced\0values\0";

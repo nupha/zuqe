@@ -14,9 +14,8 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JSObject, JSPropertyDescriptor, JS_DefinePropertyValueStr, JS_GetProperty,
-            JS_NewObject, JS_NewObjectProtoClass, PropertyEnum, JS_PROP_CONFIGURABLE,
-            JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+            JSObject, JSPropertyDescriptor, JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass,
+            PropertyEnum, JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
         JS_IsUndefined, JS_TAG_NULL, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -317,13 +316,16 @@ pub unsafe fn JS_NewGlobalCConstructor2(
     name: &CStr,
     proto: JSValueConst,
 ) {
-    JS_DefinePropertyValueStr(
-        ctx,
-        (*ctx).global_obj,
-        name,
-        JS_DupValue(ctx, func_obj),
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
+    (*ctx)
+        .global_obj
+        .define_property_value_str(
+            ctx.as_mut().unwrap(),
+            name.to_string_lossy().as_ref(),
+            func_obj.dup(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )
+        .unwrap();
+
     JS_SetConstructor(ctx, func_obj, proto);
     JS_FreeValue(ctx, func_obj);
 }
