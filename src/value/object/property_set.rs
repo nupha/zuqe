@@ -405,9 +405,9 @@ impl JSValue {
                                 return if ctx
                                     .JS_ThrowTypeErrorOrFalse(flags as _, c"setter is forbidden")
                                 {
-                                    Ok(false)
-                                } else {
                                     Err(-1)
+                                } else {
+                                    Ok(false)
                                 };
                             } else {
                                 JS_FreeValue(ctx, desc.value);
@@ -455,9 +455,9 @@ impl JSValue {
                 State::ErrReadOnly => {
                     JS_FreeValue(ctx, val);
                     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                        Ok(false)
-                    } else {
                         Err(-1)
+                    } else {
+                        Ok(false)
                     };
                 }
                 State::ErrTypedArrayOob => {

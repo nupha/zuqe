@@ -179,9 +179,9 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSV
         }
         if unlikely((*prs).flags() & JS_PROP_WRITABLE == 0) {
             return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
-                0
-            } else {
                 -1
+            } else {
+                0
             };
         }
         *sp.offset(0) = (*ctx).global_var_obj.dup();
@@ -236,9 +236,9 @@ pub unsafe fn JS_SetGlobalVar(ctx: *mut JSContext, prop: JSAtom, val: JSValue, f
             if unlikely((*prs).flags() & JS_PROP_WRITABLE == 0) {
                 JS_FreeValue(ctx, val);
                 return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
-                    0
-                } else {
                     -1
+                } else {
+                    0
                 };
             }
         }

@@ -291,18 +291,43 @@ impl JSObject {
         return 0;
     }
 
-    /// Finds a property in the object's shape by its atom name.
+    /// Finds shape property of the object by its atom name.
     /// Returns immutable reference to property if found, None if not found.
     #[inline(always)]
-    pub unsafe fn find_own_property1(&self, atom: JSAtom) -> Option<&JSShapeProperty> {
+    pub fn find_own_property1(&self, atom: JSAtom) -> Option<&JSShapeProperty> {
         self.shape().and_then(|sh| sh.props.get(&atom))
     }
 
-    /// Finds a property in the object's shape by its atom name.
+    /// Finds shape property of the object by its atom name.
     /// Returns mutable reference to property if found, None if not found.
     #[inline(always)]
-    pub unsafe fn find_own_property1_mut(&mut self, atom: JSAtom) -> Option<&mut JSShapeProperty> {
+    pub fn find_own_property1_mut(&mut self, atom: JSAtom) -> Option<&mut JSShapeProperty> {
         self.shape_mut().and_then(|sh| sh.props.get_mut(&atom))
+    }
+
+    /// Finds both shape property and property of an object by atom name.
+    #[inline(always)]
+    pub fn find_own_property(&self, atom: JSAtom) -> Option<(&JSShapeProperty, &JSProperty)> {
+        self.shape()
+            .and_then(|sh| sh.props.get_full(&atom))
+            .map(|(i, _, prs)| {
+                let pr = self.prop_values.get(i).unwrap();
+                (prs, pr)
+            })
+    }
+
+    /// Finds both shape property and property of an object by atom name.
+    #[inline(always)]
+    pub fn find_own_property_mut(
+        &mut self,
+        atom: JSAtom,
+    ) -> Option<(&mut JSShapeProperty, &mut JSProperty)> {
+        unsafe { self.shape.as_mut() }
+            .and_then(|sh| sh.props.get_full_mut(&atom))
+            .map(|(i, _, prs)| {
+                let pr = self.prop_values.get_mut(i).unwrap();
+                (prs, pr)
+            })
     }
 }
 
@@ -500,18 +525,18 @@ pub unsafe fn find_own_property1(p: *mut JSObject, atom: JSAtom) -> *mut JSShape
 /// Sets ppr to the property value pointer if found, null otherwise
 /// Returns the property shape pointer if found, null otherwise
 #[inline(always)]
+#[deprecated(note = "use JSObject::find_own_property() instead")]
 pub unsafe fn find_own_property(
     ppr: *mut *mut JSProperty,
     p: *mut JSObject,
     atom: JSAtom,
 ) -> *mut JSShapeProperty {
-    if let Some((idx, _, prs)) = (*p).shape_mut().unwrap().props.get_full_mut(&atom) {
-        *ppr = (*p).prop_values.get_mut(idx).unwrap();
-        prs
-    } else {
-        *ppr = std::ptr::null_mut();
-        std::ptr::null_mut()
-    }
+    (*p).find_own_property_mut(atom)
+        .map(|(prs, pr)| {
+            *ppr = pr;
+            prs as *mut JSShapeProperty
+        })
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Checks if property flags are valid for property definition
@@ -561,7 +586,7 @@ pub unsafe fn JS_AutoInitProperty(
     pr: *mut JSProperty,
     mut prs: *mut JSShapeProperty,
 ) -> i32 {
-    if p.as_mut().unwrap().js_shape_prepare_update(ctx, &mut prs) != 0 {
+    if (*p).js_shape_prepare_update(ctx, &mut prs) != 0 {
         return -1;
     }
 
@@ -609,58 +634,55 @@ pub unsafe fn JS_GetOwnPropertyInternal(
     p: *mut JSObject,
     prop: JSAtom,
 ) -> i32 {
-    let mut pr: *mut JSProperty = std::ptr::null_mut();
-    let mut prs: *mut JSShapeProperty;
-
     loop {
-        prs = find_own_property(&mut pr as *mut *mut JSProperty, p, prop);
-        if !prs.is_null() {
+        if let Some((prs, pr)) = (*p).find_own_property_mut(prop) {
             if !desc.is_null() {
-                (*desc).flags = (*prs).flags() & JS_PROP_C_W_E;
+                (*desc).flags = prs.flags() & JS_PROP_C_W_E;
                 (*desc).getter = JSValue::UNDEFINED;
                 (*desc).setter = JSValue::UNDEFINED;
                 (*desc).value = JSValue::UNDEFINED;
-                if unlikely((*prs).flags() & JS_PROP_TMASK != 0) {
-                    match (*prs).flags() & JS_PROP_TMASK {
+
+                if prs.flags() & JS_PROP_TMASK != 0 {
+                    match prs.flags() & JS_PROP_TMASK {
                         JS_PROP_GETSET => {
                             (*desc).flags |= JS_PROP_GETSET;
                             if !(*pr).u.getset.getter.is_null() {
                                 (*desc).getter =
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()).dup();
+                                    JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast()).dup();
                             }
                             if !(*pr).u.getset.setter.is_null() {
                                 (*desc).setter =
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()).dup();
+                                    JS_MKPTR!(JSTag::Object, pr.u.getset.setter.cast()).dup();
                             }
                         }
                         JS_PROP_VARREF => {
                             let val = *(*(*pr).u.var_ref).pvalue;
                             if unlikely(JS_IsUninitialized(val)) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
+                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                                 return -1;
                             }
                             (*desc).value = val.dup();
                         }
                         JS_PROP_AUTOINIT => {
-                            /* Instantiate property and retry */
+                            // Instantiate property and retry
                             if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
                                 return -1;
                             }
-                            continue; // C2RS: Replaced goto retry with loop+continue
+                            continue; // retry
                         }
                         _ => {}
                     }
                 } else {
-                    (*desc).value = (*pr).u.value.dup();
+                    (*desc).value = pr.u.value.dup();
                 }
             } else {
                 /* for consistency, send the exception even if desc is NULL */
-                if unlikely((*prs).flags() & JS_PROP_TMASK == JS_PROP_VARREF) {
-                    if unlikely(JS_IsUninitialized(*(*(*pr).u.var_ref).pvalue)) {
-                        JS_ThrowReferenceErrorUninitialized(ctx, (*prs).atom);
+                if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
+                    if JS_IsUninitialized(*(*pr.u.var_ref).pvalue) {
+                        JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                         return -1;
                     }
-                } else if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_AUTOINIT {
+                } else if prs.flags() & JS_PROP_TMASK == JS_PROP_AUTOINIT {
                     /* nothing to do: delay instantiation until actual value and/or attributes are read */
                 }
             }

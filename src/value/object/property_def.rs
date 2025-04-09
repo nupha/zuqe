@@ -19,11 +19,11 @@ use super::{
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     check_define_prop_flags, get_prop_flags, js_free_desc, js_get_function_name, js_obj_to_desc,
-    js_object_has_name, JSAutoInitIDEnum, JSProperty, JSPropertyDescriptor, JS_AutoInitProperty,
-    JS_IsFunction, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-    JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
-    JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK,
-    JS_PROP_VARREF, JS_PROP_WRITABLE,
+    js_object_has_name, JSAutoInitIDEnum, JSProperty, JSPropertyDescriptor, JSShapeProperty,
+    JS_AutoInitProperty, JS_IsFunction, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH,
+    JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
 impl JSValue {
@@ -55,34 +55,32 @@ impl JSValue {
         let p = JS_VALUE_GET_OBJ(self);
 
         loop {
-            let mut pr = std::ptr::null_mut::<JSProperty>();
-            let mut prs = find_own_property(std::ptr::addr_of_mut!(pr), p, prop);
-            if !prs.is_null() {
-                /* the range of the Array length property is always tested before */
-                if ((*prs).flags() & JS_PROP_LENGTH) != 0 && (flags & JS_PROP_HAS_VALUE) != 0 {
+            if let Some((mut prs, mut pr)) = (*p).find_own_property_mut(prop) {
+                if prs.flags() & JS_PROP_LENGTH != 0 && flags & JS_PROP_HAS_VALUE != 0 {
+                    // is `length` property
+                    // the range of the Array length property is always tested before
                     let array_length = JS_ToArrayLengthFree(ctx, val.dup(), false)?;
                     // this code relies on the fact that Uint32 are never allocated
                     val = JSValue::from_u32(array_length);
-                    // prs may have been modified
-                    prs = find_own_property(&mut pr, p, prop);
-                    debug_assert!(!prs.is_null());
+                    // prs may have been modified, read it again
+                    (prs, pr) = (*p).find_own_property_mut(prop).unwrap();
                 }
 
                 // property already exists
-                if !check_define_prop_flags((*prs).flags(), flags) {
+                if !check_define_prop_flags(prs.flags(), flags) {
                     return if ctx.JS_ThrowTypeErrorOrFalse(flags, c"property is not configurable") {
-                        Ok(false)
-                    } else {
                         Err(-1)
+                    } else {
+                        Ok(false)
                     };
                 }
 
-                if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_AUTOINIT {
+                if prs.flags() & JS_PROP_TMASK == JS_PROP_AUTOINIT {
                     // Instantiate property and retry
                     if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
                         return Err(-1);
                     }
-                    continue; // redo_prop_update
+                    continue; // retry
                 }
 
                 if flags
@@ -103,12 +101,14 @@ impl JSValue {
                         };
 
                         if ((*prs).flags() & JS_PROP_TMASK) != JS_PROP_GETSET {
-                            if (*p).js_shape_prepare_update(ctx, &mut prs) != 0 {
+                            if (*p).js_shape_prepare_update(ctx, &mut (prs as *mut JSShapeProperty))
+                                != 0
+                            {
                                 return Err(-1);
                             }
 
                             // convert to getset
-                            if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_VARREF {
+                            if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
                                 if let Some(vr) = Box::from_raw((*pr).u.var_ref).free(ctx.rt_mut())
                                 {
                                     Box::leak(vr);
@@ -117,99 +117,99 @@ impl JSValue {
                                 JS_FreeValue(ctx, (*pr).u.value);
                             }
 
-                            (*prs).set_flags(
-                                ((*prs).flags() & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE))
+                            prs.set_flags(
+                                (prs.flags() & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE))
                                     | JS_PROP_GETSET,
                             );
-                            (*pr).u.getset.getter = std::ptr::null_mut();
-                            (*pr).u.getset.setter = std::ptr::null_mut();
+                            pr.u.getset.getter = std::ptr::null_mut();
+                            pr.u.getset.setter = std::ptr::null_mut();
                         } else {
-                            if ((*prs).flags() & JS_PROP_CONFIGURABLE) == 0 {
-                                if flags & JS_PROP_HAS_GET != 0
-                                    && new_getter != (*pr).u.getset.getter
+                            if prs.flags() & JS_PROP_CONFIGURABLE == 0 {
+                                if flags & JS_PROP_HAS_GET != 0 && new_getter != pr.u.getset.getter
                                 {
                                     return if ctx.JS_ThrowTypeErrorOrFalse(
                                         flags,
                                         c"property is not configurable",
                                     ) {
-                                        Ok(false)
-                                    } else {
                                         Err(-1)
+                                    } else {
+                                        Ok(false)
                                     };
                                 }
-                                if flags & JS_PROP_HAS_SET != 0
-                                    && new_setter != (*pr).u.getset.setter
+                                if flags & JS_PROP_HAS_SET != 0 && new_setter != pr.u.getset.setter
                                 {
                                     return if ctx.JS_ThrowTypeErrorOrFalse(
                                         flags,
                                         c"property is not configurable",
                                     ) {
-                                        Ok(false)
-                                    } else {
                                         Err(-1)
+                                    } else {
+                                        Ok(false)
                                     };
                                 }
                             }
                         }
 
                         if flags & JS_PROP_HAS_GET != 0 {
-                            if !(*pr).u.getset.getter.is_null() {
+                            if !pr.u.getset.getter.is_null() {
                                 JS_FreeValue(
                                     ctx,
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()),
+                                    JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast()),
                                 );
                             }
                             if !new_getter.is_null() {
                                 getter.dup();
                             }
-                            (*pr).u.getset.getter = new_getter;
+                            pr.u.getset.getter = new_getter;
                         }
                         if flags & JS_PROP_HAS_SET != 0 {
-                            if !(*pr).u.getset.setter.is_null() {
+                            if !pr.u.getset.setter.is_null() {
                                 JS_FreeValue(
                                     ctx,
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()),
+                                    JS_MKPTR!(JSTag::Object, pr.u.getset.setter.cast()),
                                 );
                             }
                             if !new_setter.is_null() {
                                 setter.dup();
                             }
-                            (*pr).u.getset.setter = new_setter;
+                            pr.u.getset.setter = new_setter;
                         }
                     } else {
-                        if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_GETSET {
+                        if prs.flags() & JS_PROP_TMASK == JS_PROP_GETSET {
                             /* convert to data descriptor */
-                            if (*p).js_shape_prepare_update(ctx, &mut prs) != 0 {
+                            if (*p).js_shape_prepare_update(ctx, &mut (prs as *mut JSShapeProperty))
+                                != 0
+                            {
                                 return Err(-1);
                             }
-                            if !(*pr).u.getset.getter.is_null() {
+                            if !pr.u.getset.getter.is_null() {
                                 JS_FreeValue(
                                     ctx,
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()),
+                                    JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast()),
                                 );
                             }
-                            if !(*pr).u.getset.setter.is_null() {
+                            if !pr.u.getset.setter.is_null() {
                                 JS_FreeValue(
                                     ctx,
-                                    JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()),
+                                    JS_MKPTR!(JSTag::Object, pr.u.getset.setter.cast()),
                                 );
                             }
-                            (*prs).set_flags((*prs).flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
-                            (*pr).u.value = JSValue::UNDEFINED;
-                        } else if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_VARREF {
+                            prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
+                            pr.u.value = JSValue::UNDEFINED;
+                        } else if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
                             // Note: JS_PROP_VARREF is always writable
                         } else {
-                            if ((*prs).flags() & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE)) == 0
+                            if prs.flags() & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
                                 && (flags & JS_PROP_HAS_VALUE) != 0
                             {
-                                return if !val.is_same((*pr).u.value) {
+                                return if !val.is_same(pr.u.value) {
                                     if ctx.JS_ThrowTypeErrorOrFalse(
                                         flags,
                                         c"property is not configurable",
                                     ) {
-                                        Ok(false)
-                                    } else {
                                         Err(-1)
+                                    } else {
+                                        Ok(false)
                                     }
                                 } else {
                                     Ok(true)
@@ -217,29 +217,29 @@ impl JSValue {
                             }
                         }
 
-                        if ((*prs).flags() & JS_PROP_TMASK) == JS_PROP_VARREF {
+                        if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
                             if flags & JS_PROP_HAS_VALUE != 0 {
                                 if (*p).class_id() == JS_CLASS_MODULE_NS {
                                     /* JS_PROP_WRITABLE is always true for variable
                                     references, but they are write protected in module name
                                     spaces. */
-                                    if !val.is_same(*(*(*pr).u.var_ref).pvalue) {
+                                    if !val.is_same(*(*pr.u.var_ref).pvalue) {
                                         return if ctx.JS_ThrowTypeErrorOrFalse(
                                             flags,
                                             c"property is not configurable",
                                         ) {
-                                            Ok(false)
-                                        } else {
                                             Err(-1)
+                                        } else {
+                                            Ok(false)
                                         };
                                     }
                                 } else {
                                     /* update the reference */
-                                    set_value(ctx, (*(*pr).u.var_ref).pvalue, val.dup());
+                                    set_value(ctx, (*pr.u.var_ref).pvalue, val.dup());
                                 }
                             }
-                            /* if writable is set to false, no longer a
-                            reference (for mapped arguments) */
+
+                            /* if writable is set to false, no longer a reference (for mapped arguments) */
                             if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)
                                 == JS_PROP_HAS_WRITABLE
                             {
@@ -248,26 +248,29 @@ impl JSValue {
                                         flags,
                                         c"module namespace properties have writable = false",
                                     ) {
-                                        Ok(false)
-                                    } else {
                                         Err(-1)
+                                    } else {
+                                        Ok(false)
                                     };
                                 }
-                                if (*p).js_shape_prepare_update(ctx, &mut prs) != 0 {
+
+                                if (*p).js_shape_prepare_update(
+                                    ctx,
+                                    &mut (prs as *mut JSShapeProperty),
+                                ) != 0
+                                {
                                     return Err(-1);
                                 }
-                                let val1 = (*(*(*pr).u.var_ref).pvalue).dup();
-                                if let Some(vr) = Box::from_raw((*pr).u.var_ref).free(ctx.rt_mut())
-                                {
+
+                                let val1 = (*(*pr.u.var_ref).pvalue).dup();
+                                if let Some(vr) = Box::from_raw(pr.u.var_ref).free(ctx.rt_mut()) {
                                     Box::leak(vr);
                                     //  unreachable!();
                                 }
-                                (*pr).u.value = val1;
-                                (*prs).set_flags(
-                                    (*prs).flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE),
-                                );
+                                pr.u.value = val1;
+                                prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                             }
-                        } else if (*prs).flags() & JS_PROP_LENGTH != 0 {
+                        } else if prs.flags() & JS_PROP_LENGTH != 0 {
                             let res = if flags & JS_PROP_HAS_VALUE != 0 {
                                 // Note: no JS code is executable because 'val' is guaranted to be a Uint32
                                 (*p).set_array_length(ctx, val.dup(), flags)
@@ -289,8 +292,8 @@ impl JSValue {
 
                                 if (*p).js_update_property_flags(
                                     ctx,
-                                    std::ptr::addr_of_mut!(prs),
-                                    (*prs).flags() & !JS_PROP_WRITABLE,
+                                    &mut (prs as *mut JSShapeProperty),
+                                    prs.flags() & !JS_PROP_WRITABLE,
                                 ) != 0
                                 {
                                     return Err(-1);
@@ -300,14 +303,14 @@ impl JSValue {
                             return res;
                         } else {
                             if flags & JS_PROP_HAS_VALUE != 0 {
-                                JS_FreeValue(ctx, (*pr).u.value);
-                                (*pr).u.value = val.dup();
+                                JS_FreeValue(ctx, pr.u.value);
+                                pr.u.value = val.dup();
                             }
                             if flags & JS_PROP_HAS_WRITABLE != 0 {
                                 if (*p).js_update_property_flags(
                                     ctx,
-                                    std::ptr::addr_of_mut!(prs),
-                                    ((*prs).flags() & !JS_PROP_WRITABLE)
+                                    &mut (prs as *mut JSShapeProperty),
+                                    (prs.flags() & !JS_PROP_WRITABLE)
                                         | (flags as u32 & JS_PROP_WRITABLE),
                                 ) != 0
                                 {
@@ -327,8 +330,8 @@ impl JSValue {
                 }
                 if (*p).js_update_property_flags(
                     ctx,
-                    std::ptr::addr_of_mut!(prs),
-                    ((*prs).flags() & !mask) | (flags & mask),
+                    &mut (prs as *mut JSShapeProperty),
+                    (prs.flags() & !mask) | (flags & mask),
                 ) != 0
                 {
                     return Err(-1);
@@ -385,9 +388,9 @@ impl JSValue {
                                         flags,
                                         c"non integer index in typed array",
                                     ) {
-                                        Ok(false)
-                                    } else {
                                         Err(-1)
+                                    } else {
+                                        Ok(false)
                                     };
                                 }
                             } else {
@@ -402,9 +405,9 @@ impl JSValue {
                                     flags as _,
                                     c"negative index in typed array",
                                 ) {
-                                    Ok(false)
-                                } else {
                                     Err(-1)
+                                } else {
+                                    Ok(false)
                                 };
                             }
 
@@ -413,9 +416,9 @@ impl JSValue {
                                     flags,
                                     c"out-of-bound index in typed array",
                                 ) {
-                                    Ok(false)
-                                } else {
                                     Err(-1)
+                                } else {
+                                    Ok(false)
                                 };
                             }
                         }
@@ -427,9 +430,9 @@ impl JSValue {
                                 flags,
                                 c"out-of-bound index in typed array",
                             ) {
-                                Ok(false)
-                            } else {
                                 Err(-1)
+                            } else {
+                                Ok(false)
                             };
                         }
 
@@ -444,9 +447,9 @@ impl JSValue {
                             return if ctx
                                 .JS_ThrowTypeErrorOrFalse(flags as _, c"invalid descriptor flags")
                             {
-                                Ok(false)
-                            } else {
                                 Err(-1)
+                            } else {
+                                Ok(false)
                             };
                         }
                         if flags & JS_PROP_HAS_VALUE != 0 {
@@ -471,7 +474,7 @@ impl JSValue {
             }
 
             break;
-        }
+        } // loop
 
         #[cfg(debug_assertions)]
         let _val_rc = val.ref_count();

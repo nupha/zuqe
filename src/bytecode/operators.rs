@@ -18,9 +18,9 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            find_own_property, js_get_length32, JSProperty, JS_CheckBrand, JS_DefineObjectName,
-            JS_DefineObjectNameComputed, JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal,
-            JS_GetProperty, JS_GetPrototypeFree, JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf,
+            js_get_length32, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
+            JS_DefinePropertyValueUint32, JS_GetOwnPropertyInternal, JS_GetProperty,
+            JS_GetPrototypeFree, JS_IsCFunction, JS_IsConstructor, JS_IsInstanceOf,
             JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM,
             JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
             JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -131,11 +131,9 @@ pub unsafe fn js_operator_private_in(ctx: *mut JSContext, sp: *mut JSValue) -> R
             return Err(-1);
         }
         let p = JS_VALUE_GET_OBJ(op1);
-        let mut pr = std::ptr::null_mut::<JSProperty>();
-        let prs = find_own_property(&mut pr, p, atom);
+        let prs = (*p).find_own_property1(atom);
         JS_FreeAtom(ctx, atom);
-
-        !prs.is_null()
+        prs.is_some()
     };
 
     JS_FreeValue(ctx, op1);

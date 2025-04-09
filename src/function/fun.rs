@@ -13,8 +13,8 @@ use crate::{
     types::likely,
     value::{
         object::{
-            find_own_property, JSObject, JSProperty, JS_IsFunction, JS_NewObject,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_NORMAL, JS_PROP_TMASK,
+            JSObject, JS_IsFunction, JS_NewObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_NORMAL, JS_PROP_TMASK,
         },
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_NewBool,
         JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
@@ -146,28 +146,36 @@ pub unsafe fn JS_GetFunctionRealm(ctx: *mut JSContext, func_obj: JSValueConst) -
     return realm;
 }
 
-// in order to avoid executing arbitrary code during the stack trace
-// generation, we only look at simple 'name' properties containing a
-// string.
 pub unsafe fn get_func_name<'a>(ctx: *mut JSContext, func: JSValueConst) -> Option<Cow<'a, str>> {
-    if JS_VALUE_GET_TAG(func) != JSTag::Object as i32 {
-        return None;
+    // in order to avoid executing arbitrary code during the stack trace generation,
+    // we only look at simple 'name' properties containing a string.
+    if JS_VALUE_GET_TAG(func) == JSTag::Object as i32 {
+        if let Some((prs, pr)) = (*JS_VALUE_GET_OBJ(func)).find_own_property(JS_ATOM_name) {
+            if prs.flags() & JS_PROP_TMASK == JS_PROP_NORMAL {
+                let val = pr.u.value;
+                if JS_VALUE_GET_TAG(val) == JSTag::String as i32 {
+                    return val.to_utf8_string(ctx.as_mut().unwrap()).ok();
+                }
+            }
+        }
     }
 
-    let mut pr: *mut JSProperty = std::ptr::null_mut();
-    let prs = find_own_property(&mut pr, JS_VALUE_GET_OBJ(func), JS_ATOM_name);
-    if prs.is_null() {
-        return None;
-    }
-    if (*prs).flags() & JS_PROP_TMASK != JS_PROP_NORMAL {
-        return None;
-    }
-    let val = (*pr).u.value;
-    if JS_VALUE_GET_TAG(val) != JSTag::String as i32 {
-        return None;
-    }
+    None
 
-    val.to_utf8_string(ctx.as_mut().unwrap()).ok()
+    // let mut pr: *mut JSProperty = std::ptr::null_mut();
+    // let prs = find_own_property(&mut pr, JS_VALUE_GET_OBJ(func), JS_ATOM_name);
+    // if prs.is_null() {
+    //     return None;
+    // }
+    // if (*prs).flags() & JS_PROP_TMASK != JS_PROP_NORMAL {
+    //     return None;
+    // }
+    // let val = (*pr).u.value;
+    // if JS_VALUE_GET_TAG(val) != JSTag::String as i32 {
+    //     return None;
+    // }
+
+    // val.to_utf8_string(ctx.as_mut().unwrap()).ok()
 }
 
 pub unsafe fn js_create_iterator_result(ctx: *mut JSContext, val: JSValue, done: bool) -> JSValue {

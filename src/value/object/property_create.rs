@@ -125,9 +125,9 @@ impl JSObject {
                                         flags as _,
                                         c"object is not extensible",
                                     ) {
-                                        Ok(false)
-                                    } else {
                                         Err(-1)
+                                    } else {
+                                        Ok(false)
                                     };
                                 }
 
@@ -160,9 +160,9 @@ impl JSObject {
                             flags,
                             c"cannot create numeric index in typed array",
                         ) {
-                            Ok(false)
-                        } else {
                             Err(-1)
+                        } else {
+                            Ok(false)
                         };
                     }
                 }
@@ -191,9 +191,9 @@ impl JSObject {
                                     flags as _,
                                     c"object is not extensible",
                                 ) {
-                                    Ok(false)
-                                } else {
                                     Err(-1)
+                                } else {
+                                    Ok(false)
                                 };
                             }
                         }
@@ -204,9 +204,9 @@ impl JSObject {
 
         if !self.detailed.extensible() {
             return if ctx.JS_ThrowTypeErrorOrFalse(flags, c"object is not extensible") {
-                Ok(false)
-            } else {
                 Err(-1)
+            } else {
+                Ok(false)
             };
         }
 

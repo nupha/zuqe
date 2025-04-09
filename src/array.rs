@@ -383,9 +383,9 @@ pub unsafe fn add_fast_array_element(
             {
                 JS_FreeValue(ctx, val);
                 return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-                    Ok(false)
-                } else {
                     Err(-1)
+                } else {
+                    Ok(false)
                 };
             }
             (*p).prop_values[0].u.value = JSValue::from_i32(new_len as i32);
