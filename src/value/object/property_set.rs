@@ -201,11 +201,11 @@ impl JSValue {
                                 _ => unreachable!(),
                             };
                         } else if (*prs).flags() & JS_PROP_TMASK == JS_PROP_AUTOINIT {
-                            /* Instantiate property and retry (potentially useless) */
+                            // Instantiate property and retry (potentially useless)
                             if JS_AutoInitProperty(ctx, p1, prop, pr, prs) != 0 {
                                 return Err(-1);
                             }
-                            continue; // State::Retry2
+                            continue; // state keep current
                         } else if (*prs).flags() & JS_PROP_WRITABLE == 0 {
                             state = State::ErrReadOnly;
                             continue;
@@ -343,9 +343,9 @@ impl JSValue {
                     if p.is_null() {
                         JS_FreeValue(ctx, val);
                         return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, c"not an object") {
-                            Ok(false)
-                        } else {
                             Err(-1)
+                        } else {
+                            Ok(false)
                         };
                     }
 
@@ -354,9 +354,9 @@ impl JSValue {
                         return if ctx
                             .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
                         {
-                            Ok(false)
-                        } else {
                             Err(-1)
+                        } else {
+                            Ok(false)
                         };
                     }
 
