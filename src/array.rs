@@ -253,8 +253,7 @@ impl JSValue {
     /// test if value is fast array (could be one of Array, Argument, TypedArray fast array).
     pub fn is_fast_array(self) -> bool {
         if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
-            let p = JS_VALUE_GET_OBJ(self);
-            unsafe { (*p).detailed.fast_array() }
+            unsafe { self.object().detailed.fast_array() }
         } else {
             false
         }
@@ -262,16 +261,22 @@ impl JSValue {
 
     /// if value is Array or Argument class, and is fast array, returns values slice.
     #[inline]
-    pub fn fast_array_values(&self) -> Option<&[JSValue]> {
-        let p = JS_VALUE_GET_OBJ(*self);
-        unsafe { (*p).fast_array_values() }
+    pub fn fast_array_values<'a>(self) -> Option<&'a [JSValue]> {
+        if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
+            unsafe { self.object().fast_array_values() }
+        } else {
+            None
+        }
     }
 
     /// if value is Array or Argument class, and is fast array, returns values vec mut.
     #[inline]
-    pub fn fast_array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
-        let p = JS_VALUE_GET_OBJ(*self);
-        unsafe { (*p).fast_array_values_mut() }
+    pub fn fast_array_values_mut<'a>(self) -> Option<&'a mut Vec<JSValue>> {
+        if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
+            unsafe { self.object().fast_array_values_mut() }
+        } else {
+            None
+        }
     }
 }
 

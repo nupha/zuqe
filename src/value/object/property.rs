@@ -234,7 +234,7 @@ impl JSValue {
             return Ok(false);
         }
 
-        let mut p = JS_VALUE_GET_OBJ(self);
+        let mut p = unsafe { self.object() as *mut JSObject };
 
         loop {
             if unsafe { (*p).detailed.is_exotic() } {
@@ -261,7 +261,7 @@ impl JSValue {
 
             unsafe {
                 // JS_GetOwnPropertyInternal can free the prototype
-                let o = JS_MKPTR!(JSTag::Object, p.cast());
+                let o = JS_MKPTR!(JSTag::Object, (p as *mut JSObject).cast());
                 o.dup();
                 let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, prop);
                 JS_FreeValue(ctx, o);

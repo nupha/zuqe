@@ -207,82 +207,78 @@ impl JSValue {
             && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
         {
             let idx = JS_VALUE_GET_INT(prop);
-            let p = JS_VALUE_GET_OBJ(self);
+            let p = unsafe { self.object() };
 
             // return early for fast array and index within slice bound.
-            match unsafe { (*p).class_id() } {
+            match p.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    if let Some(lst) = unsafe { (*p).fast_array_values() } {
+                    if let Some(lst) = p.fast_array_values() {
                         if idx < lst.len() as i32 {
                             return lst[idx as usize].dup(); // use fast array value
                         }
                     }
                 }
                 JS_CLASS_INT8_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from_i32(
-                            *(*p).u.array.data.int8_ptr.offset(idx as isize) as i32
+                            *p.u.array.data.int8_ptr.offset(idx as isize) as i32
                         );
                     }
                 },
                 JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from_i32(
-                            *(*p).u.array.data.uint8_ptr.offset(idx as isize) as i32,
+                            *p.u.array.data.uint8_ptr.offset(idx as isize) as i32
                         );
                     }
                 },
                 JS_CLASS_INT16_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from_i32(
-                            *(*p).u.array.data.int16_ptr.offset(idx as isize) as i32,
+                            *p.u.array.data.int16_ptr.offset(idx as isize) as i32
                         );
                     }
                 },
                 JS_CLASS_UINT16_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from_i32(
-                            *(*p).u.array.data.uint16_ptr.offset(idx as isize) as i32,
+                            *p.u.array.data.uint16_ptr.offset(idx as isize) as i32
                         );
                     }
                 },
                 JS_CLASS_INT32_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
-                        return JSValue::from_i32(
-                            *(*p).u.array.data.int32_ptr.offset(idx as isize),
-                        );
+                    if idx < p.array_length_unchecked() as i32 {
+                        return JSValue::from_i32(*p.u.array.data.int32_ptr.offset(idx as isize));
                     }
                 },
                 JS_CLASS_UINT32_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
-                        return JSValue::from_u32(
-                            *(*p).u.array.data.uint32_ptr.offset(idx as isize),
-                        );
+                    if idx < p.array_length_unchecked() as i32 {
+                        return JSValue::from_u32(*p.u.array.data.uint32_ptr.offset(idx as isize));
                     }
                 },
                 JS_CLASS_BIG_INT64_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         //return JS_NewBigInt64(ctx, *(*p).u.array.u.int64_ptr.offset(idx as isize));
                         unimplemented!()
                     }
                 },
                 JS_CLASS_BIG_UINT64_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         //return JS_NewBigUint64(ctx, *(*p).u.array.u.uint64_ptr.offset(idx as isize));
                         unimplemented!()
                     }
                 },
                 JS_CLASS_FLOAT32_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from_f64_as_is(
-                            *(*p).u.array.data.float_ptr.offset(idx as isize) as f64,
+                            *p.u.array.data.float_ptr.offset(idx as isize) as f64,
                         );
                     }
                 },
                 JS_CLASS_FLOAT64_ARRAY => unsafe {
-                    if idx < (*p).array_length_unchecked() as i32 {
+                    if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from_f64_as_is(
-                            *(*p).u.array.data.double_ptr.offset(idx as isize),
+                            *p.u.array.data.double_ptr.offset(idx as isize),
                         );
                     }
                 },

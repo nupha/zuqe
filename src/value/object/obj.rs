@@ -24,6 +24,7 @@ use crate::{
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{list_add_tail, list_del, unlikely},
+    value::{JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_PTR},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN,
     JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_DATE,
     JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY,
@@ -110,13 +111,26 @@ impl Drop for JSObject {
 }
 
 impl JSValue {
+    /// get JSObject reference.
+    /// ensure the value is an object
+    #[inline(always)]
+    pub unsafe fn object<'a>(self) -> &'a mut JSObject {
+        debug_assert!(matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
+        ));
+        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+
+        JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
+    }
+
     pub fn is_function(&self, ctx: &JSContext) -> bool {
         if JS_VALUE_GET_TAG(*self) != JS_TAG_OBJECT {
             return false;
         }
 
-        let p = JS_VALUE_GET_OBJ(*self);
-        match unsafe { (*p).class_id() } {
+        let p = unsafe { self.object() };
+        match p.class_id() {
             JS_CLASS_BYTECODE_FUNCTION => true,
             JS_CLASS_PROXY => {
                 //(*p).u.proxy_data.is_func as BOOL
@@ -374,7 +388,7 @@ impl JSValue {
             _ => {}
         }
 
-        let p = JS_VALUE_GET_OBJ(self);
+        let p = unsafe { self.object() as *mut JSObject };
         let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
 
         let r = unsafe {

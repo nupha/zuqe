@@ -83,14 +83,14 @@ pub unsafe fn JS_GetFunctionBytecode(val: JSValueConst) -> *mut JSFunctionByteco
         return std::ptr::null_mut();
     }
 
-    let p = JS_VALUE_GET_OBJ(val);
-    if !js_class_has_bytecode((*p).class_id()) {
+    let p = val.object();
+    if !js_class_has_bytecode(p.class_id()) {
         return std::ptr::null_mut();
     }
-    return (*p).u.func.function_bytecode;
+    p.u.func.function_bytecode
 }
 
-pub unsafe fn js_class_has_bytecode(class_id: JSClassID) -> bool {
+pub const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
     matches!(
         class_id,
         JS_CLASS_BYTECODE_FUNCTION
@@ -161,21 +161,6 @@ pub unsafe fn get_func_name<'a>(ctx: *mut JSContext, func: JSValueConst) -> Opti
     }
 
     None
-
-    // let mut pr: *mut JSProperty = std::ptr::null_mut();
-    // let prs = find_own_property(&mut pr, JS_VALUE_GET_OBJ(func), JS_ATOM_name);
-    // if prs.is_null() {
-    //     return None;
-    // }
-    // if (*prs).flags() & JS_PROP_TMASK != JS_PROP_NORMAL {
-    //     return None;
-    // }
-    // let val = (*pr).u.value;
-    // if JS_VALUE_GET_TAG(val) != JSTag::String as i32 {
-    //     return None;
-    // }
-
-    // val.to_utf8_string(ctx.as_mut().unwrap()).ok()
 }
 
 pub unsafe fn js_create_iterator_result(ctx: *mut JSContext, val: JSValue, done: bool) -> JSValue {

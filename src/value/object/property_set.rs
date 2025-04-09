@@ -66,12 +66,8 @@ impl JSValue {
         let mut state = if this_tag != JSTag::Object {
             if JS_VALUE_GET_TAG(self) == JSTag::Object as i32 {
                 p = std::ptr::null_mut();
-                p1 = JS_VALUE_GET_OBJ(self);
-                if p1.is_null() {
-                    State::GeneralSet
-                } else {
-                    State::TrySetter
-                }
+                p1 = self.object() as _; // won't be null
+                State::TrySetter
             } else {
                 match this_tag {
                     JSTag::Null => {
@@ -108,8 +104,8 @@ impl JSValue {
                 }
             }
         } else {
-            p = JS_VALUE_GET_OBJ(this_obj);
-            p1 = JS_VALUE_GET_OBJ(self);
+            p = this_obj.object() as _;
+            p1 = self.object() as _;
             debug_assert!(!p1.is_null());
             debug_assert!(!p.is_null());
             if p != p1 {
@@ -181,6 +177,8 @@ impl JSValue {
                     }
                 }
                 State::TrySetter => {
+                    debug_assert!(!p1.is_null());
+
                     if let Some((prs, pr)) = (*p1).find_own_property_mut(prop) {
                         let pr_flags = prs.flags();
                         if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
@@ -497,17 +495,17 @@ impl JSValue {
         if JS_VALUE_GET_TAG(self) == JSTag::Object as i32
             && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
         {
-            let p = JS_VALUE_GET_OBJ(self);
+            let p = unsafe { self.object() };
             let idx = JS_VALUE_GET_INT(prop);
             let mut ta_out_of_bound = false;
 
             unsafe {
                 // early return using fast path if possible
-                match (*p).class_id() {
+                match p.class_id() {
                     JS_CLASS_ARRAY => {
                         // fast path: is fast array
-                        if (*p).detailed.fast_array() && (*p).detailed.extensible() {
-                            let lst = (*p).fast_array_values_mut_unchecked();
+                        if p.detailed.fast_array() && p.detailed.extensible() {
+                            let lst = p.fast_array_values_mut_unchecked();
                             if idx < lst.len() as i32 {
                                 // update array element
                                 set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
@@ -515,7 +513,7 @@ impl JSValue {
                             } else if idx == lst.len() as i32 {
                                 // 检查原型链是否有数字属性
                                 let mut has_int_prop = false;
-                                let mut p1 = (*p).shape().unwrap().proto;
+                                let mut p1 = p.shape().unwrap().proto;
                                 while !p1.is_null() && !has_int_prop {
                                     let sh1 = (*p1).shape().unwrap();
                                     if (*p1).class_id() == JS_CLASS_ARRAY {
@@ -540,7 +538,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_ARGUMENTS => {
-                        let lst = (*p).fast_array_values_mut_unchecked();
+                        let lst = p.fast_array_values_mut_unchecked();
                         if idx < lst.len() as i32 {
                             set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
                             return Ok(true);
@@ -551,10 +549,10 @@ impl JSValue {
                         if JS_ToUint8ClampFree(ctx, &mut v, val) != 0 {
                             return Err(-1);
                         }
-                        if idx >= (*p).array_length_unchecked() as i32 {
+                        if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *(*p).u.array.data.uint8_ptr.offset(idx as _) = v as u8;
+                            *p.u.array.data.uint8_ptr.offset(idx as _) = v as u8;
                             return Ok(true);
                         }
                     }
@@ -564,10 +562,10 @@ impl JSValue {
                         } else {
                             return Err(-1);
                         };
-                        if idx >= (*p).array_length_unchecked() as i32 {
+                        if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *(*p).u.array.data.uint8_ptr.offset(idx as _) = v;
+                            *p.u.array.data.uint8_ptr.offset(idx as _) = v;
                             return Ok(true);
                         }
                     }
@@ -577,10 +575,10 @@ impl JSValue {
                         } else {
                             return Err(-1);
                         };
-                        if idx >= (*p).array_length_unchecked() as i32 {
+                        if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *(*p).u.array.data.uint16_ptr.offset(idx as _) = v as u16;
+                            *p.u.array.data.uint16_ptr.offset(idx as _) = v as u16;
                             return Ok(true);
                         }
                     }
@@ -590,10 +588,10 @@ impl JSValue {
                         } else {
                             return Err(-1);
                         };
-                        if idx >= (*p).array_length_unchecked() as i32 {
+                        if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *(*p).u.array.data.uint32_ptr.offset(idx as _) = v as u32;
+                            *p.u.array.data.uint32_ptr.offset(idx as _) = v as u32;
                             return Ok(true);
                         }
                     }
@@ -605,10 +603,10 @@ impl JSValue {
                         if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
                             return Err(-1);
                         }
-                        if idx >= (*p).array_length_unchecked() as i32 {
+                        if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *(*p).u.array.data.float_ptr.offset(idx as _) = d as f32;
+                            *p.u.array.data.float_ptr.offset(idx as _) = d as f32;
                             return Ok(true);
                         }
                     }
@@ -617,10 +615,10 @@ impl JSValue {
                         if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
                             return Err(-1);
                         }
-                        if idx >= (*p).array_length_unchecked() as i32 {
+                        if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *(*p).u.array.data.double_ptr.offset(idx as _) = d;
+                            *p.u.array.data.double_ptr.offset(idx as _) = d;
                             return Ok(true);
                         }
                     }

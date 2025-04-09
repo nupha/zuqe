@@ -72,8 +72,8 @@ pub unsafe fn js_operator_typeof(ctx: &mut JSContext, op1: JSValueConst) -> JSAt
         JSTag::Bool => JS_ATOM_boolean,
         JSTag::String => JS_ATOM_string,
         JSTag::Object => {
-            let p = JS_VALUE_GET_OBJ(op1);
-            if (*p).detailed.is_htmldda() {
+            let p = op1.object();
+            if p.detailed.is_htmldda() {
                 JS_ATOM_undefined
             } else if op1.is_function(ctx) {
                 JS_ATOM_function

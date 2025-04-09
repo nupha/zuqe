@@ -308,12 +308,9 @@ impl JSValue {
         let v = self;
         if JS_VALUE_HAS_REF_COUNT(v) {
             match JS_VALUE_GET_TAG(v) {
-                JS_TAG_STRING | JS_TAG_SYMBOL => {
-                    let p = JS_VALUE_GET_STRING(v);
-                    unsafe {
-                        Rc::increment_strong_count(p);
-                    }
-                }
+                JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
+                    Rc::increment_strong_count(v.string());
+                },
                 _ => {
                     let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
                     unsafe {
@@ -426,15 +423,14 @@ pub unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
 
 #[deprecated(note = "use JSValue::string() instead")]
 #[inline(always)]
-pub(crate) fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
-    debug_assert_eq!(JS_VALUE_GET_TAG(v), JS_TAG_STRING);
-    debug_assert!(!JS_VALUE_GET_PTR(v).is_null());
-    JS_VALUE_GET_PTR(v).cast()
+pub(crate) unsafe fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
+    v.string() as *const JSString as _
 }
 
+#[deprecated(note = "use JSValue::object() instead")]
 #[inline(always)]
-pub fn JS_VALUE_GET_OBJ(v: JSValue) -> *mut JSObject {
-    JS_VALUE_GET_PTR(v).cast()
+pub unsafe fn JS_VALUE_GET_OBJ(v: JSValue) -> *mut JSObject {
+    v.object() as *const JSObject as _
 }
 
 #[cfg(feature = "nan_boxing")]
@@ -464,7 +460,7 @@ pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     if JS_VALUE_HAS_REF_COUNT(v) {
         match JS_VALUE_GET_TAG(v) {
             JS_TAG_STRING | JS_TAG_SYMBOL => {
-                let s = Rc::from_raw(JS_VALUE_GET_STRING(v));
+                let s = Rc::from_raw(v.string());
                 if Rc::strong_count(&s) == 1 {
                     // rc is about to drop, drop atom description too
                     if let Some(at) = s.atom_info() {
@@ -623,12 +619,11 @@ pub fn JS_IsObject(v: JSValueConst) -> bool {
 }
 
 #[inline]
-pub fn JS_IsHTMLDDA(ctx: *mut JSContext, obj: JSValueConst) -> bool {
+pub fn JS_IsHTMLDDA(obj: JSValueConst) -> bool {
     if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
         false
     } else {
-        let p = JS_VALUE_GET_OBJ(obj);
-        unsafe { (*p).detailed.is_htmldda() }
+        unsafe { obj.object().detailed.is_htmldda() }
     }
 }
 

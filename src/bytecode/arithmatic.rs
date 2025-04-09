@@ -4,10 +4,11 @@ use crate::{
     bytecode::OpCode,
     context::JSContext,
     value::{
-        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_FreeValue,
-        JS_IsException, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree, JS_ToPrimitiveFree,
-        HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        object::JSObject, JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString,
+        JS_FreeValue, JS_IsException, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree,
+        JS_ToPrimitiveFree, HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -545,9 +546,13 @@ impl JSValue {
                 JS_VALUE_GET_INT(self) == JS_VALUE_GET_INT(other)
             }
             (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
-            (JSTag::String, JSTag::String) => self.string().content() == other.string().content(),
+            (JSTag::String, JSTag::String) => unsafe {
+                self.string().content() == other.string().content()
+            },
             (JSTag::Symbol, JSTag::Symbol) => JS_VALUE_GET_PTR(self) == JS_VALUE_GET_PTR(other),
-            (JSTag::Object, JSTag::Object) => JS_VALUE_GET_OBJ(self) == JS_VALUE_GET_OBJ(other),
+            (JSTag::Object, JSTag::Object) => unsafe {
+                self.object() as *mut JSObject == other.object() as *mut JSObject
+            },
             (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
                 let d1 = if tag1 == JSTag::Int {
                     JS_VALUE_GET_INT(self) as f64
@@ -756,8 +761,8 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
                 r
             }
             _ => {
-                let r = (JS_IsHTMLDDA(ctx, op1) && matches!(tag2, JSTag::Null | JSTag::Undefined))
-                    || (JS_IsHTMLDDA(ctx, op2) && matches!(tag1, JSTag::Null | JSTag::Undefined));
+                let r = (JS_IsHTMLDDA(op1) && matches!(tag2, JSTag::Null | JSTag::Undefined))
+                    || (JS_IsHTMLDDA(op2) && matches!(tag1, JSTag::Null | JSTag::Undefined));
                 JS_FreeValue(ctx, op1);
                 JS_FreeValue(ctx, op2);
                 r
