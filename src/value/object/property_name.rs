@@ -13,8 +13,9 @@ use crate::{
 };
 
 use super::{
-    JSObject, JSPropertyDescriptor, JS_CreateDataPropertyUint32, JS_GetOwnPropertyInternal,
-    JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+    js_free_desc, JSObject, JSPropertyDescriptor, JS_CreateDataPropertyUint32,
+    JS_GetOwnPropertyInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+    JS_PROP_ENUMERABLE, JS_PROP_THROW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,9 +419,3 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 //         js_free(ctx, tab.cast());
 //     }
 // }
-
-pub unsafe fn js_free_desc(ctx: *mut JSContext, desc: *mut JSPropertyDescriptor) {
-    JS_FreeValue(ctx, (*desc).getter);
-    JS_FreeValue(ctx, (*desc).setter);
-    JS_FreeValue(ctx, (*desc).value);
-}

@@ -8,13 +8,12 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSPropertyDescriptor, JS_DefinePropertyDesc, JS_GetOwnPropertyInternal,
-            JS_GetProperty, JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject,
-            JS_NewObjectProto, JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject,
-            JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-            JS_PROP_WRITABLE,
+            js_free_desc, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_GetProperty,
+            JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
+            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
+            JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNull, JS_IsObject, JS_IsString, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL,
@@ -53,7 +52,9 @@ pub unsafe fn JS_ObjectDefineProperties(
             if desc.is_exception() {
                 Err(-1)
             } else {
-                let r = JS_DefinePropertyDesc(ctx, obj, name.atom, desc, JS_PROP_THROW).map(|_| ());
+                let r = obj
+                    .define_property_desc(cx, name.atom, desc, JS_PROP_THROW)
+                    .map(|_| ());
                 JS_FreeValue(ctx, desc);
                 r
             }
@@ -223,14 +224,18 @@ pub unsafe fn js_object_defineProperty(
     if magic == 0 {
         flags |= JS_PROP_THROW;
     }
-    let ret = JS_DefinePropertyDesc(ctx, obj, atom, desc, flags);
+    let ret = obj.define_property_desc(ctx.as_mut().unwrap(), atom, desc, flags);
     JS_FreeAtom(ctx, atom);
     match ret {
         Ok(b) => {
             if magic != 0 {
-                JS_NewBool(b)
+                if b {
+                    JSValue::TRUE
+                } else {
+                    JSValue::FALSE
+                }
             } else {
-                JS_DupValue(ctx, obj)
+                obj.dup()
             }
         }
         Err(_) => JSValue::EXCEPTION,

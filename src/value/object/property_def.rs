@@ -3,11 +3,11 @@ use std::ffi::CStr;
 use crate::{
     array::{convert_fast_array_to_array, JS_ToArrayLengthFree},
     atom::{
-        JSAtom, JS_AtomIsNumericIndex1, JS_FreeAtom, JS_NewAtom, JS_ValueToAtom, __JS_AtomToUInt32,
-        consts::JS_ATOM_name, JS_ATOM_NULL,
+        JSAtom, JS_AtomIsNumericIndex1, JS_FreeAtom, JS_ValueToAtom, __JS_AtomToUInt32, consts::*,
+        JS_ATOM_NULL,
     },
     context::{JSContext, JS_DupContext},
-    types::unlikely,
+    value::JS_ToBoolFree,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MODULE_NS,
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
@@ -17,12 +17,12 @@ use super::{
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_NumberIsNegativeOrMinusZero,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    check_define_prop_flags, get_prop_flags, js_free_desc, js_get_function_name, js_obj_to_desc,
-    js_object_has_name, JSAutoInitIDEnum, JSPropertyDescriptor, JSShapeProperty,
-    JS_AutoInitProperty, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-    JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
-    JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK,
-    JS_PROP_VARREF, JS_PROP_WRITABLE,
+    check_define_prop_flags, get_prop_flags, js_get_function_name, js_object_has_name,
+    JSAutoInitIDEnum, JSPropertyDescriptor, JSShapeProperty, JS_AutoInitProperty, JS_PROP_AUTOINIT,
+    JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_VARREF,
+    JS_PROP_WRITABLE,
 };
 
 impl JSValue {
@@ -611,6 +611,138 @@ impl JSValue {
         }
         ret
     }
+
+    /// define property from descriptor object configuration.
+    /// `desc` keeps ref count unchanged after calling.
+    pub fn define_property_desc(
+        self,
+        ctx: &mut JSContext,
+        prop: JSAtom,
+        desc: Self,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let mut d = JSPropertyDescriptor {
+            flags: 0,
+            value: JSValue::UNDEFINED,
+            getter: JSValue::UNDEFINED,
+            setter: JSValue::UNDEFINED,
+        };
+        unsafe {
+            js_obj_to_desc(ctx, &mut d, desc)?;
+        }
+
+        unsafe {
+            let ret = self.define_property(ctx, prop, d.value, d.getter, d.setter, d.flags | flags);
+            js_free_desc(ctx, &mut d);
+            ret
+        }
+    }
+}
+
+/// Descriptor config object to JSPropertyDescriptor.
+/// `desc` keep ref count unchanged after calling.
+pub unsafe fn js_obj_to_desc(
+    ctx: &mut JSContext,
+    d: &mut JSPropertyDescriptor,
+    desc: JSValue,
+) -> Result<(), i32> {
+    if !desc.is_object() {
+        (*ctx).JS_ThrowTypeErrorNotAnObject();
+        return Err(-1);
+    }
+
+    let mut val: JSValue = JSValue::UNDEFINED;
+    let mut getter: JSValue = JSValue::UNDEFINED;
+    let mut setter: JSValue = JSValue::UNDEFINED;
+    let mut flags: u32 = 0;
+
+    macro_rules! fail {
+        () => {
+            JS_FreeValue(ctx, val);
+            JS_FreeValue(ctx, getter);
+            JS_FreeValue(ctx, setter);
+            return Err(-1);
+        };
+    }
+
+    if desc.has_property(ctx, JS_ATOM_configurable)? {
+        let conf = desc.get_property(ctx, JS_ATOM_configurable);
+        if conf.is_exception() {
+            fail!();
+        }
+        flags |= JS_PROP_HAS_CONFIGURABLE;
+        if JS_ToBoolFree(ctx, conf).unwrap_or(true) {
+            flags |= JS_PROP_CONFIGURABLE;
+        }
+    }
+
+    if desc.has_property(ctx, JS_ATOM_writable)? {
+        let conf = desc.get_property(ctx, JS_ATOM_writable);
+        if conf.is_exception() {
+            fail!();
+        }
+        flags |= JS_PROP_HAS_WRITABLE;
+        if JS_ToBoolFree(ctx, conf).unwrap_or(true) {
+            flags |= JS_PROP_WRITABLE;
+        }
+    }
+
+    if desc.has_property(ctx, JS_ATOM_enumerable)? {
+        let conf = desc.get_property(ctx, JS_ATOM_enumerable);
+        if conf.is_exception() {
+            fail!();
+        }
+        flags |= JS_PROP_HAS_ENUMERABLE;
+        if JS_ToBoolFree(ctx, conf).unwrap_or(true) {
+            flags |= JS_PROP_ENUMERABLE;
+        }
+    }
+
+    if desc.has_property(ctx, JS_ATOM_value)? {
+        flags |= JS_PROP_HAS_VALUE;
+        val = desc.get_property(ctx, JS_ATOM_value);
+        if val.is_exception() {
+            fail!();
+        }
+    }
+
+    if desc.has_property(ctx, JS_ATOM_get)? {
+        flags |= JS_PROP_HAS_GET;
+        getter = desc.get_property(ctx, JS_ATOM_get);
+        if getter.is_exception() || !(getter.is_undefined() || getter.is_function(ctx)) {
+            ctx.JS_ThrowTypeError(c"invalid getter");
+            fail!();
+        }
+    }
+
+    if desc.has_property(ctx, JS_ATOM_set)? {
+        flags |= JS_PROP_HAS_SET;
+        setter = desc.get_property(ctx, JS_ATOM_set);
+        if setter.is_exception() || !(setter.is_undefined() || setter.is_function(ctx)) {
+            ctx.JS_ThrowTypeError(c"invalid setter");
+            fail!();
+        }
+    }
+
+    if flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
+        && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0
+    {
+        ctx.JS_ThrowTypeError(c"cannot have setter/getter and value or writable");
+        fail!();
+    }
+
+    d.flags = flags;
+    d.value = val;
+    d.getter = getter;
+    d.setter = setter;
+
+    Ok(())
+}
+
+pub unsafe fn js_free_desc(ctx: *mut JSContext, desc: *mut JSPropertyDescriptor) {
+    JS_FreeValue(ctx, (*desc).getter);
+    JS_FreeValue(ctx, (*desc).setter);
+    JS_FreeValue(ctx, (*desc).value);
 }
 
 /* allowed flags:
@@ -727,6 +859,7 @@ pub unsafe fn JS_DefinePropertyValueInt64(
         .map_or(-1, |b| b as i32)
 }
 
+#[deprecated(note = "use JSValue::defined_property_desc() instead")]
 pub unsafe fn JS_DefinePropertyDesc(
     ctx: *mut JSContext,
     obj: JSValueConst,
@@ -734,13 +867,15 @@ pub unsafe fn JS_DefinePropertyDesc(
     desc: JSValueConst,
     flags: u32,
 ) -> Result<bool, i32> {
-    let mut d: JSPropertyDescriptor = std::mem::zeroed();
-    js_obj_to_desc(ctx, &mut d, desc)?;
+    obj.define_property_desc(ctx.as_mut().unwrap(), prop, desc, flags)
 
-    let ret = JS_DefineProperty(ctx, obj, prop, d.value, d.getter, d.setter, d.flags | flags);
-    js_free_desc(ctx, &mut d);
+    // let mut d: JSPropertyDescriptor = std::mem::zeroed();
+    // js_obj_to_desc(ctx, &mut d, desc)?;
 
-    Ok(ret != 0)
+    // let ret = JS_DefineProperty(ctx, obj, prop, d.value, d.getter, d.setter, d.flags | flags);
+    // js_free_desc(ctx, &mut d);
+
+    // Ok(ret != 0)
 }
 
 pub unsafe fn JS_DefinePropertyGetSet(
