@@ -13,10 +13,10 @@ use crate::{
             JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
             JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
-        JS_IsException, JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT,
-        JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
+        JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        MAX_SAFE_INTEGER,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
     JS_CLASS_UINT8C_ARRAY,
@@ -25,27 +25,33 @@ use crate::{
 impl JSContext {
     /// create a fast array value. `capacity` indicates reserved space.
     /// returns EXCEPTION value when fail, otherwise returns Array value
-    pub unsafe fn create_array(&mut self, capacity: usize) -> JSValue {
+    pub fn create_array(&mut self, capacity: usize) -> JSValue {
         if capacity > i32::MAX as usize {
             return self.JS_ThrowError(JSErrorEnum::Range, c"invalid array length");
         }
 
-        let arr = JS_NewArray(self);
+        let arr =
+            unsafe { JS_NewObjectFromShape(self, js_dup_shape(self.array_shape), JS_CLASS_ARRAY) };
+
         if arr.is_exception() {
             return JSValue::EXCEPTION;
         }
 
-        debug_assert!((*JS_VALUE_GET_OBJ(arr)).detailed.fast_array());
+        unsafe {
+            debug_assert!(arr.object().detailed.fast_array());
+        }
 
         if capacity > 0 {
-            let p = JS_VALUE_GET_OBJ(arr);
-            if (*p)
-                .fast_array_values_mut_unchecked()
-                .try_reserve_exact(capacity)
-                .is_err()
-            {
-                JS_FreeValue(self, arr);
-                return JSValue::EXCEPTION;
+            unsafe {
+                if arr
+                    .object()
+                    .fast_array_values_mut_unchecked()
+                    .try_reserve_exact(capacity)
+                    .is_err()
+                {
+                    JS_FreeValue(self, arr);
+                    return JSValue::EXCEPTION;
+                }
             }
         }
 
