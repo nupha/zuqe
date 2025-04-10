@@ -300,6 +300,28 @@ pub unsafe fn skip_spaces(pc: *const u8) -> usize {
 //
 
 #[macro_export]
+macro_rules! JS_CFUNC_NATIVE_DEF {
+    ($name:expr, $length:expr, $func:expr, $magic:expr) => {
+        crate::function::JSCFunctionListEntry {
+            name: $name,
+            prop_flags: (crate::value::object::JS_PROP_WRITABLE
+                | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
+            def_type: crate::value::JS_DEF_CFUNC,
+            magic: $magic,
+            u: crate::function::JSCFunctionListEntryUnion {
+                func: crate::function::JSCFunctionListEntryFunc {
+                    length: $length,
+                    cproto: crate::function::JSCFunctionEnum::NativeCallback,
+                    cfunc: crate::function::JSCFunctionType {
+                        native_callback: $func,
+                    },
+                },
+            },
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! JS_CFUNC_DEF {
     ($name:expr, $length:expr, $func1:expr) => {
         crate::function::JSCFunctionListEntry {

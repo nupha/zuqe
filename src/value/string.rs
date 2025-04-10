@@ -714,7 +714,7 @@ impl JSValue {
 
     /// take string desciption out from value.
     /// will panic if value is not string type.
-    pub unsafe fn take_string(self) -> Rc<JSString> {
+    pub fn take_string(self) -> Rc<JSString> {
         debug_assert!(matches!(
             JS_VALUE_GET_TAG(self),
             JS_TAG_STRING | JS_TAG_SYMBOL
@@ -722,7 +722,7 @@ impl JSValue {
 
         let p = JS_VALUE_GET_PTR(self).cast::<JSString>();
         debug_assert!(!p.is_null());
-        Rc::from_raw(p)
+        unsafe { Rc::from_raw(p) }
     }
 
     /// run callback with value's string description. won't effect value' ref_count.
@@ -731,7 +731,7 @@ impl JSValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_STRING);
         debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
 
-        let s = unsafe { self.take_string() };
+        let s = self.take_string();
         debug_assert!(Rc::strong_count(&s) > 0);
 
         let r = f(&s);
@@ -744,7 +744,7 @@ impl JSValue {
 
     /// Get utf8 string representation of JSValue `self`
     /// Note: the `self` value keep ref count unchanged after calling this function
-    pub unsafe fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
+    pub fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
         if JS_VALUE_GET_TAG(self) == JSTag::String as i32 {
             let cc = self.with_string(|p| p.content().clone());
             debug_assert!(Rc::strong_count(&cc) > 1);
@@ -752,14 +752,14 @@ impl JSValue {
             let ret = match cc.to_str() {
                 Cow::Borrowed(p) => {
                     // use string description content pointer.
-                    Cow::Borrowed((p as *const str).as_ref().unwrap())
+                    Cow::Borrowed(unsafe { (p as *const str).as_ref().unwrap() })
                 }
                 Cow::Owned(t) => Cow::Owned(t),
             };
 
             Ok(ret)
         } else {
-            let tmp = JS_ToString(ctx, self);
+            let tmp = unsafe { JS_ToString(ctx, self) };
             if tmp.is_exception() {
                 Err(-1)
             } else {

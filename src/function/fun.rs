@@ -60,6 +60,8 @@ pub struct JSBoundFunction {
     pub func_obj: JSValue,
     pub this_val: JSValue,
     pub argc: i32,
+
+    // TODO: use a vector instead
     pub argv: [JSValue; 0],
 }
 

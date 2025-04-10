@@ -3,7 +3,10 @@ use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     class::js_create_from_ctor,
     context::{JSContext, JS_GetActiveFunction},
-    function::{check_function, js_poll_interrupts, JSCFunctionListEntry, JS_Call, JS_Invoke},
+    error::JSResult,
+    function::{
+        check_function, js_poll_interrupts, CallArgs, JSCFunctionListEntry, JS_Call, JS_Invoke,
+    },
     iterator::{JSIteratorKindEnum, JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     types::unlikely,
     value::{
@@ -20,9 +23,9 @@ use crate::{
         JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
         MAX_SAFE_INTEGER,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
-    JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_REGEXP, JS_CLASS_STRING,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS,
+    JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER,
+    JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING,
 };
 
 use super::mapset::{js_map_constructor, js_map_get, js_map_set};
@@ -1268,75 +1271,130 @@ pub const js_object_funcs: [JSCFunctionListEntry; 23] = [
 // Prototype definiation
 //
 
-pub unsafe fn js_object_toString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let mut tag: JSValue;
+// pub unsafe fn js_object_toString(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     let mut tag: JSValue;
 
-    if JS_IsNull(this_val) {
-        tag = (*ctx).create_string("Null");
-    } else if JS_IsUndefined(this_val) {
-        tag = (*ctx).create_string("Undefined");
+//     if JS_IsNull(this_val) {
+//         tag = (*ctx).create_string("Null");
+//     } else if JS_IsUndefined(this_val) {
+//         tag = (*ctx).create_string("Undefined");
+//     } else {
+//         let obj = JS_ToObject(ctx, this_val);
+//         if JS_IsException(obj) {
+//             return obj;
+//         }
+
+//         let atom = if let Ok(is_array) = JS_IsArray(ctx, obj) {
+//             if is_array {
+//                 JS_ATOM_Array
+//             } else if obj.is_function(ctx.as_ref().unwrap()) {
+//                 JS_ATOM_Function
+//             } else {
+//                 let p = JS_VALUE_GET_OBJ(obj);
+//                 match (*p).class_id() {
+//                     cid @ (JS_CLASS_STRING
+//                     | JS_CLASS_ARGUMENTS
+//                     | JS_CLASS_MAPPED_ARGUMENTS
+//                     | JS_CLASS_ERROR
+//                     | JS_CLASS_BOOLEAN
+//                     | JS_CLASS_NUMBER
+//                     | JS_CLASS_DATE
+//                     | JS_CLASS_REGEXP) => (*ctx).rt().class_array[cid as usize].class_name,
+//                     _ => JS_ATOM_Object,
+//                 }
+//             }
+//         } else {
+//             JS_FreeValue(ctx, obj);
+//             return JSValue::EXCEPTION;
+//         };
+
+//         tag = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toStringTag);
+//         JS_FreeValue(ctx, obj);
+//         if tag.is_exception() {
+//             return JSValue::EXCEPTION;
+//         }
+//         if !tag.is_string() {
+//             JS_FreeValue(ctx, tag);
+//             tag = atom.to_value(ctx.as_mut().unwrap(), true);
+//         }
+//     }
+
+//     JS_ConcatString3(ctx, c"[object ", tag, c"]")
+// }
+
+pub fn js_object_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let mut tag_str: JSValue;
+
+    if args.this.is_null() {
+        tag_str = ctx.create_string("Null");
+    } else if args.this.is_undefined() {
+        tag_str = ctx.create_string("Undefined");
     } else {
-        let obj = JS_ToObject(ctx, this_val);
-        if JS_IsException(obj) {
-            return obj;
-        }
+        let obj = unsafe { JS_ToObject(ctx, args.this) }.into_rc(ctx.rt());
+        obj.check_exception()?;
 
-        let atom = if let Ok(is_array) = JS_IsArray(ctx, obj) {
-            if is_array {
-                JS_ATOM_Array
-            } else if obj.is_function(ctx.as_ref().unwrap()) {
-                JS_ATOM_Function
-            } else {
-                let p = JS_VALUE_GET_OBJ(obj);
-                match (*p).class_id() {
-                    cid @ (JS_CLASS_STRING
-                    | JS_CLASS_ARGUMENTS
-                    | JS_CLASS_MAPPED_ARGUMENTS
-                    | JS_CLASS_ERROR
-                    | JS_CLASS_BOOLEAN
-                    | JS_CLASS_NUMBER
-                    | JS_CLASS_DATE
-                    | JS_CLASS_REGEXP) => (*ctx).rt().class_array[cid as usize].class_name,
-                    _ => JS_ATOM_Object,
-                }
-            }
+        let atom = if unsafe { JS_IsArray(ctx, *obj)? } {
+            JS_ATOM_Array
+        } else if obj.is_function(ctx) {
+            JS_ATOM_Function
         } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+            let p = unsafe { obj.object() };
+            match p.class_id() {
+                cid @ (JS_CLASS_STRING
+                | JS_CLASS_ARGUMENTS
+                | JS_CLASS_MAPPED_ARGUMENTS
+                | JS_CLASS_ERROR
+                | JS_CLASS_BOOLEAN
+                | JS_CLASS_NUMBER
+                | JS_CLASS_DATE
+                | JS_CLASS_REGEXP) => ctx.rt().class_array[cid as usize].class_name,
+                _ => JS_ATOM_Object,
+            }
         };
 
-        tag = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toStringTag);
-        JS_FreeValue(ctx, obj);
-        if tag.is_exception() {
-            return JSValue::EXCEPTION;
+        tag_str = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag);
+        if tag_str.is_exception() {
+            return Err(-1);
         }
-        if !tag.is_string() {
-            JS_FreeValue(ctx, tag);
-            tag = atom.to_value(ctx.as_mut().unwrap(), true);
+
+        if !tag_str.is_string() {
+            unsafe {
+                JS_FreeValue(ctx, tag_str);
+            }
+            tag_str = atom.to_value(ctx, true);
         }
     }
 
-    JS_ConcatString3(ctx, c"[object ", tag, c"]")
+    unsafe {
+        let rv = JS_ConcatString3(ctx, c"[object ", tag_str, c"]");
+        rv.check_exception()
+    }
 }
 
-pub unsafe fn js_object_toLocaleString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    JS_Invoke(
-        ctx.as_mut().unwrap(),
-        this_val,
-        JS_ATOM_toString,
-        0,
-        std::ptr::null_mut(),
-    )
+// pub unsafe fn js_object_toLocaleString(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     JS_Invoke(
+//         ctx.as_mut().unwrap(),
+//         this_val,
+//         JS_ATOM_toString,
+//         0,
+//         std::ptr::null_mut(),
+//     )
+// }
+
+pub fn js_object_toLocaleString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    unsafe {
+        JS_Invoke(ctx, args.this, JS_ATOM_toString, 0, std::ptr::null_mut()).check_exception()
+    }
 }
 
 pub unsafe fn js_object_valueOf(
@@ -1585,14 +1643,12 @@ pub unsafe fn js_object___lookupGetter__(
 
         if has_prop != 0 {
             if desc.flags & JS_PROP_GETSET != 0 {
-                res = JS_DupValue(
-                    ctx,
-                    if setter != 0 {
-                        desc.setter
-                    } else {
-                        desc.getter
-                    },
-                );
+                res = if setter != 0 {
+                    desc.setter
+                } else {
+                    desc.getter
+                }
+                .dup();
             } else {
                 res = JSValue::UNDEFINED;
             }
@@ -1601,13 +1657,12 @@ pub unsafe fn js_object___lookupGetter__(
         }
 
         obj = JS_GetPrototypeFree(ctx, obj);
-        if JS_IsException(obj) {
+        if obj.is_exception() {
             // obj is Proxy
             JS_FreeAtom(ctx, prop);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
-        }
-        if JS_IsNull(obj) {
+        } else if obj.is_null() {
             res = JSValue::UNDEFINED;
             break;
         }
@@ -1627,8 +1682,10 @@ pub unsafe fn js_object___lookupGetter__(
 }
 
 pub const js_object_proto_funcs: [JSCFunctionListEntry; 11] = [
-    JS_CFUNC_DEF!(c"toString", 0, js_object_toString),
-    JS_CFUNC_DEF!(c"toLocaleString", 0, js_object_toLocaleString),
+    // JS_CFUNC_DEF!(c"toString", 0, js_object_toString),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_object_toString, 0),
+    // JS_CFUNC_DEF!(c"toLocaleString", 0, js_object_toLocaleString),
+    JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_object_toLocaleString, 0),
     JS_CFUNC_DEF!(c"valueOf", 0, js_object_valueOf),
     JS_CFUNC_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty),
     JS_CFUNC_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf),

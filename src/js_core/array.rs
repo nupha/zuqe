@@ -12,7 +12,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowStackOverflow},
     function::{
-        check_function, JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree,
+        check_function, CallArgs, JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree,
         JS_GetFunctionRealm, JS_Invoke,
     },
     iterator::{
@@ -1343,10 +1343,11 @@ pub unsafe fn js_array_toString(
     let method = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_join);
     let ret = if method.is_exception() {
         JSValue::EXCEPTION
-    } else if !JS_IsFunction(ctx, method) {
+    } else if !method.is_function(ctx.as_ref().unwrap()) {
         // Use intrinsic Object.prototype.toString
         JS_FreeValue(ctx, method);
-        js_object_toString(ctx, obj, 0, std::ptr::null_mut())
+        js_object_toString(ctx.as_mut().unwrap(), CallArgs::new(obj, &[], 0))
+            .unwrap_or(JSValue::EXCEPTION)
     } else {
         JS_CallFree(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut())
     };

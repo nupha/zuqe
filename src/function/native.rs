@@ -2,7 +2,8 @@ use std::ffi::{c_char, c_void, CStr};
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
-    context::{JSContext, JS_DupContext},
+    context::{JSContext, JSContextRef, JS_DupContext},
+    error::JSResult,
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_free_rt,
     runtime::JSRuntime,
@@ -36,7 +37,43 @@ pub enum JSCFunctionEnum {
     GetterMagic,
     SetterMagic,
     IteratorNext,
+
+    NativeCallback,
 }
+
+pub struct CallArgs<'a> {
+    pub this: JSValue,
+    pub args: &'a [JSValue],
+    pub magic: i32,
+}
+
+impl CallArgs<'_> {
+    /// get arguments count
+    #[inline(always)]
+    pub fn length(&self) -> usize {
+        self.args.len()
+    }
+
+    /// get nth argument raw value
+    #[inline(always)]
+    pub fn get_raw(&self, nth: usize) -> JSValue {
+        self.args.get(nth).copied().unwrap_or(JSValue::UNDEFINED)
+    }
+
+    /// get argument raw values slice
+    #[inline(always)]
+    pub fn arguments_raw(&self) -> &[JSValue] {
+        self.args
+    }
+}
+
+impl<'a> CallArgs<'a> {
+    pub fn new(this: JSValue, args: &'a [JSValue], magic: i32) -> Self {
+        Self { this, args, magic }
+    }
+}
+
+pub type JSNativeCallback = for<'a> fn(ctx: &'a mut JSContext, args: CallArgs<'a>) -> JSResult;
 
 /* return the value associated to the autoinit property or an exception */
 pub type JSAutoInitFunc =
@@ -82,6 +119,9 @@ pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub union JSCFunctionType {
+    pub native_callback: JSNativeCallback,
+
+    //
     pub generic: JSCFunction,
     pub generic_magic: JSCFunctionMagic,
     pub constructor: JSCFunction,

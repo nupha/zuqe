@@ -143,7 +143,7 @@ impl JSAtom {
     }
 
     /// convert atom to str
-    pub unsafe fn to_str(self, rt: &JSRuntime) -> Cow<'_, str> {
+    pub fn to_str(self, rt: &JSRuntime) -> Cow<'_, str> {
         if self.is_int_type() {
             Cow::Owned(format!("{}", __JS_AtomToUInt32(self)))
         } else {
@@ -158,7 +158,7 @@ impl JSAtom {
 
     /// Convert `self` atom to JSValue, returns EXCEPTION on failure.
     /// Note: atom is duplicated inside.
-    pub unsafe fn to_value(self, ctx: &mut JSContext, force_string: bool) -> JSValue {
+    pub fn to_value(self, ctx: &mut JSContext, force_string: bool) -> JSValue {
         if self.is_int_type() {
             ctx.create_string_from_utf8(format!("{}", __JS_AtomToUInt32(self)).into_bytes())
         } else {
@@ -174,7 +174,7 @@ impl JSAtom {
     }
 
     /// convert atom to string
-    pub unsafe fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
+    pub fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
         let tmp = self.to_value(ctx, true);
         if tmp.is_exception() {
             return Err(-1);
@@ -184,7 +184,9 @@ impl JSAtom {
         let res = tmp.to_utf8_string(ctx);
 
         // free tmp
-        JS_FreeValue(cx, tmp);
+        unsafe {
+            JS_FreeValue(cx, tmp);
+        }
 
         res
     }

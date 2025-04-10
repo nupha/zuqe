@@ -1,5 +1,6 @@
 use std::{
     ffi::CStr,
+    ops::{Deref, DerefMut},
     os::raw::c_char,
     ptr::{self, NonNull},
 };
@@ -354,5 +355,34 @@ impl JSRuntime {
         JS_AddIntrinsicBaseObjects(ctx);
 
         Ok(ctx)
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct JSContextRef(NonNull<JSContext>);
+
+impl From<&mut JSContext> for JSContextRef {
+    fn from(ctx: &mut JSContext) -> Self {
+        unsafe { Self(NonNull::new_unchecked(ctx as *mut JSContext)) }
+    }
+}
+
+impl From<*mut JSContext> for JSContextRef {
+    fn from(ctx: *mut JSContext) -> Self {
+        unsafe { Self(NonNull::new_unchecked(ctx)) }
+    }
+}
+
+impl Deref for JSContextRef {
+    type Target = JSContext;
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl DerefMut for JSContextRef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
     }
 }

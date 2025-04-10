@@ -22,11 +22,11 @@ pub struct JSStackFrame {
     pub local_buf: Cow<'static, [JSValue]>,
 
     /// arguments base pointer and count
-    pub arg_base_ptr: *mut JSValue,
+    pub arg_base_ptr: *mut JSValue, // TODO: use arg_offset:usize instead
     pub arg_count: u16,
 
     /// variables base pointer and count
-    pub var_base_ptr: *mut JSValue,
+    pub var_base_ptr: *mut JSValue, // TODO: use var_offset:usize instead
     pub var_count: u16,
 
     /// only used in bytecode functions : PC of the instruction after the call.

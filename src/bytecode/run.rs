@@ -31,8 +31,8 @@ use crate::{
     eval::{JS_EvalObject, JS_EVAL_TYPE_DIRECT},
     function::{
         build_arg_list, js_build_arguments, js_build_mapped_arguments, js_build_rest, js_closure,
-        js_function_apply, js_poll_interrupts, JSFunctionBytecode, JSFunctionKindEnum, JSVarRef,
-        JS_Call, JS_CallConstructorInternal, JS_CallFree, JS_CallInternal,
+        js_function_apply, js_poll_interrupts, CallArgs, JSFunctionBytecode, JSFunctionKindEnum,
+        JSVarRef, JS_Call, JS_CallConstructorInternal, JS_CallFree, JS_CallInternal,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
     global::{
@@ -671,7 +671,21 @@ pub unsafe fn run_bytecodes(
                     let magic = get_u16(pc) as i32;
                     pc = pc.add(2);
 
-                    let ret_val = js_function_apply(ctx, SP![-3], 2, sp.offset(-2), magic);
+                    // let ret_val = js_function_apply(ctx, SP![-3], 2, sp.offset(-2), magic);
+                    // if ret_val.is_exception() {
+                    //     break State::Exception;
+                    // } else {
+                    //     JS_FreeValue(ctx, SP![-3]);
+                    //     JS_FreeValue(ctx, SP![-2]);
+                    //     JS_FreeValue(ctx, SP![-1]);
+                    //     SP_GO!(-3);
+                    //     SP![0] = ret_val;
+                    //     SP_GO!(1);
+                    // }
+
+                    let ret_val =
+                        js_function_apply(ctx, CallArgs::new(SP![-3], &[SP![-2], SP![-1]], magic))
+                            .unwrap_or(JSValue::EXCEPTION);
                     if ret_val.is_exception() {
                         break State::Exception;
                     } else {
