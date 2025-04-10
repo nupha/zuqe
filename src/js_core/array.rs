@@ -953,7 +953,7 @@ pub unsafe fn js_array_fill(
     return obj;
 }
 
-use std::mem;
+use std::{mem, ptr::NonNull};
 
 pub unsafe fn js_array_find(
     ctx: *mut JSContext,
@@ -1346,8 +1346,11 @@ pub unsafe fn js_array_toString(
     } else if !method.is_function(ctx.as_ref().unwrap()) {
         // Use intrinsic Object.prototype.toString
         JS_FreeValue(ctx, method);
-        js_object_toString(ctx.as_mut().unwrap(), CallArgs::new(obj, &[], 0))
-            .unwrap_or(JSValue::EXCEPTION)
+        js_object_toString(
+            ctx.as_mut().unwrap(),
+            CallArgs::new(NonNull::new_unchecked(ctx), obj, &[], 0),
+        )
+        .unwrap_or(JSValue::EXCEPTION)
     } else {
         JS_CallFree(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut())
     };

@@ -1,4 +1,7 @@
-use std::ffi::{c_char, c_void, CStr};
+use std::{
+    ffi::{c_char, c_void, CStr},
+    ptr::NonNull,
+};
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
@@ -44,6 +47,7 @@ pub enum JSCFunctionEnum {
 }
 
 pub struct CallArgs<'a> {
+    ctx: NonNull<JSContext>,
     pub this: JSValue,
     pub args: &'a [JSValue],
     pub magic: i32,
@@ -70,8 +74,18 @@ impl CallArgs<'_> {
 }
 
 impl<'a> CallArgs<'a> {
-    pub fn new(this: JSValue, args: &'a [JSValue], magic: i32) -> Self {
-        Self { this, args, magic }
+    pub(crate) fn new(
+        ctx: NonNull<JSContext>,
+        this: JSValue,
+        args: &'a [JSValue],
+        magic: i32,
+    ) -> Self {
+        Self {
+            ctx,
+            this,
+            args,
+            magic,
+        }
     }
 }
 

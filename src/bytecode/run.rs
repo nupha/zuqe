@@ -683,9 +683,13 @@ pub unsafe fn run_bytecodes(
                     //     SP_GO!(1);
                     // }
 
-                    let ret_val =
-                        js_function_apply(ctx, CallArgs::new(SP![-3], &[SP![-2], SP![-1]], magic))
-                            .unwrap_or(JSValue::EXCEPTION);
+                    let cc = CallArgs::new(
+                        NonNull::new_unchecked(ctx),
+                        SP![-3],
+                        std::slice::from_raw_parts(sp.offset(-2), 2),
+                        magic,
+                    );
+                    let ret_val = js_function_apply(ctx, cc).unwrap_or(JSValue::EXCEPTION);
                     if ret_val.is_exception() {
                         break State::Exception;
                     } else {
