@@ -480,15 +480,34 @@ pub unsafe fn js_call_c_function(
         JSCFunctionEnum::NativeCallback => {
             ret_val = (func.native_callback)(
                 realm.into(),
-                CallArgs {
-                    this: this_obj,
-                    args: std::slice::from_raw_parts(arg_buf, argc as usize),
-                    magic: p.u.cfunc.magic as i32,
-                },
+                CallArgs::new(
+                    this_obj,
+                    std::slice::from_raw_parts(arg_buf, argc as usize),
+                    p.u.cfunc.magic as _,
+                ),
+            )
+            .unwrap_or(JSValue::EXCEPTION);
+        }
+        JSCFunctionEnum::NativeGetter => {
+            debug_assert_eq!(sf.arg_count, 0);
+            ret_val = (func.native_getter)(
+                realm.into(),
+                CallArgs::new(this_obj, &[], p.u.cfunc.magic as _),
+            )
+            .unwrap_or(JSValue::EXCEPTION);
+        }
+        JSCFunctionEnum::NativeSetter => {
+            debug_assert_eq!(sf.arg_count, 1);
+            ret_val = (func.native_setter)(
+                realm.into(),
+                CallArgs::new(this_obj, &[*arg_buf], p.u.cfunc.magic as _),
             )
             .unwrap_or(JSValue::EXCEPTION);
         }
 
+        //
+        //
+        //
         JSCFunctionEnum::Constructor
         | JSCFunctionEnum::ConstructorOrFunc
         | JSCFunctionEnum::Generic => {

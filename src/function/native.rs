@@ -39,6 +39,8 @@ pub enum JSCFunctionEnum {
     IteratorNext,
 
     NativeCallback,
+    NativeSetter,
+    NativeGetter,
 }
 
 pub struct CallArgs<'a> {
@@ -73,7 +75,9 @@ impl<'a> CallArgs<'a> {
     }
 }
 
-pub type JSNativeCallback = for<'a> fn(ctx: &'a mut JSContext, args: CallArgs<'a>) -> JSResult;
+pub type JSNativeCallback = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
+pub type JSNativeGetter = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
+pub type JSNativeSetter = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
 
 /* return the value associated to the autoinit property or an exception */
 pub type JSAutoInitFunc =
@@ -120,6 +124,8 @@ pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 #[repr(C)]
 pub union JSCFunctionType {
     pub native_callback: JSNativeCallback,
+    pub native_getter: JSNativeGetter,
+    pub native_setter: JSNativeSetter,
 
     //
     pub generic: JSCFunction,

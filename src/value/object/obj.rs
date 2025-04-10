@@ -525,6 +525,7 @@ pub unsafe fn JS_NewObject(ctx: *mut JSContext) -> JSValue {
     )
 }
 
+/// `proto_val` is duplicated inside. this mean it keeps ref count unchanged after calling.
 pub unsafe fn JS_SetPrototypeInternal(
     ctx: *mut JSContext,
     obj: JSValueConst,

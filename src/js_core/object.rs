@@ -23,9 +23,9 @@ use crate::{
         JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
         MAX_SAFE_INTEGER,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARGUMENTS,
-    JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF,
+    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
+    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING,
 };
 
 use super::mapset::{js_map_constructor, js_map_get, js_map_set};
@@ -1519,35 +1519,62 @@ pub unsafe fn js_object_propertyIsEnumerable(
     res
 }
 
-pub unsafe fn js_object_get___proto__(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
-    let val = JS_ToObject(ctx, this_val);
-    if JS_IsException(val) {
-        val
+pub fn js_object_getset___proto__(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    if args.length() == 0 {
+        // getter
+        let tmp = unsafe { JS_ToObject(ctx, args.this).into_rc(ctx.rt()) };
+        tmp.check_exception()?;
+        unsafe { JS_GetPrototype(ctx, *tmp) }.check_exception()
     } else {
-        let ret = JS_GetPrototype(ctx, val);
-        JS_FreeValue(ctx, val);
-        ret
+        // setter
+        if args.this.is_undefined_or_null() {
+            ctx.JS_ThrowTypeErrorNotAnObject();
+            return Err(-1);
+        }
+
+        let proto = args.get_raw(0);
+        if !proto.is_object() && !proto.is_null() {
+            // `proto` is neither an object nor null
+            Ok(JSValue::UNDEFINED)
+        } else {
+            // `proto` is an object or null
+            unsafe {
+                JS_SetPrototypeInternal(ctx, args.this, proto, true)?;
+            }
+            Ok(JSValue::UNDEFINED)
+        }
     }
 }
 
-pub unsafe fn js_object_set___proto__(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    proto: JSValueConst,
-) -> JSValue {
-    if this_val.is_undefined_or_null() {
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
-    }
-    if !JS_IsObject(proto) && !JS_IsNull(proto) {
-        return JSValue::UNDEFINED;
-    }
+// pub unsafe fn js_object_get___proto__(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
+//     let val = JS_ToObject(ctx, this_val);
+//     if JS_IsException(val) {
+//         val
+//     } else {
+//         let ret = JS_GetPrototype(ctx, val);
+//         JS_FreeValue(ctx, val);
+//         ret
+//     }
+// }
 
-    if JS_SetPrototypeInternal(ctx, this_val, proto, true).is_ok() {
-        JSValue::UNDEFINED
-    } else {
-        JSValue::EXCEPTION
-    }
-}
+// pub unsafe fn js_object_set___proto__(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     proto: JSValueConst,
+// ) -> JSValue {
+//     if this_val.is_undefined_or_null() {
+//         return (*ctx).JS_ThrowTypeErrorNotAnObject();
+//     }
+//     if !JS_IsObject(proto) && !JS_IsNull(proto) {
+//         return JSValue::UNDEFINED;
+//     }
+
+//     if JS_SetPrototypeInternal(ctx, this_val, proto, true).is_ok() {
+//         JSValue::UNDEFINED
+//     } else {
+//         JSValue::EXCEPTION
+//     }
+// }
 
 // magic = 1 if called as __defineSetter__
 pub unsafe fn js_object___defineGetter__(
@@ -1681,7 +1708,7 @@ pub unsafe fn js_object___lookupGetter__(
     res
 }
 
-pub const js_object_proto_funcs: [JSCFunctionListEntry; 11] = [
+pub const js_object_proto_funcs: [JSCFunctionListEntry; 7] = [
     // JS_CFUNC_DEF!(c"toString", 0, js_object_toString),
     JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_object_toString, 0),
     // JS_CFUNC_DEF!(c"toLocaleString", 0, js_object_toLocaleString),
@@ -1690,13 +1717,19 @@ pub const js_object_proto_funcs: [JSCFunctionListEntry; 11] = [
     JS_CFUNC_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty),
     JS_CFUNC_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf),
     JS_CFUNC_DEF!(c"propertyIsEnumerable", 1, js_object_propertyIsEnumerable),
-    JS_CGETSET_DEF!(
+    // JS_CGETSET_DEF!(
+    //     c"__proto__",
+    //     js_object_get___proto__,
+    //     js_object_set___proto__
+    // ),
+    JS_CGETSET_NATIVE_DEF!(
         c"__proto__",
-        js_object_get___proto__,
-        js_object_set___proto__
+        js_object_getset___proto__,
+        js_object_getset___proto__,
+        0
     ),
-    JS_CFUNC_MAGIC_DEF!(c"__defineGetter__", 2, js_object___defineGetter__, 0),
-    JS_CFUNC_MAGIC_DEF!(c"__defineSetter__", 2, js_object___defineGetter__, 1),
-    JS_CFUNC_MAGIC_DEF!(c"__lookupGetter__", 1, js_object___lookupGetter__, 0),
-    JS_CFUNC_MAGIC_DEF!(c"__lookupSetter__", 1, js_object___lookupGetter__, 1),
+    // JS_CFUNC_MAGIC_DEF!(c"__defineGetter__", 2, js_object___defineGetter__, 0),
+    // JS_CFUNC_MAGIC_DEF!(c"__defineSetter__", 2, js_object___defineGetter__, 1),
+    // JS_CFUNC_MAGIC_DEF!(c"__lookupGetter__", 1, js_object___lookupGetter__, 0),
+    // JS_CFUNC_MAGIC_DEF!(c"__lookupSetter__", 1, js_object___lookupGetter__, 1),
 ];

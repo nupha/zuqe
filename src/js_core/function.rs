@@ -19,7 +19,7 @@ use crate::{
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_FreeValue, JS_IsException,
         JS_IsUndefined, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
     },
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_BOUND_FUNCTION,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BOUND_FUNCTION,
 };
 
 // pub unsafe fn js_function_call(
@@ -411,21 +411,45 @@ pub fn js_function_hasInstance(ctx: &mut JSContext, args: CallArgs) -> JSResult 
     Ok(if b { JSValue::TRUE } else { JSValue::FALSE })
 }
 
-pub unsafe fn js_function_proto_fileName(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
-    let b = JS_GetFunctionBytecode(this_val);
-    if !b.is_null() && (*b).has_debug {
-        (*b).debug.filename.to_value(ctx.as_mut().unwrap(), true)
-    } else {
-        JSValue::UNDEFINED
+// pub unsafe fn js_function_proto_fileName(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
+//     let b = JS_GetFunctionBytecode(this_val);
+//     if !b.is_null() && (*b).has_debug {
+//         (*b).debug.filename.to_value(ctx.as_mut().unwrap(), true)
+//     } else {
+//         JSValue::UNDEFINED
+//     }
+// }
+
+pub fn js_function_proto_fileName(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let b = unsafe { JS_GetFunctionBytecode(args.this) };
+
+    unsafe {
+        if !b.is_null() && (*b).has_debug {
+            (*b).debug.filename.to_value(ctx, true).check_exception()
+        } else {
+            Ok(JSValue::UNDEFINED)
+        }
     }
 }
 
-pub unsafe fn js_function_proto_lineNumber(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
-    let b = JS_GetFunctionBytecode(this_val);
-    if !b.is_null() && (*b).has_debug {
-        JSValue::from_i32((*b).debug.line_num as _)
-    } else {
-        JSValue::UNDEFINED
+// pub unsafe fn js_function_proto_lineNumber(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
+//     let b = JS_GetFunctionBytecode(this_val);
+//     if !b.is_null() && (*b).has_debug {
+//         JSValue::from_i32((*b).debug.line_num as _)
+//     } else {
+//         JSValue::UNDEFINED
+//     }
+// }
+
+pub fn js_function_proto_lineNumber(_: &mut JSContext, args: CallArgs) -> JSResult {
+    let b = unsafe { JS_GetFunctionBytecode(args.this) };
+
+    unsafe {
+        if !b.is_null() && (*b).has_debug {
+            Ok(JSValue::from_i32((*b).debug.line_num as _))
+        } else {
+            Ok(JSValue::UNDEFINED)
+        }
     }
 }
 
@@ -531,11 +555,13 @@ pub const js_function_proto_funcs: [JSCFunctionListEntry; 7] = [
     JS_CFUNC_NATIVE_DEF!(c"bind", 1, js_function_bind, 0),
     JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_function_toString, 0),
     JS_CFUNC_NATIVE_DEF!(c"[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
+    JS_CGETSET_NATIVE_DEF!(c"fileName", js_function_proto_fileName, NONE, 0),
+    JS_CGETSET_NATIVE_DEF!(c"lineNumber", js_function_proto_lineNumber, NONE, 0),
     // JS_CFUNC_DEF!(c"call", 1, js_function_call),
     // JS_CFUNC_MAGIC_DEF!(c"apply", 2, js_function_apply_old, 0),
     // JS_CFUNC_DEF!(c"bind", 1, js_function_bind),
     // JS_CFUNC_DEF!(c"toString", 0, js_function_toString),
     // JS_CFUNC_DEF!(c"[Symbol.hasInstance]", 1, js_function_hasInstance),
-    JS_CGETSET_DEF!(c"fileName", js_function_proto_fileName, NONE),
-    JS_CGETSET_DEF!(c"lineNumber", js_function_proto_lineNumber, NONE),
+    // JS_CGETSET_DEF!(c"fileName", js_function_proto_fileName, NONE),
+    // JS_CGETSET_DEF!(c"lineNumber", js_function_proto_lineNumber, NONE),
 ];
