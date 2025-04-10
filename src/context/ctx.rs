@@ -7,7 +7,6 @@ use std::{
 
 use crate::{
     error::JS_NATIVE_ERROR_COUNT,
-    eval::__JS_EvalInternal,
     function::JSVarBinding,
     gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     mem::js_malloc_rt_typed,
@@ -17,7 +16,7 @@ use crate::{
     types::{init_list_head, list_head},
     value::{
         object::{js_free_shape_null, JSShape},
-        JSValue, JS_FreeValue, JS_IsUndefined, JS_UNDEFINED,
+        JSValue, JS_FreeValue,
     },
 };
 
@@ -212,18 +211,29 @@ impl JSContext {
     }
 
     /// Returns whether an exception is pending
+    #[inline(always)]
     pub fn has_exception(&self) -> bool {
-        !JS_IsUndefined(self.current_exception)
+        !self.current_exception.is_undefined()
     }
 
     /// Clears the current exception
     pub fn clear_exception(&mut self) {
-        self.current_exception = JS_UNDEFINED;
+        unsafe {
+            JS_FreeValue(self, self.current_exception);
+        }
+        self.current_exception = JSValue::UNDEFINED;
     }
 
     /// Returns the current exception
+    #[inline(always)]
     pub fn exception(&self) -> JSValue {
         self.current_exception
+    }
+
+    /// get global object
+    #[inline(always)]
+    pub fn global(&self) -> JSValue {
+        self.global_obj
     }
 }
 

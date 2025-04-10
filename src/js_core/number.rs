@@ -1,19 +1,19 @@
 use crate::{
     class::js_create_from_ctor,
     context::JSContext,
-    error::JS_ThrowRangeError,
-    function::JSCFunctionListEntry,
+    error::{JSResult, JS_ThrowRangeError},
+    function::{CallArgs, JSCFunctionListEntry},
     value::{
         is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToFloat64,
         JS_ToFloat64Free, JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree, JS_DTOA_FIXED_FORMAT,
-        JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, JS_FALSE, JS_TAG_BIG_INT,
-        JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
 };
 
-use super::global::{js_global_isFinite, js_global_isNaN};
+use super::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN};
 
 pub unsafe fn js_thisNumberValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
     if JS_IsNumber(this_val) {
@@ -195,30 +195,39 @@ pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
     JS_CFUNC_DEF!(c"valueOf", 0, js_number_valueOf),
 ];
 
-pub unsafe fn js_number_isNaN(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if !JS_IsNumber(*argv.offset(0)) {
-        JSValue::FALSE
+pub fn js_number_isNaN_isFinite(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    if !JS_IsNumber(args.get_raw(0)) {
+        Ok(JSValue::FALSE)
     } else {
-        js_global_isNaN(ctx, this_val, argc, argv)
+        js_global_isNaN_isFinite(ctx, args)
     }
 }
-pub unsafe fn js_number_isFinite(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if !JS_IsNumber(*argv.offset(0)) {
-        JSValue::FALSE
-    } else {
-        js_global_isFinite(ctx, this_val, argc, argv)
-    }
-}
+
+// pub unsafe fn js_number_isNaN(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     if !JS_IsNumber(*argv.offset(0)) {
+//         JSValue::FALSE
+//     } else {
+//         js_global_isNaN(ctx, this_val, argc, argv)
+//     }
+// }
+// pub unsafe fn js_number_isFinite(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     if !JS_IsNumber(*argv.offset(0)) {
+//         JSValue::FALSE
+//     } else {
+//         js_global_isFinite(ctx, this_val, argc, argv)
+//     }
+// }
+
 pub unsafe fn js_number_isInteger(
     ctx: *mut JSContext,
     this_val: JSValueConst,
@@ -254,8 +263,13 @@ pub const js_number_funcs: [JSCFunctionListEntry; 12] = [
     // global ParseInt and parseFloat should be defined already or delayed
     // JS_ALIAS_BASE_DEF("parseInt", "parseInt", 0 ),
     // JS_ALIAS_BASE_DEF("parseFloat", "parseFloat", 0 ),
-    JS_CFUNC_DEF!(c"isNaN", 1, js_number_isNaN),
-    JS_CFUNC_DEF!(c"isFinite", 1, js_number_isFinite),
+    JS_CFUNC_NATIVE_DEF!(c"isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    JS_CFUNC_NATIVE_DEF!(
+        c"isFinite",
+        1,
+        js_number_isNaN_isFinite,
+        MAGIC_NUM_IS_FINITE as _
+    ),
     JS_CFUNC_DEF!(c"isInteger", 1, js_number_isInteger),
     JS_CFUNC_DEF!(c"isSafeInteger", 1, js_number_isSafeInteger),
     JS_PROP_DOUBLE_DEF!(c"MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
