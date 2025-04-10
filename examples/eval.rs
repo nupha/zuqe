@@ -1,4 +1,7 @@
-use std::ffi::{CStr, CString};
+use std::{
+    ffi::{CStr, CString},
+    ops::DerefMut,
+};
 
 use zhuque::{
     context::JS_FreeContext,
@@ -24,12 +27,12 @@ fn main() {
 
     unsafe {
         if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
-            let ctx = js.create_context().unwrap();
+            let mut ctx = js.create_context().unwrap();
 
             let fname = CString::new(filename).unwrap();
 
             let r = JS_Eval(
-                ctx,
+                ctx.deref_mut(),
                 src.as_ptr().cast(),
                 src.len() - 1,
                 CStr::from_ptr(fname.as_ptr()),
@@ -42,12 +45,12 @@ fn main() {
                 println!("!!! EXCEPTION {exc:?}");
 
                 (*JS_VALUE_GET_OBJ(exc)).dump(js.as_ref());
-                JS_FreeValue(ctx, exc);
+                JS_FreeValue(ctx.deref_mut(), exc);
             } else {
                 println!(">>> RESULT: {r:?}");
                 r.dump((*ctx).rt());
                 println!();
-                JS_FreeValue(ctx, r);
+                JS_FreeValue(ctx.deref_mut(), r);
             }
 
             // JS_DumpGCObjects(js.as_mut());
@@ -57,7 +60,7 @@ fn main() {
             // JS_DumpGCObjects(js.as_mut());
             // JS_DumpAtoms(js.as_mut());
 
-            JS_FreeContext(ctx.as_mut().unwrap());
+            JS_FreeContext(ctx.deref_mut());
             drop(js);
         } else {
             println!("can't create runtime");

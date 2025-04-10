@@ -156,7 +156,7 @@ impl JSObject {
                         if ret < 0 {
                             return Err(-1);
                         }
-                        return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                        return if ctx.JS_ThrowTypeErrorOrFalse(
                             flags,
                             c"cannot create numeric index in typed array",
                         ) {

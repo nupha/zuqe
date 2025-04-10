@@ -5,8 +5,6 @@ use std::{
     ptr::{self, NonNull},
 };
 
-use fallible_collections::FallibleVec;
-
 use crate::{
     error::JS_NATIVE_ERROR_COUNT,
     eval::__JS_EvalInternal,
@@ -22,8 +20,6 @@ use crate::{
         JSValue, JS_FreeValue, JS_IsUndefined, JS_UNDEFINED,
     },
 };
-
-use super::intrinsic::{JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBasicObjects};
 
 /// Represents a lexical environment
 #[repr(C)]
@@ -94,7 +90,9 @@ pub struct JSContext {
     pub async_iterator_proto: JSValue,
     pub array_proto_values: JSValue,
     pub throw_type_error: JSValue,
-    pub eval_obj: JSValue,
+
+    /// function to eval()
+    pub eval_func: JSValue,
 
     /// 传统的全局对象（类似ES3的全局环境），存储普通的全局变量（如var声明的变量）
     /// 默认WRITABLE，权限更宽松
@@ -306,11 +304,10 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
 
     JS_FreeValue(ctx.as_mut(), ctx.global_obj);
     JS_FreeValue(ctx.as_mut(), ctx.global_var_obj);
-
     JS_FreeValue(ctx.as_mut(), ctx.throw_type_error);
-    JS_FreeValue(ctx.as_mut(), ctx.eval_obj);
-
+    JS_FreeValue(ctx.as_mut(), ctx.eval_func);
     JS_FreeValue(ctx.as_mut(), ctx.array_proto_values);
+
     for i in 0..JS_NATIVE_ERROR_COUNT {
         JS_FreeValue(ctx.as_mut(), ctx.native_error_proto[i as usize]);
     }
@@ -335,9 +332,10 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
 }
 
 impl JSRuntime {
-    unsafe fn create_context_raw(&mut self) -> Result<*mut JSContext, i32> {
-        let ctx_ptr = js_malloc_rt_typed::<JSContext>(self, 1, true).ok_or(-1)?;
-        let mut ctx = Box::from_raw(ctx_ptr.as_ptr());
+    /// Create JSContext, returns the new context pointer wrapper.
+    unsafe fn create_context_raw(&mut self) -> Result<JSContextRef, i32> {
+        let p = js_malloc_rt_typed::<JSContext>(self, 1, true).ok_or(-1)?;
+        let mut ctx = Box::from_raw(p.as_ptr());
 
         ctx.header.ref_count = 1;
         ctx.array_ctor = JSValue::NULL;
@@ -345,8 +343,10 @@ impl JSRuntime {
         ctx.promise_ctor = JSValue::NULL;
 
         // initialize class proto list
-        ctx.class_proto =
-            Vec::<JSValue>::try_with_capacity(self.class_array.len()).map_err(|_| -1)?;
+        ctx.class_proto = Vec::<JSValue>::new();
+        ctx.class_proto
+            .try_reserve_exact(self.class_array.len())
+            .map_err(|_| -1)?;
         ctx.class_proto
             .extend(std::iter::repeat_n(JSValue::NULL, self.class_array.len()));
 
@@ -358,23 +358,27 @@ impl JSRuntime {
             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_CONTEXT,
         );
 
-        ctx.rt = NonNull::new(self as *mut JSRuntime).unwrap();
+        ctx.rt = NonNull::new_unchecked(self as *mut JSRuntime);
 
-        JS_AddIntrinsicBasicObjects(&mut ctx);
+        ctx.add_core_objects();
 
         // add eval() handler
         ctx.eval_internal.replace(__JS_EvalInternal);
 
-        let ctx_ptr = ctx.as_ref() as *const JSContext as *mut JSContext;
+        let ctx_ref: JSContextRef = ctx.deref_mut().into();
+
         self.context_list.push(ctx);
-        Ok(ctx_ptr)
+
+        Ok(ctx_ref)
     }
 
     /// Creates a new JavaScript execution context
-    pub unsafe fn create_context(&mut self) -> Result<*mut JSContext, i32> {
-        let ctx = self.create_context_raw()?;
+    pub fn create_context(&mut self) -> Result<JSContextRef, i32> {
+        let mut ctx = unsafe { self.create_context_raw()? };
 
-        JS_AddIntrinsicBaseObjects(ctx);
+        unsafe {
+            ctx.intrinsic_base_objects();
+        }
 
         Ok(ctx)
     }
@@ -383,6 +387,13 @@ impl JSRuntime {
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct JSContextRef(NonNull<JSContext>);
+
+impl JSContextRef {
+    #[inline(always)]
+    pub fn as_raw(self) -> *mut JSContext {
+        self.0.as_ptr()
+    }
+}
 
 impl From<&mut JSContext> for JSContextRef {
     fn from(ctx: &mut JSContext) -> Self {

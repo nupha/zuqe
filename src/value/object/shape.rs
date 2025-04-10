@@ -492,7 +492,7 @@ pub unsafe fn js_free_shape(rt: *mut JSRuntime, sh: *mut JSShape) {
     debug_assert!((*sh).header.ref_count > 0);
 
     (*sh).header.ref_count -= 1;
-    if unlikely((*sh).header.ref_count <= 0) {
+    if (*sh).header.ref_count == 0 {
         js_free_shape0(rt, sh);
     }
 }

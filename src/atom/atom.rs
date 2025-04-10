@@ -274,14 +274,14 @@ pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
     atom.0 & !JS_ATOM_TAG_INT
 }
 
-#[deprecated(note = "use JSRuntime::new_atom() instead")]
+#[deprecated(note = "use JSRuntime::add_atom() instead")]
 /* string case (internal). Return Err if error. 'str' is freed. */
 pub unsafe fn __JS_NewAtom(
     rt: *mut JSRuntime,
     str: *mut JSString,
     atom_type: JSAtomTypeHint,
 ) -> Result<JSAtom, i32> {
-    unreachable!("use JSRuntime::new_atom() instead");
+    unreachable!("use JSRuntime::add_atom() instead");
 }
 
 #[deprecated(note = "use JSRuntime::add_atom_str() instead")]
@@ -366,9 +366,12 @@ impl JSContext {
         }
 
         let tmp = self.create_string(str).check_exception()?;
-        self.rt_mut().add_atom_jsstring(unsafe {
-            Rc::from_raw(JS_VALUE_GET_STRING(tmp)) // <-- tmp is consumed here
-        })
+        self.rt_mut().add_atom_jsstring(
+            unsafe {
+                Rc::from_raw(tmp.string()) // <-- `tmp` is consumed here
+            },
+            JSAtomTypeHint::String,
+        )
     }
 }
 
@@ -595,11 +598,13 @@ pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
         } else if JS_VALUE_GET_TAG(tmp) == JSTag::Symbol as i32 {
             js_symbol_to_atom(ctx, tmp)
         } else {
-            let a = (*ctx)
+            (*ctx)
                 .rt_mut()
-                .add_atom_jsstring(Rc::from_raw(tmp.string()));
-
-            a.unwrap_or(JS_ATOM_NULL)
+                .add_atom_jsstring(
+                    Rc::from_raw(tmp.string()), // <-- `tmp` is consumed here
+                    JSAtomTypeHint::String,
+                )
+                .unwrap_or(JS_ATOM_NULL)
         }
     }
 }

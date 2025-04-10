@@ -52,8 +52,8 @@ pub type JSHostPromiseRejectionTracker = unsafe fn(
 #[repr(C)]
 pub struct JSRuntime {
     pub mf: JSMallocFunctions,
-
     pub malloc_state: JSMallocState,
+
     pub rt_info: *const c_char,
 
     /// atom description slots list.
@@ -65,8 +65,10 @@ pub struct JSRuntime {
     /// Value is a list of atom index. Note: JSString hash may have collison.
     pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
+    /// registered classes
     pub class_array: Vec<JSClass>,
 
+    /// context list
     pub context_list: Vec<Box<JSContext>>,
 
     /* list of JSGCObjectHeader.link. List of allocated GC objects (used by garbage collector) */

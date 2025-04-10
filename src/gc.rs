@@ -419,7 +419,7 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
     JS_MarkValue(rt, ctx.global_var_obj, mark_func);
 
     JS_MarkValue(rt, ctx.throw_type_error, mark_func);
-    JS_MarkValue(rt, ctx.eval_obj, mark_func);
+    JS_MarkValue(rt, ctx.eval_func, mark_func);
 
     JS_MarkValue(rt, ctx.array_proto_values, mark_func);
 

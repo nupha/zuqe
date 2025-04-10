@@ -134,7 +134,7 @@ impl JSRuntime {
     unsafe fn add_class_internal(
         &mut self,
         class_id: JSClassID,
-        class_def: *const JSClassDef,
+        class_def: &JSClassDef,
         name: JSAtom,
     ) -> Result<(), i32> {
         if class_id >= (1 << 16) {
@@ -180,13 +180,14 @@ impl JSRuntime {
     /// register a class def to runtime, with given class_id
     pub fn add_class(&mut self, class_id: JSClassID, class_def: &JSClassDef) -> Result<(), i32> {
         let cstr = unsafe { CStr::from_ptr(class_def.class_name) };
-        let str = cstr.to_str().unwrap();
+        let str = cstr.to_string_lossy();
 
-        let name = if let Some(a) = unsafe { __JS_FindAtom(self, str, JSAtomTypeHint::String) } {
-            a
-        } else {
-            self.add_atom_str(str, JSAtomTypeHint::String)?
-        };
+        let name =
+            if let Some(a) = unsafe { __JS_FindAtom(self, str.as_ref(), JSAtomTypeHint::String) } {
+                a
+            } else {
+                self.add_atom_str(str.as_ref(), JSAtomTypeHint::String)?
+            };
 
         unsafe {
             let ret = self.add_class_internal(class_id, class_def, name);
@@ -195,17 +196,19 @@ impl JSRuntime {
         }
     }
 
-    pub unsafe fn add_classes(
-        &mut self,
-        tab: &[JSClassShortDef],
-        start: JSClassID,
-    ) -> Result<(), i32> {
+    pub fn add_classes(&mut self, tab: &[JSClassShortDef], start: JSClassID) -> Result<(), i32> {
         let mut class_id = start;
-        for elem in tab {
-            let mut cm = std::mem::zeroed::<JSClassDef>();
-            cm.finalizer = (*elem).finalizer;
-            cm.gc_mark = (*elem).gc_mark;
-            self.add_class_internal(class_id, &cm, (*elem).class_name)?;
+        for el in tab {
+            let cd = JSClassDef {
+                class_name: std::ptr::null(),
+                exotic: std::ptr::null(),
+                finalizer: (*el).finalizer,
+                gc_mark: (*el).gc_mark,
+                call: None,
+            };
+            unsafe {
+                self.add_class_internal(class_id, &cd, (*el).class_name)?;
+            }
 
             class_id += 1;
         }
@@ -310,7 +313,7 @@ pub unsafe fn JS_NewClass1(
     class_def: *const JSClassDef,
     name: JSAtom,
 ) -> Result<(), i32> {
-    (*rt).add_class_internal(class_id, class_def, name)
+    (*rt).add_class_internal(class_id, class_def.as_ref().unwrap(), name)
 }
 
 /// Note: 'func_obj' is not necessarily a constructor

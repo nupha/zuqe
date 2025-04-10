@@ -36,189 +36,176 @@ use crate::{
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
 };
 
-// Minimum amount of objects to be able to compile code and display
-// error messages. No JSAtom should be allocated by this function.
-pub unsafe fn JS_AddIntrinsicBasicObjects(ctx: &mut JSContext) {
-    let object_proto = JS_NewObjectProto(ctx, JSValue::NULL);
+impl JSContext {
+    /// Add minimum amount of objects to be able to compile code and display error messages.
+    /// No JSAtom should be allocated by this function.
+    pub(super) fn add_core_objects(&mut self) {
+        let object_proto = unsafe { JS_NewObjectProto(self, JSValue::NULL) };
 
-    // Object
-    ctx.class_proto[JS_CLASS_OBJECT as usize] = object_proto;
+        // Object
+        self.class_proto[JS_CLASS_OBJECT as usize] = object_proto;
 
-    // Function
-    {
-        ctx.function_proto = ctx
-            .create_native_function_with_proto(
-                js_function_proto,
-                "",
-                0,
-                JSCFunctionEnum::NativeFunc,
-                0,
-                object_proto,
-            )
-            .unwrap();
-
-        ctx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = ctx.function_proto.dup();
-    }
-
-    // Error
-    {
-        let err_proto = JS_NewObject(ctx);
-        JS_SetPropertyFunctionList(
-            ctx,
-            err_proto,
-            js_error_proto_funcs.as_ptr(),
-            js_error_proto_funcs.len(),
-        );
-        ctx.class_proto[JS_CLASS_ERROR as usize] = err_proto;
-
-        // standard Errors
-        for i in 0..JS_NATIVE_ERROR_COUNT {
-            let proto = JS_NewObjectProto(ctx, err_proto);
-
-            let name = JS_NewAtomString(ctx, NATIVE_ERROR_NAMES[i]);
-            proto
-                .define_property_value(
-                    ctx,
-                    JS_ATOM_name,
-                    name,
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        // Function
+        {
+            self.function_proto = self
+                .create_native_function_with_proto(
+                    js_function_proto,
+                    "",
+                    0,
+                    JSCFunctionEnum::NativeFunc,
+                    0,
+                    object_proto,
                 )
                 .unwrap();
 
-            let msg = JS_ATOM_empty_string.to_value(ctx, true);
-            proto
-                .define_property_value(
-                    ctx,
-                    JS_ATOM_message,
-                    msg,
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
-
-            ctx.native_error_proto[i as usize] = proto;
+            self.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = self.function_proto.dup();
         }
+
+        // Error
+        unsafe {
+            let err_proto = JS_NewObject(self);
+            JS_SetPropertyFunctionList(
+                self,
+                err_proto,
+                js_error_proto_funcs.as_ptr(),
+                js_error_proto_funcs.len(),
+            );
+            self.class_proto[JS_CLASS_ERROR as usize] = err_proto;
+
+            // standard Errors
+            for i in 0..JS_NATIVE_ERROR_COUNT {
+                let proto = JS_NewObjectProto(self, err_proto);
+
+                let name = JS_NewAtomString(self, NATIVE_ERROR_NAMES[i]);
+                proto
+                    .define_property_value(
+                        self,
+                        JS_ATOM_name,
+                        name,
+                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                    )
+                    .unwrap();
+
+                let msg = JS_ATOM_empty_string.to_value(self, true);
+                proto
+                    .define_property_value(
+                        self,
+                        JS_ATOM_message,
+                        msg,
+                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                    )
+                    .unwrap();
+
+                self.native_error_proto[i as usize] = proto;
+            }
+        }
+
+        // Array
+        unsafe {
+            // the array prototype is an array
+            let array_proto = JS_NewObjectProtoClass(self, object_proto, JS_CLASS_ARRAY);
+            self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
+
+            self.array_shape = js_new_shape2(
+                self,
+                get_proto_obj(array_proto),
+                JS_PROP_INITIAL_HASH_SIZE,
+                1,
+            );
+
+            // add length property as #0
+            self.array_shape.as_mut().unwrap().add_shape_property(
+                self,
+                None,
+                JS_ATOM_length,
+                JS_PROP_WRITABLE | JS_PROP_LENGTH,
+            );
+        }
+
+        /* XXX: could test it on first context creation to ensure that no
+        new atoms are created in JS_AddIntrinsicBasicObjects(). It is
+        necessary to avoid useless renumbering of atoms after
+        JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
+        // assert_eq!((*(*ctx).rt).atom_count as u32, JS_ATOM_INIT_COUNT);
     }
 
-    // Array
-    {
-        // the array prototype is an array
-        let array_proto = JS_NewObjectProtoClass(ctx, object_proto, JS_CLASS_ARRAY);
-        ctx.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
-
-        ctx.array_shape = js_new_shape2(
-            ctx,
-            get_proto_obj(array_proto),
-            JS_PROP_INITIAL_HASH_SIZE,
-            1,
-        );
-
-        // add length property as #0
-        ctx.array_shape.as_mut().unwrap().add_shape_property(
-            ctx,
-            None,
-            JS_ATOM_length,
-            JS_PROP_WRITABLE | JS_PROP_LENGTH,
-        );
-    }
-
-    /* XXX: could test it on first context creation to ensure that no
-    new atoms are created in JS_AddIntrinsicBasicObjects(). It is
-    necessary to avoid useless renumbering of atoms after
-    JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
-    // assert_eq!((*(*ctx).rt).atom_count as u32, JS_ATOM_INIT_COUNT);
-}
-
-pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
-    // throw TypeError()
-    {
-        (*ctx).throw_type_error = JS_NewCFunction(ctx, js_throw_type_error, c"", 0);
+    unsafe fn intrinsic_throw_error(&mut self) {
+        // throw TypeError()
+        self.throw_type_error = JS_NewCFunction(self, js_throw_type_error, c"", 0);
 
         // add caller and arguments properties to throw a TypeError
-        let obj1 = JS_NewCFunction(ctx, js_function_proto_caller, c"", 0);
-        (*ctx)
-            .function_proto
+        let obj1 = JS_NewCFunction(self, js_function_proto_caller, c"", 0);
+        self.function_proto
             .define_property(
-                ctx.as_mut().unwrap(),
+                self,
                 JS_ATOM_caller,
                 JSValue::EXCEPTION,
                 obj1,
-                (*ctx).throw_type_error,
+                self.throw_type_error,
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
-        (*ctx)
-            .function_proto
+
+        self.function_proto
             .define_property(
-                ctx.as_mut().unwrap(),
+                self,
                 JS_ATOM_arguments,
                 JSValue::EXCEPTION,
                 obj1,
-                (*ctx).throw_type_error,
+                self.throw_type_error,
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
 
-        JS_FreeValue(ctx, obj1);
+        JS_FreeValue(self, obj1);
         JS_FreeValue(
-            ctx,
-            js_object_seal(ctx, JSValue::EXCEPTION, 1, &mut (*ctx).throw_type_error, 1),
+            self,
+            js_object_seal(self, JSValue::EXCEPTION, 1, &mut self.throw_type_error, 1),
         );
     }
 
-    // global
-    (*ctx).global_var_obj = JS_NewObjectProto(ctx, JSValue::NULL);
-    (*ctx).global_obj = JS_NewObject(ctx);
-
-    // Object
-    {
-        let obj_ctor = (*ctx).create_global_constructor(
+    unsafe fn intrinsic_object(&mut self) {
+        let obj_ctor = self.create_global_constructor(
             c"Object",
             js_object_constructor,
             1,
-            (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+            self.class_proto[JS_CLASS_OBJECT as usize],
         );
         JS_SetPropertyFunctionList(
-            ctx,
+            self,
             obj_ctor,
             js_object_funcs.as_ptr(),
             js_object_funcs.len(),
         );
 
         JS_SetPropertyFunctionList(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+            self,
+            self.class_proto[JS_CLASS_OBJECT as usize],
             js_object_proto_funcs.as_ptr(),
             js_object_proto_funcs.len(),
         );
     }
 
-    // Function
-    {
+    unsafe fn intrinsic_function(&mut self) {
         JS_SetPropertyFunctionList(
-            ctx,
-            (*ctx).function_proto,
+            self,
+            self.function_proto,
             js_function_proto_funcs.as_ptr(),
             js_function_proto_funcs.len(),
         );
-        (*ctx).function_ctor = JS_NewCFunctionMagic(
-            ctx,
+        self.function_ctor = JS_NewCFunctionMagic(
+            self,
             js_function_constructor,
             c"Function",
             1,
             JSCFunctionEnum::ConstructorOrFuncMagic,
             JSFunctionKindEnum::JS_FUNC_NORMAL as _,
         );
-
-        (*ctx).add_global_constructor(
-            "Function",
-            (*ctx).function_ctor.dup(),
-            (*ctx).function_proto,
-        );
+        self.add_global_constructor("Function", self.function_ctor.dup(), self.function_proto);
     }
 
-    // Error
-    {
-        let error_ctor = (*ctx)
+    unsafe fn intrinsic_error(&mut self) {
+        let error_ctor = self
             .create_native_function(
                 js_error_constructor,
                 "Error",
@@ -228,16 +215,16 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
             )
             .unwrap();
 
-        (*ctx).add_global_constructor(
+        self.add_global_constructor(
             "Error",
             error_ctor,
-            (*ctx).class_proto[JS_CLASS_ERROR as usize],
+            self.class_proto[JS_CLASS_ERROR as usize],
         );
 
         for i in 0..JS_NATIVE_ERROR_COUNT {
             let n_args = 1 + (i == JSErrorEnum::Aggregate as usize) as i32;
 
-            let func_obj = (*ctx)
+            let func_obj = self
                 .create_native_function_with_proto(
                     js_error_constructor,
                     NATIVE_ERROR_NAMES[i as usize].to_string_lossy().as_ref(),
@@ -248,40 +235,30 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
                 )
                 .unwrap();
 
-            (*ctx).add_global_constructor(
+            self.add_global_constructor(
                 NATIVE_ERROR_NAMES[i as usize].to_string_lossy().as_ref(),
                 func_obj,
-                (*ctx).native_error_proto[i as usize],
+                self.native_error_proto[i as usize],
             );
         }
     }
 
-    // // Iterator prototype
-    // (*ctx).iterator_proto = JS_NewObject(ctx);
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     (*ctx).iterator_proto,
-    //     js_iterator_proto_funcs.as_ptr(),
-    //     std::mem::size_of_val(js_iterator_proto_funcs) / std::mem::size_of::<JSFunction>(),
-    // );
-
-    // Array
-    {
+    unsafe fn intrinsic_array(&mut self) {
         JS_SetPropertyFunctionList(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_ARRAY as usize],
+            self,
+            self.class_proto[JS_CLASS_ARRAY as usize],
             js_array_proto_funcs.as_ptr(),
             js_array_proto_funcs.len(),
         );
 
-        let obj = (*ctx).create_global_constructor(
+        let obj = self.create_global_constructor(
             c"Array",
             js_array_constructor,
             1,
-            (*ctx).class_proto[JS_CLASS_ARRAY as usize],
+            self.class_proto[JS_CLASS_ARRAY as usize],
         );
-        (*ctx).array_ctor = obj.dup();
-        JS_SetPropertyFunctionList(ctx, obj, js_array_funcs.as_ptr(), js_array_funcs.len());
+        self.array_ctor = obj.dup();
+        JS_SetPropertyFunctionList(self, obj, js_array_funcs.as_ptr(), js_array_funcs.len());
 
         // XXX: create auto_initializer
         {
@@ -303,273 +280,272 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
                 "toSpliced",
                 "values",
             ];
-            let obj1 = JS_NewObjectProto(ctx, JSValue::NULL);
+            let obj1 = JS_NewObjectProto(self, JSValue::NULL);
             for s in unscopables {
-                obj1.define_property_value_str(
-                    ctx.as_mut().unwrap(),
-                    s,
-                    JSValue::TRUE,
-                    JS_PROP_C_W_E,
-                )
-                .unwrap();
+                obj1.define_property_value_str(self, s, JSValue::TRUE, JS_PROP_C_W_E)
+                    .unwrap();
             }
 
-            // let unscopables: &[u8] = b"copyWithin\0entries\0fill\0find\0findIndex\0findLast\0findLastIndex\0flat\0flatMap\0includes\0keys\0toReversed\0toSorted\0toSpliced\0values\0";
-            // let mut p: *const u8 = unscopables.as_ptr();
-            // let obj1 = JS_NewObjectProto(ctx, JSValue::NULL);
-            // let mut p_start = p;
-            // while *p != 0 {
-            //     let len = libc::strlen(p as *const i8);
-            //     p = p.add(len + 1);
-            //     JS_DefinePropertyValueStr(
-            //         ctx,
-            //         obj1,
-            //         CStr::from_ptr(p_start.cast()),
-            //         JSValue::TRUE,
-            //         JS_PROP_C_W_E,
-            //     );
-            //     p_start = p;
-            // }
-
-            (*ctx).class_proto[JS_CLASS_ARRAY as usize]
-                .define_property_value(
-                    ctx.as_mut().unwrap(),
-                    JS_ATOM_Symbol_unscopables,
-                    obj1,
-                    JS_PROP_CONFIGURABLE,
-                )
+            self.class_proto[JS_CLASS_ARRAY as usize]
+                .define_property_value(self, JS_ATOM_Symbol_unscopables, obj1, JS_PROP_CONFIGURABLE)
                 .unwrap();
         }
 
         // needed to initialize arguments[Symbol.iterator]
-        (*ctx).array_proto_values = (*ctx).class_proto[JS_CLASS_ARRAY as usize]
-            .get_property(ctx.as_mut().unwrap(), JS_ATOM_values);
+        self.array_proto_values =
+            self.class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_values);
 
-        (*ctx).class_proto[JS_CLASS_ARRAY_ITERATOR as usize] =
-            JS_NewObjectProto(ctx, (*ctx).iterator_proto);
+        self.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] =
+            JS_NewObjectProto(self, self.iterator_proto);
 
         JS_SetPropertyFunctionList(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_ARRAY_ITERATOR as usize],
+            self,
+            self.class_proto[JS_CLASS_ARRAY_ITERATOR as usize],
             js_array_iterator_proto_funcs.as_ptr(),
             js_array_iterator_proto_funcs.len(),
         );
     }
 
-    //
-    // define global properties (isNan, parseInt, undefined, NaN etc)
-    //
-    JS_SetPropertyFunctionList(
-        ctx,
-        (*ctx).global_obj,
-        js_global_props.as_ptr(),
-        js_global_props.len(),
-    );
-
-    // Number
-    {
+    unsafe fn intrinsic_number(&mut self) {
         let number_proto = JS_NewObjectProtoClass(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+            self,
+            self.class_proto[JS_CLASS_OBJECT as usize],
             JS_CLASS_NUMBER,
         );
-        JS_SetObjectData(ctx, number_proto, JSValue::ZERO);
-        (*ctx).class_proto[JS_CLASS_NUMBER as usize] = number_proto;
+        JS_SetObjectData(self, number_proto, JSValue::ZERO);
+        self.class_proto[JS_CLASS_NUMBER as usize] = number_proto;
         JS_SetPropertyFunctionList(
-            ctx,
+            self,
             number_proto,
             js_number_proto_funcs.as_ptr(),
             js_number_proto_funcs.len(),
         );
 
         let number_ctor =
-            (*ctx).create_global_constructor(c"Number", js_number_constructor, 1, number_proto);
+            self.create_global_constructor(c"Number", js_number_constructor, 1, number_proto);
         JS_SetPropertyFunctionList(
-            ctx,
+            self,
             number_ctor,
             js_number_funcs.as_ptr(),
             js_number_funcs.len(),
         );
     }
 
-    // Boolean
-    {
+    unsafe fn intrinsic_boolean(&mut self) {
         let bool_proto = JS_NewObjectProtoClass(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+            self,
+            self.class_proto[JS_CLASS_OBJECT as usize],
             JS_CLASS_BOOLEAN,
         );
-        (*ctx).class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
-        JS_SetObjectData(ctx, bool_proto, JSValue::FALSE);
+        self.class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
+        JS_SetObjectData(self, bool_proto, JSValue::FALSE);
         JS_SetPropertyFunctionList(
-            ctx,
+            self,
             bool_proto,
             js_boolean_proto_funcs.as_ptr(),
             js_boolean_proto_funcs.len(),
         );
 
-        (*ctx).create_global_constructor(c"Boolean", js_boolean_constructor, 1, bool_proto);
+        self.create_global_constructor(c"Boolean", js_boolean_constructor, 1, bool_proto);
     }
 
-    // String
-    {
+    unsafe fn intrinsic_string(&mut self) {
         let string_proto = JS_NewObjectProtoClass(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+            self,
+            self.class_proto[JS_CLASS_OBJECT as usize],
             JS_CLASS_STRING,
         );
-        (*ctx).class_proto[JS_CLASS_STRING as usize] = string_proto;
+        self.class_proto[JS_CLASS_STRING as usize] = string_proto;
         JS_SetObjectData(
-            ctx,
+            self,
             string_proto,
-            JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true),
+            JS_ATOM_empty_string.to_value(self, true),
         );
         JS_SetPropertyFunctionList(
-            ctx,
+            self,
             string_proto,
             js_string_proto_funcs.as_ptr(),
             js_string_proto_funcs.len(),
         );
 
-        let string_ctor = (*ctx).create_global_constructor(
+        let string_ctor = self.create_global_constructor(
             c"String",
             js_string_constructor,
             1,
-            (*ctx).class_proto[JS_CLASS_STRING as usize],
+            self.class_proto[JS_CLASS_STRING as usize],
         );
         JS_SetPropertyFunctionList(
-            ctx,
+            self,
             string_ctor,
             js_string_funcs.as_ptr(),
             js_string_funcs.len(),
         );
 
-        (*ctx).class_proto[JS_CLASS_STRING_ITERATOR as usize] =
-            JS_NewObjectProto(ctx, (*ctx).iterator_proto);
+        self.class_proto[JS_CLASS_STRING_ITERATOR as usize] =
+            JS_NewObjectProto(self, self.iterator_proto);
         JS_SetPropertyFunctionList(
-            ctx,
-            (*ctx).class_proto[JS_CLASS_STRING_ITERATOR as usize],
+            self,
+            self.class_proto[JS_CLASS_STRING_ITERATOR as usize],
             js_string_iterator_proto_funcs.as_ptr(),
             js_string_iterator_proto_funcs.len(),
         );
     }
 
-    // Math: create as autoinit object
-    // js_random_init(ctx);
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     (*ctx).global_obj,
-    //     js_math_obj.as_ptr(),
-    //     std::mem::size_of_val(js_math_obj) / std::mem::size_of::<JSFunction>(),
-    // );
+    unsafe fn intrinsic_iterator(&mut self) {
+        // self.iterator_proto = JS_NewObject(ctx);
+        // JS_SetPropertyFunctionList(
+        //     self,
+        //     self.iterator_proto,
+        //     js_iterator_proto_funcs.as_ptr(),
+        //     std::mem::size_of_val(js_iterator_proto_funcs) / std::mem::size_of::<JSFunction>(),
+        // );
+    }
 
-    // ES6 Reflect: create as autoinit object
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     (*ctx).global_obj,
-    //     js_reflect_obj.as_ptr(),
-    //     std::mem::size_of_val(js_reflect_obj) / std::mem::size_of::<JSFunction>(),
-    // );
+    unsafe fn intrinsic_eval(&mut self) {
+        self.eval_func = JS_NewCFunction(self, js_global_eval, c"eval", 1);
+        self.global_obj
+            .define_property_value(
+                self,
+                JS_ATOM_eval,
+                self.eval_func.dup(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+    }
 
-    // ES6 Symbol
-    // (*ctx).class_proto[JS_CLASS_SYMBOL] = JS_NewObject(ctx);
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     (*ctx).class_proto[JS_CLASS_SYMBOL],
-    //     js_symbol_proto_funcs.as_ptr(),
-    //     std::mem::size_of_val(js_symbol_proto_funcs) / std::mem::size_of::<JSFunction>(),
-    // );
-    // obj = JS_NewGlobalCConstructor(
-    //     ctx,
-    //     c"Symbol",
-    //     js_symbol_constructor,
-    //     0,
-    //     (*ctx).class_proto[JS_CLASS_SYMBOL],
-    // );
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     obj,
-    //     js_symbol_funcs.as_ptr(),
-    //     std::mem::size_of_val(js_symbol_funcs) / std::mem::size_of::<JSFunction>(),
-    // );
-    // for i in JS_ATOM_Symbol_toPrimitive..JS_ATOM_END {
-    //     let mut buf: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-    //     let str: *const i8;
-    //     let mut p: *const i8;
-    //     str = JS_AtomGetStr(ctx, buf.as_mut_ptr(), std::mem::size_of_val(&buf) as u32, i);
-    //     // skip "Symbol."
-    //     p = strchr(str, '.' as i32);
-    //     if !p.is_null() {
-    //         str = p.offset(1);
-    //     }
-    //     JS_DefinePropertyValueStr(ctx, obj, str, JS_AtomToValue(ctx, i), 0);
-    // }
+    pub unsafe fn intrinsic_base_objects(&mut self) {
+        // make global object - this must come first
+        {
+            self.global_obj = JS_NewObject(self);
+            self.global_var_obj = JS_NewObjectProto(self, JSValue::NULL);
+        }
 
-    // ES6 Generator
-    // (*ctx).class_proto[JS_CLASS_GENERATOR] = JS_NewObjectProto(ctx, (*ctx).iterator_proto);
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     (*ctx).class_proto[JS_CLASS_GENERATOR],
-    //     js_generator_proto_funcs.as_ptr(),
-    //     std::mem::size_of_val(js_generator_proto_funcs) / std::mem::size_of::<JSFunction>(),
-    // );
+        // throw TypeError()
+        self.intrinsic_throw_error();
 
-    // (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION] = JS_NewObjectProto(ctx, (*ctx).function_proto);
-    // obj1 = JS_NewCFunctionMagic(
-    //     ctx,
-    //     js_function_constructor,
-    //     c"GeneratorFunction",
-    //     1,
-    //     JS_CFUNC_constructor_or_func_magic,
-    //     JS_FUNC_GENERATOR,
-    // );
-    // JS_SetPropertyFunctionList(
-    //     ctx,
-    //     (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION],
-    //     js_generator_function_proto_funcs.as_ptr(),
-    //     std::mem::size_of_val(js_generator_function_proto_funcs)
-    //         / std::mem::size_of::<JSFunction>(),
-    // );
-    // JS_SetConstructor2(
-    //     ctx,
-    //     (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION],
-    //     (*ctx).class_proto[JS_CLASS_GENERATOR],
-    //     JS_PROP_CONFIGURABLE,
-    //     JS_PROP_CONFIGURABLE,
-    // );
-    // JS_SetConstructor2(
-    //     ctx,
-    //     obj1,
-    //     (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION],
-    //     0,
-    //     JS_PROP_CONFIGURABLE,
-    // );
-    // JS_FreeValue(ctx, obj1);
+        self.intrinsic_object(); // Object
+        self.intrinsic_function(); // Function
+        self.intrinsic_error(); // Error
+        self.intrinsic_iterator(); // Iterator prototype
+        self.intrinsic_array(); // Array
 
-    //
-    // global properties
-    //
+        self.intrinsic_number(); // Number
+        self.intrinsic_boolean(); // Boolean
+        self.intrinsic_string(); // String
 
-    (*ctx).eval_obj = JS_NewCFunction(ctx, js_global_eval, c"eval", 1);
-    (*ctx)
-        .global_obj
-        .define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_eval,
-            (*ctx).eval_obj.dup(),
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        )
-        .unwrap();
+        // Math: create as autoinit object
+        // js_random_init(ctx);
+        // JS_SetPropertyFunctionList(
+        //     ctx,
+        //     (*ctx).global_obj,
+        //     js_math_obj.as_ptr(),
+        //     std::mem::size_of_val(js_math_obj) / std::mem::size_of::<JSFunction>(),
+        // );
 
-    (*ctx)
-        .global_obj
-        .define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_globalThis,
-            (*ctx).global_obj.dup(),
-            JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-        )
-        .unwrap();
+        // ES6 Reflect: create as autoinit object
+        // JS_SetPropertyFunctionList(
+        //     ctx,
+        //     (*ctx).global_obj,
+        //     js_reflect_obj.as_ptr(),
+        //     std::mem::size_of_val(js_reflect_obj) / std::mem::size_of::<JSFunction>(),
+        // );
+
+        // ES6 Symbol
+        // (*ctx).class_proto[JS_CLASS_SYMBOL] = JS_NewObject(ctx);
+        // JS_SetPropertyFunctionList(
+        //     ctx,
+        //     (*ctx).class_proto[JS_CLASS_SYMBOL],
+        //     js_symbol_proto_funcs.as_ptr(),
+        //     std::mem::size_of_val(js_symbol_proto_funcs) / std::mem::size_of::<JSFunction>(),
+        // );
+        // obj = JS_NewGlobalCConstructor(
+        //     ctx,
+        //     c"Symbol",
+        //     js_symbol_constructor,
+        //     0,
+        //     (*ctx).class_proto[JS_CLASS_SYMBOL],
+        // );
+        // JS_SetPropertyFunctionList(
+        //     ctx,
+        //     obj,
+        //     js_symbol_funcs.as_ptr(),
+        //     std::mem::size_of_val(js_symbol_funcs) / std::mem::size_of::<JSFunction>(),
+        // );
+        // for i in JS_ATOM_Symbol_toPrimitive..JS_ATOM_END {
+        //     let mut buf: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
+        //     let str: *const i8;
+        //     let mut p: *const i8;
+        //     str = JS_AtomGetStr(ctx, buf.as_mut_ptr(), std::mem::size_of_val(&buf) as u32, i);
+        //     // skip "Symbol."
+        //     p = strchr(str, '.' as i32);
+        //     if !p.is_null() {
+        //         str = p.offset(1);
+        //     }
+        //     JS_DefinePropertyValueStr(ctx, obj, str, JS_AtomToValue(ctx, i), 0);
+        // }
+
+        // ES6 Generator
+        // (*ctx).class_proto[JS_CLASS_GENERATOR] = JS_NewObjectProto(ctx, (*ctx).iterator_proto);
+        // JS_SetPropertyFunctionList(
+        //     ctx,
+        //     (*ctx).class_proto[JS_CLASS_GENERATOR],
+        //     js_generator_proto_funcs.as_ptr(),
+        //     std::mem::size_of_val(js_generator_proto_funcs) / std::mem::size_of::<JSFunction>(),
+        // );
+
+        // (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION] = JS_NewObjectProto(ctx, (*ctx).function_proto);
+        // obj1 = JS_NewCFunctionMagic(
+        //     ctx,
+        //     js_function_constructor,
+        //     c"GeneratorFunction",
+        //     1,
+        //     JS_CFUNC_constructor_or_func_magic,
+        //     JS_FUNC_GENERATOR,
+        // );
+        // JS_SetPropertyFunctionList(
+        //     ctx,
+        //     (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION],
+        //     js_generator_function_proto_funcs.as_ptr(),
+        //     std::mem::size_of_val(js_generator_function_proto_funcs)
+        //         / std::mem::size_of::<JSFunction>(),
+        // );
+        // JS_SetConstructor2(
+        //     ctx,
+        //     (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION],
+        //     (*ctx).class_proto[JS_CLASS_GENERATOR],
+        //     JS_PROP_CONFIGURABLE,
+        //     JS_PROP_CONFIGURABLE,
+        // );
+        // JS_SetConstructor2(
+        //     ctx,
+        //     obj1,
+        //     (*ctx).class_proto[JS_CLASS_GENERATOR_FUNCTION],
+        //     0,
+        //     JS_PROP_CONFIGURABLE,
+        // );
+        // JS_FreeValue(ctx, obj1);
+
+        self.intrinsic_eval(); // enable `eval()` function
+
+        //
+        // define global properties (isNan, parseInt, undefined, NaN etc)
+        //
+        JS_SetPropertyFunctionList(
+            self,
+            self.global_obj,
+            js_global_props.as_ptr(),
+            js_global_props.len(),
+        );
+        // globalThis
+        self.global_obj
+            .define_property_value(
+                self,
+                JS_ATOM_globalThis,
+                self.global_obj.dup(),
+                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+            )
+            .unwrap();
+    }
 }
 
 unsafe fn js_throw_type_error(

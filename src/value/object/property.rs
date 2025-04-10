@@ -234,18 +234,18 @@ impl JSValue {
             return Ok(false);
         }
 
-        let mut p = unsafe { self.object() as *mut JSObject };
+        let mut p = unsafe { self.object() };
 
         loop {
-            if unsafe { (*p).detailed.is_exotic() } {
+            if p.detailed.is_exotic() {
                 if let Some(f) = unsafe {
-                    ctx.rt().class_array[(*p).class_id() as usize]
+                    ctx.rt().class_array[p.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|x| x.has_property)
                 } {
                     // has_property can free the prototype, dup it
-                    let obj1 = JS_MKPTR!(JSTag::Object, p.cast()).dup();
+                    let obj1 = JS_MKPTR!(JSTag::Object, (p as *mut JSObject).cast()).dup();
 
                     unsafe {
                         let ret = f(ctx, obj1, prop);
@@ -271,8 +271,7 @@ impl JSValue {
                         return Err(-1);
                     }
                     0 => {
-                        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                            .contains(&(*p).class_id())
+                        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id())
                         {
                             match JS_AtomIsNumericIndex(ctx, prop) {
                                 -1 => {
@@ -285,8 +284,10 @@ impl JSValue {
                             }
                         }
 
-                        p = (*p).shape().unwrap().proto;
-                        if p.is_null() {
+                        // walk up proto
+                        if let Some(up) = p.shape().unwrap().proto.as_mut() {
+                            p = up;
+                        } else {
                             break;
                         }
                     }

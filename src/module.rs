@@ -397,7 +397,7 @@ pub enum JSFreeModuleEnum {
 }
 
 // XXX: would be more efficient with separate module lists
-pub unsafe fn js_free_modules(ctx: *mut JSContext, flag: JSFreeModuleEnum) {
+pub unsafe fn js_free_modules(ctx: &mut JSContext, flag: JSFreeModuleEnum) {
     // let mut cnt = (*ctx).loaded_modules.len();
     // println!("loaded_modules: {cnt}");
     // while let Some(mut m) = (*ctx).loaded_modules.pop_front() {
@@ -419,7 +419,7 @@ pub unsafe fn js_free_modules(ctx: *mut JSContext, flag: JSFreeModuleEnum) {
     //     }
     // }
 
-    list_foreach_safe(&mut (*ctx).loaded_modules, |el| {
+    list_foreach_safe(&mut ctx.loaded_modules, |el| {
         let m = list_entry!(el, JSModuleDef, link);
         if flag == JSFreeModuleEnum::JS_FREE_MODULE_ALL
             || (flag == JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED && (*m).resolved)

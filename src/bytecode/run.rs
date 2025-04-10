@@ -793,7 +793,7 @@ pub unsafe fn run_bytecodes(
                     let call_argv = sp.offset(-call_argc as isize);
                     sf.cur_pc_offset = pc.offset_from(pc_base) as _;
 
-                    let ret_val = if (*call_argv.offset(-1)).is_same(ctx.eval_obj) {
+                    let ret_val = if (*call_argv.offset(-1)).is_same(ctx.eval_func) {
                         JS_EvalObject(
                             ctx,
                             JSValue::UNDEFINED,
@@ -833,7 +833,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(2);
 
                     if let Ok(mut tab) = build_arg_list(ctx, SP![-1]) {
-                        let ret_val = if SP![-2].is_same(ctx.eval_obj) {
+                        let ret_val = if SP![-2].is_same(ctx.eval_func) {
                             JS_EvalObject(
                                 ctx,
                                 JSValue::UNDEFINED,

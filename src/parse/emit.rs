@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JSAtomTypeHint, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
     mem::js_resize_array,
@@ -216,7 +216,7 @@ impl JSFunctionDef {
             // so clone the string description to keep val's refcount
             if let Ok(atom) = (*self.ctx)
                 .rt_mut()
-                .add_atom_jsstring(val.with_string(|s| s.clone()))
+                .add_atom_jsstring(val.with_string(|s| s.clone()), JSAtomTypeHint::String)
             {
                 if !atom.is_int_type() {
                     self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);

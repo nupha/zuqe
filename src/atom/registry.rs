@@ -176,19 +176,23 @@ impl JSRuntime {
 
     /// convering Rc<JSString> into atom.
     /// Note: the `str` will be consumed.
-    pub fn add_atom_jsstring(&mut self, str: Rc<JSString>) -> Result<JSAtom, i32> {
+    pub fn add_atom_jsstring(
+        &mut self,
+        str: Rc<JSString>,
+        type_hint: JSAtomTypeHint,
+    ) -> Result<JSAtom, i32> {
         if let Ok(i) = str.content().parse_u32() {
             if i <= JS_ATOM_MAX_INT {
                 return Ok(JSAtom::from_u32(i));
             }
         }
 
-        unsafe { self.add_atom(Some(str), JSAtomTypeHint::String) }
+        unsafe { self.add_atom(Some(str), type_hint) }
     }
 
     /// register an atom from str
     pub fn add_atom_str(&mut self, str: &str, type_hint: JSAtomTypeHint) -> Result<JSAtom, i32> {
-        self.add_atom_jsstring(JSString::from_str(str)?)
+        self.add_atom_jsstring(JSString::from_str(str)?, type_hint)
     }
 
     pub fn add_atom_i64(&mut self, n: i64) -> JSAtom {
@@ -196,7 +200,8 @@ impl JSRuntime {
             JSAtom::from_u32(n as u32)
         } else {
             if let Ok(tmp) = JSString::from_utf8(format!("{n}").into_bytes()) {
-                self.add_atom_jsstring(tmp).unwrap_or(JS_ATOM_NULL)
+                self.add_atom_jsstring(tmp, JSAtomTypeHint::String)
+                    .unwrap_or(JS_ATOM_NULL)
             } else {
                 JS_ATOM_NULL
             }

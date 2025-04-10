@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use zhuque::{
     context::JS_FreeContext,
     eval::{JS_Eval, JS_EVAL_TYPE_GLOBAL},
@@ -15,7 +17,7 @@ fn main() {
         if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
             println!("js runtime: {js:p}");
 
-            let ctx = js.create_context().unwrap();
+            let mut ctx = js.create_context().unwrap();
 
             let src = c"function g(a){return a+10} g('x')"; // ok
                                                             //  let src = c"function g(a){return a+10} g(20)"; // ok
@@ -37,7 +39,7 @@ fn main() {
             // "#;
 
             let r = JS_Eval(
-                ctx,
+                ctx.deref_mut(),
                 src.as_ptr().cast(),
                 src.count_bytes(),
                 c"<test>",
@@ -48,11 +50,11 @@ fn main() {
             // JS_DumpAtoms(js.as_mut());
 
             println!("================ free eval result");
-            JS_FreeValue(ctx, r);
+            JS_FreeValue(ctx.deref_mut(), r);
             JS_DumpGCObjects(js.as_mut());
             // JS_DumpAtoms(js.as_mut());
 
-            JS_FreeContext(ctx.as_mut().unwrap());
+            JS_FreeContext(ctx.deref_mut());
             drop(js);
 
             println!("done");
