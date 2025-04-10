@@ -42,7 +42,7 @@ pub const JS_NATIVE_ERROR_COUNT: usize = JSErrorEnum::NativeErrorCount as usize;
 
 pub type JSResult = Result<JSValue, i32>;
 
-pub const native_error_name: [&CStr; JS_NATIVE_ERROR_COUNT] = [
+pub const NATIVE_ERROR_NAMES: [&CStr; JS_NATIVE_ERROR_COUNT] = [
     c"EvalError",
     c"RangeError",
     c"ReferenceError",

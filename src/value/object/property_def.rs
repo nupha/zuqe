@@ -530,7 +530,7 @@ impl JSValue {
             );
         }
 
-        // consume value
+        // consume `val`
         unsafe {
             JS_FreeValue(ctx, val);
         }

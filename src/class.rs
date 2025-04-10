@@ -238,6 +238,49 @@ impl JSContext {
             JS_FreeValue(self, old);
         }
     }
+
+    /// create constructor function, and register it to global namespace.
+    /// `func_obj` is the function value, it is *NOT CONSUMED*.
+    /// `proto` is the prototype object, it is *NOT CONSUMED*.
+    pub fn add_global_constructor(&mut self, name: &str, func_obj: JSValue, proto: JSValue) {
+        self.global_obj
+            .define_property_value_str(
+                self,
+                name,
+                func_obj.dup(),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+
+        unsafe {
+            JS_SetConstructor(self, func_obj, proto);
+            JS_FreeValue(self, func_obj);
+        }
+    }
+
+    /// create native constructor function, add it to global namespace.
+    /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    /// returns created constructor function value.
+    pub fn create_global_constructor(
+        &mut self,
+        name: &CStr,
+        func: JSCFunction,
+        length: i32,
+        proto: JSValueConst,
+    ) -> JSValue {
+        let func_obj = unsafe {
+            JS_NewCFunction2(
+                self,
+                func,
+                name,
+                length as _,
+                JSCFunctionEnum::ConstructorOrFunc,
+                0,
+            )
+        };
+        self.add_global_constructor(name.to_str().unwrap(), func_obj, proto);
+        func_obj
+    }
 }
 
 #[deprecated(note = "use JSContext::get_class_proto() instead")]
@@ -271,6 +314,7 @@ pub unsafe fn JS_NewClass1(
 }
 
 /// Note: 'func_obj' is not necessarily a constructor
+/// Note: both `func_obj` and `proto` keep ref count unchanged after calling.
 pub unsafe fn JS_SetConstructor2(
     ctx: *mut JSContext,
     func_obj: JSValueConst,
@@ -310,26 +354,17 @@ pub unsafe fn JS_SetConstructor(ctx: *mut JSContext, func_obj: JSValueConst, pro
     );
 }
 
+#[deprecated(note = "use JSContext::add_global_constructor() instead")]
 pub unsafe fn JS_NewGlobalCConstructor2(
     ctx: *mut JSContext,
     func_obj: JSValue,
     name: &CStr,
     proto: JSValueConst,
 ) {
-    (*ctx)
-        .global_obj
-        .define_property_value_str(
-            ctx.as_mut().unwrap(),
-            name.to_string_lossy().as_ref(),
-            func_obj.dup(),
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        )
-        .unwrap();
-
-    JS_SetConstructor(ctx, func_obj, proto);
-    JS_FreeValue(ctx, func_obj);
+    (*ctx).add_global_constructor(name.to_string_lossy().as_ref(), func_obj, proto);
 }
 
+#[deprecated(note = "use JSContext::create_global_constructor() instead")]
 pub unsafe fn JS_NewGlobalCConstructor(
     ctx: *mut JSContext,
     name: &CStr,
@@ -337,17 +372,7 @@ pub unsafe fn JS_NewGlobalCConstructor(
     length: i32,
     proto: JSValueConst,
 ) -> JSValueConst {
-    let func_obj = JS_NewCFunction2(
-        ctx,
-        func,
-        name,
-        length as _,
-        JSCFunctionEnum::ConstructorOrFunc,
-        0,
-    );
-    JS_NewGlobalCConstructor2(ctx, func_obj, name, proto);
-
-    func_obj
+    (*ctx).create_global_constructor(name, func, length, proto)
 }
 
 #[derive(Debug, Clone, Copy)]
