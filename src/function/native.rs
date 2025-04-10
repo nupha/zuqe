@@ -15,9 +15,10 @@ use crate::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
             JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
         },
-        JSValue, JSValueConst, JS_FreeValueRT, JS_IsException, JS_DEF_ALIAS, JS_DEF_CFUNC,
-        JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
-        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_VALUE_GET_OBJ,
+        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_IsException, JS_DEF_ALIAS,
+        JS_DEF_CFUNC, JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE,
+        JS_DEF_PROP_INT32, JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED,
+        JS_VALUE_GET_OBJ,
     },
     JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
 };
@@ -70,6 +71,16 @@ impl CallArgs<'_> {
     #[inline(always)]
     pub fn arguments_raw(&self) -> &[JSValue] {
         self.args
+    }
+
+    /// get nth argument, dup and wrap into value rc
+    #[inline(always)]
+    pub fn get(&self, nth: usize) -> JSValueRc {
+        if let Some(v) = self.args.get(nth) {
+            v.dup().into_rc(unsafe { self.ctx.as_ref().rt() })
+        } else {
+            JSValue::UNDEFINED.into_rc(unsafe { self.ctx.as_ref().rt() })
+        }
     }
 }
 

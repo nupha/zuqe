@@ -145,6 +145,27 @@ pub struct JSContext {
     pub stack_frame: *mut JSStackFrame,
 }
 
+impl<'a> From<&'a JSContext> for &'a JSRuntime {
+    #[inline(always)]
+    fn from(value: &'a JSContext) -> Self {
+        value.rt()
+    }
+}
+
+impl<'a> From<&'a mut JSContext> for &'a mut JSRuntime {
+    #[inline(always)]
+    fn from(value: &'a mut JSContext) -> Self {
+        value.rt_mut()
+    }
+}
+
+impl From<&mut JSContext> for NonNull<JSRuntime> {
+    #[inline(always)]
+    fn from(value: &mut JSContext) -> Self {
+        NonNull::from(value.rt_mut())
+    }
+}
+
 #[cfg(debug_assertions)]
 impl Drop for JSContext {
     fn drop(&mut self) {

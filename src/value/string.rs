@@ -650,13 +650,6 @@ pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -
                     }
                 }
             }
-
-            // if ss.content.push(&p2.content).is_err() {
-            //     (*ctx).JS_ThrowOutOfMemory();
-            //     JSValue::EXCEPTION
-            // } else {
-            //     Rc::new(ss).into_value()
-            // }
         }
         Err(ss) => {
             if let Ok(new_sc) = ss.content().copy_to_new().and_then(|mut s| {

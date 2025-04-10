@@ -11,8 +11,8 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_GetPrototype,
-            JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
+            js_free_desc, JSObject, JSPropertyDescriptor, JS_GetOwnPropertyInternal,
+            JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
             JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
             JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
             JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
@@ -23,7 +23,7 @@ use crate::{
         JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
         MAX_SAFE_INTEGER,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING,
 };
@@ -1397,126 +1397,232 @@ pub fn js_object_toLocaleString(ctx: &mut JSContext, args: CallArgs) -> JSResult
     }
 }
 
-pub unsafe fn js_object_valueOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    JS_ToObject(ctx, this_val)
+// pub unsafe fn js_object_valueOf(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     JS_ToObject(ctx, this_val)
+// }
+
+pub fn js_object_valueOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    unsafe { JS_ToObject(ctx, args.this).check_exception() }
 }
 
-pub unsafe fn js_object_hasOwnProperty(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let atom = JS_ValueToAtom(ctx, *argv.offset(0)); // must be done first
+// pub unsafe fn js_object_hasOwnProperty(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     let atom = JS_ValueToAtom(ctx, *argv.offset(0)); // must be done first
+//     if unlikely(atom == JS_ATOM_NULL) {
+//         return JSValue::EXCEPTION;
+//     }
+
+//     let obj = JS_ToObject(ctx, this_val);
+//     if JS_IsException(obj) {
+//         JS_FreeAtom(ctx, atom);
+//         return obj;
+//     }
+
+//     let p = JS_VALUE_GET_OBJ(obj);
+//     let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, atom);
+//     JS_FreeAtom(ctx, atom);
+//     JS_FreeValue(ctx, obj);
+//     if ret < 0 {
+//         JSValue::EXCEPTION
+//     } else {
+//         JS_NewBool(ret != 0)
+//     }
+// }
+
+pub fn js_object_hasOwnProperty(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    // must be done first
+    let atom = unsafe { JS_ValueToAtom(ctx, args.get_raw(0)) };
     if unlikely(atom == JS_ATOM_NULL) {
-        return JSValue::EXCEPTION;
+        return Err(-1);
     }
 
-    let obj = JS_ToObject(ctx, this_val);
-    if JS_IsException(obj) {
+    let obj = unsafe { JS_ToObject(ctx, args.this).into_rc(ctx.rt()) };
+    if obj.is_exception() {
+        unsafe {
+            JS_FreeAtom(ctx, atom);
+        }
+        return Err(-1);
+    }
+
+    unsafe {
+        let p = obj.object();
+        let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, atom);
         JS_FreeAtom(ctx, atom);
-        return obj;
-    }
-
-    let p = JS_VALUE_GET_OBJ(obj);
-    let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, atom);
-    JS_FreeAtom(ctx, atom);
-    JS_FreeValue(ctx, obj);
-    if ret < 0 {
-        JSValue::EXCEPTION
-    } else {
-        JS_NewBool(ret != 0)
+        if ret < 0 {
+            Err(-1)
+        } else {
+            Ok(if ret == 0 {
+                JSValue::FALSE
+            } else {
+                JSValue::TRUE
+            })
+        }
     }
 }
 
-pub unsafe fn js_object_isPrototypeOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let v = *argv.offset(0);
-    if !JS_IsObject(v) {
-        return JS_FALSE;
-    }
-    let obj = JS_ToObject(ctx, this_val);
-    if JS_IsException(obj) {
-        return JSValue::EXCEPTION;
+// pub unsafe fn js_object_isPrototypeOf(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     let v = *argv.offset(0);
+//     if !JS_IsObject(v) {
+//         return JS_FALSE;
+//     }
+//     let obj = JS_ToObject(ctx, this_val);
+//     if JS_IsException(obj) {
+//         return JSValue::EXCEPTION;
+//     }
+
+//     let mut v1 = JS_DupValue(ctx, v);
+//     let mut res = false;
+
+//     loop {
+//         v1 = JS_GetPrototype(ctx, v1);
+//         if JS_IsException(v1) {
+//             break;
+//         }
+//         if JS_IsNull(v1) {
+//             res = false;
+//             break;
+//         }
+//         if JS_VALUE_GET_OBJ(obj) == JS_VALUE_GET_OBJ(v1) {
+//             res = true;
+//             break;
+//         }
+
+//         // avoid infinite loop (possible with proxies)
+//         if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
+//             JS_FreeValue(ctx, v1);
+//             JS_FreeValue(ctx, obj);
+//             return JSValue::EXCEPTION;
+//         }
+//     }
+
+//     JS_FreeValue(ctx, v1);
+//     JS_FreeValue(ctx, obj);
+
+//     JS_NewBool(res)
+// }
+
+pub fn js_object_isPrototypeOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let mut target = args.get(0);
+    if !target.is_object() {
+        return Ok(JSValue::FALSE);
     }
 
-    let mut v1 = JS_DupValue(ctx, v);
-    let mut res = false;
+    let tmp = unsafe { JS_ToObject(ctx, args.this) }
+        .check_exception()?
+        .into_rc(ctx.rt());
 
-    loop {
-        v1 = JS_GetPrototype(ctx, v1);
-        if JS_IsException(v1) {
-            break;
+    let ptr = unsafe { tmp.object() as *const JSObject };
+
+    let res: bool = loop {
+        target = unsafe {
+            JS_GetPrototype(ctx, *target)
+                .check_exception()?
+                .into_rc(ctx.rt())
+        };
+
+        if target.is_null() {
+            break false;
         }
-        if JS_IsNull(v1) {
-            res = false;
-            break;
+
+        unsafe {
+            if ptr == target.object() as *const JSObject {
+                break true;
+            }
+
+            // avoid infinite loop (possible with proxies)
+            if js_poll_interrupts(ctx) != 0 {
+                return Err(-1);
+            }
         }
-        if JS_VALUE_GET_OBJ(obj) == JS_VALUE_GET_OBJ(v1) {
-            res = true;
-            break;
-        }
-
-        // avoid infinite loop (possible with proxies)
-        if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
-            JS_FreeValue(ctx, v1);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    JS_FreeValue(ctx, v1);
-    JS_FreeValue(ctx, obj);
-
-    JS_NewBool(res)
-}
-
-pub unsafe fn js_object_propertyIsEnumerable(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    if JS_IsException(obj) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    let prop = JS_ValueToAtom(ctx, *argv.offset(0));
-    if unlikely(prop == JS_ATOM_NULL) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-    let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, JS_VALUE_GET_OBJ(obj), prop);
-    if has_prop < 0 {
-        JS_FreeAtom(ctx, prop);
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-    let res = if has_prop != 0 {
-        let r = JS_NewBool(desc.flags & JS_PROP_ENUMERABLE != 0);
-        js_free_desc(ctx, &mut desc);
-        r
-    } else {
-        JSValue::FALSE
     };
 
-    JS_FreeAtom(ctx, prop);
-    JS_FreeValue(ctx, obj);
+    Ok(if res { JSValue::TRUE } else { JSValue::FALSE })
+}
 
-    res
+// pub unsafe fn js_object_propertyIsEnumerable(
+//     ctx: *mut JSContext,
+//     this_val: JSValueConst,
+//     argc: i32,
+//     argv: *mut JSValueConst,
+// ) -> JSValue {
+//     let obj = JS_ToObject(ctx, this_val);
+//     if JS_IsException(obj) {
+//         JS_FreeValue(ctx, obj);
+//         return JSValue::EXCEPTION;
+//     }
+
+//     let prop = JS_ValueToAtom(ctx, *argv.offset(0));
+//     if unlikely(prop == JS_ATOM_NULL) {
+//         JS_FreeValue(ctx, obj);
+//         return JSValue::EXCEPTION;
+//     }
+
+//     let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+//     let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, JS_VALUE_GET_OBJ(obj), prop);
+//     if has_prop < 0 {
+//         JS_FreeAtom(ctx, prop);
+//         JS_FreeValue(ctx, obj);
+//         return JSValue::EXCEPTION;
+//     }
+//     let res = if has_prop != 0 {
+//         let r = JS_NewBool(desc.flags & JS_PROP_ENUMERABLE != 0);
+//         js_free_desc(ctx, &mut desc);
+//         r
+//     } else {
+//         JSValue::FALSE
+//     };
+
+//     JS_FreeAtom(ctx, prop);
+//     JS_FreeValue(ctx, obj);
+
+//     res
+// }
+
+pub fn js_object_propertyIsEnumerable(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let obj = unsafe {
+        JS_ToObject(ctx, args.this)
+            .check_exception()?
+            .into_rc(ctx.rt())
+    };
+
+    let prop = unsafe { JS_ValueToAtom(ctx, args.get_raw(0)) };
+    if prop == JS_ATOM_NULL {
+        return Err(-1);
+    }
+
+    unsafe {
+        let mut desc: JSPropertyDescriptor = std::mem::zeroed();
+        let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, obj.object(), prop);
+        if has_prop < 0 {
+            JS_FreeAtom(ctx, prop);
+            return Err(-1);
+        }
+
+        let res = if has_prop != 0 {
+            let r = JS_NewBool(desc.flags & JS_PROP_ENUMERABLE != 0);
+            js_free_desc(ctx, &mut desc);
+            r
+        } else {
+            JSValue::FALSE
+        };
+
+        JS_FreeAtom(ctx, prop);
+        Ok(res)
+    }
 }
 
 pub fn js_object_getset___proto__(ctx: &mut JSContext, args: CallArgs) -> JSResult {
@@ -1709,25 +1815,35 @@ pub unsafe fn js_object___lookupGetter__(
 }
 
 pub const js_object_proto_funcs: [JSCFunctionListEntry; 7] = [
-    // JS_CFUNC_DEF!(c"toString", 0, js_object_toString),
     JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_object_toString, 0),
-    // JS_CFUNC_DEF!(c"toLocaleString", 0, js_object_toLocaleString),
     JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_object_toLocaleString, 0),
-    JS_CFUNC_DEF!(c"valueOf", 0, js_object_valueOf),
-    JS_CFUNC_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty),
-    JS_CFUNC_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf),
-    JS_CFUNC_DEF!(c"propertyIsEnumerable", 1, js_object_propertyIsEnumerable),
-    // JS_CGETSET_DEF!(
-    //     c"__proto__",
-    //     js_object_get___proto__,
-    //     js_object_set___proto__
-    // ),
+    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_object_valueOf, 0),
+    JS_CFUNC_NATIVE_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty, 0),
+    JS_CFUNC_NATIVE_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf, 0),
+    JS_CFUNC_NATIVE_DEF!(
+        c"propertyIsEnumerable",
+        1,
+        js_object_propertyIsEnumerable,
+        0
+    ),
     JS_CGETSET_NATIVE_DEF!(
         c"__proto__",
         js_object_getset___proto__,
         js_object_getset___proto__,
         0
     ),
+    // JS_CFUNC_DEF!(c"toString", 0, js_object_toString),
+    // JS_CFUNC_DEF!(c"toLocaleString", 0, js_object_toLocaleString),
+    // JS_CFUNC_DEF!(c"valueOf", 0, js_object_valueOf),
+    // JS_CFUNC_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty),
+    // JS_CFUNC_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf),
+    // JS_CFUNC_DEF!(c"propertyIsEnumerable", 1, js_object_propertyIsEnumerable),
+    // JS_CGETSET_DEF!(
+    //     c"__proto__",
+    //     js_object_get___proto__,
+    //     js_object_set___proto__
+    // ),
+
     // JS_CFUNC_MAGIC_DEF!(c"__defineGetter__", 2, js_object___defineGetter__, 0),
     // JS_CFUNC_MAGIC_DEF!(c"__defineSetter__", 2, js_object___defineGetter__, 1),
     // JS_CFUNC_MAGIC_DEF!(c"__lookupGetter__", 1, js_object___lookupGetter__, 0),

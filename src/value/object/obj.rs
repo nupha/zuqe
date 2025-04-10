@@ -984,25 +984,27 @@ pub unsafe fn JS_SetObjectData(ctx: *mut JSContext, obj: JSValueConst, val: JSVa
     -1
 }
 
-// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.
+/// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.
+/// `obj` keep ref count unchanged after calling.
 pub unsafe fn JS_GetPrototype(ctx: *mut JSContext, obj: JSValueConst) -> JSValue {
     if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let obj_ptr = JS_VALUE_GET_OBJ(obj);
-        if unlikely((*obj_ptr).class_id() == JS_CLASS_PROXY) {
+        let ob = obj.object();
+        if ob.class_id() == JS_CLASS_PROXY {
             js_proxy_getPrototypeOf(ctx, obj)
         } else {
-            let proto = (*obj_ptr).shape().unwrap().proto;
+            let proto = ob.shape().unwrap().proto;
             if proto.is_null() {
                 JSValue::NULL
             } else {
-                JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, proto.cast()))
+                JS_MKPTR!(JSTag::Object, proto.cast()).dup()
             }
         }
     } else {
-        JS_DupValue(ctx, JS_GetPrototypePrimitive(ctx, obj))
+        JS_GetPrototypePrimitive(ctx, obj).dup()
     }
 }
 
+/// `obj` is consumed
 pub unsafe fn JS_GetPrototypeFree(ctx: *mut JSContext, obj: JSValue) -> JSValue {
     let ret = JS_GetPrototype(ctx, obj);
     JS_FreeValue(ctx, obj);

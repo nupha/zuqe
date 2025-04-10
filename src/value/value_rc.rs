@@ -52,7 +52,7 @@ impl Drop for JSValueRc {
 
 impl JSValue {
     /// Wraps a JSValue into a reference-counted JSValueRc
-    #[inline]
+    #[inline(always)]
     pub fn into_rc(self, rt: &JSRuntime) -> JSValueRc {
         JSValueRc {
             rt: NonNull::from(rt),

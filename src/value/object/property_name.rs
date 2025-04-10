@@ -410,7 +410,7 @@ impl JSValue {
         if obj.is_exception() {
             JSValue::EXCEPTION
         } else {
-            unsafe { (*JS_VALUE_GET_OBJ(*obj)).get_own_property_names2(ctx, flags, kind) }
+            unsafe { obj.object().get_own_property_names2(ctx, flags, kind) }
         }
     }
 }
