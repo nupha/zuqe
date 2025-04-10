@@ -4,7 +4,7 @@ use crate::{
     atom::{consts::*, JSAtom},
     class::JSClassID,
     context::JSContext,
-    error::JS_ThrowTypeErrorRevokedProxy,
+    error::{JSResult, JS_ThrowTypeErrorRevokedProxy},
     function::JSVarRef,
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_free_rt,
@@ -24,7 +24,7 @@ use crate::{
     JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_PROXY, JS_MKPTR,
 };
 
-use super::JSFunctionBytecode;
+use super::{CallArgs, JSFunctionBytecode};
 
 pub const ARG_SCOPE_INDEX: i32 = 1;
 pub const ARG_SCOPE_END: i32 = -2;
@@ -218,13 +218,17 @@ pub unsafe fn js_function_set_properties(
     );
 }
 
-pub unsafe fn js_function_proto(
+pub unsafe fn js_function_proto_v0(
     ctx: *mut JSContext,
     this_val: JSValueConst,
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
     JS_UNDEFINED
+}
+
+pub fn js_function_proto(_: &mut JSContext, _: CallArgs) -> JSResult {
+    Ok(JSValue::UNDEFINED)
 }
 
 pub unsafe fn check_function(ctx: *mut JSContext, obj: JSValueConst) -> Result<(), i32> {

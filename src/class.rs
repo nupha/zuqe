@@ -239,9 +239,9 @@ impl JSContext {
         }
     }
 
-    /// create constructor function, and register it to global namespace.
-    /// `func_obj` is the function value, it is *NOT CONSUMED*.
-    /// `proto` is the prototype object, it is *NOT CONSUMED*.
+    /// make function `func_obj` to constructor, adopt `proto` as prototype,
+    /// then add it to global namespace as `name`.
+    /// Note:: both `func_obj` and `proto` are  **NOT CONSUMED**.
     pub fn add_global_constructor(&mut self, name: &str, func_obj: JSValue, proto: JSValue) {
         self.global_obj
             .define_property_value_str(
@@ -258,15 +258,15 @@ impl JSContext {
         }
     }
 
-    /// create native constructor function, add it to global namespace.
+    /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
-    /// returns created constructor function value.
+    /// returns new constructor function.
     pub fn create_global_constructor(
         &mut self,
         name: &CStr,
         func: JSCFunction,
         length: i32,
-        proto: JSValueConst,
+        proto: JSValue,
     ) -> JSValue {
         let func_obj = unsafe {
             JS_NewCFunction2(
@@ -503,17 +503,17 @@ pub static js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMeth
 };
 
 pub unsafe fn js_c_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
+    let p = val.object();
 
-    if !(*p).u.cfunc.realm.is_null() {
-        JS_FreeContext((*p).u.cfunc.realm);
+    if !p.u.cfunc.realm.is_null() {
+        JS_FreeContext(p.u.cfunc.realm);
     }
 }
 
 pub unsafe fn js_c_function_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
+    let p = val.object();
 
-    if !(*p).u.cfunc.realm.is_null() {
-        mark_func(rt, &mut (*(*p).u.cfunc.realm).header);
+    if !p.u.cfunc.realm.is_null() {
+        mark_func(rt, &mut (*p.u.cfunc.realm).header);
     }
 }

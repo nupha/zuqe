@@ -47,16 +47,18 @@ pub unsafe fn JS_AddIntrinsicBasicObjects(ctx: &mut JSContext) {
 
     // Function
     {
-        ctx.function_proto = JS_NewCFunction3(
-            ctx,
-            js_function_proto,
-            c"",
-            0,
-            JSCFunctionEnum::Generic,
-            0,
-            ctx.class_proto[JS_CLASS_OBJECT as usize],
-        );
-        ctx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = (*ctx).function_proto.dup();
+        ctx.function_proto = ctx
+            .create_native_function(
+                js_function_proto,
+                "",
+                0,
+                JSCFunctionEnum::NativeFunc,
+                0,
+                object_proto,
+            )
+            .unwrap();
+
+        ctx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = ctx.function_proto.dup();
     }
 
     // Error
@@ -101,14 +103,17 @@ pub unsafe fn JS_AddIntrinsicBasicObjects(ctx: &mut JSContext) {
     // Array
     {
         // the array prototype is an array
-        ctx.class_proto[JS_CLASS_ARRAY as usize] =
-            JS_NewObjectProtoClass(ctx, object_proto, JS_CLASS_ARRAY);
+        let array_proto = JS_NewObjectProtoClass(ctx, object_proto, JS_CLASS_ARRAY);
+        ctx.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
+
         ctx.array_shape = js_new_shape2(
             ctx,
-            get_proto_obj(ctx.class_proto[JS_CLASS_ARRAY as usize]),
+            get_proto_obj(array_proto),
             JS_PROP_INITIAL_HASH_SIZE,
             1,
         );
+
+        // add length property as #0
         ctx.array_shape.as_mut().unwrap().add_shape_property(
             ctx,
             None,

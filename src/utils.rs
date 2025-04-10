@@ -311,7 +311,7 @@ macro_rules! JS_CFUNC_NATIVE_DEF {
             u: crate::function::JSCFunctionListEntryUnion {
                 func: crate::function::JSCFunctionListEntryFunc {
                     length: $length,
-                    cproto: crate::function::JSCFunctionEnum::NativeCallback,
+                    cproto: crate::function::JSCFunctionEnum::NativeFunc,
                     cfunc: crate::function::JSCFunctionType {
                         native_callback: $func,
                     },

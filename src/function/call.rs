@@ -18,7 +18,7 @@ use crate::{
     value::{
         object::{JSObject, JS_GetOpaque, JS_PROP_THROW, JS_PROP_THROW_STRICT},
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_ToFloat64,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT, SIZEOF_JSVALUE,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_OBJECT, JS_MKPTR,
@@ -477,9 +477,24 @@ pub unsafe fn js_call_c_function(
     let mut ret_val: JSValue;
 
     match cproto {
-        JSCFunctionEnum::NativeCallback => {
+        JSCFunctionEnum::NativeFunc
+        | JSCFunctionEnum::NativeConstructor
+        | JSCFunctionEnum::NativeConstructorOrFunc => {
+            if matches!(
+                cproto,
+                JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+            ) {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    if cproto == JSCFunctionEnum::NativeConstructor {
+                        exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                    } else {
+                        this_obj = JSValue::UNDEFINED;
+                    }
+                }
+            }
+
             let cc = CallArgs::new(
-                NonNull::new_unchecked(realm),
+                NonNull::new_unchecked(p.u.cfunc.realm),
                 this_obj,
                 std::slice::from_raw_parts(arg_buf, argc as usize),
                 p.u.cfunc.magic as _,

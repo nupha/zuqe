@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
-    context::{JSContext, JSContextRef, JS_DupContext},
+    context::{JSContext, JS_DupContext},
     error::JSResult,
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_free_rt,
@@ -15,10 +15,9 @@ use crate::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
             JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
         },
-        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_IsException, JS_DEF_ALIAS,
-        JS_DEF_CFUNC, JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE,
-        JS_DEF_PROP_INT32, JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED,
-        JS_VALUE_GET_OBJ,
+        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_DEF_ALIAS, JS_DEF_CFUNC,
+        JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
+        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED,
     },
     JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
 };
@@ -42,7 +41,9 @@ pub enum JSCFunctionEnum {
     SetterMagic,
     IteratorNext,
 
-    NativeCallback,
+    NativeFunc,
+    NativeConstructor,
+    NativeConstructorOrFunc,
     NativeSetter,
     NativeGetter,
 }
@@ -237,6 +238,58 @@ pub struct JSObjectCFunc {
     pub magic: i16,
 }
 
+impl JSContext {
+    /// Create a new function object with native callback,
+    /// at least `length` arguments will be readable in arguments.
+    pub fn create_native_function(
+        &mut self,
+        callback: JSNativeCallback,
+        name: &str,
+        length: u8,
+        cproto: JSCFunctionEnum,
+        magic: i16,
+        proto_val: JSValue,
+    ) -> JSResult {
+        debug_assert!(matches!(
+            cproto,
+            JSCFunctionEnum::NativeFunc
+                | JSCFunctionEnum::NativeConstructor
+                | JSCFunctionEnum::NativeConstructorOrFunc
+        ));
+
+        let func_obj = unsafe {
+            JS_NewObjectProtoClass(self, proto_val, JS_CLASS_C_FUNCTION).check_exception()?
+        };
+
+        let p = unsafe { func_obj.object() };
+
+        p.detailed.set_constructor(matches!(
+            cproto,
+            JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+        ));
+
+        unsafe {
+            let cfunc = &mut p.u.cfunc;
+
+            cfunc.realm = JS_DupContext(self);
+            cfunc.c_function.native_callback = callback;
+            cfunc.length = length;
+            cfunc.cproto = cproto;
+            cfunc.magic = magic;
+        }
+
+        // define properties length and name on function.
+        let name_atom = self.create_atom(name).unwrap();
+
+        unsafe {
+            js_function_set_properties(self, func_obj, name_atom, length as i32);
+            JS_FreeAtom(self, name_atom);
+        }
+
+        Ok(func_obj)
+    }
+}
+
 // Note: at least 'length' arguments will be readable in 'argv'
 pub unsafe fn JS_NewCFunction3(
     ctx: *mut JSContext,
@@ -248,11 +301,12 @@ pub unsafe fn JS_NewCFunction3(
     proto_val: JSValueConst,
 ) -> JSValue {
     let func_obj = JS_NewObjectProtoClass(ctx, proto_val, JS_CLASS_C_FUNCTION);
-    if JS_IsException(func_obj) {
+    if func_obj.is_exception() {
         return func_obj;
     }
 
-    let p = JS_VALUE_GET_OBJ(func_obj).as_mut().unwrap();
+    let p = func_obj.object();
+
     {
         let cf = &mut p.u.cfunc;
         cf.realm = JS_DupContext(ctx);
