@@ -10,7 +10,6 @@ pub mod atom;
 pub mod bytecode;
 pub mod class;
 pub mod context;
-pub mod context_intrinsic;
 pub mod error;
 pub mod eval;
 pub mod function;

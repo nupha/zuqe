@@ -8,7 +8,6 @@ use std::{
 use fallible_collections::FallibleVec;
 
 use crate::{
-    context_intrinsic::{JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBasicObjects},
     error::JS_NATIVE_ERROR_COUNT,
     eval::__JS_EvalInternal,
     function::JSVarBinding,
@@ -23,6 +22,8 @@ use crate::{
         JSValue, JS_FreeValue, JS_IsUndefined, JS_UNDEFINED,
     },
 };
+
+use super::intrinsic::{JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBasicObjects};
 
 /// Represents a lexical environment
 #[repr(C)]
