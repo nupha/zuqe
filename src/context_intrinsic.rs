@@ -3,9 +3,8 @@ use crate::{
     context::{JSContext, JS_MODE_STRICT},
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     function::{
-        js_function_proto, JSCFunction, JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum,
-        JS_GetFunctionBytecode, JS_NewCFunction, JS_NewCFunction3, JS_NewCFunctionMagic,
-        JS_SetPropertyFunctionList,
+        js_function_proto, JSCFunctionEnum, JSFunctionKindEnum, JS_GetFunctionBytecode,
+        JS_NewCFunction, JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
     },
     js_core::{
         array::{
@@ -48,7 +47,7 @@ pub unsafe fn JS_AddIntrinsicBasicObjects(ctx: &mut JSContext) {
     // Function
     {
         ctx.function_proto = ctx
-            .create_native_function(
+            .create_native_function_with_proto(
                 js_function_proto,
                 "",
                 0,
@@ -219,33 +218,35 @@ pub unsafe fn JS_AddIntrinsicBaseObjects(ctx: *mut JSContext) {
 
     // Error
     {
-        let error_func = JS_NewCFunctionMagic(
-            ctx,
-            js_error_constructor,
-            c"Error",
-            1,
-            JSCFunctionEnum::ConstructorOrFuncMagic,
-            -1,
-        );
+        let error_ctor = (*ctx)
+            .create_native_function(
+                js_error_constructor,
+                "Error",
+                1,
+                JSCFunctionEnum::NativeConstructorOrFunc,
+                -1,
+            )
+            .unwrap();
+
         (*ctx).add_global_constructor(
             "Error",
-            error_func,
+            error_ctor,
             (*ctx).class_proto[JS_CLASS_ERROR as usize],
         );
 
-        let f: JSCFunctionMagic = js_error_constructor;
-        let g: JSCFunction = *(f as *mut JSCFunction);
         for i in 0..JS_NATIVE_ERROR_COUNT {
             let n_args = 1 + (i == JSErrorEnum::Aggregate as usize) as i32;
-            let func_obj = JS_NewCFunction3(
-                ctx,
-                g,
-                NATIVE_ERROR_NAMES[i as usize],
-                n_args as _,
-                JSCFunctionEnum::ConstructorOrFuncMagic,
-                i as _,
-                error_func,
-            );
+
+            let func_obj = (*ctx)
+                .create_native_function_with_proto(
+                    js_error_constructor,
+                    NATIVE_ERROR_NAMES[i as usize].to_string_lossy().as_ref(),
+                    n_args as _,
+                    JSCFunctionEnum::NativeConstructorOrFunc,
+                    i as _,
+                    error_ctor,
+                )
+                .unwrap();
 
             (*ctx).add_global_constructor(
                 NATIVE_ERROR_NAMES[i as usize].to_string_lossy().as_ref(),

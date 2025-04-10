@@ -239,9 +239,9 @@ pub struct JSObjectCFunc {
 }
 
 impl JSContext {
-    /// Create a new function object with native callback,
+    /// Create new function object with native callback and speficied proto object.
     /// at least `length` arguments will be readable in arguments.
-    pub fn create_native_function(
+    pub fn create_native_function_with_proto(
         &mut self,
         callback: JSNativeCallback,
         name: &str,
@@ -288,9 +288,31 @@ impl JSContext {
 
         Ok(func_obj)
     }
+
+    /// Create new function object with native callback. using function proto as proto object.
+    /// at least `length` arguments will be readable in arguments.
+    #[inline(always)]
+    pub fn create_native_function(
+        &mut self,
+        callback: JSNativeCallback,
+        name: &str,
+        length: u8,
+        cproto: JSCFunctionEnum,
+        magic: i16,
+    ) -> JSResult {
+        self.create_native_function_with_proto(
+            callback,
+            name,
+            length,
+            cproto,
+            magic,
+            self.function_proto,
+        )
+    }
 }
 
 // Note: at least 'length' arguments will be readable in 'argv'
+#[deprecated(note = "use native callback instead")]
 pub unsafe fn JS_NewCFunction3(
     ctx: *mut JSContext,
     func: JSCFunction,
