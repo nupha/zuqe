@@ -1,4 +1,4 @@
-mod instance;
-mod prototype;
+mod func;
+mod proto;
 
-pub use {instance::*, prototype::*};
+pub use {func::*, proto::*};

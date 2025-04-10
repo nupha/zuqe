@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     atom::{consts::*, JS_NewAtomString},
     class::{JS_NewGlobalCConstructor, JS_NewGlobalCConstructor2},
