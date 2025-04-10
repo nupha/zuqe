@@ -115,7 +115,7 @@ pub struct JSContext {
     pub compile_regexp:
         Option<unsafe fn(ctx: *mut JSContext, pattern: JSValue, flags: JSValue) -> JSValue>,
 
-    /// Internal eval implementation
+    /// eval implementation
     pub eval_internal: Option<
         unsafe fn(
             ctx: *mut JSContext,
@@ -361,9 +361,6 @@ impl JSRuntime {
         ctx.rt = NonNull::new_unchecked(self as *mut JSRuntime);
 
         ctx.add_core_objects();
-
-        // add eval() handler
-        ctx.eval_internal.replace(__JS_EvalInternal);
 
         let ctx_ref: JSContextRef = ctx.deref_mut().into();
 

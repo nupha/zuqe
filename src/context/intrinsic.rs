@@ -2,6 +2,7 @@ use crate::{
     atom::{consts::*, JS_NewAtomString},
     context::{JSContext, JS_MODE_STRICT},
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
+    eval::__JS_EvalInternal,
     function::{
         js_function_proto, JSCFunctionEnum, JSFunctionKindEnum, JS_GetFunctionBytecode,
         JS_NewCFunction, JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
@@ -402,6 +403,8 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_eval(&mut self) {
+        self.eval_internal.replace(__JS_EvalInternal);
+
         self.eval_func = JS_NewCFunction(self, js_global_eval, c"eval", 1);
         self.global_obj
             .define_property_value(
