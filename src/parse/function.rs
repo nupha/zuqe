@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -506,9 +506,11 @@ impl JSParseState {
         Ok(sub_fd)
     }
 
-    /// Parse a function declaration. For function statements, expressions, arrow functions and var declarations,
+    /// Parse function declaration for function statements, expressions, arrow functions and var declarations.
+    /// Returns new created FunctionDef raw pointer on success, or Err on failure. You don't need to free it manually.
     /// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
+    /// `func_name` is **NOT CONSUMED** inside.
     pub(super) unsafe fn parse_function_decl2(
         &mut self,
         func_type: JSParseFunctionEnum,
@@ -791,7 +793,9 @@ impl JSParseState {
             }
         }
 
-        let fd_ptr = Box::into_raw(fd1); // handle out ownership of sub fd
+        // fd1 is added to children list of fd0,
+        // rust should give up its ownership.
+        let fd_ptr = Box::into_raw(fd1);
         if !pfd.is_null() {
             *pfd = fd_ptr;
         }
