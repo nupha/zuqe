@@ -505,6 +505,7 @@ impl JSParseState {
         Ok(sub_fd)
     }
 
+    /// Parse a function declaration. For function statements, expressions, arrow functions and var declarations,
     /// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
     pub(super) unsafe fn parse_function_decl2(
@@ -654,16 +655,11 @@ impl JSParseState {
             }
         }
 
-        //
-        // create and parse sub fd
-        // NOTE: `func_name` is always consumed inside `parse_function_create_sub_fd`.
-        // DO NOT free it again here, event calling parse_function_create_sub_fd() returns Err,
-        // in this case, exit with Err directly, but don't free `func_name`
-        //
+        // parse sub function declareation
         let mut fd1 = self.parse_sub_function(
             func_type,
             func_kind,
-            func_name,
+            func_name, // this will be consumed
             ptr,
             function_line_num,
             is_expr,
@@ -677,13 +673,9 @@ impl JSParseState {
             };
         }
 
-        /* Reparse identifiers after the function is terminated so that
-        the token is parsed in the englobing function. It could be done
-        by just using next_token() here for normal functions, but it is
-        necessary for arrow functions with an expression body. */
         reparse_ident_token(self);
 
-        // generate opcodes for cur_func
+        // create function object
         {
             let func_name = fd1.func_name;
 
