@@ -50,12 +50,14 @@ pub enum JSParseFunctionEnum {
 }
 
 impl JSParseState {
-    /// parse sub function, and create sub-level FunctionDef.
-    /// returns the new created sub JSFunctionDef.
-    /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
-    /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
-    /// `func_name` is **CONSUMED**.
-    unsafe fn parse_sub_function(
+    /// Creates a new JSFunctionDef as a child of the current function def.
+    /// This new function definition is used to parse the function body.
+    /// Returns the newly created function definition.
+    /// For JS_PARSE_FUNC_STATEMENT, JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR,
+    /// func_name must be JS_ATOM_NULL.
+    ///
+    /// Note: `func_name` is **CONSUMED** inside.
+    unsafe fn parse_function_body_to_sub_fd(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
@@ -142,7 +144,6 @@ impl JSParseState {
                 self.cur_func = fd0;
                 // clean up and drop new fd
                 crate::function::js_free_function_def(ctx, Box::into_raw(sub_fd));
-
                 return Err(-1);
             };
         }
@@ -519,75 +520,74 @@ impl JSParseState {
         pfd: *mut *mut JSFunctionDef,
     ) -> Result<(), i32> {
         let ctx = self.ctx.as_mut().unwrap();
-        let fd0 = self.cur_func.as_mut().unwrap();
-
-        debug_assert_eq!(fd0.js_mode, 1, "{}", fd0.func_name.to_str(ctx.rt()));
-
-        let mut lexical_func_idx: i32 = -1;
-        let mut create_func_var = false;
         let is_expr = !matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
         );
+        let fd0 = self.cur_func.as_mut().unwrap();
 
-        if matches!(
-            func_type,
+        let mut lexical_func_idx: i32 = -1;
+        let mut create_func_var = false;
+
+        match func_type {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
-                | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
-                | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-        ) {
-            if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-                && token_is_pseudo_keyword(self, JS_ATOM_async)
-                && peek_token(self, true) != b'\n' as i32
-            {
-                self.next_token()?;
-                func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
-            }
-
-            self.next_token()?;
-
-            if self.token.val == CHAR_STAR {
-                self.next_token()?;
-                func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(
-                    func_kind as u8 | JSFunctionKindEnum::JS_FUNC_GENERATOR as u8,
-                )
-            }
-
-            if self.token.val == TOK_IDENT {
-                if self.token.u.ident.is_reserved
-                    || (self.token.u.ident.atom == JS_ATOM_yield
-                        && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-                        && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                    || (self.token.u.ident.atom == JS_ATOM_await
-                        && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-                            && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8) != 0)
-                            || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
+            | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
+            | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
+                if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
+                    && token_is_pseudo_keyword(self, JS_ATOM_async)
+                    && peek_token(self, true) != b'\n' as i32
                 {
-                    js_parse_error_reserved_identifier(self);
-                    return Err(-1);
+                    self.next_token()?;
+                    func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
                 }
-            }
 
-            if self.token.val == TOK_IDENT
-                || (((self.token.val == TOK_YIELD && fd0.js_mode & JS_MODE_STRICT as u8 == 0)
-                    || (self.token.val == TOK_AWAIT && !self.is_module))
-                    && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
-            {
-                func_name = JS_DupAtom(ctx, self.token.u.ident.atom);
-                if self.next_token().is_err() {
-                    JS_FreeAtom(ctx, func_name);
-                    return Err(-1);
+                self.next_token()?;
+
+                if self.token.val == CHAR_STAR {
+                    self.next_token()?;
+                    func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(
+                        func_kind as u8 | JSFunctionKindEnum::JS_FUNC_GENERATOR as u8,
+                    )
                 }
-            } else {
-                if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
+
+                if self.token.val == TOK_IDENT {
+                    if self.token.u.ident.is_reserved
+                        || (self.token.u.ident.atom == JS_ATOM_yield
+                            && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
+                            && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
+                        || (self.token.u.ident.atom == JS_ATOM_await
+                            && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
+                                && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
+                                    != 0)
+                                || func_type
+                                    == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
+                    {
+                        js_parse_error_reserved_identifier(self);
+                        return Err(-1);
+                    }
+                }
+
+                if self.token.val == TOK_IDENT
+                    || ((self.token.val == TOK_YIELD && fd0.js_mode & JS_MODE_STRICT as u8 == 0
+                        || (self.token.val == TOK_AWAIT && !self.is_module))
+                        && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
+                {
+                    func_name = self.token.u.ident.atom.dup(ctx.rt());
+                    if self.next_token().is_err() {
+                        JS_FreeAtom(ctx, func_name);
+                        return Err(-1);
+                    }
+                } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                     && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
                 {
                     js_parse_error(self, c"function name expected");
                     return Err(-1);
                 }
             }
-        } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_ARROW {
-            func_name = JS_DupAtom(ctx, func_name);
+            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {}
+            _ => {
+                func_name = func_name.dup(ctx.rt());
+            }
         }
 
         if fd0.is_eval
@@ -621,12 +621,12 @@ impl JSParseState {
                 create_func_var = true;
             }
 
-            /* Create the lexical name here so that the function closure contains it */
+            // Create the lexical name here so that the function closure contains it
             if fd0.is_eval
                 && matches!(fd0.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
                 && fd0.scope_level == fd0.body_scope
             {
-                /* avoid creating a lexical variable in the global scope. XXX: check annex B */
+                // avoid creating a lexical variable in the global scope. XXX: check annex B
                 if let Some(hf) = fd0.find_global_var(func_name) {
                     /* XXX: should check scope chain */
                     if (*hf).scope_level == fd0.scope_level {
@@ -655,8 +655,8 @@ impl JSParseState {
             }
         }
 
-        // parse sub function declareation
-        let mut fd1 = self.parse_sub_function(
+        // create a sub FunctionDef to parse function body, returns new sub fd.
+        let mut fd1 = self.parse_function_body_to_sub_fd(
             func_type,
             func_kind,
             func_name, // this will be consumed
@@ -667,31 +667,24 @@ impl JSParseState {
         debug_assert_eq!(fd1.parent, fd0 as *mut JSFunctionDef);
         debug_assert_eq!(self.cur_func, fd0 as *mut JSFunctionDef);
 
-        macro_rules! fail {
-            () => {
-                return Err(-1);
-            };
-        }
-
         reparse_ident_token(self);
 
         // create function object
         {
-            let func_name = fd1.func_name;
+            func_name = fd1.func_name;
 
             // the real object will be set at the end of the compilation
             let idx = cpool_add(self, JSValue::NULL);
             fd1.parent_cpool_idx = idx;
 
             if is_expr {
-                /* for constructors, no code needs to be generated here */
+                // for constructors, no code needs to be generated here
                 if !matches!(
                     func_type,
                     JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
                         | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
                 ) {
-                    /* OP_fclosure creates the function object from the bytecode
-                    and adds the scope information */
+                    // OP_fclosure creates the function object from the bytecode and adds the scope information
                     emit_op(self, OpCode::FCLOSURE);
                     emit_u32(self, idx as _);
 
@@ -706,11 +699,10 @@ impl JSParseState {
 
                 if create_func_var {
                     if (*self.cur_func).is_global_var {
-                        /* the global variable must be defined at the start of the
-                        function */
+                        // the global variable must be defined at the start of the  function
                         let hf = add_global_var(ctx, self.cur_func, func_name);
                         if hf.is_null() {
-                            fail!();
+                            return Err(-1);
                         }
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
@@ -723,11 +715,9 @@ impl JSParseState {
                         emit_atom_dup(self, func_name);
                         emit_u16(self, 0);
                     } else {
-                        /* do not call define_var to bypass lexical scope check */
+                        // do not call define_var to bypass lexical scope check
                         if (*self.cur_func).find_var(func_name).is_none() {
-                            if (*self.cur_func).add_var(ctx, func_name).is_err() {
-                                fail!();
-                            }
+                            (*self.cur_func).add_var(ctx, func_name)?;
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
@@ -754,10 +744,10 @@ impl JSParseState {
                     let var_idx =
                         define_var(self, self.cur_func, func_name, JSVarDefEnum::JS_VAR_DEF_VAR);
                     if var_idx < 0 {
-                        fail!();
+                        return Err(-1);
                     }
 
-                    /* the variable will be assigned at the top of the function */
+                    // the variable will be assigned at the top of the function
                     if var_idx & ARGUMENT_VAR_OFFSET != 0 {
                         (*(*self.cur_func)
                             .args
@@ -776,7 +766,7 @@ impl JSParseState {
                     /* the variable will be assigned at the top of the function */
                     let hf = add_global_var(ctx, self.cur_func, func_var_name);
                     if hf.is_null() {
-                        fail!();
+                        return Err(-1);
                     }
                     (*hf).cpool_idx = idx;
 
@@ -794,15 +784,14 @@ impl JSParseState {
                         )
                         .is_null()
                         {
-                            fail!();
+                            return Err(-1);
                         }
                     }
                 }
             }
         }
 
-        // handle out ownership of fd1
-        let fd_ptr = Box::into_raw(fd1);
+        let fd_ptr = Box::into_raw(fd1); // handle out ownership of sub fd
         if !pfd.is_null() {
             *pfd = fd_ptr;
         }
