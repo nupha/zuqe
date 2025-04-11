@@ -9,10 +9,7 @@ use crate::{
         add_eval_variables, js_free_function_def, resolve_variables, JSFunctionDef, ARG_SCOPE_END,
         ARG_SCOPE_INDEX,
     },
-    gc::{
-        add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum, JSGCPhaseEnum,
-        JS_MarkFunc,
-    },
+    gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum, JSGCPhaseEnum},
     list_entry,
     mem::{js_free, js_free_rt, js_malloc_typed},
     module::add_module_variables,
@@ -20,8 +17,7 @@ use crate::{
     types::{list_add_tail, list_foreach_safe_with_ret},
     utils::{get_leb128, get_sleb128, get_u32},
     value::{
-        JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_IsException, JS_TAG_FUNCTION_BYTECODE,
-        JS_VALUE_GET_TAG,
+        JSTag, JSValue, JS_FreeValueRT, JS_IsException, JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -458,6 +454,8 @@ pub fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcodes: bool
 // definition is freed. All the child functions are also created. It
 // must be done this way to resolve all the variables.
 pub unsafe fn js_create_function(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> JSValue {
+    debug_assert_eq!((*fd).js_mode, 1, "[O.o]");
+
     macro_rules! fail {
         () => {
             js_free_function_def(ctx, fd);

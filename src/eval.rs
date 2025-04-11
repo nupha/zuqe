@@ -45,7 +45,6 @@ pub unsafe fn __JS_EvalInternal(
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
-    let eval_type = flags & JS_EVAL_TYPE_MASK;
     let mut s = JSParseState::new(ctx, input, input_len, filename);
 
     macro_rules! fail1 {
@@ -67,11 +66,12 @@ pub unsafe fn __JS_EvalInternal(
 
     skip_shebang(&mut s.buf_ptr, s.buf_end);
 
+    let eval_type = flags & JS_EVAL_TYPE_MASK;
     let mut m: *mut JSModuleDef = std::ptr::null_mut();
     let mut b: *mut JSFunctionBytecode = std::ptr::null_mut();
-    let mut js_mode: u32;
     let mut sf: *mut JSStackFrame = std::ptr::null_mut();
     let mut var_refs: &[NonNull<JSVarRef>] = &[];
+    let mut js_mode: u32 = 0;
 
     if eval_type == JS_EVAL_TYPE_DIRECT {
         sf = (*ctx).rt().current_stack_frame;
@@ -85,7 +85,6 @@ pub unsafe fn __JS_EvalInternal(
         var_refs = (*ob.u.func).var_refs.as_slice();
         js_mode = (*b).js_mode as _;
     } else {
-        js_mode = 0;
         if flags & JS_EVAL_FLAG_STRICT != 0 {
             js_mode |= JS_MODE_STRICT as u32;
         }
@@ -100,7 +99,6 @@ pub unsafe fn __JS_EvalInternal(
                 return JSValue::EXCEPTION;
             };
 
-            // js_new_module_def(ctx, module_name);
             m = if let Ok(p) = JSModuleDef::new(ctx.as_mut().unwrap(), module_name) {
                 Box::into_raw(p)
             } else {

@@ -552,7 +552,8 @@ impl JSFunctionDef {
     }
 }
 
-/// convert global variable accesses to local variables or closure variables when necessary
+/// convert global variable accesses to local variables or closure variables when necessary.
+/// this is pass2 of the bytecode generation.
 pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Result<(), i32> {
     let bc_buf = (*s).byte_code.as_mut_ptr();
     let bc_len = (*s).byte_code.len();
@@ -577,7 +578,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
         };
     }
 
-    let mut line_num = 0_i32; // avoid warning
+    let mut line_num = 0_i32;
     let mut pos = 0_usize;
     let mut pos_next: usize;
 
@@ -618,6 +619,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
             | opcodes::op_scope_put_var_init => {
                 let var_name = JSAtom(get_u32(bc_buf.add(pos + 1)));
                 let scope = get_u16(bc_buf.add(pos + 5));
+
                 pos_next = resolve_scope_var(
                     ctx,
                     s,
@@ -638,7 +640,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 let ls = (*s).label_slots.add(label as usize);
                 (*ls).ref_count -= 1; // always remove label reference
 
-                // get atom refcount before resolve_scope_var()
+                // debug: get atom refcount before resolve_scope_var()
                 #[cfg(debug_assertions)]
                 let _name_refcnt = var_name.ref_count((*ctx).rt());
 
@@ -817,6 +819,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                             ) {
                                 push_vec_u8(&mut bc_out, OpCode::FCLOSURE as u8);
                                 push_vec_u32(&mut bc_out, (*vd).func_pool_idx as u32);
+
                                 push_vec_u8(&mut bc_out, OpCode::PUT_LOC as u8);
                                 push_vec_u16(&mut bc_out, scope_idx as u16);
                             } else {

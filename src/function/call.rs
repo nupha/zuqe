@@ -6,7 +6,7 @@ use crate::{
     atom::JSAtom,
     bytecode::run_bytecodes,
     class::js_create_from_ctor,
-    context::{is_strict_mode, JSContext, JSContextRef},
+    context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError, JS_ThrowStackOverflow},
     function::{
         build_arg_list, check_function, js_create_iterator_result, CallArgs, JSAsyncFunctionState,
@@ -18,7 +18,7 @@ use crate::{
     value::{
         object::{JSObject, JS_GetOpaque, JS_PROP_THROW, JS_PROP_THROW_STRICT},
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_ToFloat64,
-        JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT, SIZEOF_JSVALUE,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_OBJECT, JS_MKPTR,
@@ -174,6 +174,7 @@ pub unsafe fn JS_CallInternal(
     let sf = &mut sf_s;
 
     init_list_head(&mut sf.var_ref_list);
+
     sf.js_mode = b.js_mode as _;
     sf.cur_func = func_obj;
 

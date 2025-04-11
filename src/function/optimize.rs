@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     atom::{JSAtom, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode},
-    context::JSContext,
+    context::{JSContext, JS_MODE_STRICT},
     function::{code_has_label, find_jump_target, JSFunctionDef, LabelSlot},
     utils::{
         get_u16, get_u32, push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32,
@@ -719,7 +719,7 @@ pub unsafe fn optimize_scope_make_global_ref(
     pos_next: u32,
     var_name: JSAtom,
 ) -> u32 {
-    let is_strict = ((*s).js_mode & 0x1) != 0;
+    let is_strict = ((*s).js_mode & JS_MODE_STRICT as u8) != 0;
     if is_strict {
         push_vec_u8(bc, opcodes::OP_check_var);
         push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);

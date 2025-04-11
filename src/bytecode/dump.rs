@@ -484,7 +484,7 @@ pub unsafe fn dump_byte_code(
                     (*v).dump((*ctx).rt());
                 } else {
                     #[cfg(debug_assertions)]
-                    unreachable!();
+                    unreachable!()
                 }
             }
             "atom" => {

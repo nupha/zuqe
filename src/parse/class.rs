@@ -965,6 +965,7 @@ pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDe
     (*(*cf).fields_init_fd).parent_cpool_idx = cpool_idx;
     emit_op(s, OpCode::FCLOSURE);
     emit_u32(s, cpool_idx as _);
+
     emit_op(s, OpCode::SET_HOME_OBJECT);
 }
 

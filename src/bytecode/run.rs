@@ -169,8 +169,9 @@ pub unsafe fn run_bytecodes(
         let state: State = 'opcodes: loop {
             #[cfg(feature = "dump_bytecode")]
             {
-                print!("[O.o] RUN {:5}: ", pc.offset_from(pc_base));
-                crate::bytecode::dump::dump_opcode_one(ctx, b, pc.offset_from(pc_base) as usize);
+                let pos = pc.offset_from(pc_base) as usize;
+                print!("[O.o] RUN {:5}: ", pos);
+                crate::bytecode::dump::dump_opcode_one(ctx, b, pos);
                 println!();
             }
 

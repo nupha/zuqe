@@ -156,7 +156,7 @@ impl JSFunctionDef {
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx,
-            var_name: JS_DupAtom(ctx, var_name),
+            var_name: var_name.dup(ctx.rt()),
         };
         cv.set_is_local(is_local);
         cv.set_is_arg(is_arg);
@@ -366,7 +366,7 @@ pub unsafe fn add_closure_variables(
 
     // Add lexical variables in scope at the point of evaluation
     let mut i = scope_idx;
-    if let Some(vardefs) = (*b).vars_slice_mut() {
+    if let Some(vardefs) = (*b).vars_slice() {
         while i >= 0 {
             let vd = vardefs.get(i as usize).unwrap();
             if vd.scope_level > 0 {
@@ -408,8 +408,8 @@ pub unsafe fn add_closure_variables(
         }
 
         // Add local non lexical variables
-        if let Some(varslist) = (*b).vars_slice() {
-            for (i, vd) in varslist.iter().enumerate() {
+        if let Some(vardefs) = (*b).vars_slice() {
+            for (i, vd) in vardefs.iter().enumerate() {
                 if vd.scope_level == 0 && vd.var_name != JS_ATOM__ret_ {
                     let mut cv = JSClosureVar {
                         bitfield: 0,

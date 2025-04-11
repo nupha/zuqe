@@ -4,7 +4,7 @@ use crate::{
     atom::{
         consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL,
     },
-    bytecode::{opcode_info_intermediate, opcodes},
+    bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
     context::{JSContext, JS_MODE_STRICT},
     error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -91,6 +91,7 @@ pub struct JSFunctionDef {
     pub func_kind: JSFunctionKindEnum,
     pub func_type: JSParseFunctionEnum,
     pub func_name: JSAtom,
+
     pub js_mode: u8,
 
     /// 变量定义数组. TODO: use Vec<JSVarDef>
@@ -181,7 +182,7 @@ pub struct JSFunctionDef {
     // 常量池分配大小
     pub cpool_size: i32,
 
-    /// 闭包变量数组.
+    /// closure vars list
     pub closure_vars: Option<Vec<JSClosureVar>>,
 
     // 跳转槽数组. TODO: use Vec<JumpSlot>
@@ -228,8 +229,8 @@ pub struct JSFunctionDef {
 // }
 
 impl JSFunctionDef {
-    /// create function def, don't attach to parent-child chain.
-    pub unsafe fn new0(
+    /// alloc a function def, and initialize it.
+    unsafe fn new0(
         ctx: &mut JSContext,
         is_eval: bool,
         is_func_expr: bool,
@@ -318,14 +319,15 @@ impl JSFunctionDef {
         })
     }
 
-    pub unsafe fn set_parent(&mut self, parent: *mut JSFunctionDef) {
+    unsafe fn set_parent(&mut self, parent: *mut JSFunctionDef) {
         debug_assert!(!parent.is_null());
         debug_assert!(self.parent.is_null());
 
         self.parent = parent;
-        list_add_tail(&mut self.link, &mut (*parent).child_list);
         self.js_mode = (*parent).js_mode;
+        debug_assert_eq!((*parent).js_mode, 1, "[O.o]");
         self.parent_scope_level = (*parent).scope_level as i32;
+        list_add_tail(&mut self.link, &mut (*parent).child_list);
     }
 
     /// update label ref count by delta. returns updated ref count.
@@ -528,13 +530,12 @@ pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
 }
 
 pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
-    // in non strict mode, variables are created in the caller's
-    // environment object
-    if !s.is_eval && s.js_mode & JS_MODE_STRICT as u8 == 0 {
-        s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).expect("TODO"));
+    // in non strict mode, variables are created in the caller's environment object
+    if !s.is_eval && (s.js_mode & JS_MODE_STRICT as u8) == 0 {
+        s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).unwrap());
         if s.has_parameter_expressions {
             // an additional variable object is needed for the argument scope
-            s.arg_var_object_idx = Some(s.add_var(ctx, JS_ATOM__arg_var_).expect("TODO"));
+            s.arg_var_object_idx = Some(s.add_var(ctx, JS_ATOM__arg_var_).unwrap());
         }
     }
 
@@ -1214,13 +1215,13 @@ pub unsafe fn instantiate_hoisted_definitions(
     bc: &mut Vec<u8>,
 ) {
     // add the hoisted functions in arguments and local variables
-
     for i in 0..(*s).arg_count {
         let vd = (*s).args.offset(i as isize);
         if (*vd).func_pool_idx >= 0 {
-            push_vec_u8(bc, opcodes::OP_fclosure);
+            push_vec_u8(bc, OpCode::FCLOSURE as u8);
             push_vec_u32(bc, (*vd).func_pool_idx as u32);
-            push_vec_u8(bc, opcodes::OP_put_arg);
+
+            push_vec_u8(bc, OpCode::PUT_ARG as u8);
             push_vec_u16(bc, i as u16);
         }
     }
@@ -1228,9 +1229,10 @@ pub unsafe fn instantiate_hoisted_definitions(
     for i in 0..(*s).var_count {
         let vd = (*s).vars.offset(i as isize);
         if (*vd).scope_level == 0 && (*vd).func_pool_idx >= 0 {
-            push_vec_u8(bc, opcodes::OP_fclosure);
+            push_vec_u8(bc, OpCode::FCLOSURE as u8);
             push_vec_u32(bc, (*vd).func_pool_idx as u32);
-            push_vec_u8(bc, opcodes::OP_put_loc);
+
+            push_vec_u8(bc, OpCode::PUT_LOC as u8);
             push_vec_u16(bc, i as u16);
         }
     }
@@ -1247,43 +1249,37 @@ pub unsafe fn instantiate_hoisted_definitions(
         label_next.replace(l);
 
         // if 'this' is true, initialize the global variables and return
-        push_vec_u8(bc, opcodes::OP_push_this);
-        push_vec_u8(bc, opcodes::OP_if_false);
+        push_vec_u8(bc, OpCode::PUSH_THIS as u8);
+        push_vec_u8(bc, OpCode::IF_FALSE as u8);
         push_vec_u32(bc, l);
 
         (*s).update_label_ref_count(l, 1);
         (*s).jump_size += 1;
     }
 
-    // add the global variables (only happens if s->is_global_var is
-    // true)
+    // add the global variables (only happens if s->is_global_var is true)
     for i in 0..(*s).global_var_count {
-        let hf: *mut JSGlobalVar = (*s).global_vars.offset(i as isize);
+        let hf = (*s).global_vars.offset(i as isize);
         let mut has_closure: i32 = 0;
         let mut force_init = (*hf).force_init();
         let mut idx = 0;
 
-        // we are in an eval, so the closure contains all the
-        // enclosing variables
-        // If the outer function has a variable environment,
-        // create a property for the variable there
+        // we are in an eval, so the closure contains all the enclosing variables.
+        // If the outer function has a variable environment, create a property for the variable there
         if let Some(cvars) = (*s).closure_vars.as_ref() {
-            idx = cvars.len();
-
             for (j, cv) in cvars.iter().enumerate() {
+                idx = j;
                 match cv.var_name {
-                    JS_ATOM__var_ | JS_ATOM__arg_var_ => {
-                        has_closure = 1;
-                        force_init = true;
-                        idx = j;
+                    n if n == (*hf).var_name => {
+                        has_closure = 2;
+                        force_init = false;
                         break;
                     }
-                    n if n == (*hf).var_name => {
-                        push_vec_u8(bc, opcodes::OP_get_var_ref);
+                    JS_ATOM__var_ | JS_ATOM__arg_var_ => {
+                        push_vec_u8(bc, OpCode::GET_VAR_REF as u8);
                         push_vec_u16(bc, j as u16);
                         has_closure = 1;
                         force_init = true;
-                        idx = j;
                         break;
                     }
                     _ => {}
@@ -1291,44 +1287,22 @@ pub unsafe fn instantiate_hoisted_definitions(
             }
         }
 
-        // let mut idx = (*s).closure_var_count;
-        // for j in 0..(*s).closure_var_count {
-        //     let cv: *mut JSClosureVar = (*s).closure_vars.offset(j as isize);
-        //     if (*cv).var_name == (*hf).var_name {
-        //         has_closure = 2;
-        //         force_init = false;
-        //         idx = j;
-        //         break;
-        //     }
-        //     if matches!((*cv).var_name, JS_ATOM__var_ | JS_ATOM__arg_var_) {
-        //         push_vec_u8(bc, opcodes::OP_get_var_ref);
-        //         push_vec_u16(bc, j as u16);
-        //         has_closure = 1;
-        //         force_init = true;
-        //         idx = j;
-        //         break;
-        //     }
-        // }
-
         if has_closure == 0 {
             let mut flags: u32 = 0;
             if (*s).eval_type != JS_EVAL_TYPE_GLOBAL {
                 flags |= JS_PROP_CONFIGURABLE;
             }
+
             if (*hf).cpool_idx >= 0 && !(*hf).is_lexical() {
                 // global function definitions need a specific handling
-                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u8(bc, OpCode::FCLOSURE as u8);
                 push_vec_u32(bc, (*hf).cpool_idx as u32);
 
-                push_vec_u8(bc, opcodes::OP_define_func);
-                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u8(bc, OpCode::DEFINE_FUNC as u8);
+                push_vec_u32(bc, (*hf).var_name.0);
                 push_vec_u8(bc, flags as u8);
 
-                //goto done_global_var
-                {
-                    JS_FreeAtom(ctx, (*hf).var_name);
-                    continue;
-                }
+                continue; // next global var
             } else {
                 if (*hf).is_lexical() {
                     flags |= DEFINE_GLOBAL_LEX_VAR as u32;
@@ -1336,38 +1310,35 @@ pub unsafe fn instantiate_hoisted_definitions(
                         flags |= JS_PROP_WRITABLE;
                     }
                 }
-                push_vec_u8(bc, opcodes::OP_define_var);
-                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
+                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0); // dup to compensate later free
                 push_vec_u8(bc, flags as u8);
             }
         }
 
         if (*hf).cpool_idx >= 0 || force_init {
             if (*hf).cpool_idx >= 0 {
-                push_vec_u8(bc, opcodes::OP_fclosure);
+                push_vec_u8(bc, OpCode::FCLOSURE as u8);
                 push_vec_u32(bc, (*hf).cpool_idx as u32);
                 if (*hf).var_name == JS_ATOM__default_ {
                     // set default export function name
-                    push_vec_u8(bc, opcodes::OP_set_name);
+                    push_vec_u8(bc, OpCode::SET_NAME as u8);
                     push_vec_u32(bc, JS_DupAtom(ctx, JS_ATOM_default).0);
                 }
             } else {
-                push_vec_u8(bc, opcodes::OP_undefined);
+                push_vec_u8(bc, OpCode::UNDEFINED as u8);
             }
 
             if has_closure == 2 {
-                push_vec_u8(bc, opcodes::OP_put_var_ref);
+                push_vec_u8(bc, OpCode::PUT_VAR_REF as u8);
                 push_vec_u16(bc, idx as u16);
             } else if has_closure == 1 {
-                push_vec_u8(bc, opcodes::OP_fclosure);
-                push_vec_u8(bc, opcodes::OP_fclosure);
-                push_vec_u8(bc, opcodes::OP_define_field);
+                push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
                 push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
-                push_vec_u8(bc, opcodes::OP_drop);
+                push_vec_u8(bc, OpCode::DROP as u8);
             } else {
                 // XXX: Check if variable is writable and enumerable
-                push_vec_u8(bc, opcodes::OP_fclosure);
-                push_vec_u8(bc, opcodes::OP_put_var);
+                push_vec_u8(bc, OpCode::PUT_VAR as u8);
                 push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
             }
         }
@@ -1378,9 +1349,8 @@ pub unsafe fn instantiate_hoisted_definitions(
 
     if !(*s).module.is_null() {
         let l = label_next.unwrap();
-
-        push_vec_u8(bc, opcodes::OP_return_undef);
-        push_vec_u8(bc, opcodes::op_label);
+        push_vec_u8(bc, OpCode::RETURN_UNDEF as u8);
+        push_vec_u8(bc, OpCodeTemp::LABEL as u8);
         push_vec_u32(bc, l);
         (*(*s).label_slots.offset(l as isize)).pos2 = bc.len() as i32;
     }

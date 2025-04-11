@@ -50,12 +50,12 @@ pub enum JSParseFunctionEnum {
 }
 
 impl JSParseState {
-    /// create sub function def and emit opcodes.
-    /// returns new created JSFunctionDef.
-    /// param `func_name` should be duplicated outside, and always consumed inside this method.
-    /// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
+    /// parse sub function, and create sub-level FunctionDef.
+    /// returns the new created sub JSFunctionDef.
+    /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
-    unsafe fn parse_function_create_sub_fd(
+    /// `func_name` is **CONSUMED**.
+    unsafe fn parse_sub_function(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
@@ -64,16 +64,19 @@ impl JSParseState {
         function_line_num: u32,
         is_expr: bool,
     ) -> Result<Box<JSFunctionDef>, i32> {
+        let fd0 = self.cur_func;
         let ctx = self.ctx.as_mut().unwrap();
-        let mut sub_fd: Box<JSFunctionDef> = JSFunctionDef::new0(
+
+        let mut sub_fd: Box<JSFunctionDef> = JSFunctionDef::new(
             ctx,
+            fd0,
             false,
             is_expr,
             self.filename.as_ptr().cast(),
             function_line_num,
         )?;
 
-        sub_fd.func_name = func_name; // func_name was duplicated outside
+        sub_fd.func_name = func_name; // <-- atom is consumed here.
 
         sub_fd.has_prototype = matches!(
             func_type,
@@ -129,27 +132,9 @@ impl JSParseState {
         sub_fd.func_kind = func_kind;
         sub_fd.func_type = func_type;
 
-        sub_fd.has_simple_parameter_list = true;
-        sub_fd.has_parameter_expressions = false;
-
-        //
-        // generate opcodes for sub fd
-        //
-
-        let fd0 = self.cur_func;
+        // make sub_fd the cur_func
         let fd1 = sub_fd.deref_mut();
         self.cur_func = fd1;
-
-        // let fail = || -> Result<Box<JSFunctionDef>, i32> {
-        //     // restore previous cur_func
-        //     self.cur_func = fd0;
-        //     // clean up and drop new fd
-        //     crate::function::js_free_function_def(ctx, Box::into_raw(sub_fd));
-
-        //     Err(-1)
-
-        //     //panic!();
-        // };
 
         macro_rules! fail {
             () => {
@@ -162,6 +147,9 @@ impl JSParseState {
             };
         }
 
+        //
+        // generate opcodes for sub_fd
+        //
         if matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
@@ -176,6 +164,8 @@ impl JSParseState {
         }
 
         /* parse arguments */
+        fd1.has_simple_parameter_list = true;
+        fd1.has_parameter_expressions = false;
         let mut has_opt_arg = false;
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
@@ -185,10 +175,10 @@ impl JSParseState {
             }
 
             let name = self.token.u.ident.atom;
-            if (*fd1).add_arg(ctx, name).is_err() {
+            if fd1.add_arg(ctx, name).is_err() {
                 fail!();
             };
-            (*fd1).defined_arg_count = 1;
+            fd1.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.val == CHAR_BRACKET_L {
                 let mut skip_bits: i32 = 0;
@@ -196,7 +186,7 @@ impl JSParseState {
                 consider there is a parameter expression inside */
                 js_parse_skip_parens_token(self, &mut skip_bits, false);
                 if skip_bits & SKIP_HAS_ASSIGNMENT != 0 {
-                    (*fd1).has_parameter_expressions = true;
+                    fd1.has_parameter_expressions = true;
                 }
                 if self.next_token().is_err() {
                     fail!();
@@ -207,8 +197,8 @@ impl JSParseState {
                 }
             }
 
-            if (*fd1).has_parameter_expressions {
-                (*fd1).scope_level = -1; // force no parent scope
+            if fd1.has_parameter_expressions {
+                fd1.scope_level = -1; // force no parent scope
                 if self.push_scope().is_err() {
                     fail!();
                 }
@@ -226,23 +216,20 @@ impl JSParseState {
                 };
 
                 if matches!(self.token.val as u8, b'[' | b'{') {
-                    (*fd1).has_simple_parameter_list = false;
+                    fd1.has_simple_parameter_list = false;
                     if rest {
                         emit_op(self, OpCode::REST);
-                        emit_u16(self, (*fd1).arg_count as _);
+                        emit_u16(self, fd1.arg_count as _);
                     } else {
                         /* unnamed arg for destructuring */
-                        let idx = (*fd1)
-                            .add_arg(ctx, JS_ATOM_NULL)
-                            .expect("TODO: handle add_arg() error")
-                            as i32;
+                        let idx = fd1.add_arg(ctx, JS_ATOM_NULL).expect("TODO") as i32;
                         emit_op(self, OpCode::GET_ARG);
                         emit_u16(self, idx as _);
                     }
 
                     let has_initializer = js_parse_destructuring_element(
                         self,
-                        if (*fd1).has_parameter_expressions {
+                        if fd1.has_parameter_expressions {
                             TOK_LET
                         } else {
                             TOK_VAR
@@ -258,7 +245,7 @@ impl JSParseState {
                     if has_initializer != 0 {
                         has_opt_arg = true;
                     }
-                    if has_opt_arg == false {
+                    if !has_opt_arg {
                         fd1.defined_arg_count += 1;
                     }
                 } else if self.token.val == TOK_IDENT {
@@ -274,7 +261,7 @@ impl JSParseState {
                         js_parse_error_reserved_identifier(self);
                         fail!();
                     }
-                    if (*fd1).has_parameter_expressions {
+                    if fd1.has_parameter_expressions {
                         if define_var(self, fd1, name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
                             fail!();
                         }
@@ -303,7 +290,6 @@ impl JSParseState {
                         }
                         emit_op(self, OpCode::PUT_ARG);
                         emit_u16(self, idx as _);
-
                         fd1.has_simple_parameter_list = false;
                         has_opt_arg = true;
                     } else if self.token.val == CHAR_EQUAL {
@@ -314,7 +300,7 @@ impl JSParseState {
                             fail!();
                         }
 
-                        let label = if let Ok(l) = (*self.cur_func).add_label() {
+                        let label = if let Ok(l) = fd1.add_label() {
                             l as i32
                         } else {
                             fail!();
@@ -339,7 +325,7 @@ impl JSParseState {
                         emit_label(self, label);
                         emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                         emit_atom_dup(self, name);
-                        emit_u16(self, (*fd1).scope_level as _);
+                        emit_u16(self, fd1.scope_level as _);
                     } else {
                         if !has_opt_arg {
                             fd1.defined_arg_count += 1;
@@ -350,7 +336,7 @@ impl JSParseState {
                             emit_u16(self, idx as _);
                             emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                             emit_atom_dup(self, name);
-                            emit_u16(self, (*fd1).scope_level as _);
+                            emit_u16(self, fd1.scope_level as _);
                         }
                     }
                 } else {
@@ -371,8 +357,8 @@ impl JSParseState {
                 }
             }
 
-            if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && (*fd1).arg_count != 0)
-                || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && (*fd1).arg_count != 1)
+            if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && fd1.arg_count != 0)
+                || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.arg_count != 1)
             {
                 js_parse_error(self, c"invalid number of arguments for getter or setter");
                 fail!();
@@ -400,6 +386,7 @@ impl JSParseState {
                     emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                     emit_atom_dup(self, vd.var_name);
                     emit_u16(self, fd1.scope_level as _);
+
                     emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
                     emit_atom_dup(self, vd.var_name);
                     emit_u16(self, 0);
@@ -432,11 +419,7 @@ impl JSParseState {
         // in generators, yield expression is forbidden during the parsing of the arguments
         fd1.in_function_body = true;
         // enter body scope
-        fd1.body_scope = if let Ok(id) = self.push_scope() {
-            id
-        } else {
-            fail!();
-        };
+        fd1.body_scope = self.push_scope().unwrap();
 
         if self.token.val == TOK_ARROW {
             if self.next_token().is_err() {
@@ -472,6 +455,7 @@ impl JSParseState {
                 }
 
                 // function declareation done, returns new fd.
+                self.cur_func = fd0; // restore cur_func to previoud fd
                 return Ok(sub_fd);
             }
         }
@@ -518,7 +502,6 @@ impl JSParseState {
         }
 
         self.cur_func = fd0; // restore cur_func to previoud fd
-
         Ok(sub_fd)
     }
 
@@ -536,6 +519,9 @@ impl JSParseState {
     ) -> Result<(), i32> {
         let ctx = self.ctx.as_mut().unwrap();
         let fd0 = self.cur_func.as_mut().unwrap();
+
+        debug_assert_eq!(fd0.js_mode, 1, "{}", fd0.func_name.to_str(ctx.rt()));
+
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
         let is_expr = !matches!(
@@ -624,7 +610,7 @@ impl JSParseState {
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-            let func_idx = (*fd0).find_var(func_name).unwrap_or(-1);
+            let func_idx = fd0.find_var(func_name).unwrap_or(-1);
             if fd0.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                 && find_lexical_decl(ctx, fd0, func_name, fd0.scope_first, false) < 0
@@ -669,12 +655,12 @@ impl JSParseState {
         }
 
         //
-        // create new fd
+        // create and parse sub fd
         // NOTE: `func_name` is always consumed inside `parse_function_create_sub_fd`.
         // DO NOT free it again here, event calling parse_function_create_sub_fd() returns Err,
         // in this case, exit with Err directly, but don't free `func_name`
         //
-        let mut fd1 = self.parse_function_create_sub_fd(
+        let mut fd1 = self.parse_sub_function(
             func_type,
             func_kind,
             func_name,
@@ -682,7 +668,7 @@ impl JSParseState {
             function_line_num,
             is_expr,
         )?;
-
+        debug_assert_eq!(fd1.parent, fd0 as *mut JSFunctionDef);
         debug_assert_eq!(self.cur_func, fd0 as *mut JSFunctionDef);
 
         macro_rules! fail {
@@ -697,11 +683,11 @@ impl JSParseState {
         necessary for arrow functions with an expression body. */
         reparse_ident_token(self);
 
-        // generate opcodes on cur_func (the parent fd)
+        // generate opcodes for cur_func
         {
-            let func_name = (*fd1).func_name;
+            let func_name = fd1.func_name;
 
-            /* the real object will be set at the end of the compilation */
+            // the real object will be set at the end of the compilation
             let idx = cpool_add(self, JSValue::NULL);
             fd1.parent_cpool_idx = idx;
 
@@ -716,6 +702,7 @@ impl JSParseState {
                     and adds the scope information */
                     emit_op(self, OpCode::FCLOSURE);
                     emit_u32(self, idx as _);
+
                     if func_name == JS_ATOM_NULL {
                         emit_op(self, OpCode::SET_NAME);
                         emit_u32(self, JS_ATOM_NULL.0);
@@ -724,6 +711,7 @@ impl JSParseState {
             } else if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
                 emit_op(self, OpCode::FCLOSURE);
                 emit_u32(self, idx as _);
+
                 if create_func_var {
                     if (*self.cur_func).is_global_var {
                         /* the global variable must be defined at the start of the
@@ -821,9 +809,7 @@ impl JSParseState {
             }
         }
 
-        // attach to parent `fd0`
-        fd1.set_parent(fd0);
-
+        // handle out ownership of fd1
         let fd_ptr = Box::into_raw(fd1);
         if !pfd.is_null() {
             *pfd = fd_ptr;
@@ -831,732 +817,6 @@ impl JSParseState {
 
         Ok(())
     }
-
-    // /// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
-    // /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
-    // pub(super) unsafe fn parse_function_decl2(
-    //     &mut self,
-    //     func_type: JSParseFunctionEnum,
-    //     mut func_kind: JSFunctionKindEnum,
-    //     mut func_name: JSAtom,
-    //     ptr: *const u8,
-    //     function_line_num: u32,
-    //     export_flag: JSParseExportEnum,
-    //     pfd: *mut *mut JSFunctionDef,
-    // ) -> Result<(), i32> {
-    //     let ctx = self.ctx.as_mut().unwrap();
-
-    //     // current function def
-    //     let fd0 = self.cur_func.as_mut().unwrap();
-
-    //     let mut lexical_func_idx: i32 = -1;
-    //     let mut create_func_var = false;
-
-    //     let is_expr = !matches!(
-    //         func_type,
-    //         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
-    //     );
-
-    //     if matches!(
-    //         func_type,
-    //         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
-    //             | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
-    //             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-    //     ) {
-    //         if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-    //             && token_is_pseudo_keyword(self, JS_ATOM_async)
-    //             && peek_token(self, true) != b'\n' as i32
-    //         {
-    //             self.next_token()?;
-    //             func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
-    //         }
-
-    //         self.next_token()?;
-
-    //         if self.token.val == b'*' as i32 {
-    //             self.next_token()?;
-    //             func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(
-    //                 func_kind as u8 | JSFunctionKindEnum::JS_FUNC_GENERATOR as u8,
-    //             )
-    //         }
-
-    //         if self.token.val == TOK_IDENT {
-    //             if self.token.u.ident.is_reserved
-    //                 || (self.token.u.ident.atom == JS_ATOM_yield
-    //                     && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-    //                     && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-    //                 || (self.token.u.ident.atom == JS_ATOM_await
-    //                     && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-    //                         && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8) != 0)
-    //                         || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
-    //             {
-    //                 js_parse_error_reserved_identifier(self);
-    //                 return Err(-1);
-    //             }
-    //         }
-
-    //         if self.token.val == TOK_IDENT
-    //             || (((self.token.val == TOK_YIELD && fd0.js_mode & JS_MODE_STRICT as u8 == 0)
-    //                 || (self.token.val == TOK_AWAIT && !self.is_module))
-    //                 && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
-    //         {
-    //             func_name = JS_DupAtom(ctx, self.token.u.ident.atom);
-    //             if self.next_token().is_err() {
-    //                 JS_FreeAtom(ctx, func_name);
-    //                 return Err(-1);
-    //             }
-    //         } else {
-    //             if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-    //                 && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
-    //             {
-    //                 js_parse_error(self, c"function name expected");
-    //                 return Err(-1);
-    //             }
-    //         }
-    //     } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_ARROW {
-    //         func_name = JS_DupAtom(ctx, func_name);
-    //     }
-
-    //     if fd0.is_eval
-    //         && fd0.eval_type == JS_EVAL_TYPE_MODULE as i32
-    //         && matches!(
-    //             func_type,
-    //             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
-    //         )
-    //     {
-    //         if let Some(v) = fd0.find_global_var(func_name) {
-    //             if v.scope_level == fd0.scope_level {
-    //                 js_parse_error(
-    //                     self,
-    //                     c"invalid redefinition of global identifier in module code",
-    //                 );
-    //                 JS_FreeAtom(ctx, func_name);
-    //                 return Err(-1);
-    //             }
-    //         }
-    //     }
-
-    //     if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-    //         let func_idx = (*fd0).find_var(func_name).unwrap_or(-1);
-    //         if fd0.js_mode & JS_MODE_STRICT as u8 == 0
-    //             && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-    //             && find_lexical_decl(ctx, fd0, func_name, fd0.scope_first, false) < 0
-    //             && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
-    //             && !(func_name == JS_ATOM_arguments && fd0.has_arguments_binding)
-    //         {
-    //             create_func_var = true;
-    //         }
-
-    //         /* Create the lexical name here so that the function closure contains it */
-    //         if fd0.is_eval
-    //             && matches!(
-    //                 fd0.eval_type as u32,
-    //                 JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE
-    //             )
-    //             && fd0.scope_level == fd0.body_scope
-    //         {
-    //             /* avoid creating a lexical variable in the global scope. XXX: check annex B */
-    //             if let Some(hf) = fd0.find_global_var(func_name) {
-    //                 /* XXX: should check scope chain */
-    //                 if (*hf).scope_level == fd0.scope_level {
-    //                     js_parse_error(self, c"invalid redefinition of global identifier");
-    //                     JS_FreeAtom(ctx, func_name);
-    //                     return Err(-1);
-    //                 }
-    //             }
-    //         } else {
-    //             /* Always create a lexical name, fail if at the same scope as existing name */
-    //             /* Lexical variable will be initialized upon entering scope */
-    //             lexical_func_idx = define_var(
-    //                 self,
-    //                 fd0,
-    //                 func_name,
-    //                 if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
-    //                     JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
-    //                 } else {
-    //                     JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
-    //                 },
-    //             );
-    //             if lexical_func_idx < 0 {
-    //                 JS_FreeAtom(ctx, func_name);
-    //                 return Err(-1);
-    //             }
-    //         }
-    //     }
-
-    //     // create child function def
-    //     let fd1 = if let Ok(mut f) = JSFunctionDef::new(
-    //         ctx,
-    //         fd0,
-    //         false,
-    //         is_expr,
-    //         self.filename.as_ptr().cast(),
-    //         function_line_num,
-    //     ) {
-    //         f.func_name = func_name;
-
-    //         f.has_prototype = matches!(
-    //             func_type,
-    //             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-    //         ) && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL;
-
-    //         f.has_home_object = matches!(
-    //             func_type,
-    //             JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
-    //         );
-
-    //         f.has_arguments_binding = !matches!(
-    //             func_type,
-    //             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-    //                 | JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
-    //         );
-
-    //         f.has_this_binding = f.has_arguments_binding;
-
-    //         f.is_derived_class_constructor =
-    //             func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
-
-    //         match func_type {
-    //             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {
-    //                 f.new_target_allowed = (*f.parent).new_target_allowed;
-    //                 f.super_call_allowed = (*f.parent).super_call_allowed;
-    //                 f.super_allowed = (*f.parent).super_allowed;
-    //                 f.arguments_allowed = (*f.parent).arguments_allowed;
-    //             }
-    //             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT => {
-    //                 f.new_target_allowed = true; // although new.target === undefined
-    //                 f.super_call_allowed = false;
-    //                 f.super_allowed = true;
-    //                 f.arguments_allowed = false;
-    //             }
-    //             _ => {
-    //                 f.new_target_allowed = true;
-    //                 f.super_call_allowed = f.is_derived_class_constructor;
-    //                 f.super_allowed = f.has_home_object;
-    //                 f.arguments_allowed = true;
-    //             }
-    //         }
-
-    //         /* fd->in_function_body == FALSE prevents yield/await during the parsing
-    //         of the arguments in generator/async functions. They are parsed as
-    //         regular identifiers for other function kinds. */
-    //         f.func_kind = func_kind;
-    //         f.func_type = func_type;
-
-    //         f.has_simple_parameter_list = true;
-    //         f.has_parameter_expressions = false;
-
-    //         Box::into_raw(f)
-    //     } else {
-    //         JS_FreeAtom(ctx, func_name);
-    //         return Err(-1);
-    //     };
-
-    //     self.cur_func = fd1;
-    //     if !pfd.is_null() {
-    //         *pfd = fd1;
-    //     }
-
-    //     macro_rules! fail {
-    //         () => {
-    //             self.cur_func = (*fd1).parent;
-
-    //             // drop new created fd
-    //             js_free_function_def(ctx, fd1);
-    //             drop(Box::from_raw(fd1));
-
-    //             if !pfd.is_null() {
-    //                 *pfd = std::ptr::null_mut();
-    //             }
-
-    //             return Err(-1);
-    //         };
-    //     }
-
-    //     if matches!(
-    //         func_type,
-    //         JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
-    //             | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
-    //     ) {
-    //         /* error if not invoked as a constructor */
-    //         emit_op(self, OpCode::CHECK_CTOR);
-    //     }
-
-    //     if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR {
-    //         emit_class_field_init(self);
-    //     }
-
-    //     /* parse arguments */
-    //     let mut has_opt_arg = false;
-
-    //     if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
-    //         if self.token.u.ident.is_reserved {
-    //             js_parse_error_reserved_identifier(self);
-    //             fail!();
-    //         }
-
-    //         let name = self.token.u.ident.atom;
-    //         (*fd1).add_arg(ctx, name)?;
-    //         (*fd1).defined_arg_count = 1;
-    //     } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-    //         if self.token.val == '(' as i32 {
-    //             let mut skip_bits: i32 = 0;
-    //             /* if there is an '=' inside the parameter list, we
-    //             consider there is a parameter expression inside */
-    //             js_parse_skip_parens_token(self, &mut skip_bits, false);
-    //             if skip_bits & SKIP_HAS_ASSIGNMENT != 0 {
-    //                 (*fd1).has_parameter_expressions = true;
-    //             }
-    //             self.next_token()?;
-    //         } else {
-    //             self.parse_expect(CHAR_BRACKET_L)?;
-    //         }
-
-    //         if (*fd1).has_parameter_expressions {
-    //             (*fd1).scope_level = -1; // force no parent scope
-    //             self.push_scope()?;
-    //         }
-
-    //         while self.token.val != ')' as i32 {
-    //             let rest = if self.token.val == TOK_ELLIPSIS {
-    //                 (*fd1).has_simple_parameter_list = false;
-    //                 self.next_token()?;
-    //                 true
-    //             } else {
-    //                 false
-    //             };
-
-    //             if matches!(self.token.val as u8, b'[' | b'{') {
-    //                 (*fd1).has_simple_parameter_list = false;
-    //                 if rest {
-    //                     emit_op(self, OpCode::REST);
-    //                     emit_u16(self, (*fd1).arg_count as _);
-    //                 } else {
-    //                     /* unnamed arg for destructuring */
-    //                     let idx = (*fd1)
-    //                         .add_arg(ctx, JS_ATOM_NULL)
-    //                         .expect("TODO: handle add_arg() error")
-    //                         as i32;
-    //                     emit_op(self, OpCode::GET_ARG);
-    //                     emit_u16(self, idx as _);
-    //                 }
-
-    //                 let has_initializer = js_parse_destructuring_element(
-    //                     self,
-    //                     if (*fd1).has_parameter_expressions {
-    //                         TOK_LET
-    //                     } else {
-    //                         TOK_VAR
-    //                     },
-    //                     true,
-    //                     true,
-    //                     -1,
-    //                     true,
-    //                 );
-    //                 if has_initializer < 0 {
-    //                     return Err(-1);
-    //                 }
-    //                 if has_initializer != 0 {
-    //                     has_opt_arg = true;
-    //                 }
-    //                 if has_opt_arg == false {
-    //                     (*fd1).defined_arg_count += 1;
-    //                 }
-    //             } else if self.token.val == TOK_IDENT {
-    //                 if self.token.u.ident.is_reserved {
-    //                     js_parse_error_reserved_identifier(self);
-    //                     return Err(-1);
-    //                 }
-
-    //                 let name = self.token.u.ident.atom;
-    //                 if name == JS_ATOM_yield
-    //                     && (*fd1).func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
-    //                 {
-    //                     js_parse_error_reserved_identifier(self);
-    //                     fail!();
-    //                 }
-    //                 if (*fd1).has_parameter_expressions {
-    //                     if define_var(self, fd1, name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
-    //                         fail!();
-    //                     }
-    //                 }
-
-    //                 /* XXX: could avoid allocating an argument if rest is true */
-    //                 let idx = if let Ok(id) = (*fd1).add_arg(ctx, name) {
-    //                     id as i32
-    //                 } else {
-    //                     fail!();
-    //                 };
-
-    //                 if self.next_token().is_err() {
-    //                     fail!();
-    //                 }
-
-    //                 if rest {
-    //                     emit_op(self, OpCode::REST);
-    //                     emit_u16(self, idx as _);
-    //                     if (*fd1).has_parameter_expressions {
-    //                         emit_op(self, OpCode::DUP);
-    //                         emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //                         emit_atom(self, name);
-    //                         emit_u16(self, (*fd1).scope_level as _);
-    //                     }
-    //                     emit_op(self, OpCode::PUT_ARG);
-    //                     emit_u16(self, idx as _);
-    //                     (*fd1).has_simple_parameter_list = false;
-    //                     has_opt_arg = true;
-    //                 } else if self.token.val == CHAR_EQUAL {
-    //                     (*fd1).has_simple_parameter_list = false;
-    //                     has_opt_arg = true;
-
-    //                     if self.next_token().is_err() {
-    //                         fail!();
-    //                     }
-
-    //                     let label = if let Ok(l) = (*self.cur_func).add_label() {
-    //                         l as i32
-    //                     } else {
-    //                         fail!();
-    //                     };
-
-    //                     emit_op(self, OpCode::GET_ARG);
-    //                     emit_u16(self, idx as _);
-    //                     emit_op(self, OpCode::DUP);
-    //                     emit_op(self, OpCode::UNDEFINED);
-    //                     emit_op(self, OpCode::STRICT_EQ);
-    //                     emit_goto(self, OpCode::IF_FALSE, label);
-    //                     emit_op(self, OpCode::DROP);
-
-    //                     if self.parse_assign_expr().is_err() {
-    //                         fail!();
-    //                     }
-
-    //                     set_object_name(self, name);
-    //                     emit_op(self, OpCode::DUP);
-    //                     emit_op(self, OpCode::PUT_ARG);
-    //                     emit_u16(self, idx as _);
-    //                     emit_label(self, label);
-    //                     emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //                     emit_atom(self, name);
-    //                     emit_u16(self, (*fd1).scope_level as _);
-    //                 } else {
-    //                     if !has_opt_arg {
-    //                         (*fd1).defined_arg_count += 1;
-    //                     }
-    //                     if (*fd1).has_parameter_expressions {
-    //                         /* copy the argument to the argument scope */
-    //                         emit_op(self, OpCode::GET_ARG);
-    //                         emit_u16(self, idx as _);
-    //                         emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //                         emit_atom(self, name);
-    //                         emit_u16(self, (*fd1).scope_level as _);
-    //                     }
-    //                 }
-    //             } else {
-    //                 js_parse_error(self, c"missing formal parameter");
-    //                 fail!();
-    //             }
-
-    //             if rest && self.token.val != CHAR_BRACKET_R {
-    //                 let _ = self.parse_expect(CHAR_BRACKET_R);
-    //                 fail!();
-    //             }
-
-    //             if self.token.val == CHAR_BRACKET_R {
-    //                 break;
-    //             }
-    //             if self.parse_expect(CHAR_COMMA).is_err() {
-    //                 fail!();
-    //             }
-    //         }
-
-    //         if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && (*fd1).arg_count != 0)
-    //             || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && (*fd1).arg_count != 1)
-    //         {
-    //             js_parse_error(self, c"invalid number of arguments for getter or setter");
-    //             fail!();
-    //         }
-    //     }
-
-    //     if (*fd1).has_parameter_expressions {
-    //         /* Copy the variables in the argument scope to the variable
-    //         scope (see FunctionDeclarationInstantiation() in spec). The
-    //         normal arguments are already present, so no need to copy
-    //         them. */
-    //         let mut idx = (*fd1).scopes[(*fd1).scope_level as usize].first;
-    //         while idx >= 0 {
-    //             let vd = (*fd1).vars.offset(idx as isize).as_mut().unwrap();
-    //             if vd.scope_level != (*fd1).scope_level {
-    //                 break;
-    //             }
-    //             if (*fd1).find_var(vd.var_name).is_none() {
-    //                 if (*fd1).add_var(ctx, vd.var_name).is_err() {
-    //                     fail!();
-    //                 }
-
-    //                 let vd = (*fd1).vars.offset(idx as isize).as_mut().unwrap(); /* fd->vars may have been reallocated */
-    //                 emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-    //                 emit_atom(self, vd.var_name);
-    //                 emit_u16(self, (*fd1).scope_level as _);
-    //                 emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
-    //                 emit_atom(self, vd.var_name);
-    //                 emit_u16(self, 0);
-    //             }
-
-    //             idx = vd.scope_next;
-    //         }
-
-    //         /* the argument scope has no parent, hence we don't use pop_scope(s) */
-    //         emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
-    //         emit_u16(self, (*fd1).scope_level as _);
-
-    //         /* set the variable scope as the current scope */
-    //         (*fd1).scope_level = 0;
-    //         (*fd1).scope_first = (*fd1).scopes[(*fd1).scope_level as usize].first;
-    //     }
-
-    //     if self.next_token().is_err() {
-    //         fail!();
-    //     }
-
-    //     /* generator function: yield after the parameters are evaluated */
-    //     if matches!(
-    //         func_kind,
-    //         JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    //     ) {
-    //         emit_op(self, OpCode::INITIAL_YIELD);
-    //     }
-
-    //     /* in generators, yield expression is forbidden during the parsing
-    //     of the arguments */
-    //     (*fd1).in_function_body = true;
-
-    //     // enter body scope
-    //     (*fd1).body_scope = if let Ok(id) = self.push_scope() {
-    //         id
-    //     } else {
-    //         fail!();
-    //     };
-
-    //     if self.token.val == TOK_ARROW {
-    //         if self.next_token().is_err() {
-    //             fail!();
-    //         }
-
-    //         if self.token.val != CHAR_CURLY_L {
-    //             if js_parse_function_check_names(self, fd1, func_name) != 0 {
-    //                 fail!();
-    //             }
-    //             if self.parse_assign_expr().is_err() {
-    //                 fail!();
-    //             }
-
-    //             emit_op(
-    //                 self,
-    //                 if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
-    //                     OpCode::RETURN_ASYNC
-    //                 } else {
-    //                     OpCode::RETURN
-    //                 },
-    //             );
-
-    //             if (*fd1).js_mode & JS_MODE_STRIP as u8 == 0 {
-    //                 // save the function source code
-    //                 // the end of the function source code is after the last
-    //                 // token of the function source stored into s->last_ptr
-    //                 debug_assert!(self.last_ptr >= ptr);
-    //                 (*fd1).source_len = self.last_ptr.offset_from(ptr) as u32;
-    //                 (*fd1).source = js_strndup(ctx, ptr.cast(), (*fd1).source_len as _).cast();
-    //                 if (*fd1).source.is_null() {
-    //                     fail!();
-    //                 }
-    //             }
-
-    //             goto = Some(done);
-    //         }
-    //     }
-
-    //     if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-    //         if self.parse_expect(CHAR_CURLY_L).is_err() {
-    //             fail!();
-    //         }
-    //     }
-
-    //     if self.parse_directives().is_err() {
-    //         fail!();
-    //     }
-
-    //     /* in strict_mode, check function and argument names */
-    //     if js_parse_function_check_names(self, fd1, func_name) != 0 {
-    //         fail!();
-    //     }
-
-    //     while self.token.val != CHAR_CURLY_R {
-    //         if self.parse_source_element().is_err() {
-    //             fail!();
-    //         }
-    //     }
-
-    //     if (*fd1).js_mode & JS_MODE_STRIP as u8 == 0 {
-    //         // save the function source code
-    //         debug_assert!(self.buf_ptr >= ptr);
-    //         (*fd1).source_len = self.buf_ptr.offset_from(ptr) as u32;
-    //         (*fd1).source = js_strndup(ctx, ptr.cast(), (*fd1).source_len as _).cast();
-    //         if (*fd1).source.is_null() {
-    //             fail!();
-    //         }
-    //     }
-
-    //     // consume the '}'
-    //     if self.next_token().is_err() {
-    //         fail!();
-    //     }
-
-    //     /* in case there is no return, add one */
-    //     if js_is_live_code(self) {
-    //         emit_return(self, false);
-    //     }
-
-    //     // done:
-    //     self.cur_func = (*fd1).parent;
-
-    //     /* Reparse identifiers after the function is terminated so that
-    //     the token is parsed in the englobing function. It could be done
-    //     by just using next_token() here for normal functions, but it is
-    //     necessary for arrow functions with an expression body. */
-    //     reparse_ident_token(self);
-
-    //     /* create the function object */
-    //     {
-    //         let func_name = (*fd1).func_name;
-
-    //         /* the real object will be set at the end of the compilation */
-    //         let idx = cpool_add(self, JS_NULL);
-    //         (*fd1).parent_cpool_idx = idx;
-
-    //         if is_expr {
-    //             /* for constructors, no code needs to be generated here */
-    //             if !matches!(
-    //                 func_type,
-    //                 JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
-    //                     | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
-    //             ) {
-    //                 /* OP_fclosure creates the function object from the bytecode
-    //                 and adds the scope information */
-    //                 emit_op(self, OpCode::FCLOSURE);
-    //                 emit_u32(self, idx as _);
-    //                 if func_name == JS_ATOM_NULL {
-    //                     emit_op(self, OpCode::SET_NAME);
-    //                     emit_u32(self, JS_ATOM_NULL);
-    //                 }
-    //             }
-    //         } else if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-    //             emit_op(self, OpCode::FCLOSURE);
-    //             emit_u32(self, idx as _);
-    //             if create_func_var {
-    //                 if (*self.cur_func).is_global_var {
-    //                     /* the global variable must be defined at the start of the
-    //                     function */
-    //                     let hf = add_global_var(ctx, self.cur_func, func_name);
-    //                     if hf.is_null() {
-    //                         fail!();
-    //                     }
-    //                     /* it is considered as defined at the top level
-    //                     (needed for annex B.3.3.4 and B.3.3.5
-    //                     checks) */
-    //                     (*hf).scope_level = 0;
-    //                     (*hf).set_force_init((*self.cur_func).js_mode & JS_MODE_STRICT as u8 != 0);
-    //                     /* store directly into global var, bypass lexical scope */
-    //                     emit_op(self, OpCode::DUP);
-    //                     emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
-    //                     emit_atom(self, func_name);
-    //                     emit_u16(self, 0);
-    //                 } else {
-    //                     /* do not call define_var to bypass lexical scope check */
-    //                     if (*self.cur_func).find_var(func_name).is_none() {
-    //                         if (*self.cur_func).add_var(ctx, func_name).is_err() {
-    //                             fail!();
-    //                         }
-    //                     };
-
-    //                     /* store directly into local var, bypass lexical catch scope */
-    //                     emit_op(self, OpCode::DUP);
-    //                     emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
-    //                     emit_atom(self, func_name);
-    //                     emit_u16(self, 0);
-    //                 }
-    //             }
-    //             if lexical_func_idx >= 0 {
-    //                 /* lexical variable will be initialized upon entering scope */
-    //                 (*(*self.cur_func).vars.offset(lexical_func_idx as isize)).func_pool_idx = idx;
-    //                 emit_op(self, OpCode::DROP);
-    //             } else {
-    //                 /* store function object into its lexical name */
-    //                 /* XXX: could use OP_put_loc directly */
-    //                 emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //                 emit_atom(self, func_name);
-    //                 emit_u16(self, (*self.cur_func).scope_level as _);
-    //             }
-    //         } else {
-    //             if !(*self.cur_func).is_global_var {
-    //                 let var_idx =
-    //                     define_var(self, self.cur_func, func_name, JSVarDefEnum::JS_VAR_DEF_VAR);
-    //                 if var_idx < 0 {
-    //                     fail!();
-    //                 }
-
-    //                 /* the variable will be assigned at the top of the function */
-    //                 if var_idx & ARGUMENT_VAR_OFFSET != 0 {
-    //                     (*(*self.cur_func)
-    //                         .args
-    //                         .offset((var_idx - ARGUMENT_VAR_OFFSET) as isize))
-    //                     .func_pool_idx = idx;
-    //                 } else {
-    //                     (*(*self.cur_func).vars.offset(var_idx as isize)).func_pool_idx = idx;
-    //                 }
-    //             } else {
-    //                 let func_var_name = if func_name == JS_ATOM_NULL {
-    //                     JS_ATOM__default_ /* export default */
-    //                 } else {
-    //                     func_name
-    //                 };
-
-    //                 /* the variable will be assigned at the top of the function */
-    //                 let hf = add_global_var(ctx, self.cur_func, func_var_name);
-    //                 if hf.is_null() {
-    //                     fail!();
-    //                 }
-    //                 (*hf).cpool_idx = idx;
-    //                 if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
-    //                     if add_export_entry(
-    //                         self,
-    //                         (*self.cur_func).module,
-    //                         func_var_name,
-    //                         if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
-    //                             func_var_name
-    //                         } else {
-    //                             JS_ATOM_default
-    //                         },
-    //                         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
-    //                     )
-    //                     .is_null()
-    //                     {
-    //                         return Err(-1);
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
 
     pub(super) unsafe fn parse_function_decl(
         &mut self,

@@ -255,37 +255,53 @@ pub unsafe fn resolve_scope_var(
                     op as u8,
                     opcodes::op_scope_put_var | opcodes::op_scope_put_var_init
                 );
+
                 if var_idx & ARGUMENT_VAR_OFFSET != 0 {
-                    push_vec_u8(bc, opcodes::OP_get_arg + is_put as u8);
+                    push_vec_u8(
+                        bc,
+                        if is_put {
+                            OpCode::PUT_ARG
+                        } else {
+                            OpCode::GET_ARG
+                        } as u8,
+                    );
                     push_vec_u16(bc, (var_idx - ARGUMENT_VAR_OFFSET) as u16);
                 } else {
                     let vd = (*s).vars.offset(var_idx as isize).as_ref().unwrap();
                     let is_lexical = vd.is_lexical();
                     if is_put {
+                        // scope_put_XXX
                         if is_lexical {
                             if op == opcodes::op_scope_put_var_init {
-                                // 'this' can only be initialized once
-                                if var_name == JS_ATOM_this {
-                                    push_vec_u8(bc, opcodes::OP_put_loc_check_init);
-                                } else {
-                                    push_vec_u8(bc, opcodes::OP_put_loc);
-                                }
+                                push_vec_u8(
+                                    bc,
+                                    if var_name == JS_ATOM_this {
+                                        // 'this' can only be initialized once
+                                        OpCode::PUT_LOC_CHECK_INIT
+                                    } else {
+                                        OpCode::PUT_LOC
+                                    } as u8,
+                                );
                             } else {
-                                push_vec_u8(bc, opcodes::OP_put_loc_check);
+                                push_vec_u8(bc, OpCode::PUT_LOC_CHECK as u8);
                             }
                         } else {
-                            push_vec_u8(bc, opcodes::OP_put_loc);
+                            push_vec_u8(bc, OpCode::PUT_LOC as u8);
                         }
                     } else {
+                        // scope_get_XXX
                         if is_lexical {
-                            if op == opcodes::op_scope_get_var_checkthis {
-                                // only used for 'this' return in derived class constructors
-                                push_vec_u8(bc, opcodes::OP_get_loc_checkthis);
-                            } else {
-                                push_vec_u8(bc, opcodes::OP_get_loc_check);
-                            }
+                            push_vec_u8(
+                                bc,
+                                if op == opcodes::op_scope_get_var_checkthis {
+                                    // only used for 'this' return in derived class constructors
+                                    OpCode::GET_LOC_CHECKTHIS
+                                } else {
+                                    OpCode::GET_LOC_CHECK
+                                } as u8,
+                            );
                         } else {
-                            push_vec_u8(bc, opcodes::OP_get_loc);
+                            push_vec_u8(bc, OpCode::GET_LOC as u8);
                         }
                     }
                     push_vec_u16(bc, var_idx as _);
