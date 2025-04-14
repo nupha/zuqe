@@ -325,7 +325,6 @@ impl JSFunctionDef {
 
         self.parent = parent;
         self.js_mode = (*parent).js_mode;
-        debug_assert_eq!((*parent).js_mode, 1, "[O.o]");
         self.parent_scope_level = (*parent).scope_level as i32;
         list_add_tail(&mut self.link, &mut (*parent).child_list);
     }

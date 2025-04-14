@@ -454,8 +454,6 @@ pub fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcodes: bool
 // definition is freed. All the child functions are also created. It
 // must be done this way to resolve all the variables.
 pub unsafe fn js_create_function(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> JSValue {
-    debug_assert_eq!((*fd).js_mode, 1, "[O.o]");
-
     macro_rules! fail {
         () => {
             js_free_function_def(ctx, fd);
