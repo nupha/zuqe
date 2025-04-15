@@ -10,11 +10,10 @@ use crate::{
     mem::js_free_rt,
     proxy::JSProxyData,
     runtime::JSRuntime,
-    types::likely,
     value::{
         object::{
-            JSObject, JS_IsFunction, JS_NewObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_NORMAL, JS_PROP_TMASK,
+            JSObject, JS_NewObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_NORMAL,
+            JS_PROP_TMASK,
         },
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_NewBool,
         JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,

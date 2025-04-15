@@ -8,14 +8,13 @@ use crate::{
     context::{JSContext, JS_DupContext},
     error::JSResult,
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::{js_free_rt, js_malloc_typed},
     runtime::JSRuntime,
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
             JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_SetOpaque, JS_PROP_CONFIGURABLE,
         },
-        JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_DEF_ALIAS, JS_DEF_CFUNC,
+        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_DEF_ALIAS, JS_DEF_CFUNC,
         JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
         JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED,
     },
