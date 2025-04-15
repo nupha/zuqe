@@ -15,7 +15,9 @@ use crate::{
         JS_InstantiateFunctionListItem2,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
-    generator::{js_async_generator_function_call, js_generator_function_call, AsyncGenerator},
+    generator::{
+        js_async_generator_function_call, js_generator_function_call, AsyncGeneratorValue,
+    },
     list_entry,
     mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{
@@ -238,7 +240,7 @@ impl JSRuntime {
                 rt.class_array[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
                     Some(js_async_function_resolve_call);
                 rt.class_array[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
-                    Some(AsyncGenerator::function_call);
+                    Some(AsyncGeneratorValue::call);
             }
 
             if init_shape_hash(&mut rt) == -1 {

@@ -321,10 +321,10 @@ pub fn gen_std_class_defs(outfile: &Path) {
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
-            "AsyncGenerator",
+            "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
-            Some("crate::generator::AsyncGenerator::finalizer"),
-            Some("crate::generator::AsyncGenerator::mark")
+            Some("crate::generator::AsyncGeneratorValue::finalizer"),
+            Some("crate::generator::AsyncGeneratorValue::mark")
         ),
     ];
 

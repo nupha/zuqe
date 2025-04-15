@@ -32,11 +32,8 @@ pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
 
 pub type JSClassID = u32;
 
-pub type JSClassFinalizer = ::core::option::Option<unsafe fn(rt: *mut JSRuntime, val: JSValue)>;
-
-pub type JSClassGCMark =
-    ::core::option::Option<unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: JS_MarkFunc)>;
-
+pub type JSClassFinalizer = unsafe fn(rt: *mut JSRuntime, val: JSValue);
+pub type JSClassGCMark = unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: JS_MarkFunc);
 pub type JSClassCall = unsafe fn(
     ctx: &mut JSContext,
     func_obj: JSValue,
@@ -84,8 +81,8 @@ pub struct JSClassExoticMethods {
 #[repr(C)]
 pub struct JSClassDef {
     pub class_name: *const i8,
-    pub finalizer: JSClassFinalizer,
-    pub gc_mark: JSClassGCMark,
+    pub finalizer: Option<JSClassFinalizer>,
+    pub gc_mark: Option<JSClassGCMark>,
     pub call: Option<JSClassCall>,
     pub exotic: *const JSClassExoticMethods,
 }
@@ -104,9 +101,10 @@ impl Default for JSClassDef {
 pub struct JSClass {
     /// 0 means free entry
     pub class_id: JSClassID,
+
     pub class_name: JSAtom,
-    pub finalizer: JSClassFinalizer,
-    pub gc_mark: JSClassGCMark,
+    pub finalizer: Option<JSClassFinalizer>,
+    pub gc_mark: Option<JSClassGCMark>,
     pub call: Option<JSClassCall>,
 
     /// pointers for exotic behavior, can be NULL if none are present
@@ -116,8 +114,8 @@ pub struct JSClass {
 #[repr(C)]
 pub struct JSClassShortDef {
     pub class_name: JSAtom,
-    pub finalizer: JSClassFinalizer,
-    pub gc_mark: JSClassGCMark,
+    pub finalizer: Option<JSClassFinalizer>,
+    pub gc_mark: Option<JSClassGCMark>,
 }
 
 #[deprecated(note = "use JSRuntime::add_classes() instead")]

@@ -86,22 +86,22 @@ impl JSAsyncGeneratorData {
     }
 }
 
-/// An AsyncGenerator value
+/// An AsyncGeneratorValue value
 #[derive(Debug, Copy, Clone)]
-pub struct AsyncGenerator(JSValue);
+pub struct AsyncGeneratorValue(JSValue);
 
 impl JSValue {
-    /// convert value to AsyncGenerator value.
-    /// you must ensure that `value` is an AsyncGenerator object.
-    pub unsafe fn to_async_generator_unchecked(self) -> AsyncGenerator {
+    /// convert value to AsyncGeneratorValue value.
+    /// you must ensure that `value` is an AsyncGeneratorValue object.
+    pub unsafe fn to_async_generator_unchecked(self) -> AsyncGeneratorValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
         debug_assert_eq!(self.object().class_id(), JS_CLASS_ASYNC_GENERATOR);
-        AsyncGenerator(self)
+        AsyncGeneratorValue(self)
     }
 }
 
-impl AsyncGenerator {
-    pub unsafe fn function_call(
+impl AsyncGeneratorValue {
+    pub unsafe fn call(
         ctx: &mut JSContext,
         func_obj: JSValue,
         this_obj: JSValue,
@@ -174,7 +174,7 @@ pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut JSAsyncGenerat
     unreachable!("use JSAsyncGeneratorData::free() instead");
 }
 
-#[deprecated(note = "use AsyncGenerator::function_call() instead")]
+#[deprecated(note = "use AsyncGeneratorValue::function_call() instead")]
 pub unsafe fn js_async_generator_function_call(
     ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -183,7 +183,7 @@ pub unsafe fn js_async_generator_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    unreachable!("use AsyncGenerator::function_call() instead");
+    unreachable!("use AsyncGeneratorValue::function_call() instead");
 }
 
 pub unsafe fn js_async_generator_resume_next(ctx: *mut JSContext, s: *mut JSAsyncGeneratorData) {
@@ -553,7 +553,7 @@ pub unsafe fn js_async_generator_next(
     };
 
     if s.is_null() {
-        (*ctx).JS_ThrowTypeError(c"not an AsyncGenerator object");
+        (*ctx).JS_ThrowTypeError(c"not an AsyncGeneratorValue object");
         let mut err = (*ctx).get_exception();
         let res2 = JS_Call(
             ctx.as_mut().unwrap(),
@@ -615,7 +615,7 @@ pub const js_async_generator_proto_funcs: [JSCFunctionListEntry; 4] = [
     JS_CFUNC_MAGIC_DEF!(c"throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
     JS_PROP_STRING_DEF!(
         c"[Symbol.toStringTag]",
-        c"AsyncGenerator",
+        c"AsyncGeneratorValue",
         JS_PROP_CONFIGURABLE
     ),
 ];
