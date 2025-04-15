@@ -23,7 +23,8 @@ use crate::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT, JS_TAG_OBJECT,
         JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_GENERATOR, JS_MKPTR, JS_PROP_STRING_DEF,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::{FUNC_RET_AWAIT, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR};
@@ -93,9 +94,14 @@ pub struct AsyncGeneratorValue(JSValue);
 impl JSValue {
     /// convert value to AsyncGeneratorValue value.
     /// you must ensure that `value` is an AsyncGeneratorValue object.
+    #[inline(always)]
     pub unsafe fn to_async_generator_unchecked(self) -> AsyncGeneratorValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
-        debug_assert_eq!(self.object().class_id(), JS_CLASS_ASYNC_GENERATOR);
+        debug_assert!(matches!(
+            self.object().class_id(),
+            JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+        ));
+
         AsyncGeneratorValue(self)
     }
 }
