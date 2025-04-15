@@ -323,8 +323,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "AsyncGenerator",
             "ASYNC_GENERATOR",
-            Some("crate::generator::js_async_generator_finalizer"),
-            Some("crate::generator::js_async_generator_mark")
+            Some("crate::generator::AsyncGenerator::finalizer"),
+            Some("crate::generator::AsyncGenerator::mark")
         ),
     ];
 

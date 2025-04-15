@@ -20,8 +20,8 @@ use crate::{
     },
     value::{
         object::{JSObject, JS_GetOpaque, JS_SetOpaque, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT, JS_VALUE_GET_INT,
-        JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT, JS_TAG_OBJECT,
+        JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_GENERATOR, JS_MKPTR, JS_PROP_STRING_DEF,
 };
@@ -86,11 +86,95 @@ impl JSAsyncGeneratorData {
     }
 }
 
+/// An AsyncGenerator value
+#[derive(Debug, Copy, Clone)]
+pub struct AsyncGenerator(JSValue);
+
+impl JSValue {
+    /// convert value to AsyncGenerator value.
+    /// you must ensure that `value` is an AsyncGenerator object.
+    pub unsafe fn to_async_generator_unchecked(self) -> AsyncGenerator {
+        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert_eq!(self.object().class_id(), JS_CLASS_ASYNC_GENERATOR);
+        AsyncGenerator(self)
+    }
+}
+
+impl AsyncGenerator {
+    pub unsafe fn function_call(
+        ctx: &mut JSContext,
+        func_obj: JSValue,
+        this_obj: JSValue,
+        argc: i32,
+        argv: *const JSValue,
+        flags: i32,
+    ) -> JSValue {
+        let mut s = if let Some(p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
+            Box::from_raw(p.as_ptr())
+        } else {
+            return JSValue::EXCEPTION;
+        };
+
+        s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START;
+        init_list_head(&mut s.queue);
+        s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
+        if s.func_state.is_null() {
+            s.free(ctx.rt_mut());
+            return JSValue::EXCEPTION;
+        }
+
+        // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
+        let func_ret = async_func_resume(ctx, s.func_state);
+        if func_ret.is_exception() {
+            s.free(ctx.rt_mut());
+            return JSValue::EXCEPTION;
+        }
+        JS_FreeValue(ctx, func_ret);
+
+        let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
+        if obj.is_exception() {
+            s.free(ctx.rt_mut());
+            return JSValue::EXCEPTION;
+        }
+
+        s.generator = obj.object();
+        JS_SetOpaque(obj, Box::into_raw(s).cast());
+
+        obj
+    }
+
+    pub unsafe fn finalizer(rt: *mut JSRuntime, val: JSValue) {
+        let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
+        if !s.is_null() {
+            Box::from_raw(s).free(rt.as_mut().unwrap());
+        }
+    }
+
+    pub unsafe fn mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+        let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
+
+        if !s.is_null() {
+            list_foreach(&mut (*s).queue, |el| {
+                let req = list_entry!(el, JSAsyncGeneratorRequest, link);
+                JS_MarkValue(rt, (*req).result, mark_func);
+                JS_MarkValue(rt, (*req).promise, mark_func);
+                JS_MarkValue(rt, (*req).resolving_funcs[0], mark_func);
+                JS_MarkValue(rt, (*req).resolving_funcs[1], mark_func);
+            });
+
+            if !(*s).func_state.is_null() {
+                mark_func(rt, &mut (*(*s).func_state).header);
+            }
+        }
+    }
+}
+
 #[deprecated(note = "use JSAsyncGeneratorData::free() instead")]
 pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut JSAsyncGeneratorData) {
     unreachable!("use JSAsyncGeneratorData::free() instead");
 }
 
+#[deprecated(note = "use AsyncGenerator::function_call() instead")]
 pub unsafe fn js_async_generator_function_call(
     ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -99,38 +183,7 @@ pub unsafe fn js_async_generator_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    let mut s = if let Some(p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
-        Box::from_raw(p.as_ptr())
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START;
-    init_list_head(&mut s.queue);
-    s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
-    if s.func_state.is_null() {
-        s.free(ctx.rt_mut());
-        return JSValue::EXCEPTION;
-    }
-
-    // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
-    let func_ret = async_func_resume(ctx, s.func_state);
-    if func_ret.is_exception() {
-        s.free(ctx.rt_mut());
-        return JSValue::EXCEPTION;
-    }
-    JS_FreeValue(ctx, func_ret);
-
-    let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
-    if obj.is_exception() {
-        s.free(ctx.rt_mut());
-        return JSValue::EXCEPTION;
-    }
-
-    s.generator = obj.object();
-    JS_SetOpaque(obj, Box::into_raw(s).cast());
-
-    obj
+    unreachable!("use AsyncGenerator::function_call() instead");
 }
 
 pub unsafe fn js_async_generator_resume_next(ctx: *mut JSContext, s: *mut JSAsyncGeneratorData) {
@@ -539,35 +592,6 @@ pub unsafe fn js_async_generator_next(
     }
 
     promise
-}
-
-pub unsafe fn js_async_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
-    if !s.is_null() {
-        Box::from_raw(s).free(rt.as_mut().unwrap());
-    }
-}
-
-pub unsafe fn js_async_generator_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
-    let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
-
-    if !s.is_null() {
-        list_foreach(&mut (*s).queue, |el| {
-            let req = list_entry!(el, JSAsyncGeneratorRequest, link);
-            JS_MarkValue(rt, (*req).result, mark_func);
-            JS_MarkValue(rt, (*req).promise, mark_func);
-            JS_MarkValue(rt, (*req).resolving_funcs[0], mark_func);
-            JS_MarkValue(rt, (*req).resolving_funcs[1], mark_func);
-        });
-
-        if !(*s).func_state.is_null() {
-            mark_func(rt, &mut (*(*s).func_state).header);
-        }
-    }
 }
 
 pub unsafe fn js_iterator_proto_iterator(
