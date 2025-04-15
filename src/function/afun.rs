@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use fallible_collections::FallibleVec;
 
 use crate::{
+    class::JSClassID,
     context::{JSContext, JS_MODE_ASYNC},
     error::JS_ThrowStackOverflow,
     gc::{
@@ -14,10 +15,10 @@ use crate::{
     stack_frame::JSStackFrame,
     types::{init_list_head, list_add, list_add_tail, list_del},
     value::{
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValueRT, JS_IsException, JS_IsUndefined,
-        JS_UNDEFINED, JS_VALUE_GET_OBJ,
+        object::JS_NewObjectProtoClass, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue,
+        JS_FreeValueRT, JS_IsException, JS_IsUndefined, JS_UNDEFINED, JS_VALUE_GET_OBJ,
     },
-    JS_MKPTR,
+    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR,
 };
 
 use super::call::{JS_CallInternal, JS_CALL_FLAG_GENERATOR};
@@ -179,6 +180,35 @@ pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionStat
     }
 
     ret
+}
+
+pub unsafe fn js_async_function_resolve_create(
+    ctx: &mut JSContext,
+    s: *mut JSAsyncFunctionState,
+) -> Result<[JSValue; 2], i32> {
+    let mut resolving_funcs = [JSValue::UNDEFINED; 2];
+
+    for i in 0..2 {
+        let f = JS_NewObjectProtoClass(
+            ctx,
+            ctx.function_proto,
+            JS_CLASS_ASYNC_FUNCTION_RESOLVE + i as JSClassID,
+        );
+
+        if f.is_exception() {
+            JS_FreeValue(ctx, resolving_funcs[0]);
+            JS_FreeValue(ctx, resolving_funcs[1]);
+            return Err(-1);
+        }
+
+        let p = f.object();
+        (*s).header.ref_count += 1;
+        p.u.async_function_data = s;
+
+        resolving_funcs[i] = f;
+    }
+
+    return Ok(resolving_funcs);
 }
 
 pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {

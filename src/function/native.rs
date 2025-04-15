@@ -13,9 +13,9 @@ use crate::{
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
-            JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_SetOpaque, JS_PROP_CONFIGURABLE,
         },
-        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_DEF_ALIAS, JS_DEF_CFUNC,
+        JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_DEF_ALIAS, JS_DEF_CFUNC,
         JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
         JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED,
     },
@@ -223,8 +223,9 @@ pub struct JSCFunctionDataRecord {
     pub func: JSCFunctionData,
     /// argument slot length
     pub length: u8,
-    pub data_len: u8,
     pub magic: u16,
+
+    pub data_len: u8,
     pub data: [JSValue; 0],
 }
 
@@ -400,6 +401,51 @@ pub unsafe fn JS_NewCFunctionMagic(
     magic: i16,
 ) -> JSValue {
     JS_NewCFunction2(ctx, std::mem::transmute(func), name, length, cproto, magic)
+}
+
+/// `data` values are not consumed.
+pub unsafe fn JS_NewCFunctionData(
+    ctx: *mut JSContext,
+    func: JSCFunctionData,
+    length: u8,
+    magic: i32,
+    data_count: u8,
+    data: *const JSValueConst,
+) -> JSValue {
+    let func_obj = JS_NewObjectProtoClass(ctx, (*ctx).function_proto, JS_CLASS_C_FUNCTION_DATA);
+    if func_obj.is_exception() {
+        return func_obj;
+    }
+
+    let ly = std::alloc::Layout::from_size_align(
+        std::mem::size_of::<JSCFunctionDataRecord>()
+            + (data_count as usize) * std::mem::size_of::<JSValue>(),
+        4,
+    )
+    .unwrap();
+
+    let s = std::alloc::alloc(ly).cast::<JSCFunctionDataRecord>();
+    if s.is_null() {
+        JS_FreeValue(ctx, func_obj);
+        return JSValue::EXCEPTION;
+    }
+
+    (*s).func = func;
+    (*s).length = length as u8;
+    (*s).data_len = data_count as u8;
+    (*s).magic = magic as u16;
+
+    for i in 0..data_count {
+        (*s).data
+            .as_mut_ptr()
+            .add(i as usize)
+            .write((*data.offset(i as isize)).dup());
+    }
+
+    JS_SetOpaque(func_obj, s.cast());
+    js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, length as _);
+
+    func_obj
 }
 
 pub unsafe fn JS_SetPropertyFunctionList(

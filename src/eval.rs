@@ -13,7 +13,6 @@ use crate::{
         js_resolve_module, JSModuleDef, JSModuleStatus, JS_NewModuleValue,
     },
     parse::JSParseState,
-    promise::JS_NewPromiseCapability,
     stack_frame::JSStackFrame,
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
@@ -341,8 +340,8 @@ pub unsafe fn JS_EvalObject(
     // ret
 }
 
-// Run the <eval> function of the module and of all its requested
-// modules. Return a promise or an exception.
+/// Run the <eval> function of the module and of all its requested modules.
+/// Return a promise or an exception.
 pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -> JSValue {
     debug_assert!(matches!(
         (*m).status,
@@ -360,16 +359,18 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
     }
 
     // a promise may be created only on the cycle_root of a cycle
-    if !JS_IsUndefined((*m).promise) {
-        return JS_DupValue(ctx, (*m).promise);
+    if !(*m).promise.is_undefined() {
+        return (*m).promise.dup();
     }
 
-    (*m).promise = JS_NewPromiseCapability(ctx, (*m).resolving_funcs.as_mut_ptr());
-    if JS_IsException((*m).promise) {
+    if let Ok((promise, rr)) = (*ctx).create_promise(JSValue::UNDEFINED) {
+        (*m).resolving_funcs = rr;
+        (*m).promise = promise;
+    } else {
         return JSValue::EXCEPTION;
     }
 
-    let mut result = JS_UNDEFINED;
+    let mut result = JSValue::UNDEFINED;
     let mut stack_top = std::ptr::null_mut::<JSModuleDef>();
 
     if js_inner_module_evaluation(ctx, m, 0, &mut stack_top, &mut result) < 0 {

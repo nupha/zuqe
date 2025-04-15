@@ -1,4 +1,7 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 use crate::runtime::JSRuntime;
 
@@ -11,6 +14,15 @@ pub struct JSValueRc {
     value: JSValue,
 }
 
+impl JSValueRc {
+    pub fn undefined(rt: &JSRuntime) -> Self {
+        Self {
+            rt: NonNull::from(rt),
+            value: JSValue::UNDEFINED,
+        }
+    }
+}
+
 impl Deref for JSValueRc {
     type Target = JSValue;
 
@@ -18,6 +30,12 @@ impl Deref for JSValueRc {
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
+    }
+}
+
+impl DerefMut for JSValueRc {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
     }
 }
 

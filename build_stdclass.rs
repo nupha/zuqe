@@ -270,7 +270,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
             Some("crate::proxy::js_proxy_mark")
         ),
         //
-        // async
+        // async start
         //
         class_def!(
             "Promise",
@@ -332,6 +332,9 @@ pub fn gen_std_class_defs(outfile: &Path) {
     let mut cdefs = Vec::<String>::with_capacity(128);
     let mut consts = Vec::<String>::with_capacity(128);
 
+    let mut async_start: Option<usize> = None;
+    let mut async_end: Option<usize> = None;
+
     enums.push(
         "#[repr(u32)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord)]\npub enum JSClassStdId {"
             .to_string(),
@@ -342,7 +345,17 @@ pub fn gen_std_class_defs(outfile: &Path) {
     ));
 
     for (i, cdef) in class_defs.iter().enumerate() {
-        let atom = cdef.class_name;
+        let name = cdef.class_name;
+
+        match cdef.const_name {
+            "PROMISE" => {
+                async_start = Some(i);
+            }
+            "ASYNC_GENERATOR" => {
+                async_end = Some(i);
+            }
+            _ => {}
+        }
 
         if i == 0 {
             enums.push(format!("{}=1,", cdef.const_name));
@@ -351,7 +364,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
         }
 
         cdefs.push(format!(
-            "// {i}: {}\nJSClassShortDef{{class_name:JS_ATOM_{atom}, finalizer:{}, gc_mark:{} }},",
+            "// {i}: {}\nJSClassShortDef{{class_name:JS_ATOM_{name}, finalizer:{}, gc_mark:{} }},",
             cdef.const_name,
             cdef.finalizer
                 .map_or("None".to_string(), |s| format!("Some({s})")),
@@ -383,7 +396,13 @@ pub fn gen_std_class_defs(outfile: &Path) {
         "".to_string(),
         cdefs.join("\n"),
         "// end of std class".to_string(),
+        format!(
+            "pub const STD_CLASS_DEFS_ASYNC_INDEX_RANGE: std::ops::RangeInclusive<usize> = {}..={};",
+            async_start.unwrap(),
+            async_end.unwrap()
+        ),
     ];
+
     std::fs::write(outfile, lines.join("\n")).unwrap();
 
     let output = std::process::Command::new("rustfmt")

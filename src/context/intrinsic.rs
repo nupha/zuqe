@@ -1,11 +1,13 @@
 use crate::{
     atom::{consts::*, JS_NewAtomString},
+    class::{JS_NewGlobalCConstructor2, JS_SetConstructor2},
     context::{JSContext, JS_MODE_STRICT},
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::__JS_EvalInternal,
     function::{
-        js_function_proto, JSCFunctionEnum, JSFunctionKindEnum, JS_GetFunctionBytecode,
-        JS_NewCFunction, JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
+        js_function_proto, JSCFunction, JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum,
+        JS_GetFunctionBytecode, JS_NewCFunction, JS_NewCFunction2, JS_NewCFunction3,
+        JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
     },
     js_core::{
         array::{
@@ -18,6 +20,12 @@ use crate::{
         global::{js_global_eval, js_global_props},
         number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
+        promise::{
+            js_async_from_sync_iterator_proto_funcs, js_async_function_proto_funcs,
+            js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
+            js_async_iterator_proto_funcs, js_promise_constructor, js_promise_funcs,
+            js_promise_proto_funcs,
+        },
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
             js_string_proto_funcs,
@@ -32,9 +40,11 @@ use crate::{
         },
         JSValue, JSValueConst, JS_FreeValue,
     },
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
-    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
+    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
+    JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL, STD_CLASS_DEFS,
 };
 
 impl JSContext {
@@ -552,6 +562,131 @@ impl JSContext {
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )
             .unwrap();
+    }
+
+    pub unsafe fn intrinsic_async(&mut self) {
+        let rt = self.rt_mut();
+        debug_assert!(rt.is_class_registered(JS_CLASS_PROMISE));
+
+        // Promise
+        self.class_proto[JS_CLASS_PROMISE as usize] = JS_NewObject(self);
+        JS_SetPropertyFunctionList(
+            self,
+            self.class_proto[JS_CLASS_PROMISE as usize],
+            js_promise_proto_funcs.as_ptr(),
+            js_promise_proto_funcs.len(),
+        );
+        let obj1 = JS_NewCFunction2(
+            self,
+            js_promise_constructor,
+            c"Promise",
+            1,
+            JSCFunctionEnum::Constructor,
+            0,
+        );
+        self.promise_ctor = obj1.dup();
+        JS_SetPropertyFunctionList(
+            self,
+            obj1,
+            js_promise_funcs.as_ptr(),
+            js_promise_funcs.len(),
+        );
+        JS_NewGlobalCConstructor2(
+            self,
+            obj1,
+            c"Promise",
+            self.class_proto[JS_CLASS_PROMISE as usize],
+        );
+
+        // AsyncFunction
+        self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize] =
+            JS_NewObjectProto(self, self.function_proto);
+        let obj1 = JS_NewCFunction3(
+            self,
+            std::mem::transmute::<JSCFunctionMagic, JSCFunction>(js_function_constructor),
+            c"AsyncFunction",
+            1,
+            JSCFunctionEnum::ConstructorOrFuncMagic,
+            JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
+            self.function_ctor,
+        );
+        JS_SetPropertyFunctionList(
+            self,
+            self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize],
+            js_async_function_proto_funcs.as_ptr(),
+            js_async_function_proto_funcs.len(),
+        );
+        JS_SetConstructor2(
+            self,
+            obj1,
+            self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize],
+            0,
+            JS_PROP_CONFIGURABLE,
+        );
+        JS_FreeValue(self, obj1);
+
+        // AsyncIteratorPrototype
+        self.async_iterator_proto = JS_NewObject(self);
+        JS_SetPropertyFunctionList(
+            self,
+            self.async_iterator_proto,
+            js_async_iterator_proto_funcs.as_ptr(),
+            js_async_iterator_proto_funcs.len(),
+        );
+
+        // AsyncFromSyncIteratorPrototype
+        self.class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize] =
+            JS_NewObjectProto(self, self.async_iterator_proto);
+        JS_SetPropertyFunctionList(
+            self,
+            self.class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize],
+            js_async_from_sync_iterator_proto_funcs.as_ptr(),
+            js_async_from_sync_iterator_proto_funcs.len(),
+        );
+
+        // AsyncGeneratorPrototype
+        self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] =
+            JS_NewObjectProto(self, self.async_iterator_proto);
+        JS_SetPropertyFunctionList(
+            self,
+            self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize],
+            js_async_generator_proto_funcs.as_ptr(),
+            js_async_generator_proto_funcs.len(),
+        );
+
+        // AsyncGeneratorFunction
+        self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] =
+            JS_NewObjectProto(self, self.function_proto);
+        let obj1 = JS_NewCFunction3(
+            self,
+            std::mem::transmute::<JSCFunctionMagic, JSCFunction>(js_function_constructor),
+            c"AsyncGeneratorFunction",
+            1,
+            JSCFunctionEnum::ConstructorOrFuncMagic,
+            JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
+            self.function_ctor,
+        );
+        JS_SetPropertyFunctionList(
+            self,
+            self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize],
+            js_async_generator_function_proto_funcs.as_ptr(),
+            js_async_generator_function_proto_funcs.len(),
+        );
+        JS_SetConstructor2(
+            self,
+            self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize],
+            self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize],
+            JS_PROP_CONFIGURABLE,
+            JS_PROP_CONFIGURABLE,
+        );
+        JS_SetConstructor2(
+            self,
+            obj1,
+            self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize],
+            0,
+            JS_PROP_CONFIGURABLE,
+        );
+        JS_FreeValue(self, obj1);
     }
 }
 

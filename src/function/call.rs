@@ -390,6 +390,7 @@ pub unsafe fn JS_CallConstructor(
     JS_CallConstructorInternal(ctx, func_obj, func_obj, argc, argv, JS_CALL_FLAG_COPY_ARGV)
 }
 
+/// `this_val` is not consumed
 pub unsafe fn JS_Invoke(
     ctx: &mut JSContext,
     this_val: crate::value::JSValueConst,
@@ -405,6 +406,7 @@ pub unsafe fn JS_Invoke(
     JS_CallFree(ctx, func_obj, this_val, argc, argv)
 }
 
+/// `this_val` is consumed
 pub unsafe fn JS_InvokeFree(
     ctx: &mut JSContext,
     this_val: JSValue,

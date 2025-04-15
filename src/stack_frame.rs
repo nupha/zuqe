@@ -51,6 +51,12 @@ impl JSStackFrame {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
+    /// get stack current pointer
+    #[inline(always)]
+    pub fn stack_current_ptr(&self) -> NonNull<JSValue> {
+        unsafe { self.stack_base_ptr().add(self.cur_sp_offset) }
+    }
+
     /// processing current exception, add backtrace information for example.
     /// return value:
     /// - Some((pc, sp)): exception was catched, continue execution with updated (pc, sp);

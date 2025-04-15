@@ -215,6 +215,12 @@ impl JSRuntime {
 
         Ok(())
     }
+
+    #[inline(always)]
+    pub fn is_class_registered(&self, class_id: JSClassID) -> bool {
+        class_id < self.class_array.len() as JSClassID
+            && self.class_array[class_id as usize].class_id != 0
+    }
 }
 
 impl JSContext {
@@ -376,6 +382,11 @@ pub unsafe fn JS_NewGlobalCConstructor(
     proto: JSValueConst,
 ) -> JSValueConst {
     (*ctx).create_global_constructor(name, func, length, proto)
+}
+
+#[deprecated(note = "use JSRuntime::is_class_registered() instead")]
+pub unsafe fn JS_IsRegisteredClass(rt: *const JSRuntime, class_id: JSClassID) -> bool {
+    (*rt).is_class_registered(class_id)
 }
 
 #[derive(Debug, Clone, Copy)]

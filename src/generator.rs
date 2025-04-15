@@ -3,12 +3,13 @@ use crate::{
     context::JSContext,
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
     gc::JS_MarkFunc,
+    list_entry,
     mem::{js_free, js_mallocz},
     runtime::JSRuntime,
-    types::list_head,
+    types::{list_foreach_safe, list_head},
     value::{
         object::{JSObject, JS_SetOpaque},
-        JSValue, JSValueConst, JS_FreeValue, JS_IsException,
+        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
     },
     JS_CLASS_GENERATOR,
 };
@@ -45,12 +46,51 @@ pub struct JSGeneratorData {
     pub func_state: *mut JSAsyncFunctionState,
 }
 
+#[repr(C)]
+pub struct JSAsyncGeneratorRequest {
+    pub link: list_head,
+    /// completion
+    pub completion_type: i32, // GEN_MAGIC_x
+    pub result: JSValue,
+
+    /// promise capability
+    pub promise: JSValue,
+    pub resolving_funcs: [JSValue; 2],
+}
+
 pub struct JSAsyncGeneratorData {
-    pub generator: *mut JSObject, /* back pointer to the object (const) */
+    /// back pointer to the object (const)
+    pub generator: *mut JSObject,
+
     pub state: JSAsyncGeneratorStateEnum,
-    /* func_state is NULL is state AWAITING_RETURN and COMPLETED */
+    /// func_state is NULL is state AWAITING_RETURN and COMPLETED
     pub func_state: *mut JSAsyncFunctionState,
-    pub queue: list_head, /* list of JSAsyncGeneratorRequest.link */
+
+    /// list of JSAsyncGeneratorRequest.link
+    /// TODO: use Vec<Box<JSAsyncGeneratorRequest>>
+    pub queue: list_head,
+}
+
+impl JSAsyncGeneratorData {
+    pub fn free(mut self: Box<Self>, rt: &mut JSRuntime) {
+        unsafe {
+            list_foreach_safe(&mut self.queue, |el| {
+                let req = list_entry!(el, JSAsyncGeneratorRequest, link);
+
+                JS_FreeValueRT(rt, (*req).result);
+                JS_FreeValueRT(rt, (*req).promise);
+                JS_FreeValueRT(rt, (*req).resolving_funcs[0]);
+                JS_FreeValueRT(rt, (*req).resolving_funcs[1]);
+
+                todo!("free req");
+                //js_free_rt(rt, req as *mut _);
+            });
+
+            if !self.func_state.is_null() {
+                async_func_free(rt, self.func_state);
+            }
+        }
+    }
 }
 
 pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut JSGeneratorData) {

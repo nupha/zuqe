@@ -6,6 +6,7 @@ pub mod global;
 pub mod mapset;
 pub mod number;
 pub mod object;
+pub mod promise;
 pub mod string;
 pub mod typed_array;
 

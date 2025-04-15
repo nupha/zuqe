@@ -15,13 +15,17 @@ use crate::{
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
     generator::js_generator_function_call,
-    job::JSJobEntry,
+    js_core::promise::{
+        js_async_function_call, js_async_function_resolve_call, js_async_generator_function_call,
+        js_promise_resolve_function_call,
+    },
     list_entry,
     mem::{js_free_rt, JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{
         js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
         JSModuleNormalizeFunc,
     },
+    promise::JSJobEntry,
     stack_frame::JSStackFrame,
     types::{init_list_head, list_empty, list_foreach, list_head, JSSharedArrayBufferFunctions},
     utils::js_get_stack_pointer,
@@ -30,9 +34,11 @@ use crate::{
         object::{init_shape_hash, JSShape},
         JSValue, JS_FreeValueRT,
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
-    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_STRING,
-    STD_CLASS_DEFS,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
+    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
+    JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    JS_CLASS_STRING, STD_CLASS_DEFS,
 };
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
@@ -193,26 +199,45 @@ impl JSRuntime {
             rt.init_default_atoms()?;
 
             //
-            // initialize builtin class protos
+            // register intrinsic classes
             //
             rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
-            rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
-            rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
-            rt.class_array[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
+            // setup common classes
+            {
+                rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
+                rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
+                rt.class_array[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
 
-            rt.class_array[JS_CLASS_C_FUNCTION as usize]
-                .call
-                .replace(js_call_c_function);
-            rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
-                .call
-                .replace(js_c_function_data_call);
-            rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
-                .call
-                .replace(js_call_bound_function);
-            rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
-                .call
-                .replace(js_generator_function_call);
+                rt.class_array[JS_CLASS_C_FUNCTION as usize]
+                    .call
+                    .replace(js_call_c_function);
+                rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
+                    .call
+                    .replace(js_c_function_data_call);
+                rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
+                    .call
+                    .replace(js_call_bound_function);
+                rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
+                    .call
+                    .replace(js_generator_function_call);
+            }
+
+            // setup async classes
+            {
+                rt.class_array[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
+                    Some(js_promise_resolve_function_call);
+                rt.class_array[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
+                    Some(js_promise_resolve_function_call);
+                rt.class_array[JS_CLASS_ASYNC_FUNCTION as usize].call =
+                    Some(js_async_function_call);
+                rt.class_array[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
+                    Some(js_async_function_resolve_call);
+                rt.class_array[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
+                    Some(js_async_function_resolve_call);
+                rt.class_array[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
+                    Some(js_async_generator_function_call);
+            }
 
             if init_shape_hash(&mut rt) == -1 {
                 return Err(-1);
@@ -270,11 +295,11 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
         let mut el = rt.job_list.next;
         let mut el1 = (*el).next;
         while el != std::ptr::addr_of_mut!(rt.job_list) {
-            let job = list_entry!(el, JSJobEntry, link);
-            for i in 0..(*job).argc {
-                JS_FreeValueRT(rt, *(*job).argv.as_ptr().add(i as usize));
+            let job_ent = list_entry!(el, JSJobEntry, link);
+            for i in 0..(*job_ent).argc {
+                JS_FreeValueRT(rt, (*job_ent).args[i as usize]);
             }
-            js_free_rt(rt, job.cast());
+            drop(Box::from_raw(job_ent));
 
             el = el1;
             el1 = (*el).next;

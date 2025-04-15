@@ -17,7 +17,6 @@ pub mod gc;
 pub mod generator;
 pub mod global;
 pub mod iterator;
-pub mod job;
 pub mod map;
 pub mod mem;
 pub mod module;

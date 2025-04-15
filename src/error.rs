@@ -178,11 +178,22 @@ impl JSContext {
         }
         JSValue::EXCEPTION
     }
+
+    /// get and return current pending exception value. replace current_exception with null.
+    /// Note: returnd value should be freed by caller
+    pub fn get_exception(&mut self) -> JSValue {
+        std::mem::replace(&mut self.rt_mut().current_exception, JSValue::NULL)
+    }
 }
 
 pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 /* only taken into account if filename is provided */
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
+
+#[deprecated(note = "use JSContext::get_exception() instead")]
+pub unsafe fn JS_GetException(ctx: *mut JSContext) -> JSValue {
+    (*ctx).get_exception()
+}
 
 /* Note: it is important that no exception is returned by this function */
 pub unsafe fn is_backtrace_needed(obj: JSValueConst) -> bool {

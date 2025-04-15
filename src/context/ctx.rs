@@ -385,6 +385,7 @@ impl JSRuntime {
 
         unsafe {
             ctx.intrinsic_base_objects();
+            ctx.intrinsic_async();
         }
 
         Ok(ctx)
