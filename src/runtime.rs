@@ -27,7 +27,10 @@ use crate::{
     },
     promise::JSJobEntry,
     stack_frame::JSStackFrame,
-    types::{init_list_head, list_empty, list_foreach, list_head, JSSharedArrayBufferFunctions},
+    types::{
+        init_list_head, list_empty, list_foreach, list_foreach_safe, list_head,
+        JSSharedArrayBufferFunctions,
+    },
     utils::js_get_stack_pointer,
     value::{
         js_string_exotic_methods,
@@ -105,7 +108,9 @@ pub struct JSRuntime {
     pub host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     pub host_promise_rejection_tracker_opaque: *mut c_void,
 
-    pub job_list: list_head, /* list of JSJobEntry.link */
+    /// list of JSJobEntry.link
+    /// TODO: use VecDeque<Box<JSJobEntry>> or LinedList<Box<JSJobEntry>>
+    pub job_list: list_head,
 
     pub module_normalize_func: Option<JSModuleNormalizeFunc>,
     pub module_loader_func: Option<JSModuleLoaderFunc>,
@@ -292,18 +297,14 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
     // free jobs
     {
-        let mut el = rt.job_list.next;
-        let mut el1 = (*el).next;
-        while el != std::ptr::addr_of_mut!(rt.job_list) {
+        list_foreach_safe(&mut rt.job_list, |el| {
             let job_ent = list_entry!(el, JSJobEntry, link);
             for i in 0..(*job_ent).argc {
                 JS_FreeValueRT(rt, (*job_ent).args[i as usize]);
             }
             drop(Box::from_raw(job_ent));
+        });
 
-            el = el1;
-            el1 = (*el).next;
-        }
         init_list_head(&mut rt.job_list);
     }
 
