@@ -5,10 +5,15 @@ use crate::{
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::__JS_EvalInternal,
     function::{
-        js_function_proto, JSCFunction, JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum,
-        JS_GetFunctionBytecode, JS_NewCFunction, JS_NewCFunction2, JS_NewCFunction3,
-        JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
+        js_async_function_proto_funcs, js_function_proto, JSCFunction, JSCFunctionEnum,
+        JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode, JS_NewCFunction,
+        JS_NewCFunction2, JS_NewCFunction3, JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
     },
+    generator::{
+        js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
+        js_async_iterator_proto_funcs,
+    },
+    iterator::js_async_from_sync_iterator_proto_funcs,
     js_core::{
         array::{
             js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
@@ -20,11 +25,7 @@ use crate::{
         global::{js_global_eval, js_global_props},
         number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
-        promise::{
-            js_async_from_sync_iterator_proto_funcs, js_async_function_proto_funcs,
-            js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
-            js_async_iterator_proto_funcs, js_promise_funcs, js_promise_proto_funcs,
-        },
+        promise::{js_promise_funcs, js_promise_proto_funcs},
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
             js_string_proto_funcs,

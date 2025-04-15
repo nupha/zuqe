@@ -4,7 +4,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{js_create_iterator_result, JS_Call},
+    function::{js_create_iterator_result, JSCFunctionListEntry, JS_Call},
     gc::{JS_MarkFunc, JS_MarkValue},
     js_core::promise::js_promise_resolve,
     mem::js_malloc_typed,
@@ -14,7 +14,7 @@ use crate::{
         object::{JS_GetOpaque, JS_NewObjectClass, JS_SetOpaque},
         JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_ToBool,
     },
-    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
 };
 
 use super::{JS_IteratorGetCompleteValue, JS_IteratorNext2};
@@ -266,3 +266,24 @@ pub unsafe fn js_async_from_sync_iterator_mark(
         JS_MarkValue(rt, (*s).next_method, mark_func);
     }
 }
+
+pub const js_async_from_sync_iterator_proto_funcs: [JSCFunctionListEntry; 3] = [
+    JS_CFUNC_MAGIC_DEF!(
+        c"next",
+        1,
+        js_async_from_sync_iterator_next,
+        GEN_MAGIC_NEXT as _
+    ),
+    JS_CFUNC_MAGIC_DEF!(
+        c"return",
+        1,
+        js_async_from_sync_iterator_next,
+        GEN_MAGIC_RETURN as _
+    ),
+    JS_CFUNC_MAGIC_DEF!(
+        c"throw",
+        1,
+        js_async_from_sync_iterator_next,
+        GEN_MAGIC_THROW as _
+    ),
+];

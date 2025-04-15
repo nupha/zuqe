@@ -17,15 +17,15 @@ use crate::{
     stack_frame::JSStackFrame,
     types::{init_list_head, list_add, list_add_tail, list_del},
     value::{
-        object::JS_NewObjectProtoClass, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue,
-        JS_FreeValueRT, JS_UNDEFINED,
+        object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE},
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_UNDEFINED,
     },
-    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR,
+    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::{
     call::{JS_CallInternal, JS_CALL_FLAG_GENERATOR},
-    JS_Call,
+    JSCFunctionListEntry, JS_Call,
 };
 
 #[repr(C)]
@@ -406,3 +406,9 @@ pub unsafe fn js_async_function_resolve_mark(
 ) {
     unimplemented!();
 }
+
+pub const js_async_function_proto_funcs: [JSCFunctionListEntry; 1] = [JS_PROP_STRING_DEF!(
+    c"[Symbol.toStringTag]",
+    c"AsyncFunction",
+    JS_PROP_CONFIGURABLE
+)];
