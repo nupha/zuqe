@@ -9,7 +9,7 @@ use crate::{
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError, JS_ThrowStackOverflow},
     function::{
-        build_arg_list, check_function, js_create_iterator_result, CallArgs, JSAsyncFunctionState,
+        build_arg_list, js_create_iterator_result, CallArgs, JSAsyncFunctionState,
         JSCFunctionDataRecord, JSCFunctionEnum,
     },
     runtime::js_check_stack_overflow,
@@ -635,7 +635,7 @@ pub unsafe fn js_c_function_data_call(
         .unwrap();
 
     // XXX: could add the function on the stack for debug
-    if unlikely(argc < s.length as i32) {
+    if argc < s.length as i32 {
         crate::mem::alloca::with_alloca_zeroed(SIZEOF_JSVALUE * s.length as usize, |sbuf| {
             let args = std::slice::from_raw_parts_mut(
                 sbuf.as_mut_ptr().cast::<JSValue>(),
@@ -758,9 +758,7 @@ pub unsafe fn call_setter(
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub fn js_function_apply(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe {
-        check_function(ctx, args.this)?;
-    }
+    args.this.ensure_callable(ctx)?;
 
     let this_arg = args.get_raw(0);
     let array_arg = args.get_raw(1);

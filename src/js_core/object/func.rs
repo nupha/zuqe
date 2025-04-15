@@ -3,30 +3,24 @@ use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     class::js_create_from_ctor,
     context::{JSContext, JS_GetActiveFunction},
-    error::JSResult,
-    function::{
-        check_function, js_poll_interrupts, CallArgs, JSCFunctionListEntry, JS_Call, JS_Invoke,
-    },
+    function::{JSCFunctionListEntry, JS_Call},
     iterator::{JSIteratorKindEnum, JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSObject, JSPropertyDescriptor, JS_GetOwnPropertyInternal,
-            JS_GetPrototype, JS_GetPrototypeFree, JS_IsExtensible, JS_NewObject, JS_NewObjectProto,
-            JS_PreventExtensions, JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY,
-            JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
+            js_free_desc, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_GetPrototype,
+            JS_IsExtensible, JS_NewObject, JS_NewObjectProto, JS_PreventExtensions,
+            JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
+            JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
-        JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsNull, JS_IsObject, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT,
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsNull,
+        JS_IsObject, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT,
         JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
         MAX_SAFE_INTEGER,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
-    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
-    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_OBJECT,
 };
 
 pub unsafe fn JS_ObjectDefineProperties(
@@ -312,7 +306,7 @@ pub unsafe fn js_object_groupBy(
 ) -> JSValue {
     // "is function?" check must be observed before argv[0] is accessed
     let cb = *argv.offset(1);
-    if check_function(ctx, cb).is_err() {
+    if cb.ensure_callable(ctx.as_mut().unwrap()).is_err() {
         return JSValue::EXCEPTION;
     }
 

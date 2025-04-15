@@ -12,7 +12,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowStackOverflow},
     function::{
-        check_function, CallArgs, JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree,
+        CallArgs, JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree,
         JS_GetFunctionRealm, JS_Invoke,
     },
     iterator::{
@@ -23,8 +23,8 @@ use crate::{
     value::{
         check_exception_free,
         object::{
-            js_get_length64, JS_IsConstructor, JS_IsFunction, JS_ToObject, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_THROW,
+            js_get_length64, JS_IsConstructor, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
@@ -555,7 +555,7 @@ pub unsafe fn js_array_every(
         JSValue::UNDEFINED
     };
 
-    if check_function(ctx, func).is_err() {
+    if func.ensure_callable(ctx.as_mut().unwrap()).is_err() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -791,7 +791,7 @@ pub unsafe fn js_array_reduce(
     }
 
     let func = *argv.offset(0);
-    if check_function(ctx, func).is_err() {
+    if func.ensure_callable(ctx.as_mut().unwrap()).is_err() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -971,7 +971,7 @@ pub unsafe fn js_array_find(
     };
 
     let func = *argv.offset(0);
-    if check_function(ctx, func).is_err() {
+    if func.ensure_callable(ctx.as_mut().unwrap()).is_err() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
@@ -2143,12 +2143,15 @@ pub unsafe fn js_array_flatten(
         if argc > 1 {
             thisArg = *argv.offset(1);
         }
-        if check_function(ctx, mapperFunction).is_err() {
+        if mapperFunction
+            .ensure_callable(ctx.as_mut().unwrap())
+            .is_err()
+        {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
     } else {
-        if argc > 0 && !JS_IsUndefined(*argv.offset(0)) {
+        if argc > 0 && !(*argv.offset(0)).is_undefined() {
             if JS_ToInt32Sat(ctx, &mut depthNum, *argv.offset(0)) < 0 {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
@@ -2380,7 +2383,7 @@ pub unsafe fn js_array_from(
     if argc > 1 {
         mapfn = *argv.offset(1);
         if !mapfn.is_undefined() {
-            if check_function(ctx, mapfn).is_err() {
+            if mapfn.ensure_callable(ctx.as_mut().unwrap()).is_err() {
                 return JSValue::EXCEPTION;
             }
 

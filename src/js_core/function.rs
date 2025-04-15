@@ -6,8 +6,8 @@ use crate::{
     error::JSResult,
     eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
     function::{
-        check_function, func_kind_to_class_id, js_class_has_bytecode, js_function_apply, CallArgs,
-        JSBoundFunction, JSCFunctionListEntry, JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
+        func_kind_to_class_id, js_class_has_bytecode, js_function_apply, CallArgs, JSBoundFunction,
+        JSCFunctionListEntry, JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
         JS_GetFunctionRealm,
     },
     mem::js_malloc,
@@ -78,9 +78,7 @@ pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 }
 
 pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe {
-        check_function(ctx, args.this)?;
-    }
+    args.this.ensure_callable(ctx)?;
 
     let func_obj =
         unsafe { JS_NewObjectProtoClass(ctx, ctx.function_proto, JS_CLASS_BOUND_FUNCTION) };
@@ -348,9 +346,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 // }
 
 pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe {
-        check_function(ctx, args.this)?;
-    }
+    args.this.ensure_callable(ctx)?;
 
     let p = unsafe { args.this.object() };
 

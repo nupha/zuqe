@@ -8,7 +8,7 @@ use crate::{
     context::{JSContext, JS_DupContext},
     error::JSResult,
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::js_free_rt,
+    mem::{js_free_rt, js_malloc_typed},
     runtime::JSRuntime,
     value::{
         object::{
@@ -229,6 +229,63 @@ pub struct JSCFunctionDataRecord {
     pub data: [JSValue; 0],
 }
 
+impl JSCFunctionDataRecord {
+    /// `data` values are not consumed.
+    pub fn new(
+        ctx: &mut JSContext,
+        func: JSCFunctionData,
+        length: u8,
+        magic: i32,
+        data: &[JSValue],
+    ) -> Result<Box<Self>, i32> {
+        debug_assert!(data.len() <= 16);
+
+        let ly = std::alloc::Layout::from_size_align(
+            std::mem::size_of::<JSCFunctionDataRecord>()
+                + data.len() * std::mem::size_of::<JSValue>(),
+            4,
+        )
+        .unwrap();
+
+        let s = unsafe { std::alloc::alloc(ly).cast::<JSCFunctionDataRecord>() };
+        if s.is_null() {
+            ctx.JS_ThrowOutOfMemory();
+            Err(-1)
+        } else {
+            let mut rec = unsafe { Box::from_raw(s) };
+
+            rec.func = func;
+            rec.length = length as u8;
+            rec.data_len = data.len() as u8;
+            rec.magic = magic as u16;
+
+            for (i, d) in data.iter().enumerate() {
+                unsafe {
+                    *rec.data.as_mut_ptr().add(i) = d.dup();
+                }
+            }
+
+            Ok(rec)
+        }
+    }
+
+    /// get attached data as slice
+    pub fn data(&self) -> &[JSValue] {
+        unsafe { std::slice::from_raw_parts(self.data.as_ptr(), self.data_len as usize) }
+    }
+
+    pub unsafe fn free(rec: *mut Self) {
+        let ly = std::alloc::Layout::from_size_align(
+            std::mem::size_of::<JSCFunctionDataRecord>()
+                + ((*rec).data_len as usize) * std::mem::size_of::<JSValue>(),
+            4,
+        )
+        .unwrap();
+
+        std::alloc::dealloc(rec.cast() as *mut u8, ly);
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct JSObjectCFunc {
@@ -309,6 +366,30 @@ impl JSContext {
             magic,
             self.function_proto,
         )
+    }
+
+    /// `data` values are not consumed.
+    pub fn create_function_with_data(
+        &mut self,
+        func: JSCFunctionData,
+        length: u8,
+        magic: i32,
+        data: &[JSValueConst],
+    ) -> JSResult {
+        let func_obj = unsafe {
+            JS_NewObjectProtoClass(self, self.function_proto, JS_CLASS_C_FUNCTION_DATA)
+                .check_exception()?
+                .into_rc(self.rt())
+        };
+
+        let s = JSCFunctionDataRecord::new(self, func, length, magic, data)?;
+
+        unsafe {
+            JS_SetOpaque(*func_obj, Box::into_raw(s).cast());
+            js_function_set_properties(self, *func_obj, JS_ATOM_empty_string, length as _);
+        }
+
+        Ok(func_obj.into())
     }
 }
 
@@ -404,6 +485,7 @@ pub unsafe fn JS_NewCFunctionMagic(
 }
 
 /// `data` values are not consumed.
+#[deprecated(note = "use JSContext::create_function_with_data() instead")]
 pub unsafe fn JS_NewCFunctionData(
     ctx: *mut JSContext,
     func: JSCFunctionData,
@@ -412,40 +494,14 @@ pub unsafe fn JS_NewCFunctionData(
     data_count: u8,
     data: *const JSValueConst,
 ) -> JSValue {
-    let func_obj = JS_NewObjectProtoClass(ctx, (*ctx).function_proto, JS_CLASS_C_FUNCTION_DATA);
-    if func_obj.is_exception() {
-        return func_obj;
-    }
-
-    let ly = std::alloc::Layout::from_size_align(
-        std::mem::size_of::<JSCFunctionDataRecord>()
-            + (data_count as usize) * std::mem::size_of::<JSValue>(),
-        4,
-    )
-    .unwrap();
-
-    let s = std::alloc::alloc(ly).cast::<JSCFunctionDataRecord>();
-    if s.is_null() {
-        JS_FreeValue(ctx, func_obj);
-        return JSValue::EXCEPTION;
-    }
-
-    (*s).func = func;
-    (*s).length = length as u8;
-    (*s).data_len = data_count as u8;
-    (*s).magic = magic as u16;
-
-    for i in 0..data_count {
-        (*s).data
-            .as_mut_ptr()
-            .add(i as usize)
-            .write((*data.offset(i as isize)).dup());
-    }
-
-    JS_SetOpaque(func_obj, s.cast());
-    js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, length as _);
-
-    func_obj
+    (*ctx)
+        .create_function_with_data(
+            func,
+            length,
+            magic,
+            std::slice::from_raw_parts(data, data_count as usize),
+        )
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn JS_SetPropertyFunctionList(
@@ -650,7 +706,7 @@ pub unsafe fn js_c_function_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
         for i in 0..(*s).data_len {
             JS_FreeValueRT(rt, *(*s).data.as_ptr().add(i as usize));
         }
-        js_free_rt(rt, s as *mut std::ffi::c_void);
+        JSCFunctionDataRecord::free(s);
     }
 }
 

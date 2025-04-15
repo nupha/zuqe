@@ -79,6 +79,18 @@ pub struct JSObjectFunc {
     pub home_object: *mut JSObject,
 }
 
+impl JSValue {
+    /// check if value `self` is a function object. raise exception if not.
+    pub fn ensure_callable(self, ctx: &mut JSContext) -> Result<Self, i32> {
+        if self.is_function(ctx) {
+            Ok(self)
+        } else {
+            ctx.JS_ThrowTypeError(c"not a function");
+            Err(-1)
+        }
+    }
+}
+
 /* return NULL without exception if not a function or no bytecode */
 pub unsafe fn JS_GetFunctionBytecode(val: JSValueConst) -> *mut JSFunctionBytecode {
     if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
@@ -231,13 +243,10 @@ pub fn js_function_proto(_: &mut JSContext, _: CallArgs) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+#[deprecated(note = "use JSValue::ensure_callable() instead")]
 pub unsafe fn check_function(ctx: *mut JSContext, obj: JSValueConst) -> Result<(), i32> {
-    if likely(JS_IsFunction(ctx, obj)) {
-        Ok(())
-    } else {
-        (*ctx).JS_ThrowTypeError(c"not a function");
-        Err(-1)
-    }
+    obj.ensure_callable(ctx.as_mut().unwrap())?;
+    Ok(())
 }
 
 pub unsafe fn js_bytecode_function_finalizer(rt: *mut JSRuntime, val: JSValue) {

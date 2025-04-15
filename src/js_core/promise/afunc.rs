@@ -45,6 +45,7 @@ pub unsafe fn js_async_function_resolve_call(
     JSValue::UNDEFINED
 }
 
+/// call an 'async function XXX() {...}' like function
 pub unsafe fn js_async_function_call(
     ctx: &mut JSContext,
     func_obj: JSValueConst,

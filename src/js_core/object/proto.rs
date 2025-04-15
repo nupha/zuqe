@@ -3,7 +3,7 @@ use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     context::JSContext,
     error::JSResult,
-    function::{check_function, js_poll_interrupts, CallArgs, JSCFunctionListEntry, JS_Invoke},
+    function::{js_poll_interrupts, CallArgs, JSCFunctionListEntry, JS_Invoke},
     types::unlikely,
     value::{
         object::{
@@ -16,8 +16,8 @@ use crate::{
         JS_VALUE_GET_OBJ,
     },
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
-    JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_REGEXP, JS_CLASS_STRING,
+    JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
+    JS_CLASS_STRING,
 };
 
 //
@@ -447,11 +447,11 @@ pub unsafe fn js_object___defineGetter__(
     let value = *argv.offset(1);
 
     let obj = JS_ToObject(ctx, this_val);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    if check_function(ctx, value).is_err() {
+    if value.ensure_callable(ctx.as_mut().unwrap()).is_err() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }

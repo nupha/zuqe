@@ -3,10 +3,8 @@ use std::ptr::NonNull;
 use crate::{
     atom::consts::JS_ATOM_empty_string,
     context::JSContext,
-    function::{
-        check_function, js_function_set_properties, JSCFunctionDataRecord, JS_CallConstructor,
-        JS_NewCFunctionData,
-    },
+    error::JSResult,
+    function::{js_function_set_properties, JSCFunctionDataRecord, JS_CallConstructor},
     gc::{JS_MarkFunc, JS_MarkValue},
     js_core::promise::js_promise_constructor,
     list_entry,
@@ -60,13 +58,22 @@ pub struct JSPromiseReactionData {
 }
 
 impl JSContext {
+    pub(super) fn create_promise_executor(&mut self) -> JSResult {
+        self.create_function_with_data(
+            js_promise_executor,
+            2,
+            0,
+            &[JSValue::UNDEFINED, JSValue::UNDEFINED],
+        )
+    }
+
     /// create Promise.
     /// returns Promise object and [resolve, reject] functions
     pub unsafe fn create_promise(
         &mut self,
         ctor: JSValueConst,
     ) -> Result<(JSValue, [JSValue; 2]), i32> {
-        let mut executor = js_promise_executor_new(self).check_exception()?;
+        let mut executor = self.create_promise_executor()?;
 
         let result_promise = if ctor.is_undefined() {
             js_promise_constructor(self, ctor, 1, &mut executor)
@@ -80,28 +87,30 @@ impl JSContext {
         }
 
         let s = JS_GetOpaque(executor, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
+        debug_assert!(!s.is_null());
+
+        let cdata = (*s).data();
+
         for i in 0..2 {
-            if check_function(self, *(*s).data.as_ptr().offset(i as isize)).is_err() {
+            if cdata[i].ensure_callable(self).is_err() {
                 JS_FreeValue(self, executor);
                 JS_FreeValue(self, result_promise);
                 return Err(-1);
             }
         }
 
-        let resolving_funcs = [
-            (*(*s).data.as_mut_ptr().offset(0)).dup(),
-            (*(*s).data.as_mut_ptr().offset(1)).dup(),
-        ];
-
+        let resolving_funcs = [cdata[0].dup(), cdata[1].dup()];
         JS_FreeValue(self, executor);
 
         Ok((result_promise, resolving_funcs))
     }
 }
 
+#[deprecated(note = "use JSContext::create_promise_executor() instead")]
 unsafe fn js_promise_executor_new(ctx: *mut JSContext) -> JSValue {
-    let func_data = [JSValue::UNDEFINED; 2];
-    JS_NewCFunctionData(ctx, js_promise_executor, 2, 0, 2, func_data.as_ptr())
+    unreachable!("use JSContext::create_promise_executor() instead");
+    // let func_data = [JSValue::UNDEFINED; 2];
+    // JS_NewCFunctionData(ctx, js_promise_executor, 2, 0, 2, func_data.as_ptr())
 }
 
 unsafe fn js_promise_executor(
@@ -114,9 +123,9 @@ unsafe fn js_promise_executor(
 ) -> JSValue {
     for i in 0..2 {
         if !(*func_data.add(i)).is_undefined() {
-            (*ctx).JS_ThrowTypeError(c"resolving function already set");
-            *func_data.add(i) = (*argv.add(i)).dup();
+            return (*ctx).JS_ThrowTypeError(c"resolving function already set");
         }
+        *func_data.add(i) = (*argv.add(i)).dup();
     }
     JSValue::UNDEFINED
 }
@@ -218,15 +227,11 @@ pub unsafe fn fulfill_or_reject_promise(
     value: JSValueConst,
     is_reject: bool,
 ) {
-    let s = if let Some(s) = JS_GetOpaque(promise, JS_CLASS_PROMISE)
-        .cast::<JSPromiseData>()
-        .as_mut()
-    {
-        debug_assert_ne!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
-        s
-    } else {
-        unreachable!()
-    };
+    let s = JS_GetOpaque(promise, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+    debug_assert!(!s.is_null());
+    debug_assert_eq!((*s).promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
+
+    let s = s.as_mut().unwrap();
 
     #[cfg(DUMP_PROMISE)]
     {

@@ -136,12 +136,14 @@ impl JSValue {
                 //(*p).u.proxy_data.is_func as BOOL
                 unimplemented!()
             }
-            cid => ctx
-                .rt()
-                .class_array
-                .get(cid as usize)
-                .and_then(|c| c.call)
-                .is_some(),
+            cid => {
+                // check if class proto is callable
+                ctx.rt()
+                    .class_array
+                    .get(cid as usize)
+                    .and_then(|c| c.call)
+                    .is_some()
+            }
         }
     }
 }

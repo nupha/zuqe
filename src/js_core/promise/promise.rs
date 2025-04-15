@@ -1,38 +1,30 @@
-use std::{ops::DerefMut, ptr::NonNull};
+use std::ops::DerefMut;
 
 use crate::{
     array::JS_NewArray,
     atom::consts::*,
     class::js_create_from_ctor,
     context::JSContext,
-    function::{
-        check_function, js_function_set_properties, JSCFunctionListEntry, JS_Call, JS_Invoke,
-        JS_InvokeFree, JS_NewCFunctionData,
-    },
+    function::{JSCFunctionListEntry, JS_Call, JS_Invoke, JS_InvokeFree, JS_NewCFunctionData},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     mem::js_malloc_typed,
     promise::{
-        fulfill_or_reject_promise, js_create_resolving_functions,
-        js_promise_resolve_function_free_resolved, perform_promise_then, reject_promise,
-        JSPromiseData, JSPromiseFunctionData, JSPromiseFunctionDataResolved, JSPromiseStateEnum,
+        fulfill_or_reject_promise, js_create_resolving_functions, perform_promise_then,
+        reject_promise, JSPromiseData, JSPromiseStateEnum,
     },
-    runtime::JSRuntime,
     types::init_list_head,
     value::{
         check_exception_free,
         object::{
             JS_DefinePropertyValue, JS_DefinePropertyValueUint32, JS_GetOpaque, JS_GetOpaque2,
-            JS_GetProperty, JS_NewObject, JS_NewObjectProtoClass, JS_SetOpaque,
-            JS_SpeciesConstructor, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_GetProperty, JS_NewObject, JS_SetOpaque, JS_SpeciesConstructor,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
         },
         JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_NewString, JS_ToBool, JS_ToInt32,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ASYNC_FUNCTION,
-    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE,
-    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_PROMISE, JS_CLASS_PROMISE_REJECT_FUNCTION,
-    JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_PROP_STRING_DEF, STD_CLASS_DEFS,
-    STD_CLASS_DEFS_ASYNC_INDEX_RANGE,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_PROMISE,
+    JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_PROP_STRING_DEF,
 };
 
 pub unsafe fn js_promise_constructor(
@@ -42,7 +34,9 @@ pub unsafe fn js_promise_constructor(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let executor = *argv.offset(0);
-    if check_function(ctx, executor).is_err() {
+    debug_assert_eq!(executor.object().class_id(), JS_CLASS_C_FUNCTION_DATA);
+
+    if executor.ensure_callable(ctx.as_mut().unwrap()).is_err() {
         return JSValue::EXCEPTION;
     }
 
@@ -51,20 +45,20 @@ pub unsafe fn js_promise_constructor(
         return JSValue::EXCEPTION;
     }
 
-    let mut s = if let Some(p) = js_malloc_typed::<JSPromiseData>(ctx, 1, true) {
-        Box::from_raw(p.as_ptr())
+    if let Some(p) = js_malloc_typed::<JSPromiseData>(ctx, 1, true) {
+        let mut s = Box::from_raw(p.as_ptr());
+
+        s.promise_state = JSPromiseStateEnum::JS_PROMISE_PENDING;
+        s.is_handled = false;
+        s.promise_result = JSValue::UNDEFINED;
+        init_list_head(&mut s.promise_reactions[0]);
+        init_list_head(&mut s.promise_reactions[1]);
+
+        JS_SetOpaque(obj, Box::into_raw(s).cast());
     } else {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     };
-
-    s.promise_state = JSPromiseStateEnum::JS_PROMISE_PENDING;
-    s.is_handled = false;
-    s.promise_result = JSValue::UNDEFINED;
-    init_list_head(&mut s.promise_reactions[0]);
-    init_list_head(&mut s.promise_reactions[1]);
-
-    JS_SetOpaque(obj, Box::into_raw(s).cast());
 
     let mut args = if let Ok(rr) = js_create_resolving_functions(ctx.as_mut().unwrap(), obj) {
         rr
@@ -467,7 +461,11 @@ pub unsafe fn js_promise_all(
         .get_property(ctx.as_mut().unwrap(), JS_ATOM_resolve)
         .into_rc((*ctx).rt());
 
-    if promise_resolve.is_exception() || check_function(ctx, *promise_resolve).is_err() {
+    if promise_resolve.is_exception()
+        || promise_resolve
+            .ensure_callable(ctx.as_mut().unwrap())
+            .is_err()
+    {
         return fail_reject(promise_resolve);
     }
 
@@ -711,7 +709,12 @@ pub unsafe fn js_promise_race(
     let promise_resolve = this_val
         .get_property(ctx.as_mut().unwrap(), JS_ATOM_resolve)
         .into_rc((*ctx).rt());
-    if promise_resolve.is_exception() || check_function(ctx, *promise_resolve).is_err() {
+
+    if promise_resolve.is_exception()
+        || promise_resolve
+            .ensure_callable(ctx.as_mut().unwrap())
+            .is_err()
+    {
         return fail_reject(promise_resolve);
     }
 
