@@ -39,12 +39,19 @@ fn main() {
                 JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
             );
 
-            if JS_IsException(r) {
+            loop {
+                if let Ok((None, false)) = js.execute_pending_job() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+
+            if r.is_exception() {
                 let exc = js.current_exception;
                 js.current_exception = JSValue::NULL;
                 println!("!!! EXCEPTION {exc:?}");
 
-                (*JS_VALUE_GET_OBJ(exc)).dump(js.as_ref());
+                exc.object().dump(js.as_ref());
                 JS_FreeValue(ctx.deref_mut(), exc);
             } else {
                 println!(">>> RESULT: {r:?}");

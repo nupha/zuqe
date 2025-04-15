@@ -67,14 +67,13 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     ctx: &mut JSContext,
     done: bool,
 ) -> JSValue {
-    JS_NewCFunctionData(
-        ctx,
+    ctx.create_cfunction_with_data(
         js_async_from_sync_iterator_unwrap,
         1,
         0,
-        1,
-        [if done { JSValue::TRUE } else { JSValue::FALSE }].as_mut_ptr(),
+        &[if done { JSValue::TRUE } else { JSValue::FALSE }],
     )
+    .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn js_async_from_sync_iterator_next(

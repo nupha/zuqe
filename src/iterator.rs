@@ -2,7 +2,7 @@ use crate::{
     array::{js_create_array, JS_NewArray},
     atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
-    error::JS_ThrowTypeErrorDetachedArrayBuffer,
+    error::{JSResult, JS_ThrowTypeErrorDetachedArrayBuffer},
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
     gc::{JS_MarkFunc, JS_MarkValue},
     map::JSMapRecord,
@@ -69,17 +69,46 @@ impl Default for JSAsyncFromSyncIteratorData {
     }
 }
 
+impl JSContext {
+    /// Create an AsyncIterator from a SyncIterator.
+    ///  `sync_iter` is not consumed.
+    pub fn create_async_from_sync_iterator(&mut self, sync_iter: JSValue) -> JSResult {
+        let next_method = sync_iter
+            .get_property(self, JS_ATOM_next)
+            .check_exception()?
+            .into_rc(self.rt());
+
+        let async_iter = unsafe {
+            JS_NewObjectClass(self, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
+                .check_exception()?
+                .into_rc(self.rt())
+        };
+
+        if let Some(p) = unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) } {
+            let mut s = unsafe { Box::from_raw(p.as_ptr()) };
+            s.sync_iter = sync_iter.dup();
+            s.next_method = next_method.into();
+            unsafe {
+                JS_SetOpaque(*async_iter, Box::into_raw(s).cast());
+            }
+            Ok(async_iter.into())
+        } else {
+            Err(-1)
+        }
+    }
+}
+
 pub unsafe fn JS_GetIterator2(
     ctx: *mut JSContext,
     obj: JSValueConst,
     method: JSValueConst,
 ) -> JSValue {
     let enum_obj = JS_Call(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut());
-    if JS_IsException(enum_obj) {
+    if enum_obj.is_exception() {
         return enum_obj;
     }
 
-    if !JS_IsObject(enum_obj) {
+    if !enum_obj.is_object() {
         JS_FreeValue(ctx, enum_obj);
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
@@ -106,7 +135,10 @@ pub unsafe fn JS_GetIterator(ctx: *mut JSContext, obj: JSValueConst, is_async: b
                 return JSValue::EXCEPTION;
             }
 
-            let ret = JS_CreateAsyncFromSyncIterator(ctx, sync_iter);
+            let ret = (*ctx)
+                .create_async_from_sync_iterator(sync_iter)
+                .unwrap_or(JSValue::EXCEPTION);
+
             JS_FreeValue(ctx, sync_iter);
             return ret;
         }
@@ -131,7 +163,7 @@ pub unsafe fn JS_GetIterator(ctx: *mut JSContext, obj: JSValueConst, is_async: b
     ret
 }
 
-/// return *pdone = 2 if the iterator object is not parsed
+/// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
 pub unsafe fn JS_IteratorNext2(
     ctx: *mut JSContext,
     enum_obj: JSValueConst,
@@ -144,7 +176,6 @@ pub unsafe fn JS_IteratorNext2(
     // intermediate result object)
     if method.is_object() {
         let p = method.object();
-
         if p.class_id() == JS_CLASS_C_FUNCTION && p.u.cfunc.cproto == JSCFunctionEnum::IteratorNext
         {
             let ret = (p.u.cfunc.c_function.iterator_next)(
@@ -152,9 +183,9 @@ pub unsafe fn JS_IteratorNext2(
                 enum_obj,
                 argc,
                 if argc == 0 {
-                    std::ptr::null_mut()
-                } else {
                     [JSValue::UNDEFINED].as_mut_ptr()
+                } else {
+                    argv
                 },
                 pdone,
                 (*p).u.cfunc.magic as _,
@@ -192,7 +223,7 @@ pub unsafe fn JS_IteratorNext(
 ) -> JSValue {
     let mut done: i32 = 0;
     let obj = JS_IteratorNext2(ctx, enum_obj, method, argc, argv, &mut done);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         *pdone = false;
         return JSValue::EXCEPTION;
     }
@@ -224,7 +255,7 @@ pub unsafe fn JS_IteratorClose(
     enum_obj: JSValueConst,
     is_exception_pending: bool,
 ) -> Result<(), i32> {
-    let (ex_obj, mut res) = if is_exception_pending {
+    let (exc_obj, mut res) = if is_exception_pending {
         let exc = (*ctx).rt_mut().current_exception.replace(JSValue::NULL);
         (exc, -1)
     } else {
@@ -256,7 +287,7 @@ pub unsafe fn JS_IteratorClose(
     }
 
     if is_exception_pending {
-        ctx.as_mut().unwrap().JS_Throw(ex_obj);
+        ctx.as_mut().unwrap().JS_Throw(exc_obj);
     }
 
     if res == -1 {
@@ -287,35 +318,14 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     value
 }
 
+#[deprecated(note = "use JSContext::create_async_from_sync_iterator() instead")]
 pub unsafe fn JS_CreateAsyncFromSyncIterator(
     ctx: *mut JSContext,
     sync_iter: JSValueConst,
 ) -> JSValue {
-    let next_method = sync_iter.get_property(ctx.as_mut().unwrap(), JS_ATOM_next);
-    if next_method.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    let async_iter = JS_NewObjectClass(ctx, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
-    if async_iter.is_exception() {
-        JS_FreeValue(ctx, next_method);
-        return async_iter;
-    }
-
-    // alloc for Box<JSAsyncFromSyncIteratorData>
-    let ly = std::alloc::Layout::new::<JSAsyncFromSyncIteratorData>();
-    let s = std::alloc::alloc(ly).cast::<JSAsyncFromSyncIteratorData>();
-    if s.is_null() {
-        JS_FreeValue(ctx, async_iter);
-        JS_FreeValue(ctx, next_method);
-        return JSValue::EXCEPTION;
-    }
-
-    (*s).sync_iter = JS_DupValue(ctx, sync_iter);
-    (*s).next_method = next_method;
-    JS_SetOpaque(async_iter, s.cast());
-
-    async_iter
+    (*ctx)
+        .create_async_from_sync_iterator(sync_iter)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
