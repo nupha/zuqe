@@ -122,8 +122,8 @@ pub unsafe fn list_count(head: *const list_head) -> usize {
 }
 
 #[inline(always)]
-pub fn list_empty(el: *mut list_head) -> bool {
-    unsafe { (*el).next == el }
+pub fn list_empty(el: *const list_head) -> bool {
+    unsafe { (*el).next as *const list_head == el }
 }
 
 pub unsafe fn list_foreach(head: *mut list_head, mut f: impl FnMut(*mut list_head)) {

@@ -455,40 +455,6 @@ pub unsafe fn js_promise_race(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    // done:
-    //     JS_FreeValue(ctx, promise_resolve);
-    //     JS_FreeValue(ctx, next_method);
-    //     JS_FreeValue(ctx, iter);
-    //     JS_FreeValue(ctx, resolving_funcs[0]);
-    //     JS_FreeValue(ctx, resolving_funcs[1]);
-    //     return result_promise;
-    // fail:
-    //     JS_FreeValue(ctx, result_promise);
-    //     result_promise = JS_EXCEPTION;
-    //     goto_done!();
-    // fail_reject:
-    //     let error: JSValue = JS_GetException(ctx);
-    //     ret = JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &error as *const JSValueConst);
-    //     JS_FreeValue(ctx, error);
-    //     if JS_IsException(ret) {
-    //         goto_fail!();
-    //     }
-    //     JS_FreeValue(ctx, ret);
-    //     goto_done!();
-    // fail_reject1:
-    //     JS_IteratorClose(ctx, iter, true as BOOL);
-    //     goto_fail_reject!();
-
-    // let mut result_promise: JSValue = 0;
-    // let mut resolving_funcs: [JSValue; 2] = [0; 2];
-    // let mut item: JSValue = 0;
-    // let mut next_promise: JSValue = 0;
-    // let mut ret: JSValue = 0;
-    // let mut next_method: JSValue = JS_UNDEFINED;
-    // let mut iter: JSValue = JS_UNDEFINED;
-    // let mut promise_resolve: JSValue = JS_UNDEFINED;
-
-    let mut done = false;
     if !this_val.is_object() {
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }

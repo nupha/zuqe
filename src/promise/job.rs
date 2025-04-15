@@ -1,7 +1,11 @@
+use std::ops::DerefMut;
+
 use crate::{
     context::{JSContext, JSContextRef},
     function::JS_Call,
-    types::{list_add_tail, list_head},
+    list_entry,
+    runtime::JSRuntime,
+    types::{list_add_tail, list_del, list_empty, list_head},
     value::{JSValue, JSValueConst, JS_FreeValue, JS_ToBool},
 };
 
@@ -19,7 +23,8 @@ pub struct JSJobEntry {
 }
 
 impl JSContext {
-    /// Note: `args` element values will be duplicated inside.
+    /// Append a job to queue.
+    /// Note: `args` values are not consumed.
     pub unsafe fn enqueue_job(&mut self, job_func: JSJobFunc, args: &[JSValue]) -> Result<(), i32> {
         debug_assert!(args.len() <= 5);
 
@@ -39,6 +44,38 @@ impl JSContext {
         list_add_tail(&mut (*ent).link, &mut self.rt_mut().job_list);
 
         Ok(())
+    }
+}
+
+impl JSRuntime {
+    /// take and execute first pending job (only one job) in queue.
+    /// return #0: the JSContext of the executed job.
+    /// return #1: true if it need more runs, false if there are no jobs left.
+    pub fn execute_pending_job(
+        &mut self,
+    ) -> Result<(Option<JSContextRef>, bool), (Option<JSContextRef>, i32)> {
+        if list_empty(&self.job_list) {
+            return Ok((None, false));
+        }
+
+        // get the first pending job and execute it
+        unsafe {
+            let e = list_entry!(self.job_list.next, JSJobEntry, link);
+            list_del(&mut (*e).link);
+
+            let mut ctx = (*e).ctx;
+            let res = ((*e).job_func)(ctx.deref_mut(), (*e).argc as _, (*e).args.as_mut_ptr());
+            for i in 0..(*e).argc {
+                JS_FreeValue(ctx.as_raw(), (*e).args[i as usize]);
+            }
+
+            JS_FreeValue(ctx.as_raw(), res);
+            drop(Box::from_raw(e));
+
+            res.check_exception().map_err(|_| (Some(ctx), -1))?;
+
+            Ok((Some(ctx), true))
+        }
     }
 }
 
@@ -95,4 +132,30 @@ pub unsafe fn promise_reaction_job(
     JS_FreeValue(ctx, res);
 
     res2
+}
+
+/// return < 0 if exception, 0 if no job pending, 1 if a job was
+/// executed successfully. the context of the job is stored in '*pctx'
+pub unsafe fn JS_ExecutePendingJob(rt: &mut JSRuntime, pctx: *mut *mut JSContext) -> i32 {
+    if list_empty(&rt.job_list) {
+        *pctx = std::ptr::null_mut();
+        return 0;
+    }
+
+    // get the first pending job and execute it
+    let e = list_entry!(rt.job_list.next, JSJobEntry, link);
+    list_del(&mut (*e).link);
+
+    let mut ctx = (*e).ctx;
+    let res = ((*e).job_func)(ctx.deref_mut(), (*e).argc as _, (*e).args.as_mut_ptr());
+    for i in 0..(*e).argc {
+        JS_FreeValue(ctx.as_raw(), (*e).args[i as usize]);
+    }
+    let ret = if res.is_exception() { -1 } else { 1 };
+
+    JS_FreeValue(ctx.as_raw(), res);
+    drop(Box::from_raw(e));
+
+    *pctx = ctx.as_raw();
+    ret
 }
