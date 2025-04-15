@@ -13,8 +13,9 @@ use crate::{
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     mem::js_malloc_typed,
     promise::{
-        fulfill_or_reject_promise, perform_promise_then, reject_promise, JSPromiseData,
-        JSPromiseFunctionData, JSPromiseFunctionDataResolved, JSPromiseStateEnum,
+        fulfill_or_reject_promise, js_create_resolving_functions,
+        js_promise_resolve_function_free_resolved, perform_promise_then, reject_promise,
+        JSPromiseData, JSPromiseFunctionData, JSPromiseFunctionDataResolved, JSPromiseStateEnum,
     },
     runtime::JSRuntime,
     types::init_list_head,
@@ -211,68 +212,6 @@ pub unsafe fn js_promise_resolve_thenable_job(
     JS_FreeValue(ctx, args[1]);
 
     res
-}
-
-pub unsafe fn js_create_resolving_functions(
-    ctx: &mut JSContext,
-    promise: JSValueConst,
-) -> Result<[JSValue; 2], i32> {
-    let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED]; // [resolve, reject]
-
-    // TODO: handle alloc fail
-    let sr = Box::new(JSPromiseFunctionDataResolved {
-        ref_count: 1,
-        already_resolved: false,
-    });
-
-    // leak ownership of JSPromiseFunctionDataResolved
-    let mut sr_ptr = NonNull::new_unchecked(Box::into_raw(sr));
-
-    for i in 0..2 {
-        let obj = JS_NewObjectProtoClass(
-            ctx,
-            ctx.function_proto,
-            JS_CLASS_PROMISE_RESOLVE_FUNCTION + i,
-        );
-        if obj.is_exception() {
-            break;
-        }
-
-        let mut s = Box::new(JSPromiseFunctionData {
-            promise,
-            presolved: NonNull::dangling(),
-        });
-
-        // TODO: handle alloc fail
-        // if (alloc failed) {
-        // JS_FreeValue(ctx,  resolving_funcs[0]);
-        // JS_FreeValue(ctx,  resolving_funcs[1]);
-        // js_promise_resolve_function_free_resolved(ctx.rt_mut(), sr);
-        // return Err(-1);
-        // }
-
-        sr_ptr.as_mut().ref_count += 1;
-        s.presolved = sr_ptr;
-        s.promise = promise.dup();
-
-        JS_SetOpaque(obj, Box::into_raw(s).cast()); // leak ownership of JSPromiseFunctionData
-        js_function_set_properties(ctx, obj, JS_ATOM_empty_string, 1);
-        resolving_funcs[i as usize] = obj;
-    }
-
-    js_promise_resolve_function_free_resolved(ctx.rt_mut(), sr_ptr.as_ptr());
-    Ok(resolving_funcs)
-}
-
-pub unsafe fn js_promise_resolve_function_free_resolved(
-    rt: *mut JSRuntime,
-    sr: *mut JSPromiseFunctionDataResolved,
-) {
-    debug_assert!((*sr).ref_count > 0);
-    (*sr).ref_count -= 1;
-    if (*sr).ref_count == 0 {
-        drop(Box::from_raw(sr));
-    }
 }
 
 pub unsafe fn js_promise_resolve(

@@ -307,7 +307,7 @@ pub unsafe fn JS_CallConstructorInternal(
     if js_poll_interrupts(ctx) != 0 {
         return JSValue::EXCEPTION;
     }
-    if unlikely(JS_VALUE_GET_TAG(func_obj) != JS_TAG_OBJECT) {
+    if JS_VALUE_GET_TAG(func_obj) != JS_TAG_OBJECT {
         return ctx.JS_ThrowTypeError(c"not a function");
     }
 

@@ -216,16 +216,13 @@ pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionS
 
     if !sf.arg_base_ptr.is_null() {
         // cannot free the function if it is running
-        debug_assert_ne!(sf.cur_sp_offset, 0);
-
         let mut p = sf.arg_base_ptr;
-        let cur_sp = sf.stack_base_ptr().as_ptr().add(sf.cur_sp_offset);
+        let cur_sp = sf.stack_current_ptr().as_ptr();
         while p < cur_sp {
             JS_FreeValueRT(rt, *p);
             p = p.add(1);
         }
 
-        //js_free_rt(rt, sf.arg_buf.cast());
         sf.arg_base_ptr = std::ptr::null_mut();
     }
 

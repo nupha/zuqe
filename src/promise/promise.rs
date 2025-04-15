@@ -1,22 +1,23 @@
 use std::ptr::NonNull;
 
 use crate::{
-    class::js_create_from_ctor,
+    atom::consts::JS_ATOM_empty_string,
     context::JSContext,
     function::{
-        check_function, JSCFunctionDataRecord, JS_Call, JS_CallConstructor, JS_NewCFunctionData,
+        check_function, js_function_set_properties, JSCFunctionDataRecord, JS_CallConstructor,
+        JS_NewCFunctionData,
     },
-    gc::JS_MarkFunc,
-    js_core::promise::{js_create_resolving_functions, js_promise_constructor},
+    gc::{JS_MarkFunc, JS_MarkValue},
+    js_core::promise::js_promise_constructor,
     list_entry,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    types::{init_list_head, list_add_tail, list_del, list_foreach_safe, list_head},
+    types::{list_add_tail, list_del, list_foreach, list_foreach_safe, list_head},
     value::{
-        object::{JS_GetOpaque, JS_SetOpaque},
+        object::{JS_GetOpaque, JS_NewObjectProtoClass, JS_SetOpaque},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
     },
-    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_PROMISE,
+    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_PROMISE, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
 };
 
 use super::job::promise_reaction_job;
@@ -162,6 +163,54 @@ pub unsafe fn js_new_promise_capability(
     unreachable!("use JSContext::create_promise() instead")
 }
 
+/// create and return [resolve, reject] functions for `promise` object.
+/// Note: `promise` is not consumed.
+pub unsafe fn js_create_resolving_functions(
+    ctx: &mut JSContext,
+    promise: JSValueConst,
+) -> Result<[JSValue; 2], i32> {
+    let sr = Box::new(JSPromiseFunctionDataResolved {
+        ref_count: 1,
+        already_resolved: false, // must be shared between the two functions
+    });
+
+    let mut sr_ptr = NonNull::new_unchecked(Box::into_raw(sr));
+
+    // [resolve, reject]
+    let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
+
+    for i in 0..2 {
+        let obj = JS_NewObjectProtoClass(
+            ctx,
+            ctx.function_proto,
+            JS_CLASS_PROMISE_RESOLVE_FUNCTION + i,
+        );
+
+        if obj.is_exception() {
+            if i != 0 {
+                JS_FreeValue(ctx, resolving_funcs[0]);
+            }
+            js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
+            return Err(-1);
+        }
+
+        sr_ptr.as_mut().ref_count += 1;
+
+        let s = Box::new(JSPromiseFunctionData {
+            promise: promise.dup(),
+            presolved: sr_ptr,
+        });
+
+        JS_SetOpaque(obj, Box::into_raw(s).cast()); // leak ownership of JSPromiseFunctionData
+        js_function_set_properties(ctx, obj, JS_ATOM_empty_string, 1);
+        resolving_funcs[i as usize] = obj;
+    }
+
+    js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
+
+    Ok(resolving_funcs)
+}
+
 /// Note: `value` is duplicated inside.
 pub unsafe fn fulfill_or_reject_promise(
     ctx: *mut JSContext,
@@ -206,20 +255,22 @@ pub unsafe fn fulfill_or_reject_promise(
 
     list_foreach_safe(&mut s.promise_reactions[is_reject as usize], |el| {
         let rd = list_entry!(el, JSPromiseReactionData, link);
-        (*ctx).enqueue_job(
-            promise_reaction_job,
-            &[
-                (*rd).resolving_funcs[0],
-                (*rd).resolving_funcs[1],
-                (*rd).handler,
-                if is_reject {
-                    JSValue::TRUE
-                } else {
-                    JSValue::FALSE
-                },
-                value,
-            ],
-        );
+        (*ctx)
+            .enqueue_job(
+                promise_reaction_job,
+                &[
+                    (*rd).resolving_funcs[0],
+                    (*rd).resolving_funcs[1],
+                    (*rd).handler,
+                    if is_reject {
+                        JSValue::TRUE
+                    } else {
+                        JSValue::FALSE
+                    },
+                    value,
+                ],
+            )
+            .unwrap();
 
         list_del(&mut (*rd).link);
         promise_reaction_data_free((*ctx).rt_mut(), rd);
@@ -318,16 +369,56 @@ pub unsafe fn perform_promise_then(
     Ok(())
 }
 
+pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFunctionDataResolved) {
+    debug_assert!((*sr).ref_count > 0);
+    (*sr).ref_count -= 1;
+    if (*sr).ref_count == 0 {
+        drop(Box::from_raw(sr));
+    }
+}
+
 pub unsafe fn js_promise_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    unimplemented!();
+    let s = JS_GetOpaque(val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+    if s.is_null() {
+        return;
+    }
+
+    for i in 0..2 {
+        list_foreach_safe(&mut (*s).promise_reactions[i], |el| {
+            let rd = list_entry!(el, JSPromiseReactionData, link);
+            promise_reaction_data_free(rt, rd);
+        });
+    }
+
+    JS_FreeValueRT(rt, (*s).promise_result);
+    drop(Box::from_raw(s));
 }
 
 pub unsafe fn js_promise_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    unimplemented!();
+    let s = JS_GetOpaque(val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+    if s.is_null() {
+        return;
+    }
+
+    for i in 0..2 {
+        list_foreach(&mut (*s).promise_reactions[i], |el| {
+            let rd = list_entry!(el, JSPromiseReactionData, link);
+            JS_MarkValue(rt, (*rd).resolving_funcs[0], mark_func);
+            JS_MarkValue(rt, (*rd).resolving_funcs[1], mark_func);
+            JS_MarkValue(rt, (*rd).handler, mark_func);
+        });
+    }
+
+    JS_MarkValue(rt, (*s).promise_result, mark_func);
 }
 
 pub unsafe fn js_promise_resolve_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    unimplemented!();
+    let s = val.object().u.promise_function_data;
+    if !s.is_null() {
+        js_promise_resolve_function_free_resolved((*s).presolved.as_ptr());
+        JS_FreeValueRT(rt, (*s).promise);
+        drop(Box::from_raw(s));
+    }
 }
 
 pub unsafe fn js_promise_resolve_function_mark(
@@ -335,5 +426,8 @@ pub unsafe fn js_promise_resolve_function_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    unimplemented!();
+    let s = val.object().u.promise_function_data;
+    if !s.is_null() {
+        JS_MarkValue(rt, (*s).promise, mark_func);
+    }
 }
