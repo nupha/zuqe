@@ -4,14 +4,14 @@ use crate::{
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
     gc::JS_MarkFunc,
     list_entry,
-    mem::{js_free, js_mallocz},
+    mem::{js_free, js_malloc_typed, js_mallocz},
     runtime::JSRuntime,
-    types::{list_foreach_safe, list_head},
+    types::{init_list_head, list_foreach_safe, list_head},
     value::{
         object::{JSObject, JS_SetOpaque},
-        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
+        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_VALUE_GET_OBJ,
     },
-    JS_CLASS_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -154,6 +154,52 @@ pub unsafe fn js_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {
 
 pub unsafe fn js_generator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
     unimplemented!();
+}
+
+//
+//
+//
+
+pub unsafe fn js_async_generator_function_call(
+    ctx: &mut JSContext,
+    func_obj: JSValueConst,
+    this_obj: JSValueConst,
+    argc: i32,
+    argv: *const JSValueConst,
+    flags: i32,
+) -> JSValue {
+    let mut s = if let Some(p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
+        Box::from_raw(p.as_ptr())
+    } else {
+        return JSValue::EXCEPTION;
+    };
+
+    s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START;
+    init_list_head(&mut s.queue);
+    s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
+    if s.func_state.is_null() {
+        s.free(ctx.rt_mut());
+        return JSValue::EXCEPTION;
+    }
+
+    // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
+    let func_ret = async_func_resume(ctx, s.func_state);
+    if func_ret.is_exception() {
+        s.free(ctx.rt_mut());
+        return JSValue::EXCEPTION;
+    }
+    JS_FreeValue(ctx, func_ret);
+
+    let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
+    if obj.is_exception() {
+        s.free(ctx.rt_mut());
+        return JSValue::EXCEPTION;
+    }
+
+    s.generator = obj.object();
+    JS_SetOpaque(obj, Box::into_raw(s).cast());
+
+    obj
 }
 
 pub unsafe fn js_async_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {

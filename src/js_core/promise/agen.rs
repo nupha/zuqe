@@ -14,62 +14,19 @@ use crate::{
     },
     iterator::{JSAsyncFromSyncIteratorData, JS_IteratorGetCompleteValue, JS_IteratorNext2},
     list_entry,
-    mem::js_malloc_typed,
     promise::perform_promise_then,
     runtime::JSRuntime,
-    types::{init_list_head, list_add_tail, list_del, list_empty, list_head},
+    types::{list_add_tail, list_del, list_empty, list_head},
     value::{
-        object::{JS_GetOpaque, JS_SetOpaque, JS_PROP_CONFIGURABLE},
+        object::{JS_GetOpaque, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_ToBool, JS_TAG_INT,
-        JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_GENERATOR,
     JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::js_promise_resolve;
-
-pub unsafe fn js_async_generator_function_call(
-    ctx: &mut JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-    flags: i32,
-) -> JSValue {
-    let mut s = if let Some(p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
-        Box::from_raw(p.as_ptr())
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START;
-    init_list_head(&mut s.queue);
-    s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
-    if s.func_state.is_null() {
-        s.free(ctx.rt_mut());
-        return JSValue::EXCEPTION;
-    }
-
-    // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
-    let func_ret = async_func_resume(ctx, s.func_state);
-    if func_ret.is_exception() {
-        s.free(ctx.rt_mut());
-        return JSValue::EXCEPTION;
-    }
-    JS_FreeValue(ctx, func_ret);
-
-    let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
-    if obj.is_exception() {
-        s.free(ctx.rt_mut());
-        return JSValue::EXCEPTION;
-    }
-
-    s.generator = JS_VALUE_GET_OBJ(obj);
-    JS_SetOpaque(obj, Box::into_raw(s).cast());
-
-    obj
-}
 
 #[deprecated(note = "use JSAsyncGeneratorData::free() instead")]
 pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut JSAsyncGeneratorData) {
@@ -320,7 +277,8 @@ pub unsafe fn js_async_generator_resume_next(ctx: *mut JSContext, s: *mut JSAsyn
                             ctx.as_mut().unwrap(),
                             s,
                             (*next).result,
-                        );
+                        )
+                        .unwrap();
                     } else {
                         js_async_generator_reject(ctx, s, (*next).result);
                     }
@@ -677,13 +635,13 @@ pub unsafe fn js_async_generator_next(
     // }
 
     list_add_tail(&mut req.link, &mut (*s).queue);
-    Box::into_raw(req); // leak
+    let _ = Box::into_raw(req); // leak
 
     if (*s).state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
         js_async_generator_resume_next(ctx, s);
     }
 
-    return promise;
+    promise
 }
 
 pub const js_async_generator_proto_funcs: [JSCFunctionListEntry; 4] = [

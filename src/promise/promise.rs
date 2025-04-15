@@ -1,16 +1,16 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::consts::JS_ATOM_empty_string,
+    atom::consts::{JS_ATOM_empty_string, JS_ATOM_then},
+    class::js_create_from_ctor,
     context::JSContext,
     error::JSResult,
-    function::{js_function_set_properties, JSCFunctionDataRecord, JS_CallConstructor},
+    function::{js_function_set_properties, JSCFunctionDataRecord, JS_Call, JS_CallConstructor},
     gc::{JS_MarkFunc, JS_MarkValue},
-    js_core::promise::js_promise_constructor,
     list_entry,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    types::{list_add_tail, list_del, list_foreach, list_foreach_safe, list_head},
+    types::{init_list_head, list_add_tail, list_del, list_foreach, list_foreach_safe, list_head},
     value::{
         object::{JS_GetOpaque, JS_NewObjectProtoClass, JS_SetOpaque},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
@@ -111,6 +111,79 @@ unsafe fn js_promise_executor_new(ctx: *mut JSContext) -> JSValue {
     unreachable!("use JSContext::create_promise_executor() instead");
     // let func_data = [JSValue::UNDEFINED; 2];
     // JS_NewCFunctionData(ctx, js_promise_executor, 2, 0, 2, func_data.as_ptr())
+}
+
+pub unsafe fn js_promise_constructor(
+    ctx: *mut JSContext,
+    new_target: JSValueConst,
+    argc: i32,
+    argv: *mut JSValueConst,
+) -> JSValue {
+    let executor = *argv.offset(0);
+    debug_assert_eq!(executor.object().class_id(), JS_CLASS_C_FUNCTION_DATA);
+
+    if executor.ensure_callable(ctx.as_mut().unwrap()).is_err() {
+        return JSValue::EXCEPTION;
+    }
+
+    let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_PROMISE);
+    if obj.is_exception() {
+        return JSValue::EXCEPTION;
+    }
+
+    if let Some(p) = js_malloc_typed::<JSPromiseData>(ctx, 1, true) {
+        let mut s = Box::from_raw(p.as_ptr());
+
+        s.promise_state = JSPromiseStateEnum::JS_PROMISE_PENDING;
+        s.is_handled = false;
+        s.promise_result = JSValue::UNDEFINED;
+        init_list_head(&mut s.promise_reactions[0]);
+        init_list_head(&mut s.promise_reactions[1]);
+
+        JS_SetOpaque(obj, Box::into_raw(s).cast());
+    } else {
+        JS_FreeValue(ctx, obj);
+        return JSValue::EXCEPTION;
+    };
+
+    let mut args = if let Ok(rr) = js_create_resolving_functions(ctx.as_mut().unwrap(), obj) {
+        rr
+    } else {
+        JS_FreeValue(ctx, obj);
+        return JSValue::EXCEPTION;
+    };
+
+    let ret = JS_Call(
+        ctx.as_mut().unwrap(),
+        executor,
+        JSValue::UNDEFINED,
+        2,
+        args.as_mut_ptr(),
+    );
+    if ret.is_exception() {
+        let mut error = (*ctx).get_exception();
+        let ret2 = JS_Call(
+            ctx.as_mut().unwrap(),
+            args[1],
+            JSValue::UNDEFINED,
+            1,
+            &mut error,
+        );
+        JS_FreeValue(ctx, error);
+        if ret2.is_exception() {
+            JS_FreeValue(ctx, args[0]);
+            JS_FreeValue(ctx, args[1]);
+            JS_FreeValue(ctx, obj);
+            return JSValue::EXCEPTION;
+        }
+        JS_FreeValue(ctx, ret2);
+    }
+
+    JS_FreeValue(ctx, ret);
+    JS_FreeValue(ctx, args[0]);
+    JS_FreeValue(ctx, args[1]);
+
+    obj
 }
 
 unsafe fn js_promise_executor(
@@ -379,6 +452,114 @@ pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFuncti
     (*sr).ref_count -= 1;
     if (*sr).ref_count == 0 {
         drop(Box::from_raw(sr));
+    }
+}
+
+pub unsafe fn js_promise_resolve_thenable_job(
+    ctx: &mut JSContext,
+    argc: i32,
+    argv: *mut JSValueConst,
+) -> JSValue {
+    debug_assert_eq!(argc, 3);
+
+    #[cfg(feature = "DUMP_PROMISE")]
+    println!("js_promise_resolve_thenable_job");
+
+    let promise = *argv.offset(0);
+    let thenable = *argv.offset(1);
+    let then = *argv.offset(2);
+    let mut args = if let Ok(f) = js_create_resolving_functions(ctx, promise) {
+        f
+    } else {
+        return JSValue::EXCEPTION;
+    };
+
+    let res = JS_Call(ctx, then, thenable, 2, args.as_mut_ptr());
+    if res.is_exception() {
+        let error = ctx.get_exception();
+        JS_Call(
+            ctx,
+            args[1], // reject
+            JSValue::UNDEFINED,
+            1,
+            [error].as_mut_ptr(),
+        );
+        JS_FreeValue(ctx, error);
+    }
+
+    JS_FreeValue(ctx, args[0]);
+    JS_FreeValue(ctx, args[1]);
+
+    res
+}
+
+pub unsafe fn js_promise_resolve_function_call(
+    ctx: &mut JSContext,
+    func_obj: JSValueConst,
+    this_val: JSValueConst,
+    argc: i32,
+    argv: *const JSValueConst,
+    flags: i32,
+) -> JSValue {
+    let p = func_obj.object();
+    let s = if let Some(s) = p.u.promise_function_data.as_mut() {
+        if s.presolved.as_ref().already_resolved {
+            return JSValue::UNDEFINED;
+        }
+        s
+    } else {
+        return JSValue::UNDEFINED;
+    };
+
+    s.presolved.as_mut().already_resolved = true;
+    let is_reject = (p.class_id() - JS_CLASS_PROMISE_RESOLVE_FUNCTION) != 0;
+    let resolution = if argc > 0 {
+        *argv.offset(0)
+    } else {
+        JSValue::UNDEFINED
+    };
+
+    #[cfg(DUMP_PROMISE)]
+    {
+        printf(
+            c"js_promise_resolving_function_call: is_reject=%d resolution=",
+            is_reject as i32,
+        );
+        JS_DumpValue(ctx, resolution);
+        printf(c"\n");
+    }
+
+    if is_reject || !resolution.is_object() {
+        fulfill_or_reject_promise(ctx, s.promise, resolution, is_reject);
+        return JSValue::UNDEFINED;
+    } else if resolution.is_same(s.promise) {
+        ctx.JS_ThrowTypeError(c"promise self resolution");
+        let error = ctx.get_exception();
+        reject_promise(ctx, s.promise, error);
+        JS_FreeValue(ctx, error);
+        return JSValue::UNDEFINED;
+    }
+
+    let then = resolution.get_property(ctx, JS_ATOM_then);
+    if then.is_exception() {
+        let error = ctx.get_exception();
+        reject_promise(ctx, s.promise, error);
+        JS_FreeValue(ctx, error);
+        JSValue::UNDEFINED
+    } else if !then.is_function(ctx) {
+        JS_FreeValue(ctx, then);
+        fulfill_or_reject_promise(ctx, s.promise, resolution, is_reject);
+        JSValue::UNDEFINED
+    } else {
+        // Note: arg values are duplicated in advance.
+        ctx.enqueue_job(
+            js_promise_resolve_thenable_job,
+            &[s.promise, resolution, then],
+        )
+        .unwrap();
+
+        JS_FreeValue(ctx, then);
+        JSValue::UNDEFINED
     }
 }
 

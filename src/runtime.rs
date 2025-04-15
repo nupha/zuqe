@@ -10,22 +10,19 @@ use crate::{
     class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
     context::JSContext,
     function::{
-        js_c_function_data_call, js_call_bound_function, js_call_c_function, JSAutoInitFunc,
+        js_async_function_call, js_async_function_resolve_call, js_c_function_data_call,
+        js_call_bound_function, js_call_c_function, JSAutoInitFunc,
         JS_InstantiateFunctionListItem2,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
-    generator::js_generator_function_call,
-    js_core::promise::{
-        js_async_function_call, js_async_function_resolve_call, js_async_generator_function_call,
-        js_promise_resolve_function_call,
-    },
+    generator::{js_async_generator_function_call, js_generator_function_call},
     list_entry,
-    mem::{js_free_rt, JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
+    mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{
         js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
         JSModuleNormalizeFunc,
     },
-    promise::JSJobEntry,
+    promise::{js_promise_resolve_function_call, JSJobEntry},
     stack_frame::JSStackFrame,
     types::{
         init_list_head, list_empty, list_foreach, list_foreach_safe, list_head,
