@@ -368,7 +368,7 @@ impl JSContext {
     }
 
     /// `data` values are not consumed.
-    pub fn create_function_with_data(
+    pub fn create_cfunction_with_data(
         &mut self,
         func: JSCFunctionData,
         length: u8,
@@ -484,7 +484,7 @@ pub unsafe fn JS_NewCFunctionMagic(
 }
 
 /// `data` values are not consumed.
-#[deprecated(note = "use JSContext::create_function_with_data() instead")]
+#[deprecated(note = "use JSContext::create_cfunction_with_data() instead")]
 pub unsafe fn JS_NewCFunctionData(
     ctx: *mut JSContext,
     func: JSCFunctionData,
@@ -494,7 +494,7 @@ pub unsafe fn JS_NewCFunctionData(
     data: *const JSValueConst,
 ) -> JSValue {
     (*ctx)
-        .create_function_with_data(
+        .create_cfunction_with_data(
             func,
             length,
             magic,

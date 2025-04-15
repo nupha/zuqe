@@ -771,18 +771,12 @@ pub unsafe fn js_promise_race(
     result_promise.into()
 }
 
-use std::mem;
-
 pub unsafe fn js_promise_withResolvers(
     ctx: *mut JSContext,
     this_val: JSValueConst,
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let mut result_promise: JSValue = mem::zeroed();
-    let resolving_funcs: [JSValue; 2] = [mem::zeroed(), mem::zeroed()];
-    let mut obj: JSValue = mem::zeroed();
-
     if !this_val.is_object() {
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
@@ -990,16 +984,15 @@ pub unsafe fn js_promise_finally(
     } else {
         let func_data = [ctor, onFinally];
         for i in 0..2 {
-            then_funcs[i] = JS_NewCFunctionData(
-                ctx,
+            if let Ok(f) = (*ctx).create_cfunction_with_data(
                 js_promise_then_finally_func,
                 1,
                 i as _,
-                2,
-                func_data.as_ptr() as *mut JSValue,
-            );
-            if then_funcs[i].is_exception() {
-                if i == 1 {
+                &func_data,
+            ) {
+                then_funcs[i] = f;
+            } else {
+                if i != 0 {
                     JS_FreeValue(ctx, then_funcs[0]);
                 }
                 JS_FreeValue(ctx, ctor);

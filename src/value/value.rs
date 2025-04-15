@@ -330,7 +330,7 @@ impl JSValue {
         if JS_VALUE_HAS_REF_COUNT(v) {
             match JS_VALUE_GET_TAG(v) {
                 JS_TAG_STRING | JS_TAG_SYMBOL => {
-                    let p = unsafe { Rc::from_raw(JS_VALUE_GET_STRING(v)) };
+                    let p = unsafe { Rc::from_raw(v.string()) };
                     let r = Rc::strong_count(&p);
                     let _ = Rc::into_raw(p);
                     Some(r as i32)

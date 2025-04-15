@@ -59,7 +59,7 @@ pub struct JSPromiseReactionData {
 
 impl JSContext {
     pub(super) fn create_promise_executor(&mut self) -> JSResult {
-        self.create_function_with_data(
+        self.create_cfunction_with_data(
             js_promise_executor,
             2,
             0,
