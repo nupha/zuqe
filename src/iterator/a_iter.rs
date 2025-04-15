@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{js_create_iterator_result, JS_Call},
-    gc::JS_MarkFunc,
+    gc::{JS_MarkFunc, JS_MarkValue},
     js_core::promise::js_promise_resolve,
     mem::js_malloc_typed,
     promise::perform_promise_then,
@@ -248,7 +248,7 @@ pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSV
         JS_FreeValueRT(rt, (*s).sync_iter);
         JS_FreeValueRT(rt, (*s).next_method);
 
-        // take ownership of Box<JSAsyncFromSyncIteratorData> and drop
+        // drop Box<JSAsyncFromSyncIteratorData>
         drop(Box::from_raw(s));
     }
 }
@@ -258,5 +258,11 @@ pub unsafe fn js_async_from_sync_iterator_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    unimplemented!();
+    let s =
+        JS_GetOpaque(val, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR).cast::<JSAsyncFromSyncIteratorData>();
+
+    if !s.is_null() {
+        JS_MarkValue(rt, (*s).sync_iter, mark_func);
+        JS_MarkValue(rt, (*s).next_method, mark_func);
+    }
 }
