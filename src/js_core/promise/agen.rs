@@ -1,29 +1,27 @@
 use std::ops::DerefMut;
 
 use crate::{
-    atom::consts::{JS_ATOM_return, JS_ATOM_throw},
-    class::js_create_from_ctor,
     context::JSContext,
     function::{
-        async_func_free, async_func_init, async_func_resume, js_create_iterator_result,
-        JSCFunctionListEntry, JS_Call, JS_NewCFunctionData,
+        async_func_free, async_func_resume, js_create_iterator_result, JSCFunctionListEntry,
+        JS_Call, JS_NewCFunctionData,
     },
     generator::{
         JSAsyncGeneratorData, JSAsyncGeneratorRequest, JSAsyncGeneratorStateEnum, FUNC_RET_AWAIT,
         FUNC_RET_YIELD, FUNC_RET_YIELD_STAR,
     },
-    iterator::{JSAsyncFromSyncIteratorData, JS_IteratorGetCompleteValue, JS_IteratorNext2},
+    iterator::{
+        js_async_from_sync_iterator_next, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW,
+    },
     list_entry,
     promise::perform_promise_then,
     runtime::JSRuntime,
     types::{list_add_tail, list_del, list_empty, list_head},
     value::{
         object::{JS_GetOpaque, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_ToBool, JS_TAG_INT,
-        JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_GENERATOR,
-    JS_MKPTR, JS_PROP_STRING_DEF,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_GENERATOR, JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::js_promise_resolve;
@@ -47,172 +45,6 @@ pub const js_async_iterator_proto_funcs: [JSCFunctionListEntry; 1] = [JS_CFUNC_D
     0,
     js_iterator_proto_iterator
 )];
-
-const GEN_MAGIC_NEXT: i32 = 0;
-const GEN_MAGIC_RETURN: i32 = 1;
-const GEN_MAGIC_THROW: i32 = 2;
-
-pub unsafe fn js_async_from_sync_iterator_unwrap(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-    func_data: *mut JSValue,
-) -> JSValue {
-    js_create_iterator_result(ctx, (*argv).dup(), JS_ToBool(ctx, *func_data).unwrap())
-}
-
-pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
-    ctx: &mut JSContext,
-    done: bool,
-) -> JSValue {
-    ctx.create_cfunction_with_data(
-        js_async_from_sync_iterator_unwrap,
-        1,
-        0,
-        &[if done { JSValue::TRUE } else { JSValue::FALSE }],
-    )
-    .unwrap_or(JSValue::EXCEPTION)
-}
-
-pub unsafe fn js_async_from_sync_iterator_next(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    let done_resolve =
-        |rr: [JSValueRc; 2], mut err: JSValue, is_reject: usize, promise: JSValueRc| -> JSValue {
-            let res2 = JS_Call(
-                ctx.as_mut().unwrap(),
-                *rr[is_reject],
-                JSValue::UNDEFINED,
-                1,
-                &mut err,
-            );
-            JS_FreeValue(ctx, err);
-            JS_FreeValue(ctx, res2);
-            return promise.into();
-        };
-
-    let (promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(JSValue::UNDEFINED)
-    {
-        (
-            pr.into_rc((*ctx).rt()),
-            [rr[0].into_rc((*ctx).rt()), rr[1].into_rc((*ctx).rt())],
-        )
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let s = JS_GetOpaque(this_val, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
-        .cast::<JSAsyncFromSyncIteratorData>();
-    if s.is_null() {
-        (*ctx).JS_ThrowTypeError(c"not an Async-from-Sync Iterator");
-        let err = (*ctx).get_exception();
-        return done_resolve(resolving_funcs, err, 1, promise);
-    }
-
-    let method: JSValueRc;
-    if magic == GEN_MAGIC_NEXT {
-        method = (*s).next_method.dup().into_rc((*ctx).rt());
-    } else {
-        method = (*s)
-            .sync_iter
-            .get_property(
-                ctx.as_mut().unwrap(),
-                if magic == GEN_MAGIC_RETURN {
-                    JS_ATOM_return
-                } else {
-                    JS_ATOM_throw
-                },
-            )
-            .into_rc((*ctx).rt());
-
-        if method.is_exception() {
-            let err = (*ctx).get_exception();
-            return done_resolve(resolving_funcs, err, 1, promise);
-        }
-
-        if method.is_undefined_or_null() {
-            let err: JSValue;
-            let is_reject: usize;
-            if magic == GEN_MAGIC_RETURN {
-                err = js_create_iterator_result(ctx, (*argv.offset(0)).dup(), true);
-                is_reject = 0;
-            } else {
-                err = (*argv.offset(0)).dup();
-                is_reject = 1;
-            }
-            return done_resolve(resolving_funcs, err, is_reject, promise);
-        }
-    }
-
-    let mut done = 0;
-    let mut value = JS_IteratorNext2(
-        ctx,
-        (*s).sync_iter,
-        *method,
-        if argc >= 1 { 1 } else { 0 },
-        argv,
-        &mut done,
-    )
-    .into_rc((*ctx).rt());
-    if value.is_exception() {
-        let err = (*ctx).get_exception();
-        return done_resolve(resolving_funcs, err, 1, promise);
-    }
-
-    if done == 2 {
-        let obj = value;
-        let mut _done = false;
-        value = JS_IteratorGetCompleteValue(ctx, *obj, &mut _done).into_rc((*ctx).rt());
-        if value.is_exception() {
-            let err = (*ctx).get_exception();
-            return done_resolve(resolving_funcs, err, 1, promise);
-        }
-        done = _done as i32;
-    }
-
-    if value.is_exception() {
-        let err = (*ctx).get_exception();
-        return done_resolve(resolving_funcs, err, 1, promise);
-    }
-
-    let value_wrapper_promise =
-        js_promise_resolve(ctx, (*ctx).promise_ctor, 1, value.deref_mut(), 0).into_rc((*ctx).rt());
-    if value_wrapper_promise.is_exception() {
-        let err = (*ctx).get_exception();
-        return done_resolve(resolving_funcs, err, 1, promise);
-    }
-
-    let resolve_reject: [JSValueRc; 2] = [
-        {
-            let f =
-                js_async_from_sync_iterator_unwrap_func_create(ctx.as_mut().unwrap(), done != 0)
-                    .into_rc((*ctx).rt());
-            if f.is_exception() {
-                return JSValue::EXCEPTION;
-            }
-            f
-        },
-        JSValueRc::undefined((*ctx).rt()),
-    ];
-
-    let res = perform_promise_then(
-        ctx.as_mut().unwrap(),
-        *value_wrapper_promise,
-        &[*resolve_reject[0], *resolve_reject[1]],
-        &[*resolving_funcs[0], *resolving_funcs[1]],
-    );
-    if res.is_err() {
-        return JSValue::EXCEPTION;
-    }
-
-    promise.into()
-}
 
 pub const js_async_from_sync_iterator_proto_funcs: [JSCFunctionListEntry; 3] = [
     JS_CFUNC_MAGIC_DEF!(

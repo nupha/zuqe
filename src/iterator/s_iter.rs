@@ -2,7 +2,7 @@ use crate::{
     array::{js_create_array, JS_NewArray},
     atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
-    error::{JSResult, JS_ThrowTypeErrorDetachedArrayBuffer},
+    error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
     gc::{JS_MarkFunc, JS_MarkValue},
     map::JSMapRecord,
@@ -11,18 +11,16 @@ use crate::{
     typed_array::typed_array_is_detached,
     value::{
         object::{
-            js_get_length32, JS_GetOpaque, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObjectClass,
+            js_get_length32, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObjectClass,
             JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum,
             JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
             JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_IsException,
-        JS_IsObject, JS_ToBoolFree, JS_ToStringCheckObject, JS_TAG_NULL, JS_TAG_OBJECT,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_ToStringCheckObject,
+        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_C_FUNCTION,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_FOR_IN_ITERATOR, JS_CLASS_STRING_ITERATOR,
-    JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_C_FUNCTION, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_FOR_IN_ITERATOR,
+    JS_CLASS_STRING_ITERATOR, JS_CLASS_UINT8C_ARRAY,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,50 +50,6 @@ pub struct JSForInIterator {
     pub in_prototype_chain: bool,
     pub is_array: bool,
     pub tab_atom: Box<[PropertyEnum]>,
-}
-
-#[derive(Debug)]
-pub struct JSAsyncFromSyncIteratorData {
-    pub sync_iter: JSValue,
-    pub next_method: JSValue,
-}
-
-impl Default for JSAsyncFromSyncIteratorData {
-    fn default() -> Self {
-        Self {
-            sync_iter: JSValue::UNDEFINED,
-            next_method: JSValue::UNDEFINED,
-        }
-    }
-}
-
-impl JSContext {
-    /// Create an AsyncIterator from a SyncIterator.
-    ///  `sync_iter` is not consumed.
-    pub fn create_async_from_sync_iterator(&mut self, sync_iter: JSValue) -> JSResult {
-        let next_method = sync_iter
-            .get_property(self, JS_ATOM_next)
-            .check_exception()?
-            .into_rc(self.rt());
-
-        let async_iter = unsafe {
-            JS_NewObjectClass(self, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
-                .check_exception()?
-                .into_rc(self.rt())
-        };
-
-        if let Some(p) = unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) } {
-            let mut s = unsafe { Box::from_raw(p.as_ptr()) };
-            s.sync_iter = sync_iter.dup();
-            s.next_method = next_method.into();
-            unsafe {
-                JS_SetOpaque(*async_iter, Box::into_raw(s).cast());
-            }
-            Ok(async_iter.into())
-        } else {
-            Err(-1)
-        }
-    }
 }
 
 pub unsafe fn JS_GetIterator2(
@@ -316,37 +270,6 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     }
     *pdone = done;
     value
-}
-
-#[deprecated(note = "use JSContext::create_async_from_sync_iterator() instead")]
-pub unsafe fn JS_CreateAsyncFromSyncIterator(
-    ctx: *mut JSContext,
-    sync_iter: JSValueConst,
-) -> JSValue {
-    (*ctx)
-        .create_async_from_sync_iterator(sync_iter)
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let s =
-        JS_GetOpaque(val, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR).cast::<JSAsyncFromSyncIteratorData>();
-
-    if !s.is_null() {
-        JS_FreeValueRT(rt, (*s).sync_iter);
-        JS_FreeValueRT(rt, (*s).next_method);
-
-        // take ownership of Box<JSAsyncFromSyncIteratorData> and drop
-        drop(Box::from_raw(s));
-    }
-}
-
-pub unsafe fn js_async_from_sync_iterator_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
-    unimplemented!();
 }
 
 pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
