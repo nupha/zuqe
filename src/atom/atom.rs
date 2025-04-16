@@ -207,11 +207,6 @@ fn JS_ATOM_COUNT_RESIZE(n: i32) -> i32 {
     n * 2
 }
 
-#[deprecated(note = "unused")]
-pub unsafe fn JS_ResizeAtomHash(rt: *mut JSRuntime, new_hash_size: i32) -> i32 {
-    unreachable!("unused");
-}
-
 #[inline(always)]
 unsafe fn atom_get_free(p: *const JSAtomStruct) -> usize {
     p as usize >> 1
@@ -224,25 +219,6 @@ pub unsafe fn atom_set_free(v: usize) -> *mut JSAtomStruct {
 
 pub unsafe fn atom_is_free(p: *const JSAtomStruct) -> bool {
     (p as usize & 1) != 0
-}
-
-#[deprecated(note = "use JSString::atom_type() instead")]
-pub unsafe fn js_get_atom_index(rt: &JSRuntime, p: *const JSAtomStruct) -> JSAtom {
-    unreachable!("use JSString::atom_type() instead");
-
-    // let mut i: u32 = (*p).hash_next; /* atom_index */
-    // if (*p).atom_type() != JSAtomType::Symbol {
-    //     i = *rt
-    //         .atom_hash
-    //         .add(((*p).hash() & (rt.atom_hash_size as u32 - 1)) as usize);
-    //     let mut p1 = *rt.atom_array.add(i as usize) as *const JSString;
-
-    //     while p1 != p {
-    //         debug_assert!(i != 0);
-    //         i = (*p1).hash_next;
-    //         p1 = *rt.atom_array.add(i as usize);
-    //     }
-    // }
 }
 
 #[inline(always)]
@@ -274,25 +250,6 @@ pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
     atom.0 & !JS_ATOM_TAG_INT
 }
 
-#[deprecated(note = "use JSRuntime::add_atom() instead")]
-/* string case (internal). Return Err if error. 'str' is freed. */
-pub unsafe fn __JS_NewAtom(
-    rt: *mut JSRuntime,
-    str: *mut JSString,
-    atom_type: JSAtomTypeHint,
-) -> Result<JSAtom, i32> {
-    unreachable!("use JSRuntime::add_atom() instead");
-}
-
-#[deprecated(note = "use JSRuntime::add_atom_str() instead")]
-pub unsafe fn __JS_NewAtomInit(
-    rt: &mut JSRuntime,
-    str: &str,
-    atom_type: JSAtomInfo,
-) -> Result<JSAtom, i32> {
-    unreachable!("use JSRuntime::add_atom_str() instead");
-}
-
 #[deprecated(note = "use JSAtom::dup() instead")]
 pub unsafe fn JS_DupAtomRT(rt: *mut JSRuntime, v: JSAtom) -> JSAtom {
     v.dup(rt.as_mut().unwrap())
@@ -310,26 +267,6 @@ pub unsafe fn JS_AtomGetKind(ctx: *mut JSContext, v: JSAtom) -> JSAtomKindEnum {
 }
 
 pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
-
-#[deprecated(note = "use JSRuntime::atom_to_str() instead")]
-pub unsafe fn JS_AtomGetStrRT(
-    rt: *mut JSRuntime,
-    buf: *mut c_char,
-    buf_size: usize,
-    atom: JSAtom,
-) -> *const c_char {
-    unreachable!("use JSRuntime::atom_to_str() instead")
-}
-
-#[deprecated(note = "use JSAtom::to_str() instead")]
-pub unsafe fn JS_AtomGetStr(
-    ctx: *mut JSContext,
-    buf: *mut c_char,
-    buf_size: usize,
-    atom: JSAtom,
-) -> *const c_char {
-    unreachable!("unused");
-}
 
 /// debug helper: print atom, don't use in production code
 pub unsafe fn print_atom(rt: *const JSRuntime, atom: JSAtom) {
@@ -383,18 +320,6 @@ pub unsafe fn __JS_AtomToValue(ctx: *mut JSContext, atom: JSAtom, force_string: 
 #[deprecated(note = "use JSAtom::to_value() instead")]
 pub unsafe fn JS_AtomToValue(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
     __JS_AtomToValue(ctx, atom, false)
-}
-
-#[deprecated(note = "use JSAtom::to_value() instead")]
-pub unsafe fn JS_AtomToString(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
-    unreachable!("use JSAtom::to_value() instead");
-    // __JS_AtomToValue(ctx, atom, true)
-}
-
-/// Warning: 'p' is freed
-#[deprecated(note = "use JSRuntime::add_atom_jsstring() instead")]
-pub unsafe fn JS_NewAtomStr(ctx: *mut JSContext, p: *mut JSString) -> JSAtom {
-    unreachable!("use JSRuntime::add_atom_jsstring() instead");
 }
 
 #[deprecated(note = "use JSContext::create_atom() instead")]
@@ -554,11 +479,6 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
 
     //     crate::types::list_del(&mut p.as_mut().link);
     // }
-}
-
-#[deprecated(note = "use JSAtom::to_utf8_string() instead")]
-pub unsafe fn JS_AtomToCString<'a>(ctx: *mut JSContext, atom: JSAtom) -> *const c_char {
-    unreachable!("use JSAtom::to_utf8_string() instead");
 }
 
 /// test if the `atom` can be used as an array index (in 0..u32::MAX range).

@@ -174,23 +174,6 @@ impl AsyncGeneratorValue {
     }
 }
 
-#[deprecated(note = "use JSAsyncGeneratorData::free() instead")]
-pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut JSAsyncGeneratorData) {
-    unreachable!("use JSAsyncGeneratorData::free() instead");
-}
-
-#[deprecated(note = "use AsyncGeneratorValue::function_call() instead")]
-pub unsafe fn js_async_generator_function_call(
-    ctx: &mut JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-    flags: i32,
-) -> JSValue {
-    unreachable!("use AsyncGeneratorValue::function_call() instead");
-}
-
 impl JSAsyncGeneratorData {
     pub fn resume_next(&mut self, ctx: &mut JSContext) {
         enum State {

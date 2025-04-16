@@ -243,12 +243,3 @@ pub unsafe fn build_arg_list(
 
     Ok(tab.into_boxed_slice())
 }
-
-#[deprecated(note = "unused")]
-pub unsafe fn free_arg_list(ctx: *mut JSContext, tab: *mut JSValue, len: u32) {
-    unreachable!("unused");
-    // for i in 0..len {
-    //     JS_FreeValue(ctx, *tab.add(i as _));
-    // }
-    // js_free(ctx, tab.cast());
-}

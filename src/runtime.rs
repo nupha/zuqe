@@ -15,9 +15,7 @@ use crate::{
         JS_InstantiateFunctionListItem2,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
-    generator::{
-        js_async_generator_function_call, js_generator_function_call, AsyncGeneratorValue,
-    },
+    generator::{js_generator_function_call, AsyncGeneratorValue},
     list_entry,
     mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{

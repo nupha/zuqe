@@ -331,11 +331,6 @@ impl PromiseValue {
     }
 }
 
-#[deprecated(note = "unused")]
-unsafe fn js_promise_executor_new(ctx: *mut JSContext) -> JSValue {
-    unreachable!("unused");
-}
-
 pub const PROMISE_MAGIC_all: i32 = 0;
 pub const PROMISE_MAGIC_allSettled: i32 = 1;
 pub const PROMISE_MAGIC_any: i32 = 2;
@@ -797,14 +792,6 @@ pub unsafe fn js_promise_all_resolve_element(
     JSValue::UNDEFINED
 }
 
-#[deprecated(note = "use JSPromiseReactionData::free() instead")]
-pub(super) unsafe fn promise_reaction_data_free(
-    rt: *mut JSRuntime,
-    rd: *mut JSPromiseReactionData,
-) {
-    unreachable!("use JSPromiseReactionData::free() instead");
-}
-
 pub unsafe fn JS_PromiseState(
     ctx: *const JSContext,
     promise: JSValue,
@@ -836,15 +823,6 @@ pub unsafe fn JS_NewPromiseCapability(
     } else {
         JSValue::EXCEPTION
     }
-}
-
-#[deprecated(note = "use JSContext::create_promise() instead")]
-pub unsafe fn js_new_promise_capability(
-    ctx: *mut JSContext,
-    resolving_funcs: *mut JSValue,
-    ctor: JSValueConst,
-) -> JSValue {
-    unreachable!("use JSContext::create_promise() instead")
 }
 
 /// Note: `value` is duplicated inside.

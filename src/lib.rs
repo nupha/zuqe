@@ -17,6 +17,7 @@ pub mod gc;
 pub mod generator;
 pub mod global;
 pub mod iterator;
+pub mod js_core;
 pub mod map;
 pub mod mem;
 pub mod module;
@@ -32,6 +33,7 @@ pub mod unicode;
 pub mod utils;
 pub mod value;
 
-pub mod js_core;
+#[deprecated(note = "unused stuff")]
+pub mod obsoletes;
 
 include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));

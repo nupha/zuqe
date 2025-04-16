@@ -631,18 +631,6 @@ pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> b
     res
 }
 
-/// op1, op2 ref_count unchanged
-#[deprecated(note = "use JSValue::is_same() instead")]
-pub unsafe fn js_same_value(ctx: *mut JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
-    unreachable!("use JSValue::is_same_to() instead");
-    // js_strict_eq2(
-    //     ctx,
-    //     op1.dup(),
-    //     op2.dup(),
-    //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE,
-    // )
-}
-
 #[deprecated(note = "use JSValue::is_same0() instead")]
 pub unsafe fn js_same_value_zero(
     ctx: *mut JSContext,

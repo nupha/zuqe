@@ -22,16 +22,6 @@ pub struct JSPromiseFunctionDataResolved {
     pub already_resolved: bool,
 }
 
-/// create and return [resolve, reject] functions for `promise` object.
-/// Note: `promise` is not consumed.
-#[deprecated(note = "use PromiseValue::create_resolving_functions() instead")]
-pub unsafe fn js_create_resolving_functions(
-    ctx: &mut JSContext,
-    promise: JSValueConst,
-) -> Result<[JSValue; 2], i32> {
-    unreachable!("use PromiseValue::create_resolving_functions() instead");
-}
-
 pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFunctionDataResolved) {
     debug_assert!((*sr).ref_count > 0);
     (*sr).ref_count -= 1;

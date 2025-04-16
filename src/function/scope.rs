@@ -77,26 +77,6 @@ pub unsafe fn is_child_scope(fd: *mut JSFunctionDef, mut scope: i32, parent_scop
     return false;
 }
 
-#[deprecated(note = "use JSFunctionDef::find_var_in_child_scope() instead")]
-pub unsafe fn find_var_in_child_scope(
-    ctx: *mut JSContext,
-    fd: *mut JSFunctionDef,
-    name: JSAtom,
-    scope_level: i32,
-) -> Option<u16> {
-    unreachable!("use JSFunctionDef::find_var_in_child_scope() instead");
-}
-
-#[deprecated(note = "use JSFunctionDef::add_scope_var() instead")]
-pub unsafe fn add_scope_var(
-    ctx: *mut JSContext,
-    fd: *mut JSFunctionDef,
-    name: JSAtom,
-    var_kind: JSVarKindEnum,
-) -> i32 {
-    unreachable!("use JSFunctionDef::add_scope_var() instead");
-}
-
 /// return the position of the next opcode
 pub unsafe fn resolve_scope_var(
     ctx: *mut JSContext,

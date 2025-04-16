@@ -1,15 +1,14 @@
 use std::{
     cmp::Ordering,
-    ffi::{c_void, CStr},
+    ffi::{c_void, CStr, CString},
     ptr::NonNull,
+    str::FromStr,
 };
 
 use {fallible_collections::FallibleVec, libc::c_char};
 
 use crate::{
-    atom::{
-        consts::*, JSAtom, JS_AtomToCString, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL,
-    },
+    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL},
     class::JSClassExoticMethods,
     context::JSContext,
     error::{
@@ -32,9 +31,9 @@ use crate::{
             JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
             JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeCString, JS_FreeValue,
-        JS_IsException, JS_IsUndefined, JS_TAG_OBJECT, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
+        JS_IsUndefined, JS_TAG_OBJECT, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
 };
@@ -825,8 +824,8 @@ pub unsafe fn js_resolve_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32
 // return NULL in case of exception (e.g. module could not be loaded)
 pub unsafe fn js_host_resolve_imported_module(
     ctx: *mut JSContext,
-    base_cname: *const c_char,
-    cname1: *const c_char,
+    base_cname: *const c_char, // TODO: use &str
+    cname1: *const c_char,     // TODO: use &str
 ) -> *mut JSModuleDef {
     let rt = (*ctx).rt.as_ref();
 
@@ -880,20 +879,24 @@ pub unsafe fn js_host_resolve_imported_module_atom(
     base_module_name: JSAtom,
     module_name1: JSAtom,
 ) -> *mut JSModuleDef {
-    let base_cname = JS_AtomToCString(ctx, base_module_name);
-    if base_cname.is_null() {
+    let base_cname = if let Ok(s) = base_module_name.to_utf8_string(ctx.as_mut().unwrap()) {
+        s
+    } else {
         return std::ptr::null_mut();
-    }
+    };
 
-    let cname = JS_AtomToCString(ctx, module_name1);
-    if cname.is_null() {
-        JS_FreeCString(ctx, base_cname);
+    let cname = if let Ok(s) = module_name1.to_utf8_string(ctx.as_mut().unwrap()) {
+        s
+    } else {
         return std::ptr::null_mut();
-    }
+    };
 
-    let m = js_host_resolve_imported_module(ctx, base_cname, cname);
-    JS_FreeCString(ctx, base_cname);
-    JS_FreeCString(ctx, cname);
+    let m = js_host_resolve_imported_module(
+        ctx,
+        CString::from_str(&base_cname).unwrap().as_c_str().as_ptr(),
+        CString::from_str(&cname).unwrap().as_c_str().as_ptr(),
+    );
+
     m
 }
 

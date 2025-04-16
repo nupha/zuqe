@@ -78,11 +78,6 @@ pub unsafe fn lre_is_space(c: i32) -> bool {
     false
 }
 
-#[deprecated(note = "use JSParseState::parse_string_escape() instead")]
-pub unsafe fn lre_parse_escape(pp: *mut *const u8, allow_utf16: i32) -> Result<u32, i32> {
-    unreachable!("use JSParseState::parse_string_escape() instead")
-}
-
 #[deprecated(note = "use JSParseState::is_ident_next() instead")]
 pub unsafe fn lre_js_is_ident_next(c: char) -> bool {
     JSParseState::is_ident_next(c)

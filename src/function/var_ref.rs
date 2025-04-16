@@ -162,16 +162,6 @@ pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
     }
 }
 
-#[deprecated(note = "use JSStackFrame::get_var_ref() instead")]
-pub unsafe fn get_var_ref(
-    ctx: *mut JSContext,
-    sf: *mut JSStackFrame,
-    var_idx: u16,
-    is_arg: bool,
-) -> *mut JSVarRef {
-    unreachable!("use JSStackFrame::get_var_ref() instead")
-}
-
 #[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
 pub unsafe fn close_lexical_var(
     ctx: *mut JSContext,

@@ -415,33 +415,6 @@ pub unsafe fn add_fast_array_element(
     return Ok(true);
 }
 
-/// return -1 if exception
-#[deprecated(note = "not used")]
-pub unsafe fn expand_fast_array(ctx: *mut JSContext, p: *mut JSObject, new_len: u32) -> i32 {
-    unreachable!("unused");
-    // let mut slack: usize = 0;
-
-    // /* XXX: potential arithmetic overflow */
-    // let mut new_size = std::cmp::max(new_len, (*p).u.array.u1.size * 3 / 2);
-    // let new_array_prop = js_realloc2(
-    //     ctx,
-    //     (*p).u.array.data.values.cast(),
-    //     std::mem::size_of::<JSValue>() * new_size as usize,
-    //     &mut slack,
-    // )
-    // .cast::<JSValue>();
-    // if new_array_prop.is_null() {
-    //     return -1;
-    // }
-
-    // new_size += (slack / std::mem::size_of::<JSValue>()) as u32;
-
-    // (*(*p).u.array).data.values = new_array_prop;
-    // (*(*p).u.array).u1.size = new_size;
-
-    // return 0;
-}
-
 pub unsafe fn JS_ToArrayLengthFree(
     ctx: *mut JSContext,
     val: JSValue,
@@ -775,11 +748,6 @@ pub unsafe fn js_get_fast_array(
     } else {
         false
     }
-}
-
-#[deprecated(note = "use JSContext::create_array() instead")]
-pub unsafe fn js_allocate_fast_array(ctx: *const JSContext, len: i64) -> JSValue {
-    unreachable!("use JSContext::create_array() instead");
 }
 
 #[deprecated(note = "use JSValue::is_fast_array() instead")]
