@@ -9,10 +9,9 @@ use crate::{
     },
     gc::{JS_MarkFunc, JS_MarkValue},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
-    js_core::promise::js_promise_resolve,
     list_entry,
     mem::js_malloc_typed,
-    promise::perform_promise_then,
+    promise::{js_promise_resolve, perform_promise_then},
     runtime::JSRuntime,
     types::{
         init_list_head, list_add_tail, list_del, list_empty, list_foreach, list_foreach_safe,

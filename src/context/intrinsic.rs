@@ -25,13 +25,12 @@ use crate::{
         global::{js_global_eval, js_global_props},
         number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
-        promise::{js_promise_funcs, js_promise_proto_funcs},
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
             js_string_proto_funcs,
         },
     },
-    promise::js_promise_constructor,
+    promise::{js_promise_constructor, js_promise_funcs, js_promise_proto_funcs},
     value::{
         object::{
             get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,

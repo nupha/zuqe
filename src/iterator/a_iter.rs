@@ -6,9 +6,8 @@ use crate::{
     error::JSResult,
     function::{js_create_iterator_result, JSCFunctionListEntry, JS_Call},
     gc::{JS_MarkFunc, JS_MarkValue},
-    js_core::promise::js_promise_resolve,
     mem::js_malloc_typed,
-    promise::perform_promise_then,
+    promise::{js_promise_resolve, perform_promise_then},
     runtime::JSRuntime,
     value::{
         object::{JS_GetOpaque, JS_NewObjectClass, JS_SetOpaque},
