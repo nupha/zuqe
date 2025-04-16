@@ -1,15 +1,12 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::consts::{JS_ATOM_constructor, JS_ATOM_empty_string, JS_ATOM_then},
+    atom::consts::*,
     context::JSContext,
-    function::{js_function_set_properties, JS_Call},
+    function::JS_Call,
     gc::{JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
-    value::{
-        object::{JS_GetOpaque, JS_NewObjectProtoClass, JS_SetOpaque},
-        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
-    },
+    value::{object::JS_GetOpaque, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT},
     JS_CLASS_PROMISE, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
 };
 
@@ -32,7 +29,9 @@ pub unsafe fn js_create_resolving_functions(
     ctx: &mut JSContext,
     promise: JSValueConst,
 ) -> Result<[JSValue; 2], i32> {
-    promise.to_promise().create_resolving_functions(ctx)
+    promise
+        .to_promise_unchecked()
+        .create_resolving_functions(ctx)
 }
 
 pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFunctionDataResolved) {

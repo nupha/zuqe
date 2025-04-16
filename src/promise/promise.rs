@@ -61,6 +61,16 @@ pub struct JSPromiseReactionData {
     pub handler: JSValue,
 }
 
+impl JSPromiseReactionData {
+    pub(super) fn free(self: Box<Self>, rt: *mut JSRuntime) {
+        unsafe {
+            JS_FreeValueRT(rt, self.resolving_funcs[0]);
+            JS_FreeValueRT(rt, self.resolving_funcs[1]);
+            JS_FreeValueRT(rt, self.handler);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PromiseValue(JSValue);
 
@@ -166,7 +176,7 @@ impl PromiseValue {
         Ok((result_promise, resolving_funcs))
     }
 
-    /// create and return [resolve, reject] functions for `self` promise object.
+    /// create [resolve, reject] function pairs for `self` promise object.
     /// Note: `self` is not consumed.
     pub(super) fn create_resolving_functions(
         self,
@@ -228,7 +238,32 @@ impl PromiseValue {
     }
 }
 
-// Hooks
+impl JSValue {
+    /// convert value `self` to PromiseValue.
+    /// must ensure `self` is a object of JS_CLASS_PROMISE class, otherwise behavior is undefined.
+    pub unsafe fn to_promise_unchecked(self) -> PromiseValue {
+        debug_assert!(self.is_object());
+        debug_assert_eq!(self.object().class_id(), JS_CLASS_PROMISE);
+        PromiseValue(self)
+    }
+}
+
+impl JSContext {
+    /// create Promise object and its resolving function paris.
+    /// returns Promise object and [resolve, reject] functions.
+    /// this is just a shortcut for `PromiseValue::new(ctx, ctor)`.
+    #[inline(always)]
+    pub unsafe fn create_promise(
+        &mut self,
+        ctor: JSValueConst,
+    ) -> Result<(JSValue, [JSValue; 2]), i32> {
+        PromiseValue::new(self, ctor)
+    }
+}
+
+//
+// Hooks for Promise
+//
 impl PromiseValue {
     /// the native callback for Promise constructor function
     pub unsafe fn hook_constructor(
@@ -269,7 +304,7 @@ impl PromiseValue {
         for i in 0..2 {
             list_foreach_safe(&mut (*s).promise_reactions[i], |el| {
                 let rd = list_entry!(el, JSPromiseReactionData, link);
-                promise_reaction_data_free(rt, rd);
+                Box::from_raw(rd).free(rt);
             });
         }
 
@@ -293,28 +328,6 @@ impl PromiseValue {
         }
 
         JS_MarkValue(rt, (*s).promise_result, mark_func);
-    }
-}
-
-impl JSValue {
-    pub unsafe fn to_promise(self) -> PromiseValue {
-        debug_assert!(self.is_object());
-        debug_assert_eq!(self.object().class_id(), JS_CLASS_PROMISE);
-
-        PromiseValue(self)
-    }
-}
-
-impl JSContext {
-    /// create Promise object and its resolving function paris.
-    /// returns Promise object and [resolve, reject] functions.
-    /// this is just a shortcut for `PromiseValue::new(ctx, ctor)`.
-    #[inline(always)]
-    pub unsafe fn create_promise(
-        &mut self,
-        ctor: JSValueConst,
-    ) -> Result<(JSValue, [JSValue; 2]), i32> {
-        PromiseValue::new(self, ctor)
     }
 }
 
@@ -784,14 +797,12 @@ pub unsafe fn js_promise_all_resolve_element(
     JSValue::UNDEFINED
 }
 
+#[deprecated(note = "use JSPromiseReactionData::free() instead")]
 pub(super) unsafe fn promise_reaction_data_free(
     rt: *mut JSRuntime,
     rd: *mut JSPromiseReactionData,
 ) {
-    JS_FreeValueRT(rt, (*rd).resolving_funcs[0]);
-    JS_FreeValueRT(rt, (*rd).resolving_funcs[1]);
-    JS_FreeValueRT(rt, (*rd).handler);
-    drop(Box::from_raw(rd));
+    unreachable!("use JSPromiseReactionData::free() instead");
 }
 
 pub unsafe fn JS_PromiseState(
@@ -894,7 +905,7 @@ pub unsafe fn fulfill_or_reject_promise(
             .unwrap();
 
         list_del(&mut (*rd).link);
-        promise_reaction_data_free((*ctx).rt_mut(), rd);
+        Box::from_raw(rd).free((*ctx).rt_mut());
     });
 }
 
@@ -912,7 +923,7 @@ pub unsafe fn perform_promise_then(
             Box::from_raw(p.as_ptr())
         } else {
             if i == 1 {
-                promise_reaction_data_free(ctx.rt_mut(), rd_array[0]);
+                Box::from_raw(rd_array[0]).free(ctx.rt_mut());
             }
             return Err(-1);
         };
@@ -970,8 +981,8 @@ pub unsafe fn perform_promise_then(
         ];
         (*ctx).enqueue_job(promise_reaction_job, &args).unwrap();
 
-        promise_reaction_data_free(ctx.rt_mut(), rd_array[0]);
-        promise_reaction_data_free(ctx.rt_mut(), rd_array[1]);
+        Box::from_raw(rd_array[0]).free(ctx.rt_mut());
+        Box::from_raw(rd_array[1]).free(ctx.rt_mut());
     }
 
     (*s).is_handled = true;
