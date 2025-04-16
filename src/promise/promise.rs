@@ -3,13 +3,11 @@ use std::{ops::DerefMut, ptr::NonNull};
 use crate::{
     array::JS_NewArray,
     atom::consts::*,
+    callable::JSCFunctionDataRecord,
     class::js_create_from_ctor,
     context::JSContext,
     error::JSResult,
-    function::{
-        js_function_set_properties, CallArgs, JSCFunctionDataRecord, JS_Call, JS_CallConstructor,
-        JS_Invoke,
-    },
+    function::{js_function_set_properties, CallArgs, JS_Call, JS_CallConstructor, JS_Invoke},
     gc::{JS_MarkFunc, JS_MarkValue},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::error::js_aggregate_error_constructor,

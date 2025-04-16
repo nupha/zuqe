@@ -87,8 +87,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "Function",
             "C_FUNCTION_DATA",
-            Some("crate::function::js_c_function_data_finalizer"),
-            Some("crate::function::js_c_function_data_mark")
+            Some("crate::callable::CallableValue::hook_finalizer"),
+            Some("crate::callable::CallableValue::hook_mark")
         ),
         class_def!(
             "GeneratorFunction",

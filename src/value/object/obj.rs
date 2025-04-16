@@ -3,11 +3,12 @@ use std::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use crate::{
     array_buffer::JSArrayBuffer,
     atom::{consts::*, JSAtom},
+    callable::JSCFunctionDataRecord,
     class::JSClassID,
     context::{JSContext, JS_FreeContext},
     function::{
-        js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction,
-        JSCFunctionDataRecord, JSObjectCFunc, JSObjectFunc, JS_CallFree,
+        js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
+        JSObjectFunc, JS_CallFree,
     },
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
     generator::{JSAsyncGeneratorData, JSGeneratorData},

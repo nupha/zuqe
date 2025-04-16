@@ -7,12 +7,12 @@ use std::{
 
 use crate::{
     atom::{JSAtomStruct, JS_FreeAtomRT},
+    callable::CallableValue,
     class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
     context::JSContext,
     function::{
-        js_async_function_call, js_async_function_resolve_call, js_c_function_data_call,
-        js_call_bound_function, js_call_c_function, JSAutoInitFunc,
-        JS_InstantiateFunctionListItem2,
+        js_async_function_call, js_async_function_resolve_call, js_call_bound_function,
+        js_call_c_function, JSAutoInitFunc, JS_InstantiateFunctionListItem2,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
     generator::{js_generator_function_call, AsyncGeneratorValue},
@@ -208,7 +208,7 @@ impl JSRuntime {
                     .replace(js_call_c_function);
                 rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
                     .call
-                    .replace(js_c_function_data_call);
+                    .replace(CallableValue::hook_call);
                 rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
                     .call
                     .replace(js_call_bound_function);

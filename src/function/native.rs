@@ -251,63 +251,6 @@ pub struct JSCFunctionListEntryPropList {
     pub len: i32,
 }
 
-pub struct JSCFunctionDataRecord {
-    pub func: JSNativeCallback,
-    pub length: u8,
-    pub magic: u16,
-    pub data: SmallVec<[JSValue; 8]>,
-}
-
-impl JSCFunctionDataRecord {
-    /// `data` values are not consumed.
-    pub fn new(
-        ctx: &mut JSContext,
-        callback: JSNativeCallback,
-        length: u8,
-        magic: i32,
-        data: &[JSValue],
-    ) -> Result<Box<Self>, i32> {
-        if let Some(s) = unsafe { js_malloc_typed::<JSCFunctionDataRecord>(ctx, 1, false) } {
-            let mut rec = unsafe { Box::from_raw(s.as_ptr()) };
-
-            rec.func = callback;
-            rec.length = length as u8;
-            rec.magic = magic as u16;
-
-            rec.data = SmallVec::new();
-            rec.data.try_reserve_exact(data.len()).map_err(|_| -1)?;
-            for d in data {
-                rec.data.push(d.dup());
-            }
-
-            Ok(rec)
-        } else {
-            ctx.JS_ThrowOutOfMemory();
-            Err(-1)
-        }
-    }
-
-    /// get data as slice
-    #[inline(always)]
-    pub fn data(&self) -> &[JSValue] {
-        self.data.as_slice()
-    }
-
-    /// get data as slice mut
-    #[inline(always)]
-    pub fn data_mut(&mut self) -> &mut [JSValue] {
-        self.data.as_mut_slice()
-    }
-
-    /// free data values, and drop Self
-    pub unsafe fn free(rt: *mut JSRuntime, rec: *mut Self) {
-        let a = Box::from_raw(rec);
-        for d in a.data() {
-            JS_FreeValueRT(rt, *d);
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct JSObjectCFunc {
@@ -388,29 +331,6 @@ impl JSContext {
             magic,
             self.function_proto,
         )
-    }
-
-    /// `data` values are not consumed.
-    pub fn create_native_callable_object(
-        &mut self,
-        callback: JSNativeCallback,
-        length: u8,
-        magic: i32,
-        data: &[JSValueConst],
-    ) -> JSResult {
-        let s = JSCFunctionDataRecord::new(self, callback, length, magic, data)?;
-
-        let func_obj = unsafe {
-            JS_NewObjectProtoClass(self, self.function_proto, JS_CLASS_C_FUNCTION_DATA)
-                .check_exception()?
-        };
-
-        unsafe {
-            JS_SetOpaque(func_obj, Box::into_raw(s).cast());
-            js_function_set_properties(self, func_obj, JS_ATOM_empty_string, length as _);
-        }
-
-        Ok(func_obj)
     }
 }
 
@@ -699,24 +619,4 @@ pub unsafe fn JS_InstantiateFunctionListItem2(
     }
 
     val
-}
-
-pub unsafe fn js_c_function_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let s = JS_GetOpaque(val, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
-    if !s.is_null() {
-        JSCFunctionDataRecord::free(rt, s);
-    }
-}
-
-pub unsafe fn js_c_function_data_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
-    let s = JS_GetOpaque(val, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
-    if !s.is_null() {
-        for d in (*s).data() {
-            JS_MarkValue(rt, *d, mark_func);
-        }
-    }
 }

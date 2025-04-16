@@ -8,6 +8,7 @@ pub mod array;
 pub mod array_buffer;
 pub mod atom;
 pub mod bytecode;
+pub mod callable;
 pub mod class;
 pub mod context;
 pub mod error;

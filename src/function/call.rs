@@ -8,9 +8,7 @@ use crate::{
     class::js_create_from_ctor,
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError, JS_ThrowStackOverflow},
-    function::{
-        build_arg_list, CallArgs, JSAsyncFunctionState, JSCFunctionDataRecord, JSCFunctionEnum,
-    },
+    function::{build_arg_list, CallArgs, JSAsyncFunctionState, JSCFunctionEnum},
     iterator::js_create_iterator_result,
     runtime::js_check_stack_overflow,
     stack_frame::JSStackFrame,
@@ -622,76 +620,6 @@ pub unsafe fn js_call_c_function(
 
     rt.current_stack_frame = sf.prev_frame;
     ret_val
-}
-
-pub unsafe fn js_c_function_data_call(
-    ctx: &mut JSContext,
-    func_obj: JSValueConst,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-    flags: i32,
-) -> JSValue {
-    let s = JS_GetOpaque(func_obj, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
-
-    let cc = CallArgs::new(
-        NonNull::new_unchecked(ctx as *mut JSContext),
-        this_val,
-        std::slice::from_raw_parts(argv, argc as usize),
-        (*s).magic as _,
-        Some((*s).data_mut()),
-    );
-
-    ((*s).func)(ctx, cc).unwrap_or(JSValue::EXCEPTION)
-
-    // // XXX: could add the function on the stack for debug
-    // if argc < s.length as i32 {
-    //     let mut args = SmallVec::<[JSValue; 16]>::new();
-    //     if args.try_reserve_exact(argc as _).is_err() {
-    //         return JSValue::EXCEPTION;
-    //     }
-
-    //     for i in 0..argc {
-    //         args.push(*argv.offset(i as isize));
-    //     }
-    //     for i in argc as usize..s.length as usize {
-    //         args.push(JSValue::UNDEFINED);
-    //     }
-
-    //     crate::mem::alloca::with_alloca_zeroed(
-    //         std::mem::size_of::<JSValue>() * s.length as usize,
-    //         |sbuf| {
-    //             let args = std::slice::from_raw_parts_mut(
-    //                 sbuf.as_mut_ptr().cast::<JSValue>(),
-    //                 s.length as usize,
-    //             );
-    //             for i in 0..argc as usize {
-    //                 args[i] = *argv.offset(i as isize);
-    //             }
-    //             for i in argc as usize..s.length as usize {
-    //                 args[i] = JSValue::UNDEFINED;
-    //             }
-
-    //             (s.func)(
-    //                 ctx,cc,
-    //                 this_val,
-    //                 argc,
-    //                 args.as_mut_ptr(),
-    //                 s.magic as _,
-    //                 s.data.as_mut_ptr(),
-    //             )
-    //         },
-    //     )
-    // } else {
-    //     (s.func)(
-    //         ctx,
-    //         this_val,
-    //         argc,
-    //         argv as _,
-    //         s.magic as _,
-    //         s.data.as_mut_ptr(),
-    //     )
-    // }
 }
 
 pub unsafe fn js_call_bound_function(
