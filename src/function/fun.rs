@@ -3,7 +3,7 @@ use std::{borrow::Cow, ptr::NonNull};
 use crate::{
     atom::{consts::*, JSAtom},
     class::JSClassID,
-    context::JSContext,
+    context::{JSContext, JS_FreeContext},
     error::{JSResult, JS_ThrowTypeErrorRevokedProxy},
     function::JSVarRef,
     gc::{JS_MarkFunc, JS_MarkValue},
@@ -297,5 +297,19 @@ pub unsafe fn js_bound_function_mark(
     JS_MarkValue(rt, (*bf).this_val, mark_func);
     for i in 0..(*bf).argc {
         JS_MarkValue(rt, *(*bf).argv.as_ptr().offset(i as isize), mark_func);
+    }
+}
+
+pub unsafe fn js_c_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    let p = val.object();
+    if !p.u.cfunc.realm.is_null() {
+        JS_FreeContext(p.u.cfunc.realm);
+    }
+}
+
+pub unsafe fn js_c_function_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    let p = val.object();
+    if !p.u.cfunc.realm.is_null() {
+        mark_func(rt, &mut (*p.u.cfunc.realm).header);
     }
 }

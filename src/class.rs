@@ -482,19 +482,3 @@ pub static js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMeth
     get_property: None,
     set_property: None,
 };
-
-pub unsafe fn js_c_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p = val.object();
-
-    if !p.u.cfunc.realm.is_null() {
-        JS_FreeContext(p.u.cfunc.realm);
-    }
-}
-
-pub unsafe fn js_c_function_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    let p = val.object();
-
-    if !p.u.cfunc.realm.is_null() {
-        mark_func(rt, &mut (*p.u.cfunc.realm).header);
-    }
-}
