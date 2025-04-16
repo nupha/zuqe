@@ -153,6 +153,7 @@ impl JSRuntime {
                 JSValue::UNDEFINED,
                 &e.args[..e.argc as usize],
                 0,
+                None,
             );
             let res = ((*e).callback)(ctx.deref_mut(), cc);
             for i in 0..(*e).argc {

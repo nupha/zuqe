@@ -9,9 +9,9 @@ use crate::{
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError, JS_ThrowStackOverflow},
     function::{
-        build_arg_list, js_create_iterator_result, CallArgs, JSAsyncFunctionState,
-        JSCFunctionDataRecord, JSCFunctionEnum,
+        build_arg_list, CallArgs, JSAsyncFunctionState, JSCFunctionDataRecord, JSCFunctionEnum,
     },
+    iterator::js_create_iterator_result,
     runtime::js_check_stack_overflow,
     stack_frame::JSStackFrame,
     types::{init_list_head, likely, unlikely},
@@ -295,7 +295,7 @@ pub unsafe fn JS_CallFree(
     res
 }
 
-// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) == 0.
+/// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) == 0.
 pub unsafe fn JS_CallConstructorInternal(
     ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -311,7 +311,7 @@ pub unsafe fn JS_CallConstructorInternal(
         return ctx.JS_ThrowTypeError(c"not a function");
     }
 
-    let p = JS_VALUE_GET_OBJ(func_obj).as_mut().unwrap();
+    let p = func_obj.object();
 
     if unlikely(!p.detailed.is_constructor()) {
         return ctx.JS_ThrowTypeError(c"not a constructor");
@@ -501,6 +501,7 @@ pub unsafe fn js_call_c_function(
                 this_obj,
                 std::slice::from_raw_parts(arg_buf, argc as usize),
                 p.u.cfunc.magic as _,
+                None,
             );
             ret_val = (func.native_callback)(realm, cc).unwrap_or(JSValue::EXCEPTION);
         }
@@ -511,6 +512,7 @@ pub unsafe fn js_call_c_function(
                 this_obj,
                 std::slice::from_raw_parts(arg_buf, argc as usize),
                 p.u.cfunc.magic as _,
+                None,
             );
             ret_val = (func.native_getter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
         }
@@ -522,6 +524,7 @@ pub unsafe fn js_call_c_function(
                 this_obj,
                 &alst,
                 p.u.cfunc.magic as _,
+                None,
             );
             ret_val = (func.native_setter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
         }
@@ -611,13 +614,13 @@ pub unsafe fn js_call_c_function(
                 &mut done,
                 (*p).u.cfunc.magic as _,
             );
-            if !JS_IsException(ret_val) && done != 2 {
+            if !ret_val.is_exception() && done != 2 {
                 ret_val = js_create_iterator_result(realm, ret_val, done != 0);
             }
         }
     }
 
-    (*rt).current_stack_frame = (*sf).prev_frame;
+    rt.current_stack_frame = sf.prev_frame;
     ret_val
 }
 
@@ -629,47 +632,66 @@ pub unsafe fn js_c_function_data_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    let s = JS_GetOpaque(func_obj, JS_CLASS_C_FUNCTION_DATA)
-        .cast::<JSCFunctionDataRecord>()
-        .as_mut()
-        .unwrap();
+    let s = JS_GetOpaque(func_obj, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
 
-    // XXX: could add the function on the stack for debug
-    if argc < s.length as i32 {
-        crate::mem::alloca::with_alloca_zeroed(
-            std::mem::size_of::<JSValue>() * s.length as usize,
-            |sbuf| {
-                let args = std::slice::from_raw_parts_mut(
-                    sbuf.as_mut_ptr().cast::<JSValue>(),
-                    s.length as usize,
-                );
-                for i in 0..argc as usize {
-                    args[i] = *argv.offset(i as isize);
-                }
-                for i in argc as usize..s.length as usize {
-                    args[i] = JSValue::UNDEFINED;
-                }
+    let cc = CallArgs::new(
+        NonNull::new_unchecked(ctx as *mut JSContext),
+        this_val,
+        std::slice::from_raw_parts(argv, argc as usize),
+        (*s).magic as _,
+        Some((*s).data_mut()),
+    );
 
-                (s.func)(
-                    ctx,
-                    this_val,
-                    argc,
-                    args.as_mut_ptr(),
-                    s.magic as _,
-                    s.data.as_mut_ptr(),
-                )
-            },
-        )
-    } else {
-        (s.func)(
-            ctx,
-            this_val,
-            argc,
-            argv as _,
-            s.magic as _,
-            s.data.as_mut_ptr(),
-        )
-    }
+    ((*s).func)(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+
+    // // XXX: could add the function on the stack for debug
+    // if argc < s.length as i32 {
+    //     let mut args = SmallVec::<[JSValue; 16]>::new();
+    //     if args.try_reserve_exact(argc as _).is_err() {
+    //         return JSValue::EXCEPTION;
+    //     }
+
+    //     for i in 0..argc {
+    //         args.push(*argv.offset(i as isize));
+    //     }
+    //     for i in argc as usize..s.length as usize {
+    //         args.push(JSValue::UNDEFINED);
+    //     }
+
+    //     crate::mem::alloca::with_alloca_zeroed(
+    //         std::mem::size_of::<JSValue>() * s.length as usize,
+    //         |sbuf| {
+    //             let args = std::slice::from_raw_parts_mut(
+    //                 sbuf.as_mut_ptr().cast::<JSValue>(),
+    //                 s.length as usize,
+    //             );
+    //             for i in 0..argc as usize {
+    //                 args[i] = *argv.offset(i as isize);
+    //             }
+    //             for i in argc as usize..s.length as usize {
+    //                 args[i] = JSValue::UNDEFINED;
+    //             }
+
+    //             (s.func)(
+    //                 ctx,cc,
+    //                 this_val,
+    //                 argc,
+    //                 args.as_mut_ptr(),
+    //                 s.magic as _,
+    //                 s.data.as_mut_ptr(),
+    //             )
+    //         },
+    //     )
+    // } else {
+    //     (s.func)(
+    //         ctx,
+    //         this_val,
+    //         argc,
+    //         argv as _,
+    //         s.magic as _,
+    //         s.data.as_mut_ptr(),
+    //     )
+    // }
 }
 
 pub unsafe fn js_call_bound_function(

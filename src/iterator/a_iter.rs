@@ -4,7 +4,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{js_create_iterator_result, JSCFunctionListEntry, JS_Call},
+    function::{CallArgs, JSCFunctionListEntry, JS_Call},
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
     promise::{js_promise_resolve, perform_promise_then},
@@ -16,7 +16,7 @@ use crate::{
     JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
 };
 
-use super::{JS_IteratorGetCompleteValue, JS_IteratorNext2};
+use super::{js_create_iterator_result, JS_IteratorGetCompleteValue, JS_IteratorNext2};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {
@@ -76,22 +76,18 @@ pub unsafe fn JS_CreateAsyncFromSyncIterator(
         .unwrap_or(JSValue::EXCEPTION)
 }
 
-pub unsafe fn js_async_from_sync_iterator_unwrap(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-    func_data: *mut JSValue,
-) -> JSValue {
-    js_create_iterator_result(ctx, (*argv).dup(), JS_ToBool(ctx, *func_data).unwrap())
+pub fn js_async_from_sync_iterator_unwrap(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    unsafe {
+        let done = JS_ToBool(ctx, args.data_raw(0))?;
+        js_create_iterator_result(ctx, args.get_raw(0).dup(), done).check_exception()
+    }
 }
 
 pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     ctx: &mut JSContext,
     done: bool,
 ) -> JSValue {
-    ctx.create_cfunction_with_data(
+    ctx.create_native_callable_object(
         js_async_from_sync_iterator_unwrap,
         1,
         0,
@@ -165,7 +161,8 @@ pub unsafe fn js_async_from_sync_iterator_next(
             let err: JSValue;
             let is_reject: usize;
             if magic == GEN_MAGIC_RETURN {
-                err = js_create_iterator_result(ctx, (*argv.offset(0)).dup(), true);
+                err =
+                    js_create_iterator_result(ctx.as_mut().unwrap(), (*argv.offset(0)).dup(), true);
                 is_reject = 0;
             } else {
                 err = (*argv.offset(0)).dup();

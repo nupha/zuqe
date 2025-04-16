@@ -3,11 +3,14 @@ use std::{
     ptr::NonNull,
 };
 
+use smallvec::SmallVec;
+
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
     context::{JSContext, JS_DupContext},
     error::JSResult,
     gc::{JS_MarkFunc, JS_MarkValue},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
         object::{
@@ -52,9 +55,28 @@ pub struct CallArgs<'a> {
     pub this: JSValue,
     pub args: &'a [JSValue],
     pub magic: i32,
+
+    /// extra values
+    pub data: Option<&'a mut [JSValue]>,
 }
 
-impl CallArgs<'_> {
+impl<'a> CallArgs<'a> {
+    pub(crate) fn new(
+        ctx: NonNull<JSContext>,
+        this: JSValue,
+        args: &'a [JSValue],
+        magic: i32,
+        data: Option<&'a mut [JSValue]>,
+    ) -> Self {
+        Self {
+            ctx,
+            this,
+            args,
+            magic,
+            data,
+        }
+    }
+
     /// get arguments count
     #[inline(always)]
     pub fn length(&self) -> usize {
@@ -82,21 +104,33 @@ impl CallArgs<'_> {
             JSValue::UNDEFINED.into_rc(unsafe { self.ctx.as_ref().rt() })
         }
     }
-}
 
-impl<'a> CallArgs<'a> {
-    pub(crate) fn new(
-        ctx: NonNull<JSContext>,
-        this: JSValue,
-        args: &'a [JSValue],
-        magic: i32,
-    ) -> Self {
-        Self {
-            ctx,
-            this,
-            args,
-            magic,
+    /// get nth extra data value.
+    /// if you are referencing the value, must dup it by yourself.
+    #[inline(always)]
+    pub fn data_raw(&self, nth: usize) -> JSValue {
+        self.data
+            .as_deref()
+            .and_then(|d| d.get(nth))
+            .copied()
+            .unwrap_or(JSValue::UNDEFINED)
+    }
+
+    /// set nth data value. returns old value, or Err if nth is out of range.
+    /// Note: `val` is consumed.
+    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Result<JSValue, i32> {
+        if let Some(lst) = self.data.as_deref_mut() {
+            if nth < lst.len() {
+                return Ok(unsafe { lst[nth].replace(val) });
+            }
         }
+
+        Err(-1)
+    }
+
+    #[inline(always)]
+    pub fn data_slice(&self) -> Option<&[JSValue]> {
+        self.data.as_deref()
     }
 }
 
@@ -218,69 +252,59 @@ pub struct JSCFunctionListEntryPropList {
 }
 
 pub struct JSCFunctionDataRecord {
-    pub func: JSCFunctionData,
+    pub func: JSNativeCallback,
     pub length: u8,
     pub magic: u16,
-
-    // VLA
-    pub data_len: u8,
-    pub data: [JSValue; 0],
+    pub data: SmallVec<[JSValue; 8]>,
 }
 
 impl JSCFunctionDataRecord {
     /// `data` values are not consumed.
     pub fn new(
         ctx: &mut JSContext,
-        func: JSCFunctionData,
+        callback: JSNativeCallback,
         length: u8,
         magic: i32,
         data: &[JSValue],
     ) -> Result<Box<Self>, i32> {
-        debug_assert!(data.len() <= 16);
+        if let Some(s) = unsafe { js_malloc_typed::<JSCFunctionDataRecord>(ctx, 1, false) } {
+            let mut rec = unsafe { Box::from_raw(s.as_ptr()) };
 
-        let ly = std::alloc::Layout::from_size_align(
-            std::mem::size_of::<JSCFunctionDataRecord>()
-                + data.len() * std::mem::size_of::<JSValue>(),
-            4,
-        )
-        .unwrap();
-
-        let s = unsafe { std::alloc::alloc(ly).cast::<JSCFunctionDataRecord>() };
-        if s.is_null() {
-            ctx.JS_ThrowOutOfMemory();
-            Err(-1)
-        } else {
-            let mut rec = unsafe { Box::from_raw(s) };
-
-            rec.func = func;
+            rec.func = callback;
             rec.length = length as u8;
-            rec.data_len = data.len() as u8;
             rec.magic = magic as u16;
 
-            for (i, d) in data.iter().enumerate() {
-                unsafe {
-                    *rec.data.as_mut_ptr().add(i) = d.dup();
-                }
+            rec.data = SmallVec::new();
+            rec.data.try_reserve_exact(data.len()).map_err(|_| -1)?;
+            for d in data {
+                rec.data.push(d.dup());
             }
 
             Ok(rec)
+        } else {
+            ctx.JS_ThrowOutOfMemory();
+            Err(-1)
         }
     }
 
-    /// get attached data as slice
+    /// get data as slice
+    #[inline(always)]
     pub fn data(&self) -> &[JSValue] {
-        unsafe { std::slice::from_raw_parts(self.data.as_ptr(), self.data_len as usize) }
+        self.data.as_slice()
     }
 
-    pub unsafe fn free(rec: *mut Self) {
-        let ly = std::alloc::Layout::from_size_align(
-            std::mem::size_of::<JSCFunctionDataRecord>()
-                + ((*rec).data_len as usize) * std::mem::size_of::<JSValue>(),
-            4,
-        )
-        .unwrap();
+    /// get data as slice mut
+    #[inline(always)]
+    pub fn data_mut(&mut self) -> &mut [JSValue] {
+        self.data.as_mut_slice()
+    }
 
-        std::alloc::dealloc(rec.cast() as *mut u8, ly);
+    /// free data values, and drop Self
+    pub unsafe fn free(rt: *mut JSRuntime, rec: *mut Self) {
+        let a = Box::from_raw(rec);
+        for d in a.data() {
+            JS_FreeValueRT(rt, *d);
+        }
     }
 }
 
@@ -367,27 +391,26 @@ impl JSContext {
     }
 
     /// `data` values are not consumed.
-    pub fn create_cfunction_with_data(
+    pub fn create_native_callable_object(
         &mut self,
-        func: JSCFunctionData,
+        callback: JSNativeCallback,
         length: u8,
         magic: i32,
         data: &[JSValueConst],
     ) -> JSResult {
+        let s = JSCFunctionDataRecord::new(self, callback, length, magic, data)?;
+
         let func_obj = unsafe {
             JS_NewObjectProtoClass(self, self.function_proto, JS_CLASS_C_FUNCTION_DATA)
                 .check_exception()?
-                .into_rc(self.rt())
         };
 
-        let s = JSCFunctionDataRecord::new(self, func, length, magic, data)?;
-
         unsafe {
-            JS_SetOpaque(*func_obj, Box::into_raw(s).cast());
-            js_function_set_properties(self, *func_obj, JS_ATOM_empty_string, length as _);
+            JS_SetOpaque(func_obj, Box::into_raw(s).cast());
+            js_function_set_properties(self, func_obj, JS_ATOM_empty_string, length as _);
         }
 
-        Ok(func_obj.into())
+        Ok(func_obj)
     }
 }
 
@@ -480,26 +503,6 @@ pub unsafe fn JS_NewCFunctionMagic(
     magic: i16,
 ) -> JSValue {
     JS_NewCFunction2(ctx, std::mem::transmute(func), name, length, cproto, magic)
-}
-
-/// `data` values are not consumed.
-#[deprecated(note = "use JSContext::create_cfunction_with_data() instead")]
-pub unsafe fn JS_NewCFunctionData(
-    ctx: *mut JSContext,
-    func: JSCFunctionData,
-    length: u8,
-    magic: i32,
-    data_count: u8,
-    data: *const JSValueConst,
-) -> JSValue {
-    (*ctx)
-        .create_cfunction_with_data(
-            func,
-            length,
-            magic,
-            std::slice::from_raw_parts(data, data_count as usize),
-        )
-        .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn JS_SetPropertyFunctionList(
@@ -701,10 +704,7 @@ pub unsafe fn JS_InstantiateFunctionListItem2(
 pub unsafe fn js_c_function_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let s = JS_GetOpaque(val, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
     if !s.is_null() {
-        for i in 0..(*s).data_len {
-            JS_FreeValueRT(rt, *(*s).data.as_ptr().add(i as usize));
-        }
-        JSCFunctionDataRecord::free(s);
+        JSCFunctionDataRecord::free(rt, s);
     }
 }
 
@@ -715,8 +715,8 @@ pub unsafe fn js_c_function_data_mark(
 ) {
     let s = JS_GetOpaque(val, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
     if !s.is_null() {
-        for i in 0..(*s).data_len {
-            JS_MarkValue(rt, *(*s).data.as_ptr().add(i as usize), mark_func);
+        for d in (*s).data() {
+            JS_MarkValue(rt, *d, mark_func);
         }
     }
 }

@@ -22,7 +22,7 @@ use crate::{
         js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
         JSModuleNormalizeFunc,
     },
-    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingValue, PromiseValue},
+    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingValue},
     stack_frame::JSStackFrame,
     types::{
         init_list_head, list_empty, list_foreach, list_foreach_safe, list_head,

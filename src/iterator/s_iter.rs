@@ -11,7 +11,7 @@ use crate::{
     typed_array::typed_array_is_detached,
     value::{
         object::{
-            js_get_length32, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObjectClass,
+            js_get_length32, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
             JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum,
             JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
             JS_PROP_ENUMERABLE, JS_PROP_THROW,
@@ -50,6 +50,39 @@ pub struct JSForInIterator {
     pub in_prototype_chain: bool,
     pub is_array: bool,
     pub tab_atom: Box<[PropertyEnum]>,
+}
+
+/// create an Object with two properties: `value` and `done`.
+/// Note: `val` is consumed.
+pub unsafe fn js_create_iterator_result(ctx: &mut JSContext, val: JSValue, done: bool) -> JSValue {
+    let obj = JS_NewObject(ctx);
+    if obj.is_exception() {
+        JS_FreeValue(ctx, val);
+        return obj;
+    }
+
+    if obj
+        .define_property_value(ctx, JS_ATOM_value, val, JS_PROP_C_W_E)
+        .is_err()
+    {
+        JS_FreeValue(ctx, obj);
+        return JSValue::EXCEPTION;
+    }
+
+    if obj
+        .define_property_value(
+            ctx,
+            JS_ATOM_done,
+            if done { JSValue::TRUE } else { JSValue::FALSE },
+            JS_PROP_C_W_E,
+        )
+        .is_err()
+    {
+        JS_FreeValue(ctx, obj);
+        return JSValue::EXCEPTION;
+    }
+
+    obj
 }
 
 pub unsafe fn JS_GetIterator2(

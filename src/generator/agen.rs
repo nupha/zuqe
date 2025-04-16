@@ -3,12 +3,13 @@ use std::ops::DerefMut;
 use crate::{
     class::js_create_from_ctor,
     context::JSContext,
+    error::JSResult,
     function::{
-        async_func_free, async_func_init, async_func_resume, js_create_iterator_result,
-        JSAsyncFunctionState, JSCFunctionListEntry, JS_Call, JS_NewCFunctionData,
+        async_func_free, async_func_init, async_func_resume, CallArgs, JSAsyncFunctionState,
+        JSCFunctionListEntry, JS_Call,
     },
     gc::{JS_MarkFunc, JS_MarkValue},
-    iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
+    iterator::{js_create_iterator_result, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     list_entry,
     mem::js_malloc_typed,
     promise::{js_promise_resolve, perform_promise_then},
@@ -509,78 +510,76 @@ pub unsafe fn js_async_generator_resolve_function_create(
     let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
 
     for i in 0..2 {
-        let func = JS_NewCFunctionData(
-            ctx,
+        if let Ok(func) = (*ctx).create_native_callable_object(
             js_async_generator_resolve_function,
             1,
             i + if is_resume_next { 2 } else { 0 },
-            1,
-            &generator,
-        );
-        if func.is_exception() {
+            &[generator],
+        ) {
+            resolving_funcs[i as usize] = func;
+        } else {
             JS_FreeValue(ctx, resolving_funcs[0]);
             JS_FreeValue(ctx, resolving_funcs[1]);
             return Err(-1);
         }
-
-        resolving_funcs[i as usize] = func;
     }
 
     Ok(resolving_funcs)
 }
 
-pub unsafe fn js_async_generator_resolve_function(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-    func_data: *mut JSValue,
-) -> JSValue {
-    let is_reject = (magic & 1) != 0;
-    let arg = *argv.offset(0);
-    let s =
-        JS_GetOpaque(*func_data.offset(0), JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
+pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let is_reject = args.magic & 1 != 0;
+    let val = args.get_raw(0);
 
-    debug_assert!(!s.is_null());
+    let s = unsafe {
+        JS_GetOpaque(args.data_raw(0), JS_CLASS_ASYNC_GENERATOR)
+            .cast::<JSAsyncGeneratorData>()
+            .as_mut()
+            .unwrap()
+    };
 
-    if magic >= 2 {
+    if args.magic >= 2 {
         // resume next case in AWAITING_RETURN state
         debug_assert!(matches!(
-            (*s).state,
+            s.state,
             JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN
                 | JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED
         ));
 
-        (*s).state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
+        s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
         if is_reject {
-            (*s).reject(ctx.as_mut().unwrap(), arg);
+            s.reject(ctx, val);
         } else {
-            (*s).resolve(ctx.as_mut().unwrap(), arg, true);
+            s.resolve(ctx, val, true);
         }
     } else {
         // restart function execution after await()
         debug_assert_eq!(
-            (*s).state,
+            s.state,
             JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING
         );
 
-        (*(*s).func_state).throw_flag = is_reject;
-        if is_reject {
-            (*ctx).JS_Throw(arg.dup());
-        } else {
-            // return value of await
-            *(*(*s).func_state)
-                .frame
-                .stack_current_ptr()
-                .offset(-1)
-                .as_mut() = arg.dup();
+        unsafe {
+            (*s.func_state).throw_flag = is_reject;
         }
 
-        (*s).resume_next(ctx.as_mut().unwrap());
+        if is_reject {
+            ctx.JS_Throw(val.dup());
+        } else {
+            // return value of await
+            unsafe {
+                *(*s.func_state)
+                    .frame
+                    .stack_current_ptr()
+                    .offset(-1)
+                    .as_mut() = val.dup();
+            }
+        }
+
+        s.resume_next(ctx);
     }
 
-    JSValue::UNDEFINED
+    Ok(JSValue::UNDEFINED)
 }
 
 pub unsafe fn js_async_generator_next(

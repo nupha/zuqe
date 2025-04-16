@@ -689,6 +689,7 @@ pub unsafe fn run_bytecodes(
                         SP![-3],
                         std::slice::from_raw_parts(sp.offset(-2), 2),
                         magic,
+                        None,
                     );
                     let ret_val = js_function_apply(ctx, cc).unwrap_or(JSValue::EXCEPTION);
                     if ret_val.is_exception() {

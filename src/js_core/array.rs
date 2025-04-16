@@ -1349,7 +1349,7 @@ pub unsafe fn js_array_toString(
         JS_FreeValue(ctx, method);
         js_object_toString(
             ctx.as_mut().unwrap(),
-            CallArgs::new(NonNull::new_unchecked(ctx), obj, &[], 0),
+            CallArgs::new(NonNull::new_unchecked(ctx), obj, &[], 0, None),
         )
         .unwrap_or(JSValue::EXCEPTION)
     } else {

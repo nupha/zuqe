@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
     class::{JSClassDef, JSClassID},
     context::JSContext,
-    function::{JSFunctionDef, JSVarKindEnum, JSVarRef},
+    function::{JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback},
     runtime::JSRuntime,
@@ -96,6 +96,26 @@ pub unsafe fn JS_NewAtomStr(ctx: *mut JSContext, p: *mut JSString) -> JSAtom {
 #[deprecated(note = "use JSAtom::to_utf8_string() instead")]
 pub unsafe fn JS_AtomToCString(ctx: *mut JSContext, atom: JSAtom) -> *const c_char {
     unreachable!("use JSAtom::to_utf8_string() instead");
+}
+
+/// `data` values are not consumed.
+#[deprecated(note = "use JSContext::create_native_function_with_data() instead")]
+pub unsafe fn JS_NewCFunctionData(
+    ctx: *mut JSContext,
+    func: JSNativeCallback,
+    length: u8,
+    magic: i32,
+    data_count: u8,
+    data: *const JSValueConst,
+) -> JSValue {
+    (*ctx)
+        .create_native_callable_object(
+            func,
+            length,
+            magic,
+            std::slice::from_raw_parts(data, data_count as usize),
+        )
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 /// op1, op2 ref_count unchanged

@@ -176,37 +176,6 @@ pub unsafe fn get_func_name<'a>(ctx: *mut JSContext, func: JSValueConst) -> Opti
     None
 }
 
-pub unsafe fn js_create_iterator_result(ctx: *mut JSContext, val: JSValue, done: bool) -> JSValue {
-    let obj = JS_NewObject(ctx);
-    if JS_IsException(obj) {
-        JS_FreeValue(ctx, val);
-        return obj;
-    }
-
-    if obj
-        .define_property_value(ctx.as_mut().unwrap(), JS_ATOM_value, val, JS_PROP_C_W_E)
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    if obj
-        .define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_done,
-            JS_NewBool(done),
-            JS_PROP_C_W_E,
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    obj
-}
-
 /// define `length`, `name` properties on func_obj
 pub unsafe fn js_function_set_properties(
     ctx: *mut JSContext,
