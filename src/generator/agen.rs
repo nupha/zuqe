@@ -87,26 +87,29 @@ impl JSAsyncGeneratorData {
 }
 
 /// An AsyncGeneratorValue value
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
 pub struct AsyncGeneratorValue(JSValue);
 
 impl JSValue {
-    /// convert value to AsyncGeneratorValue value.
+    /// interpret value as AsyncGeneratorValue object.
     /// you must ensure that `value` is an AsyncGeneratorValue object.
     #[inline(always)]
-    pub unsafe fn to_async_generator_unchecked(self) -> AsyncGeneratorValue {
+    pub unsafe fn as_async_generator_unchecked(self) -> AsyncGeneratorValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
         debug_assert!(matches!(
             self.object().class_id(),
             JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
         ));
-
-        AsyncGeneratorValue(self)
+        std::mem::transmute(self)
     }
 }
 
+//
+// Hooks
+//
 impl AsyncGeneratorValue {
-    pub unsafe fn call(
+    pub unsafe fn hook_call(
         ctx: &mut JSContext,
         func_obj: JSValue,
         this_obj: JSValue,
@@ -148,14 +151,14 @@ impl AsyncGeneratorValue {
         obj
     }
 
-    pub unsafe fn finalizer(rt: *mut JSRuntime, val: JSValue) {
+    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
         let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
         if !s.is_null() {
             Box::from_raw(s).free(rt.as_mut().unwrap());
         }
     }
 
-    pub unsafe fn mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
         let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
 
         if !s.is_null() {
@@ -457,7 +460,7 @@ pub unsafe fn js_async_generator_completed_return(
 
     let res = perform_promise_then(
         ctx,
-        *promise,
+        promise.as_promise_unchecked(),
         &resolving_funcs1,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
     );
@@ -485,7 +488,7 @@ pub unsafe fn js_async_generator_await(
 
     let res = perform_promise_then(
         ctx,
-        *promise,
+        promise.as_promise_unchecked(),
         &resolving_funcs,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED], // no need to create 'thrownawayCapability' as in the spec
     );

@@ -22,7 +22,7 @@ use crate::{
         js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
         JSModuleNormalizeFunc,
     },
-    promise::{JSJobEntry, PromiseResolvingValue},
+    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingValue, PromiseValue},
     stack_frame::JSStackFrame,
     types::{
         init_list_head, list_empty, list_foreach, list_foreach_safe, list_head,
@@ -46,14 +46,6 @@ pub const JS_STACK_SIZE_MAX: u16 = 65534;
 
 pub type JSInterruptHandler =
     unsafe fn(rt: *mut JSRuntime, opaque: *mut ::core::ffi::c_void) -> ::core::ffi::c_int;
-
-pub type JSHostPromiseRejectionTracker = unsafe fn(
-    ctx: *mut JSContext,
-    promise: JSValue,
-    reason: JSValue,
-    is_handled: ::core::ffi::c_int,
-    opaque: *mut ::core::ffi::c_void,
-);
 
 #[repr(C)]
 pub struct JSRuntime {
@@ -238,7 +230,7 @@ impl JSRuntime {
                 rt.class_array[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
                     Some(js_async_function_resolve_call);
                 rt.class_array[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
-                    Some(AsyncGeneratorValue::call);
+                    Some(AsyncGeneratorValue::hook_call);
             }
 
             if init_shape_hash(&mut rt) == -1 {

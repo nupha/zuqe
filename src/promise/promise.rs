@@ -34,6 +34,14 @@ use super::{
     JSPromiseFunctionData, JSPromiseFunctionDataResolved,
 };
 
+pub type JSHostPromiseRejectionTracker = unsafe fn(
+    ctx: *mut JSContext,
+    promise: PromiseValue,
+    reason: JSValue,
+    is_handled: ::core::ffi::c_int,
+    opaque: *mut ::core::ffi::c_void,
+);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSPromiseStateEnum {
@@ -45,11 +53,13 @@ pub enum JSPromiseStateEnum {
 pub struct JSPromiseData {
     pub promise_state: JSPromiseStateEnum,
 
-    /// 0=fulfill, 1=reject, list of JSPromiseReactionData.link
+    /// 0=fulfill, 1=reject, list of JSPromiseReactionData.link.
+    /// TODO: use [Vec<Box<JSPromiseReactionData>>; 2]
     pub promise_reactions: [list_head; 2],
 
     /// Note: only useful to debug
     pub is_handled: bool,
+
     pub promise_result: JSValue,
 }
 
@@ -71,8 +81,9 @@ impl JSPromiseReactionData {
     }
 }
 
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct PromiseValue(JSValue);
+pub struct PromiseValue(pub(super) JSValue);
 
 impl PromiseValue {
     /// create a Promise object with executor function.
@@ -176,6 +187,11 @@ impl PromiseValue {
         Ok((result_promise, resolving_funcs))
     }
 
+    #[inline(always)]
+    pub fn dup(self) -> Self {
+        Self(self.0.dup())
+    }
+
     /// create [resolve, reject] function pairs for `self` promise object.
     /// Note: `self` is not consumed.
     pub(super) fn create_resolving_functions(
@@ -218,7 +234,7 @@ impl PromiseValue {
             }
 
             let s = Box::new(JSPromiseFunctionData {
-                promise: self.0.dup(),
+                promise: self.dup(),
                 presolved: sr_ptr,
             });
 
@@ -236,15 +252,26 @@ impl PromiseValue {
 
         Ok(resolving_funcs)
     }
+
+    /// get Promise current state.
+    pub fn state(self) -> Result<JSPromiseStateEnum, i32> {
+        let s = unsafe { JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
+        if s.is_null() {
+            Err(-1)
+        } else {
+            Ok(unsafe { (*s).promise_state })
+        }
+    }
 }
 
 impl JSValue {
-    /// convert value `self` to PromiseValue.
-    /// must ensure `self` is a object of JS_CLASS_PROMISE class, otherwise behavior is undefined.
-    pub unsafe fn to_promise_unchecked(self) -> PromiseValue {
+    /// interpret value `self` as PromiseValue.
+    /// must ensure `self` is a JS_CLASS_PROMISE class object, otherwise behavior is undefined.
+    #[inline(always)]
+    pub unsafe fn as_promise_unchecked(self) -> PromiseValue {
         debug_assert!(self.is_object());
         debug_assert_eq!(self.object().class_id(), JS_CLASS_PROMISE);
-        PromiseValue(self)
+        std::mem::transmute(self)
     }
 }
 
@@ -792,17 +819,6 @@ pub unsafe fn js_promise_all_resolve_element(
     JSValue::UNDEFINED
 }
 
-pub unsafe fn JS_PromiseState(
-    ctx: *const JSContext,
-    promise: JSValue,
-) -> Result<JSPromiseStateEnum, i32> {
-    let s = JS_GetOpaque(promise, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-    if s.is_null() {
-        return Err(-1);
-    }
-    Ok((*s).promise_state)
-}
-
 pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
     let s = JS_GetOpaque(promise, JS_CLASS_PROMISE).cast::<JSPromiseData>();
     if s.is_null() {
@@ -811,28 +827,14 @@ pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue
     (*s).promise_result.dup()
 }
 
-#[deprecated(note = "use JSContext::create_promise() instead")]
-pub unsafe fn JS_NewPromiseCapability(
-    ctx: *mut JSContext,
-    resolving_funcs: *mut JSValue,
-) -> JSValue {
-    if let Ok((promise, rr)) = (*ctx).create_promise(JSValue::UNDEFINED) {
-        *resolving_funcs.add(0) = rr[0];
-        *resolving_funcs.add(1) = rr[1];
-        promise
-    } else {
-        JSValue::EXCEPTION
-    }
-}
-
 /// Note: `value` is duplicated inside.
 pub unsafe fn fulfill_or_reject_promise(
     ctx: *mut JSContext,
-    promise: JSValueConst,
+    promise: PromiseValue,
     value: JSValueConst,
     is_reject: bool,
 ) {
-    let s = JS_GetOpaque(promise, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+    let s = JS_GetOpaque(promise.0, JS_CLASS_PROMISE).cast::<JSPromiseData>();
     debug_assert!(!s.is_null());
     debug_assert_eq!((*s).promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
 
@@ -889,11 +891,11 @@ pub unsafe fn fulfill_or_reject_promise(
 
 pub unsafe fn perform_promise_then(
     ctx: &mut JSContext,
-    promise: JSValueConst,
+    promise: PromiseValue,
     resolve_reject: &[JSValue; 2],
     cap_resolving_funcs: &[JSValue; 2],
 ) -> Result<(), i32> {
-    let s = JS_GetOpaque(promise, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+    let s = JS_GetOpaque(promise.0, JS_CLASS_PROMISE).cast::<JSPromiseData>();
     let mut rd_array: [*mut JSPromiseReactionData; 2] = [std::ptr::null_mut(); 2];
 
     for i in 0..2 {
@@ -919,23 +921,17 @@ pub unsafe fn perform_promise_then(
     }
 
     if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
-        for i in 0..2 {
-            list_add_tail(
-                &mut (*rd_array[i as usize]).link,
-                &mut (*s).promise_reactions[i as usize],
-            );
-        }
+        list_add_tail(&mut (*rd_array[0]).link, &mut (*s).promise_reactions[0]);
+        list_add_tail(&mut (*rd_array[1]).link, &mut (*s).promise_reactions[1]);
     } else {
-        let mut args: [JSValueConst; 5] = [JSValue::UNDEFINED; 5];
-
         if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !(*s).is_handled {
-            if let Some(cb) = (*ctx).rt().host_promise_rejection_tracker {
+            if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                 cb(
                     ctx,
                     promise,
                     (*s).promise_result,
                     true as i32,
-                    (*ctx).rt().host_promise_rejection_tracker_opaque,
+                    ctx.rt().host_promise_rejection_tracker_opaque,
                 );
             }
         }
@@ -957,7 +953,7 @@ pub unsafe fn perform_promise_then(
             },
             (*s).promise_result,
         ];
-        (*ctx).enqueue_job(promise_reaction_job, &args).unwrap();
+        ctx.enqueue_job(promise_reaction_job, &args).unwrap();
 
         Box::from_raw(rd_array[0]).free(ctx.rt_mut());
         Box::from_raw(rd_array[1]).free(ctx.rt_mut());
@@ -1020,7 +1016,7 @@ pub unsafe fn js_promise_withResolvers(
 
 pub unsafe fn js_promise_then(
     ctx: *mut JSContext,
-    this_val: JSValueConst,
+    this_val: JSValue, // is actually a PromiseValue
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
@@ -1042,7 +1038,7 @@ pub unsafe fn js_promise_then(
 
     let ret = perform_promise_then(
         ctx.as_mut().unwrap(),
-        this_val,
+        this_val.as_promise_unchecked(),
         &[*argv.add(0), *argv.add(1)],
         &resolving_funcs,
     );

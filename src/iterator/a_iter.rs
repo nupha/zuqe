@@ -228,7 +228,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
 
     let res = perform_promise_then(
         ctx.as_mut().unwrap(),
-        *value_wrapper_promise,
+        value_wrapper_promise.as_promise_unchecked(),
         &[*resolve_reject[0], *resolve_reject[1]],
         &[*resolving_funcs[0], *resolving_funcs[1]],
     );

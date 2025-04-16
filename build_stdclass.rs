@@ -270,7 +270,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
             Some("crate::proxy::js_proxy_mark")
         ),
         //
-        // async start
+        // Async stuff
         //
         class_def!(
             "Promise",
@@ -323,8 +323,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
-            Some("crate::generator::AsyncGeneratorValue::finalizer"),
-            Some("crate::generator::AsyncGeneratorValue::mark")
+            Some("crate::generator::AsyncGeneratorValue::hook_finalizer"),
+            Some("crate::generator::AsyncGeneratorValue::hook_mark")
         ),
     ];
 

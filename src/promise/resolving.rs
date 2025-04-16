@@ -10,10 +10,10 @@ use crate::{
     JS_CLASS_PROMISE, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
 };
 
-use super::{fulfill_or_reject_promise, js_promise_resolve_thenable_job};
+use super::{fulfill_or_reject_promise, js_promise_resolve_thenable_job, PromiseValue};
 
 pub struct JSPromiseFunctionData {
-    pub promise: JSValue,
+    pub promise: PromiseValue,
     pub presolved: NonNull<JSPromiseFunctionDataResolved>,
 }
 
@@ -66,7 +66,7 @@ impl PromiseResolvingValue {
         if is_reject || !resolution.is_object() {
             fulfill_or_reject_promise(ctx, s.promise, resolution, is_reject);
             return JSValue::UNDEFINED;
-        } else if resolution.is_same(s.promise) {
+        } else if resolution.is_same(s.promise.0) {
             ctx.JS_ThrowTypeError(c"promise self resolution");
             let error = ctx.get_exception();
             reject_promise(ctx, s.promise, error);
@@ -88,7 +88,7 @@ impl PromiseResolvingValue {
             // Note: arg values are duplicated in advance.
             ctx.enqueue_job(
                 js_promise_resolve_thenable_job,
-                &[s.promise, resolution, then],
+                &[s.promise.0, resolution, then],
             )
             .unwrap();
 
@@ -101,7 +101,7 @@ impl PromiseResolvingValue {
         let s = val.object().u.promise_function_data;
         if !s.is_null() {
             js_promise_resolve_function_free_resolved((*s).presolved.as_ptr());
-            JS_FreeValueRT(rt, (*s).promise);
+            JS_FreeValueRT(rt, (*s).promise.0);
             drop(Box::from_raw(s));
         }
     }
@@ -109,7 +109,7 @@ impl PromiseResolvingValue {
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
         let s = val.object().u.promise_function_data;
         if !s.is_null() {
-            JS_MarkValue(rt, (*s).promise, mark_func);
+            JS_MarkValue(rt, (*s).promise.0, mark_func);
         }
     }
 }
@@ -123,10 +123,11 @@ pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFuncti
 }
 
 #[inline(always)]
-pub unsafe fn reject_promise(ctx: *mut JSContext, promise: JSValueConst, value: JSValueConst) {
+pub unsafe fn reject_promise(ctx: *mut JSContext, promise: PromiseValue, value: JSValueConst) {
     fulfill_or_reject_promise(ctx, promise, value, true);
 }
 
+/// returned value is a Promise object or Exception.
 pub unsafe fn js_promise_resolve(
     ctx: *mut JSContext,
     this_val: JSValueConst,
@@ -143,7 +144,7 @@ pub unsafe fn js_promise_resolve(
     if !is_reject && !JS_GetOpaque(*argv.offset(0), JS_CLASS_PROMISE).is_null() {
         let ctor = (*argv.offset(0)).get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
         if ctor.is_exception() {
-            return ctor;
+            return JSValue::EXCEPTION;
         }
 
         let is_same = ctor.is_same(this_val);

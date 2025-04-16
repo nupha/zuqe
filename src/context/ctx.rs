@@ -398,8 +398,8 @@ pub struct JSContextRef(NonNull<JSContext>);
 
 impl JSContextRef {
     #[inline(always)]
-    pub fn as_raw(self) -> *mut JSContext {
-        self.0.as_ptr()
+    pub fn as_raw(self) -> NonNull<JSContext> {
+        self.0
     }
 }
 

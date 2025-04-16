@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     function::{JSFunctionDef, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
-    promise::{JSJobFunc, JSPromiseReactionData},
+    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     value::{object::JSObject, JSString, JSValue, JSValueConst},
@@ -425,9 +425,49 @@ pub unsafe fn JS_FreeCString(ctx: *mut JSContext, ptr: *const c_char) {
 #[deprecated(note = "use JSContext::enqueue_job() instead")]
 pub unsafe fn JS_EnqueueJob(
     ctx: *mut JSContext,
-    job_func: *mut JSJobFunc,
+    job_func: *mut JobCallback,
     argc: i32,
     argv: *const JSValueConst,
 ) -> i32 {
     unreachable!()
+}
+
+/// return < 0 if exception, 0 if no job pending, 1 if a job was
+/// executed successfully. the context of the job is stored in '*pctx'
+#[deprecated(note = "use JSRuntime::execute_pending_job() instead")]
+pub unsafe fn JS_ExecutePendingJob(rt: &mut JSRuntime, pctx: *mut *mut JSContext) -> i32 {
+    match rt.execute_pending_job() {
+        Ok((Some(ctx), _)) => {
+            *pctx = ctx.as_raw().as_ptr();
+            1
+        }
+        Ok((None, _)) => 0,
+        Err((Some(ctx), _)) => {
+            *pctx = ctx.as_raw().as_ptr();
+            -1
+        }
+        Err((None, _)) => unreachable!(),
+    }
+}
+
+#[deprecated(note = "use JSContext::create_promise() instead")]
+pub unsafe fn JS_NewPromiseCapability(
+    ctx: *mut JSContext,
+    resolving_funcs: *mut JSValue,
+) -> JSValue {
+    if let Ok((promise, rr)) = (*ctx).create_promise(JSValue::UNDEFINED) {
+        *resolving_funcs.add(0) = rr[0];
+        *resolving_funcs.add(1) = rr[1];
+        promise
+    } else {
+        JSValue::EXCEPTION
+    }
+}
+
+#[deprecated(note = "use PromiseValue::state() instead")]
+pub unsafe fn JS_PromiseState(
+    ctx: *const JSContext,
+    promise: JSValue,
+) -> Result<JSPromiseStateEnum, i32> {
+    promise.as_promise_unchecked().state()
 }

@@ -372,7 +372,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
 
         let res = perform_promise_then(
             ctx.as_mut().unwrap(),
-            promise,
+            promise.as_promise_unchecked(),
             &resolving_funcs,
             &[JSValue::UNDEFINED; 2], // no need to create 'thrownawayCapability' as in the spec
         );

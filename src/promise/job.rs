@@ -2,36 +2,42 @@ use std::ops::DerefMut;
 
 use crate::{
     context::{JSContext, JSContextRef},
-    function::JS_Call,
+    error::JSResult,
+    function::{CallArgs, JS_Call},
     list_entry,
     runtime::JSRuntime,
     types::{list_add_tail, list_del, list_empty, list_head},
-    value::{JSValue, JSValueConst, JS_FreeValue, JS_ToBool},
+    value::{JSValue, JS_FreeValue, JS_ToBool},
 };
 
-pub type JSJobFunc = unsafe fn(ctx: &mut JSContext, argc: i32, argv: *mut JSValueConst) -> JSValue;
+pub type JobCallback = for<'a> fn(ctx: &'a mut JSContext, args: CallArgs<'a>) -> JSResult;
 
 #[repr(C)]
 pub struct JSJobEntry {
     pub link: list_head,
 
     pub ctx: JSContextRef,
-    pub job_func: JSJobFunc,
+    pub callback: JobCallback,
 
+    /// args array, 5 in max
     pub args: [JSValue; 5],
     pub argc: u8,
 }
 
 impl JSContext {
     /// Append a job to queue.
-    /// Note: `args` values are not consumed.
-    pub unsafe fn enqueue_job(&mut self, job_func: JSJobFunc, args: &[JSValue]) -> Result<(), i32> {
+    /// Note: `args` values are not consumed (dup inside).
+    pub unsafe fn enqueue_job(
+        &mut self,
+        callback: JobCallback,
+        args: &[JSValue],
+    ) -> Result<(), i32> {
         debug_assert!(args.len() <= 5);
 
         let mut e = Box::new(JSJobEntry {
             link: list_head::default(),
             ctx: self.into(),
-            job_func,
+            callback,
             args: [JSValue::UNDEFINED; 5],
             argc: args.len() as u8,
         });
@@ -47,16 +53,12 @@ impl JSContext {
     }
 }
 
-pub unsafe fn promise_reaction_job(
-    ctx: &mut JSContext,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    debug_assert_eq!(argc, 5);
+pub fn promise_reaction_job(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    debug_assert_eq!(args.length(), 5);
 
-    let handler = *argv.offset(2);
-    let mut is_reject = JS_ToBool(ctx, *argv.offset(3)).unwrap();
-    let arg = *argv.offset(4);
+    let handler = args.get_raw(2);
+    let mut is_reject = unsafe { JS_ToBool(ctx, args.get_raw(3)).unwrap() };
+    let mut arg = args.get_raw(4);
 
     #[cfg(DUMP_PROMISE)]
     println!("promise_reaction_job: is_reject={}", is_reject);
@@ -68,7 +70,7 @@ pub unsafe fn promise_reaction_job(
             arg.dup()
         }
     } else {
-        JS_Call(ctx, handler, JSValue::UNDEFINED, 1, [arg].as_mut_ptr())
+        unsafe { JS_Call(ctx, handler, JSValue::UNDEFINED, 1, &mut arg) }
     };
 
     is_reject = res.is_exception();
@@ -76,57 +78,56 @@ pub unsafe fn promise_reaction_job(
         res = ctx.get_exception();
     }
 
-    let func = *argv.offset(is_reject as isize); // resolve or reject function
+    let func = args.get_raw(is_reject as usize); // resolve or reject function
 
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async
     // functions
     let res2 = if !func.is_undefined() {
-        JS_Call(ctx, func, JSValue::UNDEFINED, 1, [res].as_mut_ptr())
+        unsafe { JS_Call(ctx, func, JSValue::UNDEFINED, 1, [res].as_mut_ptr()) }
     } else {
         JSValue::UNDEFINED
     };
-    JS_FreeValue(ctx, res);
 
-    res2
+    unsafe {
+        JS_FreeValue(ctx, res);
+    }
+
+    res2.check_exception()
 }
 
-pub unsafe fn js_promise_resolve_thenable_job(
-    ctx: &mut JSContext,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    debug_assert_eq!(argc, 3);
+pub fn js_promise_resolve_thenable_job(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    debug_assert_eq!(args.length(), 3);
 
     #[cfg(feature = "DUMP_PROMISE")]
     println!("js_promise_resolve_thenable_job");
 
-    let promise = (*argv.offset(0)).to_promise_unchecked();
-    let thenable = *argv.offset(1);
-    let then = *argv.offset(2);
-    let mut args = if let Ok(f) = promise.create_resolving_functions(ctx) {
-        f
-    } else {
-        return JSValue::EXCEPTION;
-    };
+    let promise = unsafe { args.get_raw(0).as_promise_unchecked() };
+    let thenable = args.get_raw(1);
+    let then = args.get_raw(2);
+    let mut rr = promise.create_resolving_functions(ctx)?;
 
-    let res = JS_Call(ctx, then, thenable, 2, args.as_mut_ptr());
+    let res = unsafe { JS_Call(ctx, then, thenable, 2, rr.as_mut_ptr()) };
     if res.is_exception() {
         let error = ctx.get_exception();
-        JS_Call(
-            ctx,
-            args[1], // reject
-            JSValue::UNDEFINED,
-            1,
-            [error].as_mut_ptr(),
-        );
-        JS_FreeValue(ctx, error);
+        unsafe {
+            JS_Call(
+                ctx,
+                rr[1], // reject
+                JSValue::UNDEFINED,
+                1,
+                [error].as_mut_ptr(),
+            );
+            JS_FreeValue(ctx, error);
+        }
     }
 
-    JS_FreeValue(ctx, args[0]);
-    JS_FreeValue(ctx, args[1]);
+    unsafe {
+        JS_FreeValue(ctx, rr[0]);
+        JS_FreeValue(ctx, rr[1]);
+    }
 
-    res
+    res.check_exception()
 }
 
 impl JSRuntime {
@@ -145,44 +146,24 @@ impl JSRuntime {
             let e = list_entry!(self.job_list.next, JSJobEntry, link);
             list_del(&mut (*e).link);
 
-            let mut ctx = (*e).ctx;
-            let res = ((*e).job_func)(ctx.deref_mut(), (*e).argc as _, (*e).args.as_mut_ptr());
+            let e = Box::from_raw(e);
+            let mut ctx = e.ctx;
+            let cc = CallArgs::new(
+                ctx.as_raw(),
+                JSValue::UNDEFINED,
+                &e.args[..e.argc as usize],
+                0,
+            );
+            let res = ((*e).callback)(ctx.deref_mut(), cc);
             for i in 0..(*e).argc {
-                JS_FreeValue(ctx.as_raw(), (*e).args[i as usize]);
+                JS_FreeValue(ctx.deref_mut(), (*e).args[i as usize]);
             }
-
-            JS_FreeValue(ctx.as_raw(), res);
-            drop(Box::from_raw(e));
-
-            res.check_exception().map_err(|_| (Some(ctx), -1))?;
-
-            Ok((Some(ctx), true))
+            if let Ok(r) = res {
+                JS_FreeValue(ctx.deref_mut(), r);
+                Ok((Some(ctx), true))
+            } else {
+                Err((Some(ctx), -1))
+            }
         }
     }
-}
-
-/// return < 0 if exception, 0 if no job pending, 1 if a job was
-/// executed successfully. the context of the job is stored in '*pctx'
-pub unsafe fn JS_ExecutePendingJob(rt: &mut JSRuntime, pctx: *mut *mut JSContext) -> i32 {
-    if list_empty(&rt.job_list) {
-        *pctx = std::ptr::null_mut();
-        return 0;
-    }
-
-    // get the first pending job and execute it
-    let e = list_entry!(rt.job_list.next, JSJobEntry, link);
-    list_del(&mut (*e).link);
-
-    let mut ctx = (*e).ctx;
-    let res = ((*e).job_func)(ctx.deref_mut(), (*e).argc as _, (*e).args.as_mut_ptr());
-    for i in 0..(*e).argc {
-        JS_FreeValue(ctx.as_raw(), (*e).args[i as usize]);
-    }
-    let ret = if res.is_exception() { -1 } else { 1 };
-
-    JS_FreeValue(ctx.as_raw(), res);
-    drop(Box::from_raw(e));
-
-    *pctx = ctx.as_raw();
-    ret
 }
