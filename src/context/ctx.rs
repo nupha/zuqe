@@ -52,7 +52,7 @@ pub struct JSDebugInfo {
     source_len: usize,
 }
 
-/// JavaScript execution context
+/// Execution context
 ///
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.

@@ -22,7 +22,7 @@ use crate::{
         js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
         JSModuleNormalizeFunc,
     },
-    promise::{js_promise_resolve_function_call, JSJobEntry},
+    promise::{JSJobEntry, PromiseResolvingValue},
     stack_frame::JSStackFrame,
     types::{
         init_list_head, list_empty, list_foreach, list_foreach_safe, list_head,
@@ -228,9 +228,9 @@ impl JSRuntime {
             // setup async classes
             {
                 rt.class_array[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
-                    Some(js_promise_resolve_function_call);
+                    Some(PromiseResolvingValue::hook_call);
                 rt.class_array[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
-                    Some(js_promise_resolve_function_call);
+                    Some(PromiseResolvingValue::hook_call);
                 rt.class_array[JS_CLASS_ASYNC_FUNCTION as usize].call =
                     Some(js_async_function_call);
                 rt.class_array[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =

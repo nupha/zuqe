@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     function::{JSFunctionDef, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
-    promise::JSPromiseReactionData,
+    promise::{JSJobFunc, JSPromiseReactionData},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     value::{object::JSObject, JSString, JSValue, JSValueConst},
@@ -419,4 +419,15 @@ pub unsafe fn JS_FreeCString(ctx: *mut JSContext, ptr: *const c_char) {
     // debug_assert_eq!(p, container_of!(ptr, JSString, content) as *mut JSString);
 
     // JS_FreeValue(ctx, JS_MKPTR!(JSTag::String, p.cast()));
+}
+
+/// return 0 if OK, < 0 if exception.
+#[deprecated(note = "use JSContext::enqueue_job() instead")]
+pub unsafe fn JS_EnqueueJob(
+    ctx: *mut JSContext,
+    job_func: *mut JSJobFunc,
+    argc: i32,
+    argv: *const JSValueConst,
+) -> i32 {
+    unreachable!()
 }

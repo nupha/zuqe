@@ -281,14 +281,14 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
-            Some("crate::promise::js_promise_resolve_function_finalizer"),
-            Some("crate::promise::js_promise_resolve_function_mark")
+            Some("crate::promise::PromiseResolvingValue::hook_finalizer"),
+            Some("crate::promise::PromiseResolvingValue::hook_mark")
         ),
         class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
-            Some("crate::promise::js_promise_resolve_function_finalizer"),
-            Some("crate::promise::js_promise_resolve_function_mark")
+            Some("crate::promise::PromiseResolvingValue::hook_finalizer"),
+            Some("crate::promise::PromiseResolvingValue::hook_mark")
         ),
         class_def!(
             "AsyncFunction",

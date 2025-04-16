@@ -47,49 +47,6 @@ impl JSContext {
     }
 }
 
-impl JSRuntime {
-    /// take and execute first pending job (only one job) in queue.
-    /// return #0: the JSContext of the executed job.
-    /// return #1: true if it need more runs, false if there are no jobs left.
-    pub fn execute_pending_job(
-        &mut self,
-    ) -> Result<(Option<JSContextRef>, bool), (Option<JSContextRef>, i32)> {
-        if list_empty(&self.job_list) {
-            return Ok((None, false));
-        }
-
-        // get the first pending job and execute it
-        unsafe {
-            let e = list_entry!(self.job_list.next, JSJobEntry, link);
-            list_del(&mut (*e).link);
-
-            let mut ctx = (*e).ctx;
-            let res = ((*e).job_func)(ctx.deref_mut(), (*e).argc as _, (*e).args.as_mut_ptr());
-            for i in 0..(*e).argc {
-                JS_FreeValue(ctx.as_raw(), (*e).args[i as usize]);
-            }
-
-            JS_FreeValue(ctx.as_raw(), res);
-            drop(Box::from_raw(e));
-
-            res.check_exception().map_err(|_| (Some(ctx), -1))?;
-
-            Ok((Some(ctx), true))
-        }
-    }
-}
-
-/// return 0 if OK, < 0 if exception.
-#[deprecated(note = "use JSContext::enqueue_job() instead")]
-pub unsafe fn JS_EnqueueJob(
-    ctx: *mut JSContext,
-    job_func: *mut JSJobFunc,
-    argc: i32,
-    argv: *const JSValueConst,
-) -> i32 {
-    unreachable!()
-}
-
 pub unsafe fn promise_reaction_job(
     ctx: &mut JSContext,
     argc: i32,
@@ -132,6 +89,76 @@ pub unsafe fn promise_reaction_job(
     JS_FreeValue(ctx, res);
 
     res2
+}
+
+pub unsafe fn js_promise_resolve_thenable_job(
+    ctx: &mut JSContext,
+    argc: i32,
+    argv: *mut JSValueConst,
+) -> JSValue {
+    debug_assert_eq!(argc, 3);
+
+    #[cfg(feature = "DUMP_PROMISE")]
+    println!("js_promise_resolve_thenable_job");
+
+    let promise = (*argv.offset(0)).to_promise_unchecked();
+    let thenable = *argv.offset(1);
+    let then = *argv.offset(2);
+    let mut args = if let Ok(f) = promise.create_resolving_functions(ctx) {
+        f
+    } else {
+        return JSValue::EXCEPTION;
+    };
+
+    let res = JS_Call(ctx, then, thenable, 2, args.as_mut_ptr());
+    if res.is_exception() {
+        let error = ctx.get_exception();
+        JS_Call(
+            ctx,
+            args[1], // reject
+            JSValue::UNDEFINED,
+            1,
+            [error].as_mut_ptr(),
+        );
+        JS_FreeValue(ctx, error);
+    }
+
+    JS_FreeValue(ctx, args[0]);
+    JS_FreeValue(ctx, args[1]);
+
+    res
+}
+
+impl JSRuntime {
+    /// take and execute first pending job (only one job) in queue.
+    /// return #0: the JSContext of the executed job.
+    /// return #1: true if it need more runs, false if there are no jobs left.
+    pub fn execute_pending_job(
+        &mut self,
+    ) -> Result<(Option<JSContextRef>, bool), (Option<JSContextRef>, i32)> {
+        if list_empty(&self.job_list) {
+            return Ok((None, false));
+        }
+
+        // get the first pending job and execute it
+        unsafe {
+            let e = list_entry!(self.job_list.next, JSJobEntry, link);
+            list_del(&mut (*e).link);
+
+            let mut ctx = (*e).ctx;
+            let res = ((*e).job_func)(ctx.deref_mut(), (*e).argc as _, (*e).args.as_mut_ptr());
+            for i in 0..(*e).argc {
+                JS_FreeValue(ctx.as_raw(), (*e).args[i as usize]);
+            }
+
+            JS_FreeValue(ctx.as_raw(), res);
+            drop(Box::from_raw(e));
+
+            res.check_exception().map_err(|_| (Some(ctx), -1))?;
+
+            Ok((Some(ctx), true))
+        }
+    }
 }
 
 /// return < 0 if exception, 0 if no job pending, 1 if a job was
