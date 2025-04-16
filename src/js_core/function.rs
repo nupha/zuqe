@@ -13,13 +13,13 @@ use crate::{
     mem::js_malloc,
     value::{
         object::{
-            JS_GetOwnProperty, JS_IsConstructor, JS_NewObjectProtoClass, JS_OrdinaryIsInstanceOf,
+            JS_GetOwnProperty, JS_NewObjectProtoClass, JS_OrdinaryIsInstanceOf,
             JS_SetPrototypeInternal, JS_PROP_CONFIGURABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_FreeValue, JS_IsException,
         JS_IsUndefined, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
     },
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BOUND_FUNCTION,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BOUND_FUNCTION,
 };
 
 // pub unsafe fn js_function_call(
@@ -87,8 +87,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let p = unsafe { func_obj.object() };
-    p.detailed
-        .set_constructor(unsafe { JS_IsConstructor(ctx, args.this) });
+    p.detailed.set_constructor(args.this.is_constructor());
 
     let arg_count = std::cmp::max(0, args.length() - 1);
 

@@ -3,7 +3,6 @@ use std::{
     ffi::{c_void, CStr},
     hash::Hash,
     num::NonZeroU16,
-    os::raw::c_char,
     rc::Rc,
 };
 
@@ -12,11 +11,10 @@ use crate::{
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
-    types::likely,
     value::{
-        object::JS_ToPropertyKey, JSString, JSTag, JSValue, JSValueConst, JS_DumpString,
-        JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToNumberFree, JS_ToString, StringContent,
-        JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        object::JS_ToPropertyKey, JSTag, JSValue, JSValueConst, JS_DumpString, JS_FreeValue,
+        JS_ToNumberFree, JS_ToString, StringContent, JS_VALUE_GET_INT, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -610,7 +608,7 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
             JS_FreeValue(ctx, num);
             return JSValue::EXCEPTION;
         }
-        let same = p.content().eq((*JS_VALUE_GET_STRING(str)).content());
+        let same = p.content().eq(str.string().content());
         JS_FreeValue(ctx, str);
 
         if same {
@@ -627,10 +625,10 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
 // return -1 if exception or TRUE/FALSE
 pub unsafe fn JS_AtomIsNumericIndex(ctx: *mut JSContext, atom: JSAtom) -> i32 {
     let num = JS_AtomIsNumericIndex1(ctx, atom);
-    if likely(JS_IsUndefined(num)) {
+    if num.is_undefined() {
         return 0;
     }
-    if JS_IsException(num) {
+    if num.is_exception() {
         return -1;
     }
     JS_FreeValue(ctx, num);
@@ -645,7 +643,7 @@ pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
 // return a string atom containing name concatenated with str1
 pub unsafe fn js_atom_concat_str(ctx: *mut JSContext, name: JSAtom, str1: *const u8) -> JSAtom {
     let str_val = name.to_value(ctx.as_mut().unwrap(), true);
-    if JS_IsException(str_val) {
+    if str_val.is_exception() {
         return JS_ATOM_NULL;
     }
 

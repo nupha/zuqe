@@ -19,11 +19,11 @@ use crate::{
     value::{
         object::{
             js_get_length32, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_GetOwnPropertyInternal, JS_GetPrototypeFree, JS_IsCFunction, JS_IsConstructor,
-            JS_IsInstanceOf, JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit,
-            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            JS_GetOwnPropertyInternal, JS_GetPrototypeFree, JS_IsCFunction, JS_IsInstanceOf,
+            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM,
+            JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
@@ -163,7 +163,7 @@ pub unsafe fn js_op_define_class(
                 parent_proto = JSValue::NULL;
                 parent_class = ctx.function_proto.dup();
             } else {
-                if !JS_IsConstructor(ctx, parent_class) {
+                if !parent_class.is_constructor() {
                     ctx.JS_ThrowTypeError(c"parent class must be constructor ");
                     break true; // fail
                 }

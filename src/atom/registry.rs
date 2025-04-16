@@ -1,4 +1,4 @@
-use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, ptr::NonNull, rc::Rc};
+use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
     atom::__JS_AtomIsConst,

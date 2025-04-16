@@ -11,6 +11,17 @@ use crate::{
     value::{object::JSObject, JSString, JSValue, JSValueConst},
 };
 
+#[deprecated(note = "use JSValue::is_constructor() instead")]
+#[inline(always)]
+pub unsafe fn JS_IsConstructor(ctx: *const JSContext, val: JSValueConst) -> bool {
+    val.is_constructor()
+}
+
+#[deprecated(note = "not used")]
+pub unsafe fn check_exception_free(ctx: *mut JSContext, obj: JSValue) -> bool {
+    unreachable!("unused");
+}
+
 #[deprecated(note = "use JSRuntime::atom_to_str() instead")]
 pub unsafe fn JS_AtomGetStrRT(
     rt: *mut JSRuntime,

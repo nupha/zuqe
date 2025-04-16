@@ -1,4 +1,4 @@
-use std::{ffi::c_void, mem::ManuallyDrop};
+use std::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
     array_buffer::JSArrayBuffer,
@@ -33,10 +33,10 @@ use crate::{
 
 use super::{
     super::{
-        JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_DupValue,
-        JS_FreeValue, JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
+        JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL,
+        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     find_hashed_shape_proto, free_property, js_dup_shape, js_free_desc, js_free_shape,
     js_new_shape, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
@@ -144,6 +144,15 @@ impl JSValue {
                     .and_then(|c| c.call)
                     .is_some()
             }
+        }
+    }
+
+    #[inline]
+    pub fn is_constructor(self) -> bool {
+        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+            false
+        } else {
+            unsafe { self.object().detailed.is_constructor() }
         }
     }
 }
@@ -437,16 +446,16 @@ impl JSValue {
             return Ok(true);
         }
 
-        let p = JS_VALUE_GET_OBJ(self);
+        let mut p = NonNull::from(self.object());
         let mut check_unsealed: Option<bool> = None;
 
-        let r = (*p).own_property_names_foreach(
+        let r = p.as_mut().own_property_names_foreach(
             ctx,
             JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
             |cx, name| {
                 if check_unsealed.is_none() {
                     let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                    let res = JS_GetOwnPropertyInternal(cx, &mut desc, p, name.atom);
+                    let res = JS_GetOwnPropertyInternal(cx, &mut desc, p.as_mut(), name.atom);
                     if res < 0 {
                         return Err(-1);
                     }
@@ -737,15 +746,6 @@ pub unsafe fn JS_IsCFunction(
     } else {
         false
     }
-}
-
-#[inline(always)]
-pub unsafe fn JS_IsConstructor(ctx: *const JSContext, val: JSValueConst) -> bool {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-        return false;
-    }
-    let p = JS_VALUE_GET_OBJ(val);
-    (*p).detailed.is_constructor()
 }
 
 #[inline(always)]
@@ -1172,7 +1172,7 @@ pub unsafe fn JS_SpeciesConstructor(
         return defaultConstructor.dup();
     }
 
-    if !JS_IsConstructor(ctx, species) {
+    if !species.is_constructor() {
         JS_FreeValue(ctx, species);
         return (*ctx).JS_ThrowTypeError(c"not a constructor");
     }

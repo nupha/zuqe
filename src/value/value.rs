@@ -591,13 +591,6 @@ pub fn JS_IsException(v: JSValueConst) -> bool {
     v.is_exception()
 }
 
-#[deprecated(note = "not used")]
-pub unsafe fn check_exception_free(ctx: *mut JSContext, obj: JSValue) -> bool {
-    let b = obj.is_exception();
-    JS_FreeValue(ctx, obj);
-    b
-}
-
 #[inline]
 pub fn JS_IsUninitialized(v: JSValueConst) -> bool {
     unlikely(JS_VALUE_GET_TAG(v) == JS_TAG_UNINITIALIZED)

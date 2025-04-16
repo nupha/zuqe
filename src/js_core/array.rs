@@ -21,15 +21,13 @@ use crate::{
     },
     runtime::js_check_stack_overflow,
     value::{
-        check_exception_free,
         object::{
-            js_get_length64, JS_IsConstructor, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_THROW,
+            js_get_length64, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
         JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToString, JS_ToStringFree, StringContent,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY,
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -121,7 +119,7 @@ pub unsafe fn JS_ArraySpeciesCreate(
         return ctor;
     }
 
-    if JS_IsConstructor(ctx, ctor) {
+    if ctor.is_constructor() {
         // legacy web compatibility
         let realm = JS_GetFunctionRealm(ctx, ctor);
         if realm.is_null() {
@@ -745,12 +743,15 @@ pub unsafe fn js_array_every(
             JS_ATOM_set,
             1,
             args.as_mut_ptr(),
-        );
-        if check_exception_free(ctx, res) {
+        )
+        .into_rc((*ctx).rt());
+
+        if res.is_exception() {
             JS_FreeValue(ctx, ret);
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
+
         JS_FreeValue(ctx, ret);
         ret = arr;
     }
@@ -1261,16 +1262,16 @@ pub unsafe fn js_array_join(
 
     let mut c = ',' as i32; // default separator
     let mut sep = JSValue::UNDEFINED;
-    let mut p: *mut JSString = std::ptr::null_mut();
+    let mut p: *const JSString = std::ptr::null();
 
-    if toLocaleString == 0 && argc > 0 && !JS_IsUndefined(*argv.offset(0)) {
+    if toLocaleString == 0 && argc > 0 && !(*argv.offset(0)).is_undefined() {
         sep = JS_ToString(ctx, *argv.offset(0));
-        if JS_IsException(sep) {
+        if sep.is_exception() {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
 
-        p = JS_VALUE_GET_STRING(sep);
+        p = sep.string() as *const _;
         c = if (*p).len() == 1 && !(*p).is_wide_char() {
             (*p).content().as_bytes()[0] as i32
         } else {
@@ -2421,7 +2422,7 @@ pub unsafe fn js_array_from(
 
     if !iter.is_undefined() {
         JS_FreeValue(ctx, iter);
-        r = if JS_IsConstructor(ctx, this_val) {
+        r = if this_val.is_constructor() {
             JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 0, std::ptr::null_mut())
         } else {
             JS_NewArray(ctx)
@@ -2492,7 +2493,7 @@ pub unsafe fn js_array_from(
         };
 
         let mut args = [JSValue::from_i64(len)];
-        r = if JS_IsConstructor(ctx, this_val) {
+        r = if this_val.is_constructor() {
             JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 1, args.as_mut_ptr())
         } else {
             js_array_constructor(ctx, JSValue::UNDEFINED, 1, args.as_mut_ptr())
@@ -2564,7 +2565,7 @@ pub unsafe fn js_array_of(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let obj = if JS_IsConstructor(ctx, this_val) {
+    let obj = if this_val.is_constructor() {
         JS_CallConstructor(
             ctx.as_mut().unwrap(),
             this_val,
