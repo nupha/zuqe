@@ -27,50 +27,12 @@ pub struct JSPromiseFunctionDataResolved {
 
 /// create and return [resolve, reject] functions for `promise` object.
 /// Note: `promise` is not consumed.
+#[deprecated(note = "use PromiseValue::create_resolving_functions() instead")]
 pub unsafe fn js_create_resolving_functions(
     ctx: &mut JSContext,
     promise: JSValueConst,
 ) -> Result<[JSValue; 2], i32> {
-    let sr = Box::new(JSPromiseFunctionDataResolved {
-        ref_count: 1,
-        already_resolved: false, // must be shared between the two functions
-    });
-
-    let mut sr_ptr = NonNull::new_unchecked(Box::into_raw(sr));
-
-    // [resolve, reject]
-    let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-
-    for i in 0..2 {
-        let obj = JS_NewObjectProtoClass(
-            ctx,
-            ctx.function_proto,
-            JS_CLASS_PROMISE_RESOLVE_FUNCTION + i,
-        );
-
-        if obj.is_exception() {
-            if i != 0 {
-                JS_FreeValue(ctx, resolving_funcs[0]);
-            }
-            js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
-            return Err(-1);
-        }
-
-        sr_ptr.as_mut().ref_count += 1;
-
-        let s = Box::new(JSPromiseFunctionData {
-            promise: promise.dup(),
-            presolved: sr_ptr,
-        });
-
-        JS_SetOpaque(obj, Box::into_raw(s).cast()); // leak ownership of JSPromiseFunctionData
-        js_function_set_properties(ctx, obj, JS_ATOM_empty_string, 1);
-        resolving_funcs[i as usize] = obj;
-    }
-
-    js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
-
-    Ok(resolving_funcs)
+    promise.to_promise().create_resolving_functions(ctx)
 }
 
 pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFunctionDataResolved) {

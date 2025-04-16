@@ -275,8 +275,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "Promise",
             "PROMISE",
-            Some("crate::promise::PromiseValue::finalizer"),
-            Some("crate::promise::PromiseValue::mark")
+            Some("crate::promise::PromiseValue::hook_finalizer"),
+            Some("crate::promise::PromiseValue::hook_mark")
         ),
         class_def!(
             "PromiseResolveFunction",

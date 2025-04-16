@@ -30,7 +30,7 @@ use crate::{
             js_string_proto_funcs,
         },
     },
-    promise::{js_promise_constructor, js_promise_funcs, js_promise_proto_funcs},
+    promise::{js_promise_funcs, js_promise_proto_funcs, PromiseValue},
     value::{
         object::{
             get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
@@ -578,7 +578,7 @@ impl JSContext {
         );
         let obj1 = JS_NewCFunction2(
             self,
-            js_promise_constructor,
+            PromiseValue::hook_constructor,
             c"Promise",
             1,
             JSCFunctionEnum::Constructor,
