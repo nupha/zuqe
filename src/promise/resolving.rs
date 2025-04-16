@@ -29,9 +29,7 @@ pub unsafe fn js_create_resolving_functions(
     ctx: &mut JSContext,
     promise: JSValueConst,
 ) -> Result<[JSValue; 2], i32> {
-    promise
-        .to_promise_unchecked()
-        .create_resolving_functions(ctx)
+    unreachable!("use PromiseValue::create_resolving_functions() instead");
 }
 
 pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFunctionDataResolved) {
@@ -52,10 +50,10 @@ pub unsafe fn js_promise_resolve_thenable_job(
     #[cfg(feature = "DUMP_PROMISE")]
     println!("js_promise_resolve_thenable_job");
 
-    let promise = *argv.offset(0);
+    let promise = (*argv.offset(0)).to_promise_unchecked();
     let thenable = *argv.offset(1);
     let then = *argv.offset(2);
-    let mut args = if let Ok(f) = js_create_resolving_functions(ctx, promise) {
+    let mut args = if let Ok(f) = promise.create_resolving_functions(ctx) {
         f
     } else {
         return JSValue::EXCEPTION;
