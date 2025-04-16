@@ -217,13 +217,12 @@ pub struct JSCFunctionListEntryPropList {
     pub len: i32,
 }
 
-#[repr(C)]
 pub struct JSCFunctionDataRecord {
     pub func: JSCFunctionData,
-    /// argument slot length
     pub length: u8,
     pub magic: u16,
 
+    // VLA
     pub data_len: u8,
     pub data: [JSValue; 0],
 }

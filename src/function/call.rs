@@ -636,27 +636,30 @@ pub unsafe fn js_c_function_data_call(
 
     // XXX: could add the function on the stack for debug
     if argc < s.length as i32 {
-        crate::mem::alloca::with_alloca_zeroed(SIZEOF_JSVALUE * s.length as usize, |sbuf| {
-            let args = std::slice::from_raw_parts_mut(
-                sbuf.as_mut_ptr().cast::<JSValue>(),
-                s.length as usize,
-            );
-            for i in 0..argc as usize {
-                args[i] = *argv.offset(i as isize);
-            }
-            for i in argc as usize..s.length as usize {
-                args[i] = JSValue::UNDEFINED;
-            }
+        crate::mem::alloca::with_alloca_zeroed(
+            std::mem::size_of::<JSValue>() * s.length as usize,
+            |sbuf| {
+                let args = std::slice::from_raw_parts_mut(
+                    sbuf.as_mut_ptr().cast::<JSValue>(),
+                    s.length as usize,
+                );
+                for i in 0..argc as usize {
+                    args[i] = *argv.offset(i as isize);
+                }
+                for i in argc as usize..s.length as usize {
+                    args[i] = JSValue::UNDEFINED;
+                }
 
-            (s.func)(
-                ctx,
-                this_val,
-                argc,
-                args.as_mut_ptr(),
-                s.magic as _,
-                s.data.as_mut_ptr(),
-            )
-        })
+                (s.func)(
+                    ctx,
+                    this_val,
+                    argc,
+                    args.as_mut_ptr(),
+                    s.magic as _,
+                    s.data.as_mut_ptr(),
+                )
+            },
+        )
     } else {
         (s.func)(
             ctx,

@@ -5,7 +5,6 @@ use crate::{
     atom::consts::*,
     class::js_create_from_ctor,
     context::JSContext,
-    error::JSResult,
     function::{
         js_function_set_properties, JSCFunctionDataRecord, JS_Call, JS_CallConstructor, JS_Invoke,
         JS_InvokeFree, JS_NewCFunctionData,
@@ -218,12 +217,10 @@ impl PromiseValue {
             };
 
             if obj.is_exception() {
-                if i != 0 {
-                    unsafe {
+                unsafe {
+                    if i != 0 {
                         JS_FreeValue(ctx, resolving_funcs[0]);
                     }
-                }
-                unsafe {
                     js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
                 }
                 return Err(-1);
