@@ -166,10 +166,10 @@ impl JSRuntime {
         self.class_array[class_id as usize] = JSClass {
             class_id,
             class_name: name.dup(self),
-            finalizer: (*class_def).finalizer,
-            gc_mark: (*class_def).gc_mark,
-            call: (*class_def).call,
-            exotic: (*class_def).exotic,
+            finalizer: class_def.finalizer,
+            gc_mark: class_def.gc_mark,
+            call: class_def.call,
+            exotic: class_def.exotic,
         };
 
         Ok(())
@@ -224,16 +224,15 @@ impl JSRuntime {
 impl JSContext {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns JS_NULL.
+    /// returned proto value is duplicated. caller should free it.
     pub fn get_class_proto(&self, class_id: JSClassID) -> JSValue {
         debug_assert!((class_id as usize) < self.class_proto.len());
-        // debug_assert_eq!(self.class_proto.len(), unsafe {
-        //     self.rt.as_ref().class_array.len()
-        // });
         self.class_proto[class_id as usize].dup()
     }
 
+    /// current (old) proto object will be freed inside.
+    /// Note: `proto_obj` is consumed.
     pub fn set_class_proto(&mut self, class_id: JSClassID, proto_obj: JSValue) {
-        // debug_assert_eq!(self.class_proto.len(), self.rt().class_array.len());
         debug_assert!(class_id < self.class_proto.len() as JSClassID);
         debug_assert_eq!(
             JS_VALUE_GET_TAG(self.class_proto[class_id as usize]),
@@ -288,36 +287,6 @@ impl JSContext {
         self.add_global_constructor(name.to_str().unwrap(), func_obj, proto);
         func_obj
     }
-}
-
-#[deprecated(note = "use JSContext::get_class_proto() instead")]
-pub unsafe fn JS_GetClassProto(ctx: *mut JSContext, class_id: JSClassID) -> JSValue {
-    (*ctx).get_class_proto(class_id)
-}
-
-#[deprecated(note = "use JSContext::set_class_proto() instead")]
-pub unsafe fn JS_SetClassProto(ctx: *mut JSContext, class_id: JSClassID, obj: JSValue) {
-    (*ctx).set_class_proto(class_id, obj);
-}
-
-#[deprecated(note = "use JSRuntime::add_class() instead")]
-pub unsafe fn JS_NewClass(
-    rt: *mut JSRuntime,
-    class_id: JSClassID,
-    class_def: *const JSClassDef,
-) -> Result<(), i32> {
-    (*rt).add_class(class_id, class_def.as_ref().unwrap())
-}
-
-/* create a new object internal class. Return -1 if error, 0 if OK. The finalizer can be NULL if none is needed. */
-#[deprecated(note = "use JSRuntime::add_class_internal() instead")]
-pub unsafe fn JS_NewClass1(
-    rt: *mut JSRuntime,
-    class_id: JSClassID,
-    class_def: *const JSClassDef,
-    name: JSAtom,
-) -> Result<(), i32> {
-    (*rt).add_class_internal(class_id, class_def.as_ref().unwrap(), name)
 }
 
 /// Note: 'func_obj' is not necessarily a constructor

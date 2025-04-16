@@ -280,11 +280,8 @@ impl JSContext {
     /// returns Promise object and [resolve, reject] functions.
     /// this is just a shortcut for `PromiseValue::new(ctx, ctor)`.
     #[inline(always)]
-    pub unsafe fn create_promise(
-        &mut self,
-        ctor: JSValueConst,
-    ) -> Result<(JSValue, [JSValue; 2]), i32> {
-        PromiseValue::new(self, ctor)
+    pub fn create_promise(&mut self, ctor: JSValueConst) -> Result<(JSValue, [JSValue; 2]), i32> {
+        unsafe { PromiseValue::new(self, ctor) }
     }
 }
 

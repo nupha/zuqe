@@ -2,6 +2,7 @@ use std::ffi::c_char;
 
 use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
+    class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{JSFunctionDef, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
@@ -93,7 +94,7 @@ pub unsafe fn JS_NewAtomStr(ctx: *mut JSContext, p: *mut JSString) -> JSAtom {
 }
 
 #[deprecated(note = "use JSAtom::to_utf8_string() instead")]
-pub unsafe fn JS_AtomToCString<'a>(ctx: *mut JSContext, atom: JSAtom) -> *const c_char {
+pub unsafe fn JS_AtomToCString(ctx: *mut JSContext, atom: JSAtom) -> *const c_char {
     unreachable!("use JSAtom::to_utf8_string() instead");
 }
 
@@ -121,6 +122,36 @@ pub unsafe fn free_arg_list(ctx: *mut JSContext, tab: *mut JSValue, len: u32) {
 #[deprecated(note = "unused")]
 pub unsafe fn JS_ResizeAtomHash(rt: *mut JSRuntime, new_hash_size: i32) -> i32 {
     unreachable!("unused");
+}
+
+#[deprecated(note = "use JSContext::get_class_proto() instead")]
+pub unsafe fn JS_GetClassProto(ctx: *mut JSContext, class_id: JSClassID) -> JSValue {
+    (*ctx).get_class_proto(class_id)
+}
+
+#[deprecated(note = "use JSContext::set_class_proto() instead")]
+pub unsafe fn JS_SetClassProto(ctx: *mut JSContext, class_id: JSClassID, obj: JSValue) {
+    (*ctx).set_class_proto(class_id, obj);
+}
+
+#[deprecated(note = "use JSRuntime::add_class() instead")]
+pub unsafe fn JS_NewClass(
+    rt: *mut JSRuntime,
+    class_id: JSClassID,
+    class_def: *const JSClassDef,
+) -> Result<(), i32> {
+    (*rt).add_class(class_id, class_def.as_ref().unwrap())
+}
+
+/* create a new object internal class. Return -1 if error, 0 if OK. The finalizer can be NULL if none is needed. */
+#[deprecated(note = "use JSRuntime::add_class_internal() instead")]
+pub unsafe fn JS_NewClass1(
+    rt: *mut JSRuntime,
+    class_id: JSClassID,
+    class_def: *const JSClassDef,
+    name: JSAtom,
+) -> Result<(), i32> {
+    unreachable!("use JSRuntime::add_class_internal() instead");
 }
 
 /// return -1 if exception
