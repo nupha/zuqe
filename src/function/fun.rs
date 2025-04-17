@@ -7,7 +7,6 @@ use crate::{
     error::{JSResult, JS_ThrowTypeErrorRevokedProxy},
     function::JSVarRef,
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::js_free_rt,
     proxy::JSProxyData,
     runtime::JSRuntime,
     value::{
@@ -253,19 +252,5 @@ pub unsafe fn js_bytecode_function_mark(
 
         // must mark the function bytecode because template objects may be part of a cycle
         JS_MarkValue(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);
-    }
-}
-
-pub unsafe fn js_c_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p = val.object();
-    if !p.u.cfunc.realm.is_null() {
-        JS_FreeContext(p.u.cfunc.realm);
-    }
-}
-
-pub unsafe fn js_c_function_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    let p = val.object();
-    if !p.u.cfunc.realm.is_null() {
-        mark_func(rt, &mut (*p.u.cfunc.realm).header);
     }
 }

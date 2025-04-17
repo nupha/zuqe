@@ -591,12 +591,7 @@ impl JSContext {
             js_promise_funcs.as_ptr(),
             js_promise_funcs.len(),
         );
-        JS_NewGlobalCConstructor2(
-            self,
-            obj1,
-            c"Promise",
-            self.class_proto[JS_CLASS_PROMISE as usize],
-        );
+        self.add_global_constructor("Promise", obj1, self.class_proto[JS_CLASS_PROMISE as usize]);
 
         // AsyncFunction
         self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize] =

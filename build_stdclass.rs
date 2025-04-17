@@ -69,8 +69,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "Function",
             "C_FUNCTION",
-            Some("crate::function::js_c_function_finalizer"),
-            Some("crate::function::js_c_function_mark")
+            Some("crate::function::NativeFunctionValue::hook_finalizer"),
+            Some("crate::function::NativeFunctionValue::hook_mark")
         ),
         class_def!(
             "Function",

@@ -7,19 +7,23 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
-    context::{JSContext, JS_DupContext},
-    error::JSResult,
+    context::{JSContext, JS_DupContext, JS_FreeContext},
+    error::{JSResult, JS_ThrowStackOverflow},
+    function::JS_CALL_FLAG_CONSTRUCTOR,
     gc::{JS_MarkFunc, JS_MarkValue},
+    iterator::js_create_iterator_result,
     mem::js_malloc_typed,
-    runtime::JSRuntime,
+    runtime::{js_check_stack_overflow, JSRuntime},
+    stack_frame::JSStackFrame,
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
             JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_SetOpaque, JS_PROP_CONFIGURABLE,
         },
-        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_DEF_ALIAS, JS_DEF_CFUNC,
+        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC,
         JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
-        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED,
+        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_TAG_OBJECT,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
 };
@@ -180,7 +184,6 @@ pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 
 #[derive(Clone, Copy)]
-#[repr(C)]
 pub union JSCFunctionType {
     pub native_callback: JSNativeCallback,
     pub native_getter: JSNativeGetter,
@@ -251,7 +254,6 @@ pub struct JSCFunctionListEntryPropList {
     pub len: i32,
 }
 
-#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct JSObjectCFunc {
     pub realm: *mut JSContext,
@@ -259,6 +261,244 @@ pub struct JSObjectCFunc {
     pub length: u8,
     pub cproto: JSCFunctionEnum,
     pub magic: i16,
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct NativeFunctionValue(JSValue);
+
+impl JSValue {
+    #[inline(always)]
+    pub unsafe fn as_native_function_unchecked(self) -> NativeFunctionValue {
+        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert_eq!(self.object().class_id(), JS_CLASS_C_FUNCTION);
+        std::mem::transmute(self)
+    }
+}
+
+impl NativeFunctionValue {
+    pub unsafe fn hook_call(
+        ctx: &mut JSContext,
+        func_obj: JSValueConst,
+        mut this_obj: JSValueConst,
+        argc: i32,
+        argv: *const JSValueConst,
+        flags: i32,
+    ) -> JSValue {
+        let rt = ctx.rt.as_mut();
+
+        let p = func_obj.object();
+        let cproto = p.u.cfunc.cproto;
+        let arg_count = p.u.cfunc.length;
+
+        // better to always check stack overflow
+        if js_check_stack_overflow(rt, std::mem::size_of::<JSValueConst>() * arg_count as usize) {
+            return JS_ThrowStackOverflow(ctx);
+        }
+
+        let mut sf_s: JSStackFrame = std::mem::zeroed();
+        let sf = &mut sf_s;
+
+        sf.cur_func = func_obj;
+        sf.prev_frame = rt.current_stack_frame;
+        rt.current_stack_frame = sf;
+
+        let realm = p.u.cfunc.realm.as_mut().unwrap(); // change the current realm
+
+        let mut local_buf: Option<SmallVec<[JSValue; 16]>> = None;
+        if argc < arg_count as i32 {
+            let mut arr = SmallVec::<[JSValue; 16]>::new();
+            for i in 0..argc {
+                arr.push(*argv.offset(i as isize));
+            }
+            // empty slots, if any
+            for _ in argc..arg_count as i32 {
+                arr.push(JSValue::UNDEFINED);
+            }
+
+            sf.arg_count = arg_count as _;
+            sf.arg_base_ptr = arr.as_mut_ptr();
+
+            // keep smallvec alive till exit this function
+            local_buf.replace(arr);
+        } else {
+            sf.arg_count = argc as _;
+            sf.arg_base_ptr = argv as *mut JSValue;
+        }
+
+        macro_rules! exit {
+            ($retval:expr) => {
+                rt.current_stack_frame = sf.prev_frame;
+                return $retval;
+            };
+        }
+
+        let arg_buf = sf.arg_base_ptr;
+        let func = &p.u.cfunc.c_function;
+        let mut ret_val: JSValue;
+
+        match cproto {
+            JSCFunctionEnum::NativeFunc
+            | JSCFunctionEnum::NativeConstructor
+            | JSCFunctionEnum::NativeConstructorOrFunc => {
+                if matches!(
+                    cproto,
+                    JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+                ) {
+                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                        if cproto == JSCFunctionEnum::NativeConstructor {
+                            exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                        } else {
+                            this_obj = JSValue::UNDEFINED;
+                        }
+                    }
+                }
+
+                let cc = CallArgs::new(
+                    NonNull::new_unchecked(p.u.cfunc.realm),
+                    this_obj,
+                    std::slice::from_raw_parts(arg_buf, argc as usize),
+                    p.u.cfunc.magic as _,
+                    None,
+                );
+                ret_val = (func.native_callback)(realm, cc).unwrap_or(JSValue::EXCEPTION);
+            }
+            JSCFunctionEnum::NativeGetter => {
+                debug_assert_eq!(sf.arg_count, 0);
+                let cc = CallArgs::new(
+                    NonNull::new_unchecked(realm),
+                    this_obj,
+                    std::slice::from_raw_parts(arg_buf, argc as usize),
+                    p.u.cfunc.magic as _,
+                    None,
+                );
+                ret_val = (func.native_getter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
+            }
+            JSCFunctionEnum::NativeSetter => {
+                debug_assert_eq!(sf.arg_count, 1);
+                let alst = [*arg_buf];
+                let cc = CallArgs::new(
+                    NonNull::new_unchecked(realm),
+                    this_obj,
+                    &alst,
+                    p.u.cfunc.magic as _,
+                    None,
+                );
+                ret_val = (func.native_setter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
+            }
+
+            //
+            //
+            //
+            JSCFunctionEnum::Constructor
+            | JSCFunctionEnum::ConstructorOrFunc
+            | JSCFunctionEnum::Generic => {
+                if matches!(
+                    cproto,
+                    JSCFunctionEnum::ConstructorOrFunc | JSCFunctionEnum::Constructor
+                ) {
+                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                        if cproto == JSCFunctionEnum::Constructor {
+                            exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                        } else {
+                            this_obj = JSValue::UNDEFINED;
+                        }
+                    }
+                }
+                ret_val = (func.generic)(realm, this_obj, argc, arg_buf as *mut JSValue);
+            }
+            JSCFunctionEnum::ConstructorMagic
+            | JSCFunctionEnum::ConstructorOrFuncMagic
+            | JSCFunctionEnum::GenericMagic => {
+                if matches!(
+                    cproto,
+                    JSCFunctionEnum::ConstructorMagic | JSCFunctionEnum::ConstructorOrFuncMagic
+                ) {
+                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                        if cproto == JSCFunctionEnum::ConstructorMagic {
+                            exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                        } else {
+                            this_obj = JSValue::UNDEFINED;
+                        }
+                    }
+                }
+                ret_val = (func.generic_magic)(
+                    realm,
+                    this_obj,
+                    argc,
+                    arg_buf as _,
+                    (*p).u.cfunc.magic as i32,
+                );
+            }
+            JSCFunctionEnum::Getter => {
+                ret_val = (func.getter)(realm, this_obj);
+            }
+            JSCFunctionEnum::Setter => {
+                ret_val = (func.setter)(realm, this_obj, *arg_buf.offset(0));
+            }
+            JSCFunctionEnum::GetterMagic => {
+                ret_val = (func.getter_magic)(realm, this_obj, (*p).u.cfunc.magic as _);
+            }
+            JSCFunctionEnum::SetterMagic => {
+                ret_val = (func.setter_magic)(
+                    realm,
+                    this_obj,
+                    *arg_buf.offset(0),
+                    (*p).u.cfunc.magic as _,
+                );
+            }
+            JSCFunctionEnum::FF => {
+                let mut d1: f64 = 0.0;
+                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf.offset(0)) != 0 {
+                    JSValue::EXCEPTION
+                } else {
+                    JSValue::from_f64((func.f_f)(d1))
+                };
+            }
+            JSCFunctionEnum::FFF => {
+                let mut d1: f64 = 0.0;
+                let mut d2: f64 = 0.0;
+                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf.offset(0)) != 0
+                    || JS_ToFloat64(realm, &mut d2, *arg_buf.offset(1)) != 0
+                {
+                    JSValue::EXCEPTION
+                } else {
+                    JSValue::from_f64((func.f_f_f)(d1, d2))
+                };
+            }
+            JSCFunctionEnum::IteratorNext => {
+                let mut done = 0;
+                ret_val = (func.iterator_next)(
+                    realm,
+                    this_obj,
+                    argc,
+                    arg_buf,
+                    &mut done,
+                    (*p).u.cfunc.magic as _,
+                );
+                if !ret_val.is_exception() && done != 2 {
+                    ret_val = js_create_iterator_result(realm, ret_val, done != 0);
+                }
+            }
+        }
+
+        rt.current_stack_frame = sf.prev_frame;
+        ret_val
+    }
+
+    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
+        let p = val.object();
+        if !p.u.cfunc.realm.is_null() {
+            JS_FreeContext(p.u.cfunc.realm);
+        }
+    }
+
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+        let p = val.object();
+        if !p.u.cfunc.realm.is_null() {
+            mark_func(rt, &mut (*p.u.cfunc.realm).header);
+        }
+    }
 }
 
 impl JSContext {
@@ -368,10 +608,6 @@ pub unsafe fn JS_NewCFunction3(
             | JSCFunctionEnum::ConstructorOrFunc
             | JSCFunctionEnum::ConstructorOrFuncMagic
     ));
-
-    // if name.is_null() {
-    //     name = "\0".as_ptr().cast(); //   使用空字符串代替NULL
-    // }
 
     // define propperties on func_obj: length and name.
     let name_atom = (*ctx).create_atom(name.to_string_lossy().as_ref()).unwrap();

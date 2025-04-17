@@ -12,7 +12,7 @@ use crate::{
     context::JSContext,
     function::{
         js_async_function_call, js_async_function_resolve_call, js_call_bound_function,
-        js_call_c_function, JSAutoInitFunc, JS_InstantiateFunctionListItem2,
+        JSAutoInitFunc, JS_InstantiateFunctionListItem2, NativeFunctionValue,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
     generator::{js_generator_function_call, AsyncGeneratorValue},
@@ -205,7 +205,7 @@ impl JSRuntime {
 
                 rt.class_array[JS_CLASS_C_FUNCTION as usize]
                     .call
-                    .replace(js_call_c_function);
+                    .replace(NativeFunctionValue::hook_call);
                 rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
                     .call
                     .replace(CallableValue::hook_call);
