@@ -13,10 +13,7 @@ use super::{JS_Call, JS_CallConstructor2, JS_CALL_FLAG_CONSTRUCTOR};
 pub struct JSBoundFunction {
     pub func_obj: JSValue,
     pub this_val: JSValue,
-    pub argc: i32,
-
-    // TODO: use a vector instead
-    pub argv: [JSValue; 0],
+    pub bind_args: Vec<JSValue>,
 }
 
 #[repr(transparent)]
@@ -39,10 +36,12 @@ impl BoundFunctionValue {
 
         JS_FreeValueRT(rt, (*bf).func_obj);
         JS_FreeValueRT(rt, (*bf).this_val);
-        for i in 0..(*bf).argc {
-            JS_FreeValueRT(rt, *(*bf).argv.as_ptr().offset(i as isize));
+
+        for a in (*bf).bind_args.iter() {
+            JS_FreeValueRT(rt, *a);
         }
-        js_free_rt(rt, bf.cast());
+
+        drop(Box::from_raw(bf));
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
@@ -51,8 +50,8 @@ impl BoundFunctionValue {
 
         JS_MarkValue(rt, (*bf).func_obj, mark_func);
         JS_MarkValue(rt, (*bf).this_val, mark_func);
-        for i in 0..(*bf).argc {
-            JS_MarkValue(rt, *(*bf).argv.as_ptr().offset(i as isize), mark_func);
+        for a in (*bf).bind_args.iter() {
+            JS_MarkValue(rt, *a, mark_func);
         }
     }
 
@@ -64,11 +63,14 @@ impl BoundFunctionValue {
         argv: *const JSValueConst,
         flags: i32,
     ) -> JSValue {
+        #[cfg(debug_assertions)]
+        let _ = func_obj.as_bound_function_unchecked(); // ensure it's bound function
+
         let p = func_obj.object();
         let bf = p.u.bound_function.as_mut().unwrap();
-        let arg_count = bf.argc + argc;
+        let arg_count = bf.bind_args.len() + argc as usize;
 
-        let alloca_size = std::mem::size_of::<JSValue>() * arg_count as usize;
+        let alloca_size = std::mem::size_of::<JSValue>() * arg_count;
         if js_check_stack_overflow(ctx.rt(), alloca_size) {
             return JS_ThrowStackOverflow(ctx);
         }
@@ -82,11 +84,12 @@ impl BoundFunctionValue {
                 arg_count as usize,
             );
 
-            for i in 0..bf.argc as usize {
-                arg_list[i] = *(bf.argv.as_ptr().add(i));
+            for (i, a) in bf.bind_args.iter().enumerate() {
+                arg_list[i] = *a;
             }
+            let base = bf.bind_args.len();
             for i in 0..argc as usize {
-                arg_list[bf.argc as usize + i] = *argv.offset(i as isize);
+                arg_list[base + i] = *argv.offset(i as isize);
             }
 
             if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
@@ -97,9 +100,9 @@ impl BoundFunctionValue {
 
                 JS_CallConstructor2(
                     ctx,
-                    (*bf).func_obj,
+                    bf.func_obj,
                     new_target,
-                    arg_count,
+                    arg_count as _,
                     arg_list.as_mut_ptr(),
                 )
             } else {
@@ -107,7 +110,7 @@ impl BoundFunctionValue {
                     ctx,
                     bf.func_obj,
                     bf.this_val,
-                    arg_count,
+                    arg_count as _,
                     arg_list.as_mut_ptr(),
                 )
             }

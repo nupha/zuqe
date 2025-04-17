@@ -1,27 +1,33 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::DerefMut};
 
 use crate::{
     atom::{
         consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL,
     },
     bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
-    context::{JSContext, JS_MODE_STRICT},
+    context::{JSContext, JS_DupContext, JS_MODE_STRICT, JS_MODE_STRIP},
     error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
-    eval::JS_EVAL_TYPE_GLOBAL,
+    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_INDIRECT},
     function::{
-        free_bytecode_atoms, is_var_in_arg_scope, JSClosureVar, JSFunctionKindEnum, JSGlobalVar,
-        JSVarDef, JSVarKindEnum, JSVarScope, ARG_SCOPE_END, DEFINE_GLOBAL_LEX_VAR,
+        free_bytecode_atoms, is_var_in_arg_scope, resolve_labels, resolve_variables, JSClosureVar,
+        JSFunctionBytecode, JSFunctionKindEnum, JSGlobalVar, JSVarDef, JSVarKindEnum, JSVarScope,
+        ARG_SCOPE_END, ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
     },
+    gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
     mem::{js_free, js_malloc_typed},
-    module::JSModuleDef,
+    module::{add_module_variables, JSModuleDef},
     parse::JSParseFunctionEnum,
-    types::{init_list_head, list_add_tail, list_del, list_foreach_safe, list_head},
+    types::{
+        init_list_head, list_add_tail, list_del, list_foreach_safe, list_foreach_safe_with_ret,
+        list_head,
+    },
     utils::{get_u32, push_vec_u16, push_vec_u32, push_vec_u8},
     value::{
         object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-        JSValue, JS_FreeValue,
+        JSTag, JSValue, JS_FreeValue, JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG,
     },
+    JS_MKPTR,
 };
 
 #[derive(Debug)]
@@ -366,9 +372,427 @@ impl JSFunctionDef {
         }
     }
 
-    /// free JSFunctionDef
-    pub fn free(self, ctx: *mut JSContext) {
-        todo!()
+    /// Create a bytecode function from function definition.
+    /// All the child functions are also created. It must be done this way to resolve all the variables.
+    /// The function definition is consumed.
+    pub unsafe fn create_function(mut fd: Box<Self>, ctx: &mut JSContext) -> JSValue {
+        macro_rules! fail {
+            () => {
+                fd.free(ctx);
+                return JSValue::EXCEPTION;
+            };
+        }
+
+        //
+        // recompute scope linkage
+        //
+
+        for scope in fd.scopes.iter_mut() {
+            scope.first = -1;
+        }
+
+        if fd.has_parameter_expressions {
+            // special end of variable list marker for the argument scope
+            fd.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = ARG_SCOPE_END;
+        }
+
+        for idx in 0..fd.var_count {
+            let vd = fd.vars.offset(idx as isize);
+            debug_assert!((*vd).scope_level >= 0 && (*vd).scope_level < fd.scopes.len() as i32);
+
+            let scope = fd.scopes.get_mut((*vd).scope_level as usize).unwrap();
+            (*vd).scope_next = scope.first;
+            scope.first = idx as i32;
+        }
+
+        for i in 2..fd.scopes.len() {
+            if fd.scopes[i].first < 0 {
+                let parent = fd.scopes[i].parent;
+                debug_assert!(parent >= 0);
+                fd.scopes[i].first = fd.scopes[parent as usize].first;
+            }
+        }
+
+        for idx in 0..fd.var_count {
+            let vd = fd.vars.offset(idx as isize);
+            if (*vd).scope_next < 0 && (*vd).scope_level > 1 {
+                let parent = fd.scopes[(*vd).scope_level as usize].parent;
+                (*vd).scope_next = fd.scopes[parent as usize].first;
+            }
+        }
+
+        // if the function contains an eval call, the closure variables
+        // are used to compile the eval and they must be ordered by scope,
+        // so it is necessary to create the closure variables before any
+        // other variable lookup is done.
+        if fd.has_eval_call {
+            add_eval_variables(ctx, fd.deref_mut());
+        }
+
+        // add the module global variables in the closure
+        if !fd.module.is_null() {
+            if add_module_variables(ctx, fd.deref_mut()) != 0 {
+                fail!();
+            }
+        }
+
+        // first create all the child functions
+        let r = list_foreach_safe_with_ret(&mut fd.child_list, |el| {
+            let fd1 = list_entry!(el, JSFunctionDef, link);
+            let cpool_idx: i32 = (*fd1).parent_cpool_idx;
+            debug_assert!(cpool_idx >= 0);
+
+            let func_obj = Self::create_function(Box::from_raw(fd1), ctx);
+            if func_obj.is_exception() {
+                return Some(-1); // fail exit
+            }
+            debug_assert_eq!(JS_VALUE_GET_TAG(func_obj), JS_TAG_FUNCTION_BYTECODE);
+
+            // put child func to parent's constant pool
+            *fd.cpool.add(cpool_idx as usize) = func_obj;
+
+            None
+        });
+        if r.is_some() {
+            fail!();
+        }
+
+        #[cfg(feature = "dump_bytecode")]
+        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
+            println!("pass 1");
+            crate::bytecode::dump_byte_code(
+                ctx,
+                1,
+                fd.byte_code.as_slice(),
+                if fd.arg_count > 0 {
+                    std::slice::from_raw_parts(fd.args, fd.arg_count as _)
+                } else {
+                    &[]
+                },
+                if fd.var_count > 0 {
+                    std::slice::from_raw_parts(fd.vars, fd.var_count as _)
+                } else {
+                    &[]
+                },
+                fd.closure_vars.as_deref().unwrap_or(&[]),
+                if fd.cpool_count > 0 {
+                    std::slice::from_raw_parts(fd.cpool, fd.cpool_count as _)
+                } else {
+                    &[]
+                },
+                fd.source.cast(),
+                fd.line_num as _,
+                fd.label_slots,
+                std::ptr::null_mut(),
+            );
+            println!();
+        }
+
+        // pass 2
+        if resolve_variables(ctx, fd.deref_mut()).is_err() {
+            fail!();
+        }
+
+        #[cfg(feature = "dump_bytecode")]
+        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
+            println!("pass 2");
+            crate::bytecode::dump_byte_code(
+                ctx,
+                2,
+                fd.byte_code.as_slice(),
+                if fd.arg_count > 0 {
+                    std::slice::from_raw_parts(fd.args, fd.arg_count as _)
+                } else {
+                    &[]
+                },
+                if fd.var_count > 0 {
+                    std::slice::from_raw_parts(fd.vars, fd.var_count as _)
+                } else {
+                    &[]
+                },
+                fd.closure_vars.as_deref().unwrap_or(&[]),
+                if fd.cpool_count > 0 {
+                    std::slice::from_raw_parts(fd.cpool, fd.cpool_count as _)
+                } else {
+                    &[]
+                },
+                fd.source.cast(),
+                fd.line_num as _,
+                fd.label_slots,
+                std::ptr::null_mut(),
+            );
+            println!();
+        }
+
+        // pass 3
+        if resolve_labels(ctx, fd.deref_mut()).is_err() {
+            fail!();
+        }
+
+        let stack_size = if let Ok(ss) = fd.compute_stack_size(ctx) {
+            ss
+        } else {
+            fail!();
+        };
+
+        // new function
+        let mut b = if let Some(p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
+            Box::from_raw(p.as_ptr())
+        } else {
+            fail!();
+        };
+
+        b.func_name = fd.func_name;
+        fd.func_name = JS_ATOM_NULL; // avoid to free func_name in js_free_function_def()
+
+        b.header.ref_count = 1;
+        b.stack_size = stack_size;
+        b.has_prototype = fd.has_prototype;
+        b.has_simple_parameter_list = fd.has_simple_parameter_list;
+        b.js_mode = fd.js_mode;
+        b.is_derived_class_constructor = fd.is_derived_class_constructor;
+        b.func_kind = fd.func_kind;
+        b.need_home_object = fd.home_object_var_idx.is_some() || fd.need_home_object;
+        b.new_target_allowed = fd.new_target_allowed;
+        b.super_call_allowed = fd.super_call_allowed;
+        b.super_allowed = fd.super_allowed;
+        b.arguments_allowed = fd.arguments_allowed;
+        b.backtrace_barrier = fd.backtrace_barrier;
+        b.is_direct_or_indirect_eval =
+            matches!(fd.eval_type, JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT);
+        b.realm = JS_DupContext(ctx);
+
+        b.cpool_count = fd.cpool_count as _;
+        b.var_count = fd.var_count;
+        b.arg_count = fd.arg_count;
+        b.defined_arg_count = fd.defined_arg_count;
+
+        // initialize offsets to invalid
+        b.cpool_offset = -1;
+        b.vardefs_offset = -1;
+        b.closure_var_offset = -1;
+
+        let mut bin_size = if b.cpool_count != 0 {
+            b.cpool_offset = 0;
+            b.cpool_count as usize * std::mem::size_of::<JSValue>()
+        } else {
+            0
+        };
+
+        if fd.js_mode & JS_MODE_STRIP as u8 == 0 || fd.has_eval_call {
+            let n = fd.arg_count + fd.var_count;
+            if n != 0 {
+                const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
+                let mut i = bin_size;
+                let m = i % ly.align();
+                if m != 0 {
+                    i += ly.align() - m;
+                    bin_size += ly.align() - m
+                }
+                b.vardefs_offset = i as i32;
+                bin_size += n as usize * ly.size();
+            }
+        }
+
+        let num_closures = fd.closure_vars.as_ref().map_or(0, |x| x.len());
+        if num_closures != 0 {
+            const ly: std::alloc::Layout = std::alloc::Layout::new::<JSClosureVar>();
+            let mut i = bin_size;
+            let m = i % ly.align();
+            if m != 0 {
+                i += ly.align() - m;
+                bin_size += ly.align() - m
+            }
+            bin_size += num_closures * ly.size();
+            b.closure_var_offset = i as i32;
+        }
+
+        b.bytecode_offset = bin_size as u32;
+        bin_size += fd.byte_code.len();
+
+        debug_assert!(bin_size > 0);
+
+        // alloc binary content
+        let mut bin = Vec::<u8>::new();
+        if bin.try_reserve_exact(bin_size).is_err() {
+            ctx.JS_ThrowOutOfMemory();
+            fail!();
+        }
+        bin.set_len(bin_size);
+
+        // 1. cpool section
+        if b.cpool_offset >= 0 {
+            std::ptr::copy_nonoverlapping(
+                fd.cpool,
+                bin.as_mut_ptr()
+                    .add(b.cpool_offset as usize)
+                    .cast::<JSValue>(),
+                b.cpool_count as usize,
+            );
+
+            // SAFEGUARD: we have copy cpool values to function bytecode above.
+            // we do cpool pointer and count clean-ups here in advance,
+            // so that js_free_function_def() will not free them again.
+            js_free(ctx, fd.cpool.cast());
+            fd.cpool = std::ptr::null_mut();
+            fd.cpool_count = 0;
+        }
+
+        // 2. vardef section
+        if b.vardefs_offset >= 0 {
+            if b.arg_count != 0 {
+                std::ptr::copy_nonoverlapping(
+                    fd.args.cast::<u8>(),
+                    bin.as_mut_ptr().add(b.vardefs_offset as usize),
+                    b.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                );
+            }
+            if b.var_count != 0 {
+                std::ptr::copy_nonoverlapping(
+                    fd.vars.cast::<u8>(),
+                    bin.as_mut_ptr().add(
+                        b.vardefs_offset as usize
+                            + b.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                    ),
+                    b.var_count as usize * std::mem::size_of::<JSVarDef>(),
+                );
+            }
+
+            // SAFEGUARD: we have copy arg and var definations to function bytecode above.
+            // we do vardefs and *_count clean-ups here in advance,
+            // so that when calling js_free_function_def() later, it will not free vardefs.
+            js_free(ctx, fd.args.cast());
+            js_free(ctx, fd.vars.cast());
+            fd.args = std::ptr::null_mut();
+            fd.vars = std::ptr::null_mut();
+            fd.arg_count = 0;
+            fd.var_count = 0;
+        }
+
+        // 3. closure vars section
+        if b.closure_var_offset >= 0 {
+            let cvars = fd.closure_vars.take().unwrap();
+            b.closure_var_count = cvars.len() as _;
+
+            let mut ptr = bin
+                .as_mut_ptr()
+                .add(b.closure_var_offset as usize)
+                .cast::<JSClosureVar>();
+
+            for cv in cvars {
+                ptr.write(cv);
+                ptr = ptr.add(1);
+            }
+        }
+
+        // 4. bytecode section
+        std::ptr::copy_nonoverlapping(
+            fd.byte_code.as_ptr(),
+            bin.as_mut_ptr().add(b.bytecode_offset as usize),
+            fd.byte_code.len(),
+        );
+        // SAFEGUARD: clear bytecode in advance, so that js_free_function_def() will not free atoms in it.
+        fd.byte_code.clear();
+
+        debug_assert_eq!(bin.len(), bin_size);
+        b.binary = bin.into_boxed_slice();
+
+        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
+            b.has_debug = true;
+            b.debug.line_num = fd.line_num;
+            b.debug.filename = fd.filename;
+            // SAFEGUARD: to prevent free in js_free_function_def()
+            fd.filename = JS_ATOM_NULL;
+
+            b.debug.source_len = fd.source_len;
+            b.debug.source = fd.source;
+            // SAFEGUARD: to prevent free in js_free_function_def()
+            fd.source = std::ptr::null_mut();
+
+            // move pc2line to func object.
+            if let Some(mut lst) = fd.pc2line.take() {
+                lst.shrink_to_fit();
+                b.debug.pc2line_buf.replace(lst);
+            }
+        }
+
+        add_gc_object(
+            ctx.rt_mut(),
+            &mut b.header,
+            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE,
+        );
+
+        #[cfg(feature = "dump_bytecode")]
+        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
+            crate::bytecode::js_dump_function_bytecode(ctx, b.as_mut());
+        }
+
+        fd.free(ctx);
+
+        JS_MKPTR!(JSTag::FunctionBytecode, Box::into_raw(b).cast())
+    }
+
+    /// to free a JSFunctionDef and all its children
+    pub unsafe fn free(mut self: Box<Self>, ctx: &mut JSContext) {
+        // free the child function defs
+        list_foreach_safe(&mut self.child_list, |el| {
+            let fd1 = list_entry!(el, JSFunctionDef, link);
+            Self::free(Box::from_raw(fd1), ctx);
+        });
+
+        free_bytecode_atoms(
+            ctx.rt_mut(),
+            std::slice::from_raw_parts(self.byte_code.as_ptr(), self.byte_code.len() as usize),
+            self.use_short_opcodes,
+        );
+        self.byte_code.clear();
+
+        js_free(ctx, self.jump_slots.cast());
+        js_free(ctx, self.label_slots.cast());
+        js_free(ctx, self.line_number_slots.cast());
+
+        for i in 0..self.cpool_count {
+            JS_FreeValue(ctx, *self.cpool.offset(i as isize));
+        }
+        js_free(ctx, self.cpool.cast());
+
+        for i in 0..self.var_count {
+            JS_FreeAtom(ctx, (*self.vars.offset(i as isize)).var_name);
+            #[cfg(debug_assertions)]
+            {
+                (*self.vars.offset(i as isize)).var_name = JS_ATOM_NULL;
+            }
+        }
+        js_free(ctx, self.vars.cast());
+
+        for i in 0..self.arg_count {
+            JS_FreeAtom(ctx, (*self.args.offset(i as isize)).var_name);
+            #[cfg(debug_assertions)]
+            {
+                (*self.args.offset(i as isize)).var_name = JS_ATOM_NULL;
+            }
+        }
+        js_free(ctx, self.args.cast());
+
+        for i in 0..self.global_var_count {
+            JS_FreeAtom(ctx, (*self.global_vars.offset(i as isize)).var_name);
+        }
+        js_free(ctx, self.global_vars.cast());
+
+        if let Some(mut lst) = self.closure_vars.take() {
+            for cv in lst.drain(..) {
+                JS_FreeAtom(ctx, cv.var_name);
+            }
+        }
+
+        JS_FreeAtom(ctx, self.func_name);
+        JS_FreeAtom(ctx, self.filename);
+        js_free(ctx, self.source.cast());
+
+        if !self.parent.is_null() {
+            // remove from parent's list
+            list_del(&mut self.link);
+        }
     }
 }
 
@@ -452,69 +876,72 @@ pub unsafe fn js_new_function_def(
     }
 }
 
-/// `fd` will be dropped inside
+/// to free `fd` and all its children
+#[deprecated(note = "use JSFunctionDef::free() instead")]
 pub unsafe fn js_free_function_def(ctx: *mut JSContext, fd: *mut JSFunctionDef) {
-    // free the child functions
-    list_foreach_safe(&mut (*fd).child_list, |el| {
-        let fd1 = list_entry!(el, JSFunctionDef, link);
-        js_free_function_def(ctx, fd1);
-    });
+    Box::from_raw(fd).free(ctx.as_mut().unwrap());
 
-    free_bytecode_atoms(
-        (*ctx).rt_mut(),
-        std::slice::from_raw_parts((*fd).byte_code.as_ptr(), (*fd).byte_code.len() as usize),
-        (*fd).use_short_opcodes,
-    );
-    (*fd).byte_code.clear();
+    // // free the child functions
+    // list_foreach_safe(&mut (*fd).child_list, |el| {
+    //     let fd1 = list_entry!(el, JSFunctionDef, link);
+    //     js_free_function_def(ctx, fd1);
+    // });
 
-    js_free(ctx, (*fd).jump_slots.cast());
-    js_free(ctx, (*fd).label_slots.cast());
-    js_free(ctx, (*fd).line_number_slots.cast());
+    // free_bytecode_atoms(
+    //     (*ctx).rt_mut(),
+    //     std::slice::from_raw_parts((*fd).byte_code.as_ptr(), (*fd).byte_code.len() as usize),
+    //     (*fd).use_short_opcodes,
+    // );
+    // (*fd).byte_code.clear();
 
-    for i in 0..(*fd).cpool_count {
-        JS_FreeValue(ctx, *(*fd).cpool.offset(i as isize));
-    }
-    js_free(ctx, (*fd).cpool.cast());
+    // js_free(ctx, (*fd).jump_slots.cast());
+    // js_free(ctx, (*fd).label_slots.cast());
+    // js_free(ctx, (*fd).line_number_slots.cast());
 
-    for i in 0..(*fd).var_count {
-        JS_FreeAtom(ctx, (*(*fd).vars.offset(i as isize)).var_name);
-        #[cfg(debug_assertions)]
-        {
-            (*(*fd).vars.offset(i as isize)).var_name = JS_ATOM_NULL;
-        }
-    }
-    js_free(ctx, (*fd).vars.cast());
+    // for i in 0..(*fd).cpool_count {
+    //     JS_FreeValue(ctx, *(*fd).cpool.offset(i as isize));
+    // }
+    // js_free(ctx, (*fd).cpool.cast());
 
-    for i in 0..(*fd).arg_count {
-        JS_FreeAtom(ctx, (*(*fd).args.offset(i as isize)).var_name);
-        #[cfg(debug_assertions)]
-        {
-            (*(*fd).args.offset(i as isize)).var_name = JS_ATOM_NULL;
-        }
-    }
-    js_free(ctx, (*fd).args.cast());
+    // for i in 0..(*fd).var_count {
+    //     JS_FreeAtom(ctx, (*(*fd).vars.offset(i as isize)).var_name);
+    //     #[cfg(debug_assertions)]
+    //     {
+    //         (*(*fd).vars.offset(i as isize)).var_name = JS_ATOM_NULL;
+    //     }
+    // }
+    // js_free(ctx, (*fd).vars.cast());
 
-    for i in 0..(*fd).global_var_count {
-        JS_FreeAtom(ctx, (*(*fd).global_vars.offset(i as isize)).var_name);
-    }
-    js_free(ctx, (*fd).global_vars.cast());
+    // for i in 0..(*fd).arg_count {
+    //     JS_FreeAtom(ctx, (*(*fd).args.offset(i as isize)).var_name);
+    //     #[cfg(debug_assertions)]
+    //     {
+    //         (*(*fd).args.offset(i as isize)).var_name = JS_ATOM_NULL;
+    //     }
+    // }
+    // js_free(ctx, (*fd).args.cast());
 
-    if let Some(mut lst) = (*fd).closure_vars.take() {
-        for cv in lst.drain(..) {
-            JS_FreeAtom(ctx, cv.var_name);
-        }
-    }
+    // for i in 0..(*fd).global_var_count {
+    //     JS_FreeAtom(ctx, (*(*fd).global_vars.offset(i as isize)).var_name);
+    // }
+    // js_free(ctx, (*fd).global_vars.cast());
 
-    JS_FreeAtom(ctx, (*fd).func_name);
-    JS_FreeAtom(ctx, (*fd).filename);
-    js_free(ctx, (*fd).source.cast());
+    // if let Some(mut lst) = (*fd).closure_vars.take() {
+    //     for cv in lst.drain(..) {
+    //         JS_FreeAtom(ctx, cv.var_name);
+    //     }
+    // }
 
-    if !(*fd).parent.is_null() {
-        // remove in parent's list
-        list_del(&mut (*fd).link);
-    }
+    // JS_FreeAtom(ctx, (*fd).func_name);
+    // JS_FreeAtom(ctx, (*fd).filename);
+    // js_free(ctx, (*fd).source.cast());
 
-    drop(Box::from_raw(fd));
+    // if !(*fd).parent.is_null() {
+    //     // remove in parent's list
+    //     list_del(&mut (*fd).link);
+    // }
+
+    // drop(Box::from_raw(fd));
 }
 
 /// update label ref count by delta. returns new ref count.
@@ -819,38 +1246,6 @@ pub unsafe fn get_closure_var2(
     s.get_closure_var2(
         ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
     )
-
-    // let vi = if fd != s.parent {
-    //     // search var_idx along ancestor path
-    //     let i = get_closure_var2(
-    //         ctx,
-    //         s.parent.as_mut().unwrap(),
-    //         fd,
-    //         is_local,
-    //         is_arg,
-    //         var_idx,
-    //         var_name,
-    //         is_const,
-    //         is_lexical,
-    //         var_kind,
-    //     )?;
-    //     is_local = false;
-    //     i
-    // } else {
-    //     var_idx
-    // };
-
-    // // find variable idx in this JSFunctionDef (s)
-    // if let Some(nth) = s.closure_vars.iter().position(|cv| {
-    //     (*cv).var_idx == vi && (*cv).is_arg() == is_arg && (*cv).is_local() == is_local
-    // }) {
-    //     return Ok(nth as u16);
-    // }
-
-    // // var not found, create it.
-    // s.add_closure_var(
-    //     ctx, is_local, is_arg, vi, var_name, is_const, is_lexical, var_kind,
-    // )
 }
 
 #[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]

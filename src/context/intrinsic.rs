@@ -1,13 +1,14 @@
 use crate::{
     atom::{consts::*, JS_NewAtomString},
-    class::{JS_NewGlobalCConstructor2, JS_SetConstructor2},
+    class::JS_SetConstructor2,
     context::{JSContext, JS_MODE_STRICT},
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::__JS_EvalInternal,
     function::{
-        js_async_function_proto_funcs, js_function_proto, JSCFunction, JSCFunctionEnum,
-        JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode, JS_NewCFunction,
-        JS_NewCFunction2, JS_NewCFunction3, JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
+        js_async_function_proto_funcs, js_function_constructor, js_function_proto, JSCFunction,
+        JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode,
+        JS_NewCFunction, JS_NewCFunction2, JS_NewCFunction3, JS_NewCFunctionMagic,
+        JS_SetPropertyFunctionList,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -21,7 +22,7 @@ use crate::{
         },
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
-        function::{js_function_constructor, js_function_proto_funcs},
+        function::js_function_proto_funcs,
         global::{js_global_eval, js_global_props},
         number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},

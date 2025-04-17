@@ -64,26 +64,30 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let p = unsafe { func_obj.object() };
     p.detailed.set_constructor(args.this.is_constructor());
 
-    let arg_count = std::cmp::max(0, args.length() - 1);
+    let mut bf = Box::new(JSBoundFunction {
+        func_obj: args.this.dup(),
+        this_val: args.get_raw(0).dup(), // argument #0 is for `this`
+        bind_args: Vec::new(),
+    });
 
-    unsafe {
-        let bf = js_malloc(
-            ctx,
-            std::mem::size_of::<JSBoundFunction>() + arg_count * std::mem::size_of::<JSValue>(),
-        )
-        .cast::<JSBoundFunction>();
-        if bf.is_null() {
-            JS_FreeValue(ctx, func_obj);
+    let mut arg_count = args.length();
+    if arg_count > 0 {
+        arg_count -= 1;
+    }
+
+    if arg_count > 0 {
+        // collect arguments starting from #1
+        if bf.bind_args.try_reserve_exact(arg_count).is_err() {
+            ctx.JS_ThrowOutOfMemory();
             return Err(-1);
         }
-
-        (*bf).func_obj = args.this.dup();
-        (*bf).this_val = args.get_raw(0).dup();
-        (*bf).argc = arg_count as _;
-        for i in 0..arg_count {
-            *(*bf).argv.as_mut_ptr().add(i) = args.get_raw(i + 1).dup();
+        for a in &args.arguments_raw()[1..] {
+            bf.bind_args.push(a.dup());
         }
-        (*p).u.bound_function = bf;
+    }
+
+    unsafe {
+        (*p).u.bound_function = Box::into_raw(bf);
 
         /* XXX: the spec could be simpler by only using GetOwnProperty */
         let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this, JS_ATOM_length);
@@ -226,102 +230,6 @@ pub fn js_function_proto_lineNumber(_: &mut JSContext, args: CallArgs) -> JSResu
             Ok(JSValue::UNDEFINED)
         }
     }
-}
-
-// XXX: add a specific eval mode so that Function("}), ({") is rejected
-pub unsafe fn js_function_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    debug_assert!((0..4).contains(&magic));
-    let func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(magic as u8);
-
-    let mut buf = SmallVec::<[u8; 64]>::new();
-    buf.push(b'(');
-
-    if matches!(
-        func_kind,
-        JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    ) {
-        buf.extend_from_slice(b"async ");
-    }
-    buf.extend_from_slice(b"function");
-
-    if matches!(
-        func_kind,
-        JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    ) {
-        buf.push(b'*');
-    }
-    buf.extend_from_slice(b" anonymous(");
-
-    let n = argc - 1;
-    for i in 0..n {
-        if i != 0 {
-            buf.push(b',');
-        }
-
-        let v = *argv.offset(i as _);
-        if let Ok(sv) = v.to_utf8_string(ctx.as_mut().unwrap()) {
-            buf.extend_from_slice(sv.as_bytes());
-        } else {
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    buf.extend_from_slice(b") {\n");
-    if n >= 0 {
-        if let Ok(sv) = (*argv.offset(n as _)).to_utf8_string(ctx.as_mut().unwrap()) {
-            buf.extend_from_slice(sv.as_bytes());
-        } else {
-            return JSValue::EXCEPTION;
-        }
-    }
-    buf.extend_from_slice(b"\n})");
-
-    // create script string
-    let src = (*ctx).create_string_from_utf8(buf.to_vec());
-    if src.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    // eval script
-    let obj = JS_EvalObject(ctx, (*ctx).global_obj, src, JS_EVAL_TYPE_INDIRECT, -1);
-    JS_FreeValue(ctx, src);
-
-    if JS_IsException(obj) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    if !JS_IsUndefined(new_target) {
-        // set the prototype
-        let mut proto = new_target.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
-        if proto.is_exception() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-        if !proto.is_object() {
-            let realm = JS_GetFunctionRealm(ctx, new_target);
-            if realm.is_null() {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-            proto = (*realm).class_proto[func_kind_to_class_id[func_kind as usize] as usize].dup();
-        }
-
-        let ret = JS_SetPrototypeInternal(ctx, obj, proto, true);
-        JS_FreeValue(ctx, proto);
-        if ret.is_err() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    obj
 }
 
 pub const js_function_proto_funcs: [JSCFunctionListEntry; 7] = [

@@ -1,7 +1,7 @@
 use std::{ffi::CStr, ptr::NonNull};
 
 use crate::{
-    atom::{consts::JS_ATOM__eval_, JS_DupAtom, JS_NewAtom, JS_ATOM_NULL},
+    atom::{consts::JS_ATOM__eval_, JS_DupAtom},
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
         add_closure_variables, js_class_has_bytecode, js_closure, js_create_function,
@@ -16,9 +16,8 @@ use crate::{
     stack_frame::JSStackFrame,
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsUndefined,
-        JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_FUNCTION_BYTECODE,
+        JS_TAG_MODULE, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 
