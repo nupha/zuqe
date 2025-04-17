@@ -375,10 +375,10 @@ impl JSFunctionDef {
     /// Create a bytecode function from function definition.
     /// All the child functions are also created. It must be done this way to resolve all the variables.
     /// The function definition is consumed.
-    pub unsafe fn create_function(mut fd: Box<Self>, ctx: &mut JSContext) -> JSValue {
+    pub unsafe fn make_function(mut self: Box<Self>, ctx: &mut JSContext) -> JSValue {
         macro_rules! fail {
             () => {
-                fd.free(ctx);
+                self.free(ctx);
                 return JSValue::EXCEPTION;
             };
         }
@@ -387,37 +387,37 @@ impl JSFunctionDef {
         // recompute scope linkage
         //
 
-        for scope in fd.scopes.iter_mut() {
+        for scope in self.scopes.iter_mut() {
             scope.first = -1;
         }
 
-        if fd.has_parameter_expressions {
+        if self.has_parameter_expressions {
             // special end of variable list marker for the argument scope
-            fd.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = ARG_SCOPE_END;
+            self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = ARG_SCOPE_END;
         }
 
-        for idx in 0..fd.var_count {
-            let vd = fd.vars.offset(idx as isize);
-            debug_assert!((*vd).scope_level >= 0 && (*vd).scope_level < fd.scopes.len() as i32);
+        for idx in 0..self.var_count {
+            let vd = self.vars.offset(idx as isize);
+            debug_assert!((*vd).scope_level >= 0 && (*vd).scope_level < self.scopes.len() as i32);
 
-            let scope = fd.scopes.get_mut((*vd).scope_level as usize).unwrap();
+            let scope = self.scopes.get_mut((*vd).scope_level as usize).unwrap();
             (*vd).scope_next = scope.first;
             scope.first = idx as i32;
         }
 
-        for i in 2..fd.scopes.len() {
-            if fd.scopes[i].first < 0 {
-                let parent = fd.scopes[i].parent;
+        for i in 2..self.scopes.len() {
+            if self.scopes[i].first < 0 {
+                let parent = self.scopes[i].parent;
                 debug_assert!(parent >= 0);
-                fd.scopes[i].first = fd.scopes[parent as usize].first;
+                self.scopes[i].first = self.scopes[parent as usize].first;
             }
         }
 
-        for idx in 0..fd.var_count {
-            let vd = fd.vars.offset(idx as isize);
+        for idx in 0..self.var_count {
+            let vd = self.vars.offset(idx as isize);
             if (*vd).scope_next < 0 && (*vd).scope_level > 1 {
-                let parent = fd.scopes[(*vd).scope_level as usize].parent;
-                (*vd).scope_next = fd.scopes[parent as usize].first;
+                let parent = self.scopes[(*vd).scope_level as usize].parent;
+                (*vd).scope_next = self.scopes[parent as usize].first;
             }
         }
 
@@ -425,31 +425,31 @@ impl JSFunctionDef {
         // are used to compile the eval and they must be ordered by scope,
         // so it is necessary to create the closure variables before any
         // other variable lookup is done.
-        if fd.has_eval_call {
-            add_eval_variables(ctx, fd.deref_mut());
+        if self.has_eval_call {
+            add_eval_variables(ctx, self.deref_mut());
         }
 
         // add the module global variables in the closure
-        if !fd.module.is_null() {
-            if add_module_variables(ctx, fd.deref_mut()) != 0 {
+        if !self.module.is_null() {
+            if add_module_variables(ctx, self.deref_mut()) != 0 {
                 fail!();
             }
         }
 
         // first create all the child functions
-        let r = list_foreach_safe_with_ret(&mut fd.child_list, |el| {
+        let r = list_foreach_safe_with_ret(&mut self.child_list, |el| {
             let fd1 = list_entry!(el, JSFunctionDef, link);
             let cpool_idx: i32 = (*fd1).parent_cpool_idx;
             debug_assert!(cpool_idx >= 0);
 
-            let func_obj = Self::create_function(Box::from_raw(fd1), ctx);
+            let func_obj = Box::from_raw(fd1).make_function(ctx);
             if func_obj.is_exception() {
                 return Some(-1); // fail exit
             }
             debug_assert_eq!(JS_VALUE_GET_TAG(func_obj), JS_TAG_FUNCTION_BYTECODE);
 
             // put child func to parent's constant pool
-            *fd.cpool.add(cpool_idx as usize) = func_obj;
+            *self.cpool.add(cpool_idx as usize) = func_obj;
 
             None
         });
@@ -458,129 +458,129 @@ impl JSFunctionDef {
         }
 
         #[cfg(feature = "dump_bytecode")]
-        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass 1");
             crate::bytecode::dump_byte_code(
                 ctx,
                 1,
-                fd.byte_code.as_slice(),
-                if fd.arg_count > 0 {
-                    std::slice::from_raw_parts(fd.args, fd.arg_count as _)
+                self.byte_code.as_slice(),
+                if self.arg_count > 0 {
+                    std::slice::from_raw_parts(self.args, self.arg_count as _)
                 } else {
                     &[]
                 },
-                if fd.var_count > 0 {
-                    std::slice::from_raw_parts(fd.vars, fd.var_count as _)
+                if self.var_count > 0 {
+                    std::slice::from_raw_parts(self.vars, self.var_count as _)
                 } else {
                     &[]
                 },
-                fd.closure_vars.as_deref().unwrap_or(&[]),
-                if fd.cpool_count > 0 {
-                    std::slice::from_raw_parts(fd.cpool, fd.cpool_count as _)
+                self.closure_vars.as_deref().unwrap_or(&[]),
+                if self.cpool_count > 0 {
+                    std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
                 } else {
                     &[]
                 },
-                fd.source.cast(),
-                fd.line_num as _,
-                fd.label_slots,
+                self.source.cast(),
+                self.line_num as _,
+                self.label_slots,
                 std::ptr::null_mut(),
             );
             println!();
         }
 
         // pass 2
-        if resolve_variables(ctx, fd.deref_mut()).is_err() {
+        if resolve_variables(ctx, self.deref_mut()).is_err() {
             fail!();
         }
 
         #[cfg(feature = "dump_bytecode")]
-        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass 2");
             crate::bytecode::dump_byte_code(
                 ctx,
                 2,
-                fd.byte_code.as_slice(),
-                if fd.arg_count > 0 {
-                    std::slice::from_raw_parts(fd.args, fd.arg_count as _)
+                self.byte_code.as_slice(),
+                if self.arg_count > 0 {
+                    std::slice::from_raw_parts(self.args, self.arg_count as _)
                 } else {
                     &[]
                 },
-                if fd.var_count > 0 {
-                    std::slice::from_raw_parts(fd.vars, fd.var_count as _)
+                if self.var_count > 0 {
+                    std::slice::from_raw_parts(self.vars, self.var_count as _)
                 } else {
                     &[]
                 },
-                fd.closure_vars.as_deref().unwrap_or(&[]),
-                if fd.cpool_count > 0 {
-                    std::slice::from_raw_parts(fd.cpool, fd.cpool_count as _)
+                self.closure_vars.as_deref().unwrap_or(&[]),
+                if self.cpool_count > 0 {
+                    std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
                 } else {
                     &[]
                 },
-                fd.source.cast(),
-                fd.line_num as _,
-                fd.label_slots,
+                self.source.cast(),
+                self.line_num as _,
+                self.label_slots,
                 std::ptr::null_mut(),
             );
             println!();
         }
 
         // pass 3
-        if resolve_labels(ctx, fd.deref_mut()).is_err() {
+        if resolve_labels(ctx, self.deref_mut()).is_err() {
             fail!();
         }
 
-        let stack_size = if let Ok(ss) = fd.compute_stack_size(ctx) {
+        let stack_size = if let Ok(ss) = self.compute_stack_size(ctx) {
             ss
         } else {
             fail!();
         };
 
-        // new function
-        let mut b = if let Some(p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
+        // alloc bytecode function
+        let mut bf = if let Some(p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
             Box::from_raw(p.as_ptr())
         } else {
             fail!();
         };
 
-        b.func_name = fd.func_name;
-        fd.func_name = JS_ATOM_NULL; // avoid to free func_name in js_free_function_def()
+        bf.func_name = self.func_name;
+        self.func_name = JS_ATOM_NULL; // avoid to free func_name in js_free_function_def()
 
-        b.header.ref_count = 1;
-        b.stack_size = stack_size;
-        b.has_prototype = fd.has_prototype;
-        b.has_simple_parameter_list = fd.has_simple_parameter_list;
-        b.js_mode = fd.js_mode;
-        b.is_derived_class_constructor = fd.is_derived_class_constructor;
-        b.func_kind = fd.func_kind;
-        b.need_home_object = fd.home_object_var_idx.is_some() || fd.need_home_object;
-        b.new_target_allowed = fd.new_target_allowed;
-        b.super_call_allowed = fd.super_call_allowed;
-        b.super_allowed = fd.super_allowed;
-        b.arguments_allowed = fd.arguments_allowed;
-        b.backtrace_barrier = fd.backtrace_barrier;
-        b.is_direct_or_indirect_eval =
-            matches!(fd.eval_type, JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT);
-        b.realm = JS_DupContext(ctx);
+        bf.header.ref_count = 1;
+        bf.stack_size = stack_size;
+        bf.has_prototype = self.has_prototype;
+        bf.has_simple_parameter_list = self.has_simple_parameter_list;
+        bf.js_mode = self.js_mode;
+        bf.is_derived_class_constructor = self.is_derived_class_constructor;
+        bf.func_kind = self.func_kind;
+        bf.need_home_object = self.home_object_var_idx.is_some() || self.need_home_object;
+        bf.new_target_allowed = self.new_target_allowed;
+        bf.super_call_allowed = self.super_call_allowed;
+        bf.super_allowed = self.super_allowed;
+        bf.arguments_allowed = self.arguments_allowed;
+        bf.backtrace_barrier = self.backtrace_barrier;
+        bf.is_direct_or_indirect_eval =
+            matches!(self.eval_type, JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT);
+        bf.realm = JS_DupContext(ctx);
 
-        b.cpool_count = fd.cpool_count as _;
-        b.var_count = fd.var_count;
-        b.arg_count = fd.arg_count;
-        b.defined_arg_count = fd.defined_arg_count;
+        bf.cpool_count = self.cpool_count as _;
+        bf.var_count = self.var_count;
+        bf.arg_count = self.arg_count;
+        bf.defined_arg_count = self.defined_arg_count;
 
         // initialize offsets to invalid
-        b.cpool_offset = -1;
-        b.vardefs_offset = -1;
-        b.closure_var_offset = -1;
+        bf.cpool_offset = -1;
+        bf.vardefs_offset = -1;
+        bf.closure_var_offset = -1;
 
-        let mut bin_size = if b.cpool_count != 0 {
-            b.cpool_offset = 0;
-            b.cpool_count as usize * std::mem::size_of::<JSValue>()
+        let mut bin_size = if bf.cpool_count != 0 {
+            bf.cpool_offset = 0;
+            bf.cpool_count as usize * std::mem::size_of::<JSValue>()
         } else {
             0
         };
 
-        if fd.js_mode & JS_MODE_STRIP as u8 == 0 || fd.has_eval_call {
-            let n = fd.arg_count + fd.var_count;
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
+            let n = self.arg_count + self.var_count;
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
                 let mut i = bin_size;
@@ -589,12 +589,12 @@ impl JSFunctionDef {
                     i += ly.align() - m;
                     bin_size += ly.align() - m
                 }
-                b.vardefs_offset = i as i32;
+                bf.vardefs_offset = i as i32;
                 bin_size += n as usize * ly.size();
             }
         }
 
-        let num_closures = fd.closure_vars.as_ref().map_or(0, |x| x.len());
+        let num_closures = self.closure_vars.as_ref().map_or(0, |x| x.len());
         if num_closures != 0 {
             const ly: std::alloc::Layout = std::alloc::Layout::new::<JSClosureVar>();
             let mut i = bin_size;
@@ -604,11 +604,11 @@ impl JSFunctionDef {
                 bin_size += ly.align() - m
             }
             bin_size += num_closures * ly.size();
-            b.closure_var_offset = i as i32;
+            bf.closure_var_offset = i as i32;
         }
 
-        b.bytecode_offset = bin_size as u32;
-        bin_size += fd.byte_code.len();
+        bf.bytecode_offset = bin_size as u32;
+        bin_size += self.byte_code.len();
 
         debug_assert!(bin_size > 0);
 
@@ -621,62 +621,62 @@ impl JSFunctionDef {
         bin.set_len(bin_size);
 
         // 1. cpool section
-        if b.cpool_offset >= 0 {
+        if bf.cpool_offset >= 0 {
             std::ptr::copy_nonoverlapping(
-                fd.cpool,
+                self.cpool,
                 bin.as_mut_ptr()
-                    .add(b.cpool_offset as usize)
+                    .add(bf.cpool_offset as usize)
                     .cast::<JSValue>(),
-                b.cpool_count as usize,
+                bf.cpool_count as usize,
             );
 
             // SAFEGUARD: we have copy cpool values to function bytecode above.
             // we do cpool pointer and count clean-ups here in advance,
             // so that js_free_function_def() will not free them again.
-            js_free(ctx, fd.cpool.cast());
-            fd.cpool = std::ptr::null_mut();
-            fd.cpool_count = 0;
+            js_free(ctx, self.cpool.cast());
+            self.cpool = std::ptr::null_mut();
+            self.cpool_count = 0;
         }
 
         // 2. vardef section
-        if b.vardefs_offset >= 0 {
-            if b.arg_count != 0 {
+        if bf.vardefs_offset >= 0 {
+            if bf.arg_count != 0 {
                 std::ptr::copy_nonoverlapping(
-                    fd.args.cast::<u8>(),
-                    bin.as_mut_ptr().add(b.vardefs_offset as usize),
-                    b.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                    self.args.cast::<u8>(),
+                    bin.as_mut_ptr().add(bf.vardefs_offset as usize),
+                    bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
                 );
             }
-            if b.var_count != 0 {
+            if bf.var_count != 0 {
                 std::ptr::copy_nonoverlapping(
-                    fd.vars.cast::<u8>(),
+                    self.vars.cast::<u8>(),
                     bin.as_mut_ptr().add(
-                        b.vardefs_offset as usize
-                            + b.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                        bf.vardefs_offset as usize
+                            + bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
                     ),
-                    b.var_count as usize * std::mem::size_of::<JSVarDef>(),
+                    bf.var_count as usize * std::mem::size_of::<JSVarDef>(),
                 );
             }
 
             // SAFEGUARD: we have copy arg and var definations to function bytecode above.
             // we do vardefs and *_count clean-ups here in advance,
             // so that when calling js_free_function_def() later, it will not free vardefs.
-            js_free(ctx, fd.args.cast());
-            js_free(ctx, fd.vars.cast());
-            fd.args = std::ptr::null_mut();
-            fd.vars = std::ptr::null_mut();
-            fd.arg_count = 0;
-            fd.var_count = 0;
+            js_free(ctx, self.args.cast());
+            js_free(ctx, self.vars.cast());
+            self.args = std::ptr::null_mut();
+            self.vars = std::ptr::null_mut();
+            self.arg_count = 0;
+            self.var_count = 0;
         }
 
         // 3. closure vars section
-        if b.closure_var_offset >= 0 {
-            let cvars = fd.closure_vars.take().unwrap();
-            b.closure_var_count = cvars.len() as _;
+        if bf.closure_var_offset >= 0 {
+            let cvars = self.closure_vars.take().unwrap();
+            bf.closure_var_count = cvars.len() as _;
 
             let mut ptr = bin
                 .as_mut_ptr()
-                .add(b.closure_var_offset as usize)
+                .add(bf.closure_var_offset as usize)
                 .cast::<JSClosureVar>();
 
             for cv in cvars {
@@ -687,54 +687,56 @@ impl JSFunctionDef {
 
         // 4. bytecode section
         std::ptr::copy_nonoverlapping(
-            fd.byte_code.as_ptr(),
-            bin.as_mut_ptr().add(b.bytecode_offset as usize),
-            fd.byte_code.len(),
+            self.byte_code.as_ptr(),
+            bin.as_mut_ptr().add(bf.bytecode_offset as usize),
+            self.byte_code.len(),
         );
         // SAFEGUARD: clear bytecode in advance, so that js_free_function_def() will not free atoms in it.
-        fd.byte_code.clear();
+        self.byte_code.clear();
 
         debug_assert_eq!(bin.len(), bin_size);
-        b.binary = bin.into_boxed_slice();
+        bf.binary = bin.into_boxed_slice();
 
-        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
-            b.has_debug = true;
-            b.debug.line_num = fd.line_num;
-            b.debug.filename = fd.filename;
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
+            bf.has_debug = true;
+            bf.debug.line_num = self.line_num;
+            bf.debug.filename = self.filename;
             // SAFEGUARD: to prevent free in js_free_function_def()
-            fd.filename = JS_ATOM_NULL;
+            self.filename = JS_ATOM_NULL;
 
-            b.debug.source_len = fd.source_len;
-            b.debug.source = fd.source;
+            bf.debug.source_len = self.source_len;
+            bf.debug.source = self.source;
             // SAFEGUARD: to prevent free in js_free_function_def()
-            fd.source = std::ptr::null_mut();
+            self.source = std::ptr::null_mut();
 
             // move pc2line to func object.
-            if let Some(mut lst) = fd.pc2line.take() {
+            if let Some(mut lst) = self.pc2line.take() {
                 lst.shrink_to_fit();
-                b.debug.pc2line_buf.replace(lst);
+                bf.debug.pc2line_buf.replace(lst);
             }
         }
 
         add_gc_object(
             ctx.rt_mut(),
-            &mut b.header,
+            &mut bf.header,
             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE,
         );
 
         #[cfg(feature = "dump_bytecode")]
-        if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
-            crate::bytecode::js_dump_function_bytecode(ctx, b.as_mut());
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
+            crate::bytecode::js_dump_function_bytecode(ctx, bf.as_mut());
         }
 
-        fd.free(ctx);
+        // drop function defination
+        self.free(ctx);
 
-        JS_MKPTR!(JSTag::FunctionBytecode, Box::into_raw(b).cast())
+        // return bytecode function value
+        JS_MKPTR!(JSTag::FunctionBytecode, Box::into_raw(bf).cast())
     }
 
     /// to free a JSFunctionDef and all its children
     pub unsafe fn free(mut self: Box<Self>, ctx: &mut JSContext) {
-        // free the child function defs
+        // free child function defs
         list_foreach_safe(&mut self.child_list, |el| {
             let fd1 = list_entry!(el, JSFunctionDef, link);
             Self::free(Box::from_raw(fd1), ctx);
@@ -874,74 +876,6 @@ pub unsafe fn js_new_function_def(
     } else {
         std::ptr::null_mut()
     }
-}
-
-/// to free `fd` and all its children
-#[deprecated(note = "use JSFunctionDef::free() instead")]
-pub unsafe fn js_free_function_def(ctx: *mut JSContext, fd: *mut JSFunctionDef) {
-    Box::from_raw(fd).free(ctx.as_mut().unwrap());
-
-    // // free the child functions
-    // list_foreach_safe(&mut (*fd).child_list, |el| {
-    //     let fd1 = list_entry!(el, JSFunctionDef, link);
-    //     js_free_function_def(ctx, fd1);
-    // });
-
-    // free_bytecode_atoms(
-    //     (*ctx).rt_mut(),
-    //     std::slice::from_raw_parts((*fd).byte_code.as_ptr(), (*fd).byte_code.len() as usize),
-    //     (*fd).use_short_opcodes,
-    // );
-    // (*fd).byte_code.clear();
-
-    // js_free(ctx, (*fd).jump_slots.cast());
-    // js_free(ctx, (*fd).label_slots.cast());
-    // js_free(ctx, (*fd).line_number_slots.cast());
-
-    // for i in 0..(*fd).cpool_count {
-    //     JS_FreeValue(ctx, *(*fd).cpool.offset(i as isize));
-    // }
-    // js_free(ctx, (*fd).cpool.cast());
-
-    // for i in 0..(*fd).var_count {
-    //     JS_FreeAtom(ctx, (*(*fd).vars.offset(i as isize)).var_name);
-    //     #[cfg(debug_assertions)]
-    //     {
-    //         (*(*fd).vars.offset(i as isize)).var_name = JS_ATOM_NULL;
-    //     }
-    // }
-    // js_free(ctx, (*fd).vars.cast());
-
-    // for i in 0..(*fd).arg_count {
-    //     JS_FreeAtom(ctx, (*(*fd).args.offset(i as isize)).var_name);
-    //     #[cfg(debug_assertions)]
-    //     {
-    //         (*(*fd).args.offset(i as isize)).var_name = JS_ATOM_NULL;
-    //     }
-    // }
-    // js_free(ctx, (*fd).args.cast());
-
-    // for i in 0..(*fd).global_var_count {
-    //     JS_FreeAtom(ctx, (*(*fd).global_vars.offset(i as isize)).var_name);
-    // }
-    // js_free(ctx, (*fd).global_vars.cast());
-
-    // if let Some(mut lst) = (*fd).closure_vars.take() {
-    //     for cv in lst.drain(..) {
-    //         JS_FreeAtom(ctx, cv.var_name);
-    //     }
-    // }
-
-    // JS_FreeAtom(ctx, (*fd).func_name);
-    // JS_FreeAtom(ctx, (*fd).filename);
-    // js_free(ctx, (*fd).source.cast());
-
-    // if !(*fd).parent.is_null() {
-    //     // remove in parent's list
-    //     list_del(&mut (*fd).link);
-    // }
-
-    // drop(Box::from_raw(fd));
 }
 
 /// update label ref count by delta. returns new ref count.

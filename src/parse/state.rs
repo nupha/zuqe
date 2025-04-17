@@ -54,7 +54,7 @@ pub struct JSParseState {
     pub buf_end: *const u8,
 
     /// Current function being parsed
-    /// TODO: use Box<JSFunctionDef> for better memory management
+    /// TODO: use Box<JSFunctionDef>
     pub cur_func: *mut JSFunctionDef,
 
     /// Indicates if parsing a JavaScript module

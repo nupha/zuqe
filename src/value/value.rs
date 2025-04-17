@@ -470,8 +470,9 @@ pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
             }
             _ => {
                 let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-                (*p).ref_count -= 1;
+                debug_assert!((*p).ref_count > 0);
 
+                (*p).ref_count -= 1;
                 if (*p).ref_count <= 0 {
                     __JS_FreeValueRT(rt, v);
                 }

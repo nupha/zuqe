@@ -1,12 +1,11 @@
-use std::{ffi::CStr, ptr::NonNull};
+use std::{ffi::CStr, ops::DerefMut, ptr::NonNull};
 
 use crate::{
     atom::{consts::JS_ATOM__eval_, JS_DupAtom},
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
-        add_closure_variables, js_class_has_bytecode, js_closure, js_create_function,
-        js_free_function_def, js_new_function_def, JSFunctionBytecode, JSFunctionKindEnum,
-        JSVarRef, JS_Call, JS_CallFree,
+        add_closure_variables, js_class_has_bytecode, js_closure, js_new_function_def,
+        JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_Call, JS_CallFree,
     },
     module::{
         js_create_module_function, js_free_module_def, js_inner_module_evaluation, js_link_module,
@@ -57,7 +56,7 @@ pub unsafe fn __JS_EvalInternal(
     macro_rules! fail {
         ($fd:expr, $m:expr) => {
             s.free_token();
-            js_free_function_def(ctx, $fd);
+            $fd.free(ctx.as_mut().unwrap());
             fail1!($m);
         };
     }
@@ -107,69 +106,78 @@ pub unsafe fn __JS_EvalInternal(
         }
     }
 
-    let fd = js_new_function_def(
-        ctx,
+    let mut fd = if let Ok(f) = JSFunctionDef::new(
+        ctx.as_mut().unwrap(),
         std::ptr::null_mut(),
         true,
         false,
         filename.as_ptr().cast(),
         1,
-    );
-    if fd.is_null() {
-        fail1!(m);
-    }
-
-    s.cur_func = fd;
-
-    (*fd).eval_type = eval_type;
-    (*fd).has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
-    (*fd).backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
-    if eval_type == JS_EVAL_TYPE_DIRECT {
-        (*fd).new_target_allowed = (*b).new_target_allowed;
-        (*fd).super_call_allowed = (*b).super_call_allowed;
-        (*fd).super_allowed = (*b).super_allowed;
-        (*fd).arguments_allowed = (*b).arguments_allowed;
+    ) {
+        f
     } else {
-        (*fd).new_target_allowed = false;
-        (*fd).super_call_allowed = false;
-        (*fd).super_allowed = false;
-        (*fd).arguments_allowed = true;
+        fail1!(m);
+    };
+
+    fd.eval_type = eval_type;
+    fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+    fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
+    if eval_type == JS_EVAL_TYPE_DIRECT {
+        fd.new_target_allowed = (*b).new_target_allowed;
+        fd.super_call_allowed = (*b).super_call_allowed;
+        fd.super_allowed = (*b).super_allowed;
+        fd.arguments_allowed = (*b).arguments_allowed;
+    } else {
+        fd.new_target_allowed = false;
+        fd.super_call_allowed = false;
+        fd.super_allowed = false;
+        fd.arguments_allowed = true;
     }
-    (*fd).js_mode = js_mode as u8;
-    (*fd).func_name = JS_DupAtom(ctx, JS_ATOM__eval_);
+    fd.js_mode = js_mode as u8;
+    fd.func_name = JS_DupAtom(ctx, JS_ATOM__eval_);
 
     if !b.is_null() {
-        if add_closure_variables(ctx, fd, b, scope_idx).is_err() {
+        if add_closure_variables(ctx, fd.deref_mut(), b, scope_idx).is_err() {
             fail!(fd, m);
         }
     }
 
-    (*fd).module = m;
+    fd.module = m;
     if !m.is_null() || (flags & JS_EVAL_FLAG_ASYNC != 0) {
-        (*fd).in_function_body = true;
-        (*fd).func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+        fd.in_function_body = true;
+        fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
     }
 
+    s.cur_func = fd.deref_mut();
     s.is_module = !m.is_null();
     s.allow_html_comments = !s.is_module;
 
-    /* enter body scope */
-    (*fd).body_scope = if let Ok(l) = s.push_scope() {
-        l
-    } else {
-        fail!(fd, m);
-    };
+    // this block will use s.cur_func pointer.
+    // DON'T write `fd` in this block.
+    {
+        // enter body scope.
+        // must set s.cur_func pointer before calling s.push_scope().
+        fd.body_scope = if let Ok(l) = s.push_scope() {
+            l
+        } else {
+            fail!(fd, m);
+        };
 
-    if s.parse_program().is_err() {
-        fail!(fd, m);
+        if s.parse_program().is_err() {
+            fail!(fd, m);
+        }
+
+        if !m.is_null() {
+            (*m).has_tla = fd.has_await;
+        }
     }
 
-    if !m.is_null() {
-        (*m).has_tla = (*fd).has_await;
-    }
+    // now s.cur_func should be restored to `fd`
+    debug_assert_eq!(s.cur_func, fd.deref_mut() as *mut JSFunctionDef);
 
-    // create the function object and all the enclosed functions
-    let mut fun_obj = js_create_function(ctx.as_mut().unwrap(), fd);
+    // create the function object and all the enclosed functions.
+    // FIXME: fd is dropped here, how about s.cur_func pointer?
+    let mut fun_obj = fd.make_function(ctx.as_mut().unwrap());
     if fun_obj.is_exception() {
         fail1!(m);
     }

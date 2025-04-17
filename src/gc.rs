@@ -274,8 +274,8 @@ pub unsafe fn gc_scan(rt: *mut JSRuntime) {
     // keep the objects with a refcount > 0 and their children.
     list_foreach(&mut (*rt).gc_obj_list, |el| {
         let p = list_entry!(el, JSGCObjectHeader, link);
-        assert!((*p).ref_count > 0);
-        p.as_mut().unwrap().set_mark(0); /* reset the mark for the next GC call */
+        debug_assert!((*p).ref_count > 0);
+        (*p).set_mark(0); /* reset the mark for the next GC call */
         mark_children(rt, p, gc_scan_incref_child);
     });
 

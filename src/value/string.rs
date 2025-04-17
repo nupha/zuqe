@@ -205,9 +205,9 @@ impl From<Rc<JSString>> for JSValue {
 
 impl JSContext {
     /// create string value from string content.
-    pub unsafe fn create_string_from_content(&mut self, content: StringContent) -> JSValue {
+    pub fn create_string_from_content(&mut self, content: StringContent) -> JSValue {
         if content == StringContent::Empty {
-            unsafe { JS_ATOM_empty_string.to_value(self, true) }
+            JS_ATOM_empty_string.to_value(self, true)
         } else {
             let s: Rc<JSString> = content.into();
             s.into_value()
@@ -223,20 +223,18 @@ impl JSContext {
                 .unwrap()
                 .into_value()
         } else if str.len() > JS_STRING_LEN_MAX {
-            unsafe { self.JS_ThrowInternalError(c"string too long") }
+            self.JS_ThrowInternalError(c"string too long")
         } else if let Ok(ss) = JSString::from_str(str) {
             ss.into_value()
         } else {
-            unsafe {
-                self.JS_ThrowOutOfMemory();
-            }
+            self.JS_ThrowOutOfMemory();
             JSValue::EXCEPTION
         }
     }
 
     /// create string value from a single u16 char.
     /// returns JS_EXCEPTION if fail.
-    pub unsafe fn create_string_from_char(&mut self, ch: char) -> JSValue {
+    pub fn create_string_from_char(&mut self, ch: char) -> JSValue {
         self.create_string_from_content(if ch.is_ascii() {
             StringContent::Utf8(vec![ch as u8])
         } else {
@@ -247,16 +245,14 @@ impl JSContext {
     /// create string jsvalue from an utf8 encoded str.
     pub fn create_string_from_utf8(&mut self, data: Vec<u8>) -> JSValue {
         if data.is_empty() {
-            unsafe { JS_ATOM_empty_string.to_value(self, true) }
+            JS_ATOM_empty_string.to_value(self, true)
         } else if data.len() > JS_STRING_LEN_MAX {
-            unsafe { self.JS_ThrowInternalError(c"string too long") }
+            self.JS_ThrowInternalError(c"string too long")
         } else {
             if let Ok(ss) = JSString::from_utf8(data) {
                 ss.into_value()
             } else {
-                unsafe {
-                    self.JS_ThrowOutOfMemory();
-                }
+                self.JS_ThrowOutOfMemory();
                 JSValue::EXCEPTION
             }
         }
@@ -417,7 +413,7 @@ pub unsafe fn JS_ToStringCheckObject(ctx: *mut JSContext, val: JSValueConst) -> 
 
 #[inline(always)]
 pub unsafe fn JS_IsEmptyString(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_STRING && (*JS_VALUE_GET_STRING(v)).is_empty()
+    JS_VALUE_GET_TAG(v) == JS_TAG_STRING && v.string().is_empty()
 }
 
 /// Note: string value `str2` is consumed inside.
@@ -493,8 +489,8 @@ pub unsafe fn JS_ConcatString(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -
         op2
     };
 
-    let p1 = Rc::from_raw(JS_VALUE_GET_STRING(str1));
-    let p2 = Rc::from_raw(JS_VALUE_GET_STRING(str2));
+    let p1 = Rc::from_raw(str1.string());
+    let p2 = Rc::from_raw(str2.string());
 
     if p1.is_empty() {
         return p2.into_value();
@@ -569,8 +565,8 @@ impl JSValue {
         JS_VALUE_GET_PTR(self).cast::<JSString>().as_ref().unwrap()
     }
 
-    /// take string desciption out from value.
-    /// will panic if value is not string type.
+    /// take string description out from value.
+    /// will panic if value is not string or symbol.
     pub fn take_string(self) -> Rc<JSString> {
         debug_assert!(matches!(
             JS_VALUE_GET_TAG(self),
@@ -670,9 +666,9 @@ pub unsafe fn js_string_get_own_property(
     let mut ret = 0;
 
     if prop.is_int_type() {
-        let p = JS_VALUE_GET_OBJ(obj).as_ref().unwrap();
+        let p = obj.object();
         if JS_VALUE_GET_TAG(p.u.object_data) == JS_TAG_STRING {
-            let p1 = Rc::from_raw(JS_VALUE_GET_STRING(p.u.object_data));
+            let p1 = Rc::from_raw(p.u.object_data.string());
 
             let idx = __JS_AtomToUInt32(prop);
             if idx < p1.len() as u32 {
@@ -729,12 +725,12 @@ pub unsafe fn js_string_define_own_property(
 
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
-        let p = JS_VALUE_GET_OBJ(this_obj).as_mut().unwrap();
+        let p = this_obj.object();
         if JS_VALUE_GET_TAG(p.u.object_data) != JS_TAG_STRING {
             def!();
         }
 
-        let p1 = Rc::from_raw(JS_VALUE_GET_STRING(p.u.object_data));
+        let p1 = Rc::from_raw(p.u.object_data.string());
         let len = p1.len();
         let nth_char = p1.content().chars().nth(idx as usize);
         let _ = Rc::into_raw(p1);
@@ -752,7 +748,7 @@ pub unsafe fn js_string_define_own_property(
                 fail!();
             }
 
-            let p2 = Rc::from_raw(JS_VALUE_GET_STRING(val));
+            let p2 = Rc::from_raw(val.string());
             let len2 = p2.len();
             let nth_char2 = p2.content().chars().next();
             let _ = Rc::into_raw(p2);

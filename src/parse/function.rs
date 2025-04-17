@@ -140,10 +140,8 @@ impl JSParseState {
 
         macro_rules! fail {
             () => {
-                // restore previous cur_func
-                self.cur_func = fd0;
-                // clean up and drop new fd
-                crate::function::js_free_function_def(ctx, Box::into_raw(sub_fd));
+                self.cur_func = fd0; // restore previous cur_func
+                sub_fd.free(ctx); // clean up and drop new fd
                 return Err(-1);
             };
         }

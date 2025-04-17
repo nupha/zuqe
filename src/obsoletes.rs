@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
     class::{JSClassDef, JSClassID},
     context::JSContext,
-    function::{JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
+    function::{JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback},
     runtime::JSRuntime,
@@ -521,4 +521,27 @@ pub unsafe fn JS_PromiseState(
     promise: JSValue,
 ) -> Result<JSPromiseStateEnum, i32> {
     promise.as_promise_unchecked().state()
+}
+
+/// to free `fd` and all its children
+#[deprecated(note = "use JSFunctionDef::free() instead")]
+pub unsafe fn js_free_function_def(ctx: *mut JSContext, fd: *mut JSFunctionDef) {
+    Box::from_raw(fd).free(ctx.as_mut().unwrap());
+}
+
+/// create a function object from a function definition.
+/// All the child functions are also created. It must be done this way to resolve all the variables.
+/// The function definition is freed.
+#[deprecated(note = "ise JSFunctionDef::make_function() instead")]
+pub unsafe fn js_create_function(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> JSValue {
+    Box::from_raw(fd).make_function(ctx)
+}
+
+#[deprecated(note = "use JSFunctionBytecode::find_line_num() instead")]
+pub unsafe fn find_line_num(
+    ctx: *const JSContext,
+    b: *mut JSFunctionBytecode,
+    pc_value: u32,
+) -> i32 {
+    (*b).find_line_num(pc_value).map_or(-1, |x| x as i32)
 }
