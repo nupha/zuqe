@@ -3,8 +3,6 @@ use std::{
     ptr::NonNull,
 };
 
-use smallvec::SmallVec;
-
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
     context::{JSContext, JS_DupContext, JS_FreeContext},

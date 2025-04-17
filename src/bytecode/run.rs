@@ -71,8 +71,7 @@ pub unsafe fn run_bytecodes(
     new_target: JSValue,   // The new.target value for constructor calls
     bytecodes: &[u8],      // Array of bytecode instructions to execute
     pc_offset: usize,      // Current instruction pointer (program counter) offset
-    sp_base: *mut JSValue, // Base pointer of the stack
-    mut sp: *mut JSValue,  // Current stack pointer
+    sp_offset: usize,      // Current stack pointer offset
     var_refs: &[NonNull<JSVarRef>],
     argc: i32,
     argv: *mut JSValue,
@@ -86,8 +85,10 @@ pub unsafe fn run_bytecodes(
     let ctx = b.realm.as_mut().unwrap();
     let rt = ctx.rt.as_mut();
 
+    let sp_base = sf.stack_base_ptr().as_ptr();
     let pc_base = bytecodes.as_ptr();
     let mut pc = pc_base.add(pc_offset); // convert index to pointer
+    let mut sp = sp_base.add(sp_offset); // convert index to pointer
 
     if throwed {
         // has thrown current exception, handle it before execution.

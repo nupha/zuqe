@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use crate::{
     atom::JSAtom,
     bytecode::run_bytecodes,
@@ -77,13 +75,10 @@ pub unsafe fn JS_CallInternal(
             let p = sf.cur_func.object();
             let b = p.u.func.function_bytecode.as_ref().unwrap();
 
-            let pc = sf.cur_pc_offset;
-            let sp = sf.cur_sp_offset;
-            sf.cur_sp_offset = 0;
+            let pc_offset = sf.cur_pc_offset;
+            let sp_offset = std::mem::replace(&mut sf.cur_sp_offset, 0);
             sf.prev_frame = rt.current_stack_frame;
             rt.current_stack_frame = sf;
-
-            let sp_base = sf.stack_base_ptr().as_ptr();
 
             run_bytecodes(
                 b,
@@ -93,9 +88,8 @@ pub unsafe fn JS_CallInternal(
                 this_obj,
                 new_target,
                 &b.binary[b.bytecode_offset as usize..],
-                pc,
-                sp_base,
-                sp_base.add(sp),
+                pc_offset,
+                sp_offset,
                 &p.u.func.var_refs,
                 argc,
                 argv,
@@ -109,7 +103,7 @@ pub unsafe fn JS_CallInternal(
 
     let p = func_obj.object();
     if p.class_id() != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = (*rt).class_array[p.class_id() as usize].call {
+        return if let Some(cb) = rt.class_array[p.class_id() as usize].call {
             #[cfg(debug_assertions)]
             let argv_ref_count0 = if argc > 0 {
                 std::slice::from_raw_parts(argv, argc as usize)
@@ -143,29 +137,27 @@ pub unsafe fn JS_CallInternal(
         };
     }
 
-    let b = p.u.func.function_bytecode.as_ref().unwrap();
+    //
+    // run bytecode function objec
+    //
+
+    let bf = p.u.func.function_bytecode.as_ref().unwrap();
 
     // how many args that should be copied to local buf?
     // argc:实际调用时传入参数个数, b.arg_count:函数定义时参数个数
-    let arg_copy_num = if argc < b.arg_count as i32 || flags & JS_CALL_FLAG_COPY_ARGV != 0 {
-        b.arg_count
+    let arg_copy_num = if argc < bf.arg_count as i32 || flags & JS_CALL_FLAG_COPY_ARGV != 0 {
+        bf.arg_count
     } else {
         0
     };
 
     // how many bytes to allocate for local buf (args+vars+stack)?
-    let buf_values_count = arg_copy_num as usize + b.var_count as usize + b.stack_size as usize;
+    let buf_values_count = arg_copy_num as usize + bf.var_count as usize + bf.stack_size as usize;
 
-    // let local_buf_size = std::mem::size_of::<JSValue>() * buf_values_count;
-    // if js_check_stack_overflow(rt, local_buf_size) {
-    //     return JS_ThrowStackOverflow(caller_ctx);
-    // }
-
-    // 新建执行栈帧
     let mut sf_s = JSStackFrame {
         prev_frame: std::ptr::null_mut(),
-        cur_func: JSValue::UNDEFINED,
-        local_buf: Vec::new(),
+        cur_func: func_obj,
+        local_buf: Vec::<JSValue>::new(),
         arg_base_ptr: std::ptr::null_mut(),
         arg_count: 0,
         var_base_ptr: std::ptr::null_mut(),
@@ -173,16 +165,13 @@ pub unsafe fn JS_CallInternal(
         cur_pc_offset: 0,
         cur_sp_offset: 0,
         var_ref_list: list_head::default(),
-        js_mode: 0,
+        js_mode: bf.js_mode as _,
     };
     let sf = &mut sf_s;
 
     init_list_head(&mut sf.var_ref_list);
 
-    sf.js_mode = b.js_mode as _;
-    sf.cur_func = func_obj;
-
-    // allocate local buffer and running bytecodes with it.
+    // make local buffer and running bytecodes with it.
     // local_buf layout:
     //
     // +------------------+
@@ -191,8 +180,7 @@ pub unsafe fn JS_CallInternal(
     // | stack space      | <- stack_buf
     // +------------------+
     //
-    let mut local_buf = Vec::<JSValue>::new();
-    if local_buf.try_reserve_exact(buf_values_count).is_err() {
+    if sf.local_buf.try_reserve_exact(buf_values_count).is_err() {
         caller_ctx.JS_ThrowOutOfMemory();
         return JSValue::EXCEPTION;
     }
@@ -200,52 +188,46 @@ pub unsafe fn JS_CallInternal(
     if arg_copy_num != 0 {
         // copy arg values
         for i in 0..arg_copy_num as i32 {
-            local_buf.push(if i < argc {
+            sf.local_buf.push(if i < argc {
                 (*argv.offset(i as isize)).dup() // <-- dup value
             } else {
                 JSValue::UNDEFINED
             });
         }
-
         sf.arg_count = arg_copy_num;
-        sf.arg_base_ptr = local_buf.as_mut_ptr()
+        sf.arg_base_ptr = sf.local_buf.as_mut_ptr()
     } else {
         sf.arg_count = argc as _;
         sf.arg_base_ptr = argv;
     }
 
     // initialize vars + stack section
-    local_buf.extend(std::iter::repeat_n(
+    sf.local_buf.extend(std::iter::repeat_n(
         JSValue::UNDEFINED,
-        (b.var_count + b.stack_size) as usize,
+        (bf.var_count + bf.stack_size) as usize,
     ));
-    sf.var_base_ptr = local_buf.as_mut_ptr().add(arg_copy_num as usize);
-    sf.var_count = b.var_count;
+    debug_assert_eq!(sf.local_buf.len(), buf_values_count);
 
-    debug_assert_eq!(local_buf.len(), buf_values_count);
-    sf.local_buf = local_buf;
-
-    // calc stack base in local buf
-    let sp_base = sf.stack_base_ptr().as_ptr();
+    sf.var_base_ptr = sf.local_buf.as_mut_ptr().add(arg_copy_num as usize);
+    sf.var_count = bf.var_count;
 
     sf.prev_frame = rt.current_stack_frame;
     rt.current_stack_frame = sf;
 
     run_bytecodes(
-        b,
+        bf,
         p.u.func.home_object,
         sf,
         caller_ctx,
         this_obj,
         new_target,
-        &b.binary[b.bytecode_offset as usize..],
+        &bf.binary[bf.bytecode_offset as usize..],
         0,
-        sp_base,
-        sp_base,
+        0,
         &p.u.func.var_refs,
         argc,
         argv,
-        b.js_mode as _,
+        bf.js_mode as _,
         false,
     )
 }
