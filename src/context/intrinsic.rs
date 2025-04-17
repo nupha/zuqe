@@ -5,7 +5,7 @@ use crate::{
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::__JS_EvalInternal,
     function::{
-        js_async_function_proto_funcs, js_function_constructor, js_function_proto, JSCFunction,
+        js_async_function_proto_funcs, js_function_proto, BytecodeFunctionValue, JSCFunction,
         JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode,
         JS_NewCFunction, JS_NewCFunction2, JS_NewCFunction3, JS_NewCFunctionMagic,
         JS_SetPropertyFunctionList,
@@ -207,7 +207,7 @@ impl JSContext {
         );
         self.function_ctor = JS_NewCFunctionMagic(
             self,
-            js_function_constructor,
+            BytecodeFunctionValue::hook_constructor,
             c"Function",
             1,
             JSCFunctionEnum::ConstructorOrFuncMagic,
@@ -599,7 +599,9 @@ impl JSContext {
             JS_NewObjectProto(self, self.function_proto);
         let obj1 = JS_NewCFunction3(
             self,
-            std::mem::transmute::<JSCFunctionMagic, JSCFunction>(js_function_constructor),
+            std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
+                BytecodeFunctionValue::hook_constructor,
+            ),
             c"AsyncFunction",
             1,
             JSCFunctionEnum::ConstructorOrFuncMagic,
@@ -655,7 +657,9 @@ impl JSContext {
             JS_NewObjectProto(self, self.function_proto);
         let obj1 = JS_NewCFunction3(
             self,
-            std::mem::transmute::<JSCFunctionMagic, JSCFunction>(js_function_constructor),
+            std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
+                BytecodeFunctionValue::hook_constructor,
+            ),
             c"AsyncGeneratorFunction",
             1,
             JSCFunctionEnum::ConstructorOrFuncMagic,

@@ -13,7 +13,11 @@ use crate::{
     runtime::JSRuntime,
     types::list_add_tail,
     utils::{get_leb128, get_sleb128, get_u32},
-    value::{object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT},
+    value::{
+        object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
+        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+    },
+    JS_CLASS_BYTECODE_FUNCTION,
 };
 
 use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
@@ -368,6 +372,116 @@ impl JSFunctionBytecode {
     }
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct BytecodeFunctionValue(JSValue);
+
+impl JSValue {
+    pub unsafe fn as_bytecode_function(self) -> BytecodeFunctionValue {
+        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_FUNCTION_BYTECODE);
+        std::mem::transmute(self)
+    }
+}
+
+impl BytecodeFunctionValue {
+    // XXX: add a specific eval mode so that Function("}), ({") is rejected
+    pub unsafe fn hook_constructor(
+        ctx: *mut JSContext,
+        new_target: JSValueConst,
+        argc: i32,
+        argv: *mut JSValueConst,
+        magic: i32,
+    ) -> JSValue {
+        debug_assert!((0..4).contains(&magic));
+        let func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(magic as u8);
+
+        let mut buf = SmallVec::<[u8; 64]>::new();
+        buf.push(b'(');
+
+        if matches!(
+            func_kind,
+            JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+        ) {
+            buf.extend_from_slice(b"async ");
+        }
+        buf.extend_from_slice(b"function");
+
+        if matches!(
+            func_kind,
+            JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+        ) {
+            buf.push(b'*');
+        }
+        buf.extend_from_slice(b" anonymous(");
+
+        let n = argc - 1;
+        for i in 0..n {
+            if i != 0 {
+                buf.push(b',');
+            }
+
+            let v = *argv.offset(i as _);
+            if let Ok(sv) = v.to_utf8_string(ctx.as_mut().unwrap()) {
+                buf.extend_from_slice(sv.as_bytes());
+            } else {
+                return JSValue::EXCEPTION;
+            }
+        }
+
+        buf.extend_from_slice(b") {\n");
+        if n >= 0 {
+            if let Ok(sv) = (*argv.offset(n as _)).to_utf8_string(ctx.as_mut().unwrap()) {
+                buf.extend_from_slice(sv.as_bytes());
+            } else {
+                return JSValue::EXCEPTION;
+            }
+        }
+        buf.extend_from_slice(b"\n})");
+
+        // create script string
+        let src = (*ctx).create_string_from_utf8(buf.into_vec());
+        if src.is_exception() {
+            return JSValue::EXCEPTION;
+        }
+
+        // eval script
+        let obj = JS_EvalObject(ctx, (*ctx).global_obj, src, JS_EVAL_TYPE_INDIRECT, -1);
+        JS_FreeValue(ctx, src);
+
+        if obj.is_exception() {
+            JS_FreeValue(ctx, obj);
+            return JSValue::EXCEPTION;
+        }
+
+        if !new_target.is_undefined() {
+            // set the prototype
+            let mut proto = new_target.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
+            if proto.is_exception() {
+                JS_FreeValue(ctx, obj);
+                return JSValue::EXCEPTION;
+            }
+            if !proto.is_object() {
+                let realm = JS_GetFunctionRealm(ctx, new_target);
+                if realm.is_null() {
+                    JS_FreeValue(ctx, obj);
+                    return JSValue::EXCEPTION;
+                }
+                proto =
+                    (*realm).class_proto[func_kind_to_class_id[func_kind as usize] as usize].dup();
+            }
+
+            let ret = JS_SetPrototypeInternal(ctx, obj, proto, true);
+            JS_FreeValue(ctx, proto);
+            if ret.is_err() {
+                JS_FreeValue(ctx, obj);
+                return JSValue::EXCEPTION;
+            }
+        }
+
+        obj
+    }
+}
+
 pub unsafe fn free_function_bytecode(rt: *mut JSRuntime, b: *mut JSFunctionBytecode) {
     free_bytecode_atoms(rt, &(*b).binary[(*b).bytecode_offset as usize..], true);
 
@@ -442,100 +556,4 @@ pub fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcodes: bool
 
         pos += oi.size as usize;
     }
-}
-
-// XXX: add a specific eval mode so that Function("}), ({") is rejected
-pub unsafe fn js_function_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    debug_assert!((0..4).contains(&magic));
-    let func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(magic as u8);
-
-    let mut buf = SmallVec::<[u8; 64]>::new();
-    buf.push(b'(');
-
-    if matches!(
-        func_kind,
-        JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    ) {
-        buf.extend_from_slice(b"async ");
-    }
-    buf.extend_from_slice(b"function");
-
-    if matches!(
-        func_kind,
-        JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    ) {
-        buf.push(b'*');
-    }
-    buf.extend_from_slice(b" anonymous(");
-
-    let n = argc - 1;
-    for i in 0..n {
-        if i != 0 {
-            buf.push(b',');
-        }
-
-        let v = *argv.offset(i as _);
-        if let Ok(sv) = v.to_utf8_string(ctx.as_mut().unwrap()) {
-            buf.extend_from_slice(sv.as_bytes());
-        } else {
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    buf.extend_from_slice(b") {\n");
-    if n >= 0 {
-        if let Ok(sv) = (*argv.offset(n as _)).to_utf8_string(ctx.as_mut().unwrap()) {
-            buf.extend_from_slice(sv.as_bytes());
-        } else {
-            return JSValue::EXCEPTION;
-        }
-    }
-    buf.extend_from_slice(b"\n})");
-
-    // create script string
-    let src = (*ctx).create_string_from_utf8(buf.into_vec());
-    if src.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    // eval script
-    let obj = JS_EvalObject(ctx, (*ctx).global_obj, src, JS_EVAL_TYPE_INDIRECT, -1);
-    JS_FreeValue(ctx, src);
-
-    if obj.is_exception() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    if !new_target.is_undefined() {
-        // set the prototype
-        let mut proto = new_target.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
-        if proto.is_exception() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-        if !proto.is_object() {
-            let realm = JS_GetFunctionRealm(ctx, new_target);
-            if realm.is_null() {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-            proto = (*realm).class_proto[func_kind_to_class_id[func_kind as usize] as usize].dup();
-        }
-
-        let ret = JS_SetPrototypeInternal(ctx, obj, proto, true);
-        JS_FreeValue(ctx, proto);
-        if ret.is_err() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    obj
 }
