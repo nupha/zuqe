@@ -456,73 +456,15 @@ impl JSFunctionDef {
         if r.is_some() {
             fail!();
         }
-
         #[cfg(feature = "dump_bytecode")]
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
-            println!("pass 1");
-            crate::bytecode::dump_byte_code(
-                ctx,
-                1,
-                self.byte_code.as_slice(),
-                if self.arg_count > 0 {
-                    std::slice::from_raw_parts(self.args, self.arg_count as _)
-                } else {
-                    &[]
-                },
-                if self.var_count > 0 {
-                    std::slice::from_raw_parts(self.vars, self.var_count as _)
-                } else {
-                    &[]
-                },
-                self.closure_vars.as_deref().unwrap_or(&[]),
-                if self.cpool_count > 0 {
-                    std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
-                } else {
-                    &[]
-                },
-                self.source.cast(),
-                self.line_num as _,
-                self.label_slots,
-                std::ptr::null_mut(),
-            );
-            println!();
-        }
+        self.dump_bytecode(ctx, 1);
 
         // pass 2
         if resolve_variables(ctx, self.deref_mut()).is_err() {
             fail!();
         }
-
         #[cfg(feature = "dump_bytecode")]
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
-            println!("pass 2");
-            crate::bytecode::dump_byte_code(
-                ctx,
-                2,
-                self.byte_code.as_slice(),
-                if self.arg_count > 0 {
-                    std::slice::from_raw_parts(self.args, self.arg_count as _)
-                } else {
-                    &[]
-                },
-                if self.var_count > 0 {
-                    std::slice::from_raw_parts(self.vars, self.var_count as _)
-                } else {
-                    &[]
-                },
-                self.closure_vars.as_deref().unwrap_or(&[]),
-                if self.cpool_count > 0 {
-                    std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
-                } else {
-                    &[]
-                },
-                self.source.cast(),
-                self.line_num as _,
-                self.label_slots,
-                std::ptr::null_mut(),
-            );
-            println!();
-        }
+        self.dump_bytecode(ctx, 2);
 
         // pass 3
         if resolve_labels(ctx, self.deref_mut()).is_err() {
@@ -732,6 +674,43 @@ impl JSFunctionDef {
 
         // return bytecode function value
         JS_MKPTR!(JSTag::FunctionBytecode, Box::into_raw(bf).cast())
+    }
+
+    #[cfg(feature = "dump_bytecode")]
+    fn dump_bytecode(&self, ctx: &mut JSContext, pass: i32) {
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
+            println!("pass {pass}");
+
+            unsafe {
+                crate::bytecode::dump_byte_code(
+                    ctx,
+                    pass,
+                    self.byte_code.as_slice(),
+                    if self.arg_count > 0 {
+                        std::slice::from_raw_parts(self.args, self.arg_count as _)
+                    } else {
+                        &[]
+                    },
+                    if self.var_count > 0 {
+                        std::slice::from_raw_parts(self.vars, self.var_count as _)
+                    } else {
+                        &[]
+                    },
+                    self.closure_vars.as_deref().unwrap_or(&[]),
+                    if self.cpool_count > 0 {
+                        std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
+                    } else {
+                        &[]
+                    },
+                    self.source.cast(),
+                    self.line_num as _,
+                    self.label_slots,
+                    std::ptr::null_mut(),
+                );
+            }
+
+            println!();
+        }
     }
 
     /// to free a JSFunctionDef and all its children

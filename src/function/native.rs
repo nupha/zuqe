@@ -14,6 +14,7 @@ use crate::{
     iterator::js_create_iterator_result,
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
+    types::list_head,
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
@@ -288,38 +289,55 @@ impl NativeFunctionValue {
 
         let p = func_obj.object();
         let cproto = p.u.cfunc.cproto;
-        let arg_count = p.u.cfunc.length;
+        let arg_length = p.u.cfunc.length;
 
         // better to always check stack overflow
-        if js_check_stack_overflow(rt, std::mem::size_of::<JSValueConst>() * arg_count as usize) {
+        if js_check_stack_overflow(
+            rt,
+            std::mem::size_of::<JSValueConst>() * arg_length as usize,
+        ) {
             return JS_ThrowStackOverflow(ctx);
         }
 
-        let mut sf_s: JSStackFrame = std::mem::zeroed();
-        let sf = &mut sf_s;
+        let mut sf_s: JSStackFrame = JSStackFrame {
+            prev_frame: rt.current_stack_frame,
+            cur_func: func_obj,
+            local_buf: Vec::new(),
+            arg_base_ptr: std::ptr::null_mut(),
+            arg_count: 0,
+            var_base_ptr: std::ptr::null_mut(),
+            var_count: 0,
+            cur_pc_offset: 0,
+            cur_sp_offset: 0,
+            var_ref_list: list_head::default(),
+            js_mode: 0,
+        };
 
-        sf.cur_func = func_obj;
-        sf.prev_frame = rt.current_stack_frame;
+        let sf = &mut sf_s;
         rt.current_stack_frame = sf;
 
         let realm = p.u.cfunc.realm.as_mut().unwrap(); // change the current realm
 
-        let mut local_buf: Option<SmallVec<[JSValue; 16]>> = None;
-        if argc < arg_count as i32 {
-            let mut arr = SmallVec::<[JSValue; 16]>::new();
+        if argc < arg_length as i32 {
+            // copy arguments to local buffer
+            if sf.local_buf.try_reserve_exact(arg_length as usize).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                return JSValue::EXCEPTION;
+            };
+
+            // copy argv values
             for i in 0..argc {
-                arr.push(*argv.offset(i as isize));
+                sf.local_buf.push(*argv.offset(i as isize)); // no value dup
             }
-            // empty slots, if any
-            for _ in argc..arg_count as i32 {
-                arr.push(JSValue::UNDEFINED);
-            }
+            // padding with undefined
+            sf.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                arg_length as usize - argc as usize,
+            ));
+            debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
 
-            sf.arg_count = arg_count as _;
-            sf.arg_base_ptr = arr.as_mut_ptr();
-
-            // keep smallvec alive till exit this function
-            local_buf.replace(arr);
+            sf.arg_count = arg_length as _;
+            sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
         } else {
             sf.arg_count = argc as _;
             sf.arg_base_ptr = argv as *mut JSValue;
@@ -356,7 +374,7 @@ impl NativeFunctionValue {
                 let cc = CallArgs::new(
                     NonNull::new_unchecked(p.u.cfunc.realm),
                     this_obj,
-                    std::slice::from_raw_parts(arg_buf, argc as usize),
+                    sf.args_slice(),
                     p.u.cfunc.magic as _,
                     None,
                 );
@@ -367,7 +385,7 @@ impl NativeFunctionValue {
                 let cc = CallArgs::new(
                     NonNull::new_unchecked(realm),
                     this_obj,
-                    std::slice::from_raw_parts(arg_buf, argc as usize),
+                    sf.args_slice(),
                     p.u.cfunc.magic as _,
                     None,
                 );
@@ -375,11 +393,10 @@ impl NativeFunctionValue {
             }
             JSCFunctionEnum::NativeSetter => {
                 debug_assert_eq!(sf.arg_count, 1);
-                let alst = [*arg_buf];
                 let cc = CallArgs::new(
                     NonNull::new_unchecked(realm),
                     this_obj,
-                    &alst,
+                    sf.args_slice(),
                     p.u.cfunc.magic as _,
                     None,
                 );
@@ -404,7 +421,7 @@ impl NativeFunctionValue {
                         }
                     }
                 }
-                ret_val = (func.generic)(realm, this_obj, argc, arg_buf as *mut JSValue);
+                ret_val = (func.generic)(realm, this_obj, sf.arg_count as _, arg_buf);
             }
             JSCFunctionEnum::ConstructorMagic
             | JSCFunctionEnum::ConstructorOrFuncMagic
@@ -424,31 +441,26 @@ impl NativeFunctionValue {
                 ret_val = (func.generic_magic)(
                     realm,
                     this_obj,
-                    argc,
-                    arg_buf as _,
-                    (*p).u.cfunc.magic as i32,
+                    sf.arg_count as _,
+                    arg_buf,
+                    p.u.cfunc.magic as i32,
                 );
             }
             JSCFunctionEnum::Getter => {
                 ret_val = (func.getter)(realm, this_obj);
             }
             JSCFunctionEnum::Setter => {
-                ret_val = (func.setter)(realm, this_obj, *arg_buf.offset(0));
+                ret_val = (func.setter)(realm, this_obj, *arg_buf);
             }
             JSCFunctionEnum::GetterMagic => {
-                ret_val = (func.getter_magic)(realm, this_obj, (*p).u.cfunc.magic as _);
+                ret_val = (func.getter_magic)(realm, this_obj, p.u.cfunc.magic as _);
             }
             JSCFunctionEnum::SetterMagic => {
-                ret_val = (func.setter_magic)(
-                    realm,
-                    this_obj,
-                    *arg_buf.offset(0),
-                    (*p).u.cfunc.magic as _,
-                );
+                ret_val = (func.setter_magic)(realm, this_obj, *arg_buf, p.u.cfunc.magic as _);
             }
             JSCFunctionEnum::FF => {
                 let mut d1: f64 = 0.0;
-                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf.offset(0)) != 0 {
+                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf) != 0 {
                     JSValue::EXCEPTION
                 } else {
                     JSValue::from_f64((func.f_f)(d1))
@@ -457,7 +469,7 @@ impl NativeFunctionValue {
             JSCFunctionEnum::FFF => {
                 let mut d1: f64 = 0.0;
                 let mut d2: f64 = 0.0;
-                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf.offset(0)) != 0
+                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf) != 0
                     || JS_ToFloat64(realm, &mut d2, *arg_buf.offset(1)) != 0
                 {
                     JSValue::EXCEPTION
@@ -470,7 +482,7 @@ impl NativeFunctionValue {
                 ret_val = (func.iterator_next)(
                     realm,
                     this_obj,
-                    argc,
+                    sf.arg_count as _,
                     arg_buf,
                     &mut done,
                     (*p).u.cfunc.magic as _,

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ptr::NonNull};
+use std::ptr::NonNull;
 
 use crate::{
     context::JSContext,
@@ -18,11 +18,10 @@ pub struct JSStackFrame {
     pub cur_func: JSValue,
 
     /// buffer for arguments, variables, and stack space.
-    /// could be owned or borrowed.
-    pub local_buf: Cow<'static, [JSValue]>,
+    pub local_buf: Vec<JSValue>,
 
     /// arguments base pointer and count
-    pub arg_base_ptr: *mut JSValue, // TODO: use arg_offset:usize instead
+    pub arg_base_ptr: *mut JSValue,
     pub arg_count: u16,
 
     /// variables base pointer and count
@@ -45,6 +44,12 @@ pub struct JSStackFrame {
 }
 
 impl JSStackFrame {
+    /// get argument values slice
+    #[inline(always)]
+    pub fn args_slice(&self) -> &[JSValue] {
+        unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_count as usize) }
+    }
+
     /// get stack base pointer
     #[inline(always)]
     pub fn stack_base_ptr(&self) -> NonNull<JSValue> {

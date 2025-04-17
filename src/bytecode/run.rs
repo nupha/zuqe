@@ -78,7 +78,7 @@ pub unsafe fn run_bytecodes(
     argv: *mut JSValue,
     mode: i32,
     throwed: bool, // Indicates if an exception has been thrown
-    local_buf: &mut [JSValue],
+                   //local_buf: &mut [JSValue],
 ) -> JSValue {
     debug_assert!(pc_offset < bytecodes.len());
 

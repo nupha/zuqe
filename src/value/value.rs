@@ -1,4 +1,4 @@
-use std::{ptr::NonNull, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     atom::JS_FreeAtomStruct,
@@ -305,14 +305,13 @@ impl JSValue {
     /// increase value refcount
     #[inline(always)]
     pub(crate) fn dup(self) -> Self {
-        let v = self;
-        if JS_VALUE_HAS_REF_COUNT(v) {
-            match JS_VALUE_GET_TAG(v) {
+        if JS_VALUE_HAS_REF_COUNT(self) {
+            match JS_VALUE_GET_TAG(self) {
                 JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
-                    Rc::increment_strong_count(v.string());
+                    Rc::increment_strong_count(self.string());
                 },
                 _ => {
-                    let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
+                    let p = JS_VALUE_GET_PTR(self).cast::<JSRefCountHeader>();
                     unsafe {
                         p.as_mut().unwrap().ref_count += 1;
                     }
@@ -320,7 +319,7 @@ impl JSValue {
             }
         }
 
-        v
+        self
     }
 
     /// get value refcount

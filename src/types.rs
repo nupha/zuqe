@@ -1,6 +1,5 @@
-use std::os::raw::{c_int, c_void};
+use std::os::raw::c_void;
 
-// 从quickjs.h转换的宏定义
 #[cfg(target_pointer_width = "64")]
 pub const JS_PTR64: () = ();
 
@@ -17,7 +16,7 @@ pub fn unlikely(x: bool) -> bool {
 #[derive(Debug)]
 #[repr(C)]
 pub struct JSRefCountHeader {
-    pub ref_count: c_int,
+    pub ref_count: i32,
 }
 
 #[repr(C)]

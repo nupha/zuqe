@@ -110,31 +110,30 @@ pub unsafe fn async_func_init(
     sf.cur_pc_offset = b.bytecode_offset as usize; // initialized to start of bytecode
 
     // make local buf, set up argument, variable, stack pointer
-    let arg_count = std::cmp::max((*b).arg_count as usize, argc as usize);
-    let mut local_buf = if let Ok(a) = Vec::<JSValue>::try_with_capacity(std::cmp::max(
-        arg_count + b.var_count as usize + b.stack_size as usize,
-        1,
-    )) {
-        a
-    } else {
+    let arg_count = std::cmp::max(b.arg_count as usize, argc as usize);
+    let buf_len = arg_count + b.var_count as usize + b.stack_size as usize;
+
+    let mut local_buf = Vec::<JSValue>::new();
+    if local_buf.try_reserve_exact(buf_len).is_err() {
         drop(s);
         return std::ptr::null_mut();
     };
-
     for i in 0..argc as usize {
-        local_buf[i] = JS_DupValue(ctx, *argv.add(i));
+        local_buf.push((*argv.add(i)).dup());
     }
-    for i in argc as usize..arg_count + b.var_count as usize {
-        local_buf[i] = JSValue::UNDEFINED;
-    }
+    local_buf.extend(std::iter::repeat_n(
+        JSValue::UNDEFINED,
+        buf_len - argc as usize,
+    ));
+    debug_assert_eq!(local_buf.len(), buf_len);
 
     sf.arg_base_ptr = local_buf.as_mut_ptr();
     sf.arg_count = arg_count as _;
     sf.var_base_ptr = sf.arg_base_ptr.add(sf.arg_count as usize);
     sf.var_count = b.var_count as _;
-    sf.local_buf = Cow::Owned(local_buf);
+    sf.local_buf = local_buf;
 
-    sf.cur_func = JS_DupValue(ctx, func_obj);
+    sf.cur_func = func_obj.dup();
     sf.cur_sp_offset = 0;
 
     // setup async state
