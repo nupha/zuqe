@@ -973,10 +973,10 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
     let s = &mut s_s;
 
     let obj = JS_NewObjectClass(ctx, JS_CLASS_MODULE_NS);
-    if JS_IsException(obj) {
+    if obj.is_exception() {
         return obj;
     }
-    let p = JS_VALUE_GET_OBJ(obj).as_mut().unwrap();
+    let p = obj.object();
 
     let ret = get_exported_names(ctx, s, m, false);
     js_free(ctx, s.modules.cast());
@@ -1211,7 +1211,7 @@ pub unsafe fn js_create_module_var(
     var_ref.value_or_links.value = if is_lexical {
         JSValue::UNINITIALIZED
     } else {
-        JS_UNDEFINED
+        JSValue::UNDEFINED
     };
     var_ref.pvalue = &mut (*var_ref).value_or_links.value;
     add_gc_object(

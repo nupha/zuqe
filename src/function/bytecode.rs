@@ -15,9 +15,8 @@ use crate::{
     utils::{get_leb128, get_sleb128, get_u32},
     value::{
         object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
-        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+        JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_BYTECODE_FUNCTION,
 };
 
 use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
@@ -528,7 +527,7 @@ pub unsafe fn free_function_bytecode(rt: *mut JSRuntime, b: *mut JSFunctionBytec
     if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*b).header.ref_count != 0 {
         list_add_tail(&mut (*b).header.link, &mut (*rt).gc_zero_ref_count_list);
     } else {
-        js_free_rt(rt, b.cast());
+        drop(Box::from_raw(b));
     }
 }
 

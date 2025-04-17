@@ -127,7 +127,7 @@ pub unsafe fn reject_promise(ctx: *mut JSContext, promise: PromiseValue, value: 
     fulfill_or_reject_promise(ctx, promise, value, true);
 }
 
-/// returned value is a Promise object or Exception.
+/// returned value is Promise object or Exception.
 pub unsafe fn js_promise_resolve(
     ctx: *mut JSContext,
     this_val: JSValueConst,
