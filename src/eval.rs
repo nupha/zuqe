@@ -304,7 +304,7 @@ pub unsafe fn JS_EvalFunction(ctx: *mut JSContext, fun_obj: JSValue) -> JSValue 
     return JS_EvalFunctionInternal(ctx, fun_obj, (*ctx).global_obj, &[], std::ptr::null_mut());
 }
 
-/// `val` keep alive
+/// `val` is not consumed.
 pub unsafe fn JS_EvalObject(
     ctx: *mut JSContext,
     this_obj: JSValueConst,

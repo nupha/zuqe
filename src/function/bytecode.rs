@@ -499,7 +499,7 @@ pub unsafe fn js_function_constructor(
     buf.extend_from_slice(b"\n})");
 
     // create script string
-    let src = (*ctx).create_string_from_utf8(buf.to_vec());
+    let src = (*ctx).create_string_from_utf8(buf.into_vec());
     if src.is_exception() {
         return JSValue::EXCEPTION;
     }

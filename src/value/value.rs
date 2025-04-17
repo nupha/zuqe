@@ -542,10 +542,10 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     }
 }
 
-#[inline(always)]
-pub unsafe fn __JS_FreeValue(ctx: &mut JSContext, v: JSValue) {
-    __JS_FreeValueRT(ctx.rt_mut(), v);
-}
+// #[inline(always)]
+// pub unsafe fn __JS_FreeValue(ctx: &mut JSContext, v: JSValue) {
+//     __JS_FreeValueRT(ctx.rt_mut(), v);
+// }
 
 #[inline]
 pub fn JS_IsNumber(v: JSValueConst) -> bool {

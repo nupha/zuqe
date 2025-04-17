@@ -1,6 +1,4 @@
-use std::{borrow::Cow, ptr::NonNull};
-
-use smallvec::SmallVec;
+use std::borrow::Cow;
 
 use crate::{
     atom::JSAtom,
@@ -8,18 +6,16 @@ use crate::{
     class::js_create_from_ctor,
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError, JS_ThrowStackOverflow},
-    function::{build_arg_list, CallArgs, JSAsyncFunctionState, JSCFunctionEnum},
-    iterator::js_create_iterator_result,
+    function::{build_arg_list, CallArgs, JSAsyncFunctionState},
     runtime::js_check_stack_overflow,
     stack_frame::JSStackFrame,
     types::{init_list_head, likely, unlikely},
     value::{
-        object::{JSObject, JS_GetOpaque, JS_PROP_THROW, JS_PROP_THROW_STRICT},
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_ToFloat64,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT, SIZEOF_JSVALUE,
+        object::{JSObject, JS_PROP_THROW, JS_PROP_THROW_STRICT},
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_NULL,
+        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT,
     },
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_OBJECT, JS_MKPTR,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT, JS_MKPTR,
 };
 
 pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
@@ -57,7 +53,7 @@ pub unsafe fn js_poll_interrupts(ctx: &mut JSContext) -> i32 {
     }
 }
 
-/* argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0. */
+/// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
 pub unsafe fn JS_CallInternal(
     caller_ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -176,82 +172,83 @@ pub unsafe fn JS_CallInternal(
     sf.js_mode = b.js_mode as _;
     sf.cur_func = func_obj;
 
-    // allocate local buffer and running bytecodes with it
-    let retval = crate::mem::alloca::with_alloca(local_buf_size, |local_buf| {
-        // local_buf layout:
-        //
-        // +------------------+
-        // | argument values  | <- arg_buf (optional, if need to copy arg)
-        // | variable values  | <- var_buf
-        // | stack space      | <- stack_buf
-        // +------------------+
-        //
+    // allocate local buffer and running bytecodes with it.
+    // local_buf layout:
+    //
+    // +------------------+
+    // | argument values  | <- arg_buf (optional, if need to copy arg)
+    // | variable values  | <- var_buf
+    // | stack space      | <- stack_buf
+    // +------------------+
+    //
+    let mut local_buf = Vec::<u8>::new();
+    if local_buf.try_reserve_exact(local_buf_size).is_err() {
+        caller_ctx.JS_ThrowOutOfMemory();
+        return JSValue::EXCEPTION;
+    }
 
-        if arg_copy_num != 0 {
-            // copy arg values to local buf
-            let arg_buf = local_buf.as_mut_ptr().cast::<JSValue>();
-            for i in 0..arg_copy_num as i32 {
-                *arg_buf.offset(i as isize) = if i < argc {
-                    (*argv.offset(i as isize)).dup()
-                } else {
-                    JSValue::UNDEFINED
-                };
-            }
-            sf.arg_count = (*b).arg_count;
-            sf.arg_base_ptr = arg_buf
-        } else {
-            sf.arg_count = argc as _;
-            sf.arg_base_ptr = argv;
+    if arg_copy_num != 0 {
+        // copy arg values to local buf
+        let arg_buf = local_buf.as_mut_ptr().cast::<JSValue>();
+        for i in 0..arg_copy_num as i32 {
+            *arg_buf.offset(i as isize) = if i < argc {
+                (*argv.offset(i as isize)).dup()
+            } else {
+                JSValue::UNDEFINED
+            };
         }
+        sf.arg_count = (*b).arg_count;
+        sf.arg_base_ptr = arg_buf
+    } else {
+        sf.arg_count = argc as _;
+        sf.arg_base_ptr = argv;
+    }
 
-        // initial vars in local buf
-        {
-            sf.var_count = b.var_count;
-            sf.var_base_ptr = local_buf
-                .as_mut_ptr()
-                .cast::<JSValue>()
-                .add(arg_copy_num as usize);
+    // initial vars in local buf
+    {
+        sf.var_count = b.var_count;
+        sf.var_base_ptr = local_buf
+            .as_mut_ptr()
+            .cast::<JSValue>()
+            .add(arg_copy_num as usize);
 
-            for i in 0..b.var_count {
-                *sf.var_base_ptr.offset(i as isize) = JSValue::UNDEFINED;
-            }
+        for i in 0..b.var_count {
+            *sf.var_base_ptr.offset(i as isize) = JSValue::UNDEFINED;
         }
+    }
 
-        sf.local_buf = Cow::Borrowed(std::slice::from_raw_parts(
-            local_buf.as_ptr().cast::<JSValue>(),
+    sf.local_buf = Cow::Borrowed(std::slice::from_raw_parts(
+        local_buf.as_ptr().cast::<JSValue>(),
+        local_buf_size / std::mem::size_of::<JSValue>(),
+    ));
+
+    // calc stack base in local buf
+    let sp_base = sf.stack_base_ptr().as_ptr();
+
+    sf.prev_frame = (*rt).current_stack_frame;
+    (*rt).current_stack_frame = sf;
+
+    run_bytecodes(
+        b,
+        (*p).u.func.home_object,
+        sf,
+        caller_ctx,
+        this_obj,
+        new_target,
+        &b.binary[b.bytecode_offset as usize..],
+        0,
+        sp_base,
+        sp_base,
+        &(*p).u.func.var_refs,
+        argc,
+        argv,
+        b.js_mode as _,
+        false,
+        std::slice::from_raw_parts_mut(
+            local_buf.as_mut_ptr().cast::<JSValue>(),
             local_buf_size / std::mem::size_of::<JSValue>(),
-        ));
-
-        // calc stack base in local buf
-        let sp_base = sf.stack_base_ptr().as_ptr();
-
-        sf.prev_frame = (*rt).current_stack_frame;
-        (*rt).current_stack_frame = sf;
-
-        run_bytecodes(
-            b,
-            (*p).u.func.home_object,
-            sf,
-            caller_ctx,
-            this_obj,
-            new_target,
-            &b.binary[b.bytecode_offset as usize..],
-            0,
-            sp_base,
-            sp_base,
-            &(*p).u.func.var_refs,
-            argc,
-            argv,
-            b.js_mode as _,
-            false,
-            std::slice::from_raw_parts_mut(
-                local_buf.as_mut_ptr().cast::<JSValue>(),
-                local_buf_size / std::mem::size_of::<JSValue>(),
-            ),
-        )
-    });
-
-    retval
+        ),
+    )
 }
 
 pub unsafe fn JS_Call(
