@@ -259,6 +259,78 @@ impl PromiseValue {
             Ok(unsafe { (*s).promise_state })
         }
     }
+
+    /// Note: `value` is not consumed (duplicated inside).
+    pub(super) fn fulfill_or_reject(self, ctx: &mut JSContext, value: JSValue, is_reject: bool) {
+        let s = unsafe { JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
+        debug_assert!(!s.is_null());
+        debug_assert_eq!(
+            unsafe { (*s).promise_state },
+            JSPromiseStateEnum::JS_PROMISE_PENDING
+        );
+
+        let s = unsafe { s.as_mut().unwrap() };
+
+        #[cfg(DUMP_PROMISE)]
+        {
+            println!("fulfill_or_reject_promise: is_reject={}", is_reject);
+        }
+
+        unsafe {
+            set_value(ctx, &mut s.promise_result, value.dup());
+        }
+
+        s.promise_state = if is_reject {
+            JSPromiseStateEnum::JS_PROMISE_REJECTED
+        } else {
+            JSPromiseStateEnum::JS_PROMISE_FULFILLED
+        };
+
+        if s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
+            if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
+                unsafe {
+                    cb(
+                        ctx,
+                        self,
+                        value,
+                        0,
+                        ctx.rt().host_promise_rejection_tracker_opaque,
+                    );
+                }
+            }
+        }
+
+        unsafe {
+            list_foreach_safe(&mut s.promise_reactions[is_reject as usize], |el| {
+                let rd = list_entry!(el, JSPromiseReactionData, link);
+                ctx.enqueue_job(
+                    promise_reaction_job,
+                    &[
+                        (*rd).resolving_funcs[0],
+                        (*rd).resolving_funcs[1],
+                        (*rd).handler,
+                        if is_reject {
+                            JSValue::TRUE
+                        } else {
+                            JSValue::FALSE
+                        },
+                        value,
+                    ],
+                )
+                .unwrap();
+
+                list_del(&mut (*rd).link);
+                Box::from_raw(rd).free(ctx.rt_mut());
+            });
+        }
+    }
+
+    /// reject promise with value.
+    /// Note: `value` is not consumed.
+    #[inline(always)]
+    pub fn reject(self, ctx: &mut JSContext, value: JSValue) {
+        self.fulfill_or_reject(ctx, value, true);
+    }
 }
 
 impl JSValue {
@@ -305,7 +377,7 @@ impl PromiseValue {
                 ctx.JS_ThrowTypeError(c"resolving function already set");
                 return Err(-1);
             }
-            args.replace_data(i, args.get_raw(i).dup());
+            let _ = args.replace_data(i, args.get_raw(i).dup());
         }
 
         Ok(JSValue::UNDEFINED)
@@ -366,328 +438,6 @@ pub unsafe fn remainingElementsCount_add(
     resolve_element_env.set_property_u32(ctx, 0, JSValue::from_i32(remainingElementsCount))?;
 
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
-}
-
-pub unsafe fn js_promise_all(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    if !this_val.is_object() {
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
-    }
-    let is_promise_any = magic == PROMISE_MAGIC_any as i32;
-
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(this_val) {
-        (
-            pr.into_rc((*ctx).rt()),
-            [rr[0].into_rc((*ctx).rt()), rr[1].into_rc((*ctx).rt())],
-        )
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let fail_reject = |promise: JSValueRc| -> JSValue {
-        let mut error = (*ctx).get_exception().into_rc((*ctx).rt());
-        let ret = JS_Call(
-            ctx.as_mut().unwrap(),
-            *resolving_funcs[1],
-            JSValue::UNDEFINED,
-            1,
-            error.deref_mut(),
-        )
-        .into_rc((*ctx).rt());
-        return if ret.is_exception() {
-            JSValue::EXCEPTION
-        } else {
-            promise.into()
-        };
-    };
-
-    let promise_resolve = this_val
-        .get_property(ctx.as_mut().unwrap(), JS_ATOM_resolve)
-        .into_rc((*ctx).rt());
-
-    if promise_resolve.is_exception()
-        || promise_resolve
-            .ensure_callable(ctx.as_mut().unwrap())
-            .is_err()
-    {
-        return fail_reject(promise_resolve);
-    }
-
-    let iter = JS_GetIterator(ctx, *argv.offset(0), false).into_rc((*ctx).rt());
-    if iter.is_exception() {
-        return fail_reject(promise_resolve);
-    }
-
-    let next_method = iter
-        .get_property(ctx.as_mut().unwrap(), JS_ATOM_next)
-        .into_rc((*ctx).rt());
-    if next_method.is_exception() {
-        return fail_reject(promise_resolve);
-    };
-
-    let mut values = JS_NewArray(ctx).into_rc((*ctx).rt());
-    if values.is_exception() {
-        return fail_reject(promise_resolve);
-    }
-
-    let resolve_element_env = JS_NewArray(ctx).into_rc((*ctx).rt());
-    if resolve_element_env.is_exception() {
-        return fail_reject(promise_resolve);
-    } else if resolve_element_env
-        .define_property_value_u32(ctx.as_mut().unwrap(), 0, JSValue::from_i32(1), 0x7)
-        .is_err()
-    {
-        return fail_reject(promise_resolve);
-    }
-
-    let mut index = 0;
-
-    loop {
-        let mut done = false;
-        let item = JS_IteratorNext(ctx, *iter, *next_method, 0, std::ptr::null_mut(), &mut done)
-            .into_rc((*ctx).rt());
-
-        if item.is_exception() {
-            JS_IteratorClose(ctx, *iter, true);
-            return fail_reject(promise_resolve);
-        }
-
-        if done {
-            break;
-        }
-
-        let next_promise = JS_Call(
-            ctx.as_mut().unwrap(),
-            *promise_resolve,
-            this_val,
-            1,
-            [*item].as_mut_ptr(),
-        )
-        .into_rc((*ctx).rt());
-        if next_promise.is_exception() {
-            JS_IteratorClose(ctx, *iter, true);
-            return fail_reject(promise_resolve);
-        }
-
-        let resolve_element_data = [
-            JSValue::FALSE,
-            JSValue::from_i32(index),
-            *values,
-            *resolving_funcs[is_promise_any as usize],
-            *resolve_element_env,
-        ];
-
-        let mut resolve_element = (*ctx)
-            .create_native_callable_object(
-                js_promise_all_resolve_element,
-                1,
-                magic,
-                &resolve_element_data,
-            )
-            .unwrap_or(JSValue::EXCEPTION)
-            .into_rc((*ctx).rt());
-
-        if resolve_element.is_exception() {
-            JS_IteratorClose(ctx, *iter, true);
-            return fail_reject(promise_resolve);
-        }
-
-        let reject_element: JSValueRc = match magic {
-            PROMISE_MAGIC_allSettled => {
-                let r = JS_NewCFunctionData(
-                    ctx,
-                    js_promise_all_resolve_element,
-                    1,
-                    magic | 4,
-                    5,
-                    resolve_element_data.as_ptr(),
-                )
-                .into_rc((*ctx).rt());
-                if r.is_exception() {
-                    JS_IteratorClose(ctx, *iter, true);
-                    return fail_reject(promise_resolve);
-                }
-                r
-            }
-            PROMISE_MAGIC_any => {
-                if values
-                    .define_property_value_u32(
-                        ctx.as_mut().unwrap(),
-                        index as u32,
-                        JSValue::UNDEFINED,
-                        0x7,
-                    )
-                    .is_err()
-                {
-                    JS_IteratorClose(ctx, *iter, true);
-                    return fail_reject(promise_resolve);
-                }
-                std::mem::replace(&mut resolve_element, resolving_funcs[0].clone())
-            }
-            _ => resolving_funcs[1].clone(),
-        };
-
-        if remainingElementsCount_add(ctx.as_mut().unwrap(), *resolve_element_env, 1).is_err() {
-            JS_IteratorClose(ctx, *iter, true);
-            return fail_reject(promise_resolve);
-        }
-
-        let ret = JS_Invoke(
-            ctx.as_mut().unwrap(),
-            *next_promise,
-            JS_ATOM_then,
-            2,
-            [*resolve_element, *reject_element].as_mut_ptr(),
-        )
-        .into_rc((*ctx).rt());
-        if ret.is_exception() {
-            JS_IteratorClose(ctx, *iter, true);
-            return fail_reject(promise_resolve);
-        }
-
-        index += 1;
-    } // loop
-
-    match remainingElementsCount_add(ctx.as_mut().unwrap(), *resolve_element_env, -1) {
-        Ok(1) => {
-            if magic == PROMISE_MAGIC_any as i32 {
-                let error = js_aggregate_error_constructor(ctx.as_mut().unwrap(), *values)
-                    .into_rc((*ctx).rt());
-                if error.is_exception() {
-                    return fail_reject(promise_resolve);
-                }
-                values = error;
-            }
-
-            let ret = JS_Call(
-                ctx.as_mut().unwrap(),
-                *resolving_funcs[is_promise_any as usize],
-                JSValue::UNDEFINED,
-                1,
-                values.deref_mut(),
-            )
-            .into_rc((*ctx).rt());
-
-            if ret.is_exception() {
-                return fail_reject(promise_resolve);
-            }
-        }
-        Ok(0) => {}
-        Err(_) => {
-            return fail_reject(promise_resolve);
-        }
-        Ok(_) => {
-            unreachable!()
-        }
-    }
-
-    result_promise.into()
-}
-
-pub unsafe fn js_promise_race(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if !this_val.is_object() {
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
-    }
-
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(this_val) {
-        (
-            pr.into_rc((*ctx).rt()),
-            [rr[0].into_rc((*ctx).rt()), rr[1].into_rc((*ctx).rt())],
-        )
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let fail_reject = |promise: JSValueRc| -> JSValue {
-        let mut error = (*ctx).get_exception().into_rc((*ctx).rt());
-        let ret = JS_Call(
-            ctx.as_mut().unwrap(),
-            *resolving_funcs[1],
-            JSValue::UNDEFINED,
-            1,
-            error.deref_mut(),
-        )
-        .into_rc((*ctx).rt());
-        return if ret.is_exception() {
-            JSValue::EXCEPTION
-        } else {
-            promise.into()
-        };
-    };
-
-    let promise_resolve = this_val
-        .get_property(ctx.as_mut().unwrap(), JS_ATOM_resolve)
-        .into_rc((*ctx).rt());
-
-    if promise_resolve.is_exception()
-        || promise_resolve
-            .ensure_callable(ctx.as_mut().unwrap())
-            .is_err()
-    {
-        return fail_reject(promise_resolve);
-    }
-
-    let iter = JS_GetIterator(ctx, *argv.offset(0), false).into_rc((*ctx).rt());
-    if iter.is_exception() {
-        return fail_reject(promise_resolve);
-    }
-
-    let next_method = iter
-        .get_property(ctx.as_mut().unwrap(), JS_ATOM_next)
-        .into_rc((*ctx).rt());
-    if next_method.is_exception() {
-        return fail_reject(promise_resolve);
-    }
-
-    loop {
-        let mut done = false;
-        let mut item =
-            JS_IteratorNext(ctx, *iter, *next_method, 0, std::ptr::null_mut(), &mut done)
-                .into_rc((*ctx).rt());
-
-        if item.is_exception() {
-            return fail_reject(promise_resolve);
-        }
-        if done {
-            break;
-        }
-
-        let next_promise = JS_Call(
-            ctx.as_mut().unwrap(),
-            *promise_resolve,
-            this_val,
-            1,
-            item.deref_mut(),
-        )
-        .into_rc((*ctx).rt());
-        if next_promise.is_exception() {
-            return fail_reject(promise_resolve);
-        }
-
-        let ret = JS_Invoke(
-            ctx.as_mut().unwrap(),
-            *next_promise,
-            JS_ATOM_then,
-            2,
-            [*resolving_funcs[0], *resolving_funcs[1]].as_mut_ptr(),
-        )
-        .into_rc((*ctx).rt());
-        if ret.is_exception() {
-            return fail_reject(promise_resolve);
-        }
-    }
-
-    result_promise.into()
 }
 
 pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -> JSResult {
@@ -777,68 +527,6 @@ pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue
     (*s).promise_result.dup()
 }
 
-/// Note: `value` is duplicated inside.
-pub unsafe fn fulfill_or_reject_promise(
-    ctx: *mut JSContext,
-    promise: PromiseValue,
-    value: JSValueConst,
-    is_reject: bool,
-) {
-    let s = JS_GetOpaque(promise.0, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-    debug_assert!(!s.is_null());
-    debug_assert_eq!((*s).promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
-
-    let s = s.as_mut().unwrap();
-
-    #[cfg(DUMP_PROMISE)]
-    {
-        println!("fulfill_or_reject_promise: is_reject={}", is_reject);
-    }
-
-    set_value(ctx, &mut s.promise_result, value.dup());
-    s.promise_state = if is_reject {
-        JSPromiseStateEnum::JS_PROMISE_REJECTED
-    } else {
-        JSPromiseStateEnum::JS_PROMISE_FULFILLED
-    };
-
-    if s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
-        let rt = (*ctx).rt_mut();
-        if let Some(cb) = rt.host_promise_rejection_tracker {
-            cb(
-                ctx,
-                promise,
-                value,
-                0,
-                rt.host_promise_rejection_tracker_opaque,
-            );
-        }
-    }
-
-    list_foreach_safe(&mut s.promise_reactions[is_reject as usize], |el| {
-        let rd = list_entry!(el, JSPromiseReactionData, link);
-        (*ctx)
-            .enqueue_job(
-                promise_reaction_job,
-                &[
-                    (*rd).resolving_funcs[0],
-                    (*rd).resolving_funcs[1],
-                    (*rd).handler,
-                    if is_reject {
-                        JSValue::TRUE
-                    } else {
-                        JSValue::FALSE
-                    },
-                    value,
-                ],
-            )
-            .unwrap();
-
-        list_del(&mut (*rd).link);
-        Box::from_raw(rd).free((*ctx).rt_mut());
-    });
-}
-
 pub unsafe fn perform_promise_then(
     ctx: &mut JSContext,
     promise: PromiseValue,
@@ -913,111 +601,6 @@ pub unsafe fn perform_promise_then(
     Ok(())
 }
 
-pub unsafe fn js_promise_withResolvers(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if !this_val.is_object() {
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
-    }
-
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(this_val) {
-        (pr, rr)
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let obj = JS_NewObject(ctx);
-    if obj.is_exception() {
-        JS_FreeValue(ctx, resolving_funcs[0]);
-        JS_FreeValue(ctx, resolving_funcs[1]);
-        JS_FreeValue(ctx, result_promise);
-        return JSValue::EXCEPTION;
-    }
-
-    obj.define_property_value(
-        ctx.as_mut().unwrap(),
-        JS_ATOM_promise,
-        result_promise,
-        JS_PROP_C_W_E,
-    )
-    .unwrap();
-
-    obj.define_property_value(
-        ctx.as_mut().unwrap(),
-        JS_ATOM_resolve,
-        resolving_funcs[0],
-        JS_PROP_C_W_E,
-    )
-    .unwrap();
-
-    obj.define_property_value(
-        ctx.as_mut().unwrap(),
-        JS_ATOM_reject,
-        resolving_funcs[1],
-        JS_PROP_C_W_E,
-    )
-    .unwrap();
-
-    obj
-}
-
-pub unsafe fn js_promise_then(
-    ctx: *mut JSContext,
-    this_val: JSValue, // is actually a PromiseValue
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let s = JS_GetOpaque2(ctx, this_val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-    if s.is_null() {
-        return JSValue::EXCEPTION;
-    }
-
-    let ctor = JS_SpeciesConstructor(ctx, this_val, JSValue::UNDEFINED).into_rc((*ctx).rt());
-    if ctor.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(*ctor) {
-        (pr, rr)
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let ret = perform_promise_then(
-        ctx.as_mut().unwrap(),
-        this_val.as_promise_unchecked(),
-        &[*argv.add(0), *argv.add(1)],
-        &resolving_funcs,
-    );
-    JS_FreeValue(ctx, resolving_funcs[0]);
-    JS_FreeValue(ctx, resolving_funcs[1]);
-
-    if ret.is_err() {
-        JS_FreeValue(ctx, result_promise);
-        JSValue::EXCEPTION
-    } else {
-        result_promise
-    }
-}
-
-pub unsafe fn js_promise_catch(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    JS_Invoke(
-        ctx.as_mut().unwrap(),
-        this_val,
-        JS_ATOM_then,
-        2,
-        [JSValue::UNDEFINED, JSValue::UNDEFINED].as_mut_ptr(),
-    )
-}
-
 pub fn js_promise_finally_value_thunk(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     args.data_raw(0).dup().check_exception()
 }
@@ -1051,56 +634,4 @@ pub fn js_promise_then_finally_func(ctx: &mut JSContext, args: CallArgs) -> JSRe
     .into_rc(ctx.rt());
 
     unsafe { JS_Invoke(ctx, *promise, JS_ATOM_then, 1, then_func.deref_mut()).check_exception() }
-}
-
-pub unsafe fn js_promise_finally(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let onFinally = *argv.offset(0);
-
-    let ctor = JS_SpeciesConstructor(ctx, this_val, JSValue::UNDEFINED);
-    if ctor.is_exception() {
-        return ctor;
-    }
-
-    let mut then_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-
-    if !onFinally.is_function(ctx.as_ref().unwrap()) {
-        then_funcs = [onFinally.dup(), onFinally.dup()];
-    } else {
-        let func_data = [ctor, onFinally];
-        for i in 0..2 {
-            if let Ok(f) = (*ctx).create_native_callable_object(
-                js_promise_then_finally_func,
-                1,
-                i as _,
-                &func_data,
-            ) {
-                then_funcs[i] = f;
-            } else {
-                if i != 0 {
-                    JS_FreeValue(ctx, then_funcs[0]);
-                }
-                JS_FreeValue(ctx, ctor);
-                return JSValue::EXCEPTION;
-            }
-        }
-    }
-
-    JS_FreeValue(ctx, ctor);
-
-    let ret = JS_Invoke(
-        ctx.as_mut().unwrap(),
-        this_val,
-        JS_ATOM_then,
-        2,
-        then_funcs.as_mut_ptr(),
-    );
-    JS_FreeValue(ctx, then_funcs[0]);
-    JS_FreeValue(ctx, then_funcs[1]);
-
-    ret
 }

@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     function::{JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
-    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback},
+    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     value::{object::JSObject, JSString, JSValue, JSValueConst},
@@ -544,4 +544,20 @@ pub unsafe fn find_line_num(
     pc_value: u32,
 ) -> i32 {
     (*b).find_line_num(pc_value).map_or(-1, |x| x as i32)
+}
+
+/// Note: `value` is duplicated inside.
+#[deprecated(note = "use PromiseValue::fulfill_or_reject() instead")]
+pub unsafe fn fulfill_or_reject_promise(
+    ctx: *mut JSContext,
+    promise: PromiseValue,
+    value: JSValueConst,
+    is_reject: bool,
+) {
+    unreachable!("use PromiseValue::fulfill_or_reject() instead");
+}
+
+#[deprecated(note = "use PromiseValue::reject() instead")]
+pub unsafe fn reject_promise(ctx: *mut JSContext, promise: PromiseValue, value: JSValueConst) {
+    unreachable!("use PromiseValue::reject() instead");
 }

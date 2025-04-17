@@ -3,14 +3,13 @@ use std::ptr::NonNull;
 use crate::{
     atom::consts::*,
     context::JSContext,
-    function::JS_Call,
     gc::{JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
-    value::{object::JS_GetOpaque, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT},
-    JS_CLASS_PROMISE, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    value::{JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
+    JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
 };
 
-use super::{fulfill_or_reject_promise, js_promise_resolve_thenable_job, PromiseValue};
+use super::{js_promise_resolve_thenable_job, PromiseValue};
 
 pub struct JSPromiseFunctionData {
     pub promise: PromiseValue,
@@ -24,9 +23,9 @@ pub struct JSPromiseFunctionDataResolved {
 
 /// Represent a promise resolve or reject function.
 #[derive(Debug, Clone, Copy)]
-pub struct PromiseResolvingValue(JSValue);
+pub struct PromiseResolvingFuncValue(JSValue);
 
-impl PromiseResolvingValue {
+impl PromiseResolvingFuncValue {
     pub unsafe fn hook_call(
         ctx: &mut JSContext,
         func_obj: JSValueConst,
@@ -64,12 +63,12 @@ impl PromiseResolvingValue {
         }
 
         if is_reject || !resolution.is_object() {
-            fulfill_or_reject_promise(ctx, s.promise, resolution, is_reject);
+            s.promise.fulfill_or_reject(ctx, resolution, is_reject);
             return JSValue::UNDEFINED;
         } else if resolution.is_same(s.promise.0) {
             ctx.JS_ThrowTypeError(c"promise self resolution");
             let error = ctx.get_exception();
-            reject_promise(ctx, s.promise, error);
+            s.promise.reject(ctx, error);
             JS_FreeValue(ctx, error);
             return JSValue::UNDEFINED;
         }
@@ -77,12 +76,12 @@ impl PromiseResolvingValue {
         let then = resolution.get_property(ctx, JS_ATOM_then);
         if then.is_exception() {
             let error = ctx.get_exception();
-            reject_promise(ctx, s.promise, error);
+            s.promise.reject(ctx, error);
             JS_FreeValue(ctx, error);
             JSValue::UNDEFINED
         } else if !then.is_function(ctx) {
             JS_FreeValue(ctx, then);
-            fulfill_or_reject_promise(ctx, s.promise, resolution, is_reject);
+            s.promise.fulfill_or_reject(ctx, resolution, is_reject);
             JSValue::UNDEFINED
         } else {
             // Note: arg values are duplicated in advance.
@@ -114,68 +113,21 @@ impl PromiseResolvingValue {
     }
 }
 
+impl JSValue {
+    pub unsafe fn as_promise_resolving_func_unchecked(self) -> PromiseResolvingFuncValue {
+        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert!(matches!(
+            self.object().class_id(),
+            JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
+        ));
+        std::mem::transmute(self)
+    }
+}
+
 pub unsafe fn js_promise_resolve_function_free_resolved(sr: *mut JSPromiseFunctionDataResolved) {
     debug_assert!((*sr).ref_count > 0);
     (*sr).ref_count -= 1;
     if (*sr).ref_count == 0 {
         drop(Box::from_raw(sr));
-    }
-}
-
-#[inline(always)]
-pub unsafe fn reject_promise(ctx: *mut JSContext, promise: PromiseValue, value: JSValueConst) {
-    fulfill_or_reject_promise(ctx, promise, value, true);
-}
-
-/// returned value is Promise object or Exception.
-pub unsafe fn js_promise_resolve(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    if !this_val.is_object() {
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
-    }
-
-    let is_reject = magic != 0;
-
-    if !is_reject && !JS_GetOpaque(*argv.offset(0), JS_CLASS_PROMISE).is_null() {
-        let ctor = (*argv.offset(0)).get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
-        if ctor.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-
-        let is_same = ctor.is_same(this_val);
-        JS_FreeValue(ctx, ctor);
-        if is_same {
-            return (*argv.offset(0)).dup();
-        }
-    }
-
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(this_val) {
-        (pr, rr)
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let ret = JS_Call(
-        ctx.as_mut().unwrap(),
-        resolving_funcs[is_reject as usize],
-        JSValue::UNDEFINED,
-        1,
-        argv,
-    );
-
-    JS_FreeValue(ctx, resolving_funcs[0]);
-    JS_FreeValue(ctx, resolving_funcs[1]);
-
-    if ret.is_exception() {
-        JS_FreeValue(ctx, result_promise);
-        JSValue::EXCEPTION
-    } else {
-        JS_FreeValue(ctx, ret);
-        result_promise
     }
 }
