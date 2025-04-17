@@ -1,5 +1,6 @@
 mod afun;
 mod argument;
+mod bound;
 mod bytecode;
 mod call;
 mod clousure;
@@ -14,6 +15,6 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, bytecode::*, call::*, clousure::*, def::*, fun::*, label::*, native::*,
-    optimize::*, scope::*, stack::*, var::*, var_ref::*,
+    afun::*, argument::*, bound::*, bytecode::*, call::*, clousure::*, def::*, fun::*, label::*,
+    native::*, optimize::*, scope::*, stack::*, var::*, var_ref::*,
 };

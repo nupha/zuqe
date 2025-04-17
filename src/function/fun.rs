@@ -11,12 +11,9 @@ use crate::{
     proxy::JSProxyData,
     runtime::JSRuntime,
     value::{
-        object::{
-            JSObject, JS_NewObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_NORMAL,
-            JS_PROP_TMASK,
-        },
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException, JS_NewBool,
-        JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        object::{JSObject, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK},
+        JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_UNDEFINED,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_GENERATOR,
@@ -54,18 +51,6 @@ pub enum FuncCallType {
     FUNC_CALL_TEMPLATE,
 }
 
-#[repr(C)]
-pub struct JSBoundFunction {
-    pub func_obj: JSValue,
-    pub this_val: JSValue,
-    pub argc: i32,
-
-    // TODO: use a vector instead
-    pub argv: [JSValue; 0],
-}
-
-#[repr(C)]
-//#[derive(Clone, Copy)]
 pub struct JSObjectFunc {
     pub function_bytecode: *mut JSFunctionBytecode,
 
@@ -79,7 +64,8 @@ pub struct JSObjectFunc {
 }
 
 impl JSValue {
-    /// check if value `self` is a function object. raise exception if not.
+    /// check if value `self` is a function or a callable object.
+    /// raise exception if not.
     pub fn ensure_callable(self, ctx: &mut JSContext) -> Result<Self, i32> {
         if self.is_function(ctx) {
             Ok(self)
@@ -122,21 +108,19 @@ pub unsafe fn JS_GetFunctionRealm(ctx: *mut JSContext, func_obj: JSValueConst) -
 
     let realm: *mut JSContext;
 
-    let p = JS_VALUE_GET_OBJ(func_obj);
-    match (*p).class_id() {
+    let p = func_obj.object();
+    match p.class_id() {
         JS_CLASS_C_FUNCTION => {
-            realm = (*p).u.cfunc.realm;
+            realm = p.u.cfunc.realm;
         }
         JS_CLASS_BYTECODE_FUNCTION
         | JS_CLASS_GENERATOR_FUNCTION
         | JS_CLASS_ASYNC_FUNCTION
         | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
-            let b: *mut JSFunctionBytecode;
-            b = (*p).u.func.function_bytecode;
-            realm = (*b).realm;
+            realm = (*p.u.func.function_bytecode).realm;
         }
         JS_CLASS_PROXY => {
-            let s = (*p).u.opaque.cast::<JSProxyData>();
+            let s = p.u.opaque.cast::<JSProxyData>();
             if s.is_null() {
                 return ctx;
             }
@@ -148,8 +132,7 @@ pub unsafe fn JS_GetFunctionRealm(ctx: *mut JSContext, func_obj: JSValueConst) -
             }
         }
         JS_CLASS_BOUND_FUNCTION => {
-            let bf: *mut JSBoundFunction = (*p).u.bound_function;
-            realm = JS_GetFunctionRealm(ctx, (*bf).func_obj);
+            realm = JS_GetFunctionRealm(ctx, (*p.u.bound_function).func_obj);
         }
         _ => {
             realm = ctx;
@@ -270,33 +253,6 @@ pub unsafe fn js_bytecode_function_mark(
 
         // must mark the function bytecode because template objects may be part of a cycle
         JS_MarkValue(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);
-    }
-}
-
-pub unsafe fn js_bound_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
-    let bf: *mut JSBoundFunction = (*p).u.bound_function;
-
-    JS_FreeValueRT(rt, (*bf).func_obj);
-    JS_FreeValueRT(rt, (*bf).this_val);
-    for i in 0..(*bf).argc {
-        JS_FreeValueRT(rt, *(*bf).argv.as_ptr().offset(i as isize));
-    }
-    js_free_rt(rt, bf.cast());
-}
-
-pub unsafe fn js_bound_function_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
-    let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
-    let bf: *mut JSBoundFunction = (*p).u.bound_function;
-
-    JS_MarkValue(rt, (*bf).func_obj, mark_func);
-    JS_MarkValue(rt, (*bf).this_val, mark_func);
-    for i in 0..(*bf).argc {
-        JS_MarkValue(rt, *(*bf).argv.as_ptr().offset(i as isize), mark_func);
     }
 }
 
