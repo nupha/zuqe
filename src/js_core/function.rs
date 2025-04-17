@@ -1,23 +1,18 @@
-use smallvec::SmallVec;
-
 use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
     function::{
-        func_kind_to_class_id, js_class_has_bytecode, js_function_apply, CallArgs, JSBoundFunction,
-        JSCFunctionListEntry, JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
-        JS_GetFunctionRealm,
+        js_class_has_bytecode, js_function_apply, CallArgs, JSBoundFunction, JSCFunctionListEntry,
+        JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
     },
-    mem::js_malloc,
     value::{
         object::{
             JS_GetOwnProperty, JS_NewObjectProtoClass, JS_OrdinaryIsInstanceOf,
-            JS_SetPrototypeInternal, JS_PROP_CONFIGURABLE,
+            JS_PROP_CONFIGURABLE,
         },
-        JSTag, JSValue, JSValueConst, JS_ConcatString3, JS_FreeValue, JS_IsException,
-        JS_IsUndefined, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        JSTag, JSValue, JS_ConcatString3, JS_FreeValue, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
+        JS_VALUE_GET_NORM_TAG,
     },
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BOUND_FUNCTION,
 };
@@ -192,7 +187,7 @@ pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let suff = c"() {\n    [native code]\n}";
     let mut name = args.this.get_property(ctx, JS_ATOM_name);
     if name.is_undefined() {
-        name = unsafe { JS_ATOM_empty_string.to_value(ctx, true) };
+        name = JS_ATOM_empty_string.to_value(ctx, true);
     }
 
     let rv = unsafe { JS_ConcatString3(ctx, pref, name, suff) };
@@ -240,11 +235,4 @@ pub const js_function_proto_funcs: [JSCFunctionListEntry; 7] = [
     JS_CFUNC_NATIVE_DEF!(c"[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
     JS_CGETSET_NATIVE_DEF!(c"fileName", js_function_proto_fileName, NONE, 0),
     JS_CGETSET_NATIVE_DEF!(c"lineNumber", js_function_proto_lineNumber, NONE, 0),
-    // JS_CFUNC_DEF!(c"call", 1, js_function_call),
-    // JS_CFUNC_MAGIC_DEF!(c"apply", 2, js_function_apply_old, 0),
-    // JS_CFUNC_DEF!(c"bind", 1, js_function_bind),
-    // JS_CFUNC_DEF!(c"toString", 0, js_function_toString),
-    // JS_CFUNC_DEF!(c"[Symbol.hasInstance]", 1, js_function_hasInstance),
-    // JS_CGETSET_DEF!(c"fileName", js_function_proto_fileName, NONE),
-    // JS_CGETSET_DEF!(c"lineNumber", js_function_proto_lineNumber, NONE),
 ];
