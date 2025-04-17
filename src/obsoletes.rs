@@ -561,3 +561,13 @@ pub unsafe fn fulfill_or_reject_promise(
 pub unsafe fn reject_promise(ctx: *mut JSContext, promise: PromiseValue, value: JSValueConst) {
     unreachable!("use PromiseValue::reject() instead");
 }
+
+#[deprecated(note = "use PromiseValue::then() instead")]
+pub unsafe fn perform_promise_then(
+    ctx: &mut JSContext,
+    promise: PromiseValue,
+    resolve_reject: &[JSValue; 2],
+    cap_resolving_funcs: &[JSValue; 2],
+) -> Result<(), i32> {
+    promise.then(ctx, resolve_reject, cap_resolving_funcs)
+}

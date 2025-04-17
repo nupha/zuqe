@@ -1145,7 +1145,7 @@ pub unsafe fn js_object_seal(
 pub unsafe fn JS_SpeciesConstructor(
     ctx: *mut JSContext,
     obj: JSValueConst,
-    defaultConstructor: JSValueConst,
+    default_constructor: JSValueConst,
 ) -> JSValue {
     if !obj.is_object() {
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
@@ -1156,7 +1156,7 @@ pub unsafe fn JS_SpeciesConstructor(
         return ctor;
     }
     if ctor.is_undefined() {
-        return defaultConstructor.dup();
+        return default_constructor.dup();
     }
     if !ctor.is_object() {
         JS_FreeValue(ctx, ctor);
@@ -1170,7 +1170,7 @@ pub unsafe fn JS_SpeciesConstructor(
     }
 
     if species.is_undefined_or_null() {
-        return defaultConstructor.dup();
+        return default_constructor.dup();
     }
 
     if !species.is_constructor() {

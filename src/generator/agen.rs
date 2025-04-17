@@ -12,7 +12,7 @@ use crate::{
     iterator::{js_create_iterator_result, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     list_entry,
     mem::js_malloc_typed,
-    promise::{js_promise_resolve, perform_promise_then},
+    promise::js_promise_resolve,
     runtime::JSRuntime,
     types::{
         init_list_head, list_add_tail, list_del, list_empty, list_foreach, list_foreach_safe,
@@ -459,9 +459,8 @@ pub unsafe fn js_async_generator_completed_return(
         true,
     )?;
 
-    let res = perform_promise_then(
+    let res = promise.as_promise_unchecked().then(
         ctx,
-        promise.as_promise_unchecked(),
         &resolving_funcs1,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
     );
@@ -487,9 +486,8 @@ pub unsafe fn js_async_generator_await(
         false,
     )?;
 
-    let res = perform_promise_then(
+    let res = promise.as_promise_unchecked().then(
         ctx,
-        promise.as_promise_unchecked(),
         &resolving_funcs,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED], // no need to create 'thrownawayCapability' as in the spec
     );
