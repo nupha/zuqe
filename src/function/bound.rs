@@ -2,8 +2,7 @@ use crate::{
     context::JSContext,
     error::JS_ThrowStackOverflow,
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::js_free_rt,
-    runtime::{js_check_stack_overflow, JSRuntime},
+    runtime::JSRuntime,
     value::{JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
     JS_CLASS_BOUND_FUNCTION,
 };
@@ -70,50 +69,39 @@ impl BoundFunctionValue {
         let bf = p.u.bound_function.as_mut().unwrap();
         let arg_count = bf.bind_args.len() + argc as usize;
 
-        let alloca_size = std::mem::size_of::<JSValue>() * arg_count;
-        if js_check_stack_overflow(ctx.rt(), alloca_size) {
+        // let sbuf_size = std::mem::size_of::<JSValue>() * arg_count;
+        // if js_check_stack_overflow(ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {
+        //     return JS_ThrowStackOverflow(ctx);
+        // }
+
+        let mut arg_list = Vec::<JSValue>::new();
+        if arg_list.try_reserve_exact(arg_count).is_err() {
             return JS_ThrowStackOverflow(ctx);
         }
+        arg_list.extend_from_slice(&bf.bind_args);
+        arg_list.extend_from_slice(std::slice::from_raw_parts(argv, argc as usize));
 
-        // FIXME: use SmallVec for args. don't use alloca.
-        // XXX
-
-        crate::mem::alloca::with_alloca_zeroed(alloca_size, |sbuf| {
-            let arg_list = std::slice::from_raw_parts_mut(
-                sbuf.as_mut_ptr().cast::<JSValue>(),
-                arg_count as usize,
-            );
-
-            for (i, a) in bf.bind_args.iter().enumerate() {
-                arg_list[i] = *a;
-            }
-            let base = bf.bind_args.len();
-            for i in 0..argc as usize {
-                arg_list[base + i] = *argv.offset(i as isize);
+        if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
+            let mut new_target = this_obj;
+            if func_obj.is_same(new_target) {
+                new_target = bf.func_obj;
             }
 
-            if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-                let mut new_target = this_obj;
-                if func_obj.is_same(new_target) {
-                    new_target = bf.func_obj;
-                }
-
-                JS_CallConstructor2(
-                    ctx,
-                    bf.func_obj,
-                    new_target,
-                    arg_count as _,
-                    arg_list.as_mut_ptr(),
-                )
-            } else {
-                JS_Call(
-                    ctx,
-                    bf.func_obj,
-                    bf.this_val,
-                    arg_count as _,
-                    arg_list.as_mut_ptr(),
-                )
-            }
-        })
+            JS_CallConstructor2(
+                ctx,
+                bf.func_obj,
+                new_target,
+                arg_count as _,
+                arg_list.as_mut_ptr(),
+            )
+        } else {
+            JS_Call(
+                ctx,
+                bf.func_obj,
+                bf.this_val,
+                arg_count as _,
+                arg_list.as_mut_ptr(),
+            )
+        }
     }
 }
