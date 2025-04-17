@@ -62,7 +62,7 @@ pub unsafe fn js_proxy_isArray(ctx: *mut JSContext, obj: JSValueConst) -> Result
     if s.is_null() {
         return Ok(false);
     }
-    if js_check_stack_overflow((*ctx).rt_mut(), 0) {
+    if js_check_stack_overflow((*ctx).rt(), 0) {
         JS_ThrowStackOverflow(ctx);
         return Err(-1);
     }

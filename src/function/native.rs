@@ -10,22 +10,21 @@ use crate::{
     context::{JSContext, JS_DupContext, JS_FreeContext},
     error::{JSResult, JS_ThrowStackOverflow},
     function::JS_CALL_FLAG_CONSTRUCTOR,
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::JS_MarkFunc,
     iterator::js_create_iterator_result,
-    mem::js_malloc_typed,
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
-            JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_SetOpaque, JS_PROP_CONFIGURABLE,
+            JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
         },
-        JSValue, JSValueConst, JSValueRc, JS_FreeValueRT, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC,
-        JS_DEF_CGETSET, JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
+        JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,
+        JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
         JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_TAG_OBJECT,
         JS_VALUE_GET_TAG,
     },
-    JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
+    JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION,
 };
 
 use super::js_function_set_properties;

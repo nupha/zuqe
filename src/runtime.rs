@@ -11,8 +11,8 @@ use crate::{
     class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
     context::JSContext,
     function::{
-        js_async_function_call, js_async_function_resolve_call, js_call_bound_function,
-        JSAutoInitFunc, JS_InstantiateFunctionListItem2, NativeFunctionValue,
+        js_async_function_call, js_async_function_resolve_call, BoundFunctionValue, JSAutoInitFunc,
+        JS_InstantiateFunctionListItem2, NativeFunctionValue,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
     generator::{js_generator_function_call, AsyncGeneratorValue},
@@ -211,7 +211,7 @@ impl JSRuntime {
                     .replace(CallableValue::hook_call);
                 rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
                     .call
-                    .replace(js_call_bound_function);
+                    .replace(BoundFunctionValue::hook_call);
                 rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
                     .call
                     .replace(js_generator_function_call);

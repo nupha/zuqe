@@ -17,7 +17,7 @@ use crate::{
     types::{init_list_head, list_add, list_add_tail, list_del},
     value::{
         object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT, JS_UNDEFINED,
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
     },
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
@@ -125,7 +125,7 @@ pub unsafe fn async_func_init(
         local_buf[i] = JS_DupValue(ctx, *argv.add(i));
     }
     for i in argc as usize..arg_count + b.var_count as usize {
-        local_buf[i] = JS_UNDEFINED;
+        local_buf[i] = JSValue::UNDEFINED;
     }
 
     sf.arg_base_ptr = local_buf.as_mut_ptr();
@@ -139,9 +139,9 @@ pub unsafe fn async_func_init(
 
     // setup async state
     s.argc = argc;
-    s.this_val = JS_DupValue(ctx, this_obj);
-    s.resolving_funcs[0] = JS_UNDEFINED;
-    s.resolving_funcs[1] = JS_UNDEFINED;
+    s.this_val = this_obj.dup();
+    s.resolving_funcs[0] = JSValue::UNDEFINED;
+    s.resolving_funcs[1] = JSValue::UNDEFINED;
     s.is_completed = false;
 
     Box::into_raw(s)
@@ -152,7 +152,7 @@ pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionStat
 
     let sf = &mut (*s).frame;
 
-    let mut ret = if js_check_stack_overflow(ctx.rt_mut(), 0) {
+    let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx)
     } else {
         /* the tag does not matter provided it is not an object */

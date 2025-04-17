@@ -417,59 +417,6 @@ pub unsafe fn JS_InvokeFree(
     res
 }
 
-pub unsafe fn js_call_bound_function(
-    ctx: &mut JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-    flags: i32,
-) -> JSValue {
-    let p = JS_VALUE_GET_OBJ(func_obj).as_mut().unwrap();
-    let bf = p.u.bound_function.as_mut().unwrap();
-    let arg_count = bf.argc + argc;
-
-    let alloca_size = SIZEOF_JSVALUE * arg_count as usize;
-    if js_check_stack_overflow(ctx.rt_mut(), alloca_size) {
-        return JS_ThrowStackOverflow(ctx);
-    }
-
-    crate::mem::alloca::with_alloca_zeroed(alloca_size, |sbuf| {
-        let arg_list =
-            std::slice::from_raw_parts_mut(sbuf.as_mut_ptr().cast::<JSValue>(), arg_count as usize);
-
-        for i in 0..bf.argc as usize {
-            arg_list[i] = *(bf.argv.as_ptr().add(i));
-        }
-        for i in 0..argc as usize {
-            arg_list[bf.argc as usize + i] = *argv.offset(i as isize);
-        }
-
-        if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-            let mut new_target = this_obj;
-            if func_obj.is_same(new_target) {
-                new_target = bf.func_obj;
-            }
-
-            JS_CallConstructor2(
-                ctx,
-                (*bf).func_obj,
-                new_target,
-                arg_count,
-                arg_list.as_mut_ptr(),
-            )
-        } else {
-            JS_Call(
-                ctx,
-                bf.func_obj,
-                bf.this_val,
-                arg_count,
-                arg_list.as_mut_ptr(),
-            )
-        }
-    })
-}
-
 /// returns 0, 1, -1
 pub unsafe fn call_setter(
     ctx: &mut JSContext,

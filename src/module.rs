@@ -1328,9 +1328,7 @@ pub unsafe fn js_inner_module_linking(
     pstack_top: *mut *mut JSModuleDef,
     index: i32,
 ) -> i32 {
-    let mut ret_val: JSValue;
-
-    if js_check_stack_overflow((*ctx).rt_mut(), 0) {
+    if js_check_stack_overflow((*ctx).rt(), 0) {
         JS_ThrowStackOverflow(ctx);
         return -1;
     }

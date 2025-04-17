@@ -96,7 +96,7 @@ pub struct JSTokenRegexp {
 
 impl JSParseState {
     pub unsafe fn next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow((*self.ctx).rt_mut(), 0) {
+        if js_check_stack_overflow((*self.ctx).rt(), 0) {
             js_parse_error(self, c"stack overflow");
             return Err(-1);
         }
