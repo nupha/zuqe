@@ -1,7 +1,8 @@
 mod atom;
+mod atom_rc;
 mod registry;
 
-pub use atom::*;
+pub use {atom::*, atom_rc::*};
 
 pub type JSAtomStruct = crate::value::JSString;
 

@@ -618,13 +618,13 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
             | opcodes::op_scope_delete_var
             | opcodes::op_scope_get_ref
             | opcodes::op_scope_put_var_init => {
-                let var_name = JSAtom(get_u32(bc_buf.add(pos + 1)));
+                let var_name = JSAtom(get_u32(bc_buf.add(pos + 1))).into_rc((*ctx).rt());
                 let scope = get_u16(bc_buf.add(pos + 5));
 
                 pos_next = resolve_scope_var(
                     ctx,
                     s,
-                    var_name,
+                    *var_name,
                     scope as _,
                     op,
                     &mut bc_out,
@@ -632,7 +632,6 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                     std::ptr::null_mut(),
                     pos_next,
                 ) as usize;
-                JS_FreeAtom(ctx, var_name);
             }
             opcodes::op_scope_make_ref => {
                 let var_name = JSAtom(get_u32(bc_buf.add(pos + 1)));

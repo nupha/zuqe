@@ -68,9 +68,6 @@ impl JSParseState {
         let ctx = self.ctx;
         let m = (*self.cur_func).module;
 
-        let mut local_name: JSAtom;
-        let mut import_name: JSAtom;
-
         self.next_token()?;
 
         let first_import = (*m).import_entries_count;
@@ -95,25 +92,24 @@ impl JSParseState {
                     }
 
                     // "default" import
-                    local_name = JS_DupAtom(ctx, self.token.u.ident.atom);
-                    import_name = JS_ATOM_default;
-                    if self.next_token().is_err() {
-                        JS_FreeAtom(ctx, local_name);
-                        JS_FreeAtom(ctx, import_name);
-                        return Err(-1);
-                    }
-                    if add_import(self, m, local_name, import_name) != 0 {
-                        JS_FreeAtom(ctx, local_name);
-                        JS_FreeAtom(ctx, import_name);
-                        return Err(-1);
-                    }
+                    let local_name = self
+                        .token
+                        .u
+                        .ident
+                        .atom
+                        .dup((*ctx).rt())
+                        .into_rc((*ctx).rt());
 
-                    JS_FreeAtom(ctx, local_name);
+                    self.next_token()?;
+                    if add_import(self, m, *local_name, JS_ATOM_default) != 0 {
+                        return Err(-1);
+                    }
 
                     if self.token.val != ',' as i32 {
                         break 'outer;
+                    } else {
+                        self.next_token()?;
                     }
-                    self.next_token()?;
                 }
 
                 if self.token.val == '*' as i32 {
@@ -133,19 +129,18 @@ impl JSParseState {
                         return Err(-1);
                     }
 
-                    local_name = JS_DupAtom(ctx, self.token.u.ident.atom);
-                    import_name = JS_ATOM__star_;
-                    if self.next_token().is_err() {
-                        JS_FreeAtom(ctx, local_name);
-                        JS_FreeAtom(ctx, import_name);
+                    let local_name = self
+                        .token
+                        .u
+                        .ident
+                        .atom
+                        .dup((*ctx).rt())
+                        .into_rc((*ctx).rt());
+
+                    self.next_token()?;
+                    if add_import(self, m, *local_name, JS_ATOM__star_) != 0 {
                         return Err(-1);
                     }
-                    if add_import(self, m, local_name, import_name) != 0 {
-                        JS_FreeAtom(ctx, local_name);
-                        JS_FreeAtom(ctx, import_name);
-                        return Err(-1);
-                    }
-                    JS_FreeAtom(ctx, local_name);
                 } else if self.token.val == '{' as i32 {
                     self.next_token()?;
 
@@ -154,42 +149,35 @@ impl JSParseState {
                             js_parse_error(self, c"identifier expected");
                             return Err(-1);
                         }
-                        import_name = JS_DupAtom(ctx, self.token.u.ident.atom);
-                        local_name = JS_ATOM_NULL;
-                        if self.next_token().is_err() {
-                            JS_FreeAtom(ctx, local_name);
-                            JS_FreeAtom(ctx, import_name);
-                            return Err(-1);
-                        }
-                        if token_is_pseudo_keyword(self, JS_ATOM_as) {
-                            if self.next_token().is_err() {
-                                JS_FreeAtom(ctx, local_name);
-                                JS_FreeAtom(ctx, import_name);
-                                return Err(-1);
-                            }
+
+                        let import_name = self
+                            .token
+                            .u
+                            .ident
+                            .atom
+                            .dup((*ctx).rt())
+                            .into_rc((*ctx).rt());
+
+                        self.next_token()?;
+
+                        let local_name = if token_is_pseudo_keyword(self, JS_ATOM_as) {
+                            self.next_token()?;
+
                             if !token_is_ident(self.token.val) {
                                 js_parse_error(self, c"identifier expected");
-                                JS_FreeAtom(ctx, local_name);
-                                JS_FreeAtom(ctx, import_name);
                                 return Err(-1);
                             }
-                            local_name = JS_DupAtom(ctx, self.token.u.ident.atom);
-                            if self.next_token().is_err() {
-                                JS_FreeAtom(ctx, local_name);
-                                JS_FreeAtom(ctx, import_name);
-                                return Err(-1);
-                            }
-                        } else {
-                            local_name = JS_DupAtom(ctx, import_name);
-                        }
 
-                        if add_import(self, m, local_name, import_name) != 0 {
-                            JS_FreeAtom(ctx, local_name);
-                            JS_FreeAtom(ctx, import_name);
-                            return Err(-1);
+                            let ln = self.token.u.ident.atom.dup((*ctx).rt());
+                            self.next_token()?;
+                            ln
                         } else {
-                            JS_FreeAtom(ctx, local_name);
-                            JS_FreeAtom(ctx, import_name);
+                            import_name.dup((*ctx).rt())
+                        }
+                        .into_rc((*ctx).rt());
+
+                        if add_import(self, m, *local_name, *import_name) != 0 {
+                            return Err(-1);
                         }
 
                         if self.token.val != b',' as i32 {

@@ -4,9 +4,9 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
-        JSAtom, JSAtomTypeHint, JS_AtomIsArrayIndex, JS_FreeAtomRT, __JS_FindAtom, JS_ATOM_NULL,
+        JSAtom, JSAtomTypeHint, JS_AtomIsArrayIndex, __JS_FindAtom, JS_ATOM_NULL,
     },
-    context::{JSContext, JS_FreeContext},
+    context::JSContext,
     function::{
         JSCFunction, JSCFunctionEnum, JSFunctionDef, JS_GetFunctionRealm, JS_NewCFunction2,
     },
@@ -185,13 +185,10 @@ impl JSRuntime {
                 a
             } else {
                 self.add_atom_str(str.as_ref(), JSAtomTypeHint::String)?
-            };
+            }
+            .into_rc(self);
 
-        unsafe {
-            let ret = self.add_class_internal(class_id, class_def, name);
-            JS_FreeAtomRT(self, name);
-            ret
-        }
+        unsafe { self.add_class_internal(class_id, class_def, *name) }
     }
 
     pub fn add_classes(&mut self, tab: &[JSClassShortDef], start: JSClassID) -> Result<(), i32> {

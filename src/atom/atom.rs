@@ -428,7 +428,7 @@ pub unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
         if Rc::strong_count(p) > 1 {
             Rc::decrement_strong_count(p.as_ref());
         } else {
-            // drop atom desription
+            // drop atom description
             JS_FreeAtomStruct(rt, i);
         }
     }
