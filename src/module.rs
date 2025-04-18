@@ -49,14 +49,14 @@ pub enum JSModuleStatus {
     JS_MODULE_STATUS_EVALUATED,
 }
 
-pub type JSModuleNormalizeFunc = unsafe fn(
+pub type JSModuleNormalizeFunc = fn(
     ctx: *mut JSContext,
     module_base_name: &str,
     module_name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<String, i32>;
 
-pub type JSModuleLoaderFunc = unsafe fn(
+pub type JSModuleLoaderFunc = fn(
     ctx: *mut JSContext,
     module_name: &str,
     opaque: *mut ::core::ffi::c_void,
@@ -892,7 +892,7 @@ pub unsafe fn js_host_resolve_imported_module_atom(
 }
 
 // default module filename normalizer
-pub unsafe fn js_default_module_normalize_name(
+pub fn js_default_module_normalize_name(
     ctx: *const JSContext,
     base_name: &str,
     name: &str,
