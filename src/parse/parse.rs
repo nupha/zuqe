@@ -23,7 +23,7 @@ use super::{
         emit_u16, emit_u8, get_prev_opcode,
     },
     error::{js_parse_error, js_parse_error_reserved_identifier},
-    esm::{add_export_entry, js_parse_export, js_parse_import},
+    esm::{add_export_entry, js_parse_export},
     function::JSParseFunctionEnum,
     obj::set_object_name,
     regexp::js_parse_regexp,
@@ -34,7 +34,7 @@ use super::{
     statement::{js_parse_statement_or_decl, DECL_MASK_ALL},
     token::{
         is_regexp_allowed, peek_token, token_is_pseudo_keyword, update_token_ident, CHAR_BRACKET_L,
-        CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SEMI, CHAR_SLASH,
+        CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_DOT, CHAR_EQUAL, CHAR_SEMI, CHAR_SLASH,
         CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CATCH, TOK_CLASS, TOK_CONST, TOK_DEBUGGER, TOK_DEC,
         TOK_DELETE, TOK_DIV_ASSIGN, TOK_DO, TOK_ELLIPSIS, TOK_ENUM, TOK_EOF, TOK_EXPORT, TOK_FALSE,
         TOK_FIRST_KEYWORD, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF, TOK_IMPORT, TOK_INC,
@@ -57,8 +57,8 @@ impl JSParseState {
             || fd.js_mode & JS_MODE_STRICT as u8 == 0;
 
         if !self.is_module {
-            // the <ret> variable used to store return value
-            fd.eval_ret_idx = Some((*fd).add_var(self.ctx.as_mut().unwrap(), JS_ATOM__ret_)?);
+            // hidden variable <ret> for the return value
+            fd.eval_ret_idx = Some(fd.add_var(self.ctx.as_mut().unwrap(), JS_ATOM__ret_)?);
         }
 
         while self.token.val != TOK_EOF {
@@ -66,7 +66,7 @@ impl JSParseState {
         }
 
         if !self.is_module {
-            // 返回隐藏变量eval_ret_idx的值
+            // return the value of the hidden variable fd.eval_ret_idx
             emit_op(self, OpCode::GET_LOC);
             emit_u16(self, fd.eval_ret_idx.unwrap());
             emit_return(self, true);
@@ -141,48 +141,33 @@ impl JSParseState {
 
     pub unsafe fn parse_source_element(&mut self) -> Result<(), i32> {
         let tok = self.token.val;
+        let fd = self.cur_func.as_ref().unwrap();
 
-        match tok {
-            TOK_FUNCTION => {
-                self.parse_function_decl(
-                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                    JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JS_ATOM_NULL,
-                    self.token.ptr,
-                    self.token.line_num,
-                )?;
+        if tok == TOK_FUNCTION
+            || (token_is_pseudo_keyword(self, JS_ATOM_async)
+                && peek_token(self, true) == TOK_FUNCTION)
+        {
+            // 'function' or 'async function'
+            self.parse_function_decl(
+                JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                JSFunctionKindEnum::JS_FUNC_NORMAL,
+                JS_ATOM_NULL,
+                self.token.ptr,
+                self.token.line_num,
+            )?;
+        } else if tok == TOK_EXPORT && !fd.module.is_null() {
+            if js_parse_export(self) != 0 {
+                return Err(-1);
             }
-            TOK_IDENT
-                if token_is_pseudo_keyword(self, JS_ATOM_async)
-                    && peek_token(self, true) == TOK_FUNCTION =>
-            {
-                self.parse_function_decl(
-                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                    JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JS_ATOM_NULL,
-                    self.token.ptr,
-                    self.token.line_num,
-                )?;
-            }
-            TOK_EXPORT if !(*self.cur_func).module.is_null() => {
-                if js_parse_export(self) != 0 {
-                    return Err(-1);
-                }
-            }
-            TOK_IMPORT
-                if !(*self.cur_func).module.is_null()
-                    && !matches!(peek_token(self, false) as u8, b'(' | b'.') =>
-            {
-                // the peek_token is needed to avoid confusion with ImportCall
-                // (dynamic import) or import.meta
-                if js_parse_import(self) != 0 {
-                    return Err(-1);
-                }
-            }
-            _ => {
-                if js_parse_statement_or_decl(self, DECL_MASK_ALL) != 0 {
-                    return Err(-1);
-                }
+        } else if tok == TOK_IMPORT
+            && !fd.module.is_null()
+            && !matches!(peek_token(self, false), CHAR_BRACKET_L | CHAR_DOT)
+        {
+            // the peek_token is needed to avoid confusion with 'import()' or 'import.meta'
+            self.parse_import()?;
+        } else {
+            if js_parse_statement_or_decl(self, DECL_MASK_ALL) != 0 {
+                return Err(-1);
             }
         }
 

@@ -1,5 +1,9 @@
+mod array;
+mod class;
+mod destructing;
 mod emit;
 mod error;
+mod esm;
 mod expr;
 mod expr_call;
 mod expr_cond;
@@ -11,10 +15,6 @@ mod expr_yield;
 mod function;
 mod obj;
 mod parse;
-mod array;
-mod class;
-mod destructing;
-mod esm;
 mod regexp;
 mod state;
 mod statement;
@@ -23,4 +23,4 @@ mod template;
 mod token;
 mod var;
 
-pub use {function::JSParseFunctionEnum, state::JSParseState};
+pub use {esm::JS_DetectModule, function::JSParseFunctionEnum, state::JSParseState};

@@ -24,6 +24,7 @@ include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 pub const TOK_FIRST_KEYWORD: i32 = TOK_NULL;
 pub const TOK_LAST_KEYWORD: i32 = TOK_AWAIT;
 
+pub const CHAR_DOT: i32 = '.' as i32;
 pub const CHAR_COMMA: i32 = ',' as i32;
 pub const CHAR_COLON: i32 = ':' as i32;
 pub const CHAR_SEMI: i32 = ';' as i32;
@@ -797,7 +798,7 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
     }
 }
 
-pub unsafe fn peek_token(s: *mut JSParseState, no_line_terminator: bool) -> i32 {
+pub unsafe fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i32 {
     let mut p = (*s).buf_ptr;
     simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator)
 }

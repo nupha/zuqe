@@ -5,8 +5,12 @@ use std::{
 
 use zhuque::{
     context::JS_FreeContext,
-    eval::{JS_Eval, JS_EVAL_TYPE_GLOBAL},
+    eval::{
+        JS_Eval, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
+        JS_EVAL_TYPE_MODULE,
+    },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
+    parse::JS_DetectModule,
     runtime::JSRuntime,
     value::{JSValue, JS_FreeValue, JS_IsException, JS_VALUE_GET_OBJ},
 };
@@ -29,6 +33,18 @@ fn main() {
         if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
             let mut ctx = js.create_context().unwrap();
 
+            let mut eval_flags = if filename.ends_with(".mjs") {
+                JS_EVAL_TYPE_MODULE
+            } else if JS_DetectModule(CStr::from_ptr(src.as_ptr().cast())) {
+                JS_EVAL_TYPE_MODULE
+            } else {
+                JS_EVAL_TYPE_GLOBAL
+            };
+
+            if (eval_flags & JS_EVAL_TYPE_MASK) == JS_EVAL_TYPE_MODULE {
+                eval_flags |= JS_EVAL_FLAG_COMPILE_ONLY;
+            }
+
             let fname = CString::new(filename).unwrap();
 
             let r = JS_Eval(
@@ -36,7 +52,7 @@ fn main() {
                 src.as_ptr().cast(),
                 src.len() - 1,
                 CStr::from_ptr(fname.as_ptr()),
-                JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
+                eval_flags,
             );
 
             loop {

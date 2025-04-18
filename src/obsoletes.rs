@@ -6,6 +6,7 @@ use crate::{
     context::JSContext,
     function::{JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
+    parse::JSParseState,
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
@@ -570,4 +571,15 @@ pub unsafe fn perform_promise_then(
     cap_resolving_funcs: &[JSValue; 2],
 ) -> Result<(), i32> {
     promise.then(ctx, resolve_reject, cap_resolving_funcs)
+}
+
+/// parse import statement
+#[deprecated(note = "use JSParseState::parse_import() instead")]
+pub unsafe fn js_parse_import(s: *mut JSParseState) -> i32 {
+    (*s).parse_import().map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use JSParseState::parse_from_clause() instead")]
+pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
+    unreachable!("use JSParseState::parse_from_clause() instead");
 }
