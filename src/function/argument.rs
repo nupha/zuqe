@@ -15,110 +15,95 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT,
 };
 
-pub unsafe fn js_build_arguments(
-    ctx: *mut JSContext,
-    argc: i32,
-    argv: *const JSValueConst,
-) -> JSValue {
+pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSValue {
     let val = JS_NewObjectProtoClass(
         ctx,
-        (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+        ctx.class_proto[JS_CLASS_OBJECT as usize],
         JS_CLASS_ARGUMENTS,
     );
     if val.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let p = JS_VALUE_GET_OBJ(val);
+    let p = val.object();
 
     // add the length field (cannot fail)
-    let pr = add_property(
-        ctx,
-        p,
-        JS_ATOM_length,
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
-    (*pr).u.value = JSValue::from_i32(argc);
+    let pr = p
+        .add_property(ctx, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
+        .unwrap();
+    (*pr).u.value = JSValue::from_i32(args.len() as i32);
 
     // initialize fast array values
-    let tab = (*p).fast_array_values_mut_unchecked();
-    if argc > 0 {
-        if tab.try_reserve_exact(argc as usize).is_err() {
+    let tab = p.fast_array_values_mut_unchecked();
+    if !args.is_empty() {
+        if tab.try_reserve_exact(args.len()).is_err() {
             JS_FreeValue(ctx, val);
-            (*ctx).JS_ThrowOutOfMemory();
+            ctx.JS_ThrowOutOfMemory();
             return JSValue::EXCEPTION;
         }
-        for i in 0..argc {
-            tab.push((*argv.offset(i as isize)).dup());
-        }
+        tab.extend(args.iter().map(|v| v.dup())); // value is duplicated
     }
 
     let _ = val.define_property_value(
-        ctx.as_mut().unwrap(),
+        ctx,
         JS_ATOM_Symbol_iterator,
-        (*ctx).array_proto_values.dup(),
+        ctx.array_proto_values.dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
 
     // add callee property to throw a TypeError in strict mode
     let _ = val.define_property(
-        ctx.as_mut().unwrap(),
+        ctx,
         JS_ATOM_callee,
         JSValue::UNDEFINED,
-        (*ctx).throw_type_error,
-        (*ctx).throw_type_error,
+        ctx.throw_type_error,
+        ctx.throw_type_error,
         JS_PROP_HAS_GET | JS_PROP_HAS_SET,
     );
 
     val
 }
 
-// legacy arguments object: add references to the function arguments
+/// legacy arguments object: add references to the function arguments
 pub unsafe fn js_build_mapped_arguments(
-    ctx: *mut JSContext,
-    argc: i32,
-    argv: *const JSValueConst,
-    sf: *mut JSStackFrame,
+    ctx: &mut JSContext,
+    args: &[JSValue],
+    sf: &mut JSStackFrame,
     arg_count: i32,
 ) -> JSValue {
     let val = JS_NewObjectProtoClass(
         ctx,
-        (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+        ctx.class_proto[JS_CLASS_OBJECT as usize],
         JS_CLASS_MAPPED_ARGUMENTS,
     );
-    if JS_IsException(val) {
+    if val.is_exception() {
         return val;
     }
 
-    let p = JS_VALUE_GET_OBJ(val);
+    let p = val.object();
 
     // add the length field (cannot fail)
-    let pr = add_property(
-        ctx,
-        p,
-        JS_ATOM_length,
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
-    (*pr).u.value = JSValue::from_i32(argc);
+    let pr = p
+        .add_property(ctx, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
+        .unwrap();
+    (*pr).u.value = JSValue::from_i32(args.len() as i32);
 
     for i in 0..arg_count {
-        match (*sf).get_var_ref(ctx.as_mut().unwrap(), i as _, true) {
+        match sf.get_var_ref(ctx, i as _, true) {
             Ok(var_ref) => {
-                let pr = add_property(
+                let pr = if let Ok(x) = p.add_property(
                     ctx,
-                    p,
                     JSAtom::from_u32(i as u32),
                     JS_PROP_C_W_E | JS_PROP_VARREF,
-                );
-                if pr.is_null() {
+                ) {
+                    x
+                } else {
                     if let Some(vr) = Box::from_raw(var_ref.as_ptr()).free((*ctx).rt_mut()) {
                         Box::leak(vr);
                     }
-
                     JS_FreeValue(ctx, val);
                     return JSValue::EXCEPTION;
-                }
-
+                };
                 (*pr).u.var_ref = var_ref.as_ptr();
             }
             Err(_) => {
@@ -129,14 +114,9 @@ pub unsafe fn js_build_mapped_arguments(
     }
 
     // the arguments not mapped to the arguments of the function can be normal properties
-    for i in arg_count..argc {
+    for i in arg_count as usize..args.len() {
         if val
-            .define_property_value_u32(
-                ctx.as_mut().unwrap(),
-                i as _,
-                (*argv.offset(i as isize)).dup(),
-                JS_PROP_C_W_E,
-            )
+            .define_property_value_u32(ctx, i as _, args[i].dup(), JS_PROP_C_W_E)
             .is_err()
         {
             JS_FreeValue(ctx, val);
@@ -145,42 +125,32 @@ pub unsafe fn js_build_mapped_arguments(
     }
 
     let _ = val.define_property_value(
-        ctx.as_mut().unwrap(),
+        ctx,
         JS_ATOM_Symbol_iterator,
-        JS_DupValue(ctx, (*ctx).array_proto_values),
+        ctx.array_proto_values.dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
 
     // callee returns this function in non strict mode
     let _ = val.define_property_value(
-        ctx.as_mut().unwrap(),
+        ctx,
         JS_ATOM_callee,
-        (*(*ctx).rt().current_stack_frame).cur_func.dup(),
+        (*ctx.rt().current_stack_frame).cur_func.dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
 
     val
 }
 
-pub unsafe fn js_build_rest(
-    ctx: *mut JSContext,
-    first: i32,
-    argc: i32,
-    argv: *const JSValueConst,
-) -> JSValue {
+pub unsafe fn js_build_rest(ctx: &mut JSContext, first: usize, args: &[JSValue]) -> JSValue {
     let val = JS_NewArray(ctx);
     if val.is_exception() {
         return val;
     }
 
-    for i in first..argc {
+    for (i, v) in args[first..].iter().enumerate() {
         if val
-            .define_property_value_u32(
-                ctx.as_mut().unwrap(),
-                (i - first) as _,
-                (*argv.offset(i as isize)).dup(),
-                JS_PROP_C_W_E,
-            )
+            .define_property_value_u32(ctx, (i - first) as _, v.dup(), JS_PROP_C_W_E)
             .is_err()
         {
             JS_FreeValue(ctx, val);

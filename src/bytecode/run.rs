@@ -73,11 +73,9 @@ pub unsafe fn run_bytecodes(
     pc_offset: usize,      // Current instruction pointer (program counter) offset
     sp_offset: usize,      // Current stack pointer offset
     var_refs: &[NonNull<JSVarRef>],
-    argc: i32,
-    argv: *mut JSValue,
+    args: &[JSValue], // actual calling arguments pass in by caller, not padded length
     mode: i32,
     throwed: bool, // Indicates if an exception has been thrown
-                   //local_buf: &mut [JSValue],
 ) -> JSValue {
     debug_assert!(pc_offset < bytecodes.len());
 
@@ -274,7 +272,7 @@ pub unsafe fn run_bytecodes(
 
                     match arg {
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_ARGUMENTS => {
-                            SP![0] = js_build_arguments(ctx, argc, argv);
+                            SP![0] = js_build_arguments(ctx, args);
                             SP_GO!(1);
                             if SP![-1].is_exception() {
                                 break State::Exception;
@@ -283,10 +281,9 @@ pub unsafe fn run_bytecodes(
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS => {
                             SP![0] = js_build_mapped_arguments(
                                 ctx,
-                                argc,
-                                argv,
+                                args,
                                 sf,
-                                std::cmp::min(argc, b.arg_count as i32),
+                                std::cmp::min(args.len() as i32, b.arg_count as i32),
                             );
                             SP_GO!(1);
                             if SP![-1].is_exception() {
@@ -329,7 +326,7 @@ pub unsafe fn run_bytecodes(
                     let first = get_u16(pc);
                     PC_GO!(2);
 
-                    SP![0] = js_build_rest(ctx, first as _, argc, argv);
+                    SP![0] = js_build_rest(ctx, first as _, args);
                     SP_GO!(1);
                     if SP![-1].is_exception() {
                         break State::Exception;

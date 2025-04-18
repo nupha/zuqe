@@ -4,19 +4,22 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::{consts::JS_ATOM_prototype, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
-    bytecode::{opcode_info_final, opcode_info_intermediate},
+    bytecode::{opcode_info_final, opcode_info_intermediate, run_bytecodes},
     context::{JSContext, JS_FreeContext},
+    error::JSResult,
     eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
-    function::{func_kind_to_class_id, JS_GetFunctionRealm},
+    function::{func_kind_to_class_id, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
     mem::js_free_rt,
     runtime::JSRuntime,
-    types::list_add_tail,
+    stack_frame::JSStackFrame,
+    types::{init_list_head, list_add_tail, list_head},
     utils::{get_leb128, get_sleb128, get_u32},
     value::{
         object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
-        JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG,
+        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
     },
+    JS_CLASS_BYTECODE_FUNCTION,
 };
 
 use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
@@ -376,9 +379,119 @@ impl JSFunctionBytecode {
 pub struct BytecodeFunctionValue(JSValue);
 
 impl JSValue {
-    pub unsafe fn as_bytecode_function(self) -> BytecodeFunctionValue {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_FUNCTION_BYTECODE);
+    pub unsafe fn as_bytecode_function_unchecked(self) -> BytecodeFunctionValue {
+        debug_assert!(matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_FUNCTION_BYTECODE | JS_TAG_OBJECT
+        ));
+        debug_assert_eq!(self.object().class_id(), JS_CLASS_BYTECODE_FUNCTION);
         std::mem::transmute(self)
+    }
+}
+
+impl BytecodeFunctionValue {
+    /// call bytecode function
+    pub unsafe fn call_internal(
+        self,
+        caller_ctx: &mut JSContext,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSValue {
+        let func_obj = self.0;
+        let p = self.0.object();
+
+        let bf = p.u.func.function_bytecode.as_ref().unwrap();
+
+        // how many args that should be copied to local buf?
+        // argc:实际调用时传入参数个数, b.arg_count:函数定义时参数个数
+        let arg_copy_num =
+            if args.len() < bf.arg_count as usize || flags & JS_CALL_FLAG_COPY_ARGV != 0 {
+                bf.arg_count
+            } else {
+                0
+            };
+
+        // how many bytes to allocate for local buf (args+vars+stack)?
+        let buf_values_count =
+            arg_copy_num as usize + bf.var_count as usize + bf.stack_size as usize;
+
+        let mut sf_s = JSStackFrame {
+            prev_frame: std::ptr::null_mut(),
+            cur_func: func_obj,
+            local_buf: Vec::<JSValue>::new(),
+            arg_base_ptr: std::ptr::null_mut(),
+            arg_count: 0,
+            var_base_ptr: std::ptr::null_mut(),
+            var_count: 0,
+            cur_pc_offset: 0,
+            cur_sp_offset: 0,
+            var_ref_list: list_head::default(),
+            js_mode: bf.js_mode as _,
+        };
+        let sf = &mut sf_s;
+
+        init_list_head(&mut sf.var_ref_list);
+
+        // make local buffer and running bytecodes with it.
+        // local_buf layout:
+        //
+        // +------------------+
+        // | argument values  | <- arg_buf (optional, if need to copy arg)
+        // | variable values  | <- var_buf
+        // | stack space      | <- stack_buf
+        // +------------------+
+        //
+        if sf.local_buf.try_reserve_exact(buf_values_count).is_err() {
+            caller_ctx.JS_ThrowOutOfMemory();
+            return JSValue::EXCEPTION;
+        }
+
+        if arg_copy_num != 0 {
+            // copy arg values - duplicated
+            sf.local_buf.extend(args.iter().map(|x| x.dup()));
+            // padding with undefined
+            sf.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                arg_copy_num as usize - args.len(),
+            ));
+
+            sf.arg_count = arg_copy_num;
+            sf.arg_base_ptr = sf.local_buf.as_mut_ptr()
+        } else {
+            sf.arg_count = args.len() as _;
+            sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
+        }
+
+        // initialize vars + stack section
+        sf.local_buf.extend(std::iter::repeat_n(
+            JSValue::UNDEFINED,
+            (bf.var_count + bf.stack_size) as usize,
+        ));
+        debug_assert_eq!(sf.local_buf.len(), buf_values_count);
+
+        sf.var_base_ptr = sf.local_buf.as_mut_ptr().add(arg_copy_num as usize);
+        sf.var_count = bf.var_count;
+
+        sf.prev_frame = caller_ctx.rt().current_stack_frame;
+        caller_ctx.rt_mut().current_stack_frame = sf;
+
+        run_bytecodes(
+            bf,
+            p.u.func.home_object,
+            sf,
+            caller_ctx,
+            this_obj,
+            new_target,
+            &bf.binary[bf.bytecode_offset as usize..],
+            0,
+            0,
+            &p.u.func.var_refs,
+            args,
+            bf.js_mode as _,
+            false,
+        )
     }
 }
 
