@@ -559,8 +559,7 @@ pub unsafe fn add_import(
 /// return true if 'input' contains the source of a module
 /// (heuristic). 'input' must be a zero terminated.
 //
-/// Heuristic: skip comments and expect 'import' keyword not followed
-/// by '(' or '.' or export keyword.
+/// Heuristic: skip comments and expect 'import' keyword not followed by '(' or '.' or export keyword.
 pub unsafe fn JS_DetectModule(input: &CStr) -> bool {
     let mut p = input.as_ptr().cast::<u8>();
 

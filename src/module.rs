@@ -860,7 +860,8 @@ pub unsafe fn js_host_resolve_imported_module(
         js_free(ctx, cname.cast());
         m
     } else {
-        // XXX: use a syntax error ?
+        log::warn!("module loader function is not set, can't import module.");
+
         JS_ThrowReferenceError(
             ctx,
             CStr::from_ptr(

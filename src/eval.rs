@@ -4,8 +4,8 @@ use crate::{
     atom::{consts::JS_ATOM__eval_, JS_DupAtom},
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
-        add_closure_variables, js_class_has_bytecode, js_closure, js_new_function_def,
-        JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_Call, JS_CallFree,
+        add_closure_variables, js_class_has_bytecode, js_closure, JSFunctionBytecode,
+        JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_Call, JS_CallFree,
     },
     module::{
         js_create_module_function, js_free_module_def, js_inner_module_evaluation, js_link_module,
