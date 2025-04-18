@@ -129,7 +129,7 @@ pub struct JSFunctionDef {
     pub this_active_func_var_idx: Option<u16>,
     /// home
     pub home_object_var_idx: Option<u16>,
-    /// `arguments`
+    /// `arguments` variable
     pub arguments_var_idx: Option<u16>,
     /// `arguments` in arg section
     pub arguments_arg_idx: Option<u16>,
@@ -900,9 +900,8 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
     if has_arguments_binding {
         s.add_arguments(ctx, false).unwrap();
 
-        // also add an arguments binding in the argument scope to
-        // raise an error if a direct eval in the argument scope tries
-        // to redefine it
+        // also add `arguments` binding in the argument scope.
+        // to raise an error if a direct eval in the argument scope tries to redefine it.
         if (*s).has_parameter_expressions && s.js_mode & JS_MODE_STRICT as u8 == 0 {
             s.add_arguments(ctx, true).unwrap();
         }

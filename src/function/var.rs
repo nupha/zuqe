@@ -268,7 +268,7 @@ impl JSFunctionDef {
         Ok(self.var_count - 1)
     }
 
-    /// define pseudo var `this`
+    /// define pseudo variable named `this`
     pub unsafe fn add_var_this(&mut self, ctx: &mut JSContext) -> Result<u16, i32> {
         let idx = self.add_var(ctx, JS_ATOM_this)?;
 
@@ -284,7 +284,7 @@ impl JSFunctionDef {
         Ok(idx)
     }
 
-    /// to add an `argument` definition.
+    /// Add defination named `arguments`.
     /// - in_arg_scope=false, will define in the variable scope, returns var idx for `arguments`
     /// - in_arg_scope=true, will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
     pub unsafe fn add_arguments(
@@ -339,7 +339,8 @@ impl JSFunctionDef {
         }
     }
 
-    /// return the variable index (add ARGUMENT_VAR_OFFSET for argument variables)
+    /// find arg by name.
+    /// returns the variable index (add ARGUMENT_VAR_OFFSET for argument variables)
     /// or None if not found.
     pub fn find_arg(&self, name: JSAtom) -> Option<i32> {
         for i in (0..self.arg_count).rev() {
