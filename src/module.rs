@@ -1,14 +1,14 @@
 use std::{
     cmp::Ordering,
-    ffi::{c_void, CStr, CString},
+    ffi::{c_void, CStr},
+    path::PathBuf,
     ptr::NonNull,
-    str::FromStr,
 };
 
-use {fallible_collections::FallibleVec, libc::c_char};
+use fallible_collections::FallibleVec;
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     class::JSClassExoticMethods,
     context::JSContext,
     error::{
@@ -19,7 +19,7 @@ use crate::{
     },
     gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
-    mem::{js_free, js_malloc, js_malloc_typed, js_resize_array, js_strdup},
+    mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::js_check_stack_overflow,
     types::{
         list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head,
@@ -32,8 +32,8 @@ use crate::{
             JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsUndefined, JS_TAG_OBJECT, JS_TRUE, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_IsUndefined, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
 };
@@ -51,14 +51,14 @@ pub enum JSModuleStatus {
 
 pub type JSModuleNormalizeFunc = unsafe fn(
     ctx: *mut JSContext,
-    module_base_name: *const ::core::ffi::c_char,
-    module_name: *const ::core::ffi::c_char,
+    module_base_name: &str,
+    module_name: &str,
     opaque: *mut ::core::ffi::c_void,
-) -> *mut ::core::ffi::c_char;
+) -> Result<String, i32>;
 
 pub type JSModuleLoaderFunc = unsafe fn(
     ctx: *mut JSContext,
-    module_name: *const ::core::ffi::c_char,
+    module_name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> *mut JSModuleDef;
 
@@ -126,13 +126,13 @@ impl JSModuleDef {
                 let mut m = Box::from_raw(ptr.as_ptr());
                 m.header.ref_count = 1;
                 m.module_name = name;
-                m.module_ns = JS_UNDEFINED;
-                m.func_obj = JS_UNDEFINED;
-                m.eval_exception = JS_UNDEFINED;
-                m.meta_obj = JS_UNDEFINED;
-                m.promise = JS_UNDEFINED;
-                m.resolving_funcs[0] = JS_UNDEFINED;
-                m.resolving_funcs[1] = JS_UNDEFINED;
+                m.module_ns = JSValue::UNDEFINED;
+                m.func_obj = JSValue::UNDEFINED;
+                m.eval_exception = JSValue::UNDEFINED;
+                m.meta_obj = JSValue::UNDEFINED;
+                m.promise = JSValue::UNDEFINED;
+                m.resolving_funcs[0] = JSValue::UNDEFINED;
+                m.resolving_funcs[1] = JSValue::UNDEFINED;
                 list_add_tail(&mut m.link, &mut ctx.loaded_modules);
                 Ok(m)
             }
@@ -824,8 +824,8 @@ pub unsafe fn js_resolve_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32
 // return NULL in case of exception (e.g. module could not be loaded)
 pub unsafe fn js_host_resolve_imported_module(
     ctx: *mut JSContext,
-    base_cname: *const c_char, // TODO: use &str
-    cname1: *const c_char,     // TODO: use &str
+    base_cname: &str,
+    cname1: &str,
 ) -> *mut JSModuleDef {
     let rt = (*ctx).rt.as_ref();
 
@@ -834,30 +834,27 @@ pub unsafe fn js_host_resolve_imported_module(
     } else {
         js_default_module_normalize_name(ctx, base_cname, cname1)
     };
-    if cname.is_null() {
+    let cname = if let Ok(n) = cname {
+        n
+    } else {
         return std::ptr::null_mut();
-    }
+    };
 
-    let module_name = JS_NewAtom(ctx, CStr::from_ptr(cname));
-    if module_name == JS_ATOM_NULL {
-        js_free(ctx, cname.cast());
+    let module_name = if let Ok(a) = (*ctx).create_atom(&cname) {
+        a.into_rc((*ctx).rt())
+    } else {
         return std::ptr::null_mut();
-    }
+    };
 
     // first look at the loaded modules
-    let m = js_find_loaded_module(ctx, module_name);
+    let m = js_find_loaded_module(ctx, *module_name);
     if !m.is_null() {
-        js_free(ctx, cname.cast());
-        JS_FreeAtom(ctx, module_name);
-        return m;
+        return m; // already loaded
     }
-
-    JS_FreeAtom(ctx, module_name);
 
     // load the module
     if let Some(cb) = rt.module_loader_func {
-        let m = cb(ctx, cname, rt.module_loader_opaque);
-        js_free(ctx, cname.cast());
+        let m = cb(ctx, &cname, rt.module_loader_opaque);
         m
     } else {
         log::warn!("module loader function is not set, can't import module.");
@@ -870,7 +867,6 @@ pub unsafe fn js_host_resolve_imported_module(
                     .cast(),
             ),
         );
-        js_free(ctx, cname.cast());
         std::ptr::null_mut()
     }
 }
@@ -892,81 +888,37 @@ pub unsafe fn js_host_resolve_imported_module_atom(
         return std::ptr::null_mut();
     };
 
-    let m = js_host_resolve_imported_module(
-        ctx,
-        CString::from_str(&base_cname).unwrap().as_c_str().as_ptr(),
-        CString::from_str(&cname).unwrap().as_c_str().as_ptr(),
-    );
-
-    m
+    js_host_resolve_imported_module(ctx, base_cname.as_ref(), cname.as_ref())
 }
 
 // default module filename normalizer
 pub unsafe fn js_default_module_normalize_name(
-    ctx: *mut JSContext,
-    base_name: *const c_char,
-    name: *const c_char,
-) -> *mut c_char {
-    if (*name.offset(0)) != b'.' as i8 {
-        // if no initial dot, the module name is not modified
-        return js_strdup(ctx, name);
-    }
+    ctx: *const JSContext,
+    base_name: &str,
+    name: &str,
+) -> Result<String, i32> {
+    debug_assert!(!name.is_empty());
 
-    let mut p = libc::strrchr(base_name, b'/' as i32);
-    let len = if !p.is_null() {
-        p as usize - base_name as usize
+    let path = if let Some(base) = PathBuf::from(base_name).parent() {
+        base.join(name)
     } else {
-        0
+        PathBuf::from(name)
     };
 
-    let filename = js_malloc(ctx, (len + libc::strlen(name) + 1 + 1) as usize).cast::<c_char>();
-    if filename.is_null() {
-        return std::ptr::null_mut();
-    }
-    libc::memcpy(filename as *mut _, base_name as *const _, len as usize);
-    *filename.add(len) = b'\0' as c_char;
-
-    // we only normalize the leading '..' or '.'
-    let mut r = name;
-    loop {
-        if (*r.offset(0)) as i8 == b'.' as i8 && (*r.offset(1)) as i8 == b'/' as i8 {
-            r = r.offset(2);
-        } else if (*r.offset(0)) as i8 == b'.' as i8
-            && (*r.offset(1)) as i8 == b'.' as i8
-            && (*r.offset(2)) as i8 == b'/' as i8
-        {
-            // remove the last path element of filename, except if "." or ".."
-            if (*filename.offset(0)) as i8 == b'\0' as i8 {
-                break;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized.pop();
             }
-
-            p = libc::strrchr(filename, b'/' as i32);
-            if p.is_null() {
-                p = filename;
-            } else {
-                p = p.offset(1);
+            std::path::Component::CurDir => {}
+            _ => {
+                normalized.push(component.as_os_str());
             }
-
-            if libc::strcmp(p, c".".as_ptr()) == 0 || libc::strcmp(p, c"..".as_ptr()) == 0 {
-                break;
-            }
-
-            if p > filename {
-                p = p.offset(-1);
-            }
-            *p = b'\0' as c_char;
-            r = r.offset(3);
-        } else {
-            break;
         }
     }
 
-    if (*filename.offset(0)) as i8 != b'\0' as i8 {
-        libc::strcat(filename, c"/".as_ptr());
-    }
-    libc::strcat(filename, r);
-
-    filename
+    Ok(normalized.to_string_lossy().to_string())
 }
 
 pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
@@ -1543,7 +1495,7 @@ pub unsafe fn js_inner_module_linking(
         let ret_val = JS_Call(
             ctx.as_mut().unwrap(),
             (*m).func_obj,
-            JS_TRUE,
+            JSValue::TRUE,
             0,
             std::ptr::null_mut(),
         );
@@ -1656,7 +1608,7 @@ pub unsafe fn js_import_meta(ctx: *mut JSContext) -> JSValue {
     JS_GetImportMeta(ctx, m)
 }
 
-/* spec: InnerModuleEvaluation. Return (index, JS_UNDEFINED) or (-1,
+/* spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1,
 exception) */
 pub unsafe fn js_inner_module_evaluation(
     ctx: *mut JSContext,
