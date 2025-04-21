@@ -4,7 +4,7 @@ mod bound;
 mod bytecode;
 mod call;
 mod clousure;
-mod def;
+mod fdef;
 mod fun;
 mod label;
 mod native;
@@ -15,6 +15,6 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, bound::*, bytecode::*, call::*, clousure::*, def::*, fun::*, label::*,
+    afun::*, argument::*, bound::*, bytecode::*, call::*, clousure::*, fdef::*, fun::*, label::*,
     native::*, optimize::*, scope::*, stack::*, var::*, var_ref::*,
 };
