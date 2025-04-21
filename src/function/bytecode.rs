@@ -66,10 +66,14 @@ pub struct JSFunctionBytecode {
 
     /// binary content
     pub binary: Box<[u8]>,
-    pub cpool_offset: i32,       // >=0 for valid index
-    pub vardefs_offset: i32,     // >=0 for valid index
-    pub closure_var_offset: i32, // >=0 for valid index
-    pub bytecode_offset: u32,
+    /// start index of cpool in binary >=0 for valid index
+    pub cpool_start: i32,
+    /// start index of vardefs in binary >=0 for valid index
+    pub vardefs_start: i32,
+    /// start index of closure vars >=0 for valid index
+    pub closure_var_start: i32,
+    /// start index of bytecode in binary
+    pub bytecode_start: u32,
 }
 
 /* for the encoding of the pc2line table */
@@ -81,12 +85,12 @@ pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 impl JSFunctionBytecode {
     /// get cpool values start pointer
     pub unsafe fn cpools_ptr(&self) -> Option<NonNull<JSValue>> {
-        if self.cpool_offset >= 0 {
+        if self.cpool_start >= 0 {
             debug_assert!(self.cpool_count > 0);
             NonNull::new(
                 self.binary
                     .as_ptr()
-                    .add(self.cpool_offset as usize)
+                    .add(self.cpool_start as usize)
                     .cast::<JSValue>() as _,
             )
         } else {
@@ -97,12 +101,12 @@ impl JSFunctionBytecode {
 
     /// get vardefs (args+vars) starting pointer
     pub unsafe fn vardefs_ptr(&mut self) -> Option<NonNull<JSVarDef>> {
-        if self.vardefs_offset >= 0 {
+        if self.vardefs_start >= 0 {
             debug_assert!(self.arg_count > 0 || self.var_count > 0);
             NonNull::new(
                 self.binary
                     .as_mut_ptr()
-                    .add(self.vardefs_offset as usize)
+                    .add(self.vardefs_start as usize)
                     .cast::<JSVarDef>(),
             )
         } else {
@@ -112,12 +116,12 @@ impl JSFunctionBytecode {
 
     /// get closure var starting pointer
     pub unsafe fn closure_var_ptr(&mut self) -> Option<NonNull<JSClosureVar>> {
-        if self.closure_var_offset >= 0 {
+        if self.closure_var_start >= 0 {
             debug_assert!(self.closure_var_count > 0);
             NonNull::new(
                 self.binary
                     .as_mut_ptr()
-                    .add(self.closure_var_offset as usize)
+                    .add(self.closure_var_start as usize)
                     .cast(),
             )
         } else {
@@ -127,7 +131,7 @@ impl JSFunctionBytecode {
 
     /// get bytecode starting pointer
     pub unsafe fn bytecode_ptr(&mut self) -> NonNull<u8> {
-        NonNull::new(self.binary.as_mut_ptr().add(self.bytecode_offset as usize)).unwrap()
+        NonNull::new(self.binary.as_mut_ptr().add(self.bytecode_start as usize)).unwrap()
     }
 
     /// get const pool values slice
@@ -145,7 +149,7 @@ impl JSFunctionBytecode {
                 Some(std::slice::from_raw_parts(
                     self.binary
                         .as_ptr()
-                        .add(self.vardefs_offset as usize)
+                        .add(self.vardefs_start as usize)
                         .cast::<JSVarDef>(),
                     self.arg_count as usize,
                 ))
@@ -162,7 +166,7 @@ impl JSFunctionBytecode {
                 Some(std::slice::from_raw_parts(
                     self.binary
                         .as_ptr()
-                        .add(self.vardefs_offset as usize)
+                        .add(self.vardefs_start as usize)
                         .cast::<JSVarDef>()
                         .add(self.arg_count as usize),
                     self.var_count as usize,
@@ -178,7 +182,7 @@ impl JSFunctionBytecode {
             std::slice::from_raw_parts(
                 self.binary
                     .as_ptr()
-                    .add(self.closure_var_offset as usize)
+                    .add(self.closure_var_start as usize)
                     .cast::<JSClosureVar>(),
                 self.closure_var_count as usize,
             )
@@ -234,15 +238,15 @@ impl JSFunctionBytecode {
     /// get bytecode opcodes slice
     #[inline(always)]
     pub fn bytecode_slice(&self) -> &[u8] {
-        &self.binary[self.bytecode_offset as usize..]
+        &self.binary[self.bytecode_start as usize..]
     }
 
     pub fn get_cpool(&self, idx: usize) -> Option<JSValue> {
-        if self.cpool_offset >= 0 && idx < self.cpool_count as usize {
+        if self.cpool_start >= 0 && idx < self.cpool_count as usize {
             let p = unsafe {
                 self.binary
                     .as_ptr()
-                    .add(self.cpool_offset as usize)
+                    .add(self.cpool_start as usize)
                     .cast::<JSValue>()
             };
 
@@ -256,7 +260,7 @@ impl JSFunctionBytecode {
     /// get 2nd var def: (2, false)
     /// get 3rd arg def: (3, true)
     pub fn get_vardef(&self, nth: u16, is_arg: bool) -> Option<&JSVarDef> {
-        if self.vardefs_offset >= 0
+        if self.vardefs_start >= 0
             && nth
                 < if is_arg {
                     self.arg_count
@@ -267,7 +271,7 @@ impl JSFunctionBytecode {
             unsafe {
                 self.binary
                     .as_ptr()
-                    .add(self.vardefs_offset as usize)
+                    .add(self.vardefs_start as usize)
                     .cast::<JSVarDef>()
                     .add(nth as usize + if is_arg { 0 } else { self.arg_count as usize })
                     .as_ref()
@@ -289,11 +293,11 @@ impl JSFunctionBytecode {
 
     /// get nth closure var def
     pub fn get_closure_var(&self, nth: u16) -> Option<&JSClosureVar> {
-        if self.closure_var_offset >= 0 && nth < self.closure_var_count {
+        if self.closure_var_start >= 0 && nth < self.closure_var_count {
             unsafe {
                 self.binary
                     .as_ptr()
-                    .add(self.closure_var_offset as usize)
+                    .add(self.closure_var_start as usize)
                     .cast::<JSClosureVar>()
                     .add(nth as usize)
                     .as_ref()
@@ -305,11 +309,11 @@ impl JSFunctionBytecode {
 
     /// get nth closure var def
     pub fn get_closure_var_mut(&mut self, nth: u16) -> Option<&mut JSClosureVar> {
-        if self.closure_var_offset >= 0 && nth < self.closure_var_count {
+        if self.closure_var_start >= 0 && nth < self.closure_var_count {
             unsafe {
                 self.binary
                     .as_mut_ptr()
-                    .add(self.closure_var_offset as usize)
+                    .add(self.closure_var_start as usize)
                     .cast::<JSClosureVar>()
                     .add(nth as usize)
                     .as_mut()
@@ -484,7 +488,7 @@ impl BytecodeFunctionValue {
             caller_ctx,
             this_obj,
             new_target,
-            &bf.binary[bf.bytecode_offset as usize..],
+            &bf.binary[bf.bytecode_start as usize..],
             0,
             0,
             &p.u.func.var_refs,
@@ -595,7 +599,7 @@ impl BytecodeFunctionValue {
 }
 
 pub unsafe fn free_function_bytecode(rt: *mut JSRuntime, b: *mut JSFunctionBytecode) {
-    free_bytecode_atoms(rt, &(*b).binary[(*b).bytecode_offset as usize..], true);
+    free_bytecode_atoms(rt, &(*b).binary[(*b).bytecode_start as usize..], true);
 
     // free const values
     if let Some(consts) = (*b).cpools_slice() {

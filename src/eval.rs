@@ -421,17 +421,20 @@ pub unsafe fn JS_EvalFunctionInternal(
         }
         JS_TAG_MODULE => {
             let m = JS_VALUE_GET_PTR(fun_obj).cast::<JSModuleDef>();
-            // the module refcount should be >= 2
+            debug_assert!(
+                (*m).header.ref_count >= 2,
+                "the module refcount should be >= 2"
+            );
+
             JS_FreeValue(ctx, fun_obj);
             if js_create_module_function(ctx, m) < 0 {
                 return JSValue::EXCEPTION;
             }
             if js_link_module(ctx, m) < 0 {
-                // C2RS: goto fail translated to return JSValue::EXCEPTION
                 return JSValue::EXCEPTION;
             }
             let r = js_evaluate_module(ctx, m);
-            if JS_IsException(r) {
+            if r.is_exception() {
                 JSValue::EXCEPTION
             } else {
                 r
@@ -561,7 +564,7 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
 
             (*m1).status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
             (*m1).eval_has_exception = true;
-            (*m1).eval_exception = JS_DupValue(ctx, result);
+            (*m1).eval_exception = result.dup();
             (*m1).cycle_root = m; // spec bug: should be present
             stack_top = (*m1).stack_prev;
         }
@@ -572,7 +575,7 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
         let ret_val = JS_Call(
             ctx.as_mut().unwrap(),
             *(*m).resolving_funcs.as_ptr().offset(1), // reject
-            JS_UNDEFINED,
+            JSValue::UNDEFINED,
             1,
             &mut (*m).eval_exception,
         );

@@ -107,7 +107,7 @@ pub unsafe fn async_func_init(
     let b = p.u.func.function_bytecode.as_mut().unwrap();
 
     sf.js_mode = b.js_mode as i32 | JS_MODE_ASYNC;
-    sf.cur_pc_offset = b.bytecode_offset as usize; // initialized to start of bytecode
+    sf.cur_pc_offset = 0; // initialized to start of bytecode
 
     // make local buf, set up argument, variable, stack pointer
     let arg_count = std::cmp::max(b.arg_count as usize, argc as usize);
@@ -322,9 +322,6 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
             JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
         }
     } else {
-        let mut i: i32;
-        let mut res: i32;
-
         let cur_sp = (*s)
             .frame
             .stack_base_ptr()

@@ -77,7 +77,12 @@ pub unsafe fn run_bytecodes(
     mode: i32,
     throwed: bool, // Indicates if an exception has been thrown
 ) -> JSValue {
-    debug_assert!(pc_offset < bytecodes.len());
+    debug_assert!(
+        pc_offset < bytecodes.len(),
+        "pc_offset={}, bytecodes.len()={}",
+        pc_offset,
+        bytecodes.len()
+    );
 
     let cpools = b.cpools_slice();
     let ctx = b.realm.as_mut().unwrap();

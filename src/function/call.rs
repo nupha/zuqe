@@ -86,7 +86,7 @@ pub unsafe fn JS_CallInternal(
                 caller_ctx,
                 this_obj,
                 new_target,
-                &b.binary[b.bytecode_offset as usize..],
+                &b.binary[b.bytecode_start as usize..],
                 pc_offset,
                 sp_offset,
                 &p.u.func.var_refs,

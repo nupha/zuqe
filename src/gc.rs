@@ -405,15 +405,20 @@ pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
 pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func: JS_MarkFunc) {
     // Modules are not seen by the GC, so we directly mark the objects
     // referenced by each module
-    let mut el = ctx.loaded_modules.next;
-    while el != &mut ctx.loaded_modules {
-        //debug_assert!(el.is_aligned());
-
+    list_foreach(&mut ctx.loaded_modules, |el| {
         let m = list_entry!(el, JSModuleDef, link);
         js_mark_module_def(rt, m.as_mut().unwrap(), mark_func);
+    });
 
-        el = (*el).next;
-    }
+    // let mut el = ctx.loaded_modules.next;
+    // while el != &mut ctx.loaded_modules {
+    //     debug_assert!(el.is_aligned());
+
+    //     let m = list_entry!(el, JSModuleDef, link);
+    //     js_mark_module_def(rt, m.as_mut().unwrap(), mark_func);
+
+    //     el = (*el).next;
+    // }
 
     JS_MarkValue(rt, ctx.global_obj, mark_func);
     JS_MarkValue(rt, ctx.global_var_obj, mark_func);
@@ -448,14 +453,20 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
 }
 
 pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut JSModuleDef, mark_func: JS_MarkFunc) {
-    for i in 0..m.export_entries_count {
-        let me = m.export_entries.add(i as usize);
-        if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL
-            && !(*me).u.local.var_ref.is_null()
+    for me in (*m).export_entries.iter() {
+        if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL && !me.u.local.var_ref.is_null()
         {
-            mark_func(rt, &mut (*(*me).u.local.var_ref).u0.header);
+            mark_func(rt, &mut (*me.u.local.var_ref).u0.header);
         }
     }
+    // for i in 0..m.export_entries_count {
+    //     let me = m.export_entries.add(i as usize);
+    //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL
+    //         && !(*me).u.local.var_ref.is_null()
+    //     {
+    //         mark_func(rt, &mut (*(*me).u.local.var_ref).u0.header);
+    //     }
+    // }
 
     JS_MarkValue(rt, (*m).module_ns, mark_func);
     JS_MarkValue(rt, (*m).func_obj, mark_func);

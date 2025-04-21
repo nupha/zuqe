@@ -510,12 +510,12 @@ impl JSFunctionDef {
         bf.defined_arg_count = self.defined_arg_count;
 
         // initialize offsets to invalid
-        bf.cpool_offset = -1;
-        bf.vardefs_offset = -1;
-        bf.closure_var_offset = -1;
+        bf.cpool_start = -1;
+        bf.vardefs_start = -1;
+        bf.closure_var_start = -1;
 
         let mut bin_size = if bf.cpool_count != 0 {
-            bf.cpool_offset = 0;
+            bf.cpool_start = 0;
             bf.cpool_count as usize * std::mem::size_of::<JSValue>()
         } else {
             0
@@ -531,7 +531,7 @@ impl JSFunctionDef {
                     i += ly.align() - m;
                     bin_size += ly.align() - m
                 }
-                bf.vardefs_offset = i as i32;
+                bf.vardefs_start = i as i32;
                 bin_size += n as usize * ly.size();
             }
         }
@@ -546,10 +546,10 @@ impl JSFunctionDef {
                 bin_size += ly.align() - m
             }
             bin_size += num_closures * ly.size();
-            bf.closure_var_offset = i as i32;
+            bf.closure_var_start = i as i32;
         }
 
-        bf.bytecode_offset = bin_size as u32;
+        bf.bytecode_start = bin_size as u32;
         bin_size += self.byte_code.len();
 
         debug_assert!(bin_size > 0);
@@ -563,11 +563,11 @@ impl JSFunctionDef {
         bin.set_len(bin_size);
 
         // 1. cpool section
-        if bf.cpool_offset >= 0 {
+        if bf.cpool_start >= 0 {
             std::ptr::copy_nonoverlapping(
                 self.cpool,
                 bin.as_mut_ptr()
-                    .add(bf.cpool_offset as usize)
+                    .add(bf.cpool_start as usize)
                     .cast::<JSValue>(),
                 bf.cpool_count as usize,
             );
@@ -581,11 +581,11 @@ impl JSFunctionDef {
         }
 
         // 2. vardef section
-        if bf.vardefs_offset >= 0 {
+        if bf.vardefs_start >= 0 {
             if bf.arg_count != 0 {
                 std::ptr::copy_nonoverlapping(
                     self.args.cast::<u8>(),
-                    bin.as_mut_ptr().add(bf.vardefs_offset as usize),
+                    bin.as_mut_ptr().add(bf.vardefs_start as usize),
                     bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
                 );
             }
@@ -593,7 +593,7 @@ impl JSFunctionDef {
                 std::ptr::copy_nonoverlapping(
                     self.vars.cast::<u8>(),
                     bin.as_mut_ptr().add(
-                        bf.vardefs_offset as usize
+                        bf.vardefs_start as usize
                             + bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
                     ),
                     bf.var_count as usize * std::mem::size_of::<JSVarDef>(),
@@ -612,13 +612,13 @@ impl JSFunctionDef {
         }
 
         // 3. closure vars section
-        if bf.closure_var_offset >= 0 {
+        if bf.closure_var_start >= 0 {
             let cvars = self.closure_vars.take().unwrap();
             bf.closure_var_count = cvars.len() as _;
 
             let mut ptr = bin
                 .as_mut_ptr()
-                .add(bf.closure_var_offset as usize)
+                .add(bf.closure_var_start as usize)
                 .cast::<JSClosureVar>();
 
             for cv in cvars {
@@ -630,7 +630,7 @@ impl JSFunctionDef {
         // 4. bytecode section
         std::ptr::copy_nonoverlapping(
             self.byte_code.as_ptr(),
-            bin.as_mut_ptr().add(bf.bytecode_offset as usize),
+            bin.as_mut_ptr().add(bf.bytecode_start as usize),
             self.byte_code.len(),
         );
         // SAFEGUARD: clear bytecode in advance, so that js_free_function_def() will not free atoms in it.

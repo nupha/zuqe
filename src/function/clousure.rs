@@ -281,17 +281,17 @@ pub unsafe fn js_closure2(
     cur_var_refs: &[NonNull<JSVarRef>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
-    let p = JS_VALUE_GET_OBJ(func_obj);
-    (*(*p).u.func).function_bytecode = b;
-    (*(*p).u.func).home_object = std::ptr::null_mut();
-    (*(*p).u.func).var_refs = Vec::new();
+    let p = func_obj.object();
+    (*p.u.func).function_bytecode = b;
+    (*p.u.func).home_object = std::ptr::null_mut();
+    (*p.u.func).var_refs = Vec::new();
 
     if (*b).closure_var_count != 0 {
-        let mut var_refs = if let Ok(a) =
-            Vec::<NonNull<JSVarRef>>::try_with_capacity((*b).closure_var_count as usize)
+        if (*p.u.func)
+            .var_refs
+            .try_reserve_exact((*b).closure_var_count as usize)
+            .is_err()
         {
-            a
-        } else {
             JS_FreeValue(ctx, func_obj);
             (*ctx).JS_ThrowOutOfMemory();
             return JSValue::EXCEPTION;
@@ -312,15 +312,12 @@ pub unsafe fn js_closure2(
                 vr
             } else {
                 let mut vr = cur_var_refs[cv.var_idx as usize];
-                //debug_assert!((*vr).u0.header.ref_count > 0);
                 vr.as_mut().u0.header.ref_count += 1;
                 vr
             };
 
-            var_refs.push(vr);
+            (*p.u.func).var_refs.push(vr);
         }
-
-        (*(*p).u.func).var_refs = var_refs;
     }
 
     func_obj

@@ -9,8 +9,8 @@ use zhuque::{
     context::{JSContext, JS_FreeContext},
     error::JS_ThrowReferenceError,
     eval::{
-        JS_Eval, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
-        JS_EVAL_TYPE_MODULE,
+        JS_Eval, JS_EvalFunction, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL,
+        JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
     },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_GetImportMeta, JS_SetModuleLoaderFunc},
@@ -51,17 +51,30 @@ fn main() {
                 JS_EVAL_TYPE_GLOBAL
             };
 
-            if (eval_flags & JS_EVAL_TYPE_MASK) == JS_EVAL_TYPE_MODULE {
-                eval_flags |= JS_EVAL_FLAG_COMPILE_ONLY;
-            }
-
-            let r = JS_Eval(
-                ctx.deref_mut(),
-                src.as_ptr().cast(),
-                src.len() - 1,
-                &filename,
-                eval_flags,
-            );
+            let r = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
+                // for the modules, we compile then run to be able to set import.meta
+                let mfun = JS_Eval(
+                    ctx.deref_mut(),
+                    src.as_ptr().cast(),
+                    src.len() - 1,
+                    &filename,
+                    eval_flags | JS_EVAL_FLAG_COMPILE_ONLY,
+                );
+                if !mfun.is_exception() {
+                    js_module_set_import_meta(ctx.as_raw().as_ptr(), mfun, 1, true);
+                    JS_EvalFunction(ctx.as_raw().as_mut(), mfun)
+                } else {
+                    JSValue::EXCEPTION
+                }
+            } else {
+                JS_Eval(
+                    ctx.deref_mut(),
+                    src.as_ptr().cast(),
+                    src.len() - 1,
+                    &filename,
+                    eval_flags,
+                )
+            };
 
             loop {
                 if let Ok((None, false)) = js.execute_pending_job() {

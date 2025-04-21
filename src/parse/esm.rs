@@ -9,8 +9,8 @@ use crate::{
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::js_resize_array,
     module::{
-        add_req_module_entry, find_export_entry, JSExportEntry, JSExportTypeEnum, JSImportEntry,
-        JSModuleDef,
+        add_req_module_entry, find_export_entry, JSExportEntry, JSExportEntry_u, JSExportTypeEnum,
+        JSImportEntry, JSModuleDef,
     },
 };
 
@@ -311,7 +311,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             }
 
             // Process named exports
-            let first_export = (*m).export_entries_count;
+            let first_export = (*m).export_entries.len(); // (*m).export_entries_count;
             for (local_name, export_name) in exports {
                 me = add_export_entry(
                     s,
@@ -340,11 +340,15 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     return -1;
                 }
 
-                for i in first_export..(*m).export_entries_count {
-                    me = &mut *(*m).export_entries.offset(i as isize);
-                    (*me).export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT;
-                    (*me).u.req_module_idx = idx;
+                for me in &mut (*m).export_entries[first_export..] {
+                    me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT;
+                    me.u.req_module_idx = idx;
                 }
+                // for i in first_export..(*m).export_entries_count {
+                //     me = &mut *(*m).export_entries.offset(i as isize);
+                //     (*me).export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT;
+                //     (*me).u.req_module_idx = idx;
+                // }
             }
         }
 
@@ -447,7 +451,7 @@ pub unsafe fn add_export_entry2(
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
 ) -> *mut JSExportEntry {
-    if !find_export_entry(ctx, m, export_name).is_null() {
+    if find_export_entry(ctx, m, export_name).is_some() {
         if !s.is_null() {
             js_parse_error(
                 s,
@@ -467,24 +471,24 @@ pub unsafe fn add_export_entry2(
         return std::ptr::null_mut();
     }
 
-    if js_resize_array(
-        ctx,
-        std::ptr::addr_of_mut!((*m).export_entries).cast(),
-        std::mem::size_of::<JSExportEntry>() as _,
-        std::ptr::addr_of_mut!((*m).export_entries_size),
-        (*m).export_entries_count as i32 + 1,
-    ) != 0
-    {
-        return std::ptr::null_mut();
+    if (*m).export_entries.len() == (*m).export_entries.capacity() {
+        if (*m).export_entries.try_reserve_exact(4).is_err() {
+            (*ctx).JS_ThrowOutOfMemory();
+            return std::ptr::null_mut();
+        }
     }
 
-    let me = (*m).export_entries.offset((*m).export_entries_count as _);
-    (*m).export_entries_count += 1;
-    std::ptr::write_bytes(me, 0, 1);
-    (*me).local_name = JS_DupAtom(ctx, local_name);
-    (*me).export_name = JS_DupAtom(ctx, export_name);
-    (*me).export_type = export_type;
-    me
+    let mut me = Box::new(JSExportEntry {
+        export_type,
+        local_name: JS_DupAtom(ctx, local_name),
+        export_name: JS_DupAtom(ctx, export_name),
+        u: JSExportEntry_u { req_module_idx: 0 },
+    });
+
+    let ptr = me.as_mut() as *mut _;
+    (*m).export_entries.push(me);
+
+    ptr
 }
 
 pub unsafe fn add_export_entry(
