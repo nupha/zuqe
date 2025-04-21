@@ -453,28 +453,20 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
 }
 
 pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut JSModuleDef, mark_func: JS_MarkFunc) {
-    for me in (*m).export_entries.iter() {
+    for me in m.export_entries.iter() {
         if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL && !me.u.local.var_ref.is_null()
         {
             mark_func(rt, &mut (*me.u.local.var_ref).u0.header);
         }
     }
-    // for i in 0..m.export_entries_count {
-    //     let me = m.export_entries.add(i as usize);
-    //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL
-    //         && !(*me).u.local.var_ref.is_null()
-    //     {
-    //         mark_func(rt, &mut (*(*me).u.local.var_ref).u0.header);
-    //     }
-    // }
 
-    JS_MarkValue(rt, (*m).module_ns, mark_func);
-    JS_MarkValue(rt, (*m).func_obj, mark_func);
-    JS_MarkValue(rt, (*m).eval_exception, mark_func);
-    JS_MarkValue(rt, (*m).meta_obj, mark_func);
-    JS_MarkValue(rt, (*m).promise, mark_func);
-    JS_MarkValue(rt, (*m).resolving_funcs[0], mark_func);
-    JS_MarkValue(rt, (*m).resolving_funcs[1], mark_func);
+    JS_MarkValue(rt, m.module_ns, mark_func);
+    JS_MarkValue(rt, m.func_obj, mark_func);
+    JS_MarkValue(rt, m.eval_exception, mark_func);
+    JS_MarkValue(rt, m.meta_obj, mark_func);
+    JS_MarkValue(rt, m.promise, mark_func);
+    JS_MarkValue(rt, m.resolving_funcs[0], mark_func);
+    JS_MarkValue(rt, m.resolving_funcs[1], mark_func);
 }
 
 /* indicate that the object may be part of a function prototype cycle */

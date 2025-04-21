@@ -6,6 +6,7 @@ use crate::{
     context::JSContext,
     function::{JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
     generator::JSAsyncGeneratorData,
+    module::JSModuleDef,
     parse::JSParseState,
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     runtime::JSRuntime,
@@ -582,4 +583,11 @@ pub unsafe fn js_parse_import(s: *mut JSParseState) -> i32 {
 #[deprecated(note = "use JSParseState::parse_from_clause() instead")]
 pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
     unreachable!("use JSParseState::parse_from_clause() instead");
+}
+
+/// Run the <eval> function of the module and of all its requested modules.
+/// Return a promise or an exception.
+#[deprecated(note = "use JSModuleDef::eval() instead")]
+pub unsafe fn js_evaluate_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
+    (*m).eval(ctx.as_mut().unwrap())
 }
