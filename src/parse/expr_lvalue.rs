@@ -29,7 +29,7 @@ pub enum PutLValueEnum {
     PUT_LVALUE_NOKEEP_BOTTOM,
 }
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     pub unsafe fn get_lvalue(
         &mut self,
         popcode: *mut i32,

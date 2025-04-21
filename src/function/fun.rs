@@ -3,7 +3,7 @@ use std::{borrow::Cow, ptr::NonNull};
 use crate::{
     atom::{consts::*, JSAtom},
     class::JSClassID,
-    context::{JSContext, JS_FreeContext},
+    context::JSContext,
     error::{JSResult, JS_ThrowTypeErrorRevokedProxy},
     function::JSVarRef,
     gc::{JS_MarkFunc, JS_MarkValue},

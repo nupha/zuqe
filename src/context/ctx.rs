@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     error::JS_NATIVE_ERROR_COUNT,
+    eval::EvalFunc,
     function::JSVarBinding,
     gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     mem::js_malloc_rt_typed,
@@ -114,18 +115,8 @@ pub struct JSContext {
     pub compile_regexp:
         Option<unsafe fn(ctx: *mut JSContext, pattern: JSValue, flags: JSValue) -> JSValue>,
 
-    /// eval implementation
-    pub eval_internal: Option<
-        unsafe fn(
-            ctx: *mut JSContext,
-            this_obj: JSValue,
-            input: *const u8,
-            input_len: usize,
-            filename: &'static CStr,
-            flags: u32,
-            scope_idx: i32,
-        ) -> JSValue,
-    >,
+    /// eval callback
+    pub eval_callback: Option<EvalFunc>,
 
     /// User data pointer
     pub user_opaque: *mut std::ffi::c_void,

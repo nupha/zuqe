@@ -119,7 +119,7 @@ pub struct JSModuleDef {
 }
 
 impl JSModuleDef {
-    /// 'name' is freed on error
+    /// 'name' is consumed
     pub unsafe fn new(ctx: &mut JSContext, name: JSAtom) -> Result<Box<Self>, i32> {
         match js_malloc_typed::<JSModuleDef>(ctx, 1, true) {
             Some(ptr) => {
@@ -862,7 +862,7 @@ pub unsafe fn js_host_resolve_imported_module(
         JS_ThrowReferenceError(
             ctx,
             CStr::from_ptr(
-                format!("could not load module '{:?}'\0", cname)
+                format!("could not load module '{}'\0", cname)
                     .as_ptr()
                     .cast(),
             ),
@@ -934,7 +934,6 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
     let ret = get_exported_names(ctx, s, m, false);
     js_free(ctx, s.modules.cast());
     if ret.is_err() {
-        // C2RS: goto fail replaced with early return
         js_free(ctx, s.exported_names.cast());
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -1583,6 +1582,7 @@ pub unsafe fn JS_GetImportMeta(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSVa
     JS_DupValue(ctx, obj)
 }
 
+/// get module import.meta object
 pub unsafe fn js_import_meta(ctx: *mut JSContext) -> JSValue {
     let filename = JS_GetScriptOrModuleName(ctx, 0);
     if filename == JS_ATOM_NULL {

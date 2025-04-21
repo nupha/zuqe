@@ -10,19 +10,19 @@ use crate::{
 };
 
 use super::{
+    array::js_parse_array_literal,
+    class::js_parse_class,
+    destructing::js_parse_destructuring_element,
     emit::{
         emit_atom_dup, emit_goto, emit_label, emit_label_raw, emit_op, emit_op_temp,
         emit_push_const, emit_u16, emit_u32, emit_u8, get_prev_opcode, OPSpecialObjectEnum,
     },
     error::{js_parse_error, js_parse_error_reserved_identifier},
+    esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
     obj::set_object_name,
     parse::js_parse_skip_parens_token,
-    array::js_parse_array_literal,
-    class::js_parse_class,
-    destructing::js_parse_destructuring_element,
-    esm::JSParseExportEnum,
     regexp::js_parse_regexp,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
     token::{
@@ -35,7 +35,7 @@ use super::{
     },
 };
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     // allowed parse_flags: PF_IN_ACCEPTED
     pub(super) unsafe fn parse_assign_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
         if self.token.val == TOK_YIELD {

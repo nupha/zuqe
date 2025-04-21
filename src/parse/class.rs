@@ -194,7 +194,7 @@ pub unsafe fn js_parse_class(
                 let mut init = std::ptr::null_mut::<JSFunctionDef>();
 
                 if cf.fields_init_fd.is_null() {
-                    if emit_class_init_start(s, cf) != 0 {
+                    if emit_class_init_start(s, cf).is_err() {
                         fail!();
                     }
                 }
@@ -410,7 +410,7 @@ pub unsafe fn js_parse_class(
             }
 
             if cf.fields_init_fd.is_null() {
-                if emit_class_init_start(s, cf) != 0 {
+                if emit_class_init_start(s, cf).is_err() {
                     fail!();
                 }
             }
@@ -610,7 +610,7 @@ pub unsafe fn js_parse_class(
 
             // define the brand field in 'this' of the initializer
             if cf.fields_init_fd.is_null() {
-                if emit_class_init_start(s, cf) != 0 {
+                if emit_class_init_start(s, cf).is_err() {
                     fail!();
                 }
             }
@@ -892,43 +892,43 @@ pub unsafe fn js_parse_property_name(
 }
 
 // create a function to init}ialize class fields
-pub unsafe fn js_parse_function_class_fields_init(s: *mut JSParseState) -> *mut JSFunctionDef {
-    let fd: *mut JSFunctionDef = js_new_function_def(
-        (*s).ctx,
+pub unsafe fn js_parse_function_class_fields_init(
+    s: *mut JSParseState,
+) -> Result<Box<JSFunctionDef>, i32> {
+    let mut fd = JSFunctionDef::new(
+        (*s).ctx.as_mut().unwrap(),
         (*s).cur_func,
         false,
         false,
-        (*s).filename.as_ptr().cast(),
+        (*s).filename,
         0,
-    );
-    if fd.is_null() {
-        return std::ptr::null_mut();
-    }
-    (*fd).func_name = JS_ATOM_NULL;
-    (*fd).has_prototype = false;
-    (*fd).has_home_object = true;
+    )?;
 
-    (*fd).has_arguments_binding = false;
-    (*fd).has_this_binding = true;
-    (*fd).is_derived_class_constructor = false;
-    (*fd).new_target_allowed = true;
-    (*fd).super_call_allowed = false;
-    (*fd).super_allowed = (*fd).has_home_object;
-    (*fd).arguments_allowed = false;
+    fd.func_name = JS_ATOM_NULL;
+    fd.has_prototype = false;
+    fd.has_home_object = true;
 
-    (*fd).func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
-    (*fd).func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
+    fd.has_arguments_binding = false;
+    fd.has_this_binding = true;
+    fd.is_derived_class_constructor = false;
+    fd.new_target_allowed = true;
+    fd.super_call_allowed = false;
+    fd.super_allowed = fd.has_home_object;
+    fd.arguments_allowed = false;
 
-    fd
+    fd.func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
+    fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
+
+    Ok(fd)
 }
 
-pub unsafe fn emit_class_init_start(s: *mut JSParseState, cf: *mut ClassFieldsDef) -> i32 {
+pub unsafe fn emit_class_init_start(
+    s: *mut JSParseState,
+    cf: *mut ClassFieldsDef,
+) -> Result<(), i32> {
     let label_add_brand: i32;
 
-    (*cf).fields_init_fd = js_parse_function_class_fields_init(s);
-    if (*cf).fields_init_fd.is_null() {
-        return -1;
-    }
+    (*cf).fields_init_fd = Box::into_raw(js_parse_function_class_fields_init(s)?);
 
     (*s).cur_func = (*cf).fields_init_fd;
 
@@ -953,7 +953,8 @@ pub unsafe fn emit_class_init_start(s: *mut JSParseState, cf: *mut ClassFieldsDe
         emit_label(s, label_add_brand);
     }
     (*s).cur_func = (*(*s).cur_func).parent;
-    return 0;
+
+    Ok(())
 }
 
 pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {

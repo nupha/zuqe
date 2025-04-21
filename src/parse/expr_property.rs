@@ -11,7 +11,7 @@ use super::{
     token::{token_is_ident, CHAR_SQUARE_R, TOK_PRIVATE_NAME},
 };
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     pub(super) unsafe fn parse_property(
         &mut self,
         fd: *mut JSFunctionDef,

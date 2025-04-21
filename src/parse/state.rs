@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     bytecode::OpCodeTemp,
     context::JSContext,
@@ -33,7 +31,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 ///
 /// This structure maintains all necessary information for parsing JavaScript code,
 /// including the current position, token, scope, and parsing context.
-pub struct JSParseState {
+pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
     pub ctx: *mut JSContext,
     /// Line number of the previously processed token
@@ -41,7 +39,7 @@ pub struct JSParseState {
     /// Current line number being processed
     pub line_num: u32,
     /// Source file name being parsed
-    pub filename: &'static CStr,
+    pub filename: &'s str,
     /// Current token being processed
     pub token: JSToken,
     /// Indicates if a line feed was encountered before current token
@@ -65,7 +63,7 @@ pub struct JSParseState {
     pub ext_json: bool,
 }
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     /// Creates a new parser state with initial values
     ///
     /// # Safety
@@ -76,12 +74,7 @@ impl JSParseState {
     /// * `input` - Input buffer containing source code
     /// * `input_len` - Length of input buffer
     /// * `filename` - Name of source file
-    pub unsafe fn new(
-        ctx: *mut JSContext,
-        input: *const u8,
-        input_len: usize,
-        filename: &'static CStr,
-    ) -> Self {
+    pub fn new(ctx: *mut JSContext, input: *const u8, input_len: usize, filename: &'s str) -> Self {
         let s = Self {
             ctx,
             last_line_num: 0,
@@ -96,7 +89,7 @@ impl JSParseState {
                 },
             },
             buf_ptr: input,
-            buf_end: input.add(input_len),
+            buf_end: unsafe { input.add(input_len) },
 
             last_ptr: std::ptr::null(),
             cur_func: std::ptr::null_mut(),

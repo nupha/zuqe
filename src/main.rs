@@ -42,7 +42,7 @@ fn main() {
                 ctx.deref_mut(),
                 src.as_ptr().cast(),
                 src.count_bytes(),
-                c"<test>",
+                "<test>",
                 JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
             );
             println!("::::::::::::::: eval: {r:?}");

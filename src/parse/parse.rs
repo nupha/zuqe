@@ -46,7 +46,7 @@ use super::{
     var::define_var,
 };
 
-impl JSParseState {
+impl JSParseState<'_> {
     pub unsafe fn parse_program(&mut self) -> Result<(), i32> {
         let fd = self.cur_func.as_mut().unwrap();
 

@@ -12,7 +12,7 @@ use crate::{
 
 use super::{error::js_parse_error, state::JSParseState, token::TOK_TEMPLATE};
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     pub unsafe fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
         macro_rules! template_error {
             ($msg:expr) => {

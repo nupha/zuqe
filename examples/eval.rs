@@ -1,18 +1,26 @@
 use std::{
     ffi::{CStr, CString},
     ops::DerefMut,
+    path::PathBuf,
 };
 
 use zhuque::{
-    context::JS_FreeContext,
+    atom::JS_FreeAtom,
+    context::{JSContext, JS_FreeContext},
+    error::JS_ThrowReferenceError,
     eval::{
         JS_Eval, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
         JS_EVAL_TYPE_MODULE,
     },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
+    module::{JSModuleDef, JS_GetImportMeta},
     parse::JS_DetectModule,
     runtime::JSRuntime,
-    value::{JSValue, JS_FreeValue, JS_IsException, JS_VALUE_GET_OBJ},
+    value::{
+        object::{JS_DefinePropertyValueStr, JS_PROP_C_W_E},
+        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_NewBool, JS_NewString,
+        JS_TAG_MODULE, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+    },
 };
 
 fn main() {
@@ -45,13 +53,11 @@ fn main() {
                 eval_flags |= JS_EVAL_FLAG_COMPILE_ONLY;
             }
 
-            let fname = CString::new(filename).unwrap();
-
             let r = JS_Eval(
                 ctx.deref_mut(),
                 src.as_ptr().cast(),
                 src.len() - 1,
-                CStr::from_ptr(fname.as_ptr()),
+                &filename,
                 eval_flags,
             );
 
@@ -89,4 +95,101 @@ fn main() {
             println!("can't create runtime");
         }
     }
+}
+
+pub unsafe fn js_module_loader(
+    ctx: *mut JSContext,
+    module_name: &'static str,
+    opaque: *mut std::ffi::c_void,
+) -> *mut JSModuleDef {
+    match std::fs::read(module_name) {
+        Ok(buf) => {
+            // compile the module
+            let func_val = JS_Eval(
+                ctx,
+                buf.as_ptr().cast::<u8>(),
+                buf.len(),
+                module_name,
+                JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
+            );
+            if func_val.is_exception() {
+                return std::ptr::null_mut();
+            }
+
+            // XXX: could propagate the exception
+            js_module_set_import_meta(ctx, func_val, true as i32, false);
+
+            // the module is already referenced, so we must free it
+            let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
+            JS_FreeValue(ctx, func_val);
+
+            m
+        }
+        Err(e) => {
+            JS_ThrowReferenceError(
+                ctx,
+                CStr::from_ptr(
+                    format!("could not load module filename '{module_name}\0'")
+                        .as_ptr()
+                        .cast(),
+                ),
+            );
+            return std::ptr::null_mut();
+        }
+    }
+}
+
+pub unsafe fn js_module_set_import_meta(
+    ctx: *mut JSContext,
+    func_val: JSValueConst,
+    use_realpath: i32,
+    is_main: bool,
+) -> i32 {
+    debug_assert_eq!(JS_VALUE_GET_TAG(func_val), JS_TAG_MODULE);
+
+    // let mut buf: [u8; PATH_MAX as usize + 16] = [0; PATH_MAX as usize + 16];
+
+    // Rust does not have a direct equivalent of assert, so we leave it as a comment.
+    let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
+
+    // make module name to absolute url
+    let module_name_atom = (*m).module_name.dup((*ctx).rt());
+    let module_name = module_name_atom.to_utf8_string(ctx.as_mut().unwrap());
+    JS_FreeAtom(ctx, module_name_atom);
+    if module_name.is_err() {
+        return -1;
+    }
+    let module_name = module_name.unwrap();
+
+    let p = PathBuf::from(module_name.as_ref());
+    let mut normalized = PathBuf::new();
+    for component in p.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            _ => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+    let aurl = format!("file://{}", normalized.display());
+
+    let meta_obj = JS_GetImportMeta(ctx, m);
+    if meta_obj.is_exception() {
+        return -1;
+    }
+
+    JS_DefinePropertyValueStr(
+        ctx,
+        meta_obj,
+        c"url",
+        (*ctx).create_string_from_utf8(aurl.into_bytes()),
+        JS_PROP_C_W_E,
+    );
+    JS_DefinePropertyValueStr(ctx, meta_obj, c"main", JS_NewBool(is_main), JS_PROP_C_W_E);
+    JS_FreeValue(ctx, meta_obj);
+
+    0
 }

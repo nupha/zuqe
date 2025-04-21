@@ -240,7 +240,7 @@ impl JSFunctionDef {
         ctx: &mut JSContext,
         is_eval: bool,
         is_func_expr: bool,
-        filename: *const u8,
+        filename: &str,
         line_num: u32,
     ) -> Result<Box<Self>, i32> {
         let ptr = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
@@ -279,7 +279,7 @@ impl JSFunctionDef {
         fd.scope_first = -1;
         fd.body_scope = -1;
 
-        fd.filename = JS_NewAtom(ctx, CStr::from_ptr(filename.cast()));
+        fd.filename = ctx.create_atom(filename)?;
         fd.line_num = line_num;
 
         fd.pc2line = None;
@@ -314,7 +314,7 @@ impl JSFunctionDef {
         parent: *mut JSFunctionDef,
         is_eval: bool,
         is_func_expr: bool,
-        filename: *const u8,
+        filename: &str,
         line_num: u32,
     ) -> Result<Box<Self>, i32> {
         Self::new0(ctx, is_eval, is_func_expr, filename, line_num).map(|mut fd| {
@@ -839,7 +839,7 @@ pub unsafe fn js_new_function_def(
     parent: *mut JSFunctionDef,
     is_eval: bool,
     is_func_expr: bool,
-    filename: *const u8,
+    filename: &str,
     line_num: u32,
 ) -> *mut JSFunctionDef {
     if let Ok(d) = JSFunctionDef::new(

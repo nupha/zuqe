@@ -13,10 +13,10 @@ use super::{
     error::js_parse_error,
     parse::has_with_scope,
     state::JSParseState,
-    token::{CHAR_BRACKET_R, CHAR_COMMA, TOK_ELLIPSIS},
+    token::{CHAR_COMMA, TOK_ELLIPSIS},
 };
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     pub(super) unsafe fn parse_func_call(
         &mut self,
         fd: *mut JSFunctionDef,

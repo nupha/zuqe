@@ -4,10 +4,10 @@ use crate::{
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
     function::JSFunctionKindEnum,
     parse::{
+        class::js_parse_property_name,
         emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u16, emit_u8},
         error::js_parse_error,
         obj::{set_object_name, set_object_name_computed},
-        class::js_parse_property_name,
         token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
         JSParseFunctionEnum,
     },
@@ -19,15 +19,8 @@ use crate::{
 
 use super::JSParseState;
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     pub unsafe fn parse_object_literal(&mut self) -> Result<(), i32> {
-        macro_rules! fail {
-            ($s:expr, $name:expr) => {
-                JS_FreeAtom((*$s).ctx, $name);
-                return -1;
-            };
-        }
-
         self.next_token()?;
 
         // XXX: add an initial length that will be patched back

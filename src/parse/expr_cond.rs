@@ -7,7 +7,7 @@ use super::{
     token::{CHAR_COLON, TOK_DOUBLE_QUESTION_MARK, TOK_LAND, TOK_LOR},
 };
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     /// cond_expr? a : b
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
     pub unsafe fn parse_cond_expr(&mut self, parse_flags: i32) -> Result<(), i32> {

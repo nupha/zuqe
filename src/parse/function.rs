@@ -49,7 +49,7 @@ pub enum JSParseFunctionEnum {
     JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR,
 }
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     /// Creates a new JSFunctionDef as a child of the current function def.
     /// This new function definition is used to parse the function body.
     /// Returns the newly created function definition.
@@ -69,14 +69,8 @@ impl JSParseState {
         let fd0 = self.cur_func;
         let ctx = self.ctx.as_mut().unwrap();
 
-        let mut sub_fd: Box<JSFunctionDef> = JSFunctionDef::new(
-            ctx,
-            fd0,
-            false,
-            is_expr,
-            self.filename.as_ptr().cast(),
-            function_line_num,
-        )?;
+        let mut sub_fd =
+            JSFunctionDef::new(ctx, fd0, false, is_expr, self.filename, function_line_num)?;
 
         sub_fd.func_name = func_name; // <-- atom is consumed here.
 

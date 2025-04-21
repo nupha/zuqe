@@ -414,7 +414,7 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_eval(&mut self) {
-        self.eval_internal.replace(__JS_EvalInternal);
+        self.eval_callback.replace(__JS_EvalInternal);
 
         //JS_NewCFunction(self, js_global_eval, c"eval", 1);
         self.eval_func = self

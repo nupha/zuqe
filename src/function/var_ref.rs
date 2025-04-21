@@ -5,7 +5,7 @@ use crate::{
     context::{JSContext, JS_MODE_ASYNC},
     gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     list_entry,
-    mem::{js_free_rt, js_malloc_typed},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     types::{list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head},

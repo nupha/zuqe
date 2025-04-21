@@ -22,7 +22,7 @@ use super::{
     },
 };
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
     pub(super) unsafe fn parse_expr_binary(
         &mut self,

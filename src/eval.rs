@@ -20,6 +20,16 @@ use crate::{
     },
 };
 
+pub type EvalFunc = fn(
+    ctx: *mut JSContext,
+    this_obj: JSValue,
+    input: *const u8,
+    input_len: usize,
+    filename: &str,
+    flags: u32,
+    scope_idx: i32,
+) -> JSValue;
+
 // Eval flags
 pub const JS_EVAL_TYPE_GLOBAL: u32 = 0 << 0;
 pub const JS_EVAL_TYPE_MODULE: u32 = 1 << 0;
@@ -32,13 +42,175 @@ pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
 pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
-// 'input' must be zero terminated i.e. input[input_len] = '\0'.
-pub unsafe fn __JS_EvalInternal(
+impl JSContext {
+    /// 'input' must be zero terminated i.e. input[input_len] = '\0'.
+    pub unsafe fn eval_internal(
+        ctx: &mut JSContext,
+        this_obj: JSValueConst,
+        input: &[u8],
+        filename: &'static str,
+        flags: u32,
+        scope_idx: i32,
+    ) -> JSValue {
+        let mut s = JSParseState::new(ctx, input.as_ptr().cast(), input.len(), filename);
+
+        macro_rules! fail1 {
+            ($m:expr) => {
+                /* XXX: should free all the unresolved dependencies */
+                if !$m.is_null() {
+                    js_free_module_def(ctx, $m);
+                }
+                return JSValue::EXCEPTION;
+            };
+        }
+        macro_rules! fail {
+            ($fd:expr, $m:expr) => {
+                s.free_token();
+                $fd.free(ctx);
+                fail1!($m);
+            };
+        }
+
+        skip_shebang(&mut s.buf_ptr, s.buf_end);
+
+        let eval_type = flags & JS_EVAL_TYPE_MASK;
+        let mut m: *mut JSModuleDef = std::ptr::null_mut();
+        let mut b: *mut JSFunctionBytecode = std::ptr::null_mut();
+        let mut sf: *mut JSStackFrame = std::ptr::null_mut();
+        let mut var_refs: &[NonNull<JSVarRef>] = &[];
+        let mut js_mode: u32 = 0;
+
+        if eval_type == JS_EVAL_TYPE_DIRECT {
+            sf = ctx.rt().current_stack_frame;
+            debug_assert!(!sf.is_null());
+            debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
+
+            let ob = (*sf).cur_func.object();
+            debug_assert!(js_class_has_bytecode(ob.class_id()));
+
+            b = ob.u.func.function_bytecode;
+            var_refs = (*ob.u.func).var_refs.as_slice();
+            js_mode = (*b).js_mode as _;
+        } else {
+            if flags & JS_EVAL_FLAG_STRICT != 0 {
+                js_mode |= JS_MODE_STRICT as u32;
+            }
+            if flags & JS_EVAL_FLAG_STRIP != 0 {
+                js_mode |= JS_MODE_STRIP as u32;
+            }
+            if eval_type == JS_EVAL_TYPE_MODULE {
+                let module_name = if let Ok(a) = ctx.create_atom(filename) {
+                    a
+                } else {
+                    return JSValue::EXCEPTION;
+                };
+
+                m = if let Ok(p) = JSModuleDef::new(ctx, module_name) {
+                    Box::into_raw(p)
+                } else {
+                    return JSValue::EXCEPTION;
+                };
+
+                js_mode |= JS_MODE_STRICT as u32;
+            }
+        }
+
+        let mut fd = if let Ok(f) =
+            JSFunctionDef::new(ctx, std::ptr::null_mut(), true, false, filename, 1)
+        {
+            f
+        } else {
+            fail1!(m);
+        };
+
+        fd.eval_type = eval_type;
+        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+        fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
+        if eval_type == JS_EVAL_TYPE_DIRECT {
+            fd.new_target_allowed = (*b).new_target_allowed;
+            fd.super_call_allowed = (*b).super_call_allowed;
+            fd.super_allowed = (*b).super_allowed;
+            fd.arguments_allowed = (*b).arguments_allowed;
+        } else {
+            fd.new_target_allowed = false;
+            fd.super_call_allowed = false;
+            fd.super_allowed = false;
+            fd.arguments_allowed = true;
+        }
+        fd.js_mode = js_mode as u8;
+        fd.func_name = JS_DupAtom(ctx, JS_ATOM__eval_);
+
+        if !b.is_null() {
+            if add_closure_variables(ctx, fd.deref_mut(), b, scope_idx).is_err() {
+                fail!(fd, m);
+            }
+        }
+
+        fd.module = m;
+        if !m.is_null() || (flags & JS_EVAL_FLAG_ASYNC != 0) {
+            fd.in_function_body = true;
+            fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+        }
+
+        s.cur_func = fd.deref_mut();
+        s.is_module = !m.is_null();
+        s.allow_html_comments = !s.is_module;
+
+        // this block will use s.cur_func pointer.
+        // DON'T write `fd` in this block.
+        {
+            // enter body scope.
+            // must set s.cur_func pointer before calling s.push_scope().
+            fd.body_scope = if let Ok(l) = s.push_scope() {
+                l
+            } else {
+                fail!(fd, m);
+            };
+
+            if s.parse_program().is_err() {
+                fail!(fd, m);
+            }
+
+            if !m.is_null() {
+                (*m).has_tla = fd.has_await;
+            }
+        }
+
+        // now s.cur_func should be restored to `fd`
+        debug_assert_eq!(s.cur_func, fd.deref_mut() as *mut JSFunctionDef);
+
+        // create the function object and all the enclosed functions.
+        // FIXME: fd is dropped here, how about s.cur_func pointer?
+        let mut fun_obj = fd.make_function(ctx);
+        if fun_obj.is_exception() {
+            fail1!(m);
+        }
+
+        /* Could add a flag to avoid resolution if necessary */
+        if !m.is_null() {
+            (*m).func_obj = fun_obj;
+            if js_resolve_module(ctx, m) < 0 {
+                fail1!(m);
+            }
+            fun_obj = JS_NewModuleValue(ctx, m);
+        }
+
+        // returns compiled or evaluated
+        if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
+            fun_obj
+        } else {
+            JS_EvalFunctionInternal(ctx, fun_obj, this_obj, var_refs, sf)
+        }
+    }
+}
+
+/// 'input' must be zero terminated i.e. input[input_len] = '\0'.
+pub fn __JS_EvalInternal(
     ctx: *mut JSContext,
     this_obj: JSValueConst,
     input: *const u8,
     input_len: usize,
-    filename: &'static CStr,
+    filename: &str,
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
@@ -57,145 +229,147 @@ pub unsafe fn __JS_EvalInternal(
         ($fd:expr, $m:expr) => {
             s.free_token();
             $fd.free(ctx.as_mut().unwrap());
+
             fail1!($m);
         };
     }
 
-    skip_shebang(&mut s.buf_ptr, s.buf_end);
+    unsafe {
+        skip_shebang(&mut s.buf_ptr, s.buf_end);
 
-    let eval_type = flags & JS_EVAL_TYPE_MASK;
-    let mut m: *mut JSModuleDef = std::ptr::null_mut();
-    let mut b: *mut JSFunctionBytecode = std::ptr::null_mut();
-    let mut sf: *mut JSStackFrame = std::ptr::null_mut();
-    let mut var_refs: &[NonNull<JSVarRef>] = &[];
-    let mut js_mode: u32 = 0;
+        let eval_type = flags & JS_EVAL_TYPE_MASK;
+        let mut m: *mut JSModuleDef = std::ptr::null_mut();
+        let mut b: *mut JSFunctionBytecode = std::ptr::null_mut();
+        let mut sf: *mut JSStackFrame = std::ptr::null_mut();
+        let mut var_refs: &[NonNull<JSVarRef>] = &[];
+        let mut js_mode: u32 = 0;
 
-    if eval_type == JS_EVAL_TYPE_DIRECT {
-        sf = (*ctx).rt().current_stack_frame;
-        debug_assert!(!sf.is_null());
-        debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
+        if eval_type == JS_EVAL_TYPE_DIRECT {
+            sf = (*ctx).rt().current_stack_frame;
+            debug_assert!(!sf.is_null());
+            debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
 
-        let ob = (*sf).cur_func.object();
-        debug_assert!(js_class_has_bytecode(ob.class_id()));
+            let ob = (*sf).cur_func.object();
+            debug_assert!(js_class_has_bytecode(ob.class_id()));
 
-        b = ob.u.func.function_bytecode;
-        var_refs = (*ob.u.func).var_refs.as_slice();
-        js_mode = (*b).js_mode as _;
-    } else {
-        if flags & JS_EVAL_FLAG_STRICT != 0 {
-            js_mode |= JS_MODE_STRICT as u32;
-        }
-        if flags & JS_EVAL_FLAG_STRIP != 0 {
-            js_mode |= JS_MODE_STRIP as u32;
-        }
-        if eval_type == JS_EVAL_TYPE_MODULE {
-            let module_name = if let Ok(a) = (*ctx).create_atom(filename.to_string_lossy().as_ref())
-            {
-                a
-            } else {
-                return JSValue::EXCEPTION;
-            };
-
-            m = if let Ok(p) = JSModuleDef::new(ctx.as_mut().unwrap(), module_name) {
-                Box::into_raw(p)
-            } else {
-                return JSValue::EXCEPTION;
-            };
-
-            js_mode |= JS_MODE_STRICT as u32;
-        }
-    }
-
-    let mut fd = if let Ok(f) = JSFunctionDef::new(
-        ctx.as_mut().unwrap(),
-        std::ptr::null_mut(),
-        true,
-        false,
-        filename.as_ptr().cast(),
-        1,
-    ) {
-        f
-    } else {
-        fail1!(m);
-    };
-
-    fd.eval_type = eval_type;
-    fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
-    fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
-    if eval_type == JS_EVAL_TYPE_DIRECT {
-        fd.new_target_allowed = (*b).new_target_allowed;
-        fd.super_call_allowed = (*b).super_call_allowed;
-        fd.super_allowed = (*b).super_allowed;
-        fd.arguments_allowed = (*b).arguments_allowed;
-    } else {
-        fd.new_target_allowed = false;
-        fd.super_call_allowed = false;
-        fd.super_allowed = false;
-        fd.arguments_allowed = true;
-    }
-    fd.js_mode = js_mode as u8;
-    fd.func_name = JS_DupAtom(ctx, JS_ATOM__eval_);
-
-    if !b.is_null() {
-        if add_closure_variables(ctx, fd.deref_mut(), b, scope_idx).is_err() {
-            fail!(fd, m);
-        }
-    }
-
-    fd.module = m;
-    if !m.is_null() || (flags & JS_EVAL_FLAG_ASYNC != 0) {
-        fd.in_function_body = true;
-        fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
-    }
-
-    s.cur_func = fd.deref_mut();
-    s.is_module = !m.is_null();
-    s.allow_html_comments = !s.is_module;
-
-    // this block will use s.cur_func pointer.
-    // DON'T write `fd` in this block.
-    {
-        // enter body scope.
-        // must set s.cur_func pointer before calling s.push_scope().
-        fd.body_scope = if let Ok(l) = s.push_scope() {
-            l
+            b = ob.u.func.function_bytecode;
+            var_refs = (*ob.u.func).var_refs.as_slice();
+            js_mode = (*b).js_mode as _;
         } else {
-            fail!(fd, m);
+            if flags & JS_EVAL_FLAG_STRICT != 0 {
+                js_mode |= JS_MODE_STRICT as u32;
+            }
+            if flags & JS_EVAL_FLAG_STRIP != 0 {
+                js_mode |= JS_MODE_STRIP as u32;
+            }
+            if eval_type == JS_EVAL_TYPE_MODULE {
+                let module_name = if let Ok(a) = (*ctx).create_atom(filename) {
+                    a
+                } else {
+                    return JSValue::EXCEPTION;
+                };
+
+                m = if let Ok(p) = JSModuleDef::new(ctx.as_mut().unwrap(), module_name) {
+                    Box::into_raw(p)
+                } else {
+                    return JSValue::EXCEPTION;
+                };
+
+                js_mode |= JS_MODE_STRICT as u32;
+            }
+        }
+
+        let mut fd = if let Ok(f) = JSFunctionDef::new(
+            ctx.as_mut().unwrap(),
+            std::ptr::null_mut(),
+            true,
+            false,
+            filename,
+            1,
+        ) {
+            f
+        } else {
+            fail1!(m);
         };
 
-        if s.parse_program().is_err() {
-            fail!(fd, m);
+        fd.eval_type = eval_type;
+        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+        fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
+        if eval_type == JS_EVAL_TYPE_DIRECT {
+            fd.new_target_allowed = (*b).new_target_allowed;
+            fd.super_call_allowed = (*b).super_call_allowed;
+            fd.super_allowed = (*b).super_allowed;
+            fd.arguments_allowed = (*b).arguments_allowed;
+        } else {
+            fd.new_target_allowed = false;
+            fd.super_call_allowed = false;
+            fd.super_allowed = false;
+            fd.arguments_allowed = true;
+        }
+        fd.js_mode = js_mode as u8;
+        fd.func_name = JS_DupAtom(ctx, JS_ATOM__eval_);
+
+        if !b.is_null() {
+            if add_closure_variables(ctx, fd.deref_mut(), b, scope_idx).is_err() {
+                fail!(fd, m);
+            }
         }
 
-        if !m.is_null() {
-            (*m).has_tla = fd.has_await;
+        fd.module = m;
+        if !m.is_null() || (flags & JS_EVAL_FLAG_ASYNC != 0) {
+            fd.in_function_body = true;
+            fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }
-    }
 
-    // now s.cur_func should be restored to `fd`
-    debug_assert_eq!(s.cur_func, fd.deref_mut() as *mut JSFunctionDef);
+        s.cur_func = fd.deref_mut();
+        s.is_module = !m.is_null();
+        s.allow_html_comments = !s.is_module;
 
-    // create the function object and all the enclosed functions.
-    // FIXME: fd is dropped here, how about s.cur_func pointer?
-    let mut fun_obj = fd.make_function(ctx.as_mut().unwrap());
-    if fun_obj.is_exception() {
-        fail1!(m);
-    }
+        // this block will use s.cur_func pointer.
+        // DON'T write `fd` in this block.
+        {
+            // enter body scope.
+            // must set s.cur_func pointer before calling s.push_scope().
+            fd.body_scope = if let Ok(l) = s.push_scope() {
+                l
+            } else {
+                fail!(fd, m);
+            };
 
-    /* Could add a flag to avoid resolution if necessary */
-    if !m.is_null() {
-        (*m).func_obj = fun_obj;
-        if js_resolve_module(ctx, m) < 0 {
+            if s.parse_program().is_err() {
+                fail!(fd, m);
+            }
+
+            if !m.is_null() {
+                (*m).has_tla = fd.has_await;
+            }
+        }
+
+        // now s.cur_func should be restored to `fd`
+        debug_assert_eq!(s.cur_func, fd.deref_mut() as *mut JSFunctionDef);
+
+        // create the function object and all the enclosed functions.
+        // FIXME: fd is dropped here, how about s.cur_func pointer?
+        let mut fun_obj = fd.make_function(ctx.as_mut().unwrap());
+        if fun_obj.is_exception() {
             fail1!(m);
         }
-        fun_obj = JS_NewModuleValue(ctx, m);
-    }
 
-    // returns compiled or evaluated
-    if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-        fun_obj
-    } else {
-        JS_EvalFunctionInternal(ctx, fun_obj, this_obj, var_refs, sf)
+        /* Could add a flag to avoid resolution if necessary */
+        if !m.is_null() {
+            (*m).func_obj = fun_obj;
+            if js_resolve_module(ctx, m) < 0 {
+                fail1!(m);
+            }
+            fun_obj = JS_NewModuleValue(ctx, m);
+        }
+
+        // returns compiled or evaluated
+        if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
+            fun_obj
+        } else {
+            JS_EvalFunctionInternal(ctx, fun_obj, this_obj, var_refs, sf)
+        }
     }
 }
 
@@ -323,7 +497,7 @@ pub unsafe fn JS_EvalObject(
                 this_obj,
                 str.as_ptr().cast(),
                 str.len(),
-                c"<input>",
+                "<input>",
                 flags,
                 scope_idx,
             );
@@ -426,7 +600,7 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
         debug_assert!(stack_top.is_null());
     }
 
-    JS_DupValue(ctx, (*m).promise)
+    (*m).promise.dup()
 }
 
 // the indirection is needed to make 'eval' optional
@@ -435,11 +609,11 @@ pub unsafe fn JS_EvalInternal(
     this_obj: JSValueConst,
     input: *const u8,
     input_len: usize,
-    filename: &'static CStr,
+    filename: &str,
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
-    if let Some(cb) = (*ctx).eval_internal {
+    if let Some(cb) = (*ctx).eval_callback {
         cb(ctx, this_obj, input, input_len, filename, flags, scope_idx)
     } else {
         ctx.as_mut()
@@ -453,12 +627,11 @@ pub unsafe fn JS_EvalThis(
     this_obj: JSValueConst,
     input: *const u8,
     input_len: usize,
-    filename: &'static CStr,
+    filename: &str,
     eval_flags: u32,
 ) -> JSValue {
-    let eval_type = eval_flags & JS_EVAL_TYPE_MASK;
     debug_assert!(matches!(
-        eval_type,
+        eval_flags & JS_EVAL_TYPE_MASK,
         JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE
     ));
 
@@ -469,7 +642,7 @@ pub unsafe fn JS_Eval(
     ctx: *mut JSContext,
     input: *const u8,
     input_len: usize,
-    filename: &'static CStr,
+    filename: &str,
     eval_flags: u32,
 ) -> JSValue {
     JS_EvalThis(

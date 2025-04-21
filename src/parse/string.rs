@@ -11,7 +11,7 @@ use super::{
     token::{JSToken, TOK_STRING},
 };
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     pub unsafe fn parse_string(
         &mut self,
         sep: char,

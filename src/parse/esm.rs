@@ -36,7 +36,7 @@ pub enum JSParseExportEnum {
     JS_PARSE_EXPORT_DEFAULT,
 }
 
-impl JSParseState {
+impl<'s> JSParseState<'s> {
     unsafe fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
         if !token_is_pseudo_keyword(self, JS_ATOM_from) {
             js_parse_error(self, c"from clause expected");
