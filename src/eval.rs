@@ -437,7 +437,7 @@ pub unsafe fn JS_EvalFunctionInternal(
             if r.is_exception() {
                 JSValue::EXCEPTION
             } else {
-                r
+                r // is a Promise object
             }
         }
         _ => {
