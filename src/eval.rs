@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ops::DerefMut, ptr::NonNull};
+use std::{ops::DerefMut, ptr::NonNull};
 
 use crate::{
     atom::{consts::JS_ATOM__eval_, JS_DupAtom},
@@ -8,15 +8,15 @@ use crate::{
         JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_Call, JS_CallFree,
     },
     module::{
-        js_create_module_function, js_free_module_def, js_inner_module_evaluation, js_link_module,
-        js_resolve_module, JSModuleDef, JSModuleStatus, JS_NewModuleValue,
+        js_create_module_function, js_free_module_def, js_link_module, js_resolve_module,
+        JSModuleDef, JSModuleStatus, JS_NewModuleValue,
     },
     parse::JSParseState,
     stack_frame::JSStackFrame,
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_FUNCTION_BYTECODE,
-        JS_TAG_MODULE, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE,
+        JS_TAG_OBJECT, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 
@@ -554,54 +554,103 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, mut m: *mut JSModuleDef) -
         return JSValue::EXCEPTION;
     }
 
-    let mut result = JSValue::UNDEFINED;
     let mut stack_top = std::ptr::null_mut::<JSModuleDef>();
 
-    if js_inner_module_evaluation(ctx, m, 0, &mut stack_top, &mut result) < 0 {
-        while !stack_top.is_null() {
-            let m1 = stack_top;
-            debug_assert_eq!((*m1).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
+    match (*m).eval_inner(ctx.as_mut().unwrap(), 0, &mut stack_top) {
+        Ok(_) => {
+            debug_assert!(matches!(
+                (*m).status,
+                JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+            ));
+            debug_assert!(!(*m).eval_has_exception);
 
-            (*m1).status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
-            (*m1).eval_has_exception = true;
-            (*m1).eval_exception = result.dup();
-            (*m1).cycle_root = m; // spec bug: should be present
-            stack_top = (*m1).stack_prev;
+            if !(*m).async_evaluation {
+                debug_assert_eq!((*m).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+                let mut value = JSValue::UNDEFINED;
+                let ret_val = JS_Call(
+                    ctx.as_mut().unwrap(),
+                    *(*m).resolving_funcs.as_ptr().offset(0), // resolve func
+                    JSValue::UNDEFINED,
+                    1,
+                    &mut value,
+                );
+                JS_FreeValue(ctx, ret_val);
+            }
+            debug_assert!(stack_top.is_null());
         }
-        JS_FreeValue(ctx, result);
-        debug_assert_eq!((*m).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-        debug_assert!((*m).eval_has_exception);
+        Err(result) => {
+            while !stack_top.is_null() {
+                let m1 = stack_top;
+                debug_assert_eq!((*m1).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
 
-        let ret_val = JS_Call(
-            ctx.as_mut().unwrap(),
-            *(*m).resolving_funcs.as_ptr().offset(1), // reject
-            JSValue::UNDEFINED,
-            1,
-            &mut (*m).eval_exception,
-        );
-        JS_FreeValue(ctx, ret_val);
-    } else {
-        assert!(matches!(
-            (*m).status,
-            JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-        ));
-        debug_assert!(!(*m).eval_has_exception);
-
-        if !(*m).async_evaluation {
+                (*m1).status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+                (*m1).eval_has_exception = true;
+                (*m1).eval_exception = result.dup();
+                (*m1).cycle_root = m; // spec bug: should be present
+                stack_top = (*m1).stack_prev;
+            }
+            JS_FreeValue(ctx, result);
             debug_assert_eq!((*m).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-            let mut value = JS_UNDEFINED;
+            debug_assert!((*m).eval_has_exception);
+
             let ret_val = JS_Call(
                 ctx.as_mut().unwrap(),
-                *(*m).resolving_funcs.as_ptr().offset(0), // resolve
-                JS_UNDEFINED,
+                *(*m).resolving_funcs.as_ptr().offset(1), // reject
+                JSValue::UNDEFINED,
                 1,
-                &mut value,
+                &mut (*m).eval_exception,
             );
             JS_FreeValue(ctx, ret_val);
         }
-        debug_assert!(stack_top.is_null());
     }
+
+    // let mut result = JSValue::UNDEFINED;
+    // if js_inner_module_evaluation(ctx, m, 0, &mut stack_top, &mut result) < 0 {
+    //     while !stack_top.is_null() {
+    //         let m1 = stack_top;
+    //         debug_assert_eq!((*m1).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
+
+    //         (*m1).status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+    //         (*m1).eval_has_exception = true;
+    //         (*m1).eval_exception = result.dup();
+    //         (*m1).cycle_root = m; // spec bug: should be present
+    //         stack_top = (*m1).stack_prev;
+    //     }
+    //     JS_FreeValue(ctx, result);
+    //     debug_assert_eq!((*m).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+    //     debug_assert!((*m).eval_has_exception);
+
+    //     let ret_val = JS_Call(
+    //         ctx.as_mut().unwrap(),
+    //         *(*m).resolving_funcs.as_ptr().offset(1), // reject
+    //         JSValue::UNDEFINED,
+    //         1,
+    //         &mut (*m).eval_exception,
+    //     );
+    //     JS_FreeValue(ctx, ret_val);
+    // } else {
+    //     assert!(matches!(
+    //         (*m).status,
+    //         JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+    //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+    //     ));
+    //     debug_assert!(!(*m).eval_has_exception);
+
+    //     if !(*m).async_evaluation {
+    //         debug_assert_eq!((*m).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+    //         let mut value = JS_UNDEFINED;
+    //         let ret_val = JS_Call(
+    //             ctx.as_mut().unwrap(),
+    //             *(*m).resolving_funcs.as_ptr().offset(0), // resolve
+    //             JS_UNDEFINED,
+    //             1,
+    //             &mut value,
+    //         );
+    //         JS_FreeValue(ctx, ret_val);
+    //     }
+    //     debug_assert!(stack_top.is_null());
+    // }
 
     (*m).promise.dup()
 }

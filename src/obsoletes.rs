@@ -100,7 +100,7 @@ pub unsafe fn JS_AtomToCString(ctx: *mut JSContext, atom: JSAtom) -> *const c_ch
 }
 
 /// `data` values are not consumed.
-#[deprecated(note = "use JSContext::create_native_function_with_data() instead")]
+#[deprecated(note = "use JSContext::create_native_callable_object() instead")]
 pub unsafe fn JS_NewCFunctionData(
     ctx: *mut JSContext,
     func: JSNativeCallback,
