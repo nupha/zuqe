@@ -20,7 +20,7 @@ use crate::{
     gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
-    runtime::js_check_stack_overflow,
+    runtime::{js_check_stack_overflow, JSRuntime},
     types::{
         list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head,
         JSRefCountHeader,
@@ -49,16 +49,16 @@ pub enum JSModuleStatus {
     JS_MODULE_STATUS_EVALUATED,
 }
 
-pub type JSModuleNormalizeFunc = fn(
+pub type JSModuleNormalizeFunc = for<'a> fn(
     ctx: *mut JSContext,
-    module_base_name: &str,
-    module_name: &str,
+    module_base_name: &'a str,
+    module_name: &'a str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<String, i32>;
 
-pub type JSModuleLoaderFunc = fn(
-    ctx: *mut JSContext,
-    module_name: &str,
+pub type JSModuleLoaderFunc = for<'a> fn(
+    ctx: &'a mut JSContext,
+    module_name: &'a str,
     opaque: *mut ::core::ffi::c_void,
 ) -> *mut JSModuleDef;
 
@@ -274,6 +274,8 @@ pub unsafe fn js_free_module_def(ctx: *mut JSContext, m: *mut JSModuleDef) {
 
     for i in 0..(*m).export_entries_count {
         let me = (*m).export_entries.offset(i as isize);
+        debug_assert!(!me.is_null());
+
         if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
             if let Some(vr) = Box::from_raw((*me).u.local.var_ref).free((*ctx).rt_mut()) {
                 unreachable!();
@@ -854,7 +856,7 @@ pub unsafe fn js_host_resolve_imported_module(
 
     // load the module
     if let Some(cb) = rt.module_loader_func {
-        let m = cb(ctx, &cname, rt.module_loader_opaque);
+        let m = cb(ctx.as_mut().unwrap(), &cname, rt.module_loader_opaque);
         m
     } else {
         log::warn!("module loader function is not set, can't import module.");
@@ -1606,6 +1608,17 @@ pub unsafe fn js_import_meta(ctx: *mut JSContext) -> JSValue {
     }
 
     JS_GetImportMeta(ctx, m)
+}
+
+pub unsafe fn JS_SetModuleLoaderFunc(
+    rt: *mut JSRuntime,
+    module_normalize: Option<JSModuleNormalizeFunc>,
+    module_loader: JSModuleLoaderFunc,
+    opaque: *mut std::ffi::c_void,
+) {
+    (*rt).module_normalize_func = module_normalize;
+    (*rt).module_loader_func = Some(module_loader);
+    (*rt).module_loader_opaque = opaque;
 }
 
 /* spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1,

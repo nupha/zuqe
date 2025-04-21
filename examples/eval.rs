@@ -13,13 +13,13 @@ use zhuque::{
         JS_EVAL_TYPE_MODULE,
     },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
-    module::{JSModuleDef, JS_GetImportMeta},
+    module::{JSModuleDef, JS_GetImportMeta, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,
     runtime::JSRuntime,
     value::{
         object::{JS_DefinePropertyValueStr, JS_PROP_C_W_E},
-        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_NewBool, JS_NewString,
-        JS_TAG_MODULE, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_NewBool, JS_TAG_MODULE, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -39,6 +39,8 @@ fn main() {
 
     unsafe {
         if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
+            JS_SetModuleLoaderFunc(js.as_mut(), None, js_module_loader, std::ptr::null_mut());
+
             let mut ctx = js.create_context().unwrap();
 
             let mut eval_flags = if filename.ends_with(".mjs") {
@@ -97,44 +99,52 @@ fn main() {
     }
 }
 
-pub unsafe fn js_module_loader(
-    ctx: *mut JSContext,
-    module_name: &'static str,
+pub fn js_module_loader(
+    ctx: &mut JSContext,
+    module_name: &str,
     opaque: *mut std::ffi::c_void,
 ) -> *mut JSModuleDef {
     match std::fs::read(module_name) {
         Ok(buf) => {
             // compile the module
-            let func_val = JS_Eval(
-                ctx,
-                buf.as_ptr().cast::<u8>(),
-                buf.len(),
-                module_name,
-                JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
-            );
+            let func_val = unsafe {
+                JS_Eval(
+                    ctx,
+                    buf.as_ptr().cast::<u8>(),
+                    buf.len(),
+                    module_name,
+                    JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
+                )
+            };
             if func_val.is_exception() {
                 return std::ptr::null_mut();
             }
 
             // XXX: could propagate the exception
-            js_module_set_import_meta(ctx, func_val, true as i32, false);
+            unsafe {
+                js_module_set_import_meta(ctx, func_val, true as i32, false);
+            }
 
             // the module is already referenced, so we must free it
             let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
-            JS_FreeValue(ctx, func_val);
+            unsafe {
+                JS_FreeValue(ctx, func_val);
+            }
 
             m
         }
-        Err(e) => {
-            JS_ThrowReferenceError(
-                ctx,
-                CStr::from_ptr(
-                    format!("could not load module filename '{module_name}\0'")
-                        .as_ptr()
-                        .cast(),
-                ),
-            );
-            return std::ptr::null_mut();
+        Err(_) => {
+            unsafe {
+                JS_ThrowReferenceError(
+                    ctx,
+                    CStr::from_ptr(
+                        format!("could not load module filename '{module_name}\0'")
+                            .as_ptr()
+                            .cast(),
+                    ),
+                );
+            }
+            std::ptr::null_mut()
         }
     }
 }
