@@ -109,7 +109,7 @@ impl JSModuleDef {
 
     /// InnerModuleEvaluation, returns depth index or Err.
     /// `index`: depth index
-    pub unsafe fn do_eval(
+    unsafe fn do_eval(
         &mut self,
         ctx: &mut JSContext,
         index: i32,
