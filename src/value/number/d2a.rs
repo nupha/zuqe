@@ -1,17 +1,8 @@
 use std::{borrow::Cow, ffi::CStr, io::Write};
 
-use crate::{
-    context::JSContext,
-    utils::skip_spaces,
-    value::{
-        JSTag, JSValue, JSValueConst, JSValueUnion, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsNumber, HINT_NUMBER, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
-    },
-    JS_MKVAL,
-};
+use crate::{context::JSContext, value::JSValue};
 
-use super::{super::string::strstart, MAX_SAFE_INTEGER};
+use super::MAX_SAFE_INTEGER;
 
 /* radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT */
 /* use as many digits as necessary */
