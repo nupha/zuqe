@@ -14,8 +14,7 @@ use crate::{
 use super::{
     super::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
-        JS_IsUninitialized, JS_ToLengthFree, JS_ToStringInternal, JS_ToUint32Free,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_IsUninitialized, JS_ToLengthFree, JS_ToUint32Free, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, JSObject,
     JSShapeProperty,
@@ -129,10 +128,6 @@ pub struct JSPropertyAutoInit {
     pub realm_and_id: usize,
     // opaque pointer
     pub opaque: *mut c_void,
-}
-
-pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    JS_ToStringInternal(ctx, val, true)
 }
 
 #[deprecated(note = "use JSValue::has_property() instead")]

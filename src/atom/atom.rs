@@ -12,9 +12,8 @@ use crate::{
     regexp::is_digit,
     runtime::JSRuntime,
     value::{
-        object::JS_ToPropertyKey, JSTag, JSValue, JSValueConst, JS_DumpString, JS_FreeValue,
-        JS_ToNumberFree, JS_ToString, StringContent, JS_VALUE_GET_INT, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_DumpString, JS_FreeValue, JS_ToNumberFree, StringContent,
+        JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -510,20 +509,36 @@ pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
     } else if tag == JSTag::Symbol as i32 {
         js_symbol_to_atom(ctx, val).dup((*ctx).rt())
     } else {
-        let tmp = JS_ToPropertyKey(ctx, val);
-        if tmp.is_exception() {
-            JS_ATOM_NULL
-        } else if JS_VALUE_GET_TAG(tmp) == JSTag::Symbol as i32 {
-            js_symbol_to_atom(ctx, tmp)
+        if let Ok(tmp) = val.coerce_to_propkey_value(ctx.as_mut().unwrap()) {
+            if JS_VALUE_GET_TAG(tmp) == JSTag::Symbol as i32 {
+                js_symbol_to_atom(ctx, tmp)
+            } else {
+                (*ctx)
+                    .rt_mut()
+                    .add_atom_jsstring(
+                        Rc::from_raw(tmp.string()), // <-- `tmp` is consumed here
+                        JSAtomTypeHint::String,
+                    )
+                    .unwrap_or(JS_ATOM_NULL)
+            }
         } else {
-            (*ctx)
-                .rt_mut()
-                .add_atom_jsstring(
-                    Rc::from_raw(tmp.string()), // <-- `tmp` is consumed here
-                    JSAtomTypeHint::String,
-                )
-                .unwrap_or(JS_ATOM_NULL)
+            JS_ATOM_NULL
         }
+
+        // let tmp = JS_ToPropertyKey(ctx, val);
+        // if tmp.is_exception() {
+        //     JS_ATOM_NULL
+        // } else if JS_VALUE_GET_TAG(tmp) == JSTag::Symbol as i32 {
+        //     js_symbol_to_atom(ctx, tmp)
+        // } else {
+        //     (*ctx)
+        //         .rt_mut()
+        //         .add_atom_jsstring(
+        //             Rc::from_raw(tmp.string()), // <-- `tmp` is consumed here
+        //             JSAtomTypeHint::String,
+        //         )
+        //         .unwrap_or(JS_ATOM_NULL)
+        // }
     }
 }
 
@@ -603,19 +618,19 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
         }
 
         // test num as string is same to original value
-        let str = JS_ToString(ctx, num);
-        if str.is_exception() {
-            JS_FreeValue(ctx, num);
-            return JSValue::EXCEPTION;
-        }
-        let same = p.content().eq(str.string().content());
-        JS_FreeValue(ctx, str);
+        if let Ok(str) = num.coerce_to_string_value(ctx.as_mut().unwrap()) {
+            let same = p.content().eq(str.string().content());
+            JS_FreeValue(ctx, str);
 
-        if same {
-            num
+            if same {
+                num
+            } else {
+                JS_FreeValue(ctx, num);
+                JSValue::EXCEPTION
+            }
         } else {
             JS_FreeValue(ctx, num);
-            JSValue::EXCEPTION
+            return JSValue::EXCEPTION;
         }
     } else {
         JSValue::UNDEFINED

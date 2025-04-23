@@ -110,8 +110,8 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i3
     }
 }
 
-pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: *const JSValue, hint: i32) -> JSValue {
-    JS_ToPrimitiveFree(ctx, (*val).dup(), hint)
+pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: JSValue, hint: i32) -> JSValue {
+    JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }
 
 /* Only works for primitive types, otherwise return JS_NULL. */

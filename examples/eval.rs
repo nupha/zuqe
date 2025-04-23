@@ -1,8 +1,4 @@
-use std::{
-    ffi::{CStr, CString},
-    ops::DerefMut,
-    path::PathBuf,
-};
+use std::{ffi::CStr, ops::DerefMut, path::PathBuf};
 
 use zhuque::{
     atom::JS_FreeAtom,
@@ -15,7 +11,6 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_GetImportMeta, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,
-    promise::PromiseValue,
     runtime::JSRuntime,
     value::{
         object::{JS_DefinePropertyValueStr, JS_PROP_C_W_E},

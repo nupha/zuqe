@@ -14,6 +14,27 @@ use crate::{
     value::{object::JSObject, JSString, JSValue, JSValueConst},
 };
 
+/// `val` keeps ref count unchanged after calling this function.
+#[deprecated(note = "use JSValue::corece_to_string_value() instead")]
+pub unsafe fn JS_ToStringInternal(
+    ctx: *mut JSContext,
+    val: JSValueConst,
+    is_ToPropertyKey: bool,
+) -> JSValue {
+    unreachable!("use JSValue::corece_to_string_value() instead");
+}
+
+/// `val` keeps ref count unchanged after calling this function.
+#[deprecated(note = "use JSValue::coerce_to_string_value() instead")]
+pub unsafe fn JS_ToString(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
+    unreachable!("use JSValue::coerce_to_string_value() instead");
+}
+
+#[deprecated(note = "use JSValue::coerce_to_propkey_value() instead")]
+pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
+    unreachable!("use JSValue::coerce_to_propkey_value() instead");
+}
+
 #[deprecated(note = "use JSValue::is_constructor() instead")]
 #[inline(always)]
 pub unsafe fn JS_IsConstructor(ctx: *const JSContext, val: JSValueConst) -> bool {

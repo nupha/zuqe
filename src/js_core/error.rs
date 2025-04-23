@@ -6,7 +6,7 @@ use crate::{
     iterator::iterator_to_array,
     value::{
         object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-        JSValue, JS_FreeValue, JS_ToString,
+        JSValue, JS_FreeValue,
     },
     JS_CLASS_ERROR,
 };
@@ -57,20 +57,19 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     arg_index += 1;
 
     if !message.is_undefined() {
-        let msg = unsafe { JS_ToString(ctx, message) };
-        if msg.is_exception() {
+        if let Ok(msg) = message.coerce_to_string_value(ctx) {
+            let _ = obj.define_property_value(
+                ctx,
+                JS_ATOM_message,
+                msg,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            );
+        } else {
             unsafe {
                 JS_FreeValue(ctx, obj);
             }
             return Err(-1);
         }
-
-        let _ = obj.define_property_value(
-            ctx,
-            JS_ATOM_message,
-            msg,
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        );
     }
 
     if arg_index < args.length() {

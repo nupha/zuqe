@@ -1,35 +1,25 @@
-use std::{
-    borrow::Cow,
-    cell::Cell,
-    ffi::c_void,
-    ffi::{c_char, CStr},
-    rc::Rc,
-};
+use std::{borrow::Cow, cell::Cell, ffi::c_void, ffi::CStr, rc::Rc};
 
 use crate::{
     atom::{consts::*, JSAtom, JSAtomInfo, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
     context::JSContext,
     function::JS_InvokeFree,
-    runtime::JSRuntime,
     types::{list_head, unlikely},
     value::{
-        JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING, JS_TAG_NULL, JS_TAG_STRING,
-        JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
         JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
 
 use super::{
-    js_dtoa,
     object::{
         check_define_prop_flags, JSPropertyDescriptor, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE,
         JS_PROP_NO_EXOTIC,
     },
-    primitives::JS_ToPrimitive,
-    StringContent, JS_DTOA_VAR_FORMAT,
+    StringContent,
 };
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
@@ -327,62 +317,11 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSString) -> bool {
     }
 }
 
-/// `val` keeps ref count unchanged after calling this function.
-pub unsafe fn JS_ToStringInternal(
-    ctx: *mut JSContext,
-    val: JSValueConst,
-    is_ToPropertyKey: bool,
-) -> JSValue {
-    match JS_VALUE_GET_NORM_TAG(val) {
-        JSTag::String => val.dup(),
-        JSTag::Int => (*ctx).create_string(&format!("{}", JS_VALUE_GET_INT(val))),
-        JSTag::Bool => if JS_VALUE_GET_BOOL(val) {
-            JS_ATOM_true
-        } else {
-            JS_ATOM_false
-        }
-        .to_value(ctx.as_mut().unwrap(), true),
-        JSTag::Null => JS_ATOM_null.to_value(ctx.as_mut().unwrap(), true),
-        JSTag::Undefined => JS_ATOM_undefined.to_value(ctx.as_mut().unwrap(), true),
-        JSTag::Exception => JSValue::EXCEPTION,
-        JSTag::Object => {
-            let val1 = JS_ToPrimitive(ctx, &val, HINT_STRING);
-            if val1.is_exception() {
-                val1
-            } else {
-                let ret = JS_ToStringInternal(ctx, val1, is_ToPropertyKey);
-                JS_FreeValue(ctx, val1);
-                ret
-            }
-        }
-        JSTag::FunctionBytecode => (*ctx).create_string("[function bytecode]"),
-        JSTag::Symbol => {
-            if is_ToPropertyKey {
-                val.dup()
-            } else {
-                ctx.as_mut()
-                    .unwrap()
-                    .JS_ThrowTypeError(c"cannot convert symbol to string")
-            }
-        }
-        JSTag::Float64 => js_dtoa(ctx, JS_VALUE_GET_FLOAT64(val), 10, 0, JS_DTOA_VAR_FORMAT),
-        JSTag::Module => (*ctx).create_string("[module]"),
-        JSTag::Uninitialized => (*ctx).create_string("[uninitialized]"),
-        JSTag::CatchOffset => (*ctx).create_string("[cacthoffset]"),
-        JSTag::BigDecimal | JSTag::BigFloat | JSTag::BigInt => {
-            unimplemented!()
-        }
-    }
-}
-
-/// `val` keeps ref count unchanged after calling this function.
-pub unsafe fn JS_ToString(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    JS_ToStringInternal(ctx, val, false)
-}
-
-/// `val` is consumed once.
+/// `val` is consumed.
 pub unsafe fn JS_ToStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    let ret = JS_ToString(ctx, val);
+    let ret = val
+        .coerce_to_string_value(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION);
     JS_FreeValue(ctx, val);
     ret
 }
@@ -407,7 +346,8 @@ pub unsafe fn JS_ToStringCheckObject(ctx: *mut JSContext, val: JSValueConst) -> 
             .unwrap()
             .JS_ThrowTypeError(c"null or undefined are forbidden")
     } else {
-        JS_ToString(ctx, val)
+        val.coerce_to_string_value(ctx.as_mut().unwrap())
+            .unwrap_or(JSValue::EXCEPTION)
     }
 }
 
@@ -612,14 +552,13 @@ impl JSValue {
 
             Ok(ret)
         } else {
-            let tmp = unsafe { JS_ToString(ctx, self) };
-            if tmp.is_exception() {
-                Err(-1)
-            } else {
-                Ok(Cow::Owned(
-                    tmp.take_string().content().to_str().into_owned(),
-                ))
-            }
+            let tmp = self.coerce_to_string_value(ctx)?;
+            Ok(Cow::Owned(
+                tmp.take_string() // <-- drop and consume tmp value once at exit
+                    .content()
+                    .to_str()
+                    .into_owned(),
+            ))
         }
     }
 }

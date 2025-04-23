@@ -17,7 +17,7 @@ use crate::{
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
         JS_NewBool, JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
-        JS_ToString, JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
+        JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
         JS_STRING_LEN_MAX, JS_TAG_INT, JS_TAG_OBJECT, JS_TAG_STRING, JS_VALUE_GET_INT,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
@@ -46,8 +46,11 @@ pub unsafe fn js_string_constructor(
                 c")",
             )
         } else {
-            JS_ToString(ctx, *argv.offset(0))
+            (*argv.offset(0))
+                .coerce_to_string_value(ctx.as_mut().unwrap())
+                .unwrap_or(JSValue::EXCEPTION)
         };
+
         if s.is_exception() {
             return JSValue::EXCEPTION;
         }
@@ -267,18 +270,31 @@ pub unsafe fn js_string_indexOf(
     argv: *mut JSValueConst,
     lastIndexOf: i32,
 ) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return str;
-    }
-
-    let v = JS_ToString(ctx, *argv.offset(0));
-    if JS_IsException(v) {
-        // C2RS: goto fail; replaced with early return
-        JS_FreeValue(ctx, str);
-        JS_FreeValue(ctx, v);
+    let str = if let Ok(s) = this_val.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
+
+    let v = if let Ok(s) = (*argv.offset(0)).coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
+        JS_FreeValue(ctx, str);
+        return JSValue::EXCEPTION;
+    };
+
+    // let str = JS_ToStringCheckObject(ctx, this_val);
+    // if JS_IsException(str) {
+    //     return str;
+    // }
+
+    // let v = JS_ToString(ctx, *argv.offset(0));
+    // if JS_IsException(v) {
+    //     // C2RS: goto fail; replaced with early return
+    //     JS_FreeValue(ctx, str);
+    //     JS_FreeValue(ctx, v);
+    //     return JSValue::EXCEPTION;
+    // }
 
     let p = JS_VALUE_GET_STRING(str);
     let p1 = JS_VALUE_GET_STRING(v);
@@ -400,21 +416,26 @@ pub unsafe fn js_string_replace(
 
     //string_buffer_init(ctx, b, 0);
 
-    str = JS_ToString(ctx, O);
-    if str.is_exception() {
+    str = if let Ok(s) = O.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         exception!();
-    }
-    search_str = JS_ToString(ctx, searchValue);
-    if search_str.is_exception() {
+    };
+
+    search_str = if let Ok(s) = searchValue.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         exception!();
-    }
+    };
 
     let functionalReplace = replaceValue.is_function(ctx.as_ref().unwrap());
     if !functionalReplace {
-        replaceValue_str = JS_ToString(ctx, replaceValue);
-        if replaceValue_str.is_exception() {
+        replaceValue_str = if let Ok(s) = replaceValue.coerce_to_string_value(ctx.as_mut().unwrap())
+        {
+            s
+        } else {
             exception!();
-        }
+        };
     }
 
     let sp = str.string();
@@ -597,10 +618,11 @@ pub unsafe fn js_string_split(
         }
     }
 
-    S = JS_ToString(ctx, O);
-    if S.is_exception() {
+    S = if let Ok(s) = O.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         exception!();
-    }
+    };
     A = JS_NewArray(ctx);
     if A.is_exception() {
         exception!();
@@ -619,10 +641,11 @@ pub unsafe fn js_string_split(
 
     let sp = S.string();
     let s = sp.len() as i32;
-    R = JS_ToString(ctx, separator);
-    if R.is_exception() {
+    R = if let Ok(s) = separator.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         exception!();
-    }
+    };
 
     let rp = R.string();
     let r = rp.len() as i32;
@@ -855,11 +878,12 @@ pub unsafe fn js_string_pad(
         return str;
     }
 
-    if argc > 1 && !JS_IsUndefined(*argv.offset(1)) {
-        v = JS_ToString(ctx, *argv.offset(1));
-        if JS_IsException(v) {
+    if argc > 1 && !(*argv.offset(1)).is_undefined() {
+        v = if let Ok(s) = (*argv.offset(1)).coerce_to_string_value(ctx.as_mut().unwrap()) {
+            s
+        } else {
             fail2!();
-        }
+        };
 
         p1 = JS_VALUE_GET_STRING(v);
         if (*p1).is_empty() {
@@ -1034,11 +1058,12 @@ pub unsafe fn js_string_includes(
         }
     }
 
-    let v = JS_ToString(ctx, *argv.offset(0));
-    if JS_IsException(v) {
+    let v = if let Ok(s) = (*argv.offset(0)).coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         JS_FreeValue(ctx, str);
         return JSValue::EXCEPTION;
-    }
+    };
 
     let p = JS_VALUE_GET_STRING(str);
     let p1 = JS_VALUE_GET_STRING(v);
@@ -1164,10 +1189,11 @@ pub unsafe fn js_string_match(
         }
     }
 
-    let mut S = JS_ToString(ctx, O);
-    if S.is_exception() {
+    let mut S = if let Ok(s) = O.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        s
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     let mut args_len = 1;
     let mut args: [JSValueConst; 2] = [JSValue::UNDEFINED; 2];

@@ -26,8 +26,8 @@ use crate::{
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
-        JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToString, JS_ToStringFree, StringContent,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY,
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -1265,18 +1265,31 @@ pub unsafe fn js_array_join(
     let mut p: *const JSString = std::ptr::null();
 
     if toLocaleString == 0 && argc > 0 && !(*argv.offset(0)).is_undefined() {
-        sep = JS_ToString(ctx, *argv.offset(0));
-        if sep.is_exception() {
+        if let Ok(s) = (*argv.offset(0)).coerce_to_string_value(ctx.as_mut().unwrap()) {
+            sep = s;
+            p = sep.string() as *const _;
+            c = if (*p).len() == 1 && !(*p).is_wide_char() {
+                (*p).content().as_bytes()[0] as i32
+            } else {
+                -1
+            };
+        } else {
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
 
-        p = sep.string() as *const _;
-        c = if (*p).len() == 1 && !(*p).is_wide_char() {
-            (*p).content().as_bytes()[0] as i32
-        } else {
-            -1
-        };
+        // sep = JS_ToString(ctx, *argv.offset(0));
+        // if sep.is_exception() {
+        //     JS_FreeValue(ctx, obj);
+        //     return JSValue::EXCEPTION;
+        // }
+
+        // p = sep.string() as *const _;
+        // c = if (*p).len() == 1 && !(*p).is_wide_char() {
+        //     (*p).content().as_bytes()[0] as i32
+        // } else {
+        //     -1
+        // };
     }
 
     let mut content = StringContent::Empty;
