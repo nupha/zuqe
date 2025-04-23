@@ -39,8 +39,7 @@ impl JSValue {
         if !force_ordinary {
             let method = self
                 .get_property(ctx, JS_ATOM_Symbol_toPrimitive)
-                .check_exception()?
-                .into_rc(ctx.rt());
+                .check_exception()?;
 
             /* ECMA says *If exoticToPrim is not undefined* but tests in
             test262 use null as a non callable converter */
@@ -55,7 +54,7 @@ impl JSValue {
                 .into_rc(ctx.rt());
 
                 let ret = unsafe {
-                    JS_Call(ctx, *method, self, 1, hint_val.deref_mut()).check_exception()?
+                    JS_CallFree(ctx, method, self, 1, hint_val.deref_mut()).check_exception()?
                 };
 
                 return if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {

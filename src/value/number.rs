@@ -149,6 +149,102 @@ impl JSValue {
         }
     }
 
+    /// coerce `val` value to number value according to converting hint.
+    /// Note: `val` is consumed.
+    unsafe fn do_coerce_number_free(
+        ctx: &mut JSContext,
+        val: JSValue,
+        flag: JSToNumberHintEnum,
+    ) -> Result<JSValue, i32> {
+        let mut val = val.into_rc(ctx.rt());
+
+        loop {
+            match JS_VALUE_GET_NORM_TAG(*val) {
+                JSTag::Int | JSTag::Float64 => {
+                    break Ok(val.into());
+                }
+                JSTag::Bool | JSTag::Null => {
+                    break Ok(JS_VALUE_GET_INT(val.into()).into());
+                }
+                JSTag::Undefined => {
+                    break Ok(JSValue::NAN);
+                }
+                JSTag::Object => {
+                    val = val.coerce_to_primitive(ctx, HINT_NUMBER)?.into_rc(ctx.rt());
+                    continue;
+                }
+                JSTag::String => {
+                    let (str_ptr0, len) = {
+                        let str = val.to_utf8_string(ctx)?;
+                        let len = str.len();
+                        (str.as_ptr(), len)
+                    };
+
+                    let mut p = str_ptr0.offset(skip_spaces(str_ptr0) as isize);
+
+                    let res = if p.offset_from(str_ptr0) as usize == len {
+                        // is empty or white space string
+                        JSValue::ZERO
+                    } else {
+                        let mut r = js_atof(
+                            ctx as *mut JSContext,
+                            p.cast(),
+                            std::ptr::addr_of_mut!(p),
+                            0,
+                            ATOD_ACCEPT_BIN_OCT,
+                        )
+                        .check_exception()?;
+
+                        p = p.offset(skip_spaces(p.cast()) as isize);
+                        if p.offset_from(str_ptr0) as usize != len {
+                            JS_FreeValue(ctx, r);
+                            r = JSValue::NAN;
+                        }
+
+                        r
+                    };
+                    break Ok(res);
+                }
+                JSTag::Symbol => {
+                    ctx.JS_ThrowTypeError(c"cannot convert symbol to number");
+                    break Err(-1);
+                }
+                JSTag::Exception => {
+                    break Err(-1);
+                }
+                JSTag::BigInt => {
+                    break if flag != JSToNumberHintEnum::TON_FLAG_NUMERIC {
+                        ctx.JS_ThrowTypeError(c"cannot convert bigint to number");
+                        Err(-1)
+                    } else {
+                        Ok(val.into())
+                    };
+                }
+                _ => {
+                    break Ok(JSValue::NAN);
+                }
+            }
+        }
+    }
+
+    /// Note: value `self` is consumed.
+    #[inline(always)]
+    pub fn coerce_number_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        unsafe { Self::do_coerce_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER) }
+    }
+
+    /// Note: value `self` is consumed.
+    #[inline(always)]
+    pub fn coerce_numeric_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        unsafe { Self::do_coerce_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC) }
+    }
+
+    /// Note: value `self` is not consumed.
+    #[inline(always)]
+    pub fn coerce_numeric(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        self.dup().coerce_numeric_free(ctx)
+    }
+
     /// coerce value to i32.
     /// NOTE: will consume self value once.
     pub unsafe fn to_i32_free(self, ctx: *mut JSContext) -> Result<i32, i32> {
@@ -243,58 +339,6 @@ pub unsafe fn JS_ToInt32Free(ctx: *mut JSContext, pres: *mut i32, val: JSValue) 
         *pres = v;
         0
     })
-
-    // let mut ret: i32;
-    // let mut val = val;
-
-    // loop {
-    //     match JS_VALUE_GET_NORM_TAG(val) {
-    //         JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-    //             ret = JS_VALUE_GET_INT(val);
-    //         }
-    //         JSTag::Float64 => {
-    //             union _U {
-    //                 d: f64,
-    //                 u64: u64,
-    //             }
-
-    //             let d = JS_VALUE_GET_FLOAT64(val);
-    //             let u = _U { d };
-
-    //             /* we avoid doing fmod(x, 2^32) */
-    //             let e = ((u.u64 >> 52) & 0x7ff) as i32;
-
-    //             if likely(e <= (1023 + 30)) {
-    //                 /* fast case */
-    //                 ret = d as i32;
-    //             } else if e <= (1023 + 30 + 53) {
-    //                 /* remainder modulo 2^32 */
-    //                 let mut v = (u.u64 & ((1u64 << 52) - 1)) | (1u64 << 52);
-    //                 v = v << ((e - 1023 - 52 + 32) as u32);
-    //                 ret = (v >> 32) as i32;
-    //                 /* take the sign into account */
-    //                 if (u.u64 >> 63) != 0 {
-    //                     ret = -ret;
-    //                 }
-    //             } else {
-    //                 ret = 0; /* also handles NaN and +inf */
-    //             }
-    //         }
-
-    //         _ => {
-    //             val = JS_ToNumberFree(ctx, val);
-    //             if JS_IsException(val) {
-    //                 *pres = 0;
-    //                 return -1;
-    //             }
-    //             continue;
-    //         }
-    //     }
-    //     break;
-    // }
-
-    // *pres = ret;
-    // 0
 }
 
 #[inline(always)]
@@ -403,6 +447,7 @@ pub unsafe fn JS_ToFloat64(ctx: *mut JSContext, pres: *mut f64, val: JSValueCons
     JS_ToFloat64Free(ctx, pres, JS_DupValue(ctx, val))
 }
 
+/// this hint is for BigInt only
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum JSToNumberHintEnum {
@@ -411,100 +456,109 @@ pub enum JSToNumberHintEnum {
 }
 
 /// returns value of int, float64, nan, exception
+#[deprecated(note = "use JSValue::do_coerce_number_free() instead")]
 pub unsafe fn JS_ToNumberHintFree(
     ctx: *mut JSContext,
-    mut val: JSValue,
+    val: JSValue,
     flag: JSToNumberHintEnum,
 ) -> JSValue {
-    loop {
-        match JS_VALUE_GET_NORM_TAG(val) {
-            JSTag::Int | JSTag::Float64 | JSTag::Exception => {
-                break val;
-            }
-            JSTag::Bool | JSTag::Null => {
-                break JSValue::from_i32(JS_VALUE_GET_INT(val));
-            }
-            JSTag::Undefined => {
-                break JS_NAN;
-            }
-            JSTag::Object => {
-                if let Ok(v) = val.coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NUMBER) {
-                    JS_FreeValue(ctx, val);
-                    val = v;
-                    continue;
-                } else {
-                    break JSValue::EXCEPTION;
-                }
-            }
-            JSTag::String => {
-                let v = if let Ok(str) = val.to_utf8_string(ctx.as_mut().unwrap()) {
-                    let len = str.len();
-                    let mut p = str.as_ptr();
-                    p = p.offset(skip_spaces(p.cast()) as isize);
+    JSValue::do_coerce_number_free(ctx.as_mut().unwrap(), val, flag).unwrap_or(JSValue::EXCEPTION)
 
-                    if (p as usize - str.as_ptr() as usize) == len {
-                        // is empty or white space string
-                        JSValue::ZERO
-                    } else {
-                        let mut r = js_atof(
-                            ctx,
-                            p.cast(),
-                            std::ptr::addr_of_mut!(p),
-                            0,
-                            ATOD_ACCEPT_BIN_OCT,
-                        );
-                        if !r.is_exception() {
-                            p = p.offset(skip_spaces(p.cast()) as isize);
-                            if (p as usize - str.as_ptr() as usize) != len {
-                                JS_FreeValue(ctx, r);
-                                r = JS_NAN;
-                            }
-                        }
-                        r
-                    }
-                } else {
-                    JS_FreeValue(ctx, val);
-                    JSValue::EXCEPTION
-                };
+    // loop {
+    //     match JS_VALUE_GET_NORM_TAG(val) {
+    //         JSTag::Int | JSTag::Float64 | JSTag::Exception => {
+    //             break val;
+    //         }
+    //         JSTag::Bool | JSTag::Null => {
+    //             break JSValue::from_i32(JS_VALUE_GET_INT(val));
+    //         }
+    //         JSTag::Undefined => {
+    //             break JS_NAN;
+    //         }
+    //         JSTag::Object => {
+    //             if let Ok(v) = val.coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NUMBER) {
+    //                 JS_FreeValue(ctx, val);
+    //                 val = v;
+    //                 continue;
+    //             } else {
+    //                 break JSValue::EXCEPTION;
+    //             }
+    //         }
+    //         JSTag::String => {
+    //             let v = if let Ok(str) = val.to_utf8_string(ctx.as_mut().unwrap()) {
+    //                 let len = str.len();
+    //                 let mut p = str.as_ptr();
+    //                 p = p.offset(skip_spaces(p.cast()) as isize);
 
-                JS_FreeValue(ctx, val);
-                break v;
-            }
-            JSTag::Symbol => {
-                JS_FreeValue(ctx, val);
-                break ctx
-                    .as_mut()
-                    .unwrap()
-                    .JS_ThrowTypeError(c"cannot convert symbol to number");
-            }
-            JSTag::BigInt => {
-                break if flag != JSToNumberHintEnum::TON_FLAG_NUMERIC {
-                    JS_FreeValue(ctx, val);
-                    ctx.as_mut()
-                        .unwrap()
-                        .JS_ThrowTypeError(c"cannot convert bigint to number")
-                } else {
-                    val
-                };
-            }
-            _ => {
-                JS_FreeValue(ctx, val);
-                break JS_NAN;
-            }
-        }
-    }
+    //                 if (p as usize - str.as_ptr() as usize) == len {
+    //                     // is empty or white space string
+    //                     JSValue::ZERO
+    //                 } else {
+    //                     let mut r = js_atof(
+    //                         ctx,
+    //                         p.cast(),
+    //                         std::ptr::addr_of_mut!(p),
+    //                         0,
+    //                         ATOD_ACCEPT_BIN_OCT,
+    //                     );
+    //                     if !r.is_exception() {
+    //                         p = p.offset(skip_spaces(p.cast()) as isize);
+    //                         if (p as usize - str.as_ptr() as usize) != len {
+    //                             JS_FreeValue(ctx, r);
+    //                             r = JS_NAN;
+    //                         }
+    //                     }
+    //                     r
+    //                 }
+    //             } else {
+    //                 JS_FreeValue(ctx, val);
+    //                 JSValue::EXCEPTION
+    //             };
+
+    //             JS_FreeValue(ctx, val);
+    //             break v;
+    //         }
+    //         JSTag::Symbol => {
+    //             JS_FreeValue(ctx, val);
+    //             break ctx
+    //                 .as_mut()
+    //                 .unwrap()
+    //                 .JS_ThrowTypeError(c"cannot convert symbol to number");
+    //         }
+    //         JSTag::BigInt => {
+    //             break if flag != JSToNumberHintEnum::TON_FLAG_NUMERIC {
+    //                 JS_FreeValue(ctx, val);
+    //                 ctx.as_mut()
+    //                     .unwrap()
+    //                     .JS_ThrowTypeError(c"cannot convert bigint to number")
+    //             } else {
+    //                 val
+    //             };
+    //         }
+    //         _ => {
+    //             JS_FreeValue(ctx, val);
+    //             break JS_NAN;
+    //         }
+    //     }
+    // }
 }
 
+#[deprecated(note = "use JSValue::coerce_number_free() instead")]
 pub unsafe fn JS_ToNumberFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    JS_ToNumberHintFree(ctx, val, JSToNumberHintEnum::TON_FLAG_NUMBER)
+    val.coerce_number_free(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
+#[deprecated(note = "use JSValue::coerce_numeric_free() instead")]
 pub unsafe fn JS_ToNumericFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    JS_ToNumberHintFree(ctx, val, JSToNumberHintEnum::TON_FLAG_NUMERIC)
+    val.coerce_numeric_free(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
+#[deprecated(note = "use JSValue::coerce_numeric() instead")]
 pub unsafe fn JS_ToNumeric(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    JS_ToNumericFree(ctx, JS_DupValue(ctx, val))
+    val.coerce_numeric(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
@@ -633,16 +687,16 @@ pub unsafe fn JS_ToInt32Clamp(
     res
 }
 
-pub unsafe fn JS_NumberIsNegativeOrMinusZero(ctx: *mut JSContext, val: JSValueConst) -> bool {
+pub fn JS_NumberIsNegativeOrMinusZero(ctx: *mut JSContext, val: JSValueConst) -> bool {
     match JS_VALUE_GET_NORM_TAG(val) {
         JSTag::Int => {
             let v = JS_VALUE_GET_INT(val);
             v < 0
         }
         JSTag::Float64 => {
-            let mut u: JSFloat64Union = std::mem::zeroed();
+            let mut u: JSFloat64Union = JSFloat64Union { u64: 0 };
             u.d = JS_VALUE_GET_FLOAT64(val);
-            (u.u64 >> 63) != 0
+            unsafe { (u.u64 >> 63) != 0 }
         }
         JSTag::BigInt => {
             // let p: *mut JSBigFloat = JS_VALUE_GET_PTR(val);
@@ -656,13 +710,13 @@ pub unsafe fn JS_NumberIsNegativeOrMinusZero(ctx: *mut JSContext, val: JSValueCo
 
 /* radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT */
 /* use as many digits as necessary */
-pub const JS_DTOA_VAR_FORMAT: i32 = (0 << 0);
+pub const JS_DTOA_VAR_FORMAT: i32 = 0;
 /* use n_digits significant digits (1 <= n_digits <= 101) */
-pub const JS_DTOA_FIXED_FORMAT: i32 = (1 << 0);
+pub const JS_DTOA_FIXED_FORMAT: i32 = 1;
 /* force fractional format: [-]dd.dd with n_digits fractional digits */
-pub const JS_DTOA_FRAC_FORMAT: i32 = (2 << 0);
+pub const JS_DTOA_FRAC_FORMAT: i32 = 2;
 /* force exponential notation either in fixed or variable format */
-pub const JS_DTOA_FORCE_EXP: i32 = (1 << 2);
+pub const JS_DTOA_FORCE_EXP: i32 = 4;
 
 const JS_DTOA_BUF_SIZE: usize = 128;
 

@@ -47,7 +47,13 @@ mod nb_value {
     }
 
     pub const JS_FLOAT64_TAG_ADDEND: i32 = 0x7ff80000 - JS_TAG_FIRST + 1;
+
+    #[deprecated(note = "use JSValue::NAN instead")]
     pub const JS_NAN: u64 = 0x7ff8000000000000 - ((JS_FLOAT64_TAG_ADDEND as u64) << 32);
+
+    impl JSValue {
+        pub const NAN: Self = 0x7ff8000000000000 - ((JS_FLOAT64_TAG_ADDEND as u64) << 32);
+    }
 
     #[inline(always)]
     pub fn JS_VALUE_GET_FLOAT64(v: JSValue) -> f64 {
@@ -90,6 +96,7 @@ mod nb_value {
         (v & 0xFFFF_FFFF) as *mut c_void
     }
 }
+
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::*;
 
@@ -150,6 +157,14 @@ mod nnb_value {
         }};
     }
 
+    impl JSValue {
+        pub const NAN: Self = Self {
+            tag: super::JSTag::Float64,
+            u: JSValueUnion { float64: f64::NAN },
+        };
+    }
+
+    #[deprecated(note = "use JSValue::NAN instead")]
     pub const JS_NAN: JSValue = JSValue {
         tag: super::JSTag::Float64,
         u: JSValueUnion { float64: f64::NAN },
@@ -191,9 +206,9 @@ mod nnb_value {
         unsafe { v.u.ptr }
     }
 }
+
 #[cfg(not(feature = "nan_boxing"))]
 pub use nnb_value::*;
-use smallvec::SmallVec;
 
 pub type JSValueConst = JSValue;
 
