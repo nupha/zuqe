@@ -15,9 +15,7 @@ use crate::{
     JS_CLASS_PROMISE,
 };
 
-use super::{
-    job::promise_reaction_job, js_promise_resolve, JSPromiseData, JSPromiseStateEnum, PromiseValue,
-};
+use super::{job::promise_reaction_job, JSPromiseData, JSPromiseStateEnum, PromiseValue};
 
 pub struct JSPromiseReactionData {
     // not used in promise_reaction_job
@@ -38,10 +36,10 @@ impl JSPromiseReactionData {
 }
 
 impl PromiseValue {
-    /// Create chained promise of `then()` reaction.
+    /// Register then() reaction handlers to `self` promise.
     /// `cap_resolving_funcs` - thrownawayCapability.
-    /// `resolve_reject` and `cap_resolving_funcs` are not consumed.
-    pub unsafe fn then(
+    /// Note: `resolve_reject` and `cap_resolving_funcs` are not consumed.
+    pub unsafe fn reaction_then(
         self,
         ctx: &mut JSContext,
         resolve_reject: &[JSValue; 2],
@@ -73,9 +71,11 @@ impl PromiseValue {
         }
 
         if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
+            // register pending to call later in micro task job
             list_add_tail(&mut (*rd_array[0]).link, &mut (*s).promise_reactions[0]);
             list_add_tail(&mut (*rd_array[1]).link, &mut (*s).promise_reactions[1]);
         } else {
+            // call immediately
             if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !(*s).is_handled {
                 if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                     cb(
@@ -113,5 +113,38 @@ impl PromiseValue {
 
         (*s).is_handled = true;
         Ok(())
+    }
+
+    /// create new promise for `then()`, register reaction handlers to `self` promise.
+    /// `resolve` and `reject` are callback functions.
+    /// `resolve` and `reject` are not consumed.
+    pub unsafe fn then(
+        self,
+        ctx: &mut JSContext,
+        resolve: JSValue,
+        reject: JSValue,
+    ) -> Result<Self, i32> {
+        let s = JS_GetOpaque2(ctx, self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+        if s.is_null() {
+            return Err(-1);
+        }
+
+        let ctor = JS_SpeciesConstructor(ctx, self.0, JSValue::UNDEFINED)
+            .check_exception()?
+            .into_rc(ctx.rt());
+
+        let (result_promise, resolving_funcs) = ctx.create_promise(*ctor)?;
+
+        // perform reaction
+        let ret = self.reaction_then(ctx, &[resolve, reject], &resolving_funcs);
+        JS_FreeValue(ctx, resolving_funcs[0]);
+        JS_FreeValue(ctx, resolving_funcs[1]);
+
+        if ret.is_err() {
+            JS_FreeValue(ctx, result_promise.into());
+            Err(-1)
+        } else {
+            Ok(result_promise)
+        }
     }
 }

@@ -1,5 +1,7 @@
 use std::{borrow::Cow, rc::Rc};
 
+use smallvec::SmallVec;
+
 use crate::{
     atom::JSAtomStruct, context::JSContext, function::JSFunctionBytecode, runtime::JSRuntime,
 };
@@ -38,6 +40,78 @@ pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: &Rc<JSString>) {
 }
 
 impl JSValue {
+    /// get string representation of value
+    pub fn repr(self, rt: &JSRuntime) -> Cow<'_, str> {
+        match JS_VALUE_GET_NORM_TAG(self) {
+            JSTag::Int => format!("{}", JS_VALUE_GET_INT(self)).into(),
+            JSTag::Bool => if JS_VALUE_GET_BOOL(self) {
+                "true"
+            } else {
+                "false"
+            }
+            .into(),
+            JSTag::Null => "null".into(),
+            JSTag::Exception => "exception".into(),
+            JSTag::Uninitialized => "uninitialized".into(),
+            JSTag::Undefined => "undefined".into(),
+            JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
+            JSTag::String => {
+                let p = unsafe { self.string() };
+                let sep = '\"';
+                let mut buf = SmallVec::<[u8; 128]>::new();
+                buf.push(sep as u8);
+                for c in p.content().chars() {
+                    match c {
+                        '\'' | '"' if c == sep => {
+                            buf.extend_from_slice(format!("\\{c}").as_bytes());
+                        }
+                        '\n' => {
+                            buf.extend_from_slice(b"\\n");
+                        }
+                        '\r' => {
+                            buf.extend_from_slice(b"\\r");
+                        }
+                        '\t' => {
+                            buf.extend_from_slice(b"\\t");
+                        }
+                        '\\' => {
+                            buf.extend_from_slice(b"\\\\");
+                        }
+                        ' '..='~' => {
+                            buf.push(c as u8);
+                        }
+                        _ => {
+                            buf.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes());
+                        }
+                    }
+                }
+                buf.push(sep as u8);
+                String::from_utf8(buf.to_vec()).unwrap().into()
+            }
+            JSTag::FunctionBytecode => {
+                let b = JS_VALUE_GET_PTR(self).cast::<JSFunctionBytecode>();
+                format!("[bytecode {}]", unsafe { (*b).func_name.to_str(rt) }).into()
+            }
+            JSTag::Object => {
+                let p = unsafe { self.object() };
+                let atom = rt.class_array[p.class_id() as usize].class_name;
+                format!("[{} {p:p}]", atom.to_str(rt)).into()
+            }
+            JSTag::Symbol => {
+                let p = JS_VALUE_GET_PTR(self).cast::<JSAtomStruct>();
+                format!("Symbol({})", unsafe {
+                    (*p).atom_info().unwrap().atom().to_str(rt)
+                })
+                .into()
+            }
+            JSTag::CatchOffset => "catchoffset".into(),
+            JSTag::Module => "[module]".into(),
+            JSTag::BigInt | JSTag::BigDecimal | JSTag::BigFloat => {
+                unimplemented!();
+            }
+        }
+    }
+
     pub unsafe fn dump(self, rt: &JSRuntime) {
         let str: Cow<'static, str> = match JS_VALUE_GET_NORM_TAG(self) {
             JSTag::Int => format!("{}", JS_VALUE_GET_INT(self)).into(),

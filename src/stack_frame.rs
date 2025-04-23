@@ -47,7 +47,11 @@ impl JSStackFrame {
     /// get argument values slice
     #[inline(always)]
     pub fn args_slice(&self) -> &[JSValue] {
-        unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_count as usize) }
+        if self.arg_count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_count as usize) }
+        }
     }
 
     /// get stack base pointer

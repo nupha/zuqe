@@ -17,7 +17,7 @@ use crate::{
     types::{init_list_head, list_add, list_add_tail, list_del},
     value::{
         object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
     },
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
@@ -285,7 +285,7 @@ pub unsafe fn js_async_function_call(
         (*s).resolving_funcs = resolving_funcs;
         js_async_function_resume(ctx, s);
         async_func_free(ctx.rt_mut(), s);
-        promise
+        promise.as_value()
     } else {
         async_func_free(ctx.rt_mut(), s);
         JSValue::EXCEPTION
@@ -366,7 +366,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
                 [JSValue::UNDEFINED; 2]
             };
 
-        let res = promise.as_promise_unchecked().then(
+        let res = promise.as_promise_unchecked().reaction_then(
             ctx.as_mut().unwrap(),
             &resolving_funcs,
             &[JSValue::UNDEFINED; 2], // no need to create 'thrownawayCapability' as in the spec

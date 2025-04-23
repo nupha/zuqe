@@ -459,7 +459,7 @@ pub unsafe fn js_async_generator_completed_return(
         true,
     )?;
 
-    let res = promise.as_promise_unchecked().then(
+    let res = promise.as_promise_unchecked().reaction_then(
         ctx,
         &resolving_funcs1,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
@@ -486,7 +486,7 @@ pub unsafe fn js_async_generator_await(
         false,
     )?;
 
-    let res = promise.as_promise_unchecked().then(
+    let res = promise.as_promise_unchecked().reaction_then(
         ctx,
         &resolving_funcs,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED], // no need to create 'thrownawayCapability' as in the spec
@@ -610,14 +610,15 @@ pub unsafe fn js_async_generator_next(
         JS_FreeValue(ctx, res2);
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
-        return promise;
+
+        return promise.into();
     }
 
     let mut req = Box::new(JSAsyncGeneratorRequest {
         link: list_head::default(),
         completion_type: magic,
         result: (*argv.offset(0)).dup(),
-        promise: promise.dup(),
+        promise: promise.as_value().dup(),
         resolving_funcs,
     });
     // // malloc fail
@@ -635,7 +636,7 @@ pub unsafe fn js_async_generator_next(
         (*s).resume_next(ctx.as_mut().unwrap());
     }
 
-    promise
+    promise.into()
 }
 
 pub unsafe fn js_iterator_proto_iterator(

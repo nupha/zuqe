@@ -858,8 +858,8 @@ pub unsafe fn JS_InstantiateFunctionListItem2(
             val = JS_NewObject(ctx);
             JS_SetPropertyFunctionList(ctx, val, (*e).u.prop_list.tab, (*e).u.prop_list.len as _);
         }
-        _ => {
-            unreachable!();
+        t => {
+            unreachable!("invalid def_type {t}");
         }
     }
 

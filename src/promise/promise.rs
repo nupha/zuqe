@@ -60,6 +60,13 @@ pub struct JSPromiseData {
 #[derive(Debug, Clone, Copy)]
 pub struct PromiseValue(pub(super) JSValue);
 
+impl From<PromiseValue> for JSValue {
+    #[inline(always)]
+    fn from(value: PromiseValue) -> Self {
+        value.0
+    }
+}
+
 impl PromiseValue {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
@@ -122,7 +129,10 @@ impl PromiseValue {
     /// `ctor` is a customized constructor function value to instantiate Promise object:
     ///  - when provised, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
-    pub unsafe fn new(ctx: &mut JSContext, ctor: JSValue) -> Result<(JSValue, [JSValue; 2]), i32> {
+    pub unsafe fn new(
+        ctx: &mut JSContext,
+        ctor: JSValue,
+    ) -> Result<(PromiseValue, [JSValue; 2]), i32> {
         let mut executor = ctx.create_native_callable_object(
             PromiseValue::hook_executor,
             2,
@@ -159,7 +169,12 @@ impl PromiseValue {
         let resolving_funcs = [data[0].dup(), data[1].dup()];
         JS_FreeValue(ctx, executor);
 
-        Ok((result_promise, resolving_funcs))
+        Ok((result_promise.as_promise_unchecked(), resolving_funcs))
+    }
+
+    #[inline(always)]
+    pub fn as_value(self) -> JSValue {
+        unsafe { std::mem::transmute(self.0) }
     }
 
     #[inline(always)]
@@ -341,7 +356,10 @@ impl JSContext {
     /// returns Promise object and [resolve, reject] functions.
     /// this is just a shortcut for `PromiseValue::new(ctx, ctor)`.
     #[inline(always)]
-    pub fn create_promise(&mut self, ctor: JSValueConst) -> Result<(JSValue, [JSValue; 2]), i32> {
+    pub fn create_promise(
+        &mut self,
+        ctor: JSValueConst,
+    ) -> Result<(PromiseValue, [JSValue; 2]), i32> {
         unsafe { PromiseValue::new(self, ctor) }
     }
 }
@@ -511,9 +529,4 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
     }
 
     Ok(JSValue::UNDEFINED)
-}
-
-#[deprecated(note = "use PromiseValue::result() instead")]
-pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
-    promise.as_promise_unchecked().result()
 }

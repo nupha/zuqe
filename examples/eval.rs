@@ -92,10 +92,11 @@ fn main() {
                 exc.object().dump(js.as_ref());
                 JS_FreeValue(ctx.deref_mut(), exc);
             } else {
-                println!(">>> RESULT: {r:?}");
-                r.dump((*ctx).rt());
-                println!();
-                JS_FreeValue(ctx.deref_mut(), r);
+                // println!(">>> RESULT: {r:?}, {:?}", r.to_utf8_string(ctx.deref_mut()));
+                println!(">>> RESULT: {r:?}, {:?}", r.repr(ctx.rt()));
+                // println!(">>> RESULT: {r:?}");
+                // r.dump(ctx.rt());
+                // println!();
 
                 if let Some(pr) = r.as_promise() {
                     let v = pr.result();
@@ -103,6 +104,8 @@ fn main() {
                     println!("promise result: {:?}", v);
                     JS_FreeValue(ctx.as_raw().as_ptr(), v);
                 }
+
+                JS_FreeValue(ctx.deref_mut(), r);
             }
 
             // JS_DumpGCObjects(js.as_mut());

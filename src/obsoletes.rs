@@ -511,7 +511,7 @@ pub unsafe fn JS_NewPromiseCapability(
     if let Ok((promise, rr)) = (*ctx).create_promise(JSValue::UNDEFINED) {
         *resolving_funcs.add(0) = rr[0];
         *resolving_funcs.add(1) = rr[1];
-        promise
+        promise.into()
     } else {
         JSValue::EXCEPTION
     }
@@ -571,7 +571,7 @@ pub unsafe fn perform_promise_then(
     resolve_reject: &[JSValue; 2],
     cap_resolving_funcs: &[JSValue; 2],
 ) -> Result<(), i32> {
-    promise.then(ctx, resolve_reject, cap_resolving_funcs)
+    promise.reaction_then(ctx, resolve_reject, cap_resolving_funcs)
 }
 
 /// parse import statement
@@ -590,4 +590,9 @@ pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
 #[deprecated(note = "use JSModuleDef::eval() instead")]
 pub unsafe fn js_evaluate_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
     (*m).eval(ctx.as_mut().unwrap())
+}
+
+#[deprecated(note = "use PromiseValue::result() instead")]
+pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
+    promise.as_promise_unchecked().result()
 }

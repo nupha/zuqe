@@ -120,7 +120,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
     let (promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(JSValue::UNDEFINED)
     {
         (
-            pr.into_rc((*ctx).rt()),
+            pr.as_value().into_rc((*ctx).rt()),
             [rr[0].into_rc((*ctx).rt()), rr[1].into_rc((*ctx).rt())],
         )
     } else {
@@ -223,7 +223,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
         JSValueRc::undefined((*ctx).rt()),
     ];
 
-    let res = value_wrapper_promise.as_promise_unchecked().then(
+    let res = value_wrapper_promise.as_promise_unchecked().reaction_then(
         ctx.as_mut().unwrap(),
         &[*resolve_reject[0], *resolve_reject[1]],
         &[*resolving_funcs[0], *resolving_funcs[1]],

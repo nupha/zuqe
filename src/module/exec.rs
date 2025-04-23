@@ -6,8 +6,7 @@ use crate::{
     function::{js_async_function_call, CallArgs, JS_Call},
     mem::{js_free, js_resize_array},
     module::JSModuleStatus,
-    obsoletes::JS_PromiseState,
-    promise::{js_promise_then, JSPromiseStateEnum, JS_PromiseResult},
+    promise::{self, js_promise_then, JSPromiseStateEnum},
     runtime::js_check_stack_overflow,
     value::{JSValue, JS_FreeValue, JS_VALUE_GET_PTR},
 };
@@ -36,7 +35,7 @@ impl JSModuleDef {
 
         if let Ok((promise, rr)) = ctx.create_promise(JSValue::UNDEFINED) {
             m.resolving_funcs = rr;
-            m.promise = promise;
+            m.promise = promise.into();
         } else {
             return JSValue::EXCEPTION;
         }
@@ -452,7 +451,7 @@ impl JSModuleDef {
                 return Err(ctx.get_exception());
             }
         } else {
-            let promise = js_async_function_call(
+            let ret_val = js_async_function_call(
                 ctx,
                 self.func_obj,
                 JSValue::UNDEFINED,
@@ -460,21 +459,23 @@ impl JSModuleDef {
                 std::ptr::null_mut(),
                 0,
             );
-            if promise.is_exception() {
+            if ret_val.is_exception() {
                 return Err(ctx.get_exception());
             }
 
-            match JS_PromiseState(ctx, promise).unwrap() {
+            let promise = ret_val.as_promise_unchecked(); // must be a Promise
+
+            match promise.state().unwrap() {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED => {
-                    JS_FreeValue(ctx, promise);
+                    JS_FreeValue(ctx, promise.into());
                 }
                 JSPromiseStateEnum::JS_PROMISE_REJECTED => {
-                    let val = JS_PromiseResult(ctx, promise);
-                    JS_FreeValue(ctx, promise);
+                    let val = promise.result();
+                    JS_FreeValue(ctx, promise.into());
                     return Err(val);
                 }
                 JSPromiseStateEnum::JS_PROMISE_PENDING => {
-                    JS_FreeValue(ctx, promise);
+                    JS_FreeValue(ctx, promise.into());
                     ctx.JS_ThrowTypeError(c"promise is pending");
                     return Err(ctx.get_exception());
                 }
