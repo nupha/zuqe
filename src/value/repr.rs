@@ -13,9 +13,9 @@ use crate::{
 };
 
 use super::{
-    js_dtoa, JSString, JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING, JS_DTOA_VAR_FORMAT,
-    JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-    JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+    f64_stringify, js_dtoa, JSString, JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING,
+    JS_DTOA_VAR_FORMAT, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
+    JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
 };
 
 impl JSValue {
@@ -33,7 +33,10 @@ impl JSValue {
             JSTag::Null => "null".into(),
             JSTag::Exception => "[exception]".into(),
             JSTag::Uninitialized => "[uninitialized]".into(),
-            JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
+            JSTag::Float64 => {
+                println!("[O.o] f={}", JS_VALUE_GET_FLOAT64(self));
+                format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into()
+            }
             JSTag::String => {
                 let p = unsafe { self.string() };
                 let sep = '\"';
@@ -129,9 +132,11 @@ impl JSValue {
                 }
             }
             JSTag::Module => ctx.create_string("[module]"),
-            JSTag::Float64 => unsafe {
-                js_dtoa(ctx, JS_VALUE_GET_FLOAT64(self), 10, 0, JS_DTOA_VAR_FORMAT)
-            },
+            JSTag::Float64 => {
+                //js_dtoa(ctx, JS_VALUE_GET_FLOAT64(self), 10, 0, JS_DTOA_VAR_FORMAT)
+                let s = f64_stringify(JS_VALUE_GET_FLOAT64(self));
+                ctx.create_string(s.as_ref())
+            }
             JSTag::Uninitialized => ctx.create_string("[uninitialized]"),
             JSTag::CatchOffset => ctx.create_string("[cacthoffset]"),
             JSTag::BigDecimal | JSTag::BigFloat | JSTag::BigInt => {

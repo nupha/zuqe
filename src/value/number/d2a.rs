@@ -1,4 +1,4 @@
-use std::{ffi::CStr, io::Write};
+use std::{borrow::Cow, ffi::CStr, io::Write};
 
 use crate::{
     context::JSContext,
@@ -50,6 +50,37 @@ impl RoundingMode {
     }
 }
 
+pub fn f64_stringify<'a>(d: f64) -> Cow<'a, str> {
+    if !d.is_finite() {
+        return if d.is_nan() {
+            "NaN"
+        } else {
+            if d < 0.0 {
+                "Infinity"
+            } else {
+                "-Infinity"
+            }
+        }
+        .into();
+    }
+
+    let i64 = d as i64;
+
+    if d != i64 as f64 || i64 > MAX_SAFE_INTEGER || i64 < -MAX_SAFE_INTEGER {
+        let ad = d.abs();
+        if ad >= 1e21 || ad <= 1e-1 {
+            // use exponential format
+            format!("{d:.e}")
+        } else {
+            format!("{d}")
+        }
+        .into()
+    } else {
+        // valid integer
+        format!("{i64}").into()
+    }
+}
+
 /* XXX: slow and maybe not fully correct. Use libbf when it is fast enough.
    XXX: radix != 10 is only supported for small integers
 */
@@ -76,8 +107,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
         let ptr: *mut u8;
         let i64 = d as i64;
         if d != i64 as f64 || i64 > MAX_SAFE_INTEGER || i64 < -MAX_SAFE_INTEGER {
-            // C2RS: goto generic_conv converted to inline code
-            let is_fixed = (flags & 3) == JS_DTOA_FIXED_FORMAT;
+            let is_fixed = flags & 3 == JS_DTOA_FIXED_FORMAT;
             let n_max = if is_fixed { n_digits } else { 21 };
             let mut decpt: i32 = 0;
             let mut sign: i32 = 0;
@@ -397,6 +427,8 @@ pub unsafe fn js_ecvt1(
         buf1.add(n_digits as usize + 2 + if n_digits > 1 { 1 } else { 0 })
             .cast(),
     ) + 1;
+
+    println!("[O.o] ecvt1: {:?}", CStr::from_ptr(buf.cast()));
 }
 
 // needed because ecvt usually limits the number of digits to

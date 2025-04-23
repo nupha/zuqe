@@ -9,14 +9,13 @@ use crate::{
         is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToFloat64Free,
         JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
-        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        JS_DTOA_FRAC_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_ALIAS_BASE_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER,
     JS_PROP_DOUBLE_DEF,
 };
 
-use super::{js_atof, JS_ToInt32, ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY};
+use super::{f64_stringify, js_atof, JS_ToInt32, ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY};
 
 pub unsafe fn js_thisNumberValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
     if JS_IsNumber(this_val) {
@@ -120,7 +119,8 @@ pub unsafe fn js_number_toString(
     if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
         JSValue::EXCEPTION
     } else {
-        js_dtoa(ctx, d, base, 0, JS_DTOA_VAR_FORMAT)
+        // js_dtoa(ctx, d, base, 0, JS_DTOA_VAR_FORMAT)
+        (*ctx).create_string(f64_stringify(d).as_ref())
     }
 }
 
@@ -179,7 +179,7 @@ pub unsafe fn js_number_toExponential(
         return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
     }
 
-    let flags = if JS_IsUndefined(unsafe { *argv.offset(0) }) {
+    let flags = if JS_IsUndefined(*argv.offset(0)) {
         f = 0;
         0
     } else {

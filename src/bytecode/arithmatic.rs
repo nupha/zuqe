@@ -59,7 +59,7 @@ impl BinaryOp {
             let n1 = if JS_VALUE_GET_TAG(op1) == JS_TAG_INT {
                 JS_VALUE_GET_INT(op1)
             } else {
-                if let Ok(n) = op1.coerce_i32_free(ctx.as_mut().unwrap()) {
+                if let Ok(n) = op1.coerce_to_i32_free(ctx.as_mut().unwrap()) {
                     n
                 } else {
                     JS_FreeValue(ctx, op2);
@@ -70,7 +70,7 @@ impl BinaryOp {
             let n2 = if JS_VALUE_GET_TAG(op2) == JS_TAG_INT {
                 JS_VALUE_GET_INT(op2)
             } else {
-                if let Ok(n) = op2.coerce_i32_free(ctx.as_mut().unwrap()) {
+                if let Ok(n) = op2.coerce_to_i32_free(ctx.as_mut().unwrap()) {
                     n
                 } else {
                     return Err(-1);
@@ -150,10 +150,10 @@ impl BinaryOp {
                             op2 = p2;
                         } else {
                             let n1 = JSValue::from(op1)
-                                .coerce_numeric_free(ctx.as_mut().unwrap())?
+                                .coerce_to_numeric_free(ctx.as_mut().unwrap())?
                                 .into_rc((*ctx).rt());
                             let n2 = JSValue::from(op2)
-                                .coerce_number_free(ctx.as_mut().unwrap())?
+                                .coerce_to_number_free(ctx.as_mut().unwrap())?
                                 .into_rc((*ctx).rt());
 
                             op1 = n1;
@@ -396,14 +396,14 @@ impl UnaryOp {
             JSTag::Float64 if allow_float => Ok(UnaryOp::Float(JS_VALUE_GET_FLOAT64(val))),
             _ => {
                 if allow_float {
-                    let n = val.coerce_number_free(ctx)?;
+                    let n = val.coerce_to_number_free(ctx)?;
                     match JS_VALUE_GET_NORM_TAG(n) {
                         JSTag::Int => Ok(UnaryOp::Int(JS_VALUE_GET_INT(n))),
                         JSTag::Float64 => Ok(UnaryOp::Float(JS_VALUE_GET_FLOAT64(val))),
                         _ => unreachable!(),
                     }
                 } else {
-                    unsafe { val.coerce_i32_free(ctx).map(|i| Self::Int(i)) }
+                    unsafe { val.coerce_to_i32_free(ctx).map(|i| Self::Int(i)) }
                 }
             }
         }
@@ -414,7 +414,7 @@ impl UnaryOp {
     pub fn new_int(ctx: &mut JSContext, op1: JSValue) -> Result<Self, i32> {
         match JS_VALUE_GET_NORM_TAG(op1) {
             JSTag::Int => Ok(Self::Int(JS_VALUE_GET_INT(op1))),
-            _ => unsafe { op1.coerce_i32_free(ctx).map(|i| Self::Int(i)) },
+            _ => unsafe { op1.coerce_to_i32_free(ctx).map(|i| Self::Int(i)) },
         }
     }
 
@@ -556,7 +556,9 @@ impl JSValue {
             (JSTag::Object, JSTag::Object) => unsafe {
                 self.object() as *mut JSObject == other.object() as *mut JSObject
             },
-            (JSTag::Int, JSTag::Float64) | (JSTag::Float64, JSTag::Int) => {
+            (JSTag::Int, JSTag::Float64)
+            | (JSTag::Float64, JSTag::Int)
+            | (JSTag::Float64, JSTag::Float64) => {
                 let d1 = if tag1 == JSTag::Int {
                     JS_VALUE_GET_INT(self) as f64
                 } else {
@@ -710,14 +712,14 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
                     println!("BigInt is not supported");
                     break false;
                 } else {
-                    if let Ok(n) = op1.coerce_numeric_free(ctx.as_mut().unwrap()) {
+                    if let Ok(n) = op1.coerce_to_numeric_free(ctx.as_mut().unwrap()) {
                         op1 = n;
                     } else {
                         JS_FreeValue(ctx, op2);
                         exception!();
                     }
 
-                    if let Ok(n) = op2.coerce_numeric_free(ctx.as_mut().unwrap()) {
+                    if let Ok(n) = op2.coerce_to_numeric_free(ctx.as_mut().unwrap()) {
                         op2 = n;
                     } else {
                         JS_FreeValue(ctx, op1);

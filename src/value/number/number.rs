@@ -1,5 +1,3 @@
-use std::{ffi::CStr, io::Write};
-
 use crate::{
     context::JSContext,
     utils::skip_spaces,
@@ -11,7 +9,7 @@ use crate::{
     JS_MKVAL,
 };
 
-use super::{super::string::strstart, js_atof, ATOD_ACCEPT_BIN_OCT};
+use super::{js_atof, ATOD_ACCEPT_BIN_OCT};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
@@ -149,7 +147,7 @@ impl JSValue {
 
     /// coerce `val` value to number value according to converting hint.
     /// Note: `val` is consumed.
-    unsafe fn do_coerce_number_free(
+    unsafe fn do_coerce_to_number_free(
         ctx: &mut JSContext,
         val: JSValue,
         flag: JSToNumberHintEnum,
@@ -227,31 +225,31 @@ impl JSValue {
 
     /// Note: value `self` is consumed.
     #[inline(always)]
-    pub fn coerce_number_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        unsafe { Self::do_coerce_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER) }
+    pub fn coerce_to_number_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        unsafe { Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER) }
     }
 
     /// Note: value `self` is consumed.
     #[inline(always)]
-    pub fn coerce_numeric_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        unsafe { Self::do_coerce_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC) }
+    pub fn coerce_to_numeric_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        unsafe { Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC) }
     }
 
     /// Note: `self` is not consumed.
     #[inline(always)]
-    pub unsafe fn coerce_number(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        self.dup().coerce_number_free(ctx)
+    pub unsafe fn coerce_to_number(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        self.dup().coerce_to_number_free(ctx)
     }
 
     /// Note: `self` is not consumed.
     #[inline(always)]
-    pub fn coerce_numeric(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        self.dup().coerce_numeric_free(ctx)
+    pub fn coerce_to_numeric(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        self.dup().coerce_to_numeric_free(ctx)
     }
 
     /// coerce value to i32.
     /// Note: value `self` is consumed
-    pub unsafe fn coerce_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
+    pub unsafe fn coerce_to_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
         let mut val = self;
 
         let ret: i32 = loop {
@@ -287,7 +285,7 @@ impl JSValue {
                     };
                 }
                 _ => {
-                    val = val.coerce_number_free(ctx)?;
+                    val = val.coerce_to_number_free(ctx)?;
                     continue;
                 }
             }
@@ -336,10 +334,11 @@ pub unsafe fn JS_NumberIsInteger(ctx: *mut JSContext, val: JSValueConst) -> i32 
 /* return (<0, 0) in case of exception */
 #[deprecated(note = "use JSValue::to_i32_free() instead")]
 pub unsafe fn JS_ToInt32Free(ctx: *mut JSContext, pres: *mut i32, val: JSValue) -> i32 {
-    val.coerce_i32_free(ctx.as_mut().unwrap()).map_or(-1, |v| {
-        *pres = v;
-        0
-    })
+    val.coerce_to_i32_free(ctx.as_mut().unwrap())
+        .map_or(-1, |v| {
+            *pres = v;
+            0
+        })
 }
 
 #[inline(always)]
@@ -393,7 +392,7 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
                 return -1;
             }
             _ => {
-                if let Ok(n) = val.coerce_number_free(ctx.as_mut().unwrap()) {
+                if let Ok(n) = val.coerce_to_number_free(ctx.as_mut().unwrap()) {
                     val = n;
                     continue 'redo;
                 } else {
@@ -412,7 +411,7 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
 
 /// Note: `val` is consumed
 pub unsafe fn __JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue) -> i32 {
-    if let Ok(v) = val.coerce_number_free(ctx.as_mut().unwrap()) {
+    if let Ok(v) = val.coerce_to_number_free(ctx.as_mut().unwrap()) {
         let d: f64 = match JS_VALUE_GET_NORM_TAG(v) {
             JSTag::Int => JS_VALUE_GET_INT(v) as f64,
             JSTag::Float64 => JS_VALUE_GET_FLOAT64(v),
@@ -462,24 +461,25 @@ pub unsafe fn JS_ToNumberHintFree(
     val: JSValue,
     flag: JSToNumberHintEnum,
 ) -> JSValue {
-    JSValue::do_coerce_number_free(ctx.as_mut().unwrap(), val, flag).unwrap_or(JSValue::EXCEPTION)
+    JSValue::do_coerce_to_number_free(ctx.as_mut().unwrap(), val, flag)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_number_free() instead")]
 pub unsafe fn JS_ToNumberFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    val.coerce_number_free(ctx.as_mut().unwrap())
+    val.coerce_to_number_free(ctx.as_mut().unwrap())
         .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric_free() instead")]
 pub unsafe fn JS_ToNumericFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    val.coerce_numeric_free(ctx.as_mut().unwrap())
+    val.coerce_to_numeric_free(ctx.as_mut().unwrap())
         .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric() instead")]
 pub unsafe fn JS_ToNumeric(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    val.coerce_numeric(ctx.as_mut().unwrap())
+    val.coerce_to_numeric(ctx.as_mut().unwrap())
         .unwrap_or(JSValue::EXCEPTION)
 }
 

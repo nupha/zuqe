@@ -615,7 +615,7 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
         let num = if let Ok(n) = p1
             .clone()
             .into_value()
-            .coerce_number_free(ctx.as_mut().unwrap())
+            .coerce_to_number_free(ctx.as_mut().unwrap())
         {
             n
         } else {

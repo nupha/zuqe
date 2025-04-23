@@ -48,7 +48,7 @@ pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValu
 /// `val` keeps ref count after calling this function.
 #[deprecated(note = "use JSValue::coerce_number() instead")]
 pub unsafe fn JS_ToNumber(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    val.coerce_number(ctx.as_mut().unwrap())
+    val.coerce_to_number(ctx.as_mut().unwrap())
         .unwrap_or(JSValue::EXCEPTION)
 }
 

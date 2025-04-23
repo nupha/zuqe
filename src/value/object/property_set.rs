@@ -461,7 +461,7 @@ impl JSValue {
                         //     return -1;
                         // }
                     } else {
-                        let v = val.coerce_number_free(ctx)?; // consume val
+                        let v = val.coerce_to_number_free(ctx)?; // consume val
                         JS_FreeValue(ctx, v);
                     }
                     return Ok(true);
@@ -554,7 +554,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                        let v = if let Ok(n) = val.coerce_i32_free(ctx) {
+                        let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
                             n as u8
                         } else {
                             return Err(-1);
@@ -567,7 +567,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
-                        let v = if let Ok(n) = val.coerce_i32_free(ctx) {
+                        let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
                             n as u16
                         } else {
                             return Err(-1);
@@ -580,7 +580,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
-                        let v = if let Ok(n) = val.coerce_i32_free(ctx) {
+                        let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
                             n as u32
                         } else {
                             return Err(-1);

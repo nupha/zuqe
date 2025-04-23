@@ -549,7 +549,6 @@ impl JSValue {
                 }
                 Cow::Owned(t) => Cow::Owned(t),
             };
-
             Ok(ret)
         } else {
             let tmp = self.coerce_to_string_value(ctx)?;

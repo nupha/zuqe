@@ -446,7 +446,7 @@ pub unsafe fn JS_ToArrayLengthFree(
             unimplemented!()
         }
         _ if is_array_ctor => {
-            let v = val.coerce_number_free(ctx.as_mut().unwrap())?;
+            let v = val.coerce_to_number_free(ctx.as_mut().unwrap())?;
             // won't recurse because v is a number
             len = JS_ToArrayLengthFree(ctx, v, true)?;
         }
@@ -462,7 +462,7 @@ pub unsafe fn JS_ToArrayLengthFree(
                 }
             }
 
-            let v = val.coerce_number_free(ctx.as_mut().unwrap())?;
+            let v = val.coerce_to_number_free(ctx.as_mut().unwrap())?;
             if len != JS_ToArrayLengthFree(ctx, v, false)? {
                 JS_ThrowRangeError(ctx, c"invalid array length");
                 return Err(-1);
