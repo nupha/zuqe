@@ -15,7 +15,8 @@ use crate::{
         },
         JSValue, JSValueRc, JS_FreeValue,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_PROMISE, JS_PROP_STRING_DEF,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_PROMISE,
+    JS_PROP_STRING_DEF,
 };
 
 use super::{
@@ -27,48 +28,10 @@ use super::{
 // Instance methods
 //
 
-pub unsafe fn js_promise_then(
-    ctx: *mut JSContext,
-    this_val: JSValue, // is actually a PromiseValue
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    this_val
-        .as_promise_unchecked()
-        .then(ctx.as_mut().unwrap(), *argv, *argv.add(1))
-        .map_or(JSValue::EXCEPTION, |p| p.into())
-
-    // let s = JS_GetOpaque2(ctx, this_val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-    // if s.is_null() {
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let ctor = JS_SpeciesConstructor(ctx, this_val, JSValue::UNDEFINED).into_rc((*ctx).rt());
-    // if ctor.is_exception() {
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(*ctor) {
-    //     (pr, rr)
-    // } else {
-    //     return JSValue::EXCEPTION;
-    // };
-
-    // // perform promise reaction
-    // let ret = this_val.as_promise_unchecked().reaction_then(
-    //     ctx.as_mut().unwrap(),
-    //     &[*argv.add(0), *argv.add(1)],
-    //     &resolving_funcs,
-    // );
-    // JS_FreeValue(ctx, resolving_funcs[0]);
-    // JS_FreeValue(ctx, resolving_funcs[1]);
-
-    // if ret.is_err() {
-    //     JS_FreeValue(ctx, result_promise);
-    //     JSValue::EXCEPTION
-    // } else {
-    //     result_promise
-    // }
+pub fn js_promise_then(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    unsafe { args.this_raw().as_promise_unchecked() }
+        .then(ctx, args.get_raw(0), args.get_raw(1))
+        .map(|p| p.into())
 }
 
 pub unsafe fn js_promise_catch(
@@ -630,7 +593,7 @@ pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
 // }
 
 pub const js_promise_proto_funcs: [JSCFunctionListEntry; 4] = [
-    JS_CFUNC_DEF!(c"then", 2, js_promise_then),
+    JS_CFUNC_NATIVE_DEF!(c"then", 2, js_promise_then, 0),
     JS_CFUNC_DEF!(c"catch", 1, js_promise_catch),
     JS_CFUNC_DEF!(c"finally", 1, js_promise_finally),
     JS_PROP_STRING_DEF!(c"[Symbol.toStringTag]", c"Promise", JS_PROP_CONFIGURABLE),

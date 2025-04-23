@@ -82,12 +82,12 @@ use crate::{
 pub fn js_object_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let mut tag_str: JSValue;
 
-    if args.this.is_null() {
+    if args.this_value.is_null() {
         tag_str = ctx.create_string("Null");
-    } else if args.this.is_undefined() {
+    } else if args.this_value.is_undefined() {
         tag_str = ctx.create_string("Undefined");
     } else {
-        let obj = unsafe { JS_ToObject(ctx, args.this) }.into_rc(ctx.rt());
+        let obj = unsafe { JS_ToObject(ctx, args.this_value) }.into_rc(ctx.rt());
         obj.check_exception()?;
 
         let atom = if unsafe { JS_IsArray(ctx, *obj)? } {
@@ -145,7 +145,14 @@ pub fn js_object_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
 pub fn js_object_toLocaleString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     unsafe {
-        JS_Invoke(ctx, args.this, JS_ATOM_toString, 0, std::ptr::null_mut()).check_exception()
+        JS_Invoke(
+            ctx,
+            args.this_value,
+            JS_ATOM_toString,
+            0,
+            std::ptr::null_mut(),
+        )
+        .check_exception()
     }
 }
 
@@ -159,7 +166,7 @@ pub fn js_object_toLocaleString(ctx: &mut JSContext, args: CallArgs) -> JSResult
 // }
 
 pub fn js_object_valueOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe { JS_ToObject(ctx, args.this).check_exception() }
+    unsafe { JS_ToObject(ctx, args.this_value).check_exception() }
 }
 
 // pub unsafe fn js_object_hasOwnProperty(
@@ -197,7 +204,7 @@ pub fn js_object_hasOwnProperty(ctx: &mut JSContext, args: CallArgs) -> JSResult
         return Err(-1);
     }
 
-    let obj = unsafe { JS_ToObject(ctx, args.this).into_rc(ctx.rt()) };
+    let obj = unsafe { JS_ToObject(ctx, args.this_value).into_rc(ctx.rt()) };
     if obj.is_exception() {
         unsafe {
             JS_FreeAtom(ctx, atom);
@@ -273,7 +280,7 @@ pub fn js_object_isPrototypeOf(ctx: &mut JSContext, args: CallArgs) -> JSResult 
         return Ok(JSValue::FALSE);
     }
 
-    let tmp = unsafe { JS_ToObject(ctx, args.this) }
+    let tmp = unsafe { JS_ToObject(ctx, args.this_value) }
         .check_exception()?
         .into_rc(ctx.rt());
 
@@ -346,7 +353,7 @@ pub fn js_object_isPrototypeOf(ctx: &mut JSContext, args: CallArgs) -> JSResult 
 
 pub fn js_object_propertyIsEnumerable(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let obj = unsafe {
-        JS_ToObject(ctx, args.this)
+        JS_ToObject(ctx, args.this_value)
             .check_exception()?
             .into_rc(ctx.rt())
     };
@@ -380,12 +387,12 @@ pub fn js_object_propertyIsEnumerable(ctx: &mut JSContext, args: CallArgs) -> JS
 pub fn js_object_getset___proto__(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     if args.length() == 0 {
         // getter
-        let tmp = unsafe { JS_ToObject(ctx, args.this).into_rc(ctx.rt()) };
+        let tmp = unsafe { JS_ToObject(ctx, args.this_value).into_rc(ctx.rt()) };
         tmp.check_exception()?;
         unsafe { JS_GetPrototype(ctx, *tmp) }.check_exception()
     } else {
         // setter
-        if args.this.is_undefined_or_null() {
+        if args.this_value.is_undefined_or_null() {
             ctx.JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
@@ -397,7 +404,7 @@ pub fn js_object_getset___proto__(ctx: &mut JSContext, args: CallArgs) -> JSResu
         } else {
             // `proto` is an object or null
             unsafe {
-                JS_SetPrototypeInternal(ctx, args.this, proto, true)?;
+                JS_SetPrototypeInternal(ctx, args.this_value, proto, true)?;
             }
             Ok(JSValue::UNDEFINED)
         }

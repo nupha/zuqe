@@ -459,7 +459,7 @@ pub unsafe fn js_async_generator_completed_return(
         true,
     )?;
 
-    let res = promise.as_promise_unchecked().reaction_then(
+    let res = promise.as_promise_unchecked().reaction(
         ctx,
         &resolving_funcs1,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
@@ -486,7 +486,7 @@ pub unsafe fn js_async_generator_await(
         false,
     )?;
 
-    let res = promise.as_promise_unchecked().reaction_then(
+    let res = promise.as_promise_unchecked().reaction(
         ctx,
         &resolving_funcs,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED], // no need to create 'thrownawayCapability' as in the spec

@@ -223,7 +223,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
         JSValueRc::undefined((*ctx).rt()),
     ];
 
-    let res = value_wrapper_promise.as_promise_unchecked().reaction_then(
+    let res = value_wrapper_promise.as_promise_unchecked().reaction(
         ctx.as_mut().unwrap(),
         &[*resolve_reject[0], *resolve_reject[1]],
         &[*resolving_funcs[0], *resolving_funcs[1]],

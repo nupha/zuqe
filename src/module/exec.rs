@@ -263,7 +263,7 @@ impl JSModuleDef {
         .check_exception()?;
 
         let data = [JS_NewModuleValue(ctx, self)];
-        let mut resolve_funcs: [JSValue; 2] = [
+        let resolve_funcs: [JSValue; 2] = [
             ctx.create_native_callable_object(
                 JSModuleDef::execute_async_resolve_callback,
                 0,
@@ -277,16 +277,28 @@ impl JSModuleDef {
                 &data,
             )?,
         ];
-
-        let ret_val = js_promise_then(ctx, promise, 2, resolve_funcs.as_mut_ptr());
-
-        JS_FreeValue(ctx, ret_val);
         JS_FreeValue(ctx, data[0]);
+
+        let cc = CallArgs::new(
+            NonNull::new_unchecked(ctx),
+            promise,
+            &resolve_funcs,
+            0,
+            None,
+        );
+        // TODO: use PromiseValue::then()
+        let ret = js_promise_then(ctx, cc);
+
         JS_FreeValue(ctx, resolve_funcs[0]);
         JS_FreeValue(ctx, resolve_funcs[1]);
         JS_FreeValue(ctx, promise);
 
-        Ok(())
+        if let Ok(ret_val) = ret {
+            JS_FreeValue(ctx, ret_val);
+            Ok(())
+        } else {
+            Err(-1)
+        }
     }
 
     /// async module execution resolve callback

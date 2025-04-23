@@ -22,7 +22,7 @@ pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         unsafe {
             JS_Call(
                 ctx,
-                args.this,
+                args.this_value,
                 JSValue::UNDEFINED,
                 args.length() as _,
                 std::ptr::null_mut(),
@@ -32,7 +32,7 @@ pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         unsafe {
             JS_Call(
                 ctx,
-                args.this,
+                args.this_value,
                 args.get_raw(0),
                 args.length() as i32 - 1,
                 args.arguments_raw().as_ptr().add(1) as _,
@@ -48,7 +48,7 @@ pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 }
 
 pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    args.this.ensure_callable(ctx)?;
+    args.this_value.ensure_callable(ctx)?;
 
     let func_obj =
         unsafe { JS_NewObjectProtoClass(ctx, ctx.function_proto, JS_CLASS_BOUND_FUNCTION) };
@@ -57,10 +57,10 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let p = unsafe { func_obj.object() };
-    p.detailed.set_constructor(args.this.is_constructor());
+    p.detailed.set_constructor(args.this_value.is_constructor());
 
     let mut bf = Box::new(JSBoundFunction {
-        func_obj: args.this.dup(),
+        func_obj: args.this_value.dup(),
         this_val: args.get_raw(0).dup(), // argument #0 is for `this`
         bind_args: Vec::new(),
     });
@@ -85,7 +85,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         (*p).u.bound_function = Box::into_raw(bf);
 
         /* XXX: the spec could be simpler by only using GetOwnProperty */
-        let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this, JS_ATOM_length);
+        let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this_value, JS_ATOM_length);
         if ret < 0 {
             JS_FreeValue(ctx, func_obj);
             return Err(-1);
@@ -94,7 +94,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         let len_val = if ret == 0 {
             JSValue::ZERO
         } else {
-            let length = args.this.get_property(ctx, JS_ATOM_length);
+            let length = args.this_value.get_property(ctx, JS_ATOM_length);
             match JS_VALUE_GET_NORM_TAG(length) {
                 JSTag::Int => {
                     let n = JS_VALUE_GET_INT(length);
@@ -129,7 +129,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
             .unwrap();
 
-        let mut name = args.this.get_property(ctx, JS_ATOM_name);
+        let mut name = args.this_value.get_property(ctx, JS_ATOM_name);
         if name.is_exception() {
             JS_FreeValue(ctx, func_obj);
             return Err(-1);
@@ -155,9 +155,9 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 }
 
 pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    args.this.ensure_callable(ctx)?;
+    args.this_value.ensure_callable(ctx)?;
 
-    let p = unsafe { args.this.object() };
+    let p = unsafe { args.this_value.object() };
 
     let func_kind = if js_class_has_bytecode(p.class_id()) {
         unsafe {
@@ -185,7 +185,7 @@ pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         _ => c"function ",
     };
     let suff = c"() {\n    [native code]\n}";
-    let mut name = args.this.get_property(ctx, JS_ATOM_name);
+    let mut name = args.this_value.get_property(ctx, JS_ATOM_name);
     if name.is_undefined() {
         name = JS_ATOM_empty_string.to_value(ctx, true);
     }
@@ -199,12 +199,12 @@ pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 }
 
 pub fn js_function_hasInstance(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = unsafe { JS_OrdinaryIsInstanceOf(ctx, args.get_raw(0), args.this)? };
+    let b = unsafe { JS_OrdinaryIsInstanceOf(ctx, args.get_raw(0), args.this_value)? };
     Ok(if b { JSValue::TRUE } else { JSValue::FALSE })
 }
 
 pub fn js_function_proto_fileName(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = unsafe { JS_GetFunctionBytecode(args.this) };
+    let b = unsafe { JS_GetFunctionBytecode(args.this_value) };
 
     unsafe {
         if !b.is_null() && (*b).has_debug {
@@ -216,7 +216,7 @@ pub fn js_function_proto_fileName(ctx: &mut JSContext, args: CallArgs) -> JSResu
 }
 
 pub fn js_function_proto_lineNumber(_: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = unsafe { JS_GetFunctionBytecode(args.this) };
+    let b = unsafe { JS_GetFunctionBytecode(args.this_value) };
 
     unsafe {
         if !b.is_null() && (*b).has_debug {

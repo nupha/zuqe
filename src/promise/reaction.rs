@@ -36,10 +36,11 @@ impl JSPromiseReactionData {
 }
 
 impl PromiseValue {
-    /// Register then() reaction handlers to `self` promise.
-    /// `cap_resolving_funcs` - thrownawayCapability.
+    /// Register chained reaction to `self` promise.
+    /// `resolve_reject` - functions to use as reaction handler.
+    /// `cap_resolving_funcs` - [resolve, reject] functions of wrapper promise.
     /// Note: `resolve_reject` and `cap_resolving_funcs` are not consumed.
-    pub unsafe fn reaction_then(
+    pub unsafe fn reaction(
         self,
         ctx: &mut JSContext,
         resolve_reject: &[JSValue; 2],
@@ -65,8 +66,8 @@ impl PromiseValue {
             if !handler.is_function(ctx) {
                 handler = JSValue::UNDEFINED;
             }
-
             rd.handler = handler.dup();
+
             rd_array[i] = Box::into_raw(rd);
         }
 
@@ -118,30 +119,30 @@ impl PromiseValue {
     /// create new promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
-    pub unsafe fn then(
-        self,
-        ctx: &mut JSContext,
-        resolve: JSValue,
-        reject: JSValue,
-    ) -> Result<Self, i32> {
-        let s = JS_GetOpaque2(ctx, self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>();
+    pub fn then(self, ctx: &mut JSContext, resolve: JSValue, reject: JSValue) -> Result<Self, i32> {
+        let s = unsafe { JS_GetOpaque2(ctx, self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
         if s.is_null() {
             return Err(-1);
         }
 
-        let ctor = JS_SpeciesConstructor(ctx, self.0, JSValue::UNDEFINED)
+        let ctor = unsafe { JS_SpeciesConstructor(ctx, self.0, JSValue::UNDEFINED) }
             .check_exception()?
             .into_rc(ctx.rt());
 
         let (result_promise, resolving_funcs) = ctx.create_promise(*ctor)?;
 
         // perform reaction
-        let ret = self.reaction_then(ctx, &[resolve, reject], &resolving_funcs);
-        JS_FreeValue(ctx, resolving_funcs[0]);
-        JS_FreeValue(ctx, resolving_funcs[1]);
+        let ret = unsafe { self.reaction(ctx, &[resolve, reject], &resolving_funcs) };
+
+        unsafe {
+            JS_FreeValue(ctx, resolving_funcs[0]);
+            JS_FreeValue(ctx, resolving_funcs[1]);
+        }
 
         if ret.is_err() {
-            JS_FreeValue(ctx, result_promise.into());
+            unsafe {
+                JS_FreeValue(ctx, result_promise.into());
+            }
             Err(-1)
         } else {
             Ok(result_promise)

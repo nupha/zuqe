@@ -54,7 +54,8 @@ pub enum JSCFunctionEnum {
 
 pub struct CallArgs<'a> {
     ctx: NonNull<JSContext>,
-    pub this: JSValue,
+
+    pub this_value: JSValue,
     pub args: &'a [JSValue],
     pub magic: i32,
 
@@ -65,14 +66,14 @@ pub struct CallArgs<'a> {
 impl<'a> CallArgs<'a> {
     pub(crate) fn new(
         ctx: NonNull<JSContext>,
-        this: JSValue,
+        this_value: JSValue,
         args: &'a [JSValue],
         magic: i32,
         data: Option<&'a mut [JSValue]>,
     ) -> Self {
         Self {
             ctx,
-            this,
+            this_value,
             args,
             magic,
             data,
@@ -83,6 +84,11 @@ impl<'a> CallArgs<'a> {
     #[inline(always)]
     pub fn length(&self) -> usize {
         self.args.len()
+    }
+
+    /// get `this` raw value
+    pub fn this_raw(&self) -> JSValue {
+        self.this_value
     }
 
     /// get nth argument raw value

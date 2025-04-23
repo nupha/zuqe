@@ -700,7 +700,7 @@ pub unsafe fn perform_promise_then(
     resolve_reject: &[JSValue; 2],
     cap_resolving_funcs: &[JSValue; 2],
 ) -> Result<(), i32> {
-    promise.reaction_then(ctx, resolve_reject, cap_resolving_funcs)
+    promise.reaction(ctx, resolve_reject, cap_resolving_funcs)
 }
 
 /// parse import statement

@@ -445,7 +445,7 @@ pub unsafe fn call_setter(
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub fn js_function_apply(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    args.this.ensure_callable(ctx)?;
+    args.this_value.ensure_callable(ctx)?;
 
     let this_arg = args.get_raw(0);
     let array_arg = args.get_raw(1);
@@ -453,7 +453,7 @@ pub fn js_function_apply(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         || JS_VALUE_GET_TAG(array_arg) == JS_TAG_NULL)
         && args.magic != 2
     {
-        return Ok(unsafe { JS_Call(ctx, args.this, this_arg, 0, std::ptr::null_mut()) });
+        return Ok(unsafe { JS_Call(ctx, args.this_value, this_arg, 0, std::ptr::null_mut()) });
     }
 
     unsafe {
@@ -461,7 +461,7 @@ pub fn js_function_apply(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         let ret = if args.magic & 1 != 0 {
             JS_CallConstructor2(
                 ctx,
-                args.this,
+                args.this_value,
                 this_arg,
                 arg_list.len() as _,
                 arg_list.as_mut_ptr(),
@@ -469,7 +469,7 @@ pub fn js_function_apply(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         } else {
             JS_Call(
                 ctx,
-                args.this,
+                args.this_value,
                 this_arg,
                 arg_list.len() as _,
                 arg_list.as_mut_ptr(),

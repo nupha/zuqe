@@ -13,7 +13,7 @@ use crate::{
     JS_MKVAL,
 };
 
-use super::string::strstart;
+use super::super::string::strstart;
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;

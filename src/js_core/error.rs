@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let mut new_target = args.this;
+    let mut new_target = args.this_value;
 
     if new_target.is_undefined() {
         new_target = unsafe { JS_GetActiveFunction(ctx) };
