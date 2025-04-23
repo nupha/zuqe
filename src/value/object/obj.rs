@@ -894,7 +894,7 @@ pub unsafe fn JS_GetOpaque2(
     class_id: JSClassID,
 ) -> *mut c_void {
     let p = JS_GetOpaque(obj, class_id);
-    if unlikely(!p.is_null()) {
+    if p.is_null() {
         ctx.as_mut()
             .unwrap()
             .JS_ThrowTypeErrorInvalidClass(class_id);
