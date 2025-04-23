@@ -5,10 +5,10 @@ use crate::{
     function::{CallArgs, JSCFunctionListEntry},
     value::{
         is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_DupValue,
-        JS_FreeValue, JS_IsException, JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToFloat64,
-        JS_ToFloat64Free, JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree, JS_DTOA_FIXED_FORMAT,
-        JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_FreeValue, JS_IsException, JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToFloat64Free,
+        JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
+        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
 };
@@ -235,7 +235,7 @@ pub unsafe fn js_number_isInteger(
     argv: *mut JSValueConst,
 ) -> JSValue {
     if let Ok(b) = (*argv.offset(0)).is_integer(ctx.as_mut().unwrap()) {
-        JS_NewBool(b)
+        b.into()
     } else {
         JSValue::EXCEPTION
     }
@@ -256,7 +256,7 @@ pub unsafe fn js_number_isSafeInteger(
         return JSValue::EXCEPTION;
     }
 
-    JS_NewBool(is_safe_integer(d))
+    is_safe_integer(d).into()
 }
 
 pub const js_number_funcs: [JSCFunctionListEntry; 12] = [

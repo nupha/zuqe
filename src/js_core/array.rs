@@ -25,9 +25,9 @@ use crate::{
             js_get_length64, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
-        JS_IsNumber, JS_IsUndefined, JS_NewBool, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp,
-        JS_ToInt64Sat, JS_ToLocaleStringFree, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_IsNumber, JS_IsUndefined, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat,
+        JS_ToLocaleStringFree, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        MAX_SAFE_INTEGER,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY,
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -1242,7 +1242,7 @@ pub unsafe fn js_array_includes(
     }
 
     JS_FreeValue(ctx, obj);
-    JS_NewBool(res)
+    res.into()
 }
 
 pub unsafe fn js_array_join(
@@ -2628,8 +2628,8 @@ pub unsafe fn js_array_isArray(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    if let Ok(ret) = JS_IsArray(ctx, *argv.offset(0)) {
-        JS_NewBool(ret)
+    if let Ok(b) = JS_IsArray(ctx, *argv.offset(0)) {
+        b.into()
     } else {
         JSValue::EXCEPTION
     }

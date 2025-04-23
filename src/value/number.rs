@@ -13,7 +13,7 @@ use crate::{
     JS_MKVAL,
 };
 
-use super::{string::strstart, JS_ToPrimitiveFree};
+use super::string::strstart;
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
@@ -380,6 +380,7 @@ pub enum JSToNumberHintEnum {
     TON_FLAG_NUMERIC,
 }
 
+/// returns value of int, float64, nan, exception
 pub unsafe fn JS_ToNumberHintFree(
     ctx: *mut JSContext,
     mut val: JSValue,
@@ -397,15 +398,15 @@ pub unsafe fn JS_ToNumberHintFree(
                 break JS_NAN;
             }
             JSTag::Object => {
-                val = JS_ToPrimitiveFree(ctx, val, HINT_NUMBER);
-                if JS_IsException(val) {
-                    break JSValue::EXCEPTION;
-                } else {
+                if let Ok(v) = val.coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NUMBER) {
+                    JS_FreeValue(ctx, val);
+                    val = v;
                     continue;
+                } else {
+                    break JSValue::EXCEPTION;
                 }
             }
             JSTag::String => {
-                // let s = val.to_utf8_string(ctx.as_mut().unwrap());
                 let v = if let Ok(str) = val.to_utf8_string(ctx.as_mut().unwrap()) {
                     let len = str.len();
                     let mut p = str.as_ptr();
@@ -422,7 +423,7 @@ pub unsafe fn JS_ToNumberHintFree(
                             0,
                             ATOD_ACCEPT_BIN_OCT,
                         );
-                        if !JS_IsException(r) {
+                        if !r.is_exception() {
                             p = p.offset(skip_spaces(p.cast()) as isize);
                             if (p as usize - str.as_ptr() as usize) != len {
                                 JS_FreeValue(ctx, r);

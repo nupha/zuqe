@@ -4,9 +4,8 @@ use crate::{
     context::JSContext,
     function::JSCFunctionListEntry,
     value::{
-        object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException, JS_IsUndefined,
-        JS_NewBool, JS_ToBool, JS_TAG_BOOL, JS_TAG_OBJECT, JS_VALUE_GET_BOOL, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException, JS_ToBool, JS_TAG_BOOL,
+        JS_TAG_OBJECT, JS_VALUE_GET_BOOL, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CLASS_BOOLEAN,
 };
@@ -17,10 +16,10 @@ pub unsafe fn js_boolean_constructor(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let val = JS_NewBool(JS_ToBool(ctx, *argv.offset(0)).unwrap_or(true));
-    if !JS_IsUndefined(new_target) {
+    let val = JS_ToBool(ctx, *argv.offset(0)).unwrap_or(true).into();
+    if !new_target.is_undefined() {
         let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_BOOLEAN);
-        if !JS_IsException(obj) {
+        if !obj.is_exception() {
             JS_SetObjectData(ctx, obj, val);
         }
         obj

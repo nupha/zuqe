@@ -12,8 +12,7 @@ use crate::{
             JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
             JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
         },
-        JSValue, JSValueConst, JS_ConcatString3, JS_FreeValue, JS_IsException, JS_NewBool,
-        JS_VALUE_GET_OBJ,
+        JSValue, JSValueConst, JS_ConcatString3, JS_FreeValue, JS_IsException, JS_VALUE_GET_OBJ,
     },
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
@@ -366,7 +365,7 @@ pub fn js_object_propertyIsEnumerable(ctx: &mut JSContext, args: CallArgs) -> JS
         }
 
         let res = if has_prop != 0 {
-            let r = JS_NewBool(desc.flags & JS_PROP_ENUMERABLE != 0);
+            let r: JSValue = (desc.flags & JS_PROP_ENUMERABLE != 0).into();
             js_free_desc(ctx, &mut desc);
             r
         } else {

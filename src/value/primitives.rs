@@ -1,117 +1,120 @@
+use std::ops::DerefMut;
+
 use crate::{
-    atom::{consts::*, JSAtom},
+    atom::consts::*,
     context::JSContext,
-    function::JS_CallFree,
+    function::{JS_Call, JS_CallFree},
     gc::{JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
     value::{
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_TAG_BIG_INT, JS_TAG_BOOL,
         JS_TAG_EXCEPTION, JS_TAG_INT, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
-        JS_TAG_UNDEFINED, JS_UNDEFINED, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_MKVAL,
 };
 
 use super::object::JSObject;
 
-#[inline(always)]
-pub fn JS_NewBool(val: bool) -> JSValue {
-    if val {
-        JSValue::TRUE
-    } else {
-        JSValue::FALSE
+impl JSValue {
+    /// Coerce `self` value to  primitive value.
+    /// value `self` is not consumed
+    pub fn coerce_to_primitive(self, ctx: &mut JSContext, hint: i32) -> Result<JSValue, i32> {
+        let force_ordinary = hint & HINT_FORCE_ORDINARY != 0;
+        let mut hint = hint & !HINT_FORCE_ORDINARY;
+
+        if !force_ordinary {
+            let method = self
+                .get_property(ctx, JS_ATOM_Symbol_toPrimitive)
+                .check_exception()?
+                .into_rc(ctx.rt());
+
+            /* ECMA says *If exoticToPrim is not undefined* but tests in
+            test262 use null as a non callable converter */
+            if !method.is_undefined_or_null() {
+                let mut hint_val = match hint {
+                    HINT_STRING => JS_ATOM_string,
+                    HINT_NUMBER => JS_ATOM_number,
+                    _ => JS_ATOM_default,
+                }
+                .to_value(ctx, true)
+                .check_exception()?
+                .into_rc(ctx.rt());
+
+                let ret = unsafe {
+                    JS_Call(ctx, *method, self, 1, hint_val.deref_mut()).check_exception()?
+                };
+
+                return if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
+                    Ok(ret)
+                } else {
+                    unsafe {
+                        JS_FreeValue(ctx, ret);
+                    }
+                    ctx.JS_ThrowTypeError(c"toPrimitive");
+                    Err(-1)
+                };
+            }
+        }
+
+        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+            return Ok(self.dup());
+        }
+
+        if hint != HINT_STRING {
+            hint = HINT_NUMBER;
+        };
+
+        for i in 0..2 {
+            let method = self
+                .get_property(
+                    ctx,
+                    if i != hint {
+                        JS_ATOM_toString
+                    } else {
+                        JS_ATOM_valueOf
+                    },
+                )
+                .check_exception()?;
+
+            if method.is_function(ctx) {
+                let ret = unsafe { JS_CallFree(ctx, method, self, 0, std::ptr::null_mut()) }
+                    .check_exception()?;
+                if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
+                    return Ok(ret);
+                } else {
+                    unsafe {
+                        JS_FreeValue(ctx, ret);
+                    }
+                }
+            } else {
+                unsafe {
+                    JS_FreeValue(ctx, method);
+                }
+            }
+        }
+
+        ctx.JS_ThrowTypeError(c"toPrimitive");
+        Err(-1)
+    }
+}
+
+impl From<bool> for JSValue {
+    #[inline]
+    fn from(value: bool) -> Self {
+        if value {
+            JSValue::TRUE
+        } else {
+            JSValue::FALSE
+        }
     }
 }
 
 #[inline(always)]
 pub const fn JS_NewCatchOffset(val: i32) -> JSValue {
     JS_MKVAL!(JSTag::CatchOffset, val)
-}
-
-pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, mut hint: i32) -> JSValue {
-    let force_ordinary = (hint & HINT_FORCE_ORDINARY) != 0;
-    hint &= !HINT_FORCE_ORDINARY;
-
-    if !force_ordinary {
-        let method = val.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toPrimitive);
-        if method.is_exception() {
-            return goto_exception(ctx, val);
-        }
-
-        /* ECMA says *If exoticToPrim is not undefined* but tests in
-        test262 use null as a non callable converter */
-        if !method.is_undefined_or_null() {
-            let mut arg = match hint {
-                HINT_STRING => JS_ATOM_string,
-                HINT_NUMBER => JS_ATOM_number,
-                _ => JS_ATOM_default,
-            }
-            .to_value(ctx.as_mut().unwrap(), true);
-
-            let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 1, &mut arg);
-            JS_FreeValue(ctx, arg);
-            if ret.is_exception() {
-                return goto_exception(ctx, val);
-            }
-
-            JS_FreeValue(ctx, val);
-            if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
-                return ret;
-            }
-            JS_FreeValue(ctx, ret);
-            return (*ctx).JS_ThrowTypeError(c"toPrimitive");
-        }
-    }
-
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-        return val;
-    }
-
-    if hint != HINT_STRING {
-        hint = HINT_NUMBER;
-    };
-
-    for i in 0..2 {
-        let method_name: JSAtom = if (i ^ hint) == 0 {
-            JS_ATOM_toString
-        } else {
-            JS_ATOM_valueOf
-        };
-        let method = val.get_property(ctx.as_mut().unwrap(), method_name);
-        if method.is_exception() {
-            return goto_exception(ctx, val);
-        }
-
-        if method.is_function(ctx.as_ref().unwrap()) {
-            let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 0, std::ptr::null_mut());
-            if ret.is_exception() {
-                return goto_exception(ctx, val);
-            }
-            if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
-                JS_FreeValue(ctx, val);
-                return ret;
-            }
-            JS_FreeValue(ctx, ret);
-        } else {
-            JS_FreeValue(ctx, method);
-        }
-    }
-
-    ctx.as_mut().unwrap().JS_ThrowTypeError(c"toPrimitive");
-
-    return goto_exception(ctx, val);
-
-    // C2RS: 模拟goto跳转
-    unsafe fn goto_exception(ctx: *mut JSContext, val: JSValue) -> JSValue {
-        JS_FreeValue(ctx, val);
-        JSValue::EXCEPTION
-    }
-}
-
-pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: JSValue, hint: i32) -> JSValue {
-    JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }
 
 /* Only works for primitive types, otherwise return JS_NULL. */
@@ -172,7 +175,7 @@ pub unsafe fn JS_ToBool(ctx: *mut JSContext, val: JSValueConst) -> Result<bool, 
 pub unsafe fn js_object_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
     JS_FreeValueRT(rt, (*p).u.object_data);
-    (*p).u.object_data = JS_UNDEFINED;
+    (*p).u.object_data = JSValue::UNDEFINED;
 }
 
 pub unsafe fn js_object_data_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {

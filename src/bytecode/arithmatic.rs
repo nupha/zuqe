@@ -5,9 +5,9 @@ use crate::{
     context::JSContext,
     value::{
         object::JSObject, JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString,
-        JS_FreeValue, JS_IsException, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree,
-        JS_ToPrimitiveFree, HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JS_FreeValue, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree, HINT_NONE, HINT_NUMBER,
+        JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 
@@ -45,7 +45,7 @@ impl BinaryOp {
     /// 将两个JSValue创建双目操作(int,float,string)
     /// mode: 0 = allow int, 1 = allow int/float, 2 = allow int/float/string
     /// primitive_hint: Some(_) 使用toPrimitive(), None 不使用toPrimitive()
-    /// 参数op1,op2会释放
+    /// Note: op1, op2 are consumed
     pub unsafe fn new_slow(
         ctx: *mut JSContext,
         op1: JSValue,
@@ -79,48 +79,50 @@ impl BinaryOp {
 
             Ok(Self::Int(n1, n2))
         } else {
-            let mut op1 = op1;
-            let mut op2 = op2;
+            let mut op1 = op1.into_rc((*ctx).rt());
+            let mut op2 = op2.into_rc((*ctx).rt());
 
             loop {
-                match (JS_VALUE_GET_NORM_TAG(op1), JS_VALUE_GET_NORM_TAG(op2)) {
+                match (JS_VALUE_GET_NORM_TAG(*op1), JS_VALUE_GET_NORM_TAG(*op2)) {
                     (JSTag::Int, JSTag::Int) => {
-                        break Ok(Self::Int(JS_VALUE_GET_INT(op1), JS_VALUE_GET_INT(op2)));
+                        break Ok(Self::Int(JS_VALUE_GET_INT(*op1), JS_VALUE_GET_INT(*op2)));
                     }
                     (JSTag::Float64, JSTag::Float64) => {
                         break Ok(Self::Float(
-                            JS_VALUE_GET_FLOAT64(op1),
-                            JS_VALUE_GET_FLOAT64(op2),
+                            JS_VALUE_GET_FLOAT64(*op1),
+                            JS_VALUE_GET_FLOAT64(*op2),
                         ));
                     }
                     (JSTag::Int, JSTag::Float64) => {
                         break Ok(Self::Float(
-                            JS_VALUE_GET_INT(op1) as f64,
-                            JS_VALUE_GET_FLOAT64(op2),
+                            JS_VALUE_GET_INT(*op1) as f64,
+                            JS_VALUE_GET_FLOAT64(*op2),
                         ));
                     }
                     (JSTag::Float64, JSTag::Int) => {
                         break Ok(Self::Float(
-                            JS_VALUE_GET_FLOAT64(op1),
-                            JS_VALUE_GET_INT(op2) as f64,
+                            JS_VALUE_GET_FLOAT64(*op1),
+                            JS_VALUE_GET_INT(*op2) as f64,
                         ));
                     }
                     (JSTag::String, _) | (_, JSTag::String) if mode == 3 => {
-                        break Ok(Self::HasString(op1, op2));
+                        break Ok(Self::HasString(op1.into(), op2.into()));
                     }
 
                     (JSTag::Object, _) | (_, JSTag::Object) if primitive_hint.is_some() => {
                         let hint = primitive_hint.unwrap();
-                        let p1 = JS_ToPrimitiveFree(ctx, op1, hint);
-                        if JS_IsException(p1) {
-                            JS_FreeValue(ctx, op2);
+                        let p1 = if let Ok(v) = op1.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
+                        {
+                            v.into_rc((*ctx).rt())
+                        } else {
                             break Err(-1);
-                        }
-                        let p2 = JS_ToPrimitiveFree(ctx, op2, hint);
-                        if JS_IsException(p2) {
-                            JS_FreeValue(ctx, p1);
+                        };
+                        let p2 = if let Ok(v) = op2.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
+                        {
+                            v.into_rc((*ctx).rt())
+                        } else {
                             break Err(-1);
-                        }
+                        };
 
                         op1 = p1;
                         op2 = p2;
@@ -128,29 +130,37 @@ impl BinaryOp {
 
                     _ => {
                         if let Some(hint) = primitive_hint {
-                            let p1 = JS_ToPrimitiveFree(ctx, op1, hint);
-                            if JS_IsException(p1) {
-                                JS_FreeValue(ctx, op2);
+                            let p1 = if let Ok(v) =
+                                op1.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
+                            {
+                                v.into_rc((*ctx).rt())
+                            } else {
                                 break Err(-1);
-                            }
-                            let p2 = JS_ToPrimitiveFree(ctx, op2, hint);
-                            if JS_IsException(p2) {
-                                JS_FreeValue(ctx, p1);
+                            };
+
+                            let p2 = if let Ok(v) =
+                                op2.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
+                            {
+                                v.into_rc((*ctx).rt())
+                            } else {
                                 break Err(-1);
-                            }
+                            };
 
                             op1 = p1;
                             op2 = p2;
                         } else {
-                            let n1 = JS_ToNumberFree(ctx, op1);
-                            if JS_IsException(n1) {
-                                JS_FreeValue(ctx, op2);
-                                break Err(-1);
-                            }
-                            let n2 = JS_ToNumberFree(ctx, op2);
-                            if JS_IsException(n1) {
-                                break Err(-1);
-                            }
+                            let n1 =
+                                if let Ok(v) = JS_ToNumberFree(ctx, op1.into()).check_exception() {
+                                    v.into_rc((*ctx).rt())
+                                } else {
+                                    break Err(-1);
+                                };
+                            let n2 =
+                                if let Ok(v) = JS_ToNumberFree(ctx, op2.into()).check_exception() {
+                                    v.into_rc((*ctx).rt())
+                                } else {
+                                    break Err(-1);
+                                };
 
                             op1 = n1;
                             op2 = n2;
@@ -727,18 +737,25 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
 
             (JSTag::Object, number_tags!() | JSTag::String | JSTag::Symbol)
             | (number_tags!() | JSTag::String | JSTag::Symbol, JSTag::Object) => {
-                op1 = JS_ToPrimitiveFree(ctx, op1, HINT_NONE);
-                if op1.is_exception() {
+                op1 = if let Ok(v) = op1.coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NONE) {
+                    JS_FreeValue(ctx, op1);
+                    v
+                } else {
+                    JS_FreeValue(ctx, op1);
                     JS_FreeValue(ctx, op2);
                     exception!();
-                }
+                };
 
-                op2 = JS_ToPrimitiveFree(ctx, op2, HINT_NONE);
-                if op2.is_exception() {
+                op2 = if let Ok(v) = op2.coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NONE) {
+                    JS_FreeValue(ctx, op2);
+                    v
+                } else {
                     JS_FreeValue(ctx, op1);
+                    JS_FreeValue(ctx, op2);
                     exception!();
-                }
-                continue; // goto redo
+                };
+
+                continue;
             }
 
             _ if tag1 == tag2 => {

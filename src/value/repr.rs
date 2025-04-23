@@ -13,9 +13,9 @@ use crate::{
 };
 
 use super::{
-    js_dtoa, JSString, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_ToPrimitive, HINT_STRING,
-    JS_DTOA_VAR_FORMAT, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-    JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+    js_dtoa, JSString, JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING, JS_DTOA_VAR_FORMAT,
+    JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+    JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
 };
 
 impl JSValue {
@@ -93,7 +93,7 @@ impl JSValue {
 
     /// Convert variant value `self` to string value.
     /// `self` is not consumed.
-    fn coerce_to_string_value2(
+    fn do_coerce_to_string_value(
         self,
         ctx: &mut JSContext,
         as_propkey: bool,
@@ -113,8 +113,8 @@ impl JSValue {
                 return Err(-1);
             }
             JSTag::Object => {
-                let tmp = unsafe { JS_ToPrimitive(ctx, self, HINT_STRING).check_exception()? };
-                let r = tmp.coerce_to_string_value2(ctx, as_propkey)?;
+                let tmp = self.coerce_to_primitive(ctx, HINT_STRING)?;
+                let r = tmp.do_coerce_to_string_value(ctx, as_propkey)?;
                 unsafe {
                     JS_FreeValue(ctx, tmp);
                 }
@@ -146,14 +146,14 @@ impl JSValue {
     /// `self` is not consumed.
     #[inline(always)]
     pub fn coerce_to_string_value(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        self.coerce_to_string_value2(ctx, false)
+        self.do_coerce_to_string_value(ctx, false)
     }
 
     /// Coerce `self` value to property key value.
     /// `self` is not consumed.
     #[inline(always)]
     pub fn coerce_to_propkey_value(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        self.coerce_to_string_value2(ctx, true)
+        self.do_coerce_to_string_value(ctx, true)
     }
 
     #[deprecated(note = "use JSValue::repr() instead")]

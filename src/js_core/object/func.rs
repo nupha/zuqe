@@ -16,9 +16,8 @@ use crate::{
             JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsNull,
-        JS_IsObject, JS_IsUndefined, JS_NewBool, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
-        MAX_SAFE_INTEGER,
+        JS_IsObject, JS_IsUndefined, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_OBJECT,
 };
@@ -477,7 +476,7 @@ pub unsafe fn js_object_isExtensible(
     }
 
     if let Ok(ret) = JS_IsExtensible(ctx, obj) {
-        JS_NewBool(ret)
+        ret.into()
     } else {
         JSValue::EXCEPTION
     }
@@ -496,13 +495,13 @@ pub unsafe fn js_object_preventExtensions(
         if reflect != 0 {
             return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
         } else {
-            return JS_DupValue(ctx, obj);
+            return obj.dup();
         }
     }
 
     if let Ok(ret) = JS_PreventExtensions(ctx, obj) {
         if reflect != 0 {
-            JS_NewBool(ret)
+            ret.into()
         } else {
             if !ret {
                 ctx.as_mut()
@@ -607,7 +606,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                         .define_property_value(
                             ctx.as_mut().unwrap(),
                             JS_ATOM_writable,
-                            JS_NewBool((desc.flags & JS_PROP_WRITABLE) != 0),
+                            ((desc.flags & JS_PROP_WRITABLE) != 0).into(),
                             flags,
                         )
                         .is_err()
@@ -624,7 +623,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                 .define_property_value(
                     ctx.as_mut().unwrap(),
                     JS_ATOM_enumerable,
-                    JS_NewBool((desc.flags & JS_PROP_ENUMERABLE) != 0),
+                    ((desc.flags & JS_PROP_ENUMERABLE) != 0).into(),
                     flags,
                 )
                 .is_err()
@@ -632,7 +631,7 @@ pub unsafe fn js_object_getOwnPropertyDescriptor(
                     .define_property_value(
                         ctx.as_mut().unwrap(),
                         JS_ATOM_configurable,
-                        JS_NewBool((desc.flags & JS_PROP_CONFIGURABLE) != 0),
+                        ((desc.flags & JS_PROP_CONFIGURABLE) != 0).into(),
                         flags,
                     )
                     .is_err()
@@ -816,7 +815,7 @@ pub unsafe fn js_object_is(
     argc: i32,
     argv: *mut JSValue,
 ) -> JSValue {
-    JS_NewBool((*argv.add(0)).is_same(*argv.add(1)))
+    ((*argv).is_same(*argv.add(1))).into()
 }
 
 /// Object.assign(obj, source1)
@@ -1195,7 +1194,7 @@ pub unsafe fn js_object_hasOwn(
     if ret < 0 {
         JSValue::EXCEPTION
     } else {
-        JS_NewBool(ret != 0)
+        (ret != 0).into()
     }
 }
 

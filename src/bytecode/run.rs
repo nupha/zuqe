@@ -54,7 +54,7 @@ use crate::{
             JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
             JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewBool, JS_NewCatchOffset,
+        set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewCatchOffset,
         JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
         JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
         JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
@@ -907,7 +907,7 @@ pub unsafe fn run_bytecodes(
                     if ret < 0 {
                         break State::Exception;
                     } else {
-                        SP![0] = JS_NewBool(ret != 0);
+                        SP![0] = (ret != 0).into();
                         SP_GO!(1);
                     }
                 }
@@ -1372,7 +1372,7 @@ pub unsafe fn run_bytecodes(
                             false
                         };
 
-                        SP![0] = JS_NewBool(ret_flag);
+                        SP![0] = ret_flag.into();
                         SP_GO!(1);
                     }
                 }
@@ -1383,7 +1383,7 @@ pub unsafe fn run_bytecodes(
                     } else {
                         JS_ToBoolFree(ctx, op1).unwrap_or(true)
                     };
-                    SP![-1] = JS_NewBool(!res);
+                    SP![-1] = (!res).into();
                 }
                 OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
                     let atom = JSAtom(get_u32(pc));
@@ -1873,7 +1873,7 @@ pub unsafe fn run_bytecodes(
 
                 OpCode::LT | OpCode::LTE | OpCode::GT | OpCode::GTE => {
                     if let Ok(b) = relational(ctx, SP![-2], SP![-1], opcode) {
-                        SP![-2] = JS_NewBool(b);
+                        SP![-2] = b.into();
                         SP_GO!(-1);
                     } else {
                         break State::Exception;
@@ -1881,7 +1881,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::EQ | OpCode::NEQ => {
                     if let Ok(b) = js_eq(ctx, sp, opcode == OpCode::NEQ) {
-                        SP![-2] = JS_NewBool(b);
+                        SP![-2] = b.into();
                         SP_GO!(-1);
                     } else {
                         break State::Exception;
@@ -1897,7 +1897,7 @@ pub unsafe fn run_bytecodes(
                     JS_FreeValue(ctx, SP![-2]);
                     JS_FreeValue(ctx, SP![-1]);
 
-                    SP![-2] = JS_NewBool(b);
+                    SP![-2] = b.into();
                     SP_GO!(-1);
                 }
 
@@ -1940,7 +1940,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
                     match ctx.global_obj.delete_property(ctx, atom, 0) {
                         Ok(ret) => {
-                            SP![0] = JS_NewBool(ret);
+                            SP![0] = ret.into();
                             SP_GO!(1);
                         }
                         Err(_) => {
@@ -2039,7 +2039,7 @@ pub unsafe fn run_bytecodes(
                                 OpCode::WITH_DELETE_VAR => {
                                     if let Ok(ret) = obj.delete_property(ctx, atom, 0) {
                                         JS_FreeValue(ctx, SP![-1]);
-                                        SP![-1] = JS_NewBool(ret);
+                                        SP![-1] = ret.into();
                                     } else {
                                         break State::Exception;
                                     }

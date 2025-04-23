@@ -16,7 +16,7 @@ use crate::{
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
-        JS_NewBool, JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
+        JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
         JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
         JS_STRING_LEN_MAX, JS_TAG_INT, JS_TAG_OBJECT, JS_TAG_STRING, JS_VALUE_GET_INT,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
@@ -224,7 +224,7 @@ pub unsafe fn js_string_isWellFormed(
     let ret = js_string_find_invalid_codepoint(p) < 0;
     JS_FreeValue(ctx, str);
 
-    JS_NewBool(ret)
+    ret.into()
 }
 
 pub unsafe fn js_string_toWellFormed(
@@ -1093,7 +1093,7 @@ pub unsafe fn js_string_includes(
             if pos > len {
                 JS_FreeValue(ctx, str);
                 JS_FreeValue(ctx, v);
-                return JS_NewBool(ret);
+                return ret.into();
             }
         } else {
             pos -= v_len;
@@ -1114,7 +1114,7 @@ pub unsafe fn js_string_includes(
     JS_FreeValue(ctx, str);
     JS_FreeValue(ctx, v);
 
-    JS_NewBool(ret)
+    ret.into()
 }
 
 pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> i32 {

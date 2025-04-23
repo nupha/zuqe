@@ -14,6 +14,16 @@ use crate::{
     value::{object::JSObject, JSString, JSValue, JSValueConst},
 };
 
+#[inline(always)]
+#[deprecated(note = "use Into::<JSValue>::into(bool) or From::<bool>::from(JSValue) instead")]
+pub fn JS_NewBool(val: bool) -> JSValue {
+    if val {
+        JSValue::TRUE
+    } else {
+        JSValue::FALSE
+    }
+}
+
 /// `val` keeps ref count unchanged after calling this function.
 #[deprecated(note = "use JSValue::corece_to_string_value() instead")]
 pub unsafe fn JS_ToStringInternal(
@@ -33,6 +43,97 @@ pub unsafe fn JS_ToString(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
 #[deprecated(note = "use JSValue::coerce_to_propkey_value() instead")]
 pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
     unreachable!("use JSValue::coerce_to_propkey_value() instead");
+}
+
+#[deprecated(note = "use JSValue::coerce_to_primitive() + JS_FreeValue() instead")]
+pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, hint: i32) -> JSValue {
+    unreachable!("use JSValue::coerce_to_primitive() + JS_FreeValue() instead");
+
+    // let force_ordinary = (hint & HINT_FORCE_ORDINARY) != 0;
+    // hint &= !HINT_FORCE_ORDINARY;
+
+    // if !force_ordinary {
+    //     let method = val.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toPrimitive);
+    //     if method.is_exception() {
+    //         return goto_exception(ctx, val);
+    //     }
+
+    //     /* ECMA says *If exoticToPrim is not undefined* but tests in
+    //     test262 use null as a non callable converter */
+    //     if !method.is_undefined_or_null() {
+    //         let mut arg = match hint {
+    //             HINT_STRING => JS_ATOM_string,
+    //             HINT_NUMBER => JS_ATOM_number,
+    //             _ => JS_ATOM_default,
+    //         }
+    //         .to_value(ctx.as_mut().unwrap(), true);
+
+    //         let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 1, &mut arg);
+    //         JS_FreeValue(ctx, arg);
+    //         if ret.is_exception() {
+    //             return goto_exception(ctx, val);
+    //         }
+
+    //         JS_FreeValue(ctx, val);
+    //         if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
+    //             return ret;
+    //         }
+    //         JS_FreeValue(ctx, ret);
+    //         return (*ctx).JS_ThrowTypeError(c"toPrimitive");
+    //     }
+    // }
+
+    // if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+    //     return val;
+    // }
+
+    // if hint != HINT_STRING {
+    //     hint = HINT_NUMBER;
+    // };
+
+    // for i in 0..2 {
+    //     let method_name: JSAtom = if (i ^ hint) == 0 {
+    //         JS_ATOM_toString
+    //     } else {
+    //         JS_ATOM_valueOf
+    //     };
+    //     let method = val.get_property(ctx.as_mut().unwrap(), method_name);
+    //     if method.is_exception() {
+    //         return goto_exception(ctx, val);
+    //     }
+
+    //     if method.is_function(ctx.as_ref().unwrap()) {
+    //         let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 0, std::ptr::null_mut());
+    //         if ret.is_exception() {
+    //             return goto_exception(ctx, val);
+    //         }
+    //         if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
+    //             JS_FreeValue(ctx, val);
+    //             return ret;
+    //         }
+    //         JS_FreeValue(ctx, ret);
+    //     } else {
+    //         JS_FreeValue(ctx, method);
+    //     }
+    // }
+
+    // ctx.as_mut().unwrap().JS_ThrowTypeError(c"toPrimitive");
+
+    // return goto_exception(ctx, val);
+
+    // // C2RS: 模拟goto跳转
+    // unsafe fn goto_exception(ctx: *mut JSContext, val: JSValue) -> JSValue {
+    //     JS_FreeValue(ctx, val);
+    //     JSValue::EXCEPTION
+    // }
+}
+
+#[deprecated(note = "use JSValue::coerce_to_primitive() instead")]
+pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: JSValue, hint: i32) -> JSValue {
+    val.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
+        .unwrap_or(JSValue::EXCEPTION)
+
+    //JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }
 
 #[deprecated(note = "use JSValue::is_constructor() instead")]

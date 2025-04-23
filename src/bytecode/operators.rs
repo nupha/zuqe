@@ -26,8 +26,7 @@ use crate::{
             JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
-        JS_NewBool, JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
+        JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_FOR_IN_ITERATOR, JS_CLASS_OBJECT, JS_MKPTR,
 };
@@ -47,7 +46,7 @@ pub unsafe fn js_operator_delete(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
     if let Ok(ret) = ret {
         JS_FreeValue(ctx, op1);
         JS_FreeValue(ctx, op2);
-        *sp.offset(-2) = JS_NewBool(ret);
+        *sp.offset(-2) = ret.into();
         0
     } else {
         -1
@@ -61,7 +60,7 @@ pub unsafe fn js_operator_instanceof(ctx: &mut JSContext, sp: *mut JSValue) -> R
 
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
-    *sp.offset(-2) = JS_NewBool(ret);
+    *sp.offset(-2) = ret.into();
     Ok(())
 }
 
@@ -107,7 +106,7 @@ pub unsafe fn js_operator_in(ctx: &mut JSContext, sp: *mut JSValue) -> Result<()
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
 
-    *sp.offset(-2) = JS_NewBool(ret);
+    *sp.offset(-2) = ret.into();
     Ok(())
 }
 
@@ -136,7 +135,7 @@ pub unsafe fn js_operator_private_in(ctx: &mut JSContext, sp: *mut JSValue) -> R
 
     JS_FreeValue(ctx, op1);
     JS_FreeValue(ctx, op2);
-    *sp.offset(-2) = JS_NewBool(ret);
+    *sp.offset(-2) = ret.into();
 
     Ok(())
 }
@@ -699,7 +698,7 @@ pub unsafe fn js_for_of_next(ctx: &mut JSContext, sp: *mut JSValue, offset: i32)
     }
 
     *sp.offset(0) = value;
-    *sp.offset(1) = JS_NewBool(done);
+    *sp.offset(1) = done.into();
 
     0
 }
@@ -719,7 +718,7 @@ pub unsafe fn js_iterator_get_value_done(ctx: &mut JSContext, sp: *mut JSValue) 
 
     JS_FreeValue(ctx, obj);
     (*sp.offset(-1)) = value;
-    (*sp.offset(0)) = JS_NewBool(done);
+    (*sp.offset(0)) = done.into();
 
     0
 }
