@@ -29,6 +29,36 @@ pub union JSFloat64Union {
     pub u32: [u32; 2],
 }
 
+impl From<i32> for JSValue {
+    #[inline(always)]
+    fn from(val: i32) -> Self {
+        JS_MKVAL!(JSTag::Int, val)
+    }
+}
+
+impl From<u32> for JSValue {
+    #[inline(always)]
+    fn from(val: u32) -> Self {
+        if val <= 0x7fffffff {
+            (val as i32).into()
+        } else {
+            Self::from_f64_as_is(val as f64)
+        }
+    }
+}
+
+impl From<i64> for JSValue {
+    #[inline(always)]
+    fn from(val: i64) -> Self {
+        let v32 = val as i32;
+        if val == v32 as i64 {
+            v32.into()
+        } else {
+            Self::from_f64_as_is(val as f64)
+        }
+    }
+}
+
 impl JSValue {
     #[inline(always)]
     pub fn from_i32(val: i32) -> Self {

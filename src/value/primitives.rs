@@ -18,6 +18,17 @@ use crate::{
 
 use super::object::JSObject;
 
+impl From<bool> for JSValue {
+    #[inline]
+    fn from(value: bool) -> Self {
+        if value {
+            JSValue::TRUE
+        } else {
+            JSValue::FALSE
+        }
+    }
+}
+
 impl JSValue {
     /// Coerce `self` value to  primitive value.
     /// value `self` is not consumed
@@ -98,17 +109,6 @@ impl JSValue {
 
         ctx.JS_ThrowTypeError(c"toPrimitive");
         Err(-1)
-    }
-}
-
-impl From<bool> for JSValue {
-    #[inline]
-    fn from(value: bool) -> Self {
-        if value {
-            JSValue::TRUE
-        } else {
-            JSValue::FALSE
-        }
     }
 }
 
