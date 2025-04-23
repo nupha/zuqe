@@ -20,8 +20,9 @@ use crate::{
 };
 
 use super::{
-    js_promise_all_resolve_element, remainingElementsCount_add, JSPromiseData, PROMISE_MAGIC_all,
-    PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any,
+    js_promise_all_resolve_element, js_promise_catch, js_promise_finally, js_promise_then,
+    remainingElementsCount_add, JSPromiseData, PROMISE_MAGIC_all, PROMISE_MAGIC_allSettled,
+    PROMISE_MAGIC_any,
 };
 
 //
@@ -474,111 +475,6 @@ pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
 // Prototype methods
 //
 
-pub unsafe fn js_promise_then(
-    ctx: *mut JSContext,
-    this_val: JSValue, // is actually a PromiseValue
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    let s = JS_GetOpaque2(ctx, this_val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-    if s.is_null() {
-        return JSValue::EXCEPTION;
-    }
-
-    let ctor = JS_SpeciesConstructor(ctx, this_val, JSValue::UNDEFINED).into_rc((*ctx).rt());
-    if ctor.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(*ctor) {
-        (pr, rr)
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let ret = this_val.as_promise_unchecked().then(
-        ctx.as_mut().unwrap(),
-        &[*argv.add(0), *argv.add(1)],
-        &resolving_funcs,
-    );
-    JS_FreeValue(ctx, resolving_funcs[0]);
-    JS_FreeValue(ctx, resolving_funcs[1]);
-
-    if ret.is_err() {
-        JS_FreeValue(ctx, result_promise);
-        JSValue::EXCEPTION
-    } else {
-        result_promise
-    }
-}
-
-pub unsafe fn js_promise_catch(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    JS_Invoke(
-        ctx.as_mut().unwrap(),
-        this_val,
-        JS_ATOM_then,
-        2,
-        [JSValue::UNDEFINED, JSValue::UNDEFINED].as_mut_ptr(),
-    )
-}
-
-pub unsafe fn js_promise_finally(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    let on_finally = *argv.offset(0);
-
-    let ctor = JS_SpeciesConstructor(ctx, this_val, JSValue::UNDEFINED);
-    if ctor.is_exception() {
-        return ctor;
-    }
-
-    let mut then_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-
-    if !on_finally.is_function(ctx.as_ref().unwrap()) {
-        then_funcs = [on_finally.dup(), on_finally.dup()];
-    } else {
-        let func_data = [ctor, on_finally];
-        for i in 0..2 {
-            if let Ok(f) = (*ctx).create_native_callable_object(
-                js_promise_then_finally_func,
-                1,
-                i as _,
-                &func_data,
-            ) {
-                then_funcs[i] = f;
-            } else {
-                if i != 0 {
-                    JS_FreeValue(ctx, then_funcs[0]);
-                }
-                JS_FreeValue(ctx, ctor);
-                return JSValue::EXCEPTION;
-            }
-        }
-    }
-
-    JS_FreeValue(ctx, ctor);
-
-    let ret = JS_Invoke(
-        ctx.as_mut().unwrap(),
-        this_val,
-        JS_ATOM_then,
-        2,
-        then_funcs.as_mut_ptr(),
-    );
-    JS_FreeValue(ctx, then_funcs[0]);
-    JS_FreeValue(ctx, then_funcs[1]);
-
-    ret
-}
-
 // pub fn js_promise_finally_value_thunk(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 //     args.data_raw(0).dup().check_exception()
 // }
@@ -586,56 +482,6 @@ pub unsafe fn js_promise_finally(
 //     ctx.JS_Throw(args.data_raw(0).dup());
 //     Err(-1)
 // }
-
-pub fn js_promise_then_finally_func(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let ctor = args.data_raw(0);
-    let onFinally = args.data_raw(1);
-
-    let mut res = unsafe {
-        JS_Call(ctx, onFinally, JSValue::UNDEFINED, 0, std::ptr::null_mut())
-            .check_exception()?
-            .into_rc(ctx.rt())
-    };
-
-    let promise = unsafe {
-        js_promise_resolve(ctx, ctor, 1, res.deref_mut(), 0)
-            .check_exception()?
-            .into_rc(ctx.rt())
-    };
-
-    let mut then_func = ctx
-        .create_native_callable_object(
-            |cx: &mut JSContext, cc: CallArgs| -> JSResult {
-                let val = cc.data_raw(0).dup();
-                if cc.magic == 0 {
-                    val.check_exception() // resolve
-                } else {
-                    cx.JS_Throw(val); // reject
-                    Err(-1)
-                }
-            },
-            1,
-            args.magic,
-            &[args.get_raw(0)], // data: argument#0
-        )?
-        .into_rc(ctx.rt());
-
-    // let mut then_func = ctx
-    //     .create_native_callable_object(
-    //         if args.magic == 0 {
-    //             js_promise_finally_value_thunk
-    //         } else {
-    //             js_promise_finally_thrower
-    //         },
-    //         0,
-    //         0,
-    //         &[args.get_raw(0)],
-    //     )?
-    //     .into_rc(ctx.rt());
-
-    // call promise.then(resolve)
-    unsafe { JS_Invoke(ctx, *promise, JS_ATOM_then, 1, then_func.deref_mut()).check_exception() }
-}
 
 pub const js_promise_proto_funcs: [JSCFunctionListEntry; 4] = [
     JS_CFUNC_DEF!(c"then", 2, js_promise_then),
