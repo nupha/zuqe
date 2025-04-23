@@ -84,7 +84,7 @@ pub fn promise_reaction_job(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     // creating a dummy promise in the 'await' implementation of async
     // functions
     let res2 = if !func.is_undefined() {
-        unsafe { JS_Call(ctx, func, JSValue::UNDEFINED, 1, [res].as_mut_ptr()) }
+        unsafe { JS_Call(ctx, func, JSValue::UNDEFINED, 1, &mut res) }
     } else {
         JSValue::UNDEFINED
     };

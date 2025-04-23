@@ -68,7 +68,7 @@ impl PromiseResolvingFuncValue {
         } else if resolution.is_same(s.promise.0) {
             ctx.JS_ThrowTypeError(c"promise self resolution");
             let error = ctx.get_exception();
-            s.promise.reject(ctx, error);
+            s.promise.fulfill_or_reject(ctx, error, true);
             JS_FreeValue(ctx, error);
             return JSValue::UNDEFINED;
         }
@@ -76,7 +76,7 @@ impl PromiseResolvingFuncValue {
         let then = resolution.get_property(ctx, JS_ATOM_then);
         if then.is_exception() {
             let error = ctx.get_exception();
-            s.promise.reject(ctx, error);
+            s.promise.fulfill_or_reject(ctx, error, true);
             JS_FreeValue(ctx, error);
             JSValue::UNDEFINED
         } else if !then.is_function(ctx) {
@@ -84,10 +84,9 @@ impl PromiseResolvingFuncValue {
             s.promise.fulfill_or_reject(ctx, resolution, is_reject);
             JSValue::UNDEFINED
         } else {
-            // Note: arg values are duplicated in advance.
             ctx.enqueue_job(
                 js_promise_resolve_thenable_job,
-                &[s.promise.0, resolution, then],
+                &[s.promise.0, resolution, then], // arg values are not consumed
             )
             .unwrap();
 

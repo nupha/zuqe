@@ -81,6 +81,7 @@ impl JSCFunctionDataRecord {
 pub struct CallableValue(JSValue);
 
 impl JSValue {
+    /// as C_FUNCTION_DATA class object
     pub unsafe fn as_callbable_unchecked(self) -> CallableValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
         debug_assert_eq!(self.object().class_id(), JS_CLASS_C_FUNCTION_DATA);
@@ -89,7 +90,8 @@ impl JSValue {
 }
 
 impl JSContext {
-    /// `data` values are not consumed.
+    /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
+    /// Note: `data` values are not consumed.
     pub fn create_native_callable_object(
         &mut self,
         callback: JSNativeCallback,
