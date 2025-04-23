@@ -12,8 +12,8 @@ use crate::{
     regexp::is_digit,
     runtime::JSRuntime,
     value::{
-        JSTag, JSValue, JSValueConst, JS_DumpString, JS_FreeValue, JS_ToNumberFree, StringContent,
-        JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_DumpString, JS_FreeValue, StringContent, JS_VALUE_GET_INT,
+        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -612,10 +612,15 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
         // XXX: bignum: would be better to only accept integer to avoid
         // relying on current floating point precision
         // this is ECMA CanonicalNumericIndexString primitive
-        let num = JS_ToNumberFree(ctx, p1.clone().into_value());
-        if num.is_exception() {
-            return num;
-        }
+        let num = if let Ok(n) = p1
+            .clone()
+            .into_value()
+            .coerce_number_free(ctx.as_mut().unwrap())
+        {
+            n
+        } else {
+            return JSValue::EXCEPTION;
+        };
 
         // test num as string is same to original value
         if let Ok(str) = num.coerce_to_string_value(ctx.as_mut().unwrap()) {

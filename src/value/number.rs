@@ -7,7 +7,7 @@ use crate::{
     utils::skip_spaces,
     value::{
         JSTag, JSValue, JSValueConst, JSValueUnion, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsNumber, HINT_NUMBER, JS_NAN, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_VALUE_GET_FLOAT64,
+        JS_IsNumber, HINT_NUMBER, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_VALUE_GET_FLOAT64,
         JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
     },
     JS_MKVAL,
@@ -106,7 +106,7 @@ impl JSValue {
 
         // Normalize NaN
         if (u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000 {
-            JS_NAN
+            JSValue::NAN
         } else {
             JSValue::from_u64(u.u64 - ((super::value::JS_FLOAT64_TAG_ADDEND as u64) << 32))
         }
@@ -239,15 +239,21 @@ impl JSValue {
         unsafe { Self::do_coerce_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC) }
     }
 
-    /// Note: value `self` is not consumed.
+    /// Note: `self` is not consumed.
+    #[inline(always)]
+    pub unsafe fn coerce_number(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+        self.dup().coerce_number_free(ctx)
+    }
+
+    /// Note: `self` is not consumed.
     #[inline(always)]
     pub fn coerce_numeric(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
         self.dup().coerce_numeric_free(ctx)
     }
 
     /// coerce value to i32.
-    /// NOTE: will consume self value once.
-    pub unsafe fn to_i32_free(self, ctx: *mut JSContext) -> Result<i32, i32> {
+    /// Note: value `self` is consumed
+    pub unsafe fn coerce_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
         let mut val = self;
 
         let ret: i32 = loop {
@@ -283,10 +289,7 @@ impl JSValue {
                     };
                 }
                 _ => {
-                    val = JS_ToNumberFree(ctx, val);
-                    if val.is_exception() {
-                        return Err(-1);
-                    }
+                    val = val.coerce_number_free(ctx)?;
                     continue;
                 }
             }
@@ -335,7 +338,7 @@ pub unsafe fn JS_NumberIsInteger(ctx: *mut JSContext, val: JSValueConst) -> i32 
 /* return (<0, 0) in case of exception */
 #[deprecated(note = "use JSValue::to_i32_free() instead")]
 pub unsafe fn JS_ToInt32Free(ctx: *mut JSContext, pres: *mut i32, val: JSValue) -> i32 {
-    val.to_i32_free(ctx.as_mut().unwrap()).map_or(-1, |v| {
+    val.coerce_i32_free(ctx.as_mut().unwrap()).map_or(-1, |v| {
         *pres = v;
         0
     })
@@ -392,12 +395,13 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
                 return -1;
             }
             _ => {
-                val = JS_ToNumberFree(ctx, val);
-                if JS_IsException(val) {
+                if let Ok(n) = val.coerce_number_free(ctx.as_mut().unwrap()) {
+                    val = n;
+                    continue 'redo;
+                } else {
                     *pres = 0;
                     return -1;
                 }
-                continue 'redo;
             }
         }
 
@@ -408,25 +412,23 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
     0
 }
 
-pub unsafe fn __JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, mut val: JSValue) -> i32 {
-    val = JS_ToNumberFree(ctx, val);
+/// Note: `val` is consumed
+pub unsafe fn __JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue) -> i32 {
+    if let Ok(v) = val.coerce_number_free(ctx.as_mut().unwrap()) {
+        let d: f64 = match JS_VALUE_GET_NORM_TAG(v) {
+            JSTag::Int => JS_VALUE_GET_INT(v) as f64,
+            JSTag::Float64 => JS_VALUE_GET_FLOAT64(v),
+            _ => {
+                unreachable!()
+            }
+        };
 
-    if JS_IsException(val) {
-        *pres = JS_FLOAT64_NAN;
-        return -1;
+        *pres = d;
+        0
+    } else {
+        *pres = f64::NAN; //JS_FLOAT64_NAN;
+        -1
     }
-
-    let tag = JS_VALUE_GET_NORM_TAG(val);
-    let d: f64 = match tag {
-        JSTag::Int => JS_VALUE_GET_INT(val) as f64,
-        JSTag::Float64 => JS_VALUE_GET_FLOAT64(val),
-        _ => {
-            unreachable!()
-        }
-    };
-
-    *pres = d;
-    0
 }
 
 #[inline]
@@ -444,7 +446,7 @@ pub unsafe fn JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue
 }
 
 pub unsafe fn JS_ToFloat64(ctx: *mut JSContext, pres: *mut f64, val: JSValueConst) -> i32 {
-    JS_ToFloat64Free(ctx, pres, JS_DupValue(ctx, val))
+    JS_ToFloat64Free(ctx, pres, val.dup())
 }
 
 /// this hint is for BigInt only
@@ -463,84 +465,6 @@ pub unsafe fn JS_ToNumberHintFree(
     flag: JSToNumberHintEnum,
 ) -> JSValue {
     JSValue::do_coerce_number_free(ctx.as_mut().unwrap(), val, flag).unwrap_or(JSValue::EXCEPTION)
-
-    // loop {
-    //     match JS_VALUE_GET_NORM_TAG(val) {
-    //         JSTag::Int | JSTag::Float64 | JSTag::Exception => {
-    //             break val;
-    //         }
-    //         JSTag::Bool | JSTag::Null => {
-    //             break JSValue::from_i32(JS_VALUE_GET_INT(val));
-    //         }
-    //         JSTag::Undefined => {
-    //             break JS_NAN;
-    //         }
-    //         JSTag::Object => {
-    //             if let Ok(v) = val.coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NUMBER) {
-    //                 JS_FreeValue(ctx, val);
-    //                 val = v;
-    //                 continue;
-    //             } else {
-    //                 break JSValue::EXCEPTION;
-    //             }
-    //         }
-    //         JSTag::String => {
-    //             let v = if let Ok(str) = val.to_utf8_string(ctx.as_mut().unwrap()) {
-    //                 let len = str.len();
-    //                 let mut p = str.as_ptr();
-    //                 p = p.offset(skip_spaces(p.cast()) as isize);
-
-    //                 if (p as usize - str.as_ptr() as usize) == len {
-    //                     // is empty or white space string
-    //                     JSValue::ZERO
-    //                 } else {
-    //                     let mut r = js_atof(
-    //                         ctx,
-    //                         p.cast(),
-    //                         std::ptr::addr_of_mut!(p),
-    //                         0,
-    //                         ATOD_ACCEPT_BIN_OCT,
-    //                     );
-    //                     if !r.is_exception() {
-    //                         p = p.offset(skip_spaces(p.cast()) as isize);
-    //                         if (p as usize - str.as_ptr() as usize) != len {
-    //                             JS_FreeValue(ctx, r);
-    //                             r = JS_NAN;
-    //                         }
-    //                     }
-    //                     r
-    //                 }
-    //             } else {
-    //                 JS_FreeValue(ctx, val);
-    //                 JSValue::EXCEPTION
-    //             };
-
-    //             JS_FreeValue(ctx, val);
-    //             break v;
-    //         }
-    //         JSTag::Symbol => {
-    //             JS_FreeValue(ctx, val);
-    //             break ctx
-    //                 .as_mut()
-    //                 .unwrap()
-    //                 .JS_ThrowTypeError(c"cannot convert symbol to number");
-    //         }
-    //         JSTag::BigInt => {
-    //             break if flag != JSToNumberHintEnum::TON_FLAG_NUMERIC {
-    //                 JS_FreeValue(ctx, val);
-    //                 ctx.as_mut()
-    //                     .unwrap()
-    //                     .JS_ThrowTypeError(c"cannot convert bigint to number")
-    //             } else {
-    //                 val
-    //             };
-    //         }
-    //         _ => {
-    //             JS_FreeValue(ctx, val);
-    //             break JS_NAN;
-    //         }
-    //     }
-    // }
 }
 
 #[deprecated(note = "use JSValue::coerce_number_free() instead")]
@@ -567,20 +491,15 @@ pub const ATOD_ACCEPT_BIN_OCT: i32 = 1 << 2;
 /* accept O prefix as octal if radix == 0 and properly formed (Annex B) */
 pub const ATOD_ACCEPT_LEGACY_OCTAL: i32 = 1 << 4;
 /* accept _ between digits as a digit separator */
-pub const ATOD_ACCEPT_UNDERSCORES: i32 = (1 << 5);
+pub const ATOD_ACCEPT_UNDERSCORES: i32 = 1 << 5;
 /* allow a suffix to override the type */
 pub const ATOD_ACCEPT_SUFFIX: i32 = 1 << 6;
 /* default type */
-pub const ATOD_TYPE_MASK: i32 = (3 << 7);
-pub const ATOD_TYPE_FLOAT64: i32 = (0 << 7);
-pub const ATOD_TYPE_BIG_INT: i32 = (1 << 7);
+pub const ATOD_TYPE_MASK: i32 = 3 << 7;
+pub const ATOD_TYPE_FLOAT64: i32 = 0;
+pub const ATOD_TYPE_BIG_INT: i32 = 1 << 7;
 /// accept -0x1
 pub const ATOD_ACCEPT_PREFIX_AFTER_SIGN: i32 = 1 << 10;
-
-/// `val` keeps ref count after calling this function.
-pub unsafe fn JS_ToNumber(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    JS_ToNumberFree(ctx, val.dup())
-}
 
 /* same as JS_ToNumber() but return 0 in case of NaN/Undefined */
 pub unsafe fn JS_ToIntegerFree(ctx: *mut JSContext, mut val: JSValue) -> JSValue {
@@ -1307,7 +1226,7 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            return JS_NAN;
+            return JSValue::NAN;
         };
     }
 

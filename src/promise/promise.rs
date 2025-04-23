@@ -445,7 +445,7 @@ pub unsafe fn remainingElementsCount_add(
         return Err(-1);
     }
 
-    let mut remainingElementsCount = val.to_i32_free(ctx)?;
+    let mut remainingElementsCount = val.coerce_i32_free(ctx)?;
     remainingElementsCount += addend;
     resolve_element_env.set_property_u32(ctx, 0, JSValue::from_i32(remainingElementsCount))?;
 

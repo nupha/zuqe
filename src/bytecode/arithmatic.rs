@@ -5,9 +5,9 @@ use crate::{
     context::JSContext,
     value::{
         object::JSObject, JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString,
-        JS_FreeValue, JS_IsHTMLDDA, JS_ToNumberFree, JS_ToNumericFree, HINT_NONE, HINT_NUMBER,
-        JS_NAN, JS_TAG_INT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JS_FreeValue, JS_IsHTMLDDA, HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT,
+        JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -59,7 +59,7 @@ impl BinaryOp {
             let n1 = if JS_VALUE_GET_TAG(op1) == JS_TAG_INT {
                 JS_VALUE_GET_INT(op1)
             } else {
-                if let Ok(n) = op1.to_i32_free(ctx) {
+                if let Ok(n) = op1.coerce_i32_free(ctx.as_mut().unwrap()) {
                     n
                 } else {
                     JS_FreeValue(ctx, op2);
@@ -70,7 +70,7 @@ impl BinaryOp {
             let n2 = if JS_VALUE_GET_TAG(op2) == JS_TAG_INT {
                 JS_VALUE_GET_INT(op2)
             } else {
-                if let Ok(n) = op2.to_i32_free(ctx) {
+                if let Ok(n) = op2.coerce_i32_free(ctx.as_mut().unwrap()) {
                     n
                 } else {
                     return Err(-1);
@@ -149,18 +149,12 @@ impl BinaryOp {
                             op1 = p1;
                             op2 = p2;
                         } else {
-                            let n1 =
-                                if let Ok(v) = JS_ToNumberFree(ctx, op1.into()).check_exception() {
-                                    v.into_rc((*ctx).rt())
-                                } else {
-                                    break Err(-1);
-                                };
-                            let n2 =
-                                if let Ok(v) = JS_ToNumberFree(ctx, op2.into()).check_exception() {
-                                    v.into_rc((*ctx).rt())
-                                } else {
-                                    break Err(-1);
-                                };
+                            let n1 = JSValue::from(op1)
+                                .coerce_numeric_free(ctx.as_mut().unwrap())?
+                                .into_rc((*ctx).rt());
+                            let n2 = JSValue::from(op2)
+                                .coerce_number_free(ctx.as_mut().unwrap())?
+                                .into_rc((*ctx).rt());
 
                             op1 = n1;
                             op2 = n2;
@@ -394,6 +388,7 @@ pub(super) enum UnaryOp {
 }
 
 impl UnaryOp {
+    /// `val` is consumed
     #[inline(always)]
     pub fn new(ctx: &mut JSContext, val: JSValue, allow_float: bool) -> Result<Self, i32> {
         match JS_VALUE_GET_NORM_TAG(val) {
@@ -401,15 +396,14 @@ impl UnaryOp {
             JSTag::Float64 if allow_float => Ok(UnaryOp::Float(JS_VALUE_GET_FLOAT64(val))),
             _ => {
                 if allow_float {
-                    let n = unsafe { JS_ToNumberFree(ctx, val) };
+                    let n = val.coerce_number_free(ctx)?;
                     match JS_VALUE_GET_NORM_TAG(n) {
                         JSTag::Int => Ok(UnaryOp::Int(JS_VALUE_GET_INT(n))),
                         JSTag::Float64 => Ok(UnaryOp::Float(JS_VALUE_GET_FLOAT64(val))),
-                        JSTag::Exception => Err(-1),
                         _ => unreachable!(),
                     }
                 } else {
-                    unsafe { val.to_i32_free(ctx).map(|i| Self::Int(i)) }
+                    unsafe { val.coerce_i32_free(ctx).map(|i| Self::Int(i)) }
                 }
             }
         }
@@ -420,7 +414,7 @@ impl UnaryOp {
     pub fn new_int(ctx: &mut JSContext, op1: JSValue) -> Result<Self, i32> {
         match JS_VALUE_GET_NORM_TAG(op1) {
             JSTag::Int => Ok(Self::Int(JS_VALUE_GET_INT(op1))),
-            _ => unsafe { op1.to_i32_free(ctx).map(|i| Self::Int(i)) },
+            _ => unsafe { op1.coerce_i32_free(ctx).map(|i| Self::Int(i)) },
         }
     }
 
@@ -716,14 +710,16 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
                     println!("BigInt is not supported");
                     break false;
                 } else {
-                    op1 = JS_ToNumericFree(ctx, op1);
-                    if op1.is_exception() {
+                    if let Ok(n) = op1.coerce_numeric_free(ctx.as_mut().unwrap()) {
+                        op1 = n;
+                    } else {
                         JS_FreeValue(ctx, op2);
                         exception!();
                     }
 
-                    op2 = JS_ToNumericFree(ctx, op2);
-                    if op2.is_exception() {
+                    if let Ok(n) = op2.coerce_numeric_free(ctx.as_mut().unwrap()) {
+                        op2 = n;
+                    } else {
                         JS_FreeValue(ctx, op1);
                         exception!();
                     }

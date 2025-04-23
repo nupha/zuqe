@@ -13,10 +13,9 @@ use crate::{
             JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
             JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
-        JS_ToNumberFree, JS_ToUint32, JS_TAG_INT, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
-        MAX_SAFE_INTEGER,
+        set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToUint32,
+        JS_TAG_INT, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
     JS_CLASS_UINT8C_ARRAY,
@@ -447,11 +446,7 @@ pub unsafe fn JS_ToArrayLengthFree(
             unimplemented!()
         }
         _ if is_array_ctor => {
-            let v = JS_ToNumberFree(ctx, val);
-            if v.is_exception() {
-                return Err(-1);
-            }
-
+            let v = val.coerce_number_free(ctx.as_mut().unwrap())?;
             // won't recurse because v is a number
             len = JS_ToArrayLengthFree(ctx, v, true)?;
         }
@@ -467,12 +462,8 @@ pub unsafe fn JS_ToArrayLengthFree(
                 }
             }
 
-            let v = JS_ToNumberFree(ctx, val);
-            if JS_IsException(v) {
-                return Err(-1);
-            }
+            let v = val.coerce_number_free(ctx.as_mut().unwrap())?;
             if len != JS_ToArrayLengthFree(ctx, v, false)? {
-                // C2RS: goto fail replaced with direct return
                 JS_ThrowRangeError(ctx, c"invalid array length");
                 return Err(-1);
             }

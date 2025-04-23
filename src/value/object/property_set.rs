@@ -18,8 +18,8 @@ use crate::{
 use super::{
     super::{
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive,
-        JS_ToFloat64Free, JS_ToNumberFree, JS_ToUint8ClampFree, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_ToFloat64Free, JS_ToUint8ClampFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     obj::JSObject,
     JSPropertyDescriptor, JS_AutoInitProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT,
@@ -461,11 +461,8 @@ impl JSValue {
                         //     return -1;
                         // }
                     } else {
-                        let val = JS_ToNumberFree(ctx, val);
-                        JS_FreeValue(ctx, val);
-                        if val.is_exception() {
-                            return Err(-1);
-                        }
+                        let v = val.coerce_number_free(ctx)?; // consume val
+                        JS_FreeValue(ctx, v);
                     }
                     return Ok(true);
                 }
@@ -557,7 +554,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                        let v = if let Ok(n) = val.to_i32_free(ctx) {
+                        let v = if let Ok(n) = val.coerce_i32_free(ctx) {
                             n as u8
                         } else {
                             return Err(-1);
@@ -570,7 +567,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
-                        let v = if let Ok(n) = val.to_i32_free(ctx) {
+                        let v = if let Ok(n) = val.coerce_i32_free(ctx) {
                             n as u16
                         } else {
                             return Err(-1);
@@ -583,7 +580,7 @@ impl JSValue {
                         }
                     }
                     JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
-                        let v = if let Ok(n) = val.to_i32_free(ctx) {
+                        let v = if let Ok(n) = val.coerce_i32_free(ctx) {
                             n as u32
                         } else {
                             return Err(-1);

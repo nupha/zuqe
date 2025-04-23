@@ -55,8 +55,8 @@ use crate::{
             JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewCatchOffset,
-        JS_NewSymbolFromAtom, JS_ToBoolFree, JS_ToNumberFree, HINT_NONE, JS_TAG_CATCH_OFFSET,
-        JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
+        JS_NewSymbolFromAtom, JS_ToBoolFree, HINT_NONE, JS_TAG_CATCH_OFFSET, JS_TAG_INT,
+        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
         JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
@@ -1814,11 +1814,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::POST_INC | OpCode::POST_DEC => {
                     let op1 = SP![-1];
-                    let n1 = JS_ToNumberFree(ctx, op1);
-                    if n1.is_exception() {
-                        SP![-1] = JSValue::UNDEFINED;
-                        break State::Exception;
-                    } else {
+                    if let Ok(n1) = op1.coerce_number_free(ctx) {
                         SP![-1] = n1;
                         if let Ok(res) = UnaryOp::new(ctx, n1.dup(), true).map(|unary| match opcode
                         {
@@ -1831,6 +1827,9 @@ pub unsafe fn run_bytecodes(
                         } else {
                             break State::Exception;
                         }
+                    } else {
+                        SP![-1] = JSValue::UNDEFINED;
+                        break State::Exception;
                     }
                 }
                 OpCode::INC_LOC | OpCode::DEC_LOC => {

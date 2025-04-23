@@ -45,6 +45,13 @@ pub unsafe fn JS_ToPropertyKey(ctx: *mut JSContext, val: JSValueConst) -> JSValu
     unreachable!("use JSValue::coerce_to_propkey_value() instead");
 }
 
+/// `val` keeps ref count after calling this function.
+#[deprecated(note = "use JSValue::coerce_number() instead")]
+pub unsafe fn JS_ToNumber(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
+    val.coerce_number(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
 #[deprecated(note = "use JSValue::coerce_to_primitive() + JS_FreeValue() instead")]
 pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, hint: i32) -> JSValue {
     unreachable!("use JSValue::coerce_to_primitive() + JS_FreeValue() instead");
