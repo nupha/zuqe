@@ -92,11 +92,7 @@ fn main() {
                 exc.object().dump(js.as_ref());
                 JS_FreeValue(ctx.deref_mut(), exc);
             } else {
-                // println!(">>> RESULT: {r:?}, {:?}", r.to_utf8_string(ctx.deref_mut()));
-                println!(">>> RESULT: {r:?}, {:?}", r.repr(ctx.rt()));
-                // println!(">>> RESULT: {r:?}");
-                // r.dump(ctx.rt());
-                // println!();
+                println!(">>> RESULT: {r:?}, {:?}", r.to_utf8_string(ctx.deref_mut()));
 
                 if let Some(pr) = r.as_promise() {
                     let v = pr.result();

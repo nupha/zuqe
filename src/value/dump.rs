@@ -51,8 +51,8 @@ impl JSValue {
             }
             .into(),
             JSTag::Null => "null".into(),
-            JSTag::Exception => "exception".into(),
-            JSTag::Uninitialized => "uninitialized".into(),
+            JSTag::Exception => "<exception>".into(),
+            JSTag::Uninitialized => "<uninitialized>".into(),
             JSTag::Undefined => "undefined".into(),
             JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
             JSTag::String => {
@@ -95,7 +95,7 @@ impl JSValue {
             JSTag::Object => {
                 let p = unsafe { self.object() };
                 let atom = rt.class_array[p.class_id() as usize].class_name;
-                format!("[{} {p:p}]", atom.to_str(rt)).into()
+                format!("[{}]", atom.to_str(rt)).into()
             }
             JSTag::Symbol => {
                 let p = JS_VALUE_GET_PTR(self).cast::<JSAtomStruct>();
@@ -104,14 +104,15 @@ impl JSValue {
                 })
                 .into()
             }
-            JSTag::CatchOffset => "catchoffset".into(),
-            JSTag::Module => "[module]".into(),
+            JSTag::CatchOffset => "<catchoffset>".into(),
+            JSTag::Module => "<module>".into(),
             JSTag::BigInt | JSTag::BigDecimal | JSTag::BigFloat => {
                 unimplemented!();
             }
         }
     }
 
+    #[deprecated(note = "use JSValue::repr() instead")]
     pub unsafe fn dump(self, rt: &JSRuntime) {
         let str: Cow<'static, str> = match JS_VALUE_GET_NORM_TAG(self) {
             JSTag::Int => format!("{}", JS_VALUE_GET_INT(self)).into(),
@@ -131,7 +132,7 @@ impl JSValue {
                 debug_assert!(!p.is_null());
                 let ss = Rc::from_raw(p);
                 JS_DumpString(rt, &ss);
-                Rc::into_raw(ss);
+                let _ = Rc::into_raw(ss);
                 return;
             }
             JSTag::FunctionBytecode => {

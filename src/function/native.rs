@@ -834,34 +834,24 @@ pub unsafe fn JS_InstantiateFunctionListItem2(
     atom: JSAtom,
     opaque: *mut c_void,
 ) -> JSValue {
-    let e: *const JSCFunctionListEntry = opaque as *const JSCFunctionListEntry;
-    let val: JSValue;
-
+    let e = opaque.cast::<JSCFunctionListEntry>();
     match (*e).def_type {
-        0 => {
-            // Assuming JS_DEF_CFUNC is 0
-            val = JS_NewCFunction2(
-                ctx,
-                (*e).u.func.cfunc.generic,
-                (*e).name,
-                (*e).u.func.length,
-                (*e).u.func.cproto,
-                (*e).magic,
-            );
-        }
-        1 => {
-            // Assuming JS_DEF_PROP_STRING is 1
-            val = JS_NewAtomString(ctx, (*e).u.str);
-        }
-        2 => {
-            // Assuming JS_DEF_OBJECT is 2
-            val = JS_NewObject(ctx);
+        JS_DEF_CFUNC => JS_NewCFunction2(
+            ctx,
+            (*e).u.func.cfunc.generic,
+            (*e).name,
+            (*e).u.func.length,
+            (*e).u.func.cproto,
+            (*e).magic,
+        ),
+        JS_DEF_PROP_STRING => JS_NewAtomString(ctx, (*e).u.str),
+        JS_DEF_OBJECT => {
+            let val = JS_NewObject(ctx);
             JS_SetPropertyFunctionList(ctx, val, (*e).u.prop_list.tab, (*e).u.prop_list.len as _);
+            val
         }
         t => {
             unreachable!("invalid def_type {t}");
         }
     }
-
-    val
 }
