@@ -3,7 +3,7 @@ use crate::{
     error::JSResult,
     eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
     function::{CallArgs, JSCFunctionListEntry},
-    value::{JSValue, JS_ToFloat64},
+    value::{js_parseFloat, js_parseInt, JSValue, JS_ToFloat64},
     JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
 };
 
@@ -20,8 +20,8 @@ pub fn js_global_eval(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 }
 
-pub(super) const MAGIC_NUM_IS_NAN: i32 = 1;
-pub(super) const MAGIC_NUM_IS_FINITE: i32 = 2;
+pub const MAGIC_NUM_IS_NAN: i32 = 1;
+pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
 pub fn js_global_isNaN_isFinite(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let mut d: f64 = 0.0;
@@ -39,9 +39,9 @@ pub fn js_global_isNaN_isFinite(ctx: &mut JSContext, args: CallArgs) -> JSResult
 }
 
 // global objects
-pub const js_global_props: [JSCFunctionListEntry; 5] = [
-    // JS_CFUNC_DEF("parseInt", 2, js_parseInt),
-    // JS_CFUNC_DEF("parseFloat", 1, js_parseFloat),
+pub const js_global_props: [JSCFunctionListEntry; 7] = [
+    JS_CFUNC_NATIVE_DEF!(c"parseInt", 2, js_parseInt, 0),
+    JS_CFUNC_NATIVE_DEF!(c"parseFloat", 1, js_parseFloat, 0),
     JS_CFUNC_NATIVE_DEF!(c"isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
     JS_CFUNC_NATIVE_DEF!(
         c"isFinite",

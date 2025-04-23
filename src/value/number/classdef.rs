@@ -3,6 +3,8 @@ use crate::{
     context::JSContext,
     error::{JSResult, JS_ThrowRangeError},
     function::{CallArgs, JSCFunctionListEntry},
+    js_core::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN},
+    utils::skip_spaces,
     value::{
         is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToFloat64Free,
@@ -10,10 +12,11 @@ use crate::{
         JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
+    JS_ALIAS_BASE_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER,
+    JS_PROP_DOUBLE_DEF,
 };
 
-use super::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN};
+use super::{js_atof, JS_ToInt32, ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY};
 
 pub unsafe fn js_thisNumberValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
     if JS_IsNumber(this_val) {
@@ -30,6 +33,43 @@ pub unsafe fn js_thisNumberValue(ctx: *mut JSContext, this_val: JSValueConst) ->
     }
 
     (*ctx).JS_ThrowTypeError(c"not a number")
+}
+
+pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let radix: i32 = unsafe { JS_ToInt32(ctx, args.get_raw(1))? };
+
+    let ret = if radix != 0 && (radix < 2 || radix > 36) {
+        JSValue::NAN
+    } else {
+        let str = args.get_raw(0).to_utf8_string(ctx)?;
+        let mut p = str.as_ptr();
+
+        unsafe {
+            let skip_spaces_result = skip_spaces(p);
+            p = p.add(skip_spaces_result);
+            js_atof(
+                ctx,
+                p,
+                std::ptr::null_mut(),
+                radix,
+                ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
+            )
+            .check_exception()?
+        }
+    };
+
+    Ok(ret)
+}
+
+pub fn js_parseFloat(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let str = args.get_raw(0).to_utf8_string(ctx)?;
+    let mut p = str.as_ptr();
+
+    let skip_spaces_result = unsafe { skip_spaces(p) };
+    unsafe {
+        p = p.add(skip_spaces_result);
+        js_atof(ctx, p, std::ptr::null_mut(), 10, 0).check_exception()
+    }
 }
 
 pub unsafe fn js_number_valueOf(
@@ -259,10 +299,10 @@ pub unsafe fn js_number_isSafeInteger(
     is_safe_integer(d).into()
 }
 
-pub const js_number_funcs: [JSCFunctionListEntry; 12] = [
+pub const js_number_funcs: [JSCFunctionListEntry; 14] = [
     // global ParseInt and parseFloat should be defined already or delayed
-    // JS_ALIAS_BASE_DEF("parseInt", "parseInt", 0 ),
-    // JS_ALIAS_BASE_DEF("parseFloat", "parseFloat", 0 ),
+    JS_ALIAS_BASE_DEF!(c"parseInt", c"parseInt", 0),
+    JS_ALIAS_BASE_DEF!(c"parseFloat", c"parseFloat", 0),
     JS_CFUNC_NATIVE_DEF!(c"isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
     JS_CFUNC_NATIVE_DEF!(
         c"isFinite",

@@ -24,7 +24,6 @@ use crate::{
         error::js_error_constructor,
         function::js_function_proto_funcs,
         global::{js_global_eval, js_global_props},
-        number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
@@ -33,6 +32,7 @@ use crate::{
     },
     promise::{js_promise_funcs, js_promise_proto_funcs, PromiseValue},
     value::{
+        js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
             get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
             JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
@@ -436,6 +436,26 @@ impl JSContext {
         {
             self.global_obj = JS_NewObject(self);
             self.global_var_obj = JS_NewObjectProto(self, JSValue::NULL);
+
+            //
+            // define global properties (isNan, parseInt, undefined, NaN etc)
+            //
+            JS_SetPropertyFunctionList(
+                self,
+                self.global_obj,
+                js_global_props.as_ptr(),
+                js_global_props.len(),
+            );
+
+            // globalThis
+            self.global_obj
+                .define_property_value(
+                    self,
+                    JS_ATOM_globalThis,
+                    self.global_obj.dup(),
+                    JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+                )
+                .unwrap();
         }
 
         // throw TypeError()
@@ -544,25 +564,6 @@ impl JSContext {
         // JS_FreeValue(ctx, obj1);
 
         self.intrinsic_eval(); // enable `eval()` function
-
-        //
-        // define global properties (isNan, parseInt, undefined, NaN etc)
-        //
-        JS_SetPropertyFunctionList(
-            self,
-            self.global_obj,
-            js_global_props.as_ptr(),
-            js_global_props.len(),
-        );
-        // globalThis
-        self.global_obj
-            .define_property_value(
-                self,
-                JS_ATOM_globalThis,
-                self.global_obj.dup(),
-                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-            )
-            .unwrap();
     }
 
     pub unsafe fn intrinsic_async(&mut self) {

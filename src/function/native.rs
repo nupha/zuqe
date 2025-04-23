@@ -715,7 +715,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                 1 => (*ctx).class_proto[JS_CLASS_ARRAY as usize]
                     .get_property(ctx.as_mut().unwrap(), atom1),
                 _ => {
-                    unreachable!(); // abort();
+                    unreachable!();
                 }
             };
             JS_FreeAtom(ctx, atom1);

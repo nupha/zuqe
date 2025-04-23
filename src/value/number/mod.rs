@@ -1,3 +1,4 @@
+mod classdef;
 mod number;
 
-pub use number::*;
+pub use {classdef::*, number::*};

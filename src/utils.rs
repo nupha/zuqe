@@ -585,3 +585,22 @@ macro_rules! JS_PROP_UNDEFINED_DEF {
         }
     };
 }
+
+#[macro_export]
+macro_rules! JS_ALIAS_BASE_DEF {
+    ($name:expr, $from:expr, $base:expr) => {
+        crate::function::JSCFunctionListEntry {
+            name: $name,
+            prop_flags: (crate::value::object::JS_PROP_WRITABLE
+                | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
+            def_type: crate::value::JS_DEF_ALIAS,
+            magic: 0,
+            u: crate::function::JSCFunctionListEntryUnion {
+                alias: crate::function::JSCFunctionListEntryAlias {
+                    name: $from,
+                    base: $base,
+                },
+            },
+        }
+    };
+}

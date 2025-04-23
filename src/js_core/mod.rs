@@ -4,7 +4,6 @@ pub mod error;
 pub mod function;
 pub mod global;
 pub mod mapset;
-pub mod number;
 pub mod object;
 pub mod string;
 pub mod typed_array;
