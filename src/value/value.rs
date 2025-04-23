@@ -505,20 +505,6 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     }
 
     match tag {
-        JS_TAG_STRING => {
-            unreachable!();
-            // let p = JS_VALUE_GET_STRING(v);
-            // let s = Rc::from_raw(p);
-            // if let Some(at) = (*p).atom_type() {
-            //     JS_FreeAtomStruct(rt.as_mut().unwrap(), NonNull::new(p).unwrap());
-            // } else {
-            //     #[cfg(feature = "dump_leaks")]
-            //     list_del(&mut (*p).link);
-
-            //     // drop JSString
-            //     drop(Box::from_raw(p));
-            // }
-        }
         JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE => {
             let p = JS_VALUE_GET_OBJ(v).cast::<JSGCObjectHeader>();
             if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
@@ -530,12 +516,8 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
                 }
             }
         }
-        JS_TAG_SYMBOL => {
-            unreachable!();
-            // JS_FreeAtomStruct(
-            //     rt.as_mut().unwrap(),
-            //     NonNull::new(JS_VALUE_GET_PTR(v).cast::<JSString>()).unwrap(),
-            // );
+        JS_TAG_STRING | JS_TAG_SYMBOL => {
+            unreachable!("won't freed here");
         }
         JS_TAG_MODULE => {
             unreachable!("never freed here");
