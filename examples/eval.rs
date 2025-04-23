@@ -15,6 +15,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_GetImportMeta, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,
+    promise::PromiseValue,
     runtime::JSRuntime,
     value::{
         object::{JS_DefinePropertyValueStr, JS_PROP_C_W_E},
@@ -95,6 +96,13 @@ fn main() {
                 r.dump((*ctx).rt());
                 println!();
                 JS_FreeValue(ctx.deref_mut(), r);
+
+                if let Some(pr) = r.as_promise() {
+                    let v = pr.result();
+                    println!("promise state: {:?}", pr.state());
+                    println!("promise result: {:?}", v);
+                    JS_FreeValue(ctx.as_raw().as_ptr(), v);
+                }
             }
 
             // JS_DumpGCObjects(js.as_mut());

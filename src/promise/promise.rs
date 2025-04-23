@@ -236,6 +236,16 @@ impl PromiseValue {
         }
     }
 
+    /// get Promise current result. returned value is duplicated, caller must free it.
+    pub fn result(self) -> JSValue {
+        let s = unsafe { JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
+        if s.is_null() {
+            JSValue::UNDEFINED
+        } else {
+            unsafe { (*s).promise_result.dup() }
+        }
+    }
+
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
@@ -306,6 +316,16 @@ impl PromiseValue {
 }
 
 impl JSValue {
+    /// interpret value `self` as PromiseValue.
+    /// returns None if `self` is not a JS_CLASS_PROMISE class object
+    pub fn as_promise(self) -> Option<PromiseValue> {
+        if self.is_object() && unsafe { self.object().class_id() } == JS_CLASS_PROMISE {
+            unsafe { Some(std::mem::transmute(self)) }
+        } else {
+            None
+        }
+    }
+
     /// interpret value `self` as PromiseValue.
     /// must ensure `self` is a JS_CLASS_PROMISE class object, otherwise behavior is undefined.
     #[inline(always)]
@@ -493,10 +513,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
     Ok(JSValue::UNDEFINED)
 }
 
+#[deprecated(note = "use PromiseValue::result() instead")]
 pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
-    let s = JS_GetOpaque(promise, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-    if s.is_null() {
-        return JSValue::UNDEFINED;
-    }
-    (*s).promise_result.dup()
+    promise.as_promise_unchecked().result()
 }
