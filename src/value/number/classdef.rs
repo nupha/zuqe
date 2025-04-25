@@ -6,32 +6,31 @@ use crate::{
     js_core::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN},
     utils::skip_spaces,
     value::{
-        is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_DupValue,
-        JS_FreeValue, JS_IsException, JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToFloat64Free,
-        JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
-        JS_DTOA_FRAC_FORMAT, JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException,
+        JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree,
+        JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_TAG_BIG_INT,
+        JS_TAG_OBJECT, JS_VALUE_GET_TAG,
     },
-    JS_ALIAS_BASE_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER,
-    JS_PROP_DOUBLE_DEF,
+    JS_ALIAS_BASE_DEF, JS_CFUNC_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
 };
 
 use super::{f64_stringify, js_atof, JS_ToInt32, ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY};
 
-pub unsafe fn js_thisNumberValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
+pub fn js_thisNumberValue(ctx: &mut JSContext, this_val: JSValue) -> JSResult {
     if JS_IsNumber(this_val) {
-        return JS_DupValue(ctx, this_val);
-    }
-
-    if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(this_val);
-        if (*p).class_id() == JS_CLASS_NUMBER {
-            if JS_IsNumber((*p).u.object_data) {
-                return JS_DupValue(ctx, (*p).u.object_data);
+        return Ok(this_val.dup());
+    } else if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
+        let p = unsafe { this_val.object() };
+        if p.class_id() == JS_CLASS_NUMBER {
+            let d = unsafe { p.u.object_data };
+            if JS_IsNumber(d) {
+                return Ok(d.dup());
             }
         }
     }
 
-    (*ctx).JS_ThrowTypeError(c"not a number")
+    ctx.JS_ThrowTypeError(c"not a number");
+    Err(-1)
 }
 
 pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
@@ -71,13 +70,8 @@ pub fn js_parseFloat(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 }
 
-pub unsafe fn js_number_valueOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    js_thisNumberValue(ctx, this_val)
+pub fn js_number_valueOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    js_thisNumberValue(ctx, args.this_raw())
 }
 
 pub unsafe fn js_get_radix(ctx: *mut JSContext, val: JSValueConst) -> i32 {
@@ -92,122 +86,91 @@ pub unsafe fn js_get_radix(ctx: *mut JSContext, val: JSValueConst) -> i32 {
     radix
 }
 
-pub unsafe fn js_number_toString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    let val = js_thisNumberValue(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
+pub fn js_number_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
-    let base = if magic != 0 || JS_IsUndefined(*argv.offset(0)) {
+    let base = if args.magic != 0 || args.get_raw(0).is_undefined() {
         10
     } else {
-        let base = js_get_radix(ctx, unsafe { *argv.offset(0) });
-        if base < 0 {
-            JS_FreeValue(ctx, val);
-            return JSValue::EXCEPTION;
+        let b = unsafe { js_get_radix(ctx, args.get_raw(0)) };
+        if b < 0 {
+            return Err(-1);
         }
-        base
+        b
     };
 
     let mut d: f64 = 0.0;
-    if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
-        JSValue::EXCEPTION
+    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+        Err(-1)
     } else {
         // js_dtoa(ctx, d, base, 0, JS_DTOA_VAR_FORMAT)
-        (*ctx).create_string(f64_stringify(d).as_ref())
+        ctx.create_string(f64_stringify(d).as_ref())
+            .check_exception()
     }
 }
 
-pub unsafe fn js_number_toFixed(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val = js_thisNumberValue(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
+pub fn js_number_toFixed(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
     let mut d: f64 = 0.0;
-    if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+        return Err(-1);
     }
 
     let mut f: i32 = 0;
-    if JS_ToInt32Sat(ctx, &mut f, unsafe { *argv.offset(0) }) != 0 {
-        return JSValue::EXCEPTION;
-    }
-    if f < 0 || f > 100 {
-        return JS_ThrowRangeError(ctx, c"invalid number of digits");
+    if unsafe { JS_ToInt32Sat(ctx, &mut f, args.get_raw(0)) } != 0 {
+        return Err(-1);
+    } else if f < 0 || f > 100 {
+        unsafe { JS_ThrowRangeError(ctx, c"invalid number of digits") };
+        return Err(-1);
     }
 
     if d.abs() >= 1e21 {
-        JS_ToStringFree(ctx, JSValue::from_f64_as_is(d))
+        unsafe { JS_ToStringFree(ctx, JSValue::from_f64_as_is(d)).check_exception() }
     } else {
-        js_dtoa(ctx, d, 10, f, JS_DTOA_FRAC_FORMAT)
+        unsafe { js_dtoa(ctx, d, 10, f, JS_DTOA_FRAC_FORMAT).check_exception() }
     }
 }
 
-pub unsafe fn js_number_toExponential(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val = js_thisNumberValue(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
+pub fn js_number_toExponential(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
     let mut f: i32 = 0;
     let mut d: f64 = 0.0;
 
-    if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+        return Err(-1);
     }
-    if JS_ToInt32Sat(ctx, &mut f, *argv.offset(0)) != 0 {
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt32Sat(ctx, &mut f, args.get_raw(0)) } != 0 {
+        return Err(-1);
     }
     if !d.is_finite() {
-        return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
+        return unsafe { JS_ToStringFree(ctx, JSValue::from_f64_as_is(d)).check_exception() };
     }
 
-    let flags = if JS_IsUndefined(*argv.offset(0)) {
+    let flags = if args.get_raw(0).is_undefined() {
         f = 0;
         0
     } else {
         if !(0..=100).contains(&f) {
-            return JS_ThrowRangeError(ctx, c"invalid number of digits");
+            unsafe {
+                JS_ThrowRangeError(ctx, c"invalid number of digits");
+            }
+            return Err(-1);
         }
         f += 1;
         JS_DTOA_FIXED_FORMAT
     };
 
-    js_dtoa(ctx, d, 10, f, flags | JS_DTOA_FORCE_EXP)
+    unsafe { js_dtoa(ctx, d, 10, f, flags | JS_DTOA_FORCE_EXP).check_exception() }
 }
 
-pub unsafe fn js_number_toPrecision(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let mut p: i32 = 0;
-    let mut d: f64 = 0.0;
+pub fn js_number_toPrecision(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
-    let val = js_thisNumberValue(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
-    if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
-        return JSValue::EXCEPTION;
+    let mut d: f64 = 0.0;
+    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+        return Err(-1);
     }
 
     let s = if !d.is_finite() {
@@ -220,15 +183,19 @@ pub unsafe fn js_number_toPrecision(
         }
         .to_string()
     } else {
-        let a = *argv.offset(0);
+        let a = args.get_raw(0);
         if a.is_undefined() {
             f64_stringify(d).into_owned() // as-is
         } else {
-            if JS_ToInt32Sat(ctx, &mut p, a) != 0 {
-                return JSValue::EXCEPTION;
-            }
-            if !(1..=100).contains(&p) {
-                return JS_ThrowRangeError(ctx, c"invalid number of digits");
+            let mut p: i32 = 0;
+
+            if unsafe { JS_ToInt32Sat(ctx, &mut p, a) } != 0 {
+                return Err(-1);
+            } else if !(1..=100).contains(&p) {
+                unsafe {
+                    JS_ThrowRangeError(ctx, c"invalid number of digits");
+                }
+                return Err(-1);
             }
 
             let scientific = format!("{:.1$e}", d, p as usize - 1);
@@ -251,7 +218,8 @@ pub unsafe fn js_number_toPrecision(
         }
     };
 
-    (*ctx).create_string_from_utf8(s.into_bytes())
+    ctx.create_string_from_utf8(s.into_bytes())
+        .check_exception()
 
     // if (*argv.offset(0)).is_undefined() {
     //     // as-is
@@ -272,12 +240,12 @@ pub unsafe fn js_number_toPrecision(
 }
 
 pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
-    JS_CFUNC_DEF!(c"toExponential", 1, js_number_toExponential),
-    JS_CFUNC_DEF!(c"toFixed", 1, js_number_toFixed),
-    JS_CFUNC_DEF!(c"toPrecision", 1, js_number_toPrecision),
-    JS_CFUNC_MAGIC_DEF!(c"toString", 1, js_number_toString, 0),
-    JS_CFUNC_MAGIC_DEF!(c"toLocaleString", 0, js_number_toString, 1),
-    JS_CFUNC_DEF!(c"valueOf", 0, js_number_valueOf),
+    JS_CFUNC_NATIVE_DEF!(c"toExponential", 1, js_number_toExponential, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toFixed", 1, js_number_toFixed, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toPrecision", 1, js_number_toPrecision, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 1, js_number_toString, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_number_toString, 1),
+    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_number_valueOf, 0),
 ];
 
 pub fn js_number_isNaN_isFinite(ctx: &mut JSContext, args: CallArgs) -> JSResult {
