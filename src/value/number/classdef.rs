@@ -209,21 +209,66 @@ pub unsafe fn js_number_toPrecision(
     if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
         return JSValue::EXCEPTION;
     }
-    if JS_IsUndefined(*argv.offset(0)) {
-        // C2RS: goto to_string; replaced with direct control flow
-        return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
-    }
-    if JS_ToInt32Sat(ctx, &mut p, *argv.offset(0)) != 0 {
-        return JSValue::EXCEPTION;
-    }
-    if !d.is_finite() {
-        return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
-    }
-    if !(1..=100).contains(&p) {
-        return JS_ThrowRangeError(ctx, c"invalid number of digits");
-    }
 
-    js_dtoa(ctx, d, 10, p, JS_DTOA_FIXED_FORMAT)
+    let s = if !d.is_finite() {
+        if d.is_nan() {
+            "NaN"
+        } else if d.is_sign_positive() {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_string()
+    } else {
+        let a = *argv.offset(0);
+        if a.is_undefined() {
+            f64_stringify(d).into_owned() // as-is
+        } else {
+            if JS_ToInt32Sat(ctx, &mut p, a) != 0 {
+                return JSValue::EXCEPTION;
+            }
+            if !(1..=100).contains(&p) {
+                return JS_ThrowRangeError(ctx, c"invalid number of digits");
+            }
+
+            let scientific = format!("{:.1$e}", d, p as usize - 1);
+            let i = scientific.find('e').unwrap();
+            // let mentissa = &scientific[..i];
+            let exponent = scientific[i + 1..].parse::<i32>().unwrap();
+
+            let use_scientific = if exponent < 0 {
+                exponent.abs() > 6 // < 1e-6, use scientific notation
+            } else {
+                exponent >= p
+            };
+
+            if use_scientific {
+                scientific
+            } else {
+                let n = p - 1 - exponent;
+                format!("{:.1$}", d, if n >= 0 { n } else { p - 1 } as usize)
+            }
+        }
+    };
+
+    (*ctx).create_string_from_utf8(s.into_bytes())
+
+    // if (*argv.offset(0)).is_undefined() {
+    //     // as-is
+    //     return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
+    // }
+
+    // if JS_ToInt32Sat(ctx, &mut p, *argv.offset(0)) != 0 {
+    //     return JSValue::EXCEPTION;
+    // }
+    // if !d.is_finite() {
+    //     return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
+    // }
+    // if !(1..=100).contains(&p) {
+    //     return JS_ThrowRangeError(ctx, c"invalid number of digits");
+    // }
+
+    // js_dtoa(ctx, d, 10, p, JS_DTOA_FIXED_FORMAT)
 }
 
 pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
