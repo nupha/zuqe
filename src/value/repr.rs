@@ -133,8 +133,7 @@ impl JSValue {
             }
             JSTag::Module => ctx.create_string("[module]"),
             JSTag::Float64 => {
-                //js_dtoa(ctx, JS_VALUE_GET_FLOAT64(self), 10, 0, JS_DTOA_VAR_FORMAT)
-                let s = f64_stringify(JS_VALUE_GET_FLOAT64(self));
+                let s = f64_stringify(JS_VALUE_GET_FLOAT64(self), 10, None, 0);
                 ctx.create_string(s.as_ref())
             }
             JSTag::Uninitialized => ctx.create_string("[uninitialized]"),

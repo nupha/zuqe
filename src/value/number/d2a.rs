@@ -41,35 +41,121 @@ impl RoundingMode {
     }
 }
 
-pub fn f64_stringify<'a>(d: f64) -> Cow<'a, str> {
-    if !d.is_finite() {
-        return if d.is_nan() {
+pub fn f64_stringify<'a>(
+    num: f64,
+    radix: u32,
+    fixed_digits: Option<u32>,
+    flags: i32,
+) -> Cow<'a, str> {
+    if !num.is_finite() {
+        return if num.is_nan() {
             "NaN"
+        } else if num.is_sign_negative() {
+            "-Infinity"
         } else {
-            if d < 0.0 {
-                "Infinity"
-            } else {
-                "-Infinity"
-            }
+            "Infinity"
         }
         .into();
-    }
-
-    let i64 = d as i64;
-
-    if d != i64 as f64 || i64 > MAX_SAFE_INTEGER || i64 < -MAX_SAFE_INTEGER {
-        let ad = d.abs();
-        if ad >= 1e21 || ad <= 1e-1 {
-            // use exponential format
-            format!("{d:.e}")
-        } else {
-            format!("{d}")
-        }
-        .into()
     } else {
-        // valid integer
-        format!("{i64}").into()
+        let use_scientific = if flags & JS_DTOA_FORCE_EXP != 0 {
+            true
+        } else {
+            let ab = num.abs();
+            ab >= 1e21 || ab <= 1e-6
+        };
+
+        if use_scientific {
+            let t = if let Some(p) = fixed_digits {
+                format!("{:.1$e}", num, p as usize - 1)
+            } else {
+                format!("{:.e}", num)
+            };
+
+            let i = t.find('e').unwrap();
+            let exp = t[i + 1..].parse::<i32>().unwrap();
+            if exp >= 0 {
+                format!("{}e+{}", &t[..i], exp)
+            } else {
+                t
+            }
+            .into()
+        } else {
+            let int64 = num as i64;
+            if num != int64 as f64 || int64 > MAX_SAFE_INTEGER || int64 < -MAX_SAFE_INTEGER {
+                format!("{num}").into()
+            } else {
+                // integer
+                let mut buf = [0u8; 33];
+                unsafe {
+                    CStr::from_ptr(i64toa(buf.as_mut_ptr(), int64, radix).cast())
+                        .to_string_lossy()
+                        .into_owned()
+                        .into()
+                }
+            }
+        }
     }
+
+    // let i64 = d as i64;
+    // if d != i64 as f64 || i64 > MAX_SAFE_INTEGER || i64 < -MAX_SAFE_INTEGER {
+    //     let ad = d.abs();
+    //     if ad >= 1e21 || ad <= 1e-6 {
+    //         // use scientific notation
+    //         format!("{d:.e}")
+    //     } else {
+    //         format!("{d}")
+    //     }
+    //     .into()
+    // } else {
+    //     // integer
+    //     let mut buf = [0u8; 33];
+    //     unsafe {
+    //         CStr::from_ptr(i64toa(buf.as_mut_ptr(), i64, radix).cast())
+    //             .to_string_lossy()
+    //             .into_owned()
+    //             .into()
+    //     }
+    // }
+}
+
+/* 2 <= base <= 36 */
+pub unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
+    let mut is_neg = 0;
+    let mut n = n;
+
+    if n < 0 {
+        is_neg = 1;
+        n = -n;
+    }
+
+    let mut q = buf_end;
+
+    // C2RS: Use offset to move pointer backwards and write null terminator
+    *q.offset(-1) = b'\0';
+    q = q.offset(-1);
+
+    loop {
+        let digit = (n as u64) % (base as u64);
+        n = (n as i64) / (base as i64);
+
+        if digit < 10 {
+            *q.offset(-1) = digit as u8 + b'0';
+        } else {
+            *q.offset(-1) = digit as u8 - 10 + b'a';
+        }
+        q = q.offset(-1);
+
+        if n == 0 {
+            break;
+        }
+    }
+
+    if is_neg != 0 {
+        *q.offset(-1) = b'-';
+        q = q.offset(-1);
+    }
+
+    return q;
 }
 
 /* XXX: slow and maybe not fully correct. Use libbf when it is fast enough.
@@ -317,46 +403,6 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
             }
         }
     }
-}
-
-/* 2 <= base <= 36 */
-unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
-    let mut is_neg = 0;
-    let mut n = n;
-
-    if n < 0 {
-        is_neg = 1;
-        n = -n;
-    }
-
-    let mut q = buf_end;
-
-    // C2RS: Use offset to move pointer backwards and write null terminator
-    *q.offset(-1) = b'\0';
-    q = q.offset(-1);
-
-    loop {
-        let digit = (n as u64) % (base as u64);
-        n = (n as i64) / (base as i64);
-
-        if digit < 10 {
-            *q.offset(-1) = digit as u8 + b'0';
-        } else {
-            *q.offset(-1) = digit as u8 - 10 + b'a';
-        }
-        q = q.offset(-1);
-
-        if n == 0 {
-            break;
-        }
-    }
-
-    if is_neg != 0 {
-        *q.offset(-1) = b'-';
-        q = q.offset(-1);
-    }
-
-    return q;
 }
 
 pub unsafe fn js_dtoa(

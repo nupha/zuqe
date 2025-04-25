@@ -131,13 +131,12 @@ impl JSValue {
 
     ///  test if the value is an intergral number.
     /// returns Err if test has exception.
-    pub unsafe fn is_integer(&self, ctx: &mut JSContext) -> Result<bool, i32> {
-        let val = *self;
-        if !JS_IsNumber(val) {
+    pub fn is_integer(self, ctx: &mut JSContext) -> Result<bool, i32> {
+        if !JS_IsNumber(self) {
             Ok(false)
         } else {
             let mut d: f64 = 0.0;
-            if JS_ToFloat64(ctx, &mut d, val) != 0 {
+            if unsafe { JS_ToFloat64(ctx, &mut d, self) } != 0 {
                 Err(-1)
             } else {
                 Ok(d.is_finite() && d.fract() == 0.0)
