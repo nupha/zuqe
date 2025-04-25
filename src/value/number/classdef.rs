@@ -6,10 +6,9 @@ use crate::{
     js_core::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN},
     utils::skip_spaces,
     value::{
-        is_safe_integer, js_dtoa, object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException,
-        JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToInt32Sat, JS_ToNumeric, JS_ToStringFree,
-        JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_TAG_BIG_INT,
-        JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+        is_safe_integer, object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException,
+        JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToInt32Sat, JS_ToNumeric, JS_DTOA_FORCE_EXP,
+        JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
     },
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
 };
@@ -86,93 +85,87 @@ pub unsafe fn js_get_radix(ctx: *mut JSContext, val: JSValueConst) -> i32 {
     radix
 }
 
-pub fn js_number_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
+const FMT_TO_FIXED: i32 = 1;
+const FMT_TO_PRECISION: i32 = 2;
+const FMT_TO_EXPONENTIAL: i32 = 3;
+const FMT_TO_STRING: i32 = 4;
+const FMT_TO_LOCALE_STRING: i32 = 5;
 
-    let base = if args.magic != 0 || args.get_raw(0).is_undefined() {
-        10
-    } else {
-        let b = unsafe { js_get_radix(ctx, args.get_raw(0)) };
-        if b < 0 {
-            return Err(-1);
-        }
-        b
-    };
+// pub fn js_number_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+//     let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
+
+//     let base = if args.magic != 0 || args.get_raw(0).is_undefined() {
+//         10
+//     } else {
+//         let b = unsafe { js_get_radix(ctx, args.get_raw(0)) };
+//         if b < 0 {
+//             return Err(-1);
+//         }
+//         b
+//     };
+
+//     let mut d: f64 = 0.0;
+//     if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+//         Err(-1)
+//     } else {
+//         ctx.create_string_from_utf8(
+//             f64_stringify(d, base as _, None, 0)
+//                 .into_owned()
+//                 .into_bytes(),
+//         )
+//         .check_exception()
+//     }
+// }
+
+// pub fn js_number_toExponential(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+//     let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
+
+//     let mut d: f64 = 0.0;
+//     if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+//         return Err(-1);
+//     }
+
+//     let s = if args.get_raw(0).is_undefined() {
+//         f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
+//     } else {
+//         let mut f: i32 = 0;
+//         if unsafe { JS_ToInt32Sat(ctx, &mut f, args.get_raw(0)) } != 0 {
+//             return Err(-1);
+//         }
+//         if !(0..=20).contains(&f) {
+//             unsafe {
+//                 JS_ThrowRangeError(ctx, c"invalid number of digits");
+//             }
+//             return Err(-1);
+//         }
+//         f += 1;
+//         f64_stringify(d, 10, Some(f as _), JS_DTOA_FORCE_EXP)
+//     };
+
+//     ctx.create_string_from_utf8(s.into_owned().into_bytes())
+//         .check_exception()
+// }
+
+pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
     let mut d: f64 = 0.0;
     if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
-        Err(-1)
-    } else {
-        ctx.create_string_from_utf8(
-            f64_stringify(d, base as _, None, 0)
-                .into_owned()
-                .into_bytes(),
-        )
-        .check_exception()
-    }
-}
-
-pub fn js_number_toFixed(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
-
-    let mut d: f64 = 0.0;
-    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
         return Err(-1);
     }
 
-    let mut f: i32 = 0;
-    if unsafe { JS_ToInt32Sat(ctx, &mut f, args.get_raw(0)) } != 0 {
-        return Err(-1);
-    } else if f < 0 || f > 100 {
-        unsafe { JS_ThrowRangeError(ctx, c"invalid number of digits") };
-        return Err(-1);
-    }
-
-    if d.abs() >= 1e21 {
-        unsafe { JS_ToStringFree(ctx, JSValue::from_f64_as_is(d)).check_exception() }
-    } else {
-        unsafe { js_dtoa(ctx, d, 10, f, JS_DTOA_FRAC_FORMAT).check_exception() }
-    }
-}
-
-pub fn js_number_toExponential(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
-
-    let mut d: f64 = 0.0;
-    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
-        return Err(-1);
-    }
-
-    let s = if args.get_raw(0).is_undefined() {
-        f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
+    let a0 = args.get_raw(0);
+    let a = if a0.is_undefined() {
+        None
     } else {
         let mut f: i32 = 0;
-        if unsafe { JS_ToInt32Sat(ctx, &mut f, args.get_raw(0)) } != 0 {
+        if unsafe { JS_ToInt32Sat(ctx, &mut f, a0) } != 0 {
             return Err(-1);
         }
-        if !(0..=20).contains(&f) {
-            unsafe {
-                JS_ThrowRangeError(ctx, c"invalid number of digits");
-            }
-            return Err(-1);
-        }
-        f += 1;
-        f64_stringify(d, 10, Some(f as _), JS_DTOA_FORCE_EXP)
+        Some(f)
     };
 
-    ctx.create_string_from_utf8(s.into_owned().into_bytes())
-        .check_exception()
-}
-
-pub fn js_number_toPrecision(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
-
-    let mut d: f64 = 0.0;
-    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
-        return Err(-1);
-    }
-
-    let s = if !d.is_finite() {
+    let s: String = if !d.is_finite() {
         if d.is_nan() {
             "NaN"
         } else if d.is_sign_positive() {
@@ -182,68 +175,111 @@ pub fn js_number_toPrecision(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         }
         .to_string()
     } else {
-        let a = args.get_raw(0);
-        if a.is_undefined() {
-            f64_stringify(d, 10, None, 0).into_owned() // as-is
-        } else {
-            let mut p: i32 = 0;
-
-            if unsafe { JS_ToInt32Sat(ctx, &mut p, a) } != 0 {
-                return Err(-1);
-            } else if !(1..=100).contains(&p) {
-                unsafe {
-                    JS_ThrowRangeError(ctx, c"invalid number of digits");
+        match args.magic {
+            m @ (FMT_TO_STRING | FMT_TO_LOCALE_STRING) => {
+                let base = if m == FMT_TO_LOCALE_STRING {
+                    10
+                } else {
+                    a.unwrap_or(10)
+                };
+                if !(2..=36).contains(&base) {
+                    unsafe {
+                        JS_ThrowRangeError(ctx, c"radix must be between 2 and 36");
+                    }
+                    return Err(-1);
                 }
-                return Err(-1);
+
+                let mut d: f64 = 0.0;
+                if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+                    return Err(-1);
+                }
+
+                f64_stringify(d, base as _, None, 0).into_owned()
             }
+            FMT_TO_FIXED => {
+                let f = a.unwrap_or(0);
+                if f < 0 || f > 20 {
+                    unsafe { JS_ThrowRangeError(ctx, c"invalid number of digits") };
+                    return Err(-1);
+                }
+                let scale = 10_f64.powf(f as f64);
+                let n = d * scale;
+                d = n.round() / scale;
 
-            let scientific = format!("{:.1$e}", d, p as usize - 1);
-            let i = scientific.find('e').unwrap();
-            // let mentissa = &scientific[..i];
-            let exponent = scientific[i + 1..].parse::<i32>().unwrap();
+                if d.abs() >= 1e21 {
+                    f64_stringify(d, 10, Some(f as u32 + 1), JS_DTOA_FORCE_EXP).into_owned()
+                } else {
+                    format!("{:.1$}", d, f as usize)
+                }
+            }
+            FMT_TO_PRECISION => {
+                if let Some(p) = a {
+                    if !(1..=100).contains(&p) {
+                        unsafe {
+                            JS_ThrowRangeError(ctx, c"invalid number of digits");
+                        }
+                        return Err(-1);
+                    }
 
-            let use_scientific = if exponent < 0 {
-                exponent.abs() > 6 // < 1e-6, use scientific notation
+                    let scientific = format!("{:.1$e}", d, p as usize - 1);
+                    let i = scientific.find('e').unwrap();
+                    let exponent = scientific[i + 1..].parse::<i32>().unwrap();
+
+                    let use_scientific = if exponent < 0 {
+                        exponent.abs() > 6 // < 1e-6, use scientific notation
+                    } else {
+                        exponent >= p
+                    };
+
+                    if use_scientific {
+                        scientific
+                    } else {
+                        let n = p - 1 - exponent;
+                        format!("{:.1$}", d, if n >= 0 { n } else { p - 1 } as usize)
+                    }
+                } else {
+                    // as-is
+                    f64_stringify(d, 10, None, 0).into_owned()
+                }
+            }
+            FMT_TO_EXPONENTIAL => if let Some(f) = a {
+                if !(0..=20).contains(&f) {
+                    unsafe {
+                        JS_ThrowRangeError(ctx, c"invalid number of digits");
+                    }
+                    return Err(-1);
+                }
+                f64_stringify(d, 10, Some(f as u32 + 1), JS_DTOA_FORCE_EXP)
             } else {
-                exponent >= p
-            };
-
-            if use_scientific {
-                scientific
-            } else {
-                let n = p - 1 - exponent;
-                format!("{:.1$}", d, if n >= 0 { n } else { p - 1 } as usize)
+                f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
+            }
+            .into_owned(),
+            _ => {
+                unreachable!();
             }
         }
     };
 
     ctx.create_string_from_utf8(s.into_bytes())
         .check_exception()
-
-    // if (*argv.offset(0)).is_undefined() {
-    //     // as-is
-    //     return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
-    // }
-
-    // if JS_ToInt32Sat(ctx, &mut p, *argv.offset(0)) != 0 {
-    //     return JSValue::EXCEPTION;
-    // }
-    // if !d.is_finite() {
-    //     return JS_ToStringFree(ctx, JSValue::from_f64_as_is(d));
-    // }
-    // if !(1..=100).contains(&p) {
-    //     return JS_ThrowRangeError(ctx, c"invalid number of digits");
-    // }
-
-    // js_dtoa(ctx, d, 10, p, JS_DTOA_FIXED_FORMAT)
 }
 
 pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
-    JS_CFUNC_NATIVE_DEF!(c"toExponential", 1, js_number_toExponential, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toFixed", 1, js_number_toFixed, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toPrecision", 1, js_number_toPrecision, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toString", 1, js_number_toString, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_number_toString, 1),
+    JS_CFUNC_NATIVE_DEF!(c"toFixed", 1, js_number_fmt, FMT_TO_FIXED as i16),
+    JS_CFUNC_NATIVE_DEF!(c"toPrecision", 1, js_number_fmt, FMT_TO_PRECISION as i16),
+    JS_CFUNC_NATIVE_DEF!(
+        c"toExponential",
+        1,
+        js_number_fmt,
+        FMT_TO_EXPONENTIAL as i16
+    ),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 1, js_number_fmt, FMT_TO_STRING as i16),
+    JS_CFUNC_NATIVE_DEF!(
+        c"toLocaleString",
+        0,
+        js_number_fmt,
+        FMT_TO_LOCALE_STRING as i16
+    ),
     JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_number_valueOf, 0),
 ];
 
