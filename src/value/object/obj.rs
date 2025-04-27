@@ -125,18 +125,18 @@ impl JSValue {
         JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
     }
 
-    pub fn is_function(&self, ctx: &JSContext) -> bool {
-        if JS_VALUE_GET_TAG(*self) != JS_TAG_OBJECT {
+    /// check if value `self` is a callable object.
+    /// callbable object could be bytecode function, proxied function,
+    /// or instance of class which has `call` native callback hook.
+    pub fn is_callable(self, ctx: &JSContext) -> bool {
+        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
             return false;
         }
 
         let p = unsafe { self.object() };
         match p.class_id() {
             JS_CLASS_BYTECODE_FUNCTION => true,
-            JS_CLASS_PROXY => {
-                //(*p).u.proxy_data.is_func as BOOL
-                unimplemented!()
-            }
+            JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
             cid => {
                 // check if class proto is callable
                 ctx.rt()
@@ -704,7 +704,7 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
 
 #[deprecated(note = "use JSValue::is_function() instead")]
 pub unsafe fn JS_IsFunction(ctx: *mut JSContext, val: JSValueConst) -> bool {
-    val.is_function(ctx.as_ref().unwrap())
+    val.is_callable(ctx.as_ref().unwrap())
 }
 
 /// 检查给定的 JSValue是否是一个特定的 C 函数。不仅检查函数指针是否相同，还会检查 magic 值是否匹配
@@ -774,7 +774,7 @@ pub unsafe fn JS_IsInstanceOf(
     }
 
     // legacy case
-    if !obj.is_function(ctx.as_ref().unwrap()) {
+    if !obj.is_callable(ctx.as_ref().unwrap()) {
         ctx.as_mut()
             .unwrap()
             .JS_ThrowTypeError(c"invalid 'instanceof' right operand");
@@ -789,7 +789,7 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     val: JSValueConst,
     obj: JSValueConst,
 ) -> Result<bool, i32> {
-    if !obj.is_function(ctx.as_ref().unwrap()) {
+    if !obj.is_callable(ctx.as_ref().unwrap()) {
         return Ok(false);
     }
 

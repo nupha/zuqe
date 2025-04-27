@@ -1357,7 +1357,7 @@ pub unsafe fn js_array_toString(
     let method = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_join);
     let ret = if method.is_exception() {
         JSValue::EXCEPTION
-    } else if !method.is_function(ctx.as_ref().unwrap()) {
+    } else if !method.is_callable(ctx.as_ref().unwrap()) {
         // Use intrinsic Object.prototype.toString
         JS_FreeValue(ctx, method);
         js_object_toString(

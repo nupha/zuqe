@@ -89,7 +89,7 @@ impl JSValue {
                 )
                 .check_exception()?;
 
-            if method.is_function(ctx) {
+            if method.is_callable(ctx) {
                 let ret = unsafe { JS_CallFree(ctx, method, self, 0, std::ptr::null_mut()) }
                     .check_exception()?;
                 if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {

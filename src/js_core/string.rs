@@ -428,7 +428,7 @@ pub unsafe fn js_string_replace(
         exception!();
     };
 
-    let functionalReplace = replaceValue.is_function(ctx.as_ref().unwrap());
+    let functionalReplace = replaceValue.is_callable(ctx.as_ref().unwrap());
     if !functionalReplace {
         replaceValue_str = if let Ok(s) = replaceValue.coerce_to_string_value(ctx.as_mut().unwrap())
         {

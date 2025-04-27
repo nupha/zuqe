@@ -83,7 +83,7 @@ pub unsafe fn js_map_constructor(
             JS_FreeValue(ctx, obj);
             return JSValue::EXCEPTION;
         }
-        if !adder.is_function(ctx.as_ref().unwrap()) {
+        if !adder.is_callable(ctx.as_ref().unwrap()) {
             ctx.as_mut()
                 .unwrap()
                 .JS_ThrowTypeError(c"set/add is not a function");

@@ -63,7 +63,7 @@ impl PromiseValue {
             rd.resolving_funcs[1] = cap_resolving_funcs[1].dup();
 
             let mut handler = resolve_reject[i];
-            if !handler.is_function(ctx) {
+            if !handler.is_callable(ctx) {
                 handler = JSValue::UNDEFINED;
             }
             rd.handler = handler.dup();

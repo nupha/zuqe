@@ -85,13 +85,13 @@ impl JSValue {
                     != 0
                 {
                     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-                        let new_getter = if getter.is_function(ctx) {
+                        let new_getter = if getter.is_callable(ctx) {
                             JS_VALUE_GET_OBJ(getter)
                         } else {
                             std::ptr::null_mut()
                         };
 
-                        let new_setter = if setter.is_function(ctx) {
+                        let new_setter = if setter.is_callable(ctx) {
                             JS_VALUE_GET_OBJ(setter)
                         } else {
                             std::ptr::null_mut()
@@ -734,7 +734,7 @@ pub unsafe fn js_obj_to_desc(
     if desc.has_property(ctx, JS_ATOM_get)? {
         flags |= JS_PROP_HAS_GET;
         getter = desc.get_property(ctx, JS_ATOM_get);
-        if getter.is_exception() || !(getter.is_undefined() || getter.is_function(ctx)) {
+        if getter.is_exception() || !(getter.is_undefined() || getter.is_callable(ctx)) {
             ctx.JS_ThrowTypeError(c"invalid getter");
             fail!();
         }
@@ -743,7 +743,7 @@ pub unsafe fn js_obj_to_desc(
     if desc.has_property(ctx, JS_ATOM_set)? {
         flags |= JS_PROP_HAS_SET;
         setter = desc.get_property(ctx, JS_ATOM_set);
-        if setter.is_exception() || !(setter.is_undefined() || setter.is_function(ctx)) {
+        if setter.is_exception() || !(setter.is_undefined() || setter.is_callable(ctx)) {
             ctx.JS_ThrowTypeError(c"invalid setter");
             fail!();
         }

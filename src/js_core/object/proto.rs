@@ -92,7 +92,7 @@ pub fn js_object_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
         let atom = if unsafe { JS_IsArray(ctx, *obj)? } {
             JS_ATOM_Array
-        } else if obj.is_function(ctx) {
+        } else if obj.is_callable(ctx) {
             JS_ATOM_Function
         } else {
             let p = unsafe { obj.object() };

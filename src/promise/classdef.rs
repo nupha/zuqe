@@ -101,7 +101,7 @@ pub unsafe fn js_promise_finally(
 
     let mut then_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
 
-    if !on_finally.is_function(ctx.as_ref().unwrap()) {
+    if !on_finally.is_callable(ctx.as_ref().unwrap()) {
         then_funcs = [on_finally.dup(), on_finally.dup()];
     } else {
         let func_data = [ctor, on_finally];

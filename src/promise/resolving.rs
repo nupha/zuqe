@@ -79,7 +79,7 @@ impl PromiseResolvingFuncValue {
             s.promise.fulfill_or_reject(ctx, error, true);
             JS_FreeValue(ctx, error);
             JSValue::UNDEFINED
-        } else if !then.is_function(ctx) {
+        } else if !then.is_callable(ctx) {
             JS_FreeValue(ctx, then);
             s.promise.fulfill_or_reject(ctx, resolution, is_reject);
             JSValue::UNDEFINED

@@ -219,11 +219,11 @@ impl JSObject {
 
         if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
             (*pr).u.getset.getter = std::ptr::null_mut();
-            if (flags & JS_PROP_HAS_GET) != 0 && getter.is_function(ctx) {
+            if (flags & JS_PROP_HAS_GET) != 0 && getter.is_callable(ctx) {
                 (*pr).u.getset.getter = JS_VALUE_GET_OBJ(getter.dup());
             }
             (*pr).u.getset.setter = std::ptr::null_mut();
-            if (flags & JS_PROP_HAS_SET) != 0 && setter.is_function(ctx) {
+            if (flags & JS_PROP_HAS_SET) != 0 && setter.is_callable(ctx) {
                 (*pr).u.getset.setter = JS_VALUE_GET_OBJ(setter.dup());
             }
         } else {

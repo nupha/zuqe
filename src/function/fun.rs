@@ -66,7 +66,7 @@ impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
     pub fn ensure_callable(self, ctx: &mut JSContext) -> Result<Self, i32> {
-        if self.is_function(ctx) {
+        if self.is_callable(ctx) {
             Ok(self)
         } else {
             ctx.JS_ThrowTypeError(c"not a function");

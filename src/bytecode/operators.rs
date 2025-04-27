@@ -74,7 +74,7 @@ pub unsafe fn js_operator_typeof(ctx: &mut JSContext, op1: JSValueConst) -> JSAt
             let p = op1.object();
             if p.detailed.is_htmldda() {
                 JS_ATOM_undefined
-            } else if op1.is_function(ctx) {
+            } else if op1.is_callable(ctx) {
                 JS_ATOM_function
             } else {
                 JS_ATOM_object

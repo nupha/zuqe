@@ -139,7 +139,7 @@ pub unsafe fn JS_GetIterator(ctx: *mut JSContext, obj: JSValueConst, is_async: b
         v
     };
 
-    if !method.is_function(ctx.as_ref().unwrap()) {
+    if !method.is_callable(ctx.as_ref().unwrap()) {
         JS_FreeValue(ctx, method);
         return (*ctx).JS_ThrowTypeError(c"value is not iterable");
     }
