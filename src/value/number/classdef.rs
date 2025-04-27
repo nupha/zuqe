@@ -196,6 +196,7 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
                 f64_stringify(d, base as _, None, 0).into_owned()
             }
+
             FMT_TO_FIXED => {
                 let f = a.unwrap_or(0);
                 if f < 0 || f > 20 {
@@ -212,7 +213,10 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                     format!("{:.1$}", d, f as usize)
                 }
             }
-            FMT_TO_PRECISION => {
+
+            FMT_TO_PRECISION => f64_stringify(
+                d,
+                10,
                 if let Some(p) = a {
                     if !(1..=100).contains(&p) {
                         unsafe {
@@ -220,28 +224,14 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                         }
                         return Err(-1);
                     }
-
-                    let scientific = format!("{:.1$e}", d, p as usize - 1);
-                    let i = scientific.find('e').unwrap();
-                    let exponent = scientific[i + 1..].parse::<i32>().unwrap();
-
-                    let use_scientific = if exponent < 0 {
-                        exponent.abs() > 6 // < 1e-6, use scientific notation
-                    } else {
-                        exponent >= p
-                    };
-
-                    if use_scientific {
-                        scientific
-                    } else {
-                        let n = p - 1 - exponent;
-                        format!("{:.1$}", d, if n >= 0 { n } else { p - 1 } as usize)
-                    }
+                    Some(p as u32)
                 } else {
-                    // as-is
-                    f64_stringify(d, 10, None, 0).into_owned()
-                }
-            }
+                    None
+                },
+                0,
+            )
+            .into_owned(),
+
             FMT_TO_EXPONENTIAL => if let Some(f) = a {
                 if !(0..=20).contains(&f) {
                     unsafe {
@@ -254,6 +244,7 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                 f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
             }
             .into_owned(),
+
             _ => {
                 unreachable!();
             }
