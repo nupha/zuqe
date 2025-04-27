@@ -118,6 +118,7 @@ pub fn f64_stringify<'a>(
             let int64 = num as i64;
 
             if num != int64 as f64 || int64 > MAX_SAFE_INTEGER || int64 < -MAX_SAFE_INTEGER {
+                // if a float or is an integer beyond safe range
                 if let Some(p) = round {
                     format!("{:.1$}", num, p as usize)
                 } else {
@@ -125,7 +126,7 @@ pub fn f64_stringify<'a>(
                 }
                 .into()
             } else {
-                // integer
+                // is an integer
                 let mut buf = [0u8; 33];
                 unsafe {
                     CStr::from_ptr(i64toa(buf.as_mut_ptr(), int64, radix).cast())
@@ -139,7 +140,7 @@ pub fn f64_stringify<'a>(
 }
 
 /* 2 <= base <= 36 */
-pub unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
+unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
     let mut is_neg = 0;
     let mut n = n;
 
@@ -425,6 +426,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
     }
 }
 
+#[deprecated(note = "use f64_stringify() instead")]
 pub unsafe fn js_dtoa(
     ctx: *mut JSContext,
     d: f64,
@@ -438,7 +440,7 @@ pub unsafe fn js_dtoa(
 }
 
 /* buf1 contains the printf result */
-pub unsafe fn js_ecvt1(
+unsafe fn js_ecvt1(
     d: f64,
     n_digits: i32,
     decpt: *mut i32,
@@ -490,7 +492,7 @@ pub unsafe fn js_ecvt1(
 
 // needed because ecvt usually limits the number of digits to
 // 17. Return the number of digits.
-pub unsafe fn js_ecvt(
+unsafe fn js_ecvt(
     d: f64,
     mut n_digits: i32,
     decpt: *mut i32,
@@ -603,7 +605,7 @@ pub unsafe fn js_ecvt(
     return n_digits;
 }
 
-pub unsafe fn js_fcvt(buf: *mut u8, buf_size: usize, d: f64, n_digits: i32) {
+unsafe fn js_fcvt(buf: *mut u8, buf_size: usize, d: f64, n_digits: i32) {
     let mut rounding_mode = RoundingMode::FE_TONEAREST;
 
     #[cfg(CONFIG_PRINTF_RNDN)]
@@ -655,7 +657,7 @@ pub unsafe fn js_fcvt(buf: *mut u8, buf_size: usize, d: f64, n_digits: i32) {
     js_fcvt1(buf.cast(), buf_size, d, n_digits, rounding_mode);
 }
 
-pub unsafe fn js_fcvt1(
+unsafe fn js_fcvt1(
     buf: *mut u8,
     buf_size: usize,
     d: f64,
