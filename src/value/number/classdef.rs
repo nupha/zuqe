@@ -335,8 +335,8 @@ pub unsafe fn js_number_constructor(
         val = JSValue::ZERO;
     } else {
         val = JS_ToNumeric(ctx, *argv.offset(0));
-        if JS_IsException(val) {
-            return val;
+        if val.is_exception() {
+            return JSValue::EXCEPTION;
         }
         if JS_VALUE_GET_TAG(val) == JS_TAG_BIG_INT {
             (*ctx).JS_ThrowTypeError(c"BigInt is not supported");
@@ -344,9 +344,9 @@ pub unsafe fn js_number_constructor(
         }
     }
 
-    if !JS_IsUndefined(new_target) {
+    if !new_target.is_undefined() {
         let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_NUMBER);
-        if !JS_IsException(obj) {
+        if !obj.is_exception() {
             JS_SetObjectData(ctx, obj, val);
         }
         obj

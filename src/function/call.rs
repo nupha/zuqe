@@ -5,7 +5,7 @@ use crate::{
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError},
     function::{build_arg_list, CallArgs, JSAsyncFunctionState},
-    types::{likely, unlikely},
+    types::likely,
     value::{
         object::{JSObject, JS_PROP_THROW, JS_PROP_THROW_STRICT},
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_NULL,
@@ -104,8 +104,9 @@ pub unsafe fn JS_CallInternal(
     }
 
     let p = func_obj.object();
-    if p.class_id() != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = rt.class_array[p.class_id() as usize].call {
+    let cid = p.class_id();
+    if cid != JS_CLASS_BYTECODE_FUNCTION {
+        return if let Some(cb) = rt.class_array[cid as usize].call {
             #[cfg(debug_assertions)]
             let argv_ref_count0 = if argc > 0 {
                 std::slice::from_raw_parts(argv, argc as usize)
@@ -302,15 +303,15 @@ pub unsafe fn JS_CallConstructorInternal(
     }
 
     let p = func_obj.object();
-
-    if unlikely(!p.detailed.is_constructor()) {
+    if !p.detailed.is_constructor() {
         return ctx.JS_ThrowTypeError(c"not a constructor");
     }
 
     flags |= JS_CALL_FLAG_CONSTRUCTOR;
 
-    if (*p).class_id() != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = ctx.rt().class_array[(*p).class_id() as usize].call {
+    let cid = p.class_id();
+    if cid != JS_CLASS_BYTECODE_FUNCTION {
+        return if let Some(cb) = ctx.rt().class_array[cid as usize].call {
             cb(
                 ctx,
                 func_obj,

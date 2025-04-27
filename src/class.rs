@@ -34,6 +34,8 @@ pub type JSClassID = u32;
 
 pub type JSClassFinalizer = unsafe fn(rt: *mut JSRuntime, val: JSValue);
 pub type JSClassGCMark = unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: JS_MarkFunc);
+
+/// class native constructor callback func
 pub type JSClassCall = unsafe fn(
     ctx: &mut JSContext,
     func_obj: JSValue,
@@ -77,13 +79,23 @@ pub struct JSClassExoticMethods {
     >,
 }
 
+#[repr(C)]
+pub struct JSClassShortDef {
+    pub class_name: JSAtom,
+    pub finalizer: Option<JSClassFinalizer>,
+    pub gc_mark: Option<JSClassGCMark>,
+}
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct JSClassDef {
     pub class_name: *const i8,
     pub finalizer: Option<JSClassFinalizer>,
     pub gc_mark: Option<JSClassGCMark>,
+
+    /// native callback when called
     pub call: Option<JSClassCall>,
+
     pub exotic: *const JSClassExoticMethods,
 }
 
@@ -105,17 +117,12 @@ pub struct JSClass {
     pub class_name: JSAtom,
     pub finalizer: Option<JSClassFinalizer>,
     pub gc_mark: Option<JSClassGCMark>,
+
+    /// native callback when called
     pub call: Option<JSClassCall>,
 
     /// pointers for exotic behavior, can be NULL if none are present
     pub exotic: *const JSClassExoticMethods,
-}
-
-#[repr(C)]
-pub struct JSClassShortDef {
-    pub class_name: JSAtom,
-    pub finalizer: Option<JSClassFinalizer>,
-    pub gc_mark: Option<JSClassGCMark>,
 }
 
 #[deprecated(note = "use JSRuntime::add_classes() instead")]
