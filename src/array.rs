@@ -1,11 +1,15 @@
+use std::{ffi::c_void, mem::ManuallyDrop};
+
 use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_NULL},
+    class::JSClassID,
     context::JSContext,
     error::{JSErrorEnum, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_free_rt,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
+    typed_array::JSTypedArray,
     types::unlikely,
     value::{
         object::{
@@ -20,6 +24,62 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
     JS_CLASS_UINT8C_ARRAY,
 };
+
+pub struct JSObjectArray {
+    pub u1: JSObjectArrayU1,
+    pub data: JSObjectArrayData,
+
+    /// for typed array only: the array length, 0 means detached
+    pub(crate) typed_array_count: u32,
+}
+
+// TODO: replace with this
+// pub enum JSObjectArray {
+//     Empty,
+//     Owned(Vec<JSValue>),
+//     Borrowed {
+//         ptr: NonNull<c_void>,
+//         len: usize,
+//         typed_array: *const JSTypedArray,
+//     },
+// }
+
+#[derive(Clone, Copy)]
+pub union JSObjectArrayU1 {
+    pub size: u32,                      /* JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS */
+    pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY */
+}
+
+pub union JSObjectArrayData {
+    /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
+    pub values: ManuallyDrop<Vec<JSValue>>,
+
+    /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY.
+    /// pointer to start of ArrayBuffer buffer
+    pub ptr: *mut c_void,
+
+    pub int8_ptr: *mut i8,    /* JS_CLASS_INT8_ARRAY */
+    pub uint8_ptr: *mut u8,   /* JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY */
+    pub int16_ptr: *mut i16,  /* JS_CLASS_INT16_ARRAY */
+    pub uint16_ptr: *mut u16, /* JS_CLASS_UINT16_ARRAY */
+    pub int32_ptr: *mut i32,  /* JS_CLASS_INT32_ARRAY */
+    pub uint32_ptr: *mut u32, /* JS_CLASS_UINT32_ARRAY */
+    pub int64_ptr: *mut i64,  /* JS_CLASS_INT64_ARRAY */
+    pub uint64_ptr: *mut u64, /* JS_CLASS_UINT64_ARRAY */
+    pub float_ptr: *mut f32,  /* JS_CLASS_FLOAT32_ARRAY */
+    pub double_ptr: *mut f64, /* JS_CLASS_FLOAT64_ARRAY */
+}
+
+impl JSObjectArray {
+    /// drop payload data, use in JSObject::drop() only
+    #[inline(always)]
+    pub unsafe fn drop_data(&mut self, class_id: JSClassID) {
+        match class_id {
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => ManuallyDrop::drop(&mut self.data.values),
+            _ => {}
+        }
+    }
+}
 
 impl JSContext {
     /// create a fast array value. `capacity` indicates reserved space.

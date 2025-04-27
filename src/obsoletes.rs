@@ -67,6 +67,11 @@ pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: JSValue, hint: i32) -> JS
     //JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }
 
+#[deprecated(note = "use JSValue::is_callable() instead")]
+pub unsafe fn JS_IsFunction(ctx: *mut JSContext, val: JSValueConst) -> bool {
+    val.is_callable(ctx.as_ref().unwrap())
+}
+
 #[deprecated(note = "use JSValue::is_constructor() instead")]
 #[inline(always)]
 pub unsafe fn JS_IsConstructor(ctx: *const JSContext, val: JSValueConst) -> bool {

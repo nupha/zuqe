@@ -53,7 +53,7 @@ pub enum FuncCallType {
 pub struct JSObjectFunc {
     pub function_bytecode: *mut JSFunctionBytecode,
 
-    /// closure variable accessor
+    /// closure variable refrences
     pub var_refs: Vec<NonNull<JSVarRef>>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：

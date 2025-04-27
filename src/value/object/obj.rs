@@ -1,6 +1,7 @@
 use std::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
+    array::JSObjectArray,
     array_buffer::JSArrayBuffer,
     atom::{consts::*, JSAtom},
     callable::JSCFunctionDataRecord,
@@ -318,62 +319,6 @@ pub union JSObjectUnion {
     pub regexp: JSRegExp,
     /// for JS_SetObjectData(): 8/16/16 bytes  
     pub object_data: JSValue,
-}
-
-pub struct JSObjectArray {
-    pub u1: JSObjectArrayU1,
-    pub data: JSObjectArrayData,
-
-    /// for typed array only: the array length, 0 means detached
-    pub(crate) typed_array_count: u32,
-}
-
-// TODO: replace with this
-// pub enum JSObjectArray {
-//     Empty,
-//     Owned(Vec<JSValue>),
-//     Borrowed {
-//         ptr: NonNull<c_void>,
-//         len: usize,
-//         typed_array: *const JSTypedArray,
-//     },
-// }
-
-#[derive(Clone, Copy)]
-pub union JSObjectArrayU1 {
-    pub size: u32,                      /* JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS */
-    pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY */
-}
-
-pub union JSObjectArrayData {
-    /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
-    pub values: ManuallyDrop<Vec<JSValue>>,
-
-    /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY.
-    /// pointer to start of ArrayBuffer buffer
-    pub ptr: *mut c_void,
-
-    pub int8_ptr: *mut i8,    /* JS_CLASS_INT8_ARRAY */
-    pub uint8_ptr: *mut u8,   /* JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY */
-    pub int16_ptr: *mut i16,  /* JS_CLASS_INT16_ARRAY */
-    pub uint16_ptr: *mut u16, /* JS_CLASS_UINT16_ARRAY */
-    pub int32_ptr: *mut i32,  /* JS_CLASS_INT32_ARRAY */
-    pub uint32_ptr: *mut u32, /* JS_CLASS_UINT32_ARRAY */
-    pub int64_ptr: *mut i64,  /* JS_CLASS_INT64_ARRAY */
-    pub uint64_ptr: *mut u64, /* JS_CLASS_UINT64_ARRAY */
-    pub float_ptr: *mut f32,  /* JS_CLASS_FLOAT32_ARRAY */
-    pub double_ptr: *mut f64, /* JS_CLASS_FLOAT64_ARRAY */
-}
-
-impl JSObjectArray {
-    /// drop payload data, use in JSObject::drop() only
-    #[inline(always)]
-    pub unsafe fn drop_data(&mut self, class_id: JSClassID) {
-        match class_id {
-            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => ManuallyDrop::drop(&mut self.data.values),
-            _ => {}
-        }
-    }
 }
 
 impl JSObject {
@@ -700,11 +645,6 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     }
 
     (*p).first_weak_ref = std::ptr::null_mut(); // fail safe
-}
-
-#[deprecated(note = "use JSValue::is_function() instead")]
-pub unsafe fn JS_IsFunction(ctx: *mut JSContext, val: JSValueConst) -> bool {
-    val.is_callable(ctx.as_ref().unwrap())
 }
 
 /// 检查给定的 JSValue是否是一个特定的 C 函数。不仅检查函数指针是否相同，还会检查 magic 值是否匹配

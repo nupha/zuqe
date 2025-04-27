@@ -1025,23 +1025,23 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
     }
 
     /* Resolve the exported names. The ambiguous exports are removed */
-    for i in 0..(*s).exported_names_count {
-        let en = (*s).exported_names.add(i as usize).as_mut().unwrap();
+    for i in 0..s.exported_names_count {
+        let en = s.exported_names.add(i as usize).as_mut().unwrap();
 
         let mut res_me = std::ptr::null_mut::<JSExportEntry>();
         let mut res_m = std::ptr::null_mut::<JSModuleDef>();
         let res = if !en.u.me.is_null() {
-            res_me = (*en).u.me; /* fast case: no resolution needed */
+            // fast case: no resolution needed
+            res_me = en.u.me;
             res_m = m;
             JSResolveResultEnum::JS_RESOLVE_RES_FOUND
         } else {
-            js_resolve_export(ctx, &mut res_m, &mut res_me, m, (*en).export_name)
+            js_resolve_export(ctx, &mut res_m, &mut res_me, m, en.export_name)
         };
 
         if res != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
             if res != JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS {
-                js_resolve_export_throw_error(ctx, res, m, (*en).export_name);
-                // C2RS: goto fail replaced with early return
+                js_resolve_export_throw_error(ctx, res, m, en.export_name);
                 js_free(ctx, s.exported_names.cast());
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
@@ -1049,28 +1049,25 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
         } else {
             if (*res_me).local_name == JS_ATOM__star_ {
-                (*en).export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
-                (*en).u.module = (*(*res_m)
+                en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
+                en.u.module = (*(*res_m)
                     .req_module_entries
                     .add((*res_me).u.req_module_idx as usize))
                 .module;
             } else {
-                (*en).export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
+                en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
                 if !(*res_me).u.local.var_ref.is_null() {
-                    (*en).u.var_ref = (*res_me).u.local.var_ref;
+                    en.u.var_ref = (*res_me).u.local.var_ref;
                 } else {
-                    let mut p1: *mut JSObject = JS_VALUE_GET_OBJ((*res_m).func_obj);
-                    p1 = JS_VALUE_GET_OBJ((*res_m).func_obj); // C2RS: This line seems redundant and is kept as is.
-                    (*en).u.var_ref =
-                        (*p1).u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
+                    let p1 = (*res_m).func_obj.object();
+                    en.u.var_ref = p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
                 }
             }
         }
     }
 
     // sort the exported names
-    let names =
-        std::slice::from_raw_parts_mut((*s).exported_names, (*s).exported_names_count as usize);
+    let names = std::slice::from_raw_parts_mut(s.exported_names, s.exported_names_count as usize);
     names.sort_by(|a, b| {
         // XXX: should avoid allocation memory in atom comparison
         let str1 = a.export_name.to_value(ctx.as_mut().unwrap(), true);
@@ -1114,7 +1111,6 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
                     (*var_ref).u0.header.ref_count += 1;
                     (*pr).u.var_ref = var_ref;
                 } else {
-                    // C2RS: goto fail replaced with early return
                     js_free(ctx, s.exported_names.cast());
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
@@ -1125,14 +1121,13 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
                 if JS_DefineAutoInitProperty(
                     ctx,
                     obj,
-                    (*en).export_name,
+                    en.export_name,
                     JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
-                    (*en).u.module.cast(),
+                    en.u.module.cast(),
                     JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                 )
                 .is_err()
                 {
-                    // C2RS: goto fail replaced with early return
                     js_free(ctx, s.exported_names.cast());
                     JS_FreeValue(ctx, obj);
                     return JSValue::EXCEPTION;
