@@ -5,11 +5,11 @@ use crate::{
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
         add_closure_variables, js_class_has_bytecode, js_closure, JSFunctionBytecode,
-        JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_Call, JS_CallFree,
+        JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_CallFree,
     },
     module::{
         js_create_module_function, js_free_module_def, js_link_module, js_resolve_module,
-        JSModuleDef, JSModuleStatus, JS_NewModuleValue,
+        JSModuleDef, JS_NewModuleValue,
     },
     parse::JSParseState,
     stack_frame::JSStackFrame,

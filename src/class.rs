@@ -204,12 +204,12 @@ impl JSRuntime {
             let cd = JSClassDef {
                 class_name: std::ptr::null(),
                 exotic: std::ptr::null(),
-                finalizer: (*el).finalizer,
-                gc_mark: (*el).gc_mark,
+                finalizer: el.finalizer,
+                gc_mark: el.gc_mark,
                 call: None,
             };
             unsafe {
-                self.add_class_internal(class_id, &cd, (*el).class_name)?;
+                self.add_class_internal(class_id, &cd, el.class_name)?;
             }
 
             class_id += 1;
@@ -234,8 +234,7 @@ impl JSContext {
         self.class_proto[class_id as usize].dup()
     }
 
-    /// current (old) proto object will be freed inside.
-    /// Note: `proto_obj` is consumed.
+    /// Note: `proto_obj` is consumed, old proto object will be consumed.
     pub fn set_class_proto(&mut self, class_id: JSClassID, proto_obj: JSValue) {
         debug_assert!(class_id < self.class_proto.len() as JSClassID);
         debug_assert_eq!(
@@ -249,7 +248,7 @@ impl JSContext {
         }
     }
 
-    /// make function `func_obj` to constructor, adopt `proto` as prototype,
+    /// make function `func_obj` to be a constructor, set `proto` as its prototype,
     /// then add it to global namespace as `name`.
     /// Note:: both `func_obj` and `proto` are  **NOT CONSUMED**.
     pub fn add_global_constructor(&mut self, name: &str, func_obj: JSValue, proto: JSValue) {
@@ -293,8 +292,9 @@ impl JSContext {
     }
 }
 
+/// set `proto` to func_obj.prototype property; set `func_obj`  to proto.constructor property.
 /// Note: 'func_obj' is not necessarily a constructor
-/// Note: both `func_obj` and `proto` keep ref count unchanged after calling.
+/// Note: both `func_obj` and `proto` are not consumed.
 pub unsafe fn JS_SetConstructor2(
     ctx: *mut JSContext,
     func_obj: JSValueConst,
@@ -332,32 +332,6 @@ pub unsafe fn JS_SetConstructor(ctx: *mut JSContext, func_obj: JSValueConst, pro
         0,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
     );
-}
-
-#[deprecated(note = "use JSContext::add_global_constructor() instead")]
-pub unsafe fn JS_NewGlobalCConstructor2(
-    ctx: *mut JSContext,
-    func_obj: JSValue,
-    name: &CStr,
-    proto: JSValueConst,
-) {
-    (*ctx).add_global_constructor(name.to_string_lossy().as_ref(), func_obj, proto);
-}
-
-#[deprecated(note = "use JSContext::create_global_constructor() instead")]
-pub unsafe fn JS_NewGlobalCConstructor(
-    ctx: *mut JSContext,
-    name: &CStr,
-    func: JSCFunction,
-    length: i32,
-    proto: JSValueConst,
-) -> JSValueConst {
-    (*ctx).create_global_constructor(name, func, length, proto)
-}
-
-#[deprecated(note = "use JSRuntime::is_class_registered() instead")]
-pub unsafe fn JS_IsRegisteredClass(rt: *const JSRuntime, class_id: JSClassID) -> bool {
-    (*rt).is_class_registered(class_id)
 }
 
 #[derive(Debug, Clone, Copy)]

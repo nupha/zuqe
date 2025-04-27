@@ -146,10 +146,6 @@ pub type JSNativeCallback = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSRes
 pub type JSNativeGetter = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
 pub type JSNativeSetter = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
 
-/* return the value associated to the autoinit property or an exception */
-pub type JSAutoInitFunc =
-    unsafe fn(ctx: *mut JSContext, p: *mut JSObject, atom: JSAtom, opaque: *mut c_void) -> JSValue;
-
 pub type JSCFunction = unsafe fn(
     ctx: *mut JSContext,
     this_val: JSValue,

@@ -6,7 +6,7 @@ use crate::{
     error::JS_ThrowReferenceErrorUninitialized,
     function::JSVarRef,
     proxy::js_proxy_isExtensible,
-    runtime::{js_autoinit_func_table, JSRuntime},
+    runtime::JSRuntime,
     types::unlikely,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
@@ -16,8 +16,8 @@ use super::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_IsException,
         JS_IsUninitialized, JS_ToLengthFree, JS_ToUint32Free, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    js_autoinit_free, js_autoinit_get_id, js_autoinit_get_realm, js_free_desc, JSObject,
-    JSShapeProperty,
+    js_autoinit_free, js_autoinit_func_table, js_autoinit_get_id, js_autoinit_get_realm,
+    js_free_desc, JSObject, JSShapeProperty,
 };
 
 // Property flags

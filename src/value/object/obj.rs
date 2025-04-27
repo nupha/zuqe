@@ -5,7 +5,7 @@ use crate::{
     atom::{consts::*, JSAtom},
     callable::JSCFunctionDataRecord,
     class::JSClassID,
-    context::{JSContext, JS_FreeContext},
+    context::JSContext,
     function::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
         JSObjectFunc, JS_CallFree,
@@ -700,28 +700,6 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     }
 
     (*p).first_weak_ref = std::ptr::null_mut(); // fail safe
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JSAutoInitIDEnum {
-    JS_AUTOINIT_ID_PROTOTYPE,
-    JS_AUTOINIT_ID_MODULE_NS,
-    JS_AUTOINIT_ID_PROP,
-}
-
-#[inline(always)]
-pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
-    ((*pr).u.init.realm_and_id & 0b11) as _
-}
-
-#[inline(always)]
-pub unsafe fn js_autoinit_get_realm(pr: *const JSProperty) -> *mut JSContext {
-    ((*pr).u.init.realm_and_id & !0b11) as *mut JSContext
-}
-
-#[inline(always)]
-pub unsafe fn js_autoinit_free(rt: *const JSRuntime, pr: *const JSProperty) {
-    JS_FreeContext(js_autoinit_get_realm(pr));
 }
 
 #[deprecated(note = "use JSValue::is_function() instead")]

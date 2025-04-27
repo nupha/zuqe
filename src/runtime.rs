@@ -8,20 +8,17 @@ use std::{
 use crate::{
     atom::{JSAtomStruct, JS_FreeAtomRT},
     callable::CallableValue,
-    class::{js_arguments_exotic_methods, js_instantiate_prototype, JSClass},
+    class::{js_arguments_exotic_methods, JSClass},
     context::JSContext,
     function::{
-        js_async_function_call, js_async_function_resolve_call, BoundFunctionValue, JSAutoInitFunc,
-        JS_InstantiateFunctionListItem2, NativeFunctionValue,
+        js_async_function_call, js_async_function_resolve_call, BoundFunctionValue,
+        NativeFunctionValue,
     },
     gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
     generator::{js_generator_function_call, AsyncGeneratorValue},
     list_entry,
     mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
-    module::{
-        js_module_ns_autoinit, js_module_ns_exotic_methods, JSModuleLoaderFunc,
-        JSModuleNormalizeFunc,
-    },
+    module::{js_module_ns_exotic_methods, JSModuleLoaderFunc, JSModuleNormalizeFunc},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
     stack_frame::JSStackFrame,
     types::{
@@ -492,9 +489,3 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     //     ((*rt).mf.js_free)(ms, rt.cast());
     // }
 }
-
-pub static js_autoinit_func_table: &[JSAutoInitFunc] = &[
-    js_instantiate_prototype,        /* JS_AUTOINIT_ID_PROTOTYPE */
-    js_module_ns_autoinit,           /* JS_AUTOINIT_ID_MODULE_NS */
-    JS_InstantiateFunctionListItem2, /* JS_AUTOINIT_ID_PROP */
-];

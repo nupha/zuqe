@@ -1,10 +1,12 @@
-use std::ffi::c_char;
+use std::ffi::{c_char, CStr};
 
 use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
     class::{JSClassDef, JSClassID},
     context::JSContext,
-    function::{JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef},
+    function::{
+        JSCFunction, JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef,
+    },
     generator::JSAsyncGeneratorData,
     module::JSModuleDef,
     parse::JSParseState,
@@ -55,84 +57,6 @@ pub unsafe fn JS_ToNumber(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
 #[deprecated(note = "use JSValue::coerce_to_primitive() + JS_FreeValue() instead")]
 pub unsafe fn JS_ToPrimitiveFree(ctx: *mut JSContext, val: JSValue, hint: i32) -> JSValue {
     unreachable!("use JSValue::coerce_to_primitive() + JS_FreeValue() instead");
-
-    // let force_ordinary = (hint & HINT_FORCE_ORDINARY) != 0;
-    // hint &= !HINT_FORCE_ORDINARY;
-
-    // if !force_ordinary {
-    //     let method = val.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_toPrimitive);
-    //     if method.is_exception() {
-    //         return goto_exception(ctx, val);
-    //     }
-
-    //     /* ECMA says *If exoticToPrim is not undefined* but tests in
-    //     test262 use null as a non callable converter */
-    //     if !method.is_undefined_or_null() {
-    //         let mut arg = match hint {
-    //             HINT_STRING => JS_ATOM_string,
-    //             HINT_NUMBER => JS_ATOM_number,
-    //             _ => JS_ATOM_default,
-    //         }
-    //         .to_value(ctx.as_mut().unwrap(), true);
-
-    //         let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 1, &mut arg);
-    //         JS_FreeValue(ctx, arg);
-    //         if ret.is_exception() {
-    //             return goto_exception(ctx, val);
-    //         }
-
-    //         JS_FreeValue(ctx, val);
-    //         if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
-    //             return ret;
-    //         }
-    //         JS_FreeValue(ctx, ret);
-    //         return (*ctx).JS_ThrowTypeError(c"toPrimitive");
-    //     }
-    // }
-
-    // if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-    //     return val;
-    // }
-
-    // if hint != HINT_STRING {
-    //     hint = HINT_NUMBER;
-    // };
-
-    // for i in 0..2 {
-    //     let method_name: JSAtom = if (i ^ hint) == 0 {
-    //         JS_ATOM_toString
-    //     } else {
-    //         JS_ATOM_valueOf
-    //     };
-    //     let method = val.get_property(ctx.as_mut().unwrap(), method_name);
-    //     if method.is_exception() {
-    //         return goto_exception(ctx, val);
-    //     }
-
-    //     if method.is_function(ctx.as_ref().unwrap()) {
-    //         let ret = JS_CallFree(ctx.as_mut().unwrap(), method, val, 0, std::ptr::null_mut());
-    //         if ret.is_exception() {
-    //             return goto_exception(ctx, val);
-    //         }
-    //         if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
-    //             JS_FreeValue(ctx, val);
-    //             return ret;
-    //         }
-    //         JS_FreeValue(ctx, ret);
-    //     } else {
-    //         JS_FreeValue(ctx, method);
-    //     }
-    // }
-
-    // ctx.as_mut().unwrap().JS_ThrowTypeError(c"toPrimitive");
-
-    // return goto_exception(ctx, val);
-
-    // // C2RS: 模拟goto跳转
-    // unsafe fn goto_exception(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    //     JS_FreeValue(ctx, val);
-    //     JSValue::EXCEPTION
-    // }
 }
 
 #[deprecated(note = "use JSValue::coerce_to_primitive() instead")]
@@ -147,6 +71,32 @@ pub unsafe fn JS_ToPrimitive(ctx: *mut JSContext, val: JSValue, hint: i32) -> JS
 #[inline(always)]
 pub unsafe fn JS_IsConstructor(ctx: *const JSContext, val: JSValueConst) -> bool {
     val.is_constructor()
+}
+
+#[deprecated(note = "use JSContext::add_global_constructor() instead")]
+pub unsafe fn JS_NewGlobalCConstructor2(
+    ctx: *mut JSContext,
+    func_obj: JSValue,
+    name: &CStr,
+    proto: JSValueConst,
+) {
+    (*ctx).add_global_constructor(name.to_string_lossy().as_ref(), func_obj, proto);
+}
+
+#[deprecated(note = "use JSContext::create_global_constructor() instead")]
+pub unsafe fn JS_NewGlobalCConstructor(
+    ctx: *mut JSContext,
+    name: &CStr,
+    func: JSCFunction,
+    length: i32,
+    proto: JSValueConst,
+) -> JSValueConst {
+    (*ctx).create_global_constructor(name, func, length, proto)
+}
+
+#[deprecated(note = "use JSRuntime::is_class_registered() instead")]
+pub unsafe fn JS_IsRegisteredClass(rt: *const JSRuntime, class_id: JSClassID) -> bool {
+    (*rt).is_class_registered(class_id)
 }
 
 #[deprecated(note = "not used")]
