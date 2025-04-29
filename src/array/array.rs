@@ -29,7 +29,7 @@ pub struct JSObjectArray {
     pub u1: JSObjectArrayU1,
     pub data: JSObjectArrayData,
 
-    /// for typed array only: the array length, 0 means detached
+    /// for typed array only: the array length, 0 means detached, <= 2^31-1
     pub(crate) typed_array_count: u32,
 }
 
@@ -97,13 +97,13 @@ impl JSContext {
         }
 
         unsafe {
-            debug_assert!(arr.object().detailed.fast_array());
+            debug_assert!(arr.object_unchecked().detailed.fast_array());
         }
 
         if capacity > 0 {
             unsafe {
                 if arr
-                    .object()
+                    .object_unchecked()
                     .fast_array_values_mut_unchecked()
                     .try_reserve_exact(capacity)
                     .is_err()
@@ -318,7 +318,7 @@ impl JSValue {
     /// test if value is fast array (could be one of Array, Argument, TypedArray fast array).
     pub fn is_fast_array(self) -> bool {
         if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
-            unsafe { self.object().detailed.fast_array() }
+            unsafe { self.object_unchecked().detailed.fast_array() }
         } else {
             false
         }
@@ -328,7 +328,7 @@ impl JSValue {
     #[inline]
     pub fn fast_array_values<'a>(self) -> Option<&'a [JSValue]> {
         if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
-            unsafe { self.object().fast_array_values() }
+            unsafe { self.object_unchecked().fast_array_values() }
         } else {
             None
         }
@@ -338,7 +338,7 @@ impl JSValue {
     #[inline]
     pub fn fast_array_values_mut<'a>(self) -> Option<&'a mut Vec<JSValue>> {
         if JS_VALUE_GET_TAG(self) == JS_TAG_OBJECT {
-            unsafe { self.object().fast_array_values_mut() }
+            unsafe { self.object_unchecked().fast_array_values_mut() }
         } else {
             None
         }
@@ -721,67 +721,6 @@ pub unsafe fn js_create_array(ctx: *mut JSContext, len: i32, tab: *const JSValue
     }
 
     obj
-}
-
-pub unsafe fn js_array_push(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-    unshift: i32,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(n) = js_get_length64(ctx, obj) {
-        n
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
-
-    let new_len = len + argc as i64;
-    if new_len > MAX_SAFE_INTEGER {
-        (*ctx).JS_ThrowTypeError(c"Array loo long");
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    let mut from = len;
-    if unshift != 0 && argc > 0 {
-        if JS_CopySubArray(ctx, obj, argc as _, 0, len as _, -1).is_err() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-        from = 0;
-    }
-
-    for i in 0..argc {
-        if obj
-            .set_property_i64(
-                ctx.as_mut().unwrap(),
-                from + i as i64,
-                (*argv.offset(i as isize)).dup(),
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    if obj
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_i64(new_len),
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    JS_FreeValue(ctx, obj);
-    JSValue::from_i64(new_len)
 }
 
 /// Access an Array's internal JSValue array if available

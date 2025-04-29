@@ -346,7 +346,7 @@ pub unsafe fn js_object_groupBy(
         }
 
         let mut done = false;
-        let v = JS_IteratorNext(ctx, iter, next, 0, std::ptr::null_mut(), &mut done);
+        let mut v = JS_IteratorNext(ctx, iter, next, 0, std::ptr::null_mut(), &mut done);
         if JS_IsException(v) {
             JS_FreeValue(ctx, iter);
             JS_FreeValue(ctx, next);
@@ -435,7 +435,7 @@ pub unsafe fn js_object_groupBy(
             }
         }
 
-        let res = js_array_push(ctx, prop, 1, &v, 0);
+        let res = js_array_push(ctx, prop, 1, &mut v, 0);
         if res.is_exception() {
             JS_FreeValue(ctx, iter);
             JS_FreeValue(ctx, next);

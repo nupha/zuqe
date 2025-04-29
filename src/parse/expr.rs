@@ -227,7 +227,16 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    // allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC
+    /// postfix expr typically refers to how the parser handles postfix expressions such as:
+    /// - Postfix increment/decrement operators (a++, a--)
+    /// - Member access expressions (a.b)
+    /// - Array access expressions (a[b])
+    /// - Function calls (a())
+    ///
+    /// these would typically be handled after parsing the primary expression (the "a" part),
+    /// and then checking for postfix operators or access patterns that follow it.
+    ///
+    /// allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC
     pub unsafe fn parse_postfix_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         let mut accept_lparen: bool = (parse_flags & PF_POSTFIX_CALL) != 0;
         let mut call_type = FuncCallType::FUNC_CALL_NORMAL;

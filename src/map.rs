@@ -76,7 +76,7 @@ impl JSMapState {
         mr.empty = false;
         mr.key = unsafe {
             if self.is_weak {
-                let p = key.object();
+                let p = key.object_unchecked();
                 // Add the weak reference
                 mr.next_weak_ref = p.first_weak_ref;
                 p.first_weak_ref = mr.as_mut() as *mut _;

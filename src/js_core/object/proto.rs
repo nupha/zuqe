@@ -95,7 +95,7 @@ pub fn js_object_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         } else if obj.is_callable(ctx) {
             JS_ATOM_Function
         } else {
-            let p = unsafe { obj.object() };
+            let p = unsafe { obj.object_unchecked() };
             match p.class_id() {
                 cid @ (JS_CLASS_STRING
                 | JS_CLASS_ARGUMENTS
@@ -213,7 +213,7 @@ pub fn js_object_hasOwnProperty(ctx: &mut JSContext, args: CallArgs) -> JSResult
     }
 
     unsafe {
-        let p = obj.object();
+        let p = obj.object_unchecked();
         let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), p, atom);
         JS_FreeAtom(ctx, atom);
         if ret < 0 {
@@ -284,7 +284,7 @@ pub fn js_object_isPrototypeOf(ctx: &mut JSContext, args: CallArgs) -> JSResult 
         .check_exception()?
         .into_rc(ctx.rt());
 
-    let ptr = unsafe { tmp.object() as *const JSObject };
+    let ptr = unsafe { tmp.object_unchecked() as *const JSObject };
 
     let res: bool = loop {
         target = unsafe {
@@ -298,7 +298,7 @@ pub fn js_object_isPrototypeOf(ctx: &mut JSContext, args: CallArgs) -> JSResult 
         }
 
         unsafe {
-            if ptr == target.object() as *const JSObject {
+            if ptr == target.object_unchecked() as *const JSObject {
                 break true;
             }
 
@@ -365,7 +365,7 @@ pub fn js_object_propertyIsEnumerable(ctx: &mut JSContext, args: CallArgs) -> JS
 
     unsafe {
         let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-        let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, obj.object(), prop);
+        let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, obj.object_unchecked(), prop);
         if has_prop < 0 {
             JS_FreeAtom(ctx, prop);
             return Err(-1);

@@ -1,6 +1,7 @@
 use std::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
+    rc::Rc,
 };
 
 use crate::runtime::JSRuntime;
@@ -12,6 +13,7 @@ use super::{JSValue, JS_FreeValueRT};
 pub struct JSValueRc {
     rt: NonNull<JSRuntime>,
     value: JSValue,
+    on_drop: Option<Rc<dyn Fn(&mut JSRuntime, JSValue)>>,
 }
 
 impl JSValueRc {
@@ -19,7 +21,13 @@ impl JSValueRc {
         Self {
             rt: NonNull::from(rt),
             value: JSValue::UNDEFINED,
+            on_drop: None,
         }
+    }
+
+    /// set a callback to run before value drop
+    pub fn on_drop(&mut self, f: impl Fn(&mut JSRuntime, JSValue) + 'static) {
+        self.on_drop = Some(Rc::new(f));
     }
 }
 
@@ -47,6 +55,7 @@ impl Clone for JSValueRc {
         Self {
             rt: self.rt,
             value: v,
+            on_drop: self.on_drop.clone(),
         }
     }
 }
@@ -63,7 +72,13 @@ impl Drop for JSValueRc {
     /// Automatically frees associated resources in the JavaScript runtime when JSValueRc is destroyed
     fn drop(&mut self) {
         unsafe {
-            JS_FreeValueRT(self.rt.as_mut(), self.value);
+            let rt = self.rt.as_mut();
+
+            if let Some(f) = self.on_drop.take() {
+                f(rt, self.value);
+            }
+
+            JS_FreeValueRT(rt, self.value);
         }
     }
 }
@@ -75,6 +90,7 @@ impl JSValue {
         JSValueRc {
             rt: NonNull::from(rt),
             value: self,
+            on_drop: None,
         }
     }
 }

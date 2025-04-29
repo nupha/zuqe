@@ -56,7 +56,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         return Err(-1);
     }
 
-    let p = unsafe { func_obj.object() };
+    let p = unsafe { func_obj.object_unchecked() };
     p.detailed.set_constructor(args.this_value.is_constructor());
 
     let mut bf = Box::new(JSBoundFunction {
@@ -157,7 +157,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     args.this_value.ensure_callable(ctx)?;
 
-    let p = unsafe { args.this_value.object() };
+    let p = unsafe { args.this_value.object_unchecked() };
 
     let func_kind = if js_class_has_bytecode(p.class_id()) {
         unsafe {

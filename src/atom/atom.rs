@@ -3,11 +3,12 @@ use std::{
     ffi::{c_void, CStr},
     hash::Hash,
     num::NonZeroU16,
+    ops::DerefMut,
     rc::Rc,
 };
 
 use crate::{
-    context::JSContext,
+    context::{JSContext, JSContextHandle},
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
@@ -171,18 +172,17 @@ impl JSAtom {
     }
 
     /// convert atom to string
-    pub fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
-        let tmp = self.to_value(ctx, true);
+    pub fn to_utf8_string<'a>(self, mut ctx: JSContextHandle) -> Result<Cow<'a, str>, i32> {
+        let tmp = self.to_value(ctx.deref_mut(), true);
         if tmp.is_exception() {
             return Err(-1);
         }
 
-        let cx = ctx as *mut JSContext;
-        let res = tmp.to_utf8_string(ctx);
+        let res = tmp.coerce_to_utf8(ctx);
 
         // free tmp
         unsafe {
-            JS_FreeValue(cx, tmp);
+            JS_FreeValue(ctx.deref_mut(), tmp);
         }
 
         res
@@ -667,7 +667,7 @@ pub unsafe fn js_atom_concat_str(ctx: *mut JSContext, name: JSAtom, str1: *const
         return JS_ATOM_NULL;
     }
 
-    let astr = if let Ok(s) = str_val.to_utf8_string(ctx.as_mut().unwrap()) {
+    let astr = if let Ok(s) = str_val.coerce_to_utf8(ctx.into()) {
         s
     } else {
         JS_FreeValue(ctx, str_val);

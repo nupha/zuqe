@@ -554,7 +554,7 @@ impl JSValue {
             },
             (JSTag::Symbol, JSTag::Symbol) => JS_VALUE_GET_PTR(self) == JS_VALUE_GET_PTR(other),
             (JSTag::Object, JSTag::Object) => unsafe {
-                self.object() as *mut JSObject == other.object() as *mut JSObject
+                self.object_unchecked() as *mut JSObject == other.object_unchecked() as *mut JSObject
             },
             (JSTag::Int, JSTag::Float64)
             | (JSTag::Float64, JSTag::Int)

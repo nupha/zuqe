@@ -19,7 +19,9 @@ use crate::{
         js_array_iterator_next, js_create_array_iterator, JSIteratorKindEnum, JS_IteratorClose,
         JS_IteratorNext,
     },
+    js_core::{js_get_this, object::js_object_toString},
     runtime::js_check_stack_overflow,
+    typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::{
         object::{
             js_get_length64, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
@@ -33,23 +35,24 @@ use crate::{
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
 };
 
-use super::{
-    js_get_this,
-    object::js_object_toString,
-    typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
-};
+pub const special_find: i32 = 0;
+pub const special_findIndex: i32 = 1;
+pub const special_findLast: i32 = 2;
+pub const special_findLastIndex: i32 = 3;
 
-const special_find: i16 = 0;
-const special_findIndex: i16 = 1;
-const special_findLast: i16 = 2;
-const special_findLastIndex: i16 = 3;
+pub const special_indexOf: i32 = 0;
+pub const special_lastIndexOf: i32 = 1;
+pub const special_includes: i32 = -1;
 
-const special_every: i16 = 0;
-const special_some: i16 = 1;
-const special_forEach: i16 = 2;
-const special_map: i16 = 3;
-const special_filter: i16 = 4;
-const special_TA: i16 = 8;
+pub const special_every: i32 = 0;
+pub const special_some: i32 = 1;
+pub const special_forEach: i32 = 2;
+pub const special_map: i32 = 3;
+pub const special_filter: i32 = 4;
+pub const special_TA: i32 = 8;
+
+pub const special_reduce: i32 = 0;
+pub const special_reduceRight: i32 = 1;
 
 pub unsafe fn js_array_constructor(
     ctx: *mut JSContext,
@@ -530,7 +533,7 @@ pub unsafe fn js_array_every(
 
     if special & special_TA as i32 != 0 {
         obj = this_val.dup();
-        len = if let Ok(l) = js_typed_array_get_length_internal(ctx, obj) {
+        len = if let Ok(l) = js_typed_array_get_length_internal(ctx.as_mut().unwrap(), obj) {
             l as i64
         } else {
             JS_FreeValue(ctx, obj);
@@ -560,7 +563,7 @@ pub unsafe fn js_array_every(
 
     let mut ret: JSValue;
 
-    match special as i16 {
+    match special {
         s if s == special_every || s == special_every | special_TA => {
             ret = JSValue::TRUE;
         }
@@ -659,7 +662,7 @@ pub unsafe fn js_array_every(
                 return JSValue::EXCEPTION;
             }
 
-            match special as i16 {
+            match special {
                 s if s == special_every || s == special_every | special_TA => {
                     if JS_ToBoolFree(ctx, res) == Ok(false) {
                         ret = JSValue::FALSE;
@@ -760,9 +763,6 @@ pub unsafe fn js_array_every(
     ret
 }
 
-const special_reduce: i32 = 0;
-const special_reduceRight: i32 = 1;
-
 pub unsafe fn js_array_reduce(
     ctx: *mut JSContext,
     this_val: JSValueConst,
@@ -775,7 +775,7 @@ pub unsafe fn js_array_reduce(
 
     if special & special_TA as i32 != 0 {
         obj = this_val.dup();
-        len = if let Ok(l) = js_typed_array_get_length_internal(ctx, obj) {
+        len = if let Ok(l) = js_typed_array_get_length_internal(ctx.as_mut().unwrap(), obj) {
             l as _
         } else {
             JS_FreeValue(ctx, obj);
@@ -954,7 +954,7 @@ pub unsafe fn js_array_fill(
     return obj;
 }
 
-use std::{mem, ptr::NonNull};
+use std::ptr::NonNull;
 
 pub unsafe fn js_array_find(
     ctx: *mut JSContext,
@@ -987,7 +987,7 @@ pub unsafe fn js_array_find(
     let dir: i64;
     let end: i64;
 
-    if matches!(mode as i16, special_findLast | special_findLastIndex) {
+    if matches!(mode, special_findLast | special_findLastIndex) {
         k = len - 1;
         dir = -1;
         end = -1;
@@ -1028,7 +1028,7 @@ pub unsafe fn js_array_find(
         }
 
         if JS_ToBoolFree(ctx, res).unwrap_or(true) {
-            if matches!(mode as i16, special_findIndex | special_findLastIndex) {
+            if matches!(mode, special_findIndex | special_findLastIndex) {
                 JS_FreeValue(ctx, val);
                 JS_FreeValue(ctx, obj);
                 return index_val;
@@ -1044,7 +1044,7 @@ pub unsafe fn js_array_find(
     }
     JS_FreeValue(ctx, obj);
 
-    if matches!(mode as i16, special_findIndex | special_findLastIndex) {
+    if matches!(mode, special_findIndex | special_findLastIndex) {
         JSValue::from_i32(-1)
     } else {
         JSValue::UNDEFINED
@@ -1360,11 +1360,8 @@ pub unsafe fn js_array_toString(
     } else if !method.is_callable(ctx.as_ref().unwrap()) {
         // Use intrinsic Object.prototype.toString
         JS_FreeValue(ctx, method);
-        js_object_toString(
-            ctx.as_mut().unwrap(),
-            CallArgs::new(NonNull::new_unchecked(ctx), obj, &[], 0, None),
-        )
-        .unwrap_or(JSValue::EXCEPTION)
+        js_object_toString(ctx.as_mut().unwrap(), CallArgs::new(ctx, obj, &[], 0, None))
+            .unwrap_or(JSValue::EXCEPTION)
     } else {
         JS_CallFree(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut())
     };
@@ -1380,7 +1377,7 @@ pub unsafe fn js_array_pop(
     argv: *mut JSValueConst,
     shift: i32,
 ) -> JSValue {
-    let mut obj = JS_ToObject(ctx, this_val);
+    let obj = JS_ToObject(ctx, this_val);
     let len = if let Ok(l) = js_get_length64(ctx, obj) {
         l
     } else {
@@ -2310,11 +2307,11 @@ pub const js_array_proto_funcs: [JSCFunctionListEntry; 39] = [
     JS_CFUNC_DEF!(c"at", 1, js_array_at),
     JS_CFUNC_DEF!(c"with", 2, js_array_with),
     JS_CFUNC_DEF!(c"concat", 1, js_array_concat),
-    JS_CFUNC_MAGIC_DEF!(c"every", 1, js_array_every, special_every),
-    JS_CFUNC_MAGIC_DEF!(c"some", 1, js_array_every, special_some),
-    JS_CFUNC_MAGIC_DEF!(c"forEach", 1, js_array_every, special_forEach),
-    JS_CFUNC_MAGIC_DEF!(c"map", 1, js_array_every, special_map),
-    JS_CFUNC_MAGIC_DEF!(c"filter", 1, js_array_every, special_filter),
+    JS_CFUNC_MAGIC_DEF!(c"every", 1, js_array_every, special_every as i16),
+    JS_CFUNC_MAGIC_DEF!(c"some", 1, js_array_every, special_some as i16),
+    JS_CFUNC_MAGIC_DEF!(c"forEach", 1, js_array_every, special_forEach as i16),
+    JS_CFUNC_MAGIC_DEF!(c"map", 1, js_array_every, special_map as i16),
+    JS_CFUNC_MAGIC_DEF!(c"filter", 1, js_array_every, special_filter as i16),
     JS_CFUNC_MAGIC_DEF!(c"reduce", 1, js_array_reduce, special_reduce as i16),
     JS_CFUNC_MAGIC_DEF!(
         c"reduceRight",
@@ -2323,10 +2320,15 @@ pub const js_array_proto_funcs: [JSCFunctionListEntry; 39] = [
         special_reduceRight as i16
     ),
     JS_CFUNC_DEF!(c"fill", 1, js_array_fill),
-    JS_CFUNC_MAGIC_DEF!(c"find", 1, js_array_find, special_find),
-    JS_CFUNC_MAGIC_DEF!(c"findIndex", 1, js_array_find, special_findIndex),
-    JS_CFUNC_MAGIC_DEF!(c"findLast", 1, js_array_find, special_findLast),
-    JS_CFUNC_MAGIC_DEF!(c"findLastIndex", 1, js_array_find, special_findLastIndex),
+    JS_CFUNC_MAGIC_DEF!(c"find", 1, js_array_find, special_find as i16),
+    JS_CFUNC_MAGIC_DEF!(c"findIndex", 1, js_array_find, special_findIndex as i16),
+    JS_CFUNC_MAGIC_DEF!(c"findLast", 1, js_array_find, special_findLast as i16),
+    JS_CFUNC_MAGIC_DEF!(
+        c"findLastIndex",
+        1,
+        js_array_find,
+        special_findLastIndex as i16
+    ),
     JS_CFUNC_DEF!(c"indexOf", 1, js_array_indexOf),
     JS_CFUNC_DEF!(c"lastIndexOf", 1, js_array_lastIndexOf),
     JS_CFUNC_DEF!(c"includes", 1, js_array_includes),

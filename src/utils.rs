@@ -473,7 +473,41 @@ macro_rules! JS_CGETSET_DEF {
 
 #[macro_export]
 macro_rules! JS_CGETSET_MAGIC_DEF {
-    ($name:expr, $magic:expr, $getter:expr, $setter:expr) => {
+    ($name:expr, NONE, $setter:expr, $magic:expr) => {
+        crate::function::JSCFunctionListEntry {
+            name: $name,
+            prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
+            def_type: crate::value::JS_DEF_CGETSET_MAGIC,
+            magic: $magic,
+            u: crate::function::JSCFunctionListEntryUnion {
+                getset: crate::function::JSCFunctionListEntryGetSet {
+                    get: None,
+                    set: Some(crate::function::JSCFunctionType {
+                        setter_magic: $setter,
+                    }),
+                },
+            },
+        }
+    };
+
+    ($name:expr, $getter:expr, NONE, $magic:expr) => {
+        crate::function::JSCFunctionListEntry {
+            name: $name,
+            prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
+            def_type: crate::value::JS_DEF_CGETSET_MAGIC,
+            magic: $magic,
+            u: crate::function::JSCFunctionListEntryUnion {
+                getset: crate::function::JSCFunctionListEntryGetSet {
+                    get: Some(crate::function::JSCFunctionType {
+                        getter_magic: $getter,
+                    }),
+                    set: None,
+                },
+            },
+        }
+    };
+
+    ($name:expr, $getter:expr, $setter:expr, $magic:expr) => {
         crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,

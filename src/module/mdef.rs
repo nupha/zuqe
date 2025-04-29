@@ -961,13 +961,13 @@ pub unsafe fn js_host_resolve_imported_module_atom(
     base_module_name: JSAtom,
     module_name1: JSAtom,
 ) -> *mut JSModuleDef {
-    let base_cname = if let Ok(s) = base_module_name.to_utf8_string(ctx.as_mut().unwrap()) {
+    let base_cname = if let Ok(s) = base_module_name.to_utf8_string(ctx.into()) {
         s
     } else {
         return std::ptr::null_mut();
     };
 
-    let cname = if let Ok(s) = module_name1.to_utf8_string(ctx.as_mut().unwrap()) {
+    let cname = if let Ok(s) = module_name1.to_utf8_string(ctx.into()) {
         s
     } else {
         return std::ptr::null_mut();
@@ -1014,7 +1014,7 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
     if obj.is_exception() {
         return obj;
     }
-    let p = obj.object();
+    let p = obj.object_unchecked();
 
     let ret = get_exported_names(ctx, s, m, false);
     js_free(ctx, s.modules.cast());
@@ -1059,7 +1059,7 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
                 if !(*res_me).u.local.var_ref.is_null() {
                     en.u.var_ref = (*res_me).u.local.var_ref;
                 } else {
-                    let p1 = (*res_m).func_obj.object();
+                    let p1 = (*res_m).func_obj.object_unchecked();
                     en.u.var_ref = p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
                 }
             }
@@ -1273,7 +1273,7 @@ pub unsafe fn js_create_module_bytecode_function(ctx: *mut JSContext, m: *mut JS
     }
 
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
 
     (*b).header.ref_count += 1;
     (*p.u.func).function_bytecode = b;

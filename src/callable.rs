@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use smallvec::SmallVec;
 
 use crate::{
@@ -84,7 +82,7 @@ impl JSValue {
     /// as C_FUNCTION_DATA class object
     pub unsafe fn as_callbable_unchecked(self) -> CallableValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
-        debug_assert_eq!(self.object().class_id(), JS_CLASS_C_FUNCTION_DATA);
+        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION_DATA);
         std::mem::transmute(self)
     }
 }
@@ -130,7 +128,7 @@ impl CallableValue {
         let s = JS_GetOpaque(func_obj, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
 
         let cc = CallArgs::new(
-            NonNull::new_unchecked(ctx as *mut JSContext),
+            ctx.handle(),
             this_val,
             std::slice::from_raw_parts(argv, argc as usize),
             (*s).magic as _,

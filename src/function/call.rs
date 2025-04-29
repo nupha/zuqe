@@ -50,6 +50,7 @@ pub unsafe fn js_poll_interrupts(ctx: &mut JSContext) -> i32 {
 }
 
 /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
+/// `this_obj` is not consumed, `argv` values are not consumed.
 pub unsafe fn JS_CallInternal(
     caller_ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -71,7 +72,7 @@ pub unsafe fn JS_CallInternal(
             // JSFuncAsyncState中已设置本async function专用栈帧
             let s = JS_VALUE_GET_PTR(func_obj).cast::<JSAsyncFunctionState>();
             let sf = &mut (*s).frame;
-            let p = sf.cur_func.object();
+            let p = sf.cur_func.object_unchecked();
             let b = p.u.func.function_bytecode.as_ref().unwrap();
 
             let pc_offset = sf.cur_pc_offset;
@@ -103,7 +104,7 @@ pub unsafe fn JS_CallInternal(
         };
     }
 
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     let cid = p.class_id();
     if cid != JS_CLASS_BYTECODE_FUNCTION {
         return if let Some(cb) = rt.class_array[cid as usize].call {
@@ -247,6 +248,8 @@ pub unsafe fn JS_CallInternal(
     // )
 }
 
+/// `this_obj` is not consumed, `argv` values are not consumed.
+#[inline(always)]
 pub unsafe fn JS_Call(
     ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -302,7 +305,7 @@ pub unsafe fn JS_CallConstructorInternal(
         return ctx.JS_ThrowTypeError(c"not a function");
     }
 
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     if !p.detailed.is_constructor() {
         return ctx.JS_ThrowTypeError(c"not a constructor");
     }

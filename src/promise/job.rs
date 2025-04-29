@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 
 use crate::{
-    context::{JSContext, JSContextRef},
+    context::{JSContext, JSContextHandle},
     error::JSResult,
     function::{CallArgs, JS_Call},
     list_entry,
@@ -16,7 +16,7 @@ pub type JobCallback = for<'a> fn(ctx: &'a mut JSContext, args: CallArgs<'a>) ->
 pub struct JSJobEntry {
     pub link: list_head,
 
-    pub ctx: JSContextRef,
+    pub ctx: JSContextHandle,
     pub callback: JobCallback,
 
     /// args array, 5 in max
@@ -36,7 +36,7 @@ impl JSContext {
 
         let mut e = Box::new(JSJobEntry {
             link: list_head::default(),
-            ctx: self.into(),
+            ctx: self.handle(),
             callback,
             args: [JSValue::UNDEFINED; 5],
             argc: args.len() as u8,
@@ -136,28 +136,29 @@ impl JSRuntime {
     /// return #1: true if it need more runs, false if there are no jobs left.
     pub fn execute_pending_job(
         &mut self,
-    ) -> Result<(Option<JSContextRef>, bool), (Option<JSContextRef>, i32)> {
+    ) -> Result<(Option<JSContextHandle>, bool), (Option<JSContextHandle>, i32)> {
         if list_empty(&self.job_list) {
             return Ok((None, false));
         }
 
         // get the first pending job and execute it
         unsafe {
-            let e = list_entry!(self.job_list.next, JSJobEntry, link);
-            list_del(&mut (*e).link);
+            let ent = list_entry!(self.job_list.next, JSJobEntry, link);
+            list_del(&mut (*ent).link);
 
-            let e = Box::from_raw(e);
-            let mut ctx = e.ctx;
+            let job = Box::from_raw(ent);
+
+            let mut ctx = job.ctx;
             let cc = CallArgs::new(
-                ctx.as_raw(),
+                ctx,
                 JSValue::UNDEFINED,
-                &e.args[..e.argc as usize],
+                &job.args[..job.argc as usize],
                 0,
                 None,
             );
-            let res = ((*e).callback)(ctx.deref_mut(), cc);
-            for i in 0..(*e).argc {
-                JS_FreeValue(ctx.deref_mut(), (*e).args[i as usize]);
+            let res = ((*job).callback)(ctx.deref_mut(), cc);
+            for i in 0..(*job).argc {
+                JS_FreeValue(ctx.deref_mut(), (*job).args[i as usize]);
             }
             if let Ok(r) = res {
                 JS_FreeValue(ctx.deref_mut(), r);

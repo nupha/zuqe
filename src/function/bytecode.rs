@@ -388,7 +388,10 @@ impl JSValue {
             JS_VALUE_GET_TAG(self),
             JS_TAG_FUNCTION_BYTECODE | JS_TAG_OBJECT
         ));
-        debug_assert_eq!(self.object().class_id(), JS_CLASS_BYTECODE_FUNCTION);
+        debug_assert_eq!(
+            self.object_unchecked().class_id(),
+            JS_CLASS_BYTECODE_FUNCTION
+        );
         std::mem::transmute(self)
     }
 }
@@ -404,7 +407,7 @@ impl BytecodeFunctionValue {
         flags: i32,
     ) -> JSValue {
         let func_obj = self.0;
-        let p = self.0.object();
+        let p = self.0.object_unchecked();
 
         let bf = p.u.func.function_bytecode.as_ref().unwrap();
 
@@ -537,7 +540,7 @@ impl BytecodeFunctionValue {
             }
 
             let v = *argv.offset(i as _);
-            if let Ok(sv) = v.to_utf8_string(ctx.as_mut().unwrap()) {
+            if let Ok(sv) = v.coerce_to_utf8(ctx.into()) {
                 buf.extend_from_slice(sv.as_bytes());
             } else {
                 return JSValue::EXCEPTION;
@@ -546,7 +549,7 @@ impl BytecodeFunctionValue {
 
         buf.extend_from_slice(b") {\n");
         if n >= 0 {
-            if let Ok(sv) = (*argv.offset(n as _)).to_utf8_string(ctx.as_mut().unwrap()) {
+            if let Ok(sv) = (*argv.offset(n as _)).coerce_to_utf8(ctx.into()) {
                 buf.extend_from_slice(sv.as_bytes());
             } else {
                 return JSValue::EXCEPTION;

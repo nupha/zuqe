@@ -688,7 +688,7 @@ pub unsafe fn run_bytecodes(
                     // }
 
                     let cc = CallArgs::new(
-                        NonNull::new_unchecked(ctx),
+                        ctx.handle(),
                         SP![-3],
                         std::slice::from_raw_parts(sp.offset(-2), 2),
                         magic,
@@ -1142,7 +1142,7 @@ pub unsafe fn run_bytecodes(
 
                         match var_ref {
                             Ok(vr) => {
-                                if let Ok(pr) = SP![-1].object().add_property(
+                                if let Ok(pr) = SP![-1].object_unchecked().add_property(
                                     ctx,
                                     atom,
                                     JS_PROP_WRITABLE | JS_PROP_VARREF,

@@ -1,6 +1,16 @@
+use std::ffi::CStr;
+
 use crate::{
-    atom::{consts::*, JS_NewAtomString},
-    class::JS_SetConstructor2,
+    array::{
+        js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
+    },
+    array_buffer::{
+        js_array_buffer_constructor, js_array_buffer_funcs, js_array_buffer_proto_funcs,
+        js_shared_array_buffer_constructor, js_shared_array_buffer_funcs,
+        js_shared_array_buffer_proto_funcs,
+    },
+    atom::{consts::*, JSAtom, JS_NewAtomString},
+    class::{JSClassID, JS_SetConstructor, JS_SetConstructor2},
     context::{JSContext, JS_MODE_STRICT},
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::__JS_EvalInternal,
@@ -16,10 +26,6 @@ use crate::{
     },
     iterator::js_async_from_sync_iterator_proto_funcs,
     js_core::{
-        array::{
-            js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
-            js_array_proto_funcs,
-        },
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
         function::js_function_proto_funcs,
@@ -30,22 +36,31 @@ use crate::{
             js_string_proto_funcs,
         },
     },
+    obsoletes::JS_NewGlobalCConstructor2,
     promise::{js_promise_funcs, js_promise_proto_funcs, PromiseValue},
+    typed_array::{
+        js_dataview_constructor, js_dataview_proto_funcs, js_typed_array_base_constructor,
+        js_typed_array_base_funcs, js_typed_array_base_proto_funcs, js_typed_array_constructor,
+        typed_array_size_log2, JS_TYPED_ARRAY_COUNT,
+    },
     value::{
         js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
-            get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
+            get_proto_obj, js_new_shape2, js_object_seal, JS_DefinePropertyValue,
+            JS_DefinePropertyValueStr, JS_GetProperty, JS_NewObject, JS_NewObjectProto,
             JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
             JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE,
             JS_PROP_LENGTH, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_FreeValue,
     },
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
-    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
-    JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL, STD_CLASS_DEFS,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
+    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER,
+    JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
+    STD_CLASS_DEFS,
 };
 
 impl JSContext {
@@ -564,6 +579,162 @@ impl JSContext {
         // JS_FreeValue(ctx, obj1);
 
         self.intrinsic_eval(); // enable `eval()` function
+    }
+
+    pub unsafe fn intrinsic_typed_arrays(&mut self) {
+        // ArrayBuffer
+        {
+            self.class_proto[JS_CLASS_ARRAY_BUFFER as usize] = JS_NewObject(self);
+            JS_SetPropertyFunctionList(
+                self,
+                self.class_proto[JS_CLASS_ARRAY_BUFFER as usize],
+                js_array_buffer_proto_funcs.as_ptr(),
+                js_array_buffer_proto_funcs.len(),
+            );
+            let array_buffer_func = self.create_global_constructor_only(
+                c"ArrayBuffer",
+                js_array_buffer_constructor,
+                1,
+                self.class_proto[JS_CLASS_ARRAY_BUFFER as usize],
+            );
+            JS_SetPropertyFunctionList(
+                self,
+                array_buffer_func,
+                js_array_buffer_funcs.as_ptr(),
+                js_array_buffer_funcs.len(),
+            );
+        }
+
+        // SharedArrayBuffer
+        {
+            self.class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = JS_NewObject(self);
+            JS_SetPropertyFunctionList(
+                self,
+                self.class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize],
+                js_shared_array_buffer_proto_funcs.as_ptr(),
+                js_shared_array_buffer_proto_funcs.len(),
+            );
+            let shared_array_buffer_func = self.create_global_constructor_only(
+                c"SharedArrayBuffer",
+                js_shared_array_buffer_constructor,
+                1,
+                self.class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize],
+            );
+            JS_SetPropertyFunctionList(
+                self,
+                shared_array_buffer_func,
+                js_shared_array_buffer_funcs.as_ptr(),
+                js_shared_array_buffer_funcs.len(),
+            );
+        }
+
+        // Typed arrays
+        {
+            let typed_array_base_proto = JS_NewObject(self);
+            JS_SetPropertyFunctionList(
+                self,
+                typed_array_base_proto,
+                js_typed_array_base_proto_funcs.as_ptr(),
+                js_typed_array_base_proto_funcs.len(),
+            );
+
+            // TypedArray.prototype.toString must be the same object as Array.prototype.toString
+            let obj = JS_GetProperty(
+                self,
+                self.class_proto[JS_CLASS_ARRAY as usize],
+                JS_ATOM_toString,
+            );
+            // XXX: should use alias method in JSCFunctionListEntry
+            JS_DefinePropertyValue(
+                self,
+                typed_array_base_proto,
+                JS_ATOM_toString,
+                obj,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            );
+
+            let typed_array_base_func =
+                JS_NewCFunction(self, js_typed_array_base_constructor, c"TypedArray", 0);
+            JS_SetPropertyFunctionList(
+                self,
+                typed_array_base_func,
+                js_typed_array_base_funcs.as_ptr(),
+                js_typed_array_base_funcs.len(),
+            );
+            JS_SetConstructor(self, typed_array_base_func, typed_array_base_proto);
+
+            for i in
+                JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
+            {
+                self.class_proto[i as usize] = JS_NewObjectProto(self, typed_array_base_proto);
+
+                JS_DefinePropertyValueStr(
+                    self,
+                    self.class_proto[i as usize],
+                    c"BYTES_PER_ELEMENT",
+                    (1 << typed_array_size_log2(i)).into(),
+                    0,
+                );
+
+                let name = JSAtom(JS_ATOM_Uint8ClampedArray.0 + (i - JS_CLASS_UINT8C_ARRAY) as u32)
+                    .to_utf8_string(self.handle())
+                    .unwrap();
+
+                let func_obj = JS_NewCFunction3(
+                    self,
+                    std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
+                        js_typed_array_constructor,
+                    ),
+                    CStr::from_ptr(format!("{}\0", name.as_ref()).as_ptr().cast()),
+                    3,
+                    JSCFunctionEnum::ConstructorMagic,
+                    i as i16,
+                    typed_array_base_func,
+                );
+                self.add_global_constructor(name.as_ref(), func_obj, self.class_proto[i as usize]);
+
+                func_obj.define_property_value_str(
+                    self,
+                    "BYTES_PER_ELEMENT",
+                    (1 << typed_array_size_log2(i)).into(),
+                    0,
+                );
+            }
+            JS_FreeValue(self, typed_array_base_proto);
+            JS_FreeValue(self, typed_array_base_func);
+        }
+
+        // DataView
+        {
+            self.class_proto[JS_CLASS_DATAVIEW as usize] = JS_NewObject(self);
+            JS_SetPropertyFunctionList(
+                self,
+                self.class_proto[JS_CLASS_DATAVIEW as usize],
+                js_dataview_proto_funcs.as_ptr(),
+                js_dataview_proto_funcs.len(),
+            );
+
+            let func_obj = JS_NewCFunction2(
+                self,
+                js_dataview_constructor,
+                c"DataView",
+                1,
+                JSCFunctionEnum::Constructor,
+                0,
+            );
+            self.add_global_constructor(
+                "DataView",
+                func_obj,
+                self.class_proto[JS_CLASS_DATAVIEW as usize],
+            );
+            // JS_NewGlobalCConstructorOnly(
+            //     self,
+            //     c"DataView",
+            //     js_dataview_constructor,
+            //     1,
+            //     self.class_proto[JS_CLASS_DATAVIEW as usize],
+            // );
+        }
     }
 
     pub unsafe fn intrinsic_async(&mut self) {

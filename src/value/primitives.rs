@@ -131,13 +131,15 @@ pub unsafe fn JS_GetPrototypePrimitive(ctx: *const JSContext, val: JSValueConst)
     }
 }
 
+/// returns Err if val is an exception.
+/// `val` is consumed
 pub unsafe fn JS_ToBoolFree(ctx: *mut JSContext, val: JSValue) -> Result<bool, i32> {
     match JS_VALUE_GET_TAG(val) {
         JS_TAG_NULL | JS_TAG_UNDEFINED => Ok(false),
         JS_TAG_INT | JS_TAG_BOOL => Ok(JS_VALUE_GET_INT(val) != 0),
         JS_TAG_EXCEPTION => Err(-1),
         JS_TAG_STRING => {
-            let ret = !(*JS_VALUE_GET_STRING(val)).is_empty();
+            let ret = !val.string().is_empty();
             JS_FreeValue(ctx, val);
             Ok(ret)
         }
@@ -150,8 +152,7 @@ pub unsafe fn JS_ToBoolFree(ctx: *mut JSContext, val: JSValue) -> Result<bool, i
             unimplemented!()
         }
         JS_TAG_OBJECT => {
-            let p = JS_VALUE_GET_OBJ(val);
-            let ret = !(*p).detailed.is_htmldda();
+            let ret = !val.object_unchecked().detailed.is_htmldda();
             JS_FreeValue(ctx, val);
             Ok(ret)
         }

@@ -1,11 +1,11 @@
 use std::{
     ffi::{c_char, c_void, CStr},
-    ptr::NonNull,
+    ops::Deref,
 };
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
-    context::{JSContext, JS_DupContext, JS_FreeContext},
+    context::{JSContext, JSContextHandle, JS_DupContext, JS_FreeContext},
     error::{JSResult, JS_ThrowStackOverflow},
     function::JS_CALL_FLAG_CONSTRUCTOR,
     gc::JS_MarkFunc,
@@ -53,7 +53,7 @@ pub enum JSCFunctionEnum {
 }
 
 pub struct CallArgs<'a> {
-    ctx: NonNull<JSContext>,
+    ctx: JSContextHandle,
 
     pub this_value: JSValue,
     pub args: &'a [JSValue],
@@ -64,15 +64,16 @@ pub struct CallArgs<'a> {
 }
 
 impl<'a> CallArgs<'a> {
-    pub(crate) fn new(
-        ctx: NonNull<JSContext>,
+    /// `this_value` is not consumed, `args` values are not consumed, `data` values are not consumed.
+    pub(crate) fn new<X: Into<JSContextHandle>>(
+        ctx: X,
         this_value: JSValue,
         args: &'a [JSValue],
         magic: i32,
         data: Option<&'a mut [JSValue]>,
     ) -> Self {
         Self {
-            ctx,
+            ctx: ctx.into(),
             this_value,
             args,
             magic,
@@ -91,6 +92,14 @@ impl<'a> CallArgs<'a> {
         self.this_value
     }
 
+    /// set this value.
+    /// Note: `this_val` is not consumed, caller should free it.
+    pub fn set_this_raw(&mut self, this_val: JSValue) {
+        unsafe {
+            self.this_value.replace(this_val);
+        }
+    }
+
     /// get nth argument raw value
     #[inline(always)]
     pub fn get_raw(&self, nth: usize) -> JSValue {
@@ -107,9 +116,9 @@ impl<'a> CallArgs<'a> {
     #[inline(always)]
     pub fn get(&self, nth: usize) -> JSValueRc {
         if let Some(v) = self.args.get(nth) {
-            v.dup().into_rc(unsafe { self.ctx.as_ref().rt() })
+            v.dup().into_rc(self.ctx.deref().rt())
         } else {
-            JSValue::UNDEFINED.into_rc(unsafe { self.ctx.as_ref().rt() })
+            JSValue::UNDEFINED.into_rc(self.ctx.deref().rt())
         }
     }
 
@@ -271,7 +280,7 @@ impl JSValue {
     #[inline(always)]
     pub unsafe fn as_native_function_unchecked(self) -> NativeFunctionValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
-        debug_assert_eq!(self.object().class_id(), JS_CLASS_C_FUNCTION);
+        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
         std::mem::transmute(self)
     }
 }
@@ -287,7 +296,7 @@ impl NativeFunctionValue {
     ) -> JSValue {
         let rt = ctx.rt.as_mut();
 
-        let p = func_obj.object();
+        let p = func_obj.object_unchecked();
         let cproto = p.u.cfunc.cproto;
         let arg_length = p.u.cfunc.length;
 
@@ -372,7 +381,7 @@ impl NativeFunctionValue {
                 }
 
                 let cc = CallArgs::new(
-                    NonNull::new_unchecked(p.u.cfunc.realm),
+                    p.u.cfunc.realm,
                     this_obj,
                     sf.args_slice(),
                     p.u.cfunc.magic as _,
@@ -383,7 +392,7 @@ impl NativeFunctionValue {
             JSCFunctionEnum::NativeGetter => {
                 debug_assert_eq!(sf.arg_count, 0);
                 let cc = CallArgs::new(
-                    NonNull::new_unchecked(realm),
+                    realm.handle(),
                     this_obj,
                     sf.args_slice(),
                     p.u.cfunc.magic as _,
@@ -394,7 +403,7 @@ impl NativeFunctionValue {
             JSCFunctionEnum::NativeSetter => {
                 debug_assert_eq!(sf.arg_count, 1);
                 let cc = CallArgs::new(
-                    NonNull::new_unchecked(realm),
+                    realm.handle(),
                     this_obj,
                     sf.args_slice(),
                     p.u.cfunc.magic as _,
@@ -498,14 +507,14 @@ impl NativeFunctionValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let p = val.object();
+        let p = val.object_unchecked();
         if !p.u.cfunc.realm.is_null() {
             JS_FreeContext(p.u.cfunc.realm);
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let p = val.object();
+        let p = val.object_unchecked();
         if !p.u.cfunc.realm.is_null() {
             mark_func(rt, &mut (*p.u.cfunc.realm).header);
         }
@@ -535,7 +544,7 @@ impl JSContext {
             JS_NewObjectProtoClass(self, proto_val, JS_CLASS_C_FUNCTION).check_exception()?
         };
 
-        let p = unsafe { func_obj.object() };
+        let p = unsafe { func_obj.object_unchecked() };
 
         p.detailed.set_constructor(matches!(
             cproto,
@@ -601,7 +610,7 @@ pub unsafe fn JS_NewCFunction3(
         return func_obj;
     }
 
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
 
     {
         let cf = &mut p.u.cfunc;

@@ -445,7 +445,7 @@ pub(crate) unsafe fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
 #[deprecated(note = "use JSValue::object() instead")]
 #[inline(always)]
 pub unsafe fn JS_VALUE_GET_OBJ(v: JSValue) -> *mut JSObject {
-    v.object() as *const JSObject as _
+    v.object_unchecked() as *const JSObject as _
 }
 
 #[cfg(feature = "nan_boxing")]
@@ -616,7 +616,7 @@ pub fn JS_IsHTMLDDA(obj: JSValueConst) -> bool {
     if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
         false
     } else {
-        unsafe { obj.object().detailed.is_htmldda() }
+        unsafe { obj.object_unchecked().detailed.is_htmldda() }
     }
 }
 

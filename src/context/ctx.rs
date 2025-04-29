@@ -175,6 +175,12 @@ impl JSContext {
         unsafe { self.rt.as_mut() }
     }
 
+    /// Convert to context handle, a non-null pointer to JSContext
+    #[inline(always)]
+    pub fn handle(&mut self) -> JSContextHandle {
+        JSContextHandle::from(self as *mut JSContext)
+    }
+
     /// Pushes a new stack frame onto the execution stack
     ///
     /// # Safety
@@ -334,7 +340,7 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
 
 impl JSRuntime {
     /// Create JSContext, returns the new context pointer wrapper.
-    unsafe fn create_context_raw(&mut self) -> Result<JSContextRef, i32> {
+    unsafe fn create_context_raw(&mut self) -> Result<JSContextHandle, i32> {
         let p = js_malloc_rt_typed::<JSContext>(self, 1, true).ok_or(-1)?;
         let mut ctx = Box::from_raw(p.as_ptr());
 
@@ -363,7 +369,7 @@ impl JSRuntime {
 
         ctx.add_core_objects();
 
-        let ctx_ref: JSContextRef = ctx.deref_mut().into();
+        let ctx_ref: JSContextHandle = ctx.deref_mut().handle();
 
         self.context_list.push(ctx);
 
@@ -371,49 +377,43 @@ impl JSRuntime {
     }
 
     /// Creates a new JavaScript execution context
-    pub fn create_context(&mut self) -> Result<JSContextRef, i32> {
+    pub fn create_context(&mut self) -> Result<JSContextHandle, i32> {
         let mut ctx = unsafe { self.create_context_raw()? };
-
         unsafe {
             ctx.intrinsic_base_objects();
             ctx.intrinsic_async();
+            ctx.intrinsic_typed_arrays();
         }
-
         Ok(ctx)
     }
 }
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct JSContextRef(NonNull<JSContext>);
+pub struct JSContextHandle(NonNull<JSContext>);
 
-impl JSContextRef {
+impl JSContextHandle {
     #[inline(always)]
     pub fn as_raw(self) -> NonNull<JSContext> {
         self.0
     }
 }
 
-impl From<&mut JSContext> for JSContextRef {
-    fn from(ctx: &mut JSContext) -> Self {
-        unsafe { Self(NonNull::new_unchecked(ctx as *mut JSContext)) }
-    }
-}
-
-impl From<*mut JSContext> for JSContextRef {
+impl From<*mut JSContext> for JSContextHandle {
     fn from(ctx: *mut JSContext) -> Self {
+        debug_assert!(!ctx.is_null());
         unsafe { Self(NonNull::new_unchecked(ctx)) }
     }
 }
 
-impl Deref for JSContextRef {
+impl Deref for JSContextHandle {
     type Target = JSContext;
     fn deref(&self) -> &Self::Target {
         unsafe { self.0.as_ref() }
     }
 }
 
-impl DerefMut for JSContextRef {
+impl DerefMut for JSContextHandle {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut() }
     }

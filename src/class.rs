@@ -270,6 +270,27 @@ impl JSContext {
     /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
+    pub(crate) fn create_global_constructor_ex(
+        &mut self,
+        name: &CStr,
+        func: JSCFunction,
+        length: i32,
+        proto: JSValue,
+        cproto: JSCFunctionEnum,
+    ) -> JSValue {
+        debug_assert!(matches!(
+            cproto,
+            JSCFunctionEnum::ConstructorOrFunc | JSCFunctionEnum::Constructor
+        ));
+
+        let func_obj = unsafe { JS_NewCFunction2(self, func, name, length as _, cproto, 0) };
+        self.add_global_constructor(name.to_str().unwrap(), func_obj, proto);
+        func_obj
+    }
+
+    /// create a new native constructor, add it to global namespace.
+    /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    /// returns new constructor function.
     pub fn create_global_constructor(
         &mut self,
         name: &CStr,
@@ -277,18 +298,26 @@ impl JSContext {
         length: i32,
         proto: JSValue,
     ) -> JSValue {
-        let func_obj = unsafe {
-            JS_NewCFunction2(
-                self,
-                func,
-                name,
-                length as _,
-                JSCFunctionEnum::ConstructorOrFunc,
-                0,
-            )
-        };
-        self.add_global_constructor(name.to_str().unwrap(), func_obj, proto);
-        func_obj
+        self.create_global_constructor_ex(
+            name,
+            func,
+            length,
+            proto,
+            JSCFunctionEnum::ConstructorOrFunc,
+        )
+    }
+
+    /// create a new native constructor, add it to global namespace.
+    /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    /// returns new constructor function.
+    pub fn create_global_constructor_only(
+        &mut self,
+        name: &CStr,
+        func: JSCFunction,
+        length: i32,
+        proto: JSValue,
+    ) -> JSValue {
+        self.create_global_constructor_ex(name, func, length, proto, JSCFunctionEnum::Constructor)
     }
 }
 

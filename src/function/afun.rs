@@ -103,7 +103,7 @@ pub unsafe fn async_func_init(
     let sf = &mut s.frame;
     init_list_head(&mut sf.var_ref_list);
 
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     let b = p.u.func.function_bytecode.as_mut().unwrap();
 
     sf.js_mode = b.js_mode as i32 | JS_MODE_ASYNC;
@@ -204,7 +204,7 @@ pub unsafe fn js_async_function_resolve_create(
             return Err(-1);
         }
 
-        let p = f.object();
+        let p = f.object_unchecked();
         (*s).header.ref_count += 1;
         p.u.async_function_data = s;
 
@@ -241,7 +241,7 @@ pub unsafe fn js_async_function_resolve_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     let s = p.u.async_function_data;
     let is_reject = (p.class_id() - JS_CLASS_ASYNC_FUNCTION_RESOLVE) != 0;
 

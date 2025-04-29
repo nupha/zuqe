@@ -71,7 +71,7 @@ pub unsafe fn js_operator_typeof(ctx: &mut JSContext, op1: JSValueConst) -> JSAt
         JSTag::Bool => JS_ATOM_boolean,
         JSTag::String => JS_ATOM_string,
         JSTag::Object => {
-            let p = op1.object();
+            let p = op1.object_unchecked();
             if p.detailed.is_htmldda() {
                 JS_ATOM_undefined
             } else if op1.is_callable(ctx) {
@@ -128,7 +128,7 @@ pub unsafe fn js_operator_private_in(ctx: &mut JSContext, sp: *mut JSValue) -> R
         if atom == JS_ATOM_NULL {
             return Err(-1);
         }
-        let prs = op1.object().find_own_property1(atom);
+        let prs = op1.object_unchecked().find_own_property1(atom);
         JS_FreeAtom(ctx, atom);
         prs.is_some()
     };
@@ -302,7 +302,7 @@ pub unsafe fn js_method_set_home_object(
         return;
     }
 
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     if !js_class_has_bytecode(p.class_id()) {
         return;
     }
@@ -317,7 +317,7 @@ pub unsafe fn js_method_set_home_object(
 
         // set new home object
         (*p.u.func).home_object = if JS_VALUE_GET_TAG(home_obj) == JSTag::Object as i32 {
-            home_obj.dup().object()
+            home_obj.dup().object_unchecked()
         } else {
             std::ptr::null_mut()
         };
@@ -524,7 +524,7 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
         return 0;
     }
 
-    let p = enum_obj.object();
+    let p = enum_obj.object_unchecked();
 
     // 检查迭代器对象是否有效。
     if p.class_id() != JS_CLASS_FOR_IN_ITERATOR {
@@ -577,7 +577,7 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
 
             if let Ok(names) = (*it)
                 .obj
-                .object()
+                .object_unchecked()
                 .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
             {
                 (*it).atom_count = names.len() as _;
@@ -601,7 +601,7 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
                     let ret = JS_GetOwnPropertyInternal(
                         ctx,
                         std::ptr::null_mut(),
-                        enum_obj.object(),
+                        enum_obj.object_unchecked(),
                         prop,
                     );
                     if ret < 0 {
@@ -625,8 +625,12 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
             }
 
             // check if the property was deleted
-            let ret =
-                JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), (*it).obj.object(), prop);
+            let ret = JS_GetOwnPropertyInternal(
+                ctx,
+                std::ptr::null_mut(),
+                (*it).obj.object_unchecked(),
+                prop,
+            );
             if ret < 0 {
                 return ret;
             }
@@ -643,7 +647,9 @@ pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
     0
 }
 
-// obj -> enum_rec (3 slots)
+/// Get enumerate object and next method of sp[-1] object.
+/// Note: new values are updated to sp[-1], sp[0], old value of sp[-1] is consumed.
+/// obj -> enum_rec (3 slots)
 pub unsafe fn js_for_of_start(ctx: &mut JSContext, sp: *mut JSValue, is_async: bool) -> i32 {
     let op1 = *sp.offset(-1);
     let obj = JS_GetIterator(ctx, op1, is_async);

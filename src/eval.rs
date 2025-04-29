@@ -85,7 +85,7 @@ impl JSContext {
             debug_assert!(!sf.is_null());
             debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
 
-            let ob = (*sf).cur_func.object();
+            let ob = (*sf).cur_func.object_unchecked();
             debug_assert!(js_class_has_bytecode(ob.class_id()));
 
             b = ob.u.func.function_bytecode;
@@ -249,7 +249,7 @@ pub fn __JS_EvalInternal(
             debug_assert!(!sf.is_null());
             debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
 
-            let ob = (*sf).cur_func.object();
+            let ob = (*sf).cur_func.object_unchecked();
             debug_assert!(js_class_has_bytecode(ob.class_id()));
 
             b = ob.u.func.function_bytecode;
@@ -488,7 +488,7 @@ pub unsafe fn JS_EvalObject(
         return val.dup(); // dup and return val
     }
 
-    match val.to_utf8_string(ctx.as_mut().unwrap()) {
+    match val.coerce_to_utf8(ctx.into()) {
         Ok(str) => {
             let ret = JS_EvalInternal(
                 ctx,

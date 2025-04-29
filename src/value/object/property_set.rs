@@ -66,7 +66,7 @@ impl JSValue {
         let mut state = if this_tag != JSTag::Object {
             if JS_VALUE_GET_TAG(self) == JSTag::Object as i32 {
                 p = std::ptr::null_mut();
-                p1 = self.object() as _; // won't be null
+                p1 = self.object_unchecked() as _; // won't be null
                 State::TrySetter
             } else {
                 match this_tag {
@@ -104,8 +104,8 @@ impl JSValue {
                 }
             }
         } else {
-            p = this_obj.object() as _;
-            p1 = self.object() as _;
+            p = this_obj.object_unchecked() as _;
+            p1 = self.object_unchecked() as _;
             debug_assert!(!p1.is_null());
             debug_assert!(!p.is_null());
             if p != p1 {
@@ -492,7 +492,7 @@ impl JSValue {
         if JS_VALUE_GET_TAG(self) == JSTag::Object as i32
             && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
         {
-            let p = unsafe { self.object() };
+            let p = unsafe { self.object_unchecked() };
             let idx = JS_VALUE_GET_INT(prop);
             let mut ta_out_of_bound = false;
 

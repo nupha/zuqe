@@ -229,7 +229,7 @@ impl JSValue {
             return Ok(false);
         }
 
-        let mut p = unsafe { self.object() };
+        let mut p = unsafe { self.object_unchecked() };
 
         loop {
             if p.detailed.is_exotic() {

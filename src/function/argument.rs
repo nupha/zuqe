@@ -25,7 +25,7 @@ pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSVal
         return JSValue::EXCEPTION;
     }
 
-    let p = val.object();
+    let p = val.object_unchecked();
 
     // add the length field (cannot fail)
     let pr = p
@@ -80,7 +80,7 @@ pub unsafe fn js_build_mapped_arguments(
         return val;
     }
 
-    let p = val.object();
+    let p = val.object_unchecked();
 
     // add the length field (cannot fail)
     let pr = p

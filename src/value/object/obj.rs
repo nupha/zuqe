@@ -113,10 +113,10 @@ impl Drop for JSObject {
 }
 
 impl JSValue {
-    /// get JSObject reference.
-    /// ensure the value is an object
+    /// get value's inner JSObject reference.
+    /// if value is not an object or bytecode function, behavior is undefined.
     #[inline(always)]
-    pub unsafe fn object<'a>(self) -> &'a mut JSObject {
+    pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
         debug_assert!(matches!(
             JS_VALUE_GET_TAG(self),
             JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
@@ -124,6 +124,21 @@ impl JSValue {
         debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
 
         JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
+    }
+
+    /// get value's inner JSObject reference.
+    /// if value is not an object or bytecode function, returns None
+    #[inline(always)]
+    pub fn object<'a>(self) -> Option<&'a mut JSObject> {
+        if matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
+        ) {
+            debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+            Some(unsafe { JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap() })
+        } else {
+            None
+        }
     }
 
     /// check if value `self` is a callable object.
@@ -134,7 +149,7 @@ impl JSValue {
             return false;
         }
 
-        let p = unsafe { self.object() };
+        let p = unsafe { self.object_unchecked() };
         match p.class_id() {
             JS_CLASS_BYTECODE_FUNCTION => true,
             JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
@@ -154,7 +169,7 @@ impl JSValue {
         if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
             false
         } else {
-            unsafe { self.object().detailed.is_constructor() }
+            unsafe { self.object_unchecked().detailed.is_constructor() }
         }
     }
 }
@@ -294,9 +309,10 @@ pub union JSObjectUnion {
     /// JS_CLASS_C_FUNCTION_DATA
     pub c_function_data_record: *mut JSCFunctionDataRecord,
     pub for_in_iterator: *mut JSForInIterator, /* JS_CLASS_FOR_IN_ITERATOR */
-    pub array_buffer: *mut JSArrayBuffer, /* JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER */
-    pub typed_array: *mut JSTypedArray,   /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW */
-    pub map_state: *mut JSMapState,       /* JS_CLASS_MAP..JS_CLASS_WEAKSET */
+    /// JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER
+    pub array_buffer: *mut JSArrayBuffer,
+    pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW */
+    pub map_state: *mut JSMapState,     /* JS_CLASS_MAP..JS_CLASS_WEAKSET */
     pub map_iterator_data: *mut JSMapIteratorData, /* JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR */
     pub array_iterator_data: *mut JSArrayIteratorData, /* JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR */
     pub regexp_string_iterator_data: *mut JSRegExpStringIteratorData, /* JS_CLASS_REGEXP_STRING_ITERATOR */
@@ -345,7 +361,7 @@ impl JSValue {
             _ => {}
         }
 
-        let p = unsafe { self.object() as *mut JSObject };
+        let p = unsafe { self.object_unchecked() as *mut JSObject };
         let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
 
         let r = unsafe {
@@ -392,7 +408,7 @@ impl JSValue {
             return Ok(true);
         }
 
-        let mut p = NonNull::from(self.object());
+        let mut p = NonNull::from(self.object_unchecked());
         let mut check_unsealed: Option<bool> = None;
 
         let r = p.as_mut().own_property_names_foreach(
@@ -909,7 +925,7 @@ pub unsafe fn JS_SetObjectData(ctx: *mut JSContext, obj: JSValueConst, val: JSVa
 /// `obj` keep ref count unchanged after calling.
 pub unsafe fn JS_GetPrototype(ctx: *mut JSContext, obj: JSValueConst) -> JSValue {
     if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let ob = obj.object();
+        let ob = obj.object_unchecked();
         if ob.class_id() == JS_CLASS_PROXY {
             js_proxy_getPrototypeOf(ctx, obj)
         } else {

@@ -1,9 +1,15 @@
-use std::{borrow::Cow, cell::Cell, ffi::c_void, ffi::CStr, rc::Rc};
+use std::{
+    borrow::Cow,
+    cell::Cell,
+    ffi::{c_void, CStr},
+    ops::DerefMut,
+    rc::Rc,
+};
 
 use crate::{
     atom::{consts::*, JSAtom, JSAtomInfo, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
-    context::JSContext,
+    context::{JSContext, JSContextHandle},
     function::JS_InvokeFree,
     types::{list_head, unlikely},
     value::{
@@ -318,6 +324,7 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSString) -> bool {
 }
 
 /// `val` is consumed.
+#[deprecated(note = "use JSValue::coerce_to_string_value() + JS_FreeValue() instead")]
 pub unsafe fn JS_ToStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
     let ret = val
         .coerce_to_string_value(ctx.as_mut().unwrap())
@@ -326,18 +333,14 @@ pub unsafe fn JS_ToStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
     ret
 }
 
+/// `val` is consumed.
+#[deprecated(note = "use JSValue::to_locale_string() + JS_FreeValue() instead")]
 pub unsafe fn JS_ToLocaleStringFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    if val.is_undefined() || val.is_null() {
-        JS_ToStringFree(ctx, val)
-    } else {
-        JS_InvokeFree(
-            ctx.as_mut().unwrap(),
-            val,
-            JS_ATOM_toLocaleString,
-            0,
-            std::ptr::null_mut(),
-        )
-    }
+    let r = val
+        .to_locale_string(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION);
+    JS_FreeValue(ctx, val);
+    r
 }
 
 pub unsafe fn JS_ToStringCheckObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
@@ -535,9 +538,9 @@ impl JSValue {
         r
     }
 
-    /// Get utf8 string representation of JSValue `self`
-    /// Note: the `self` value keep ref count unchanged after calling this function
-    pub fn to_utf8_string(self, ctx: &mut JSContext) -> Result<Cow<'_, str>, i32> {
+    /// Coerce value `self` to utf8 string.
+    /// Note: `self` is not consumed.
+    pub fn coerce_to_utf8<'a>(self, mut ctx: JSContextHandle) -> Result<Cow<'a, str>, i32> {
         if JS_VALUE_GET_TAG(self) == JSTag::String as i32 {
             let cc = self.with_string(|p| p.content().clone());
             debug_assert!(Rc::strong_count(&cc) > 1);
@@ -551,9 +554,9 @@ impl JSValue {
             };
             Ok(ret)
         } else {
-            let tmp = self.coerce_to_string_value(ctx)?;
+            let tmp = self.coerce_to_string_value(ctx.deref_mut())?;
             Ok(Cow::Owned(
-                tmp.take_string() // <-- drop and consume tmp value once at exit
+                tmp.take_string() // <-- consume tmp value here, string content was taken out.
                     .content()
                     .to_str()
                     .into_owned(),
@@ -604,7 +607,7 @@ pub unsafe fn js_string_get_own_property(
     let mut ret = 0;
 
     if prop.is_int_type() {
-        let p = obj.object();
+        let p = obj.object_unchecked();
         if JS_VALUE_GET_TAG(p.u.object_data) == JS_TAG_STRING {
             let p1 = Rc::from_raw(p.u.object_data.string());
 
@@ -663,7 +666,7 @@ pub unsafe fn js_string_define_own_property(
 
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
-        let p = this_obj.object();
+        let p = this_obj.object_unchecked();
         if JS_VALUE_GET_TAG(p.u.object_data) != JS_TAG_STRING {
             def!();
         }

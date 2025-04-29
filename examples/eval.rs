@@ -38,7 +38,7 @@ fn main() {
 
             let mut ctx = js.create_context().unwrap();
 
-            let mut eval_flags = if filename.ends_with(".mjs") {
+            let eval_flags = if filename.ends_with(".mjs") {
                 JS_EVAL_TYPE_MODULE
             } else if JS_DetectModule(CStr::from_ptr(src.as_ptr().cast())) {
                 JS_EVAL_TYPE_MODULE
@@ -83,10 +83,10 @@ fn main() {
                 js.current_exception = JSValue::NULL;
                 println!("!!! EXCEPTION {exc:?}");
 
-                exc.object().dump(js.as_ref());
+                exc.object_unchecked().dump(js.as_ref());
                 JS_FreeValue(ctx.deref_mut(), exc);
             } else {
-                println!(">>> RESULT: {r:?}, {:?}", r.to_utf8_string(ctx.deref_mut()));
+                println!(">>> RESULT: {r:?}, {:?}", r.coerce_to_utf8(ctx));
 
                 if let Some(pr) = r.as_promise() {
                     let v = pr.result();
@@ -178,7 +178,7 @@ pub unsafe fn js_module_set_import_meta(
 
     // make module name to absolute url
     let module_name_atom = (*m).module_name.dup((*ctx).rt());
-    let module_name = module_name_atom.to_utf8_string(ctx.as_mut().unwrap());
+    let module_name = module_name_atom.to_utf8_string(ctx.into());
     JS_FreeAtom(ctx, module_name_atom);
     if module_name.is_err() {
         return -1;

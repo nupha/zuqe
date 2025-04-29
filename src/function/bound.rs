@@ -23,14 +23,14 @@ impl JSValue {
     #[inline(always)]
     pub unsafe fn as_bound_function_unchecked(self) -> BoundFunctionValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
-        debug_assert_eq!((*self.object()).class_id(), JS_CLASS_BOUND_FUNCTION);
+        debug_assert_eq!((*self.object_unchecked()).class_id(), JS_CLASS_BOUND_FUNCTION);
         std::mem::transmute(self)
     }
 }
 
 impl BoundFunctionValue {
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let p = val.object();
+        let p = val.object_unchecked();
         let bf = p.u.bound_function;
 
         JS_FreeValueRT(rt, (*bf).func_obj);
@@ -44,7 +44,7 @@ impl BoundFunctionValue {
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let p = val.object();
+        let p = val.object_unchecked();
         let bf: *mut JSBoundFunction = p.u.bound_function;
 
         JS_MarkValue(rt, (*bf).func_obj, mark_func);
@@ -65,7 +65,7 @@ impl BoundFunctionValue {
         #[cfg(debug_assertions)]
         let _ = func_obj.as_bound_function_unchecked(); // ensure it's bound function
 
-        let p = func_obj.object();
+        let p = func_obj.object_unchecked();
         let bf = p.u.bound_function.as_mut().unwrap();
         let arg_count = bf.bind_args.len() + argc as usize;
 

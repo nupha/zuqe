@@ -279,13 +279,7 @@ impl JSModuleDef {
         ];
         JS_FreeValue(ctx, data[0]);
 
-        let cc = CallArgs::new(
-            NonNull::new_unchecked(ctx),
-            promise,
-            &resolve_funcs,
-            0,
-            None,
-        );
+        let cc = CallArgs::new(ctx.handle(), promise, &resolve_funcs, 0, None);
         // TODO: use PromiseValue::then()
         let ret = js_promise_then(ctx, cc);
 
@@ -363,7 +357,7 @@ impl JSModuleDef {
                             let arglist = [error];
                             let mut data = [JS_NewModuleValue(ctx, m)];
                             let cc = CallArgs::new(
-                                NonNull::new_unchecked(ctx),
+                                ctx.handle(),
                                 JSValue::UNDEFINED,
                                 &arglist,
                                 0,
@@ -423,7 +417,7 @@ impl JSModuleDef {
                 let m = *module.async_parent_modules.offset(i as isize);
                 let mut data = [JS_NewModuleValue(ctx, m)];
                 let cc = CallArgs::new(
-                    NonNull::new_unchecked(ctx),
+                    ctx.handle(),
                     JSValue::UNDEFINED,
                     &arglist,
                     0,

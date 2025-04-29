@@ -34,7 +34,7 @@ impl PromiseResolvingFuncValue {
         argv: *const JSValueConst,
         flags: i32,
     ) -> JSValue {
-        let p = func_obj.object();
+        let p = func_obj.object_unchecked();
         let s = if let Some(s) = p.u.promise_function_data.as_mut() {
             if s.presolved.as_ref().already_resolved {
                 return JSValue::UNDEFINED;
@@ -96,7 +96,7 @@ impl PromiseResolvingFuncValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let s = val.object().u.promise_function_data;
+        let s = val.object_unchecked().u.promise_function_data;
         if !s.is_null() {
             js_promise_resolve_function_free_resolved((*s).presolved.as_ptr());
             JS_FreeValueRT(rt, (*s).promise.0);
@@ -105,7 +105,7 @@ impl PromiseResolvingFuncValue {
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let s = val.object().u.promise_function_data;
+        let s = val.object_unchecked().u.promise_function_data;
         if !s.is_null() {
             JS_MarkValue(rt, (*s).promise.0, mark_func);
         }
@@ -116,7 +116,7 @@ impl JSValue {
     pub unsafe fn as_promise_resolving_func_unchecked(self) -> PromiseResolvingFuncValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
         debug_assert!(matches!(
-            self.object().class_id(),
+            self.object_unchecked().class_id(),
             JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
         ));
         std::mem::transmute(self)

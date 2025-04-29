@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     class::js_create_from_ctor,
     context::JSContext,
@@ -19,7 +21,7 @@ pub fn js_thisNumberValue(ctx: &mut JSContext, this_val: JSValue) -> JSResult {
     if JS_IsNumber(this_val) {
         return Ok(this_val.dup());
     } else if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
-        let p = unsafe { this_val.object() };
+        let p = unsafe { this_val.object_unchecked() };
         if p.class_id() == JS_CLASS_NUMBER {
             let d = unsafe { p.u.object_data };
             if JS_IsNumber(d) {
@@ -38,7 +40,7 @@ pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let ret = if radix != 0 && (radix < 2 || radix > 36) {
         JSValue::NAN
     } else {
-        let str = args.get_raw(0).to_utf8_string(ctx)?;
+        let str = args.get_raw(0).coerce_to_utf8(ctx.handle())?;
         let mut p = str.as_ptr();
 
         unsafe {
@@ -59,7 +61,7 @@ pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 }
 
 pub fn js_parseFloat(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let str = args.get_raw(0).to_utf8_string(ctx)?;
+    let str = args.get_raw(0).coerce_to_utf8(ctx.handle())?;
     let mut p = str.as_ptr();
 
     let skip_spaces_result = unsafe { skip_spaces(p) };

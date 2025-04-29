@@ -1,14 +1,17 @@
-use std::{borrow::Cow, rc::Rc};
+use std::{borrow::Cow, ops::DerefMut, rc::Rc};
 
 use smallvec::SmallVec;
 
 use crate::{
     atom::{
-        consts::{JS_ATOM_false, JS_ATOM_null, JS_ATOM_true, JS_ATOM_undefined},
+        consts::{
+            JS_ATOM_false, JS_ATOM_null, JS_ATOM_toLocaleString, JS_ATOM_true, JS_ATOM_undefined,
+        },
         JSAtomStruct,
     },
-    context::JSContext,
-    function::JSFunctionBytecode,
+    context::{JSContext, JSContextHandle},
+    error::JSResult,
+    function::{JSFunctionBytecode, JS_InvokeFree},
     runtime::JSRuntime,
 };
 
@@ -75,7 +78,7 @@ impl JSValue {
                 format!("[bytecode {}]", unsafe { (*b).func_name.to_str(rt) }).into()
             }
             JSTag::Object => {
-                let p = unsafe { self.object() };
+                let p = unsafe { self.object_unchecked() };
                 let atom = rt.class_array[p.class_id() as usize].class_name;
                 format!("[{}]", atom.to_str(rt)).into()
             }
@@ -94,7 +97,7 @@ impl JSValue {
         }
     }
 
-    /// Convert variant value `self` to string value.
+    /// Represent value `self` to string value.
     /// `self` is not consumed.
     fn do_coerce_to_string_value(
         self,
@@ -149,8 +152,21 @@ impl JSValue {
     /// Coerce `self` value to string value.
     /// `self` is not consumed.
     #[inline(always)]
-    pub fn coerce_to_string_value(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
+    pub fn coerce_to_string_value(self, ctx: &mut JSContext) -> JSResult {
         self.do_coerce_to_string_value(ctx, false)
+    }
+
+    /// Invoking toLocaleString method, returns result value.
+    /// `self` is not consumed.
+    pub fn to_locale_string(self, ctx: &mut JSContext) -> JSResult {
+        if self.is_undefined_or_null() {
+            self.coerce_to_string_value(ctx)
+        } else {
+            unsafe {
+                JS_InvokeFree(ctx, self, JS_ATOM_toLocaleString, 0, std::ptr::null_mut())
+                    .check_exception()
+            }
+        }
     }
 
     /// Coerce `self` value to property key value.

@@ -76,7 +76,7 @@ impl PromiseValue {
         executor: JSValue,
         new_target: JSValue,
     ) -> Result<Self, i32> {
-        debug_assert_eq!(executor.object().class_id(), JS_CLASS_C_FUNCTION_DATA);
+        debug_assert_eq!(executor.object_unchecked().class_id(), JS_CLASS_C_FUNCTION_DATA);
         executor.ensure_callable(ctx)?;
 
         let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_PROMISE).check_exception()?;
@@ -334,7 +334,7 @@ impl JSValue {
     /// interpret value `self` as PromiseValue.
     /// returns None if `self` is not a JS_CLASS_PROMISE class object
     pub fn as_promise(self) -> Option<PromiseValue> {
-        if self.is_object() && unsafe { self.object().class_id() } == JS_CLASS_PROMISE {
+        if self.is_object() && unsafe { self.object_unchecked().class_id() } == JS_CLASS_PROMISE {
             unsafe { Some(std::mem::transmute(self)) }
         } else {
             None
@@ -346,7 +346,7 @@ impl JSValue {
     #[inline(always)]
     pub unsafe fn as_promise_unchecked(self) -> PromiseValue {
         debug_assert!(self.is_object());
-        debug_assert_eq!(self.object().class_id(), JS_CLASS_PROMISE);
+        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_PROMISE);
         std::mem::transmute(self)
     }
 }

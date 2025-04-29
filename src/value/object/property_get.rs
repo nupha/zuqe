@@ -207,7 +207,7 @@ impl JSValue {
             && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
         {
             let idx = JS_VALUE_GET_INT(prop);
-            let p = unsafe { self.object() };
+            let p = unsafe { self.object_unchecked() };
 
             // return early for fast array and index within slice bound.
             match p.class_id() {

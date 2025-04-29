@@ -99,7 +99,7 @@ impl JSValue {
     pub unsafe fn as_async_generator_unchecked(self) -> AsyncGeneratorValue {
         debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
         debug_assert!(matches!(
-            self.object().class_id(),
+            self.object_unchecked().class_id(),
             JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
         ));
         std::mem::transmute(self)
@@ -146,7 +146,7 @@ impl AsyncGeneratorValue {
             return JSValue::EXCEPTION;
         }
 
-        s.generator = obj.object();
+        s.generator = obj.object_unchecked();
         JS_SetOpaque(obj, Box::into_raw(s).cast());
 
         obj

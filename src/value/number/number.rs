@@ -1,5 +1,6 @@
 use crate::{
     context::JSContext,
+    error::JSResult,
     utils::skip_spaces,
     value::{
         JSTag, JSValue, JSValueConst, JSValueUnion, JS_DupValue, JS_FreeValue, JS_IsException,
@@ -51,6 +52,29 @@ impl From<i64> for JSValue {
             v32.into()
         } else {
             Self::from_f64_as_is(val as f64)
+        }
+    }
+}
+
+impl From<f64> for JSValue {
+    #[inline(always)]
+    fn from(d: f64) -> Self {
+        union _U {
+            d: f64,
+            u: u64,
+        }
+
+        let val = d as i32;
+        let u = _U { d };
+        let t = _U { d: val as f64 };
+
+        unsafe {
+            // -0 cannot be represented as integer, so we compare the bit representation
+            if u.u == t.u {
+                JS_MKVAL!(JSTag::Int, val)
+            } else {
+                Self::from_f64_as_is(d)
+            }
         }
     }
 }
@@ -150,7 +174,7 @@ impl JSValue {
         ctx: &mut JSContext,
         val: JSValue,
         flag: JSToNumberHintEnum,
-    ) -> Result<JSValue, i32> {
+    ) -> JSResult {
         let mut val = val.into_rc(ctx.rt());
 
         loop {
@@ -170,7 +194,7 @@ impl JSValue {
                 }
                 JSTag::String => {
                     let (str_ptr0, len) = {
-                        let str = val.to_utf8_string(ctx)?;
+                        let str = val.coerce_to_utf8(ctx.handle())?;
                         let len = str.len();
                         (str.as_ptr(), len)
                     };
@@ -248,7 +272,7 @@ impl JSValue {
 
     /// coerce value to i32.
     /// Note: value `self` is consumed
-    pub unsafe fn coerce_to_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
+    pub fn coerce_to_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
         let mut val = self;
 
         let ret: i32 = loop {
@@ -265,17 +289,17 @@ impl JSValue {
                     let u = _U { d };
 
                     // we avoid doing fmod(x, 2^32)
-                    let e = ((u.u64 >> 52) & 0x7ff) as i32;
+                    let e = unsafe { (u.u64 >> 52) & 0x7ff } as i32;
                     break if e <= (1023 + 30) {
                         // fast case
                         d as i32
                     } else if e <= (1023 + 30 + 53) {
                         /* remainder modulo 2^32 */
-                        let mut v = (u.u64 & ((1u64 << 52) - 1)) | (1u64 << 52);
+                        let mut v = unsafe { (u.u64 & ((1u64 << 52) - 1)) | (1u64 << 52) };
                         v = v << ((e - 1023 - 52 + 32) as u32);
                         let mut ret = (v >> 32) as i32;
                         // take the sign into account
-                        if (u.u64 >> 63) != 0 {
+                        if unsafe { u.u64 >> 63 } != 0 {
                             ret = -ret;
                         }
                         ret
@@ -340,6 +364,7 @@ pub unsafe fn JS_ToInt32Free(ctx: *mut JSContext, pres: *mut i32, val: JSValue) 
         })
 }
 
+/// `val` is not consumed
 #[inline(always)]
 pub unsafe fn JS_ToInt32(ctx: *mut JSContext, val: JSValueConst) -> Result<i32, i32> {
     let mut n = 0;
@@ -350,6 +375,7 @@ pub unsafe fn JS_ToInt32(ctx: *mut JSContext, val: JSValueConst) -> Result<i32, 
     }
 }
 
+/// `val` is not consumed
 #[inline(always)]
 pub unsafe fn JS_ToUint32(ctx: *mut JSContext, val: JSValueConst) -> Result<u32, i32> {
     JS_ToInt32(ctx, val).map(|v| v as u32)

@@ -281,7 +281,7 @@ pub unsafe fn js_closure2(
     cur_var_refs: &[NonNull<JSVarRef>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     (*p.u.func).function_bytecode = b;
     (*p.u.func).home_object = std::ptr::null_mut();
     (*p.u.func).var_refs = Vec::new();

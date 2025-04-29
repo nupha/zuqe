@@ -8,7 +8,6 @@ use crate::{
     map::JSMapRecord,
     mem::{js_malloc, js_malloc_typed},
     runtime::JSRuntime,
-    typed_array::typed_array_is_detached,
     value::{
         object::{
             js_get_length32, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
@@ -162,7 +161,7 @@ pub unsafe fn JS_IteratorNext2(
     // fast path for the built-in iterators (avoid creating the
     // intermediate result object)
     if method.is_object() {
-        let p = method.object();
+        let p = method.object_unchecked();
         if p.class_id() == JS_CLASS_C_FUNCTION && p.u.cfunc.cproto == JSCFunctionEnum::IteratorNext
         {
             let ret = (p.u.cfunc.c_function.iterator_next)(
@@ -306,7 +305,7 @@ pub unsafe fn JS_IteratorGetCompleteValue(
 }
 
 pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let it = val.object().u.for_in_iterator;
+    let it = val.object_unchecked().u.for_in_iterator;
 
     JS_FreeValueRT(rt, (*it).obj);
     if !(*it).is_array {
@@ -323,7 +322,7 @@ pub unsafe fn js_for_in_iterator_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    let it = val.object().u.for_in_iterator;
+    let it = val.object_unchecked().u.for_in_iterator;
     JS_MarkValue(rt, (*it).obj, mark_func);
 }
 
@@ -401,13 +400,14 @@ pub unsafe fn js_array_iterator_next(
         done!();
     }
 
-    let p = (*it).obj.object();
-    let len = if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id()) {
-        if typed_array_is_detached(ctx, p) {
+    let p = (*it).obj.object_unchecked();
+
+    let len = if let Some(tao) = p.as_typed_array_obj() {
+        if tao.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             fail!();
         }
-        p.array_length_unchecked() as u32
+        tao.length() as u32
     } else {
         if let Ok(n) = js_get_length32(ctx, (*it).obj) {
             n
@@ -481,7 +481,7 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
     it.in_prototype_chain = false;
 
     if tag == JS_TAG_OBJECT {
-        let ob = obj.object();
+        let ob = obj.object_unchecked();
         if ob.detailed.fast_array() {
             // check that there are no enumerable normal fields
             if !ob
@@ -514,7 +514,7 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
     }
 
     // attach JSForInIterator to enum object
-    enum_obj.object().u.for_in_iterator = Box::into_raw(it);
+    enum_obj.object_unchecked().u.for_in_iterator = Box::into_raw(it);
 
     enum_obj
 }
@@ -524,7 +524,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     ctx: *mut JSContext,
     enum_obj: JSValueConst,
 ) -> i32 {
-    let it = enum_obj.object().u.for_in_iterator;
+    let it = enum_obj.object_unchecked().u.for_in_iterator;
 
     // check if there are enumerable properties in the prototype chain (fast path)
     let mut obj1 = (*it).obj.dup();
@@ -541,7 +541,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
 
         // count own property names
         let mut props_count: u32 = 0;
-        let r = obj1.object().own_property_names_foreach(
+        let r = obj1.object_unchecked().own_property_names_foreach(
             ctx.as_mut().unwrap(),
             JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
             |_, _| {
@@ -570,10 +570,14 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
 
     // slow_path
     if (*it).is_array {
-        if let Ok(names) = (*it).obj.object().get_own_property_names_internal(
-            ctx.as_mut().unwrap(),
-            JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-        ) {
+        if let Ok(names) = (*it)
+            .obj
+            .object_unchecked()
+            .get_own_property_names_internal(
+                ctx.as_mut().unwrap(),
+                JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
+            )
+        {
             (*it).is_array = false;
             (*it).atom_count = names.len() as _;
             (*it).tab_atom = names;

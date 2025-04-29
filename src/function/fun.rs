@@ -81,7 +81,7 @@ pub unsafe fn JS_GetFunctionBytecode(val: JSValueConst) -> *mut JSFunctionByteco
         return std::ptr::null_mut();
     }
 
-    let p = val.object();
+    let p = val.object_unchecked();
     if !js_class_has_bytecode(p.class_id()) {
         return std::ptr::null_mut();
     }
@@ -107,7 +107,7 @@ pub unsafe fn JS_GetFunctionRealm(ctx: *mut JSContext, func_obj: JSValueConst) -
 
     let realm: *mut JSContext;
 
-    let p = func_obj.object();
+    let p = func_obj.object_unchecked();
     match p.class_id() {
         JS_CLASS_C_FUNCTION => {
             realm = p.u.cfunc.realm;
@@ -149,7 +149,7 @@ pub unsafe fn get_func_name<'a>(ctx: *mut JSContext, func: JSValueConst) -> Opti
             if prs.flags() & JS_PROP_TMASK == JS_PROP_NORMAL {
                 let val = pr.u.value;
                 if JS_VALUE_GET_TAG(val) == JSTag::String as i32 {
-                    return val.to_utf8_string(ctx.as_mut().unwrap()).ok();
+                    return val.coerce_to_utf8(ctx.into()).ok();
                 }
             }
         }

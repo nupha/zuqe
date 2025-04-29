@@ -284,7 +284,7 @@ unsafe fn inner_build_backtrace(
                 let atom_str = (*b)
                     .debug
                     .filename
-                    .to_utf8_string(ctx.as_mut().unwrap())
+                    .to_utf8_string(ctx.into())
                     .unwrap_or(Cow::Borrowed("<null>"));
 
                 dbuf.write_fmt(format_args!(" ({}", atom_str.as_ref()))?;
