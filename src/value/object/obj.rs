@@ -81,6 +81,19 @@ impl JSObject {
     pub fn shape_mut(&mut self) -> Option<&mut JSShape> {
         unsafe { self.shape.as_mut() }
     }
+
+    /// get opaque pointer from object.
+    #[inline(always)]
+    pub fn opaque(&self) -> *mut c_void {
+        unsafe { self.u.opaque }
+    }
+
+    /// set opaque pointer to object.
+    /// SAFTY: opaque pointer should be kept alive in JSObject lifespan.
+    #[inline(always)]
+    pub fn set_opaque(&mut self, opaque: *mut c_void) {
+        self.u.opaque = opaque;
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -836,6 +849,7 @@ pub unsafe fn JS_GetOpaque2(
     p
 }
 
+#[deprecated(note = "use JSObject::set_opaque() instead")]
 pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
     if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
         let p = JS_VALUE_GET_OBJ(obj);

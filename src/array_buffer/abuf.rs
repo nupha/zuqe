@@ -5,30 +5,38 @@ use crate::{
     context::JSContext,
     error::JS_ThrowRangeError,
     list_entry,
-    mem::{js_free_rt, js_malloc_typed, js_mallocz},
+    mem::{js_free_rt, js_malloc_typed},
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{init_list_head, list_foreach_safe, list_head},
-    value::{
-        object::JS_SetOpaque, JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_ToIndex,
-        JS_VALUE_GET_OBJ,
-    },
+    value::{JSValue, JSValueConst, JS_ToIndex, JS_VALUE_GET_OBJ},
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
 };
 
 pub type JSFreeArrayBufferDataFunc =
-    unsafe fn(rt: *mut JSRuntime, opaque: *mut c_void, ptr: *mut c_void);
+    unsafe fn(rt: *mut JSRuntime, opaque: *mut c_void, data: *mut u8, data_length: usize);
 
 pub struct JSArrayBuffer {
-    pub byte_length: i32, /* 0 if detached */
+    /// NULL if detached.
+    pub data: *mut u8,
+    /// data length in bytes
+    pub byte_length: i32,
+
+    /// detatched flag
     pub detached: bool,
-    pub shared: bool,  /* if shared, the array buffer cannot be detached */
-    pub data: *mut u8, /* NULL if detached */
+
+    /// if shared, the array buffer cannot be detached
+    pub shared: bool,
 
     /// typed arrays that based on this array buffer.
     pub array_list: list_head,
 
     pub opaque: *mut c_void,
+
+    /// for default allocated buffer, this is used to free `data`.
+    /// in case `data` is allocated by JSRuntime.sab_funcs.sab_alloc,
+    /// JSRuntime.sab_funcs.sab_free will be used to free it,
+    /// this callback is not used in the case.
     pub free_func: Option<JSFreeArrayBufferDataFunc>,
 }
 
@@ -73,75 +81,93 @@ pub unsafe fn js_array_buffer_constructor3(
     opaque: *mut c_void,
     alloc_flag: bool,
 ) -> JSValue {
-    let obj = js_create_from_ctor(ctx, new_target, class_id);
-    if JS_IsException(obj) {
-        return obj;
-    }
-
     let rt = (*ctx).rt();
 
     // XXX: we are currently limited to 2 GB
     if len > i32::MAX as u64 {
         JS_ThrowRangeError(ctx, c"invalid array buffer length");
-        JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
 
-    let mut abuf = if let Some(p) = js_malloc_typed::<JSArrayBuffer>(ctx, 1, false) {
+    // make ArrayBuffer state
+    let mut ab_state = if let Some(p) = js_malloc_typed::<JSArrayBuffer>(ctx, 1, false) {
         Box::from_raw(p.as_ptr())
     } else {
-        JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     };
 
-    abuf.byte_length = len as i32;
+    ab_state.byte_length = len as i32;
+
     if alloc_flag {
+        // alloc data buffer.
+        // the allocation must be done after the object creation
         if class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt.sab_funcs.sab_alloc.is_some() {
-            (*abuf).data = (rt.sab_funcs.sab_alloc.unwrap())(
-                rt.sab_funcs.sab_opaque,
-                std::cmp::max(len as usize, 1),
-            )
-            .cast();
+            // alloc sab
+            ab_state.data =
+                (rt.sab_funcs.sab_alloc.unwrap())(rt.sab_funcs.sab_opaque, len as usize).cast();
 
-            if (*abuf).data.is_null() {
-                JS_FreeValue(ctx, obj);
+            if ab_state.data.is_null() {
                 return JSValue::EXCEPTION;
             }
 
-            std::ptr::write_bytes(abuf.data, 0, len as usize);
+            std::ptr::write_bytes(ab_state.data, 0, len as usize);
         } else {
-            // the allocation must be done after the object creation
-            abuf.data = js_mallocz(ctx, std::cmp::max(len as usize, 1)).cast();
-            if abuf.data.is_null() {
-                JS_FreeValue(ctx, obj);
+            // default alloc
+            let mut chunk = Vec::<u8>::new();
+            if chunk.try_reserve_exact(len as usize).is_err() {
+                (*ctx).JS_ThrowOutOfMemory();
                 return JSValue::EXCEPTION;
             }
+            chunk.resize(len as usize, 0);
+
+            // leak Box<[u8]> to *mut [u8], cast to *mut u8
+            ab_state.data = Box::into_raw(chunk.into_boxed_slice()) as *mut u8;
         }
     } else {
         if class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt.sab_funcs.sab_dup.is_some() {
             (rt.sab_funcs.sab_dup.unwrap())(rt.sab_funcs.sab_opaque, buf.cast());
         }
-        abuf.data = buf;
+        ab_state.data = buf;
     }
 
-    init_list_head(&mut abuf.array_list);
+    init_list_head(&mut ab_state.array_list);
 
-    abuf.detached = false;
-    abuf.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
-    abuf.opaque = opaque;
-    abuf.free_func = free_func;
+    ab_state.detached = false;
+    ab_state.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
+    ab_state.opaque = opaque;
+    ab_state.free_func = free_func;
     if alloc_flag && !buf.is_null() {
-        std::ptr::copy_nonoverlapping(buf, abuf.data, len as usize);
+        std::ptr::copy_nonoverlapping(buf, ab_state.data, len as usize);
     }
 
-    // Note: when set to opaque, can be accessed using u.array_buffer field.
-    JS_SetOpaque(obj, Box::into_raw(abuf).cast());
+    // create js instance
+    let ab_obj = js_create_from_ctor(ctx, new_target, class_id);
+    if ab_obj.is_exception() {
+        return JSValue::EXCEPTION;
+    }
 
-    obj
+    // Note: set pointer to object opaque, can be accessed using u.array_buffer field.
+    ab_obj
+        .object_unchecked()
+        .set_opaque(Box::into_raw(ab_state).cast());
+
+    ab_obj
 }
 
-pub unsafe fn js_array_buffer_free(rt: *mut JSRuntime, opaque: *mut c_void, ptr: *mut c_void) {
-    js_free_rt(rt, ptr);
+/// the callback to free JSArrayBuffer.
+/// - opaque: JSArrayBuffer.opaque field
+/// - data: JSArrayBuffer.data field
+/// - data_length: JSArrayBuffer.byte_length field
+pub unsafe fn js_array_buffer_free(
+    rt: *mut JSRuntime,
+    opaque: *mut c_void,
+    data: *mut u8,
+    data_length: usize,
+) {
+    // (data, data_length) is actually raw pointer to Box<[u8]>,
+    // restore then drop it.
+    let s = std::ptr::slice_from_raw_parts_mut(data, data_length);
+    drop(Box::from_raw(s));
 }
 
 pub unsafe fn js_array_buffer_constructor2(
@@ -220,7 +246,12 @@ pub unsafe fn js_array_buffer_finalizer(rt: *mut JSRuntime, val: JSValue) {
             (((*rt).sab_funcs.sab_free).unwrap())((*rt).sab_funcs.sab_opaque, (*abuf).data.cast());
         } else {
             if let Some(cb) = (*abuf).free_func {
-                cb(rt, (*abuf).opaque, (*abuf).data.cast());
+                cb(
+                    rt,
+                    (*abuf).opaque,
+                    (*abuf).data,
+                    (*abuf).byte_length as usize,
+                );
             }
         }
 
