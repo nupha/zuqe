@@ -10,7 +10,7 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            js_get_length32, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
+            js_get_length32, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
             JS_NewObjectProtoClass, JS_ToObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
             JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
@@ -391,62 +391,65 @@ pub unsafe fn js_array_iterator_next(
         };
     }
 
-    let it = JS_GetOpaque2(ctx, this_val, JS_CLASS_ARRAY_ITERATOR).cast::<JSArrayIteratorData>();
-    if it.is_null() {
-        fail!();
-    }
-    if (*it).obj.is_undefined() {
-        done!();
-    }
+    if let Ok(mut p) = this_val
+        .object_unchecked()
+        .opaque_must::<JSArrayIteratorData>(JS_CLASS_ARRAY_ITERATOR, ctx.as_mut().unwrap())
+    {
+        let it = p.as_mut();
 
-    let p = (*it).obj.object_unchecked();
-
-    let len = if let Some(tao) = p.as_typed_array_obj() {
-        if tao.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            fail!();
+        if it.obj.is_undefined() {
+            done!();
         }
-        tao.length() as u32
-    } else {
-        if let Ok(n) = js_get_length32(ctx, (*it).obj) {
-            n
+
+        let len = if let Some(tao) = it.obj.object_unchecked().as_typed_array_obj() {
+            if tao.is_detached() {
+                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                fail!();
+            }
+            tao.length() as u32
         } else {
-            fail!();
-        }
-    };
-
-    let idx = (*it).idx;
-    if idx >= len {
-        JS_FreeValue(ctx, (*it).obj);
-        (*it).obj = JSValue::UNDEFINED;
-        done!();
-    }
-
-    (*it).idx = idx + 1;
-    *pdone = 0;
-
-    match (*it).kind {
-        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => JSValue::from_u32(idx),
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-            let val = (*it).obj.get_property_u32(ctx.as_mut().unwrap(), idx);
-            if val.is_exception() {
-                JSValue::EXCEPTION
+            if let Ok(n) = js_get_length32(ctx, it.obj) {
+                n
             } else {
-                val
+                fail!();
+            }
+        };
+
+        let idx = it.idx;
+        if idx >= len {
+            JS_FreeValue(ctx, it.obj);
+            it.obj = JSValue::UNDEFINED;
+            done!();
+        }
+
+        it.idx = idx + 1;
+        *pdone = 0;
+
+        match it.kind {
+            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => JSValue::from(idx),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                let val = it.obj.get_property_u32(ctx.as_mut().unwrap(), idx);
+                if val.is_exception() {
+                    JSValue::EXCEPTION
+                } else {
+                    val
+                }
+            }
+            JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                let val = it.obj.get_property_u32(ctx.as_mut().unwrap(), idx);
+                if val.is_exception() {
+                    return JSValue::EXCEPTION;
+                }
+                let num = JSValue::from_u32(idx);
+                let args = [num, val];
+                let obj = js_create_array(ctx, 2, args.as_ptr());
+                JS_FreeValue(ctx, val);
+                JS_FreeValue(ctx, num);
+                obj
             }
         }
-        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-            let val = (*it).obj.get_property_u32(ctx.as_mut().unwrap(), idx);
-            if val.is_exception() {
-                return JSValue::EXCEPTION;
-            }
-            let num = JSValue::from_u32(idx);
-            let args = [num, val];
-            let obj = js_create_array(ctx, 2, args.as_ptr());
-            JS_FreeValue(ctx, val);
-            JS_FreeValue(ctx, num);
-            obj
-        }
+    } else {
+        fail!();
     }
 }
 

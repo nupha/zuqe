@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{
     context::JSContext,
     gc::JS_MarkFunc,
@@ -56,12 +58,13 @@ impl Drop for JSMapState {
 }
 
 impl JSMapState {
-    /// Create a new record in the map.
+    /// Create a new record in the map. New record is registered to hash table.
+    /// Record is freed by gc, don't free it manually.
     pub fn add_record(
         &mut self,
         ctx: &mut JSContext,
         key: JSValueConst,
-    ) -> Result<Box<JSMapRecord>, i32> {
+    ) -> Result<NonNull<JSMapRecord>, i32> {
         // new record
         let mut mr = unsafe {
             Box::from_raw(
@@ -93,15 +96,13 @@ impl JSMapState {
             list_add_tail(&mut (*mr).link, &mut self.records);
 
             self.record_count += 1;
-        }
 
-        if self.record_count >= self.record_count_threshold {
-            unsafe {
+            if self.record_count >= self.record_count_threshold {
                 map_hash_resize(ctx, self);
             }
         }
 
-        Ok(mr)
+        Ok(unsafe { NonNull::new_unchecked(Box::into_raw(mr)) })
     }
 }
 
@@ -190,7 +191,7 @@ pub unsafe fn map_add_record(
     s.as_mut()
         .unwrap()
         .add_record(ctx.as_mut().unwrap(), key)
-        .map_or(std::ptr::null_mut(), Box::into_raw)
+        .map_or(std::ptr::null_mut(), NonNull::as_ptr)
 }
 
 pub unsafe fn map_hash_resize(ctx: *mut JSContext, s: *mut JSMapState) {

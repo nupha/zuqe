@@ -3,10 +3,7 @@ use crate::{
     mem::js_malloc_typed,
     runtime::JSRuntime,
     types::{list_add_tail, list_head},
-    value::{
-        object::{JS_GetOpaque2, JS_SpeciesConstructor},
-        JSValue, JS_FreeValue, JS_FreeValueRT,
-    },
+    value::{object::JS_SpeciesConstructor, JSValue, JS_FreeValue, JS_FreeValueRT},
     JS_CLASS_PROMISE,
 };
 
@@ -121,10 +118,11 @@ impl PromiseValue {
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
     pub fn then(self, ctx: &mut JSContext, resolve: JSValue, reject: JSValue) -> Result<Self, i32> {
-        let s = unsafe { JS_GetOpaque2(ctx, self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
-        if s.is_null() {
-            return Err(-1);
-        }
+        let _ = unsafe {
+            self.0
+                .object_unchecked()
+                .opaque_must::<JSPromiseData>(JS_CLASS_PROMISE, ctx)?
+        };
 
         let ctor = unsafe { JS_SpeciesConstructor(ctx, self.0, JSValue::UNDEFINED) }
             .check_exception()?

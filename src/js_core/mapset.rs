@@ -1,16 +1,13 @@
 use crate::{
     atom::consts::{JS_ATOM_add, JS_ATOM_next, JS_ATOM_set},
-    class::js_create_from_ctor,
+    class::{js_create_from_ctor, JSClassID},
     context::JSContext,
     function::JS_Call,
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
-    map::{map_add_record, map_find_record, map_normalize_key, JSMapState},
+    map::{map_find_record, map_normalize_key, JSMapState},
     mem::{js_malloc, js_malloc_typed},
     types::init_list_head,
-    value::{
-        object::JS_GetOpaque2, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsObject,
-    },
+    value::{JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsObject},
     JS_CLASS_MAP,
 };
 
@@ -195,17 +192,21 @@ pub unsafe fn js_map_get(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic as u32).cast::<JSMapState>();
-    if s.is_null() {
+    let s = if let Ok(p) = this_val
+        .object_unchecked()
+        .opaque_must::<JSMapState>(JS_CLASS_MAP + magic as JSClassID, ctx.as_mut().unwrap())
+    {
+        p
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     let key = map_normalize_key(ctx, *argv.offset(0));
-    let mr = map_find_record(ctx, s, key);
+    let mr = map_find_record(ctx, s.as_ptr(), key);
     if mr.is_null() {
         JSValue::UNDEFINED
     } else {
-        JS_DupValue(ctx, (*mr).value)
+        (*mr).value.dup()
     }
 }
 
@@ -216,14 +217,18 @@ pub unsafe fn js_map_set(
     argv: *const JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic as u32).cast::<JSMapState>();
-    if s.is_null() {
+    let mut s = if let Ok(p) = this_val
+        .object_unchecked()
+        .opaque_must::<JSMapState>(JS_CLASS_MAP + magic as JSClassID, ctx.as_mut().unwrap())
+    {
+        p
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     let key = map_normalize_key(ctx, *argv.offset(0));
-    if (*s).is_weak && !JS_IsObject(key) {
-        return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+    if s.as_ref().is_weak && !key.is_object() {
+        return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
 
     let value = if magic & MAGIC_SET != 0 {
@@ -232,16 +237,18 @@ pub unsafe fn js_map_set(
         *argv.offset(1)
     };
 
-    let mut mr = map_find_record(ctx, s, key);
+    let mut mr = map_find_record(ctx, s.as_ptr(), key);
     if !mr.is_null() {
         JS_FreeValue(ctx, (*mr).value);
     } else {
-        mr = map_add_record(ctx, s, key);
-        if mr.is_null() {
+        mr = if let Ok(r) = s.as_mut().add_record(ctx.as_mut().unwrap(), key) {
+            r.as_ptr()
+        } else {
             return JSValue::EXCEPTION;
-        }
+        };
     }
 
-    (*mr).value = JS_DupValue(ctx, value);
-    JS_DupValue(ctx, this_val)
+    (*mr).value = value.dup();
+
+    this_val.dup()
 }

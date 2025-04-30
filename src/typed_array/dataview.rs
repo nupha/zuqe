@@ -6,7 +6,7 @@ use crate::{
     mem::js_malloc_typed,
     types::list_add_tail,
     value::{
-        object::{JSObject, JS_GetOpaque2, JS_PROP_CONFIGURABLE},
+        object::{JSObject, JS_PROP_CONFIGURABLE},
         JSValue, JS_FreeValue, JS_ToBool, JS_ToFloat64, JS_ToIndex, JS_ToUint32,
     },
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -131,10 +131,12 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let this_obj = args.this_raw();
     let class_id = args.magic as JSClassID;
 
-    let ta = unsafe { JS_GetOpaque2(ctx, this_obj, JS_CLASS_DATAVIEW).cast::<JSTypedArray>() };
-    if ta.is_null() {
-        return Err(-1);
-    }
+    let ta = unsafe {
+        this_obj
+            .object_unchecked()
+            .opaque_must::<JSTypedArray>(JS_CLASS_DATAVIEW, ctx)?
+            .as_ref()
+    };
 
     let size = 1 << typed_array_size_log2(class_id);
 
@@ -151,7 +153,7 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     let res: JSValue = unsafe {
-        let abuf = (*(*ta).buffer).u.array_buffer;
+        let abuf = (*ta.buffer).u.array_buffer;
 
         if (*abuf).detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -163,10 +165,7 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             return Err(-1);
         }
 
-        let ptr = (*abuf)
-            .data
-            .offset((*ta).offset as isize)
-            .offset(pos as isize);
+        let ptr = (*abuf).data.offset(ta.offset as isize).offset(pos as isize);
 
         match class_id {
             JS_CLASS_INT8_ARRAY => JSValue::from(*ptr.cast::<i8>() as i32),
@@ -245,10 +244,13 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let this_obj = args.this_raw();
     let class_id = args.magic as JSClassID;
-    let ta = unsafe { JS_GetOpaque2(ctx, this_obj, JS_CLASS_DATAVIEW).cast::<JSTypedArray>() };
-    if ta.is_null() {
-        return Err(-1);
-    }
+
+    let ta = unsafe {
+        this_obj
+            .object_unchecked()
+            .opaque_must::<JSTypedArray>(JS_CLASS_DATAVIEW, ctx)?
+            .as_ref()
+    };
 
     let size = 1 << typed_array_size_log2(class_id);
     let mut pos = 0_u64;
@@ -294,20 +296,17 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     unsafe {
-        let abuf = (*(*ta).buffer).u.array_buffer;
+        let abuf = (*ta.buffer).u.array_buffer;
         if (*abuf).detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
-        if (pos + size as u64) > (*ta).length as u64 {
+        if (pos + size as u64) > ta.length as u64 {
             JS_ThrowRangeError(ctx, c"out of bound");
             return Err(-1);
         }
 
-        let ptr = (*abuf)
-            .data
-            .offset((*ta).offset as isize)
-            .offset(pos as isize);
+        let ptr = (*abuf).data.offset(ta.offset as isize).offset(pos as isize);
 
         match class_id {
             JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {

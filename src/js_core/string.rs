@@ -11,8 +11,8 @@ use crate::{
     regexp::js_is_regexp,
     value::{
         object::{
-            js_get_length32, js_get_length64, JS_GetOpaque2, JS_SetObjectData, JS_ToObject,
-            JS_ToObjectFree, JS_PROP_CONFIGURABLE,
+            js_get_length32, js_get_length64, JS_SetObjectData, JS_ToObject, JS_ToObjectFree,
+            JS_PROP_CONFIGURABLE,
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
@@ -1672,28 +1672,28 @@ unsafe fn js_string_iterator_next(
     pdone: *mut i32,
     magic: i32,
 ) -> JSValue {
-    let it = JS_GetOpaque2(ctx, this_val, JS_CLASS_STRING_ITERATOR).cast::<JSArrayIteratorData>();
-    if it.is_null() {
+    let it = if let Ok(mut p) = this_val
+        .object_unchecked()
+        .opaque_must::<JSArrayIteratorData>(JS_CLASS_STRING_ITERATOR, ctx.as_mut().unwrap())
+    {
+        p.as_mut()
+    } else {
         *pdone = 0;
         return JSValue::EXCEPTION;
-    }
-    if JS_IsUndefined((*it).obj) {
+    };
+
+    let ss = it.obj.string();
+    let idx = it.idx;
+
+    if idx >= ss.len() as u32 {
+        JS_FreeValue(ctx, it.obj);
+        it.obj = JSValue::UNDEFINED;
         *pdone = 1;
         return JSValue::UNDEFINED;
     }
 
-    let p = JS_VALUE_GET_STRING((*it).obj);
-    let idx = (*it).idx;
-
-    if idx >= (*p).len() as u32 {
-        JS_FreeValue(ctx, (*it).obj);
-        (*it).obj = JSValue::UNDEFINED;
-        *pdone = 1;
-        return JSValue::UNDEFINED;
-    }
-
-    let c = (*p).content().chars().nth(idx as usize).unwrap();
-    (*it).idx = idx;
+    let c = ss.content().chars().nth(idx as usize).unwrap();
+    it.idx = idx;
     *pdone = 0;
 
     (*ctx).create_string_from_char(c)

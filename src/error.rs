@@ -374,8 +374,8 @@ pub unsafe fn __JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: J
     JS_ThrowSyntaxError(ctx, CStr::from_bytes_with_nul(buf.as_slice()).unwrap())
 }
 
-pub unsafe fn JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-    __JS_ThrowSyntaxErrorAtom(ctx, fmt, atom)
+pub fn JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
+    unsafe { __JS_ThrowSyntaxErrorAtom(ctx, fmt, atom) }
 }
 
 // #[deprecated(note = "use JSContext::JS_ThrowTypeErr()")]
@@ -434,36 +434,44 @@ pub unsafe fn JS_ThrowTypeErrorRevokedProxy(ctx: *mut JSContext) -> JSValue {
     ctx.as_mut().unwrap().JS_ThrowTypeError(c"revoked proxy")
 }
 
-pub unsafe fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: *mut JSContext) -> JSValue {
-    ctx.as_mut()
-        .unwrap()
-        .JS_ThrowTypeError(c"ArrayBuffer is detached")
+pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: *mut JSContext) -> JSValue {
+    unsafe {
+        ctx.as_mut()
+            .unwrap()
+            .JS_ThrowTypeError(c"ArrayBuffer is detached")
+    }
 }
 
-pub unsafe fn JS_ThrowTypeErrorPrivateNotFound(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
-    (*ctx).JS_ThrowTypeError(CStr::from_ptr(
-        format!(
-            "private class field '{}' does not exist\0",
-            atom.to_str((*ctx).rt())
-        )
-        .as_ptr()
-        .cast(),
-    ))
+pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
+    unsafe {
+        (*ctx).JS_ThrowTypeError(CStr::from_ptr(
+            format!(
+                "private class field '{}' does not exist\0",
+                atom.to_str((*ctx).rt())
+            )
+            .as_ptr()
+            .cast(),
+        ))
+    }
 }
 
-pub unsafe fn JS_ThrowRangeError(ctx: *mut JSContext, message: &CStr) -> JSValue {
-    ctx.as_mut()
-        .unwrap()
-        .JS_ThrowError(JSErrorEnum::Range, message)
+pub fn JS_ThrowRangeError(ctx: *mut JSContext, message: &CStr) -> JSValue {
+    unsafe {
+        ctx.as_mut()
+            .unwrap()
+            .JS_ThrowError(JSErrorEnum::Range, message)
+    }
 }
 
-pub unsafe fn JS_ThrowSyntaxError(ctx: *mut JSContext, message: &CStr) -> JSValue {
-    ctx.as_mut()
-        .unwrap()
-        .JS_ThrowError(JSErrorEnum::Syntax, message)
+pub fn JS_ThrowSyntaxError(ctx: *mut JSContext, message: &CStr) -> JSValue {
+    unsafe {
+        ctx.as_mut()
+            .unwrap()
+            .JS_ThrowError(JSErrorEnum::Syntax, message)
+    }
 }
 
-pub unsafe fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: *mut JSContext, prop: JSAtom) -> JSValue {
+pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: *mut JSContext, prop: JSAtom) -> JSValue {
     JS_ThrowSyntaxErrorAtom(ctx, c"redeclaration of '%s'", prop)
 }
 

@@ -269,6 +269,21 @@ impl JSObject {
         }
     }
 
+    /// Retrieve associated payload raw pointer, cast to type T.
+    /// If object is not instance of `class_id`, or if payload pointer is null,
+    /// throw error and returns Err.
+    pub fn opaque_must<T>(
+        &self,
+        class_id: JSClassID,
+        ctx: &mut JSContext,
+    ) -> Result<NonNull<T>, i32> {
+        self.opaque::<T>(class_id).ok_or_else(|| {
+            ctx.JS_ThrowTypeErrorInvalidClass(class_id);
+
+            -1
+        })
+    }
+
     /// Associate native payload raw pointer with `self` object.
     ///
     /// Safety: Caller maintains `opaque` pointer validity
@@ -822,40 +837,6 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
 
     JS_FreeValue(ctx, obj_proto);
     ret
-}
-
-#[deprecated(note = "use JSObject::opaque() instead")]
-pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_void {
-    if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
-        return std::ptr::null_mut();
-    }
-    let p = JS_VALUE_GET_OBJ(obj);
-    if (*p).class_id() != class_id {
-        return std::ptr::null_mut();
-    }
-    (*p).u.opaque
-}
-
-pub unsafe fn JS_GetOpaque2(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    class_id: JSClassID,
-) -> *mut c_void {
-    let p = JS_GetOpaque(obj, class_id);
-    if p.is_null() {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeErrorInvalidClass(class_id);
-    }
-    p
-}
-
-#[deprecated(note = "use JSObject::set_opaque() instead")]
-pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
-    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(obj);
-        (*p).u.opaque = opaque;
-    }
 }
 
 /// Convert JS value to object equivalent

@@ -1,4 +1,4 @@
-use std::ffi::{c_char, CStr};
+use std::ffi::{c_char, c_void, CStr};
 
 use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
@@ -13,8 +13,46 @@ use crate::{
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    value::{object::JSObject, JSString, JSValue, JSValueConst},
+    value::{
+        object::JSObject, JSString, JSValue, JSValueConst, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
+    },
 };
+
+#[deprecated(note = "use JSObject::opaque() instead")]
+pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_void {
+    if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
+        return std::ptr::null_mut();
+    }
+    let p = JS_VALUE_GET_OBJ(obj);
+    if (*p).class_id() != class_id {
+        return std::ptr::null_mut();
+    }
+    (*p).u.opaque
+}
+
+#[deprecated(note = "use JSObject::opaque_must() instead")]
+pub unsafe fn JS_GetOpaque2(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    class_id: JSClassID,
+) -> *mut c_void {
+    let p = JS_GetOpaque(obj, class_id);
+    if p.is_null() {
+        ctx.as_mut()
+            .unwrap()
+            .JS_ThrowTypeErrorInvalidClass(class_id);
+    }
+    p
+}
+
+#[deprecated(note = "use JSObject::set_opaque() instead")]
+pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
+    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
+        let p = JS_VALUE_GET_OBJ(obj);
+        (*p).u.opaque = opaque;
+    }
+}
 
 #[inline(always)]
 #[deprecated(note = "use Into::<JSValue>::into(bool) or From::<bool>::from(JSValue) instead")]
