@@ -100,6 +100,24 @@ impl ArrayBufferContent {
         }
     }
 
+    pub fn with_bytes_ptr<R>(&self, f: impl FnOnce(*const u8) -> R) -> R {
+        match self {
+            Self::Empty => f(std::ptr::null()),
+            Self::Owned(b) => f(b.as_ptr()),
+            Self::Shared(a) => f(a.read().unwrap().as_ptr()),
+            Self::Raw(p, _, _) => f(p.as_ptr()),
+        }
+    }
+
+    pub fn with_bytes_mut_ptr<R>(&mut self, f: impl FnOnce(*mut u8) -> R) -> R {
+        match self {
+            Self::Empty => f(std::ptr::null_mut()),
+            Self::Owned(b) => f(b.as_mut_ptr()),
+            Self::Shared(a) => f(a.write().unwrap().as_mut_ptr()),
+            Self::Raw(p, _, _) => f(p.as_ptr()),
+        }
+    }
+
     /// get buffer unique id (use addr). this is used to check if two buffer are same.
     pub fn id(&self) -> usize {
         match self {
@@ -145,6 +163,16 @@ impl JSArrayBuffer {
     #[inline(always)]
     pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         self.content.with_bytes_mut(f)
+    }
+
+    #[inline(always)]
+    pub fn with_bytes_ptr<R>(&self, f: impl FnOnce(*const u8) -> R) -> R {
+        self.content.with_bytes_ptr(f)
+    }
+
+    #[inline(always)]
+    pub fn with_bytes_mut_ptr<R>(&mut self, f: impl FnOnce(*mut u8) -> R) -> R {
+        self.content.with_bytes_mut_ptr(f)
     }
 }
 

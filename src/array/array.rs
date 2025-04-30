@@ -54,6 +54,9 @@ pub union JSObjectArrayData {
     /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
     pub values: ManuallyDrop<Vec<JSValue>>,
 
+    //
+    // following are deprecated fields
+    //
     /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY.
     /// pointer to start of ArrayBuffer buffer
     #[deprecated(note = "don't save TypedArray buf pointer, this will be removed")]

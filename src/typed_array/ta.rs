@@ -115,6 +115,24 @@ impl JSTypedArray {
             f(lst)
         })
     }
+
+    /// run closure with data ptr casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    pub fn with_data_ptr<T, R>(&self, f: impl FnOnce(*const T) -> R) -> R {
+        debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
+        let base = self.offset as usize;
+        self.array_buffer()
+            .with_bytes_ptr(|ptr| f(unsafe { ptr.add(base).cast::<T>() }))
+    }
+
+    /// run closure with data ptr casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    pub fn with_data_mut_ptr<T, R>(&mut self, f: impl FnOnce(*mut T) -> R) -> R {
+        debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
+        let base = self.offset as usize;
+        self.array_buffer_mut()
+            .with_bytes_mut_ptr(|ptr| f(unsafe { ptr.add(base).cast::<T>() }))
+    }
 }
 
 #[repr(transparent)]
@@ -200,14 +218,14 @@ impl<'a> TypedArrayObj<'a> {
         self.typed_array().is_detached()
     }
 
-    /// Get count of elements in typed array.
+    /// Get elements count in typed array.
     /// If underlaying array buffer is detached, returns 0.
     #[inline(always)]
     pub fn length(&self) -> usize {
         unsafe { self.obj.as_ref().u.array.typed_array_count as usize }
     }
 
-    /// Get count of elements according to underlying array buffer space.
+    /// Get rated elements count according to underlying array buffer space.
     /// Works even if the array buffer is detached.
     pub fn capacity(&self) -> usize {
         let ta = self.typed_array();
@@ -248,6 +266,20 @@ impl<'a> TypedArrayObj<'a> {
     #[inline(always)]
     pub fn with_data_mut<T, R>(&mut self, f: impl FnOnce(&mut [T]) -> R) -> R {
         self.typed_array_mut().with_data_mut(f)
+    }
+
+    /// run closure with data ptr casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    #[inline(always)]
+    pub fn with_data_ptr<T, R>(&self, f: impl FnOnce(*const T) -> R) -> R {
+        self.typed_array().with_data_ptr(f)
+    }
+
+    /// run closure with data ptr casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    #[inline(always)]
+    pub fn with_data_mut_ptr<T, R>(&mut self, f: impl FnOnce(*mut T) -> R) -> R {
+        self.typed_array_mut().with_data_mut_ptr(f)
     }
 
     /// create a new TypedArray object with content copy from `self` array.
@@ -304,10 +336,10 @@ impl<'a> TypedArrayObj<'a> {
 
         if self.class_id() == class_id {
             // same type: copy the content
+            let cnt = abuf.byte_length();
+
             unsafe {
                 (*src_abuf).with_bytes(|src| {
-                    let cnt = abuf.byte_length();
-
                     abuf.with_bytes_mut(|dst| {
                         std::ptr::copy_nonoverlapping(
                             src.as_ptr().offset((*ta).offset as isize),

@@ -549,7 +549,10 @@ impl JSValue {
                         if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *p.u.array.data.uint8_ptr.offset(idx as _) = v as u8;
+                            p.as_typed_array_obj_unchecked()
+                                .with_data_mut_ptr::<u8, _>(|ptr| {
+                                    *ptr.add(idx as usize) = v as u8;
+                                });
                             return Ok(true);
                         }
                     }
@@ -562,7 +565,10 @@ impl JSValue {
                         if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *p.u.array.data.uint8_ptr.offset(idx as _) = v;
+                            p.as_typed_array_obj_unchecked()
+                                .with_data_mut_ptr::<u8, _>(|ptr| {
+                                    *ptr.add(idx as usize) = v;
+                                });
                             return Ok(true);
                         }
                     }
@@ -575,7 +581,10 @@ impl JSValue {
                         if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *p.u.array.data.uint16_ptr.offset(idx as _) = v as u16;
+                            p.as_typed_array_obj_unchecked()
+                                .with_data_mut_ptr::<u16, _>(|ptr| {
+                                    *ptr.add(idx as usize) = v;
+                                });
                             return Ok(true);
                         }
                     }
@@ -588,7 +597,10 @@ impl JSValue {
                         if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *p.u.array.data.uint32_ptr.offset(idx as _) = v as u32;
+                            p.as_typed_array_obj_unchecked()
+                                .with_data_mut_ptr::<u32, _>(|ptr| {
+                                    *ptr.add(idx as usize) = v;
+                                });
                             return Ok(true);
                         }
                     }
@@ -603,7 +615,10 @@ impl JSValue {
                         if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *p.u.array.data.float_ptr.offset(idx as _) = d as f32;
+                            p.as_typed_array_obj_unchecked()
+                                .with_data_mut_ptr::<f32, _>(|ptr| {
+                                    *ptr.add(idx as usize) = d as f32;
+                                });
                             return Ok(true);
                         }
                     }
@@ -615,7 +630,10 @@ impl JSValue {
                         if idx >= p.array_length_unchecked() as i32 {
                             ta_out_of_bound = true;
                         } else {
-                            *p.u.array.data.double_ptr.offset(idx as _) = d;
+                            p.as_typed_array_obj_unchecked()
+                                .with_data_mut_ptr::<f64, _>(|ptr| {
+                                    *ptr.add(idx as usize) = d;
+                                });
                             return Ok(true);
                         }
                     }

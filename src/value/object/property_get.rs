@@ -215,7 +215,7 @@ impl JSValue {
                     if idx < p.array_length_unchecked() as i32 {
                         return JSValue::from(
                             p.as_typed_array_obj_unchecked()
-                                .with_data::<$ty, _>(|lst| lst[idx as usize] as $ty2),
+                                .with_data_ptr::<$ty, _>(|ptr| *ptr.add(idx as usize) as $ty2),
                         );
                     }
                 };
