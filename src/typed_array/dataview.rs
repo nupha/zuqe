@@ -1,5 +1,4 @@
 use crate::{
-    array_buffer::JSArrayBuffer,
     class::{js_create_from_ctor, JSClassID},
     context::JSContext,
     error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},

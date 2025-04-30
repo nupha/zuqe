@@ -399,7 +399,7 @@ pub unsafe fn run_bytecodes(
                     let lst = std::slice::from_raw_parts_mut(sp.offset(-3), 4);
                     lst.rotate_right(1);
 
-                    // After rotation, SP![0] contains the value to duplicate and insert
+                    // After rotation, set SP![-3] to value in SP![0] duplicated
                     SP![-3] = SP![0].dup();
 
                     // SP![0] = SP![-1];
@@ -1633,6 +1633,7 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(-2);
                 }
                 OpCode::PUT_ARRAY_EL => {
+                    // Stack: [obj, idx_prop, value, ^]
                     let ret =
                         SP![-3].set_property_value(ctx, SP![-2], SP![-1], JS_PROP_THROW_STRICT);
                     JS_FreeValue(ctx, SP![-3]);

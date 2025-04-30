@@ -398,7 +398,7 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
     'redo: loop {
         match JS_VALUE_GET_NORM_TAG(val) {
             JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                res = JS_VALUE_GET_INT(val);
+                res = std::cmp::max(0, std::cmp::min(255, JS_VALUE_GET_INT(val)));
             }
             JSTag::Float64 => {
                 let d = JS_VALUE_GET_FLOAT64(val);
@@ -409,7 +409,7 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
                 } else if d > 255.0 {
                     255
                 } else {
-                    d.round() as i32
+                    f64::round_ties_even(d) as i32
                 };
             }
             JSTag::Exception => {
