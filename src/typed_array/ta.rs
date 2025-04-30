@@ -20,18 +20,6 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
-pub struct JSTypedArray {
-    pub link: list_head,    /* link to arraybuffer */
-    pub obj: *mut JSObject, /* back pointer to the TypedArray/DataView object */
-
-    /// based array buffer  
-    pub buffer: *mut JSObject,
-    /// offset in array buffer  
-    pub offset: u32,
-    /// length of array buffer   
-    pub length: u32,
-}
-
 pub const JS_TYPED_ARRAY_COUNT: usize =
     JS_CLASS_FLOAT64_ARRAY as usize - JS_CLASS_UINT8C_ARRAY as usize + 1;
 
@@ -45,6 +33,26 @@ pub fn typed_array_size_log2(classid: JSClassID) -> u8 {
     debug_assert!((JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&classid));
 
     TYPED_ARRAY_SIZE_LOG2[(classid - JS_CLASS_UINT8C_ARRAY) as usize]
+}
+
+pub struct JSTypedArray {
+    pub link: list_head,    /* link to arraybuffer */
+    pub obj: *mut JSObject, /* back pointer to the TypedArray/DataView object */
+
+    /// pointer of underlaying array buffer object
+    pub buffer: NonNull<JSObject>,
+    /// start offset in array buffer  
+    pub offset: u32,
+    /// number of bytes from array buffer
+    pub length: u32,
+}
+
+impl JSTypedArray {
+    /// get underlaying array buffer object.
+    #[inline(always)]
+    pub fn array_buffer(&self) -> &JSObject {
+        unsafe { self.buffer.as_ref() }
+    }
 }
 
 #[repr(transparent)]
@@ -67,12 +75,7 @@ impl<'a> TypedArrayObj<'a> {
     /// get underlaying array buffer object.
     #[inline(always)]
     pub fn array_buffer_obj(&self) -> &JSObject {
-        unsafe {
-            (*(*self.obj.as_ref()).u.typed_array)
-                .buffer
-                .as_ref()
-                .unwrap()
-        }
+        unsafe { (*(*self.obj.as_ref()).u.typed_array).buffer.as_ref() }
     }
 
     /// setup typed array with array buffer, offset and length.
@@ -99,7 +102,7 @@ impl<'a> TypedArrayObj<'a> {
         let abuf = unsafe { pbuffer.u.array_buffer };
 
         ta.obj = self.obj.as_ptr();
-        ta.buffer = pbuffer;
+        ta.buffer = NonNull::from(pbuffer);
         ta.offset = offset as u32;
         ta.length = (len as u32) << size_log2;
 
@@ -124,21 +127,26 @@ impl<'a> TypedArrayObj<'a> {
         // unsafe { (*self.0.u.array).data.ptr.is_null() }
 
         unsafe {
-            let abuf = (*(*self.obj.as_ref().u.typed_array).buffer).u.array_buffer;
+            let abuf = (*self.obj.as_ref().u.typed_array)
+                .buffer
+                .as_ref()
+                .u
+                .array_buffer;
+
             (*abuf).detached
         }
     }
 
-    /// Get typed array length (count of elements).
+    /// Get count of elements in typed array.
     /// If underlaying array buffer is detached, returns 0.
     #[inline(always)]
     pub fn length(&self) -> usize {
         unsafe { self.obj.as_ref().u.array.typed_array_count as usize }
     }
 
-    /// Get underlying array buffer length (count of elements).
+    /// Get count of elements according to underlying array buffer space.
     /// Works even if the array buffer is detached.
-    pub fn array_buffer_length(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         let ta = unsafe { self.obj.as_ref().u.typed_array };
         let size_log2 = typed_array_size_log2(self.class_id());
         unsafe { ((*ta).length >> size_log2) as usize }
@@ -155,9 +163,7 @@ impl<'a> TypedArrayObj<'a> {
     ) -> Result<usize, i32> {
         if self.is_detached() {
             return if is_dataview {
-                unsafe {
-                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                }
+                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 Err(-1)
             } else {
                 Ok(0)
@@ -226,16 +232,14 @@ impl<'a> TypedArrayObj<'a> {
         classid: JSClassID,
     ) -> JSResult {
         if self.is_detached() {
-            unsafe {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            }
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
         let ta = self.typed_array();
         let len = self.length();
-        let src_buffer = ta.buffer;
-        let src_abuf = unsafe { (*src_buffer).u.array_buffer };
+
+        let src_abuf = unsafe { ta.buffer.as_ref().u.array_buffer };
         let size_log2 = typed_array_size_log2(classid as _);
 
         let buffer = unsafe {
@@ -590,7 +594,7 @@ pub unsafe fn get_typed_array(
 is detached */
 #[deprecated(note = "use TypedArrayObj::array_buffer_length() instead")]
 pub unsafe fn typed_array_get_length(ctx: *mut JSContext, p: *mut JSObject) -> usize {
-    (*p).as_typed_array_obj().unwrap().array_buffer_length()
+    (*p).as_typed_array_obj().unwrap().capacity()
 }
 
 /// Get the length of the TypedArray, equivalent to TypedArrayObj::length() but
@@ -645,9 +649,9 @@ pub unsafe fn js_typed_array_set_internal(
     if (*src_p).class_id() >= JS_CLASS_UINT8C_ARRAY && (*src_p).class_id() <= JS_CLASS_FLOAT64_ARRAY
     {
         let dest_ta: *mut JSTypedArray = (*p).u.typed_array;
-        let dest_abuf = (*(*dest_ta).buffer).u.array_buffer;
+        let dest_abuf = (*dest_ta).buffer.as_mut().u.array_buffer;
         let src_ta = (*src_p).u.typed_array;
-        let src_abuf = (*(*src_ta).buffer).u.array_buffer;
+        let src_abuf = (*src_ta).buffer.as_ref().u.array_buffer;
         let shift = typed_array_size_log2((*p).class_id());
 
         if (*src_abuf).detached {
@@ -724,7 +728,7 @@ pub unsafe fn js_typed_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
         if !((*ta).link.next).is_null() {
             list_del(&mut (*ta).link);
         }
-        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*ta).buffer.cast()));
+        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*ta).buffer.as_ptr().cast()));
 
         drop(Box::from_raw(ta));
     }
@@ -734,7 +738,11 @@ pub unsafe fn js_typed_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_fu
     let p = val.object_unchecked();
     let ta = p.u.typed_array;
     if !ta.is_null() {
-        JS_MarkValue(rt, JS_MKPTR!(JSTag::Object, (*ta).buffer.cast()), mark_func);
+        JS_MarkValue(
+            rt,
+            JS_MKPTR!(JSTag::Object, (*ta).buffer.as_ptr().cast()),
+            mark_func,
+        );
     }
 }
 

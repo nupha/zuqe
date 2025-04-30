@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{
     class::{js_create_from_ctor, JSClassID},
     context::JSContext,
@@ -37,25 +39,19 @@ impl JSContext {
         };
 
         if abuf.detached {
-            unsafe {
-                JS_ThrowTypeErrorDetachedArrayBuffer(self);
-            }
+            JS_ThrowTypeErrorDetachedArrayBuffer(self);
             return Err(-1);
         }
 
         if offset > abuf.byte_length as usize {
-            unsafe {
-                JS_ThrowRangeError(self, c"invalid byteOffset");
-            }
+            JS_ThrowRangeError(self, c"invalid byteOffset");
             return Err(-1);
         }
 
         let mut len = abuf.byte_length as usize - offset;
         if let Some(l) = length {
             if l > len {
-                unsafe {
-                    JS_ThrowRangeError(self, c"invalid byteLength");
-                }
+                JS_ThrowRangeError(self, c"invalid byteLength");
                 return Err(-1);
             } else {
                 len = l;
@@ -86,7 +82,7 @@ impl JSContext {
         unsafe {
             let p = obj.object_unchecked() as *mut JSObject;
             ta.obj = p;
-            ta.buffer = buffer.dup().object_unchecked(); // buffer is duplicated
+            ta.buffer = NonNull::from(buffer.dup().object_unchecked()); // buffer is duplicated
             ta.offset = offset as u32;
             ta.length = len as _;
             list_add_tail(&mut (*ta).link, &mut abuf.array_list);
@@ -153,7 +149,7 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     let res: JSValue = unsafe {
-        let abuf = (*ta.buffer).u.array_buffer;
+        let abuf = ta.buffer.as_ref().u.array_buffer;
 
         if (*abuf).detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -296,7 +292,7 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     unsafe {
-        let abuf = (*ta.buffer).u.array_buffer;
+        let abuf = ta.buffer.as_ref().u.array_buffer;
         if (*abuf).detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);

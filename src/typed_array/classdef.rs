@@ -976,14 +976,14 @@ pub fn js_typed_array_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                 return Err(-1);
             }
 
-            (src.class_id(), src.array_buffer_length(), unsafe {
+            (src.class_id(), src.capacity(), unsafe {
                 src.data_ptr_unchecked::<u8>()
             })
         };
 
         if let Ok(dst) = arr.typed_array_obj(cxh, false) {
             if src_classid == dst.class_id()
-                && dst.array_buffer_length() as i32 >= count
+                && dst.capacity() as i32 >= count
                 && src_abuf_len as i32 >= start + count
             {
                 // fast path using memcpy
