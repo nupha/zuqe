@@ -166,7 +166,10 @@ impl JSAtom {
             } else if force_string {
                 a.into_value()
             } else {
-                JS_MKPTR!(JSTag::Symbol, Rc::into_raw(a).cast::<c_void>() as _)
+                JS_MKPTR!(
+                    JSTag::Symbol,
+                    Rc::into_raw(a).cast::<c_void>() as *mut c_void
+                )
             }
         }
     }

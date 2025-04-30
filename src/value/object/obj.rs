@@ -47,167 +47,25 @@ use super::{
     JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
-#[repr(C)]
-pub struct JSObject {
-    pub header: JSGCObjectHeader,
-
-    /// object flags
-    pub detailed: JSObjectDetailed,
-
-    /// Shape of object, to denote prototype and property names + flag
-    /// could be NULL while freeing an object
-    pub shape: *mut JSShape,
-
-    /// property value slots
-    pub prop_values: Vec<JSProperty>,
-
-    pub first_weak_ref: *mut JSMapRecord, /* XXX: use a bit and an external hash table? */
-
-    /// payload
-    pub u: JSObjectUnion,
-}
-
-impl JSObject {
-    /// get object shape.
-    /// could be None when object is being freed
-    #[inline(always)]
-    pub fn shape(&self) -> Option<&JSShape> {
-        unsafe { self.shape.as_ref() }
-    }
-
-    /// get object shape mut.
-    /// could be None when object is being freed
-    #[inline(always)]
-    pub fn shape_mut(&mut self) -> Option<&mut JSShape> {
-        unsafe { self.shape.as_mut() }
-    }
-
-    /// get opaque pointer from object.
-    #[inline(always)]
-    pub fn opaque(&self) -> *mut c_void {
-        unsafe { self.u.opaque }
-    }
-
-    /// set opaque pointer to object.
-    /// SAFTY: opaque pointer should be kept alive in JSObject lifespan.
-    #[inline(always)]
-    pub fn set_opaque(&mut self, opaque: *mut c_void) {
-        self.u.opaque = opaque;
-    }
-}
-
-#[cfg(debug_assertions)]
-impl Drop for JSObject {
-    fn drop(&mut self) {
-        // println!("JSObject::drop({self:p})");
-
-        debug_assert_ne!(self.class_id(), 0);
-        debug_assert_eq!(self.header.ref_count, 0);
-        debug_assert!(self.shape.is_null());
-        debug_assert!(self.prop_values.is_empty());
-        debug_assert!(self.first_weak_ref.is_null());
-
-        // ManuallyDrop union
-        unsafe {
-            match self.class_id() {
-                JS_CLASS_BYTECODE_FUNCTION => {
-                    ManuallyDrop::drop(&mut self.u.func);
-                }
-                cid @ (JS_CLASS_ARRAY
-                | JS_CLASS_ARGUMENTS
-                | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
-                    (*self.u.array).drop_data(cid);
-                    ManuallyDrop::drop(&mut self.u.array);
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-impl JSValue {
-    /// get value's inner JSObject reference.
-    /// if value is not an object or bytecode function, behavior is undefined.
-    #[inline(always)]
-    pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
-        debug_assert!(matches!(
-            JS_VALUE_GET_TAG(self),
-            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
-        ));
-        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
-
-        JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
-    }
-
-    /// get value's inner JSObject reference.
-    /// if value is not an object or bytecode function, returns None
-    #[inline(always)]
-    pub fn object<'a>(self) -> Option<&'a mut JSObject> {
-        if matches!(
-            JS_VALUE_GET_TAG(self),
-            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
-        ) {
-            debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
-            Some(unsafe { JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap() })
-        } else {
-            None
-        }
-    }
-
-    /// check if value `self` is a callable object.
-    /// callbable object could be bytecode function, proxied function,
-    /// or instance of class which has `call` native callback hook.
-    pub fn is_callable(self, ctx: &JSContext) -> bool {
-        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
-            return false;
-        }
-
-        let p = unsafe { self.object_unchecked() };
-        match p.class_id() {
-            JS_CLASS_BYTECODE_FUNCTION => true,
-            JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
-            cid => {
-                // check if class proto is callable
-                ctx.rt()
-                    .class_array
-                    .get(cid as usize)
-                    .and_then(|c| c.call)
-                    .is_some()
-            }
-        }
-    }
-
-    #[inline]
-    pub fn is_constructor(self) -> bool {
-        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
-            false
-        } else {
-            unsafe { self.object_unchecked().detailed.is_constructor() }
-        }
-    }
-}
-
+/// Bit flags and metadata for JavaScript objects
+/// Encodes object state and class information in a compact bitfield
 #[derive(Debug, Clone, Copy, Default)]
-#[repr(C)]
-pub struct JSObjectDetailed {
-    // __gc_ref_count: i32, // corresponds to header.ref_count
-    // __gc_mark: u8,       // corresponds to header.mark+gc_obj_type
-
-    // corresponding header.dummy1 8 bits are used as:
-    // extensible        1 bit
-    // free_mark            1 bit, only used when freeing objects with cycles
-    // is_exotic             1 bit, TRUE if object has exotic property handlers
-    // fast_array  1 bit, TRUE if u.array is used for get/put (for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS and typed arrays)
-    // is_constructor 1 bit, TRUE if object is a constructor function
-    // is_uncatchable_error: 1 bit, if TRUE, error is not catchable
-    // tmp_mark:  1 bit, used in JS_WriteObjectRec()
-    // is_HTMLDDA:  1 bit, specific annex B IsHtmlDDA behavior
-    //
-    // class_id: u16 (corresponds to header.dummy2) see JS_CLASS_x
+pub struct JSObjectFlags {
+    /// Bitfield storing object state flags and class ID:
+    /// - Bits 31-24: Object state flags
+    ///   [31] extensible: Can add new properties
+    ///   [30] free_mark: Object destruction marker
+    ///   [29] is_exotic: Special property handling
+    ///   [28] fast_array: Uses optimized array storage
+    ///   [27] constructor: Object is a constructor
+    ///   [26] uncatchable_error: Error cannot be caught
+    ///   [25] tmp_mark: Temporary serialization marker
+    ///   [24] HTMLDDA: Special browser compatibility behavior
+    /// - Bits 15-0: Class ID (JS_CLASS_* constant)
     bitfield: u32,
 }
 
-impl JSObjectDetailed {
+impl JSObjectFlags {
     const MASK_EXTENSIBLE: u32 = 0x8000_0000;
     const MASK_FREE_MARK: u32 = 0x4000_0000;
     const MASK_IS_EXOTIC: u32 = 0x2000_0000;
@@ -313,15 +171,18 @@ impl JSObjectDetailed {
     }
 }
 
+/// Type-specific object data storage
+/// The active union member depends on the object's class ID
 #[repr(C)]
 pub union JSObjectUnion {
-    pub opaque: *mut std::ffi::c_void,
+    pub opaque: *mut c_void,
 
     /// JS_CLASS_BOUND_FUNCTION
     pub bound_function: *mut JSBoundFunction,
     /// JS_CLASS_C_FUNCTION_DATA
     pub c_function_data_record: *mut JSCFunctionDataRecord,
-    pub for_in_iterator: *mut JSForInIterator, /* JS_CLASS_FOR_IN_ITERATOR */
+    /// JS_CLASS_FOR_IN_ITERATOR
+    pub for_in_iterator: *mut JSForInIterator,
     /// JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER
     pub array_buffer: *mut JSArrayBuffer,
     pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW */
@@ -350,6 +211,84 @@ pub union JSObjectUnion {
     pub object_data: JSValue,
 }
 
+#[repr(C)]
+pub struct JSObject {
+    pub header: JSGCObjectHeader,
+
+    /// object flags
+    pub detailed: JSObjectFlags,
+
+    /// Shape of object, to denote prototype and property names + flag
+    /// could be NULL while freeing an object
+    pub shape: *mut JSShape,
+
+    /// property value slots
+    pub prop_values: Vec<JSProperty>,
+
+    pub first_weak_ref: *mut JSMapRecord, /* XXX: use a bit and an external hash table? */
+
+    /// object payload
+    pub u: JSObjectUnion,
+}
+
+impl JSObject {
+    /// Get object's property layout descriptor
+    /// Returns None if object is being destroyed
+    #[inline(always)]
+    pub fn shape(&self) -> Option<&JSShape> {
+        unsafe { self.shape.as_ref() }
+    }
+
+    /// Get mutable access to property layout
+    /// Returns None during garbage collection
+    #[inline(always)]
+    pub fn shape_mut(&mut self) -> Option<&mut JSShape> {
+        unsafe { self.shape.as_mut() }
+    }
+
+    /// Retrieve associated user data pointer
+    /// Used for native object integration
+    #[inline(always)]
+    pub fn opaque(&self) -> *mut c_void {
+        unsafe { self.u.opaque }
+    }
+
+    /// Associate native data with object
+    /// Safety: Caller maintains pointer validity
+    #[inline(always)]
+    pub fn set_opaque(&mut self, opaque: *mut c_void) {
+        self.u.opaque = opaque;
+    }
+}
+
+impl Drop for JSObject {
+    fn drop(&mut self) {
+        // println!("JSObject::drop({self:p})");
+
+        debug_assert_ne!(self.class_id(), 0);
+        debug_assert_eq!(self.header.ref_count, 0);
+        debug_assert!(self.shape.is_null());
+        debug_assert!(self.prop_values.is_empty());
+        debug_assert!(self.first_weak_ref.is_null());
+
+        // ManuallyDrop union
+        unsafe {
+            match self.class_id() {
+                JS_CLASS_BYTECODE_FUNCTION => {
+                    ManuallyDrop::drop(&mut self.u.func);
+                }
+                cid @ (JS_CLASS_ARRAY
+                | JS_CLASS_ARGUMENTS
+                | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
+                    (*self.u.array).drop_data(cid);
+                    ManuallyDrop::drop(&mut self.u.array);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 impl JSObject {
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
@@ -358,6 +297,68 @@ impl JSObject {
 }
 
 impl JSValue {
+    /// Direct conversion to object reference
+    /// Safety: Value must be JS_TAG_OBJECT or JS_TAG_FUNCTION_BYTECODE
+    #[inline(always)]
+    pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
+        debug_assert!(matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
+        ));
+        debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+
+        JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
+    }
+
+    /// Get contained object reference if available.
+    /// Returns None for non-object and non-bytecode-function
+    #[inline(always)]
+    pub fn object<'a>(self) -> Option<&'a mut JSObject> {
+        if matches!(
+            JS_VALUE_GET_TAG(self),
+            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
+        ) {
+            debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
+            Some(unsafe { JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap() })
+        } else {
+            None
+        }
+    }
+
+    /// Determine if value can be called as a function.
+    /// Value is callable in three cases:
+    /// 1. Compiled bytecode functions
+    /// 2. Proxy objects wrapping functions
+    /// 3. Native callable objects
+    pub fn is_callable(self, ctx: &JSContext) -> bool {
+        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+            return false;
+        }
+
+        let p = unsafe { self.object_unchecked() };
+        match p.class_id() {
+            JS_CLASS_BYTECODE_FUNCTION => true,
+            JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
+            cid => {
+                // check if class proto is callable
+                ctx.rt()
+                    .class_array
+                    .get(cid as usize)
+                    .and_then(|c| c.call)
+                    .is_some()
+            }
+        }
+    }
+
+    #[inline]
+    pub fn is_constructor(self) -> bool {
+        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+            false
+        } else {
+            unsafe { self.object_unchecked().detailed.is_constructor() }
+        }
+    }
+
     /// Seal object if the value is an object, otherwise returns the value itself duplicated.
     pub fn seal(self, ctx: &mut JSContext, freeze: bool) -> Self {
         if !self.is_object() {
@@ -491,17 +492,24 @@ pub unsafe fn JS_NewObjectProtoClass(
     JS_NewObjectFromShape(ctx, sh, class_id)
 }
 
-/// Create class instance
+/// Instantiate object of specific class
+/// Args:
+/// - ctx: Runtime context
+/// - class_id: JS_CLASS_* identifier
+/// Returns: New object or Exception
 pub unsafe fn JS_NewObjectClass(ctx: *mut JSContext, class_id: JSClassID) -> JSValue {
     JS_NewObjectProtoClass(ctx, (*ctx).class_proto[class_id as usize], class_id)
 }
 
-/// Create `Object` value using `proto` as prototype
+/// Create plain object with specified prototype
+/// Parameters:
+/// - ctx: JavaScript context
+/// - proto: Prototype object (can be null)
 pub unsafe fn JS_NewObjectProto(ctx: *mut JSContext, proto: JSValueConst) -> JSValue {
     JS_NewObjectProtoClass(ctx, proto, JS_CLASS_OBJECT)
 }
 
-/// Create `Object` value
+/// Create basic object using default Object prototype
 pub unsafe fn JS_NewObject(ctx: *mut JSContext) -> JSValue {
     /* inline JS_NewObjectClass(ctx, JS_CLASS_OBJECT); */
     JS_NewObjectProtoClass(
@@ -511,7 +519,13 @@ pub unsafe fn JS_NewObject(ctx: *mut JSContext) -> JSValue {
     )
 }
 
-/// `proto_val` is duplicated inside. this mean it keeps ref count unchanged after calling.
+/// Modify an object's prototype chain
+/// Args:
+/// - ctx: Runtime context
+/// - obj: Object to modify
+/// - proto_val: New prototype (or null)
+/// - throw_flag: Whether to throw on error
+/// Returns: Result indicating success/failure
 pub unsafe fn JS_SetPrototypeInternal(
     ctx: *mut JSContext,
     obj: JSValueConst,
@@ -676,7 +690,8 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     (*p).first_weak_ref = std::ptr::null_mut(); // fail safe
 }
 
-/// 检查给定的 JSValue是否是一个特定的 C 函数。不仅检查函数指针是否相同，还会检查 magic 值是否匹配
+/// Checks if a JSValue is a specific C function.
+/// Verifies both the function pointer and magic value match.
 #[inline(always)]
 pub unsafe fn JS_IsCFunction(
     ctx: *const JSContext,
@@ -857,6 +872,9 @@ pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
     }
 }
 
+/// Convert JS value to object equivalent
+/// Handles primitive wrapping according to ES6 ToObject conversion rules
+/// Returns exception for null/undefined inputs
 pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
     macro_rules! set_value {
         ($o:expr) => {
@@ -878,10 +896,10 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
             return val;
         }
         JSTag::BigInt => {
-            // obj = JS_NewObjectClass(ctx, JS_CLASS_BIG_INT);
-            // // 跳转到set_value逻辑
-            // if !JS_IsException(obj) {
-            //     JS_SetObjectData(ctx, obj, JS_DupValue(ctx, val));
+            // Create BigInt object wrapper
+            // let obj = JS_NewObjectClass(ctx, JS_CLASS_BIG_INT);
+            // if !obj.is_exception() {
+            //     JS_SetObjectData(ctx, obj, val.dup());
             // }
             // return obj;
             unimplemented!()
@@ -910,6 +928,9 @@ pub unsafe fn JS_ToObjectFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
     return obj;
 }
 
+/// Store primitive value in object wrapper
+/// Only works for primitive wrapper objects (Number, String, Boolean, etc.)
+/// Returns -1 on error (invalid object type)
 pub unsafe fn JS_SetObjectData(ctx: *mut JSContext, obj: JSValueConst, val: JSValue) -> i32 {
     if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
         let p = JS_VALUE_GET_OBJ(obj);
@@ -962,7 +983,11 @@ pub unsafe fn JS_GetPrototypeFree(ctx: *mut JSContext, obj: JSValue) -> JSValue 
     return ret;
 }
 
-// return TRUE if 'obj' has a non empty 'name' string
+/// Check if object has a valid 'name' property
+/// Returns true if:
+/// 1. Has a non-normal 'name' property (getter/setter)
+/// 2. 'name' is a non-empty string
+/// 3. 'name' is a symbol with description
 pub unsafe fn js_object_has_name(obj: JSValueConst) -> bool {
     if let Some((prs, pr)) = (*JS_VALUE_GET_OBJ(obj)).find_own_property(JS_ATOM_name) {
         if prs.flags() & JS_PROP_TMASK != JS_PROP_NORMAL {

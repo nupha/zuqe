@@ -102,11 +102,14 @@ pub use nb_value::*;
 
 #[cfg(not(feature = "nan_boxing"))]
 mod nnb_value {
+    use std::ffi::c_void;
+
     #[derive(Debug, Copy, Clone, Default)]
-    #[repr(C)]
     pub struct JSValue {
-        pub tag: super::JSTag, // 类型标签
-        pub u: JSValueUnion,   // 实际值
+        /// type tag
+        pub tag: super::JSTag,
+        /// payload
+        pub u: JSValueUnion,
     }
 
     #[derive(Copy, Clone)]
@@ -114,7 +117,7 @@ mod nnb_value {
     pub union JSValueUnion {
         pub int32: i32,
         pub float64: f64,
-        pub ptr: *mut std::ffi::c_void,
+        pub ptr: *mut c_void,
     }
 
     impl Default for JSValueUnion {
@@ -202,7 +205,7 @@ mod nnb_value {
     }
 
     #[inline(always)]
-    pub const fn JS_VALUE_GET_PTR(v: JSValue) -> *mut std::ffi::c_void {
+    pub const fn JS_VALUE_GET_PTR(v: JSValue) -> *mut c_void {
         unsafe { v.u.ptr }
     }
 }
