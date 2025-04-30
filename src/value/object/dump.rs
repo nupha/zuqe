@@ -122,17 +122,27 @@ impl JSObject {
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
                     // 1, 2, 4, 8
                     let bytes_per_element = 1 << typed_array_size_log2(class_id);
-                    let buf = std::slice::from_raw_parts(
-                        self.u.array.data.ptr.cast::<u8>(),
-                        self.array_length_unchecked() * bytes_per_element,
-                    );
 
-                    for (i, b) in buf.iter().enumerate() {
-                        if i != 0 && i % bytes_per_element == 0 {
-                            print!(", ");
-                        }
-                        print!("{:02X}", *b);
-                    }
+                    self.as_typed_array_obj_unchecked()
+                        .with_data::<u8, _>(|lst| {
+                            for (i, b) in lst.iter().enumerate() {
+                                if i != 0 && i % bytes_per_element == 0 {
+                                    print!(", ");
+                                }
+                                print!("{:02X}", *b);
+                            }
+                        });
+
+                    // let buf = std::slice::from_raw_parts(
+                    //     self.u.array.data.ptr.cast::<u8>(),
+                    //     self.array_length_unchecked() * bytes_per_element,
+                    // );
+                    // for (i, b) in buf.iter().enumerate() {
+                    //     if i != 0 && i % bytes_per_element == 0 {
+                    //         print!(", ");
+                    //     }
+                    //     print!("{:02X}", *b);
+                    // }
                 }
                 _ => unimplemented!(),
             }

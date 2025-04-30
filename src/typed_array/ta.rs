@@ -65,6 +65,56 @@ impl JSTypedArray {
     pub fn array_buffer_obj(&self) -> &JSObject {
         unsafe { self.buffer.as_ref() }
     }
+
+    /// get underlaying array buffer.
+    #[inline(always)]
+    pub fn array_buffer(&self) -> &JSArrayBuffer {
+        unsafe { self.buffer.as_ref().u.array_buffer.as_ref().unwrap() }
+    }
+
+    /// get underlaying array buffer.
+    #[inline(always)]
+    pub fn array_buffer_mut(&mut self) -> &mut JSArrayBuffer {
+        unsafe { self.buffer.as_ref().u.array_buffer.as_mut().unwrap() }
+    }
+
+    /// run closure with data slice casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    pub fn with_data<T, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
+        debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
+
+        let base = self.offset as usize;
+        let byte_length = self.byte_length as usize;
+
+        self.array_buffer().with_bytes(|buf| {
+            let lst = unsafe {
+                std::slice::from_raw_parts(
+                    buf.as_ptr().add(base).cast::<T>(),
+                    byte_length / std::mem::size_of::<T>(),
+                )
+            };
+            f(lst)
+        })
+    }
+
+    /// run closure with data slice casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    pub fn with_data_mut<T, R>(&mut self, f: impl FnOnce(&mut [T]) -> R) -> R {
+        debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
+
+        let base = self.offset as usize;
+        let byte_length = self.byte_length as usize;
+
+        self.array_buffer_mut().with_bytes_mut(|buf| {
+            let lst = unsafe {
+                std::slice::from_raw_parts_mut(
+                    buf.as_mut_ptr().add(base).cast::<T>(),
+                    byte_length / std::mem::size_of::<T>(),
+                )
+            };
+            f(lst)
+        })
+    }
 }
 
 #[repr(transparent)]
@@ -89,6 +139,12 @@ impl<'a> TypedArrayObj<'a> {
     #[inline(always)]
     pub fn typed_array(&self) -> &JSTypedArray {
         unsafe { self.typed_array_ptr().as_ref() }
+    }
+
+    /// get typed array data.
+    #[inline(always)]
+    pub fn typed_array_mut(&self) -> &mut JSTypedArray {
+        unsafe { self.typed_array_ptr().as_mut() }
     }
 
     /// get underlaying array buffer object.
@@ -118,7 +174,7 @@ impl<'a> TypedArrayObj<'a> {
         };
 
         let pbuffer = unsafe { buffer.object_unchecked() };
-        let abuf = unsafe { pbuffer.u.array_buffer };
+        let mut abuf = unsafe { pbuffer.u.array_buffer };
 
         ta.obj = self.obj.as_ptr();
         ta.buffer = NonNull::from(pbuffer);
@@ -132,7 +188,7 @@ impl<'a> TypedArrayObj<'a> {
 
             obj.u.typed_array = Box::into_raw(ta);
             (*obj.u.array).typed_array_count = count as u32;
-            (*obj.u.array).data.ptr = (*abuf).data.offset(offset as isize).cast();
+            (*obj.u.array).data.ptr = (*abuf).content.as_mut_ptr().offset(offset as isize).cast();
         }
 
         Ok(())
@@ -180,55 +236,18 @@ impl<'a> TypedArrayObj<'a> {
         }
     }
 
-    /// get typed array data pointer as type T.
+    /// run closure with data slice casted as type T.
     /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
-    /// if array is detached, behaviour is undefined.
     #[inline(always)]
-    pub unsafe fn data_ptr_unchecked<T>(&self) -> NonNull<T> {
-        debug_assert!(!self.is_detached());
-        NonNull::new_unchecked(self.obj.as_ref().u.array.data.ptr.cast::<T>())
+    pub fn with_data<T, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
+        self.typed_array().with_data(f)
     }
 
-    /// get data ptr and count
-    fn data_ptr_and_count<T>(&self) -> (NonNull<T>, usize) {
-        let len = self.length();
-        let count = if len > 0 {
-            let shift = typed_array_size_log2(self.class_id());
-            if (1 << shift) == std::mem::size_of::<T>() as u8 {
-                len
-            } else {
-                len as usize * (1 << shift) / std::mem::size_of::<T>()
-            }
-        } else {
-            0
-        };
-
-        (
-            unsafe { NonNull::new_unchecked(self.obj.as_ref().u.array.data.ptr.cast::<T>()) },
-            count,
-        )
-    }
-
-    /// get data as slice
-    #[inline]
-    pub fn as_slice<T>(&self) -> &[T] {
-        let (ptr, count) = self.data_ptr_and_count::<T>();
-        if count == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(ptr.as_ptr(), count) }
-        }
-    }
-
-    /// get data as slice mut
-    #[inline]
-    pub fn as_slice_mut<T>(&mut self) -> &mut [T] {
-        let (ptr, count) = self.data_ptr_and_count::<T>();
-        if count == 0 {
-            &mut []
-        } else {
-            unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), count) }
-        }
+    /// run closure with data slice casted as type T.
+    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    #[inline(always)]
+    pub fn with_data_mut<T, R>(&mut self, f: impl FnOnce(&mut [T]) -> R) -> R {
+        self.typed_array_mut().with_data_mut(f)
     }
 
     /// create a new TypedArray object with content copy from `self` array.
@@ -268,7 +287,7 @@ impl<'a> TypedArrayObj<'a> {
                 .as_ref()
                 .opaque::<JSArrayBuffer>(JS_CLASS_ARRAY_BUFFER)
                 .unwrap()
-                .as_ref()
+                .as_mut()
         };
 
         let new_arr = unsafe { js_create_from_ctor(ctx, new_target, class_id).check_exception()? };
@@ -286,11 +305,17 @@ impl<'a> TypedArrayObj<'a> {
         if self.class_id() == class_id {
             // same type: copy the content
             unsafe {
-                std::ptr::copy_nonoverlapping(
-                    (*src_abuf).data.offset((*ta).offset as isize),
-                    abuf.data,
-                    abuf.byte_length as usize,
-                );
+                (*src_abuf).with_bytes(|src| {
+                    let cnt = abuf.byte_length();
+
+                    abuf.with_bytes_mut(|dst| {
+                        std::ptr::copy_nonoverlapping(
+                            src.as_ptr().offset((*ta).offset as isize),
+                            dst.as_mut_ptr(),
+                            cnt,
+                        );
+                    });
+                });
             }
         } else {
             let src_obj = JS_MKPTR!(JSTag::Object, self.obj.as_ptr().cast());
@@ -457,21 +482,21 @@ impl JSContext {
                             return Err(-1);
                         }
 
-                        if (offset & ((1 << size_log2) - 1) != 0)
-                            || offset > (*abuf).byte_length as usize
-                        {
+                        let byte_length = (*abuf).byte_length();
+
+                        if (offset & ((1 << size_log2) - 1) != 0) || offset > byte_length {
                             JS_ThrowRangeError(self, c"invalid offset");
                             return Err(-1);
                         }
 
                         let count = if length == 0 {
-                            if (*abuf).byte_length & ((1 << size_log2) - 1) != 0 {
+                            if byte_length & ((1 << size_log2) - 1) != 0 {
                                 JS_ThrowRangeError(self, c"invalid length");
                                 return Err(-1);
                             }
-                            ((*abuf).byte_length as usize - offset) >> size_log2
+                            (byte_length - offset) >> size_log2
                         } else {
-                            if (offset + (length << size_log2)) > (*abuf).byte_length as usize {
+                            if (offset + (length << size_log2)) > byte_length {
                                 JS_ThrowRangeError(self, c"invalid length");
                                 return Err(-1);
                             }
@@ -651,7 +676,7 @@ pub unsafe fn js_typed_array_set_internal(
         return JSValue::EXCEPTION;
     }
 
-    let src_len: i64;
+    let count: i64;
 
     let src_p = JS_VALUE_GET_OBJ(src_obj);
     if (*src_p).class_id() >= JS_CLASS_UINT8C_ARRAY && (*src_p).class_id() <= JS_CLASS_FLOAT64_ARRAY
@@ -668,8 +693,8 @@ pub unsafe fn js_typed_array_set_internal(
             return JSValue::EXCEPTION;
         }
 
-        src_len = (*src_p).u.array.typed_array_count as i64;
-        if offset > (*p).u.array.typed_array_count as i64 - src_len {
+        count = (*src_p).u.array.typed_array_count as i64;
+        if offset > (*p).u.array.typed_array_count as i64 - count {
             JS_ThrowRangeError(ctx, c"invalid array length");
             JS_FreeValue(ctx, src_obj);
             return JSValue::EXCEPTION;
@@ -677,37 +702,52 @@ pub unsafe fn js_typed_array_set_internal(
 
         // copying between typed objects
         if (*src_p).class_id() == (*p).class_id() {
-            // same type, use memmove
-            let dest_ptr = (*dest_abuf)
-                .data
-                .offset((*dest_ta).offset as isize + (offset << shift) as isize);
-            let src_ptr = (*src_abuf).data.offset((*src_ta).offset as isize);
-            std::ptr::copy(dest_ptr, src_ptr, (src_len << shift) as usize);
+            // same type, use mem copy
+            let src_offset = (*src_ta).offset;
+
+            (*src_abuf).with_bytes(|src| {
+                (*dest_abuf).with_bytes_mut(|dst| {
+                    std::ptr::copy(
+                        src.as_ptr().offset(src_offset as isize),
+                        dst.as_mut_ptr(),
+                        (count << shift) as usize, // count to byte_num
+                    );
+                });
+            });
+
+            // let dest_ptr = (*dest_abuf)
+            //     .data_mut_ptr()
+            //     .offset((*dest_ta).offset as isize + (offset << shift) as isize);
+            // let src_ptr = (*src_abuf).data_ptr().offset((*src_ta).offset as isize);
+            // std::ptr::copy(src_ptr, dest_ptr, (src_len << shift) as usize);
 
             JS_FreeValue(ctx, src_obj);
             return JSValue::UNDEFINED;
         }
-        if (*dest_abuf).data == (*src_abuf).data {
+
+        if (*dest_abuf).content.id() == (*src_abuf).content.id() {
             // copying between the same buffer using different types of mappings
             // would require a temporary buffer
+            todo!();
+
+            return JSValue::UNDEFINED;
         }
-        // otherwise, default behavior is slow but correct
     } else {
-        src_len = if let Ok(n) = js_get_length64(ctx, src_obj) {
+        count = if let Ok(n) = js_get_length64(ctx, src_obj) {
             n
         } else {
             JS_FreeValue(ctx, src_obj);
             return JSValue::EXCEPTION;
         };
 
-        if offset > (*p).u.array.typed_array_count as i64 - src_len {
+        if offset > (*p).u.array.typed_array_count as i64 - count {
             JS_ThrowRangeError(ctx, c"invalid array length");
             JS_FreeValue(ctx, src_obj);
             return JSValue::EXCEPTION;
         }
     }
 
-    for i in 0..src_len as u32 {
+    for i in 0..count as u32 {
         let val = src_obj.get_property_u32(ctx.as_mut().unwrap(), i);
         if val.is_exception() {
             JS_FreeValue(ctx, src_obj);

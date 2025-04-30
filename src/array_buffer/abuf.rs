@@ -1,15 +1,20 @@
-use std::ffi::c_void;
+use std::{
+    ffi::c_void,
+    ops::Deref,
+    ptr::NonNull,
+    sync::{Arc, RwLock},
+};
 
 use crate::{
     class::{js_create_from_ctor, JSClassID},
     context::JSContext,
-    error::{JSResult, JS_ThrowRangeError},
+    error::JSResult,
     list_entry,
-    mem::{js_free_rt, js_malloc_typed},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{init_list_head, list_foreach_safe, list_head},
-    value::{JSValue, JSValueConst, JS_ToIndex, JS_VALUE_GET_OBJ},
+    value::{JSValue, JSValueConst, JS_ToIndex},
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
 };
 
@@ -17,19 +22,98 @@ pub type JSFreeArrayBufferDataFunc =
     unsafe fn(rt: *mut JSRuntime, opaque: *mut c_void, data: *mut u8, data_length: usize);
 
 pub struct JSSharedArrayBufferFunctions {
-    pub sab_alloc: fn(*mut c_void, usize) -> *mut c_void,
-    pub sab_free: fn(*mut c_void, *mut c_void),
-    pub sab_dup: fn(*mut c_void, *mut c_void),
+    pub sab_alloc: fn(*mut c_void, usize) -> Result<Box<[u8]>, i32>,
+    pub sab_free: fn(*mut c_void, usize),
+    // pub sab_dup: fn(*mut c_void, *mut c_void),
     pub sab_opaque: *mut c_void,
 }
 
-pub struct JSArrayBuffer {
-    /// NULL if detached.
-    pub data: *mut u8,
-    /// data length in bytes
-    pub byte_length: i32,
+pub enum ArrayBufferContent {
+    Empty,
+    Owned(Box<[u8]>),
+    Shared(Arc<RwLock<Box<[u8]>>>),
+    Raw(NonNull<u8>, usize, Option<JSFreeArrayBufferDataFunc>),
+}
 
-    /// detatched flag
+impl ArrayBufferContent {
+    pub fn is_shared(&self) -> bool {
+        if let Self::Shared(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Owned(b) => b.len(),
+            Self::Shared(a) => a.read().unwrap().len(),
+            Self::Raw(_, len, _) => *len,
+        }
+    }
+
+    #[deprecated(note = "this is unsafe")]
+    pub fn as_ptr(&self) -> *const u8 {
+        match self {
+            Self::Empty => std::ptr::null(),
+            Self::Owned(b) => b.as_ptr(),
+            Self::Shared(a) => a.read().unwrap().as_ptr(),
+            Self::Raw(p, _, _) => p.as_ptr(),
+        }
+    }
+
+    #[deprecated(note = "this is unsafe")]
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        match self {
+            Self::Empty => std::ptr::null_mut(),
+            Self::Owned(b) => b.as_mut_ptr(),
+            Self::Shared(a) => a.write().unwrap().as_mut_ptr(),
+            Self::Raw(p, _, _) => p.as_ptr(),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Empty => &[],
+            Self::Owned(b) => b.deref(),
+            Self::Shared(a) => todo!(),
+            Self::Raw(p, len, _) => unsafe { std::slice::from_raw_parts(p.as_ptr(), *len) },
+        }
+    }
+
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        match self {
+            Self::Empty => f(&[]),
+            Self::Owned(b) => f(b.as_ref()),
+            Self::Shared(a) => f(a.read().unwrap().as_ref()),
+            Self::Raw(p, len, _) => f(unsafe { std::slice::from_raw_parts(p.as_ptr(), *len) }),
+        }
+    }
+
+    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        match self {
+            Self::Empty => f(&mut []),
+            Self::Owned(b) => f(b.as_mut()),
+            Self::Shared(a) => f(a.write().unwrap().as_mut()),
+            Self::Raw(p, len, _) => f(unsafe { std::slice::from_raw_parts_mut(p.as_ptr(), *len) }),
+        }
+    }
+
+    /// get buffer unique id (use addr). this is used to check if two buffer are same.
+    pub fn id(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Owned(b) => b.as_ptr() as usize,
+            Self::Shared(a) => a.read().unwrap().as_ptr() as usize,
+            Self::Raw(p, _, _) => p.as_ptr() as usize,
+        }
+    }
+}
+
+pub struct JSArrayBuffer {
+    pub content: ArrayBufferContent,
+
     pub detached: bool,
 
     /// if shared, the array buffer cannot be detached
@@ -39,12 +123,29 @@ pub struct JSArrayBuffer {
     pub array_list: list_head,
 
     pub opaque: *mut c_void,
+    // /// for default allocated buffer, this is used to free `data`.
+    // /// in case `data` is allocated by JSRuntime.sab_funcs.sab_alloc,
+    // /// JSRuntime.sab_funcs.sab_free will be used to free it,
+    // /// this callback is not used in the case.
+    // pub free_func: Option<JSFreeArrayBufferDataFunc>,
+}
 
-    /// for default allocated buffer, this is used to free `data`.
-    /// in case `data` is allocated by JSRuntime.sab_funcs.sab_alloc,
-    /// JSRuntime.sab_funcs.sab_free will be used to free it,
-    /// this callback is not used in the case.
-    pub free_func: Option<JSFreeArrayBufferDataFunc>,
+impl JSArrayBuffer {
+    /// get capacity of buffer, count in bytes
+    #[inline(always)]
+    pub fn byte_length(&self) -> usize {
+        self.content.len()
+    }
+
+    #[inline(always)]
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        self.content.with_bytes(f)
+    }
+
+    #[inline(always)]
+    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        self.content.with_bytes_mut(f)
+    }
 }
 
 impl JSValue {
@@ -80,28 +181,13 @@ impl JSValue {
 
 impl JSContext {
     /// Create new instance of class ARRAY_BUFFER.
-    /// `buf_length` is byte count of buf.
-    /// parameter `alloc_flag`:
-    /// - true, allocate chunk to copy content from buf,
-    /// - false, use provided `buf`, must ensure that `buf` is valid within instance's lifetime.
-    ///
-    /// When instance is freed, `free_func` will be called to free buffer.
     fn create_array_buffer_inner(
         &mut self,
         new_target: JSValueConst,
         class_id: JSClassID,
-        buf: *mut u8,
-        buf_length: usize,
-        free_func: Option<JSFreeArrayBufferDataFunc>,
+        content: ArrayBufferContent,
         opaque: *mut c_void,
-        alloc_flag: bool,
     ) -> JSResult {
-        // XXX: we are currently limited to 2 GB
-        if buf_length > i32::MAX as usize {
-            JS_ThrowRangeError(self, c"invalid array buffer length");
-            return Err(-1);
-        }
-
         // make ArrayBuffer data
         let mut ab = unsafe {
             Box::from_raw(
@@ -111,40 +197,7 @@ impl JSContext {
             )
         };
 
-        ab.byte_length = buf_length as i32;
-
-        match (class_id, &self.rt().sab_funcs) {
-            (JS_CLASS_ARRAY_BUFFER, Some(fns)) => {
-                if alloc_flag {
-                    // alloc sab
-                    ab.data = (fns.sab_alloc)(fns.sab_opaque, buf_length).cast();
-                    if ab.data.is_null() {
-                        return Err(-1);
-                    }
-                    unsafe {
-                        std::ptr::write_bytes(ab.data, 0, buf_length as usize);
-                    }
-                } else {
-                    (fns.sab_dup)(fns.sab_opaque, buf.cast());
-                    ab.data = buf;
-                }
-            }
-            _ => {
-                if alloc_flag {
-                    // use default alloc
-                    let mut chunk = Vec::<u8>::new();
-                    if chunk.try_reserve_exact(buf_length as usize).is_err() {
-                        self.JS_ThrowOutOfMemory();
-                        return Err(-1);
-                    }
-                    chunk.resize(buf_length as usize, 0);
-                    // leak Box<[u8]> to *mut [u8], cast to *mut u8
-                    ab.data = Box::into_raw(chunk.into_boxed_slice()) as *mut u8;
-                } else {
-                    ab.data = buf;
-                }
-            }
-        }
+        ab.content = content;
 
         unsafe {
             init_list_head(&mut ab.array_list);
@@ -153,12 +206,6 @@ impl JSContext {
         ab.detached = false;
         ab.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
         ab.opaque = opaque;
-        ab.free_func = free_func;
-        if alloc_flag && !buf.is_null() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(buf, ab.data, buf_length as usize);
-            }
-        }
 
         // create js instance
         let ab_obj = unsafe { js_create_from_ctor(self, new_target, class_id).check_exception()? };
@@ -172,9 +219,172 @@ impl JSContext {
 
         Ok(ab_obj)
     }
+
+    pub fn create_array_buffer(
+        &mut self,
+        new_target: JSValueConst,
+        class_id: JSClassID,
+        byte_length: usize,
+        opaque: *mut c_void,
+    ) -> JSResult {
+        let content = if byte_length == 0 {
+            ArrayBufferContent::Empty
+        } else {
+            match (class_id, &self.rt().sab_funcs) {
+                (JS_CLASS_SHARED_ARRAY_BUFFER, Some(fns)) => {
+                    let mut data = (fns.sab_alloc)(fns.sab_opaque, byte_length)?;
+                    unsafe {
+                        std::ptr::write_bytes(data.as_mut_ptr(), 0, byte_length);
+                    }
+                    ArrayBufferContent::Shared(Arc::new(RwLock::new(data)))
+                }
+                _ => {
+                    let mut chunk = Vec::<u8>::new();
+                    if chunk.try_reserve_exact(byte_length).is_err() {
+                        self.JS_ThrowOutOfMemory();
+                        return Err(-1);
+                    }
+                    chunk.resize(byte_length, 0);
+                    ArrayBufferContent::Owned(chunk.into_boxed_slice())
+                }
+            }
+        };
+
+        self.create_array_buffer_inner(new_target, class_id, content, opaque)
+    }
+
+    #[inline(always)]
+    pub fn create_array_buffer_with_data(
+        &mut self,
+        new_target: JSValueConst,
+        class_id: JSClassID,
+        data: Box<[u8]>,
+        opaque: *mut c_void,
+    ) -> JSResult {
+        self.create_array_buffer_inner(
+            new_target,
+            class_id,
+            ArrayBufferContent::Owned(data),
+            opaque,
+        )
+    }
+
+    #[inline(always)]
+    pub fn create_array_buffer_from_raw_parts(
+        &mut self,
+        new_target: JSValueConst,
+        class_id: JSClassID,
+        data: NonNull<u8>,
+        data_len: usize,
+        free_func: Option<JSFreeArrayBufferDataFunc>,
+        opaque: *mut c_void,
+    ) -> JSResult {
+        debug_assert!(data_len > 0);
+
+        self.create_array_buffer_inner(
+            new_target,
+            class_id,
+            ArrayBufferContent::Raw(data, data_len, free_func),
+            opaque,
+        )
+    }
+
+    // / Create new instance of class ARRAY_BUFFER.
+    // / `buf_length` is byte count of buf.
+    // / parameter `alloc_flag`:
+    // / - true, allocate chunk to copy content from buf,
+    // / - false, use provided `buf`, must ensure that `buf` is valid within instance's lifetime.
+    // /
+    // / When instance is freed, `free_func` will be called to free buffer.
+    // fn create_array_buffer_inner0(
+    //     &mut self,
+    //     new_target: JSValueConst,
+    //     class_id: JSClassID,
+    //     buf: *mut u8,
+    //     buf_length: usize,
+    //     free_func: Option<JSFreeArrayBufferDataFunc>,
+    //     opaque: *mut c_void,
+    //     alloc_flag: bool,
+    // ) -> JSResult {
+    //     // XXX: we are currently limited to 2 GB
+    //     if buf_length > i32::MAX as usize {
+    //         JS_ThrowRangeError(self, c"invalid array buffer length");
+    //         return Err(-1);
+    //     }
+
+    //     // make ArrayBuffer data
+    //     let mut ab = unsafe {
+    //         Box::from_raw(
+    //             js_malloc_typed::<JSArrayBuffer>(self, 1, false)
+    //                 .ok_or(-1)?
+    //                 .as_ptr(),
+    //         )
+    //     };
+
+    //     ab.byte_length = buf_length as i32;
+
+    //     match (class_id, &self.rt().sab_funcs) {
+    //         (JS_CLASS_SHARED_ARRAY_BUFFER, Some(fns)) => {
+    //             if alloc_flag {
+    //                 // alloc sab
+    //                 ab.data = (fns.sab_alloc)(fns.sab_opaque, buf_length).cast();
+    //                 if ab.data.is_null() {
+    //                     return Err(-1);
+    //                 }
+    //                 unsafe {
+    //                     std::ptr::write_bytes(ab.data, 0, buf_length as usize);
+    //                 }
+    //             } else {
+    //                 (fns.sab_dup)(fns.sab_opaque, buf.cast());
+    //                 ab.data = buf;
+    //             }
+    //         }
+    //         _ => {
+    //             if alloc_flag {
+    //                 // use default alloc
+    //                 let mut chunk = Vec::<u8>::new();
+    //                 if chunk.try_reserve_exact(buf_length as usize).is_err() {
+    //                     self.JS_ThrowOutOfMemory();
+    //                     return Err(-1);
+    //                 }
+    //                 chunk.resize(buf_length as usize, 0);
+    //                 // leak Box<[u8]> to *mut [u8], cast to *mut u8
+    //                 ab.data = Box::into_raw(chunk.into_boxed_slice()) as *mut u8;
+    //             } else {
+    //                 ab.data = buf;
+    //             }
+    //         }
+    //     }
+
+    //     unsafe {
+    //         init_list_head(&mut ab.array_list);
+    //     }
+
+    //     ab.detached = false;
+    //     ab.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
+    //     ab.opaque = opaque;
+    //     ab.free_func = free_func;
+    //     if alloc_flag && !buf.is_null() {
+    //         unsafe {
+    //             std::ptr::copy_nonoverlapping(buf, ab.data, buf_length as usize);
+    //         }
+    //     }
+
+    //     // create js instance
+    //     let ab_obj = unsafe { js_create_from_ctor(self, new_target, class_id).check_exception()? };
+
+    //     // Note: set pointer to object opaque, can be accessed using u.array_buffer field.
+    //     unsafe {
+    //         ab_obj
+    //             .object_unchecked()
+    //             .set_opaque(Box::into_raw(ab).cast());
+    //     }
+
+    //     Ok(ab_obj)
+    // }
 }
 
-#[deprecated(note = "use JSContext::create_array_buffer_inner() instead")]
+#[deprecated(note = "use JSContext::create_array_buffer_inner0() instead")]
 pub unsafe fn js_array_buffer_constructor3(
     ctx: *mut JSContext,
     new_target: JSValueConst,
@@ -185,90 +395,18 @@ pub unsafe fn js_array_buffer_constructor3(
     opaque: *mut c_void,
     alloc_flag: bool,
 ) -> JSValue {
-    (*ctx)
-        .create_array_buffer_inner(
-            new_target,
-            class_id,
-            buf,
-            byte_length,
-            free_func,
-            opaque,
-            alloc_flag,
-        )
-        .unwrap_or(JSValue::EXCEPTION)
-
-    // let rt = (*ctx).rt();
-
-    // // XXX: we are currently limited to 2 GB
-    // if byte_length > i32::MAX as usize {
-    //     JS_ThrowRangeError(ctx, c"invalid array buffer length");
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // // make ArrayBuffer state
-    // let mut ab_state = if let Some(p) = js_malloc_typed::<JSArrayBuffer>(ctx, 1, false) {
-    //     Box::from_raw(p.as_ptr())
-    // } else {
-    //     return JSValue::EXCEPTION;
-    // };
-
-    // ab_state.byte_length = byte_length as i32;
-
-    // if alloc_flag {
-    //     // alloc data buffer.
-    //     // the allocation must be done after the object creation
-    //     if class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt.sab_funcs.sab_alloc.is_some() {
-    //         // alloc sab
-    //         ab_state.data =
-    //             (rt.sab_funcs.sab_alloc.unwrap())(rt.sab_funcs.sab_opaque, byte_length as usize)
-    //                 .cast();
-
-    //         if ab_state.data.is_null() {
-    //             return JSValue::EXCEPTION;
-    //         }
-
-    //         std::ptr::write_bytes(ab_state.data, 0, byte_length as usize);
-    //     } else {
-    //         // default alloc
-    //         let mut chunk = Vec::<u8>::new();
-    //         if chunk.try_reserve_exact(byte_length as usize).is_err() {
-    //             (*ctx).JS_ThrowOutOfMemory();
-    //             return JSValue::EXCEPTION;
-    //         }
-    //         chunk.resize(byte_length as usize, 0);
-
-    //         // leak Box<[u8]> to *mut [u8], cast to *mut u8
-    //         ab_state.data = Box::into_raw(chunk.into_boxed_slice()) as *mut u8;
-    //     }
-    // } else {
-    //     if class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt.sab_funcs.sab_dup.is_some() {
-    //         (rt.sab_funcs.sab_dup.unwrap())(rt.sab_funcs.sab_opaque, buf.cast());
-    //     }
-    //     ab_state.data = buf;
-    // }
-
-    // init_list_head(&mut ab_state.array_list);
-
-    // ab_state.detached = false;
-    // ab_state.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
-    // ab_state.opaque = opaque;
-    // ab_state.free_func = free_func;
-    // if alloc_flag && !buf.is_null() {
-    //     std::ptr::copy_nonoverlapping(buf, ab_state.data, byte_length as usize);
-    // }
-
-    // // create js instance
-    // let ab_obj = js_create_from_ctor(ctx, new_target, class_id);
-    // if ab_obj.is_exception() {
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // // Note: set pointer to object opaque, can be accessed using u.array_buffer field.
-    // ab_obj
-    //     .object_unchecked()
-    //     .set_opaque(Box::into_raw(ab_state).cast());
-
-    // ab_obj
+    // (*ctx)
+    //     .create_array_buffer_inner0(
+    //         new_target,
+    //         class_id,
+    //         buf,
+    //         byte_length,
+    //         free_func,
+    //         opaque,
+    //         alloc_flag,
+    //     )
+    //     .unwrap_or(JSValue::EXCEPTION)
+    unreachable!()
 }
 
 /// the callback to free JSArrayBuffer.
@@ -287,22 +425,27 @@ pub unsafe fn js_array_buffer_free(
     drop(Box::from_raw(s));
 }
 
+#[deprecated(note = "use JSContext::create_array_buffer() instead")]
 pub unsafe fn js_array_buffer_constructor2(
     ctx: *mut JSContext,
     new_target: JSValueConst,
     byte_length: usize,
     class_id: JSClassID,
 ) -> JSValue {
-    js_array_buffer_constructor3(
-        ctx,
-        new_target,
-        byte_length,
-        class_id,
-        std::ptr::null_mut(),
-        Some(js_array_buffer_free),
-        std::ptr::null_mut(),
-        true,
-    )
+    (*ctx)
+        .create_array_buffer(new_target, class_id, byte_length, std::ptr::null_mut())
+        .unwrap_or(JSValue::EXCEPTION)
+
+    // js_array_buffer_constructor3(
+    //     ctx,
+    //     new_target,
+    //     byte_length,
+    //     class_id,
+    //     std::ptr::null_mut(),
+    //     Some(js_array_buffer_free),
+    //     std::ptr::null_mut(),
+    //     true,
+    // )
 }
 
 #[inline(always)]
@@ -364,23 +507,37 @@ pub unsafe fn js_array_buffer_finalizer(rt: *mut JSRuntime, val: JSValue) {
             }
         });
 
-        // free mem chunk
-        match ((*abuf).shared, &(*rt).sab_funcs) {
-            (true, Some(fns)) => {
-                (fns.sab_free)(fns.sab_opaque, (*abuf).data.cast());
+        let ab = Box::from_raw(abuf);
+
+        // free content
+        match ab.content {
+            ArrayBufferContent::Raw(p, len, Some(free)) => {
+                free(rt, ab.opaque, p.as_ptr(), len);
             }
-            _ => {
-                if let Some(cb) = (*abuf).free_func {
-                    cb(
-                        rt,
-                        (*abuf).opaque,
-                        (*abuf).data,
-                        (*abuf).byte_length as usize,
-                    );
+            ArrayBufferContent::Shared(a) => {
+                if Arc::strong_count(&a) == 1 {
+                    if let Some(fns) = &(*rt).sab_funcs {
+                        (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
+                    }
                 }
             }
+            _ => {}
         }
 
-        drop(Box::from_raw(abuf));
+        // match ((*abuf).shared, &(*rt).sab_funcs) {
+        //     (true, Some(fns)) => {
+        //         (fns.sab_free)(fns.sab_opaque, (*abuf).data.cast());
+        //     }
+        //     _ => {
+        //         if let Some(cb) = (*abuf).free_func {
+        //             cb(
+        //                 rt,
+        //                 (*abuf).opaque,
+        //                 (*abuf).data,
+        //                 (*abuf).byte_length as usize,
+        //             );
+        //         }
+        //     }
+        // }
     }
 }

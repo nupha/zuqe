@@ -605,23 +605,22 @@ pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResul
 
         let count = std::cmp::min(final_ - from, len - to);
         if count > 0 {
-            let p = args.this_raw().typed_array_obj_unchecked();
-            if p.is_detached() {
+            let mut tao = args.this_raw().typed_array_obj_unchecked();
+            if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 return Err(-1);
             }
 
-            let shift = typed_array_size_log2(p.class_id());
+            let shift = typed_array_size_log2(tao.class_id());
 
-            std::ptr::copy(
-                p.data_ptr_unchecked::<u8>()
-                    .add((from << shift) as usize)
-                    .as_ptr(),
-                p.data_ptr_unchecked::<u8>()
-                    .add((to << shift) as usize)
-                    .as_ptr(),
-                (count << shift) as usize,
-            );
+            tao.with_data_mut::<u8, ()>(|buf| {
+                let ptr = buf.as_mut_ptr();
+                std::ptr::copy(
+                    ptr.add((from << shift) as usize),
+                    ptr.add((to << shift) as usize),
+                    (count << shift) as usize,
+                );
+            });
         }
 
         Ok(args.this_raw().dup())
@@ -631,7 +630,7 @@ pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResul
 pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let this_val = args.this_raw();
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let p = unsafe { this_val.typed_array_obj_unchecked() };
+    let mut p = unsafe { this_val.typed_array_obj_unchecked() };
 
     let v64: u64;
 
@@ -696,9 +695,7 @@ pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     if p.is_detached() {
-        unsafe {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        }
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
 
@@ -706,39 +703,36 @@ pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     match shift {
         0 => {
             if k < final_ {
-                unsafe {
+                p.with_data_mut::<u8, _>(|buf| unsafe {
                     std::ptr::write_bytes(
-                        p.data_ptr_unchecked::<u8>().offset(k as isize).as_ptr(),
+                        buf.as_mut_ptr().offset(k as isize),
                         v64 as u8,
                         (final_ - k) as usize,
                     );
-                }
+                });
             }
         }
-        1 => unsafe {
-            let mut ptr = p.data_ptr_unchecked::<u16>().add(k as usize);
-            while k < final_ {
-                ptr.write(v64 as u16);
-                ptr = ptr.add(1);
-                k += 1;
-            }
-        },
-        2 => unsafe {
-            let mut ptr = p.data_ptr_unchecked::<u32>().add(k as usize);
-            while k < final_ {
-                ptr.write(v64 as u32);
-                ptr = ptr.add(1);
-                k += 1;
-            }
-        },
-        3 => unsafe {
-            let mut ptr = p.data_ptr_unchecked::<u64>().add(k as usize);
-            while k < final_ {
-                ptr.write(v64);
-                ptr = ptr.add(1);
-                k += 1;
-            }
-        },
+        1 => {
+            p.with_data_mut::<u16, _>(|buf| {
+                for i in k..final_ {
+                    buf[i as usize] = v64 as u16;
+                }
+            });
+        }
+        2 => {
+            p.with_data_mut::<u32, _>(|buf| {
+                for i in k..final_ {
+                    buf[i as usize] = v64 as u32;
+                }
+            });
+        }
+        3 => {
+            p.with_data_mut::<u64, _>(|buf| {
+                for i in k..final_ {
+                    buf[i as usize] = v64;
+                }
+            });
+        }
         _ => unreachable!(),
     }
 
@@ -818,13 +812,12 @@ pub fn js_typed_array_reverse(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
             macro_rules! rev {
                 ($t:ident) => {
-                    let mut p1 = tao.data_ptr_unchecked::<$t>();
-                    let mut p2 = p1.offset(len as isize - 1);
-                    while p1 < p2 {
-                        std::ptr::swap(p1.as_mut(), p2.as_mut());
-                        p1 = p1.offset(1);
-                        p2 = p2.offset(-1);
-                    }
+                    tao.with_data_mut::<$t, _>(|lst| {
+                        let n = lst.len();
+                        for i in 0..(n >> 2) {
+                            lst.swap(i, n - i - 1);
+                        }
+                    });
                 };
             }
 
@@ -898,33 +891,27 @@ pub fn js_typed_array_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         // copy values from src to result array
         let cxh = ctx.handle();
 
-        let (src_classid, src_abuf_len, src_ptr) = {
-            let src = this_val.typed_array_obj(cxh, false)?;
-            if src.is_detached() {
-                unsafe {
-                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                }
-                return Err(-1);
-            }
+        let src = this_val.typed_array_obj(cxh, false)?;
+        if src.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
 
-            (src.class_id(), src.capacity(), unsafe {
-                src.data_ptr_unchecked::<u8>()
-            })
-        };
-
-        if let Ok(dst) = arr.typed_array_obj(cxh, false) {
-            if src_classid == dst.class_id()
+        if let Ok(mut dst) = arr.typed_array_obj(cxh, false) {
+            if src.class_id() == dst.class_id()
                 && dst.capacity() as i32 >= count
-                && src_abuf_len as i32 >= start + count
+                && src.capacity() as i32 >= start + count
             {
                 // fast path using memcpy
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        src_ptr.offset((start << shift) as isize).as_mut(),
-                        dst.data_ptr_unchecked::<u8>().as_mut(),
-                        (count << shift) as usize,
-                    );
-                }
+                src.with_data::<u8, ()>(|src_buf| {
+                    dst.with_data_mut::<u8, ()>(|dst_buf| unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            src_buf.as_ptr().offset((start << shift) as isize),
+                            dst_buf.as_mut_ptr(),
+                            (count << shift) as usize,
+                        );
+                    });
+                });
 
                 return Ok(arr.into());
             }
@@ -1001,41 +988,42 @@ pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
         macro_rules! sort {
             ($ty:ident, $cvt:expr) => {
-                let slice = p.as_slice_mut::<$ty>();
-                if !cmp.is_undefined() {
-                    let mut has_error = false;
-                    slice.sort_by(|a, b| {
-                        if !has_error {
-                            let r = unsafe {
-                                JS_Call(
-                                    ctx,
-                                    cmp,
-                                    JSValue::UNDEFINED,
-                                    2,
-                                    [$cvt(*a), $cvt(*b)].as_mut_ptr(),
-                                )
-                            };
-                            if let Ok(n) =
-                                r.check_exception().and_then(|v| v.coerce_to_i32_free(ctx))
-                            {
-                                if n < 0 {
-                                    Ordering::Less
-                                } else if n > 0 {
-                                    Ordering::Greater
+                p.with_data_mut::<$ty, _>(|slice| {
+                    if !cmp.is_undefined() {
+                        let mut has_error = false;
+                        slice.sort_by(|a, b| {
+                            if !has_error {
+                                let r = unsafe {
+                                    JS_Call(
+                                        ctx,
+                                        cmp,
+                                        JSValue::UNDEFINED,
+                                        2,
+                                        [$cvt(*a), $cvt(*b)].as_mut_ptr(),
+                                    )
+                                };
+                                if let Ok(n) =
+                                    r.check_exception().and_then(|v| v.coerce_to_i32_free(ctx))
+                                {
+                                    if n < 0 {
+                                        Ordering::Less
+                                    } else if n > 0 {
+                                        Ordering::Greater
+                                    } else {
+                                        Ordering::Equal
+                                    }
                                 } else {
+                                    has_error = true;
                                     Ordering::Equal
                                 }
                             } else {
-                                has_error = true;
                                 Ordering::Equal
                             }
-                        } else {
-                            Ordering::Equal
-                        }
-                    });
-                } else {
-                    slice.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                }
+                        });
+                    } else {
+                        slice.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    }
+                });
             };
         }
 
@@ -1267,23 +1255,23 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     macro_rules! find {
         ($ty:ident, $v:expr) => {
-            let lst = p.as_slice::<$ty>();
-            if inc > 0 {
-                debug_assert!(k >= 0);
-                if let Some(i) = lst.iter().skip(k as usize).position(|x| *x == $v) {
-                    res = i as i32;
+            let found = p.with_data::<$ty, _>(|lst| {
+                if inc > 0 {
+                    debug_assert!(k >= 0);
+                    lst.iter().skip(k as usize).position(|x| *x == $v)
+                } else {
+                    debug_assert!(k >= 0 && k < lst.len() as i32);
+                    lst.iter()
+                        .enumerate()
+                        .take(k as usize + 1)
+                        .rev()
+                        .find(|(_, x)| **x == $v)
+                        .map(|(i, _)| i)
                 }
-            } else {
-                debug_assert!(k >= 0 && k < lst.len() as i32);
-                if let Some((i, _)) = lst
-                    .iter()
-                    .enumerate()
-                    .take(k as usize + 1)
-                    .rev()
-                    .find(|(_, x)| **x == $v)
-                {
-                    res = i as i32;
-                }
+            });
+
+            if let Some(i) = found {
+                res = i as i32;
             }
         };
     }
@@ -1329,21 +1317,20 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let lst = p.as_slice::<f32>();
-                    if inc > 0 {
-                        if let Some(i) = lst.iter().skip(k as usize).position(|x| x.is_nan()) {
-                            res = i as i32;
+                    let found = p.with_data::<f32, _>(|lst| {
+                        if inc > 0 {
+                            lst.iter().skip(k as usize).position(|x| x.is_nan())
+                        } else {
+                            lst.iter()
+                                .enumerate()
+                                .take(k as usize + 1)
+                                .rev()
+                                .find(|(_, x)| x.is_nan())
+                                .map(|(i, _)| i)
                         }
-                    } else {
-                        if let Some((i, _)) = lst
-                            .iter()
-                            .enumerate()
-                            .take(k as usize + 1)
-                            .rev()
-                            .find(|(_, x)| x.is_nan())
-                        {
-                            res = i as i32;
-                        }
+                    });
+                    if let Some(i) = found {
+                        res = i as i32;
                     }
                 } else {
                     // indexOf returns -1
@@ -1360,21 +1347,20 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let lst = p.as_slice::<f64>();
-                    if inc > 0 {
-                        if let Some(i) = lst.iter().skip(k as usize).position(|x| x.is_nan()) {
-                            res = i as i32;
+                    let found = p.with_data::<f64, _>(|lst| {
+                        if inc > 0 {
+                            lst.iter().skip(k as usize).position(|x| x.is_nan())
+                        } else {
+                            lst.iter()
+                                .enumerate()
+                                .take(k as usize + 1)
+                                .rev()
+                                .find(|(_, x)| x.is_nan())
+                                .map(|(i, _)| i)
                         }
-                    } else {
-                        if let Some((i, _)) = lst
-                            .iter()
-                            .enumerate()
-                            .take(k as usize + 1)
-                            .rev()
-                            .find(|(_, x)| x.is_nan())
-                        {
-                            res = i as i32;
-                        }
+                    });
+                    if let Some(i) = found {
+                        res = i as i32;
                     }
                 } else {
                     // indexOf returns -1

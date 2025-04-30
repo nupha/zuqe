@@ -43,12 +43,14 @@ impl JSContext {
             return Err(-1);
         }
 
-        if offset > abuf.byte_length as usize {
+        let byte_length = abuf.byte_length();
+
+        if offset > byte_length {
             JS_ThrowRangeError(self, c"invalid byteOffset");
             return Err(-1);
         }
 
-        let mut len = abuf.byte_length as usize - offset;
+        let mut len = byte_length - offset;
         if let Some(l) = length {
             if l > len {
                 JS_ThrowRangeError(self, c"invalid byteLength");
@@ -148,7 +150,7 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         false // default to BE
     };
 
-    let res: JSValue = unsafe {
+    let res = unsafe {
         let abuf = ta.buffer.as_ref().u.array_buffer;
 
         if (*abuf).detached {
@@ -161,80 +163,154 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             return Err(-1);
         }
 
-        let ptr = (*abuf).data.offset(ta.offset as isize).offset(pos as isize);
+        ta.with_data::<u8, _>(|buf| -> JSResult {
+            let ptr = buf.as_ptr().add(pos as usize);
 
-        match class_id {
-            JS_CLASS_INT8_ARRAY => JSValue::from(*ptr.cast::<i8>() as i32),
-            JS_CLASS_UINT8_ARRAY => JSValue::from(*ptr as i32),
-            JS_CLASS_INT16_ARRAY => {
-                let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
-                let n = if le {
-                    i16::from_le_bytes(bb)
-                } else {
-                    i16::from_be_bytes(bb)
-                };
-                JSValue::from(n as i32)
+            match class_id {
+                JS_CLASS_INT8_ARRAY => Ok(JSValue::from(*ptr.cast::<i8>() as i32)),
+                JS_CLASS_UINT8_ARRAY => Ok(JSValue::from(*ptr as i32)),
+                JS_CLASS_INT16_ARRAY => {
+                    let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+                    let n = if le {
+                        i16::from_le_bytes(bb)
+                    } else {
+                        i16::from_be_bytes(bb)
+                    };
+                    Ok(JSValue::from(n as i32))
+                }
+                JS_CLASS_UINT16_ARRAY => {
+                    let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+                    let n = if le {
+                        u16::from_le_bytes(bb)
+                    } else {
+                        u16::from_be_bytes(bb)
+                    };
+                    Ok(JSValue::from(n as i32))
+                }
+                JS_CLASS_INT32_ARRAY => {
+                    let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+                    let n = if le {
+                        i32::from_le_bytes(bb)
+                    } else {
+                        i32::from_be_bytes(bb)
+                    };
+                    Ok(JSValue::from(n))
+                }
+                JS_CLASS_UINT32_ARRAY => {
+                    let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+                    let n = if le {
+                        u32::from_le_bytes(bb)
+                    } else {
+                        u32::from_be_bytes(bb)
+                    };
+                    Ok(JSValue::from(n))
+                }
+                JS_CLASS_BIG_INT64_ARRAY => {
+                    ctx.JS_ThrowTypeError(c"BigInt64Array is not supported");
+                    Err(-1)
+                }
+                JS_CLASS_BIG_UINT64_ARRAY => {
+                    ctx.JS_ThrowTypeError(c"BigUint64Array is not supported");
+                    Err(-1)
+                }
+                JS_CLASS_FLOAT32_ARRAY => {
+                    let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+                    let n = if le {
+                        f32::from_le_bytes(bb)
+                    } else {
+                        f32::from_be_bytes(bb)
+                    };
+                    Ok(JSValue::from_f64_as_is(n as f64))
+                }
+                JS_CLASS_FLOAT64_ARRAY => {
+                    let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
+                    let n = if le {
+                        f64::from_le_bytes(bb)
+                    } else {
+                        f64::from_be_bytes(bb)
+                    };
+                    Ok(JSValue::from_f64_as_is(n))
+                }
+                _ => {
+                    unreachable!();
+                }
             }
-            JS_CLASS_UINT16_ARRAY => {
-                let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
-                let n = if le {
-                    u16::from_le_bytes(bb)
-                } else {
-                    u16::from_be_bytes(bb)
-                };
-                JSValue::from(n as i32)
-            }
-            JS_CLASS_INT32_ARRAY => {
-                let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
-                let n = if le {
-                    i32::from_le_bytes(bb)
-                } else {
-                    i32::from_be_bytes(bb)
-                };
-                JSValue::from(n)
-            }
-            JS_CLASS_UINT32_ARRAY => {
-                let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
-                let n = if le {
-                    u32::from_le_bytes(bb)
-                } else {
-                    u32::from_be_bytes(bb)
-                };
-                JSValue::from(n)
-            }
-            JS_CLASS_BIG_INT64_ARRAY => {
-                ctx.JS_ThrowTypeError(c"BigInt64Array is not supported");
-                return Err(-1);
-            }
-            JS_CLASS_BIG_UINT64_ARRAY => {
-                ctx.JS_ThrowTypeError(c"BigUint64Array is not supported");
-                return Err(-1);
-            }
-            JS_CLASS_FLOAT32_ARRAY => {
-                let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
-                let n = if le {
-                    f32::from_le_bytes(bb)
-                } else {
-                    f32::from_be_bytes(bb)
-                };
-                JSValue::from_f64_as_is(n as f64)
-            }
-            JS_CLASS_FLOAT64_ARRAY => {
-                let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
-                let n = if le {
-                    f64::from_le_bytes(bb)
-                } else {
-                    f64::from_be_bytes(bb)
-                };
-                JSValue::from_f64_as_is(n)
-            }
-            _ => {
-                unreachable!();
-            }
-        }
+        })
     };
 
-    Ok(res)
+    res
+
+    //     let ptr = (*abuf).data.offset(ta.offset as isize).offset(pos as isize);
+    //     match class_id {
+    //         JS_CLASS_INT8_ARRAY => JSValue::from(*ptr.cast::<i8>() as i32),
+    //         JS_CLASS_UINT8_ARRAY => JSValue::from(*ptr as i32),
+    //         JS_CLASS_INT16_ARRAY => {
+    //             let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+    //             let n = if le {
+    //                 i16::from_le_bytes(bb)
+    //             } else {
+    //                 i16::from_be_bytes(bb)
+    //             };
+    //             JSValue::from(n as i32)
+    //         }
+    //         JS_CLASS_UINT16_ARRAY => {
+    //             let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+    //             let n = if le {
+    //                 u16::from_le_bytes(bb)
+    //             } else {
+    //                 u16::from_be_bytes(bb)
+    //             };
+    //             JSValue::from(n as i32)
+    //         }
+    //         JS_CLASS_INT32_ARRAY => {
+    //             let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+    //             let n = if le {
+    //                 i32::from_le_bytes(bb)
+    //             } else {
+    //                 i32::from_be_bytes(bb)
+    //             };
+    //             JSValue::from(n)
+    //         }
+    //         JS_CLASS_UINT32_ARRAY => {
+    //             let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+    //             let n = if le {
+    //                 u32::from_le_bytes(bb)
+    //             } else {
+    //                 u32::from_be_bytes(bb)
+    //             };
+    //             JSValue::from(n)
+    //         }
+    //         JS_CLASS_BIG_INT64_ARRAY => {
+    //             ctx.JS_ThrowTypeError(c"BigInt64Array is not supported");
+    //             return Err(-1);
+    //         }
+    //         JS_CLASS_BIG_UINT64_ARRAY => {
+    //             ctx.JS_ThrowTypeError(c"BigUint64Array is not supported");
+    //             return Err(-1);
+    //         }
+    //         JS_CLASS_FLOAT32_ARRAY => {
+    //             let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+    //             let n = if le {
+    //                 f32::from_le_bytes(bb)
+    //             } else {
+    //                 f32::from_be_bytes(bb)
+    //             };
+    //             JSValue::from_f64_as_is(n as f64)
+    //         }
+    //         JS_CLASS_FLOAT64_ARRAY => {
+    //             let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
+    //             let n = if le {
+    //                 f64::from_le_bytes(bb)
+    //             } else {
+    //                 f64::from_be_bytes(bb)
+    //             };
+    //             JSValue::from_f64_as_is(n)
+    //         }
+    //         _ => {
+    //             unreachable!();
+    //         }
+    //     }
+    // };
 }
 
 pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
@@ -245,7 +321,7 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         this_obj
             .object_unchecked()
             .opaque_must::<JSTypedArray>(JS_CLASS_DATAVIEW, ctx)?
-            .as_ref()
+            .as_mut()
     };
 
     let size = 1 << typed_array_size_log2(class_id);
@@ -302,40 +378,81 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             return Err(-1);
         }
 
-        let ptr = (*abuf).data.offset(ta.offset as isize).offset(pos as isize);
+        ta.with_data_mut::<u8, _>(|buf| -> Result<(), i32> {
+            let ptr = buf.as_mut_ptr().add(pos as usize);
 
-        match class_id {
-            JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                *ptr = v as u8;
+            match class_id {
+                JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
+                    *ptr = v as u8;
+                    Ok(())
+                }
+                JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
+                    let bb = if le {
+                        (v as u16).to_le_bytes()
+                    } else {
+                        (v as u16).to_be_bytes()
+                    };
+                    std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 2);
+                    Ok(())
+                }
+                JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY | JS_CLASS_FLOAT32_ARRAY => {
+                    let bb = if le { v.to_le_bytes() } else { v.to_be_bytes() };
+                    std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 4);
+                    Ok(())
+                }
+                JS_CLASS_FLOAT64_ARRAY => {
+                    let bb = if le {
+                        v64.to_le_bytes()
+                    } else {
+                        v64.to_be_bytes()
+                    };
+                    std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 8);
+                    Ok(())
+                }
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+                    ctx.JS_ThrowTypeError(c"BigInt64Array, BigUint64Array is not supported");
+                    Err(-1)
+                }
+                _ => {
+                    unreachable!();
+                }
             }
-            JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
-                let bb = if le {
-                    (v as u16).to_le_bytes()
-                } else {
-                    (v as u16).to_be_bytes()
-                };
-                std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 2);
-            }
-            JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY | JS_CLASS_FLOAT32_ARRAY => {
-                let bb = if le { v.to_le_bytes() } else { v.to_be_bytes() };
-                std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 4);
-            }
-            JS_CLASS_FLOAT64_ARRAY => {
-                let bb = if le {
-                    v64.to_le_bytes()
-                } else {
-                    v64.to_be_bytes()
-                };
-                std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 8);
-            }
-            JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                ctx.JS_ThrowTypeError(c"BigInt64Array, BigUint64Array is not supported");
-                return Err(-1);
-            }
-            _ => {
-                unreachable!();
-            }
-        }
+        })?;
+
+        // let ptr = (*abuf).data.offset(ta.offset as isize).offset(pos as isize);
+
+        // match class_id {
+        //     JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
+        //         *ptr = v as u8;
+        //     }
+        //     JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
+        //         let bb = if le {
+        //             (v as u16).to_le_bytes()
+        //         } else {
+        //             (v as u16).to_be_bytes()
+        //         };
+        //         std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 2);
+        //     }
+        //     JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY | JS_CLASS_FLOAT32_ARRAY => {
+        //         let bb = if le { v.to_le_bytes() } else { v.to_be_bytes() };
+        //         std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 4);
+        //     }
+        //     JS_CLASS_FLOAT64_ARRAY => {
+        //         let bb = if le {
+        //             v64.to_le_bytes()
+        //         } else {
+        //             v64.to_be_bytes()
+        //         };
+        //         std::ptr::copy_nonoverlapping(bb.as_ptr(), ptr, 8);
+        //     }
+        //     JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+        //         ctx.JS_ThrowTypeError(c"BigInt64Array, BigUint64Array is not supported");
+        //         return Err(-1);
+        //     }
+        //     _ => {
+        //         unreachable!();
+        //     }
+        // }
     }
 
     Ok(JSValue::UNDEFINED)
