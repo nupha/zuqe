@@ -7,10 +7,7 @@ use crate::{
     gc::JS_MarkFunc,
     runtime::{js_check_stack_overflow, JSRuntime},
     value::{
-        object::{
-            JS_GetOpaque, JS_GetPrototype, JS_IsExtensible, JS_PreventExtensions,
-            JS_SetPrototypeInternal,
-        },
+        object::{JS_GetPrototype, JS_IsExtensible, JS_PreventExtensions, JS_SetPrototypeInternal},
         JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToBoolFree,
         JS_TAG_NULL, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -30,8 +27,10 @@ pub unsafe fn get_proxy_method(
     obj: JSValueConst,
     name: JSAtom,
 ) -> *mut JSProxyData {
-    let s = JS_GetOpaque(obj, JS_CLASS_PROXY).cast::<JSProxyData>();
-    assert!(!s.is_null());
+    let s = obj
+        .object_unchecked()
+        .opaque::<JSProxyData>(JS_CLASS_PROXY)
+        .unwrap();
 
     unimplemented!()
 
@@ -58,19 +57,19 @@ pub unsafe fn get_proxy_method(
 }
 
 pub unsafe fn js_proxy_isArray(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    let s = JS_GetOpaque(obj, JS_CLASS_PROXY).cast::<JSProxyData>();
-    if s.is_null() {
-        return Ok(false);
+    if let Some(s) = obj.object_unchecked().opaque::<JSProxyData>(JS_CLASS_PROXY) {
+        if js_check_stack_overflow((*ctx).rt(), 0) {
+            JS_ThrowStackOverflow(ctx);
+            return Err(-1);
+        }
+        if s.as_ref().is_revoked {
+            JS_ThrowTypeErrorRevokedProxy(ctx);
+            return Err(-1);
+        }
+        JS_IsArray(ctx, s.as_ref().target)
+    } else {
+        Ok(false)
     }
-    if js_check_stack_overflow((*ctx).rt(), 0) {
-        JS_ThrowStackOverflow(ctx);
-        return Err(-1);
-    }
-    if (*s).is_revoked {
-        JS_ThrowTypeErrorRevokedProxy(ctx);
-        return Err(-1);
-    }
-    JS_IsArray(ctx, (*s).target)
 }
 
 pub unsafe fn js_proxy_isExtensible(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {

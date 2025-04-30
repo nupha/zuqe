@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::{ffi::c_void, ops::DerefMut};
 
 use crate::{
     array::JS_NewArray,
@@ -10,9 +10,7 @@ use crate::{
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     obsoletes::JS_NewCFunctionData,
     value::{
-        object::{
-            JS_GetOpaque, JS_NewObject, JS_SpeciesConstructor, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-        },
+        object::{JS_NewObject, JS_SpeciesConstructor, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E},
         JSValue, JSValueRc, JS_FreeValue,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_PROMISE,
@@ -152,7 +150,13 @@ pub unsafe fn js_promise_resolve(
 
     let is_reject = magic != 0;
 
-    if !is_reject && !JS_GetOpaque(*argv.offset(0), JS_CLASS_PROMISE).is_null() {
+    if !is_reject
+        && (*argv.offset(0))
+            .object_unchecked()
+            .opaque::<c_void>(JS_CLASS_PROMISE)
+            .is_some()
+    {
+        // arg#0 is Promise object
         let ctor = (*argv.offset(0)).get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
         if ctor.is_exception() {
             return JSValue::EXCEPTION;

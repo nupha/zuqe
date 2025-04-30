@@ -15,7 +15,7 @@ use crate::{
     runtime::JSRuntime,
     types::{init_list_head, list_del, list_foreach, list_foreach_safe, list_head},
     value::{
-        object::{JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_C_W_E},
+        object::{JS_NewObject, JS_NewObjectProtoClass, JS_PROP_C_W_E},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
         JS_ToInt32,
     },
@@ -156,10 +156,12 @@ impl PromiseValue {
             return Err(-1);
         }
 
-        let s = JS_GetOpaque(executor, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
-        debug_assert!(!s.is_null());
+        let s = executor
+            .object_unchecked()
+            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
+            .unwrap();
 
-        let data = (*s).data();
+        let data = s.as_ref().data();
         debug_assert!(!data.is_empty());
 
         for i in 0..2 {
@@ -251,21 +253,23 @@ impl PromiseValue {
 
     /// get Promise current state.
     pub fn state(self) -> Result<JSPromiseStateEnum, i32> {
-        let s = unsafe { JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
-        if s.is_null() {
-            Err(-1)
-        } else {
-            Ok(unsafe { (*s).promise_state })
+        unsafe {
+            self.0
+                .object_unchecked()
+                .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
+                .map(|x| x.as_ref().promise_state)
+                .ok_or(-1)
         }
     }
 
-    /// get Promise current result. returned value is duplicated, caller must free it.
+    /// get Promise current result.
+    /// returned value is duplicated, caller must free it.
     pub fn result(self) -> JSValue {
-        let s = unsafe { JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
-        if s.is_null() {
-            JSValue::UNDEFINED
-        } else {
-            unsafe { (*s).promise_result.dup() }
+        unsafe {
+            self.0
+                .object_unchecked()
+                .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
+                .map_or(JSValue::UNDEFINED, |s| s.as_ref().promise_result.dup())
         }
     }
 
@@ -273,14 +277,14 @@ impl PromiseValue {
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(self, ctx: &mut JSContext, value: JSValue, is_reject: bool) {
-        let s = unsafe { JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>() };
-        debug_assert!(!s.is_null());
-        debug_assert_eq!(
-            unsafe { (*s).promise_state },
-            JSPromiseStateEnum::JS_PROMISE_PENDING
-        );
-
-        let s = unsafe { s.as_mut().unwrap() };
+        let s = unsafe {
+            self.0
+                .object_unchecked()
+                .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
+                .unwrap()
+                .as_mut()
+        };
+        debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
 
         #[cfg(DUMP_PROMISE)]
         {
@@ -315,6 +319,7 @@ impl PromiseValue {
         unsafe {
             list_foreach_safe(&mut s.promise_reactions[is_reject as usize], |el| {
                 let rd = list_entry!(el, JSPromiseReactionData, link);
+
                 ctx.enqueue_job(
                     promise_reaction_job,
                     &[
@@ -404,38 +409,37 @@ impl PromiseValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let s = JS_GetOpaque(val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-        if s.is_null() {
-            return;
+        if let Some(mut s) = val
+            .object_unchecked()
+            .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
+        {
+            for i in 0..2 {
+                list_foreach_safe(&mut s.as_mut().promise_reactions[i], |el| {
+                    let rd = list_entry!(el, JSPromiseReactionData, link);
+                    Box::from_raw(rd).free(rt);
+                });
+            }
+            JS_FreeValueRT(rt, s.as_mut().promise_result);
+            drop(Box::from_raw(s.as_ptr()));
         }
-
-        for i in 0..2 {
-            list_foreach_safe(&mut (*s).promise_reactions[i], |el| {
-                let rd = list_entry!(el, JSPromiseReactionData, link);
-                Box::from_raw(rd).free(rt);
-            });
-        }
-
-        JS_FreeValueRT(rt, (*s).promise_result);
-        drop(Box::from_raw(s));
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let s = JS_GetOpaque(val, JS_CLASS_PROMISE).cast::<JSPromiseData>();
-        if s.is_null() {
-            return;
-        }
+        if let Some(mut s) = val
+            .object_unchecked()
+            .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
+        {
+            for i in 0..2 {
+                list_foreach(&mut s.as_mut().promise_reactions[i], |el| {
+                    let rd = list_entry!(el, JSPromiseReactionData, link);
+                    JS_MarkValue(rt, (*rd).resolving_funcs[0], mark_func);
+                    JS_MarkValue(rt, (*rd).resolving_funcs[1], mark_func);
+                    JS_MarkValue(rt, (*rd).handler, mark_func);
+                });
+            }
 
-        for i in 0..2 {
-            list_foreach(&mut (*s).promise_reactions[i], |el| {
-                let rd = list_entry!(el, JSPromiseReactionData, link);
-                JS_MarkValue(rt, (*rd).resolving_funcs[0], mark_func);
-                JS_MarkValue(rt, (*rd).resolving_funcs[1], mark_func);
-                JS_MarkValue(rt, (*rd).handler, mark_func);
-            });
+            JS_MarkValue(rt, s.as_mut().promise_result, mark_func);
         }
-
-        JS_MarkValue(rt, (*s).promise_result, mark_func);
     }
 }
 

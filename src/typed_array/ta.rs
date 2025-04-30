@@ -12,7 +12,7 @@ use crate::{
     runtime::JSRuntime,
     types::{list_add_tail, list_del, list_head},
     value::{
-        object::{js_get_length64, JSObject, JS_GetOpaque, JS_ToObject},
+        object::{js_get_length64, JSObject, JS_ToObject},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToInt64Sat, JS_TAG_OBJECT,
         JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -252,7 +252,13 @@ impl<'a> TypedArrayObj<'a> {
             return Err(-1);
         }
 
-        let abuf = unsafe { JS_GetOpaque(buffer, JS_CLASS_ARRAY_BUFFER).cast::<JSArrayBuffer>() };
+        let abuf = unsafe {
+            self.obj
+                .as_ref()
+                .opaque::<JSArrayBuffer>(JS_CLASS_ARRAY_BUFFER)
+                .unwrap()
+                .as_ref()
+        };
 
         let new_arr = unsafe { js_create_from_ctor(ctx, new_target, classid).check_exception()? };
         if unsafe { new_arr.typed_array_obj_unchecked() }
@@ -270,8 +276,8 @@ impl<'a> TypedArrayObj<'a> {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     (*src_abuf).data.offset((*ta).offset as isize),
-                    (*abuf).data,
-                    (*abuf).byte_length as usize,
+                    abuf.data,
+                    abuf.byte_length as usize,
                 );
             }
         } else {

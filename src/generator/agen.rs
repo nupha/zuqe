@@ -19,7 +19,7 @@ use crate::{
         list_head,
     },
     value::{
-        object::{JSObject, JS_GetOpaque, JS_PROP_CONFIGURABLE},
+        object::{JSObject, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT, JS_TAG_OBJECT,
         JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
@@ -153,26 +153,30 @@ impl AsyncGeneratorValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
-        if !s.is_null() {
-            Box::from_raw(s).free(rt.as_mut().unwrap());
+        if let Some(p) = val
+            .object()
+            .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
+        {
+            Box::from_raw(p.as_ptr()).free(rt.as_mut().unwrap());
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let s = JS_GetOpaque(val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
-
-        if !s.is_null() {
-            list_foreach(&mut (*s).queue, |el| {
+        if let Some(mut p) = val
+            .object()
+            .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
+        {
+            list_foreach(&mut p.as_mut().queue, |el| {
                 let req = list_entry!(el, JSAsyncGeneratorRequest, link);
+
                 JS_MarkValue(rt, (*req).result, mark_func);
                 JS_MarkValue(rt, (*req).promise, mark_func);
                 JS_MarkValue(rt, (*req).resolving_funcs[0], mark_func);
                 JS_MarkValue(rt, (*req).resolving_funcs[1], mark_func);
             });
 
-            if !(*s).func_state.is_null() {
-                mark_func(rt, &mut (*(*s).func_state).header);
+            if !p.as_ref().func_state.is_null() {
+                mark_func(rt, &mut (*p.as_ref().func_state).header);
             }
         }
     }
@@ -529,36 +533,36 @@ pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) 
     let is_reject = args.magic & 1 != 0;
     let val = args.get_raw(0);
 
-    let s = unsafe {
-        JS_GetOpaque(args.data_raw(0), JS_CLASS_ASYNC_GENERATOR)
-            .cast::<JSAsyncGeneratorData>()
-            .as_mut()
+    let p = unsafe {
+        val.object_unchecked()
+            .opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR)
             .unwrap()
+            .as_mut()
     };
 
     if args.magic >= 2 {
         // resume next case in AWAITING_RETURN state
         debug_assert!(matches!(
-            s.state,
+            p.state,
             JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN
                 | JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED
         ));
 
-        s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
+        p.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
         if is_reject {
-            s.reject(ctx, val);
+            p.reject(ctx, val);
         } else {
-            s.resolve(ctx, val, true);
+            p.resolve(ctx, val, true);
         }
     } else {
         // restart function execution after await()
         debug_assert_eq!(
-            s.state,
+            p.state,
             JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING
         );
 
         unsafe {
-            (*s.func_state).throw_flag = is_reject;
+            (*p.func_state).throw_flag = is_reject;
         }
 
         if is_reject {
@@ -566,7 +570,7 @@ pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) 
         } else {
             // return value of await
             unsafe {
-                *(*s.func_state)
+                *(*p.func_state)
                     .frame
                     .stack_current_ptr()
                     .offset(-1)
@@ -574,7 +578,7 @@ pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) 
             }
         }
 
-        s.resume_next(ctx);
+        p.resume_next(ctx);
     }
 
     Ok(JSValue::UNDEFINED)
@@ -587,8 +591,6 @@ pub unsafe fn js_async_generator_next(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let s = JS_GetOpaque(this_val, JS_CLASS_ASYNC_GENERATOR).cast::<JSAsyncGeneratorData>();
-
     let (promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(JSValue::UNDEFINED)
     {
         (pr, rr)
@@ -596,7 +598,34 @@ pub unsafe fn js_async_generator_next(
         return JSValue::EXCEPTION;
     };
 
-    if s.is_null() {
+    if let Some(p) = this_val
+        .object()
+        .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
+        .map(|mut x| x.as_mut())
+    {
+        let mut req = Box::new(JSAsyncGeneratorRequest {
+            link: list_head::default(),
+            completion_type: magic,
+            result: (*argv.offset(0)).dup(),
+            promise: promise.as_value().dup(),
+            resolving_funcs,
+        });
+
+        // // malloc fail
+        // if req.is_null() {
+        //     JS_FreeValue(ctx, resolving_funcs[0]);
+        //     JS_FreeValue(ctx, resolving_funcs[1]);
+        //     JS_FreeValue(ctx, promise);
+        //     return JSValue::EXCEPTION;
+        // }
+
+        list_add_tail(&mut req.link, &mut (*p).queue);
+        let _ = Box::into_raw(req); // leak
+
+        if p.state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
+            p.resume_next(ctx.as_mut().unwrap());
+        }
+    } else {
         (*ctx).JS_ThrowTypeError(c"not an AsyncGeneratorValue object");
         let mut err = (*ctx).get_exception();
         let res2 = JS_Call(
@@ -610,30 +639,6 @@ pub unsafe fn js_async_generator_next(
         JS_FreeValue(ctx, res2);
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
-
-        return promise.into();
-    }
-
-    let mut req = Box::new(JSAsyncGeneratorRequest {
-        link: list_head::default(),
-        completion_type: magic,
-        result: (*argv.offset(0)).dup(),
-        promise: promise.as_value().dup(),
-        resolving_funcs,
-    });
-    // // malloc fail
-    // if req.is_null() {
-    //     JS_FreeValue(ctx, resolving_funcs[0]);
-    //     JS_FreeValue(ctx, resolving_funcs[1]);
-    //     JS_FreeValue(ctx, promise);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    list_add_tail(&mut req.link, &mut (*s).queue);
-    let _ = Box::into_raw(req); // leak
-
-    if (*s).state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
-        (*s).resume_next(ctx.as_mut().unwrap());
     }
 
     promise.into()

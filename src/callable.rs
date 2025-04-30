@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use smallvec::SmallVec;
 
 use crate::{
@@ -9,8 +11,8 @@ use crate::{
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
-        object::{JS_GetOpaque, JS_NewObjectProtoClass},
-        JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+        object::JS_NewObjectProtoClass, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_C_FUNCTION_DATA,
 };
@@ -64,8 +66,8 @@ impl JSCFunctionDataRecord {
     }
 
     /// free data values, and drop Self
-    pub unsafe fn free(rt: *mut JSRuntime, rec: *mut Self) {
-        let a = Box::from_raw(rec);
+    pub unsafe fn free(rt: *mut JSRuntime, rec: NonNull<Self>) {
+        let a = Box::from_raw(rec.as_ptr());
         for d in a.data() {
             JS_FreeValueRT(rt, *d);
         }
@@ -128,30 +130,37 @@ impl CallableValue {
         argv: *const JSValueConst,
         flags: i32,
     ) -> JSValue {
-        let s = JS_GetOpaque(func_obj, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
+        let mut s = func_obj
+            .object_unchecked()
+            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
+            .unwrap();
 
         let cc = CallArgs::new(
             ctx.handle(),
             this_val,
             std::slice::from_raw_parts(argv, argc as usize),
-            (*s).magic as _,
-            Some((*s).data_mut()),
+            s.as_ref().magic as _,
+            Some(s.as_mut().data_mut()),
         );
 
-        ((*s).func)(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+        (s.as_ref().func)(ctx, cc).unwrap_or(JSValue::EXCEPTION)
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let s = JS_GetOpaque(val, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
-        if !s.is_null() {
-            JSCFunctionDataRecord::free(rt, s);
+        if let Some(p) = val
+            .object_unchecked()
+            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
+        {
+            JSCFunctionDataRecord::free(rt, p);
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let s = JS_GetOpaque(val, JS_CLASS_C_FUNCTION_DATA).cast::<JSCFunctionDataRecord>();
-        if !s.is_null() {
-            for d in (*s).data() {
+        if let Some(p) = val
+            .object_unchecked()
+            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
+        {
+            for d in p.as_ref().data() {
                 JS_MarkValue(rt, *d, mark_func);
             }
         }

@@ -1,15 +1,10 @@
-use std::ops::DerefMut;
-
 use crate::{
-    atom::consts::JS_ATOM_then,
     context::JSContext,
-    error::JSResult,
-    function::{CallArgs, JS_Call, JS_Invoke},
     mem::js_malloc_typed,
     runtime::JSRuntime,
     types::{list_add_tail, list_head},
     value::{
-        object::{JS_GetOpaque, JS_GetOpaque2, JS_SpeciesConstructor},
+        object::{JS_GetOpaque2, JS_SpeciesConstructor},
         JSValue, JS_FreeValue, JS_FreeValueRT,
     },
     JS_CLASS_PROMISE,
@@ -46,7 +41,6 @@ impl PromiseValue {
         resolve_reject: &[JSValue; 2],
         cap_resolving_funcs: &[JSValue; 2],
     ) -> Result<(), i32> {
-        let s = JS_GetOpaque(self.0, JS_CLASS_PROMISE).cast::<JSPromiseData>();
         let mut rd_array: [*mut JSPromiseReactionData; 2] = [std::ptr::null_mut(); 2];
 
         for i in 0..2 {
@@ -71,25 +65,32 @@ impl PromiseValue {
             rd_array[i] = Box::into_raw(rd);
         }
 
-        if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
+        let p = self
+            .0
+            .object_unchecked()
+            .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
+            .unwrap()
+            .as_mut();
+
+        if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
             // register pending to call later in micro task job
-            list_add_tail(&mut (*rd_array[0]).link, &mut (*s).promise_reactions[0]);
-            list_add_tail(&mut (*rd_array[1]).link, &mut (*s).promise_reactions[1]);
+            list_add_tail(&mut (*rd_array[0]).link, &mut p.promise_reactions[0]);
+            list_add_tail(&mut (*rd_array[1]).link, &mut p.promise_reactions[1]);
         } else {
             // call immediately
-            if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !(*s).is_handled {
+            if p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !p.is_handled {
                 if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                     cb(
                         ctx,
                         self,
-                        (*s).promise_result,
+                        p.promise_result,
                         true as i32,
                         ctx.rt().host_promise_rejection_tracker_opaque,
                     );
                 }
             }
 
-            let i = if (*s).promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
+            let i = if (*p).promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
                 0 // resolve
             } else {
                 1 // reject
@@ -104,7 +105,7 @@ impl PromiseValue {
                 } else {
                     JSValue::TRUE
                 },
-                (*s).promise_result,
+                p.promise_result,
             ];
             ctx.enqueue_job(promise_reaction_job, &args).unwrap();
 
@@ -112,7 +113,7 @@ impl PromiseValue {
             Box::from_raw(rd_array[1]).free(ctx.rt_mut());
         }
 
-        (*s).is_handled = true;
+        p.is_handled = true;
         Ok(())
     }
 

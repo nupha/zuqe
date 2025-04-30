@@ -232,6 +232,12 @@ pub struct JSObject {
 }
 
 impl JSObject {
+    /// Get object's class_id
+    #[inline(always)]
+    pub fn class_id(&self) -> JSClassID {
+        self.detailed.class_id()
+    }
+
     /// Get object's property layout descriptor
     /// Returns None if object is being destroyed
     #[inline(always)]
@@ -246,14 +252,24 @@ impl JSObject {
         unsafe { self.shape.as_mut() }
     }
 
-    /// Retrieve associated payload data pointer.
-    /// Used for native object integration
-    #[inline(always)]
-    pub fn opaque(&self) -> *mut c_void {
-        unsafe { self.u.opaque }
+    /// Retrieve associated payload raw pointer, cast to type T.
+    /// If object is not instance of `class_id`, returns None.
+    /// If payload pointer is null, returns None.
+    #[inline]
+    pub fn opaque<T>(&self, class_id: JSClassID) -> Option<NonNull<T>> {
+        // debug_assert!(
+        //     unsafe { !self.u.opaque.is_null() },
+        //     "JSObject must have opaque payload"
+        // );
+
+        if self.class_id() == class_id {
+            unsafe { NonNull::new(self.u.opaque.cast::<T>()) }
+        } else {
+            None
+        }
     }
 
-    /// Associate native payload data with `self` object.
+    /// Associate native payload raw pointer with `self` object.
     ///
     /// Safety: Caller maintains `opaque` pointer validity
     #[inline(always)]
@@ -287,13 +303,6 @@ impl Drop for JSObject {
                 _ => {}
             }
         }
-    }
-}
-
-impl JSObject {
-    #[inline(always)]
-    pub fn class_id(&self) -> JSClassID {
-        self.detailed.class_id()
     }
 }
 
@@ -815,6 +824,7 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     ret
 }
 
+#[deprecated(note = "use JSObject::opaque() instead")]
 pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_void {
     if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
         return std::ptr::null_mut();
