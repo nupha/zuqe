@@ -11,15 +11,14 @@ use crate::{
     value::{
         object::{
             js_get_length32, JS_GetOpaque2, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
-            JS_NewObjectProtoClass, JS_SetOpaque, JS_ToObject, JS_ToObjectFree, PropertyEnum,
-            JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JS_NewObjectProtoClass, JS_ToObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
+            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_ToStringCheckObject,
         JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_C_FUNCTION, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_FOR_IN_ITERATOR,
-    JS_CLASS_STRING_ITERATOR, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_C_FUNCTION, JS_CLASS_FOR_IN_ITERATOR,
+    JS_CLASS_STRING_ITERATOR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -350,16 +349,9 @@ pub unsafe fn js_create_array_iterator(
         return JSValue::EXCEPTION;
     }
 
-    let enum_obj = JS_NewObjectClass(ctx, class_id);
-    if enum_obj.is_exception() {
-        JS_FreeValue(ctx, arr);
-        return JSValue::EXCEPTION;
-    }
-
     let it =
         js_malloc(ctx, std::mem::size_of::<JSArrayIteratorData>()).cast::<JSArrayIteratorData>();
     if it.is_null() {
-        JS_FreeValue(ctx, enum_obj);
         JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
     }
@@ -367,7 +359,14 @@ pub unsafe fn js_create_array_iterator(
     (*it).kind = kind;
     (*it).idx = 0;
 
-    JS_SetOpaque(enum_obj, it.cast());
+    let enum_obj = JS_NewObjectClass(ctx, class_id);
+    if enum_obj.is_exception() {
+        JS_FreeValue(ctx, arr);
+        return JSValue::EXCEPTION;
+    }
+
+    enum_obj.object_unchecked().set_opaque(it.cast());
+
     enum_obj
 }
 

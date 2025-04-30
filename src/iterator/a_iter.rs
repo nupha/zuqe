@@ -10,7 +10,7 @@ use crate::{
     promise::js_promise_resolve,
     runtime::JSRuntime,
     value::{
-        object::{JS_GetOpaque, JS_NewObjectClass, JS_SetOpaque},
+        object::{JS_GetOpaque, JS_NewObjectClass},
         JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_ToBool,
     },
     JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
@@ -56,9 +56,13 @@ impl JSContext {
             let mut s = unsafe { Box::from_raw(p.as_ptr()) };
             s.sync_iter = sync_iter.dup();
             s.next_method = next_method.into();
+
             unsafe {
-                JS_SetOpaque(*async_iter, Box::into_raw(s).cast());
+                async_iter
+                    .object_unchecked()
+                    .set_opaque(Box::into_raw(s).cast());
             }
+
             Ok(async_iter.into())
         } else {
             Err(-1)

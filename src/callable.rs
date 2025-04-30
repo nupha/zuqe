@@ -9,7 +9,7 @@ use crate::{
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
-        object::{JS_GetOpaque, JS_NewObjectProtoClass, JS_SetOpaque},
+        object::{JS_GetOpaque, JS_NewObjectProtoClass},
         JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
     },
     JS_CLASS_C_FUNCTION_DATA,
@@ -105,7 +105,10 @@ impl JSContext {
         };
 
         unsafe {
-            JS_SetOpaque(func_obj, Box::into_raw(s).cast());
+            func_obj
+                .object_unchecked()
+                .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSCFunctionDataRecord> as payload
+
             js_function_set_properties(self, func_obj, JS_ATOM_empty_string, length as _);
         }
 

@@ -8,8 +8,8 @@ use crate::{
     mem::{js_malloc, js_malloc_typed},
     types::init_list_head,
     value::{
-        object::{JS_GetOpaque2, JS_SetOpaque},
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
+        object::JS_GetOpaque2, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
+        JS_IsObject,
     },
     JS_CLASS_MAP,
 };
@@ -64,8 +64,8 @@ pub unsafe fn js_map_constructor(
     }
     init_list_head(s.hash_table);
 
-    // handle out JSMapState ownership
-    JS_SetOpaque(obj, Box::into_raw(s).cast());
+    // leak JSMapState ownership
+    obj.object_unchecked().set_opaque(Box::into_raw(s).cast());
 
     let arr = if argc > 0 {
         *argv.offset(0)

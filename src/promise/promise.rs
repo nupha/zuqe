@@ -13,9 +13,9 @@ use crate::{
     mem::js_malloc_typed,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
-    types::{init_list_head, list_add_tail, list_del, list_foreach, list_foreach_safe, list_head},
+    types::{init_list_head, list_del, list_foreach, list_foreach_safe, list_head},
     value::{
-        object::{JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_SetOpaque, JS_PROP_C_W_E},
+        object::{JS_GetOpaque, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_C_W_E},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
         JS_ToInt32,
     },
@@ -76,27 +76,31 @@ impl PromiseValue {
         executor: JSValue,
         new_target: JSValue,
     ) -> Result<Self, i32> {
-        debug_assert_eq!(executor.object_unchecked().class_id(), JS_CLASS_C_FUNCTION_DATA);
+        debug_assert_eq!(
+            executor.object_unchecked().class_id(),
+            JS_CLASS_C_FUNCTION_DATA
+        );
         executor.ensure_callable(ctx)?;
 
-        let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_PROMISE).check_exception()?;
+        // make promise payload
+        let mut s = Box::from_raw(
+            js_malloc_typed::<JSPromiseData>(ctx, 1, true)
+                .ok_or(-1)?
+                .as_ptr(),
+        );
+        s.promise_state = JSPromiseStateEnum::JS_PROMISE_PENDING;
+        s.is_handled = false;
+        s.promise_result = JSValue::UNDEFINED;
+        init_list_head(&mut s.promise_reactions[0]);
+        init_list_head(&mut s.promise_reactions[1]);
 
-        if let Some(p) = js_malloc_typed::<JSPromiseData>(ctx, 1, true) {
-            let mut s = Box::from_raw(p.as_ptr());
+        // create js object of promise class
+        let pr_obj = js_create_from_ctor(ctx, new_target, JS_CLASS_PROMISE).check_exception()?;
+        pr_obj
+            .object_unchecked()
+            .set_opaque(Box::into_raw(s).cast());
 
-            s.promise_state = JSPromiseStateEnum::JS_PROMISE_PENDING;
-            s.is_handled = false;
-            s.promise_result = JSValue::UNDEFINED;
-            init_list_head(&mut s.promise_reactions[0]);
-            init_list_head(&mut s.promise_reactions[1]);
-
-            JS_SetOpaque(obj, Box::into_raw(s).cast());
-        } else {
-            JS_FreeValue(ctx, obj);
-            return Err(-1);
-        };
-
-        let promise = Self(obj);
+        let promise = Self(pr_obj);
 
         let mut args = promise.create_resolving_functions(ctx).map_err(|e| {
             JS_FreeValue(ctx, promise.0);
@@ -197,9 +201,8 @@ impl PromiseValue {
 
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-
         for i in 0..2 {
-            let obj = unsafe {
+            let func_obj = unsafe {
                 JS_NewObjectProtoClass(
                     ctx,
                     ctx.function_proto,
@@ -207,11 +210,13 @@ impl PromiseValue {
                 )
             };
 
-            if obj.is_exception() {
+            if func_obj.is_exception() {
                 unsafe {
                     if i != 0 {
                         JS_FreeValue(ctx, resolving_funcs[0]);
                     }
+
+                    // consume sr_ptr
                     js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
                 }
                 return Err(-1);
@@ -227,11 +232,14 @@ impl PromiseValue {
             });
 
             unsafe {
-                JS_SetOpaque(obj, Box::into_raw(s).cast()); // leak ownership of JSPromiseFunctionData
-                js_function_set_properties(ctx, obj, JS_ATOM_empty_string, 1);
+                func_obj
+                    .object_unchecked()
+                    .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSPromiseFunctionData>
+
+                js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, 1);
             }
 
-            resolving_funcs[i as usize] = obj;
+            resolving_funcs[i as usize] = func_obj;
         }
 
         unsafe {

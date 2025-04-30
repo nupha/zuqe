@@ -7,7 +7,7 @@ use crate::{
     gc::{free_zero_refcount, JSGCObjectHeader, JSGCPhaseEnum},
     runtime::JSRuntime,
     types::{list_add, list_del, unlikely, JSRefCountHeader},
-    JS_MKVAL,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_PROXY, JS_MKVAL,
 };
 
 use super::{object::JSObject, string::JSString, JS_ToInt64Sat, MAX_SAFE_INTEGER};
@@ -396,6 +396,31 @@ impl JSValue {
     #[inline(always)]
     pub fn is_int(&self) -> bool {
         JS_VALUE_GET_TAG(*self) == JS_TAG_INT
+    }
+
+    /// Determine if value can be called as a function.
+    /// Value is callable in three cases:
+    /// 1. Compiled bytecode functions
+    /// 2. Proxy objects wrapping functions
+    /// 3. Objects of native class which has `call`
+    pub fn is_callable(self, ctx: &JSContext) -> bool {
+        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+            false
+        } else {
+            let p = unsafe { self.object_unchecked() };
+            match p.class_id() {
+                JS_CLASS_BYTECODE_FUNCTION => true,
+                JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
+                cid => {
+                    // check if class proto is callable
+                    ctx.rt()
+                        .class_array
+                        .get(cid as usize)
+                        .and_then(|c| c.call)
+                        .is_some()
+                }
+            }
+        }
     }
 
     /// check if self is an exception. returns Err if yes, otherwise returns Ok(value)

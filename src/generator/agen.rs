@@ -19,7 +19,7 @@ use crate::{
         list_head,
     },
     value::{
-        object::{JSObject, JS_GetOpaque, JS_SetOpaque, JS_PROP_CONFIGURABLE},
+        object::{JSObject, JS_GetOpaque, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT, JS_TAG_OBJECT,
         JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
@@ -56,8 +56,8 @@ pub struct JSAsyncGeneratorData {
 #[repr(C)]
 pub struct JSAsyncGeneratorRequest {
     pub link: list_head,
-    /// completion
-    pub completion_type: i32, // GEN_MAGIC_x
+    /// completion: GEN_MAGIC_x
+    pub completion_type: i32,
     pub result: JSValue,
 
     /// promise capability
@@ -76,8 +76,7 @@ impl JSAsyncGeneratorData {
                 JS_FreeValueRT(rt, (*req).resolving_funcs[0]);
                 JS_FreeValueRT(rt, (*req).resolving_funcs[1]);
 
-                todo!("free req");
-                //js_free_rt(rt, req as *mut _);
+                drop(Box::from_raw(req));
             });
 
             if !self.func_state.is_null() {
@@ -146,8 +145,9 @@ impl AsyncGeneratorValue {
             return JSValue::EXCEPTION;
         }
 
-        s.generator = obj.object_unchecked();
-        JS_SetOpaque(obj, Box::into_raw(s).cast());
+        let ob = obj.object_unchecked();
+        s.generator = ob;
+        ob.set_opaque(Box::into_raw(s).cast());
 
         obj
     }

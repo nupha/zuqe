@@ -3,9 +3,9 @@ use crate::{
     context::JSContext,
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
     gc::JS_MarkFunc,
-    mem::{js_free, js_mallocz},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{object::JS_SetOpaque, JSValue, JSValueConst, JS_FreeValue, JS_IsException},
+    value::{JSValue, JSValueConst, JS_FreeValue},
     JS_CLASS_GENERATOR,
 };
 
@@ -30,15 +30,23 @@ pub struct JSGeneratorData {
     pub func_state: *mut JSAsyncFunctionState,
 }
 
+impl JSGeneratorData {
+    pub fn free_generator_stack_rt(&mut self, rt: &mut JSRuntime) {
+        if self.state != JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
+            if !self.func_state.is_null() {
+                unsafe {
+                    async_func_free(rt, (*self).func_state);
+                }
+                self.func_state = std::ptr::null_mut();
+            }
+            self.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
+        }
+    }
+}
+
+#[deprecated(note = "use JSGeneratorData::free_generator_stack_rt() instead")]
 pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut JSGeneratorData) {
-    if (*s).state == JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
-        return;
-    }
-    if (*s).func_state.is_null() == false {
-        async_func_free(rt, (*s).func_state);
-        (*s).func_state = std::ptr::null_mut();
-    }
-    (*s).state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
+    (*s).free_generator_stack_rt(rt.as_mut().unwrap());
 }
 
 pub unsafe fn js_generator_function_call(
@@ -49,38 +57,36 @@ pub unsafe fn js_generator_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    macro_rules! fail {
-        ($s:expr) => {
-            free_generator_stack_rt(ctx.rt_mut(), $s);
-            js_free(ctx, $s.cast());
-            return JSValue::EXCEPTION;
-        };
-    }
+    let mut s = if let Some(p) = js_malloc_typed::<JSGeneratorData>(ctx, 1, true) {
+        Box::from_raw(p.as_ptr())
+    } else {
+        return JSValue::EXCEPTION;
+    };
 
-    let s = js_mallocz(ctx, std::mem::size_of::<JSGeneratorData>()) as *mut JSGeneratorData;
-    if s.is_null() {
+    s.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START;
+
+    s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
+    if s.func_state.is_null() {
+        s.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
         return JSValue::EXCEPTION;
     }
-    (*s).state = JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START;
-    (*s).func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
 
-    if (*s).func_state.is_null() {
-        (*s).state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
-        fail!(s);
-    }
-
-    /* execute the function up to 'OP_initial_yield' */
-    let func_ret = async_func_resume(ctx, (*s).func_state);
-    if JS_IsException(func_ret) {
-        fail!(s);
+    // execute the function up to 'OP_initial_yield'
+    let func_ret = async_func_resume(ctx, s.func_state);
+    if func_ret.is_exception() {
+        s.free_generator_stack_rt(ctx.rt_mut());
+        return JSValue::EXCEPTION;
     }
     JS_FreeValue(ctx, func_ret);
 
+    // create js object of generator class
     let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_GENERATOR);
-    if JS_IsException(obj) {
-        fail!(s);
+    if obj.is_exception() {
+        s.free_generator_stack_rt(ctx.rt_mut());
+        return JSValue::EXCEPTION;
     }
-    JS_SetOpaque(obj, s.cast());
+
+    obj.object_unchecked().set_opaque(Box::into_raw(s).cast());
 
     obj
 }

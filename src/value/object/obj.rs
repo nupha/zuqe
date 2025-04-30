@@ -171,7 +171,7 @@ impl JSObjectFlags {
     }
 }
 
-/// Type-specific object data storage
+/// Type-specific object payload storage
 /// The active union member depends on the object's class ID
 #[repr(C)]
 pub union JSObjectUnion {
@@ -246,15 +246,16 @@ impl JSObject {
         unsafe { self.shape.as_mut() }
     }
 
-    /// Retrieve associated user data pointer
+    /// Retrieve associated payload data pointer.
     /// Used for native object integration
     #[inline(always)]
     pub fn opaque(&self) -> *mut c_void {
         unsafe { self.u.opaque }
     }
 
-    /// Associate native data with object
-    /// Safety: Caller maintains pointer validity
+    /// Associate native payload data with `self` object.
+    ///
+    /// Safety: Caller maintains `opaque` pointer validity
     #[inline(always)]
     pub fn set_opaque(&mut self, opaque: *mut c_void) {
         self.u.opaque = opaque;
@@ -297,7 +298,7 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// Direct conversion to object reference
+    /// Direct conversion to object payload reference
     /// Safety: Value must be JS_TAG_OBJECT or JS_TAG_FUNCTION_BYTECODE
     #[inline(always)]
     pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
@@ -310,7 +311,7 @@ impl JSValue {
         JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
     }
 
-    /// Get contained object reference if available.
+    /// Get contained object payload reference if available.
     /// Returns None for non-object and non-bytecode-function
     #[inline(always)]
     pub fn object<'a>(self) -> Option<&'a mut JSObject> {
@@ -322,31 +323,6 @@ impl JSValue {
             Some(unsafe { JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap() })
         } else {
             None
-        }
-    }
-
-    /// Determine if value can be called as a function.
-    /// Value is callable in three cases:
-    /// 1. Compiled bytecode functions
-    /// 2. Proxy objects wrapping functions
-    /// 3. Native callable objects
-    pub fn is_callable(self, ctx: &JSContext) -> bool {
-        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
-            return false;
-        }
-
-        let p = unsafe { self.object_unchecked() };
-        match p.class_id() {
-            JS_CLASS_BYTECODE_FUNCTION => true,
-            JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
-            cid => {
-                // check if class proto is callable
-                ctx.rt()
-                    .class_array
-                    .get(cid as usize)
-                    .and_then(|c| c.call)
-                    .is_some()
-            }
         }
     }
 
@@ -1057,62 +1033,6 @@ pub unsafe fn js_object_seal(
 ) -> JSValue {
     let obj = *argv.offset(0);
     obj.seal(ctx.as_mut().unwrap(), freeze_flag != 0)
-
-    // if !obj.is_object() {
-    //     return obj.dup();
-    // }
-
-    // match JS_PreventExtensions(ctx, obj) {
-    //     Ok(false) => {
-    //         return (*ctx).JS_ThrowTypeError(c"proxy preventExtensions handler returned false");
-    //     }
-    //     Err(_) => {
-    //         return JSValue::EXCEPTION;
-    //     }
-    //     _ => {}
-    // }
-
-    // let p = JS_VALUE_GET_OBJ(obj);
-    // let flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
-
-    // if let Ok(props) = (*p).get_own_property_names_internal(ctx.as_mut().unwrap(), flags, false) {
-    //     for pe in props {
-    //         let prop = pe.atom;
-    //         let mut desc_flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
-
-    //         if freeze_flag != 0 {
-    //             let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-    //             let res = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
-    //             if res < 0 {
-    //                 return JSValue::EXCEPTION;
-    //             }
-    //             if res != 0 {
-    //                 if desc.flags & JS_PROP_WRITABLE != 0 {
-    //                     desc_flags |= JS_PROP_HAS_WRITABLE;
-    //                 }
-    //                 js_free_desc(ctx, &mut desc);
-    //             }
-    //         }
-
-    //         if obj
-    //             .define_property(
-    //                 ctx.as_mut().unwrap(),
-    //                 prop,
-    //                 JSValue::UNDEFINED,
-    //                 JSValue::UNDEFINED,
-    //                 JSValue::UNDEFINED,
-    //                 desc_flags,
-    //             )
-    //             .is_err()
-    //         {
-    //             return JSValue::EXCEPTION;
-    //         }
-    //     }
-
-    //     obj.dup()
-    // } else {
-    //     JSValue::EXCEPTION
-    // }
 }
 
 pub unsafe fn JS_SpeciesConstructor(
