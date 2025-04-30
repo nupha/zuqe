@@ -303,7 +303,7 @@ pub unsafe fn js_malloc_rt_typed<T>(
     }
 }
 
-/* Throw out of memory in case of error */
+/// Throw out of memory in case of error
 pub unsafe fn js_malloc_typed<T>(
     ctx: *mut JSContext,
     count: usize,
@@ -311,7 +311,7 @@ pub unsafe fn js_malloc_typed<T>(
 ) -> Option<NonNull<T>> {
     let ptr = js_malloc_rt_typed::<T>((*ctx).rt_mut(), count, zeroed);
     if ptr.is_none() {
-        ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
+        (*ctx).JS_ThrowOutOfMemory();
     }
     ptr
 }
@@ -325,10 +325,10 @@ pub unsafe fn js_strndup(ctx: *mut JSContext, s: *const c_char, n: usize) -> *mu
     ptr
 }
 
-pub unsafe fn js_strdup(ctx: *mut JSContext, str: *const c_char) -> *mut c_char {
-    let len = libc::strlen(str);
-    js_strndup(ctx, str, len)
-}
+// pub unsafe fn js_strdup(ctx: *mut JSContext, str: *const c_char) -> *mut c_char {
+//     let len = libc::strlen(str);
+//     js_strndup(ctx, str, len)
+// }
 
 pub unsafe fn js_realloc_array(
     ctx: *mut JSContext,
@@ -368,39 +368,39 @@ pub unsafe fn js_resize_array(
     }
 }
 
-pub unsafe fn ident_realloc(
-    ctx: *mut JSContext,
-    pbuf: *mut *mut u8,
-    psize: *mut usize,
-    static_buf: *mut u8,
-) -> i32 {
-    let buf = *pbuf;
-    let size = *psize;
-    let new_size = if size >= (usize::MAX / 3) * 2 {
-        usize::MAX
-    } else {
-        size + (size >> 1)
-    };
-    let new_buf = if buf == static_buf {
-        let b = js_malloc(ctx, new_size);
-        if b.is_null() {
-            return -1;
-        }
-        std::ptr::copy_nonoverlapping(buf, b.cast(), size);
-        b
-    } else {
-        let b = js_realloc(ctx, buf.cast(), new_size);
-        if b.is_null() {
-            return -1;
-        }
-        b
-    };
+// pub unsafe fn ident_realloc(
+//     ctx: *mut JSContext,
+//     pbuf: *mut *mut u8,
+//     psize: *mut usize,
+//     static_buf: *mut u8,
+// ) -> i32 {
+//     let buf = *pbuf;
+//     let size = *psize;
+//     let new_size = if size >= (usize::MAX / 3) * 2 {
+//         usize::MAX
+//     } else {
+//         size + (size >> 1)
+//     };
+//     let new_buf = if buf == static_buf {
+//         let b = js_malloc(ctx, new_size);
+//         if b.is_null() {
+//             return -1;
+//         }
+//         std::ptr::copy_nonoverlapping(buf, b.cast(), size);
+//         b
+//     } else {
+//         let b = js_realloc(ctx, buf.cast(), new_size);
+//         if b.is_null() {
+//             return -1;
+//         }
+//         b
+//     };
 
-    *pbuf = new_buf.cast();
-    *psize = new_size;
+//     *pbuf = new_buf.cast();
+//     *psize = new_size;
 
-    0
-}
+//     0
+// }
 
 pub mod alloca {
     use std::{

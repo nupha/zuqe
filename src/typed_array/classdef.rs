@@ -222,75 +222,6 @@ pub unsafe fn js_typed_array_constructor_ta(
         .typed_array_obj_unchecked()
         .create_new(ctx.as_mut().unwrap(), new_target, classid as JSClassID)
         .unwrap_or(JSValue::EXCEPTION)
-
-    // let obj = js_create_from_ctor(ctx, new_target, classid as JSClassID);
-    // if obj.is_exception() {
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let p = src_obj.typed_array_obj_unchecked();
-    // if p.is_detached() {
-    //     JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-    //     JS_FreeValue(ctx, obj);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let ta = p.0.u.typed_array;
-    // let len = p.length();
-    // let src_buffer = (*ta).buffer;
-    // let src_abuf = (*src_buffer).u.array_buffer;
-    // let size_log2 = typed_array_size_log2(classid as _);
-
-    // let buffer = js_array_buffer_constructor1(ctx, JSValue::UNDEFINED, (len as u64) << size_log2);
-    // if buffer.is_exception() {
-    //     JS_FreeValue(ctx, obj);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // // necessary because it could have been detached
-    // if p.is_detached() {
-    //     JS_FreeValue(ctx, buffer);
-    //     JS_FreeValue(ctx, obj);
-    //     JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let abuf = JS_GetOpaque(buffer, JS_CLASS_ARRAY_BUFFER) as *mut JSArrayBuffer;
-    // if obj
-    //     .typed_array_obj_unchecked()
-    //     .init(ctx.as_mut().unwrap(), buffer, 0, len as _)
-    //     .is_err()
-    // {
-    //     JS_FreeValue(ctx, obj);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // if p.class_id() == classid as JSClassID {
-    //     // same type: copy the content
-    //     std::ptr::copy_nonoverlapping(
-    //         (*src_abuf).data.offset((*ta).offset as isize),
-    //         (*abuf).data,
-    //         (*abuf).byte_length as usize,
-    //     );
-    // } else {
-    //     for i in 0..len {
-    //         let val = src_obj.get_property_u32(ctx.as_mut().unwrap(), i as u32);
-    //         if val.is_exception() {
-    //             JS_FreeValue(ctx, obj);
-    //             return JSValue::EXCEPTION;
-    //         }
-
-    //         if obj
-    //             .set_property_u32(ctx.as_mut().unwrap(), i as u32, val)
-    //             .is_err()
-    //         {
-    //             JS_FreeValue(ctx, obj);
-    //             return JSValue::EXCEPTION;
-    //         }
-    //     }
-    // }
-
-    // obj
 }
 
 pub unsafe fn js_typed_array_create(
@@ -507,7 +438,7 @@ pub unsafe fn js_typed_array_get_byteLength(
                 JSValue::ZERO
             }
         } else {
-            (p.typed_array().length as i32).into()
+            (p.typed_array().byte_length as i32).into()
         }
     } else {
         JSValue::EXCEPTION

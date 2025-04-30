@@ -74,7 +74,7 @@ impl JSValue {
 pub unsafe fn js_array_buffer_constructor3(
     ctx: *mut JSContext,
     new_target: JSValueConst,
-    len: u64,
+    byte_length: usize,
     class_id: JSClassID,
     buf: *mut u8,
     free_func: Option<JSFreeArrayBufferDataFunc>,
@@ -84,7 +84,7 @@ pub unsafe fn js_array_buffer_constructor3(
     let rt = (*ctx).rt();
 
     // XXX: we are currently limited to 2 GB
-    if len > i32::MAX as u64 {
+    if byte_length > i32::MAX as usize {
         JS_ThrowRangeError(ctx, c"invalid array buffer length");
         return JSValue::EXCEPTION;
     }
@@ -96,7 +96,7 @@ pub unsafe fn js_array_buffer_constructor3(
         return JSValue::EXCEPTION;
     };
 
-    ab_state.byte_length = len as i32;
+    ab_state.byte_length = byte_length as i32;
 
     if alloc_flag {
         // alloc data buffer.
@@ -104,21 +104,22 @@ pub unsafe fn js_array_buffer_constructor3(
         if class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt.sab_funcs.sab_alloc.is_some() {
             // alloc sab
             ab_state.data =
-                (rt.sab_funcs.sab_alloc.unwrap())(rt.sab_funcs.sab_opaque, len as usize).cast();
+                (rt.sab_funcs.sab_alloc.unwrap())(rt.sab_funcs.sab_opaque, byte_length as usize)
+                    .cast();
 
             if ab_state.data.is_null() {
                 return JSValue::EXCEPTION;
             }
 
-            std::ptr::write_bytes(ab_state.data, 0, len as usize);
+            std::ptr::write_bytes(ab_state.data, 0, byte_length as usize);
         } else {
             // default alloc
             let mut chunk = Vec::<u8>::new();
-            if chunk.try_reserve_exact(len as usize).is_err() {
+            if chunk.try_reserve_exact(byte_length as usize).is_err() {
                 (*ctx).JS_ThrowOutOfMemory();
                 return JSValue::EXCEPTION;
             }
-            chunk.resize(len as usize, 0);
+            chunk.resize(byte_length as usize, 0);
 
             // leak Box<[u8]> to *mut [u8], cast to *mut u8
             ab_state.data = Box::into_raw(chunk.into_boxed_slice()) as *mut u8;
@@ -137,7 +138,7 @@ pub unsafe fn js_array_buffer_constructor3(
     ab_state.opaque = opaque;
     ab_state.free_func = free_func;
     if alloc_flag && !buf.is_null() {
-        std::ptr::copy_nonoverlapping(buf, ab_state.data, len as usize);
+        std::ptr::copy_nonoverlapping(buf, ab_state.data, byte_length as usize);
     }
 
     // create js instance
@@ -173,27 +174,28 @@ pub unsafe fn js_array_buffer_free(
 pub unsafe fn js_array_buffer_constructor2(
     ctx: *mut JSContext,
     new_target: JSValueConst,
-    len: u64,
+    byte_length: usize,
     class_id: JSClassID,
 ) -> JSValue {
-    return js_array_buffer_constructor3(
+    js_array_buffer_constructor3(
         ctx,
         new_target,
-        len,
+        byte_length,
         class_id,
         std::ptr::null_mut(),
         Some(js_array_buffer_free),
         std::ptr::null_mut(),
         true,
-    );
+    )
 }
 
+#[inline(always)]
 pub unsafe fn js_array_buffer_constructor1(
     ctx: *mut JSContext,
     new_target: JSValueConst,
-    len: u64,
+    byte_length: usize,
 ) -> JSValue {
-    return js_array_buffer_constructor2(ctx, new_target, len, JS_CLASS_ARRAY_BUFFER);
+    js_array_buffer_constructor2(ctx, new_target, byte_length, JS_CLASS_ARRAY_BUFFER)
 }
 
 pub unsafe fn js_array_buffer_constructor(
@@ -204,9 +206,10 @@ pub unsafe fn js_array_buffer_constructor(
 ) -> JSValue {
     let mut len: u64 = 0;
     if JS_ToIndex(ctx, &mut len as *mut u64, *argv.offset(0)) != 0 {
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
+    } else {
+        js_array_buffer_constructor1(ctx, new_target, len as _)
     }
-    return js_array_buffer_constructor1(ctx, new_target, len);
 }
 
 pub unsafe fn js_shared_array_buffer_constructor(
@@ -216,10 +219,11 @@ pub unsafe fn js_shared_array_buffer_constructor(
     argv: *mut JSValue,
 ) -> JSValue {
     let mut len: u64 = 0;
-    if JS_ToIndex(ctx, &mut len as *mut u64, *argv.offset(0)) != 0 {
-        return JSValue::EXCEPTION;
+    if JS_ToIndex(ctx, &mut len, *argv.offset(0)) != 0 {
+        JSValue::EXCEPTION
+    } else {
+        js_array_buffer_constructor2(ctx, new_target, len as _, JS_CLASS_SHARED_ARRAY_BUFFER)
     }
-    return js_array_buffer_constructor2(ctx, new_target, len, JS_CLASS_SHARED_ARRAY_BUFFER);
 }
 
 // also used for SharedArrayBuffer
