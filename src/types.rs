@@ -20,25 +20,6 @@ pub struct JSRefCountHeader {
 }
 
 #[repr(C)]
-pub struct JSSharedArrayBufferFunctions {
-    pub sab_alloc: Option<unsafe fn(*mut c_void, usize) -> *mut c_void>,
-    pub sab_free: Option<unsafe fn(*mut c_void, *mut c_void)>,
-    pub sab_dup: Option<unsafe fn(*mut c_void, *mut c_void)>,
-    pub sab_opaque: *mut c_void,
-}
-
-impl JSSharedArrayBufferFunctions {
-    pub fn new() -> Self {
-        Self {
-            sab_alloc: None,
-            sab_free: None,
-            sab_dup: None,
-            sab_opaque: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct list_head {
     pub prev: *mut Self,

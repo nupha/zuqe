@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{
+    array_buffer::JSSharedArrayBufferFunctions,
     atom::{JSAtomStruct, JS_FreeAtomRT},
     callable::CallableValue,
     class::{js_arguments_exotic_methods, JSClass},
@@ -21,10 +22,7 @@ use crate::{
     module::{js_module_ns_exotic_methods, JSModuleLoaderFunc, JSModuleNormalizeFunc},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
     stack_frame::JSStackFrame,
-    types::{
-        init_list_head, list_empty, list_foreach, list_foreach_safe, list_head,
-        JSSharedArrayBufferFunctions,
-    },
+    types::{init_list_head, list_empty, list_foreach, list_foreach_safe, list_head},
     utils::js_get_stack_pointer,
     value::{
         js_string_exotic_methods,
@@ -105,8 +103,9 @@ pub struct JSRuntime {
     pub module_async_evaluation_next_timestamp: i64,
 
     pub can_block: bool, /* TRUE if Atomics.wait can block */
-    /* used to allocate, free and clone SharedArrayBuffers */
-    pub sab_funcs: JSSharedArrayBufferFunctions,
+
+    /// callbacks to allocate, free and clone SharedArrayBuffers
+    pub sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
     /* Shape hash table */
     pub shape_hash_bits: i32,
@@ -147,7 +146,7 @@ impl JSRuntime {
             current_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             module_loader_opaque: std::ptr::null_mut(),
-            sab_funcs: JSSharedArrayBufferFunctions::new(),
+            sab_funcs: None,
             shape_hash: std::ptr::null_mut(),
             context_list: Vec::with_capacity(1),
             gc_obj_list: list_head::default(),
