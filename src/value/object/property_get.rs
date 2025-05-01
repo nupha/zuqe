@@ -210,17 +210,6 @@ impl JSValue {
             let p = unsafe { self.object_unchecked() };
 
             // return early for fast array and index within slice bound.
-            macro_rules! get_ta {
-                ($ty:ident, $ty2:ident) => {
-                    if idx < p.array_length_unchecked() as i32 {
-                        return JSValue::from(
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_ptr::<$ty, _>(|ptr| *ptr.add(idx as usize) as $ty2),
-                        );
-                    }
-                };
-            }
-
             match p.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                     if let Some(lst) = p.fast_array_values() {
@@ -229,36 +218,54 @@ impl JSValue {
                         }
                     }
                 }
+
+                //
+                // types array
+                //
                 JS_CLASS_INT8_ARRAY => unsafe {
-                    get_ta!(i8, i32);
+                    if let Ok(n) = p.as_Int8Array_unchecked().element(idx as _) {
+                        return JSValue::from(n as i32);
+                    }
                 },
                 JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => unsafe {
-                    get_ta!(u8, i32);
+                    if let Ok(n) = p.as_Uint8Array_unchecked().element(idx as _) {
+                        return JSValue::from(n as i32);
+                    }
                 },
                 JS_CLASS_INT16_ARRAY => unsafe {
-                    get_ta!(i16, i32);
+                    if let Ok(n) = p.as_Int16Array_unchecked().element(idx as _) {
+                        return JSValue::from(n as i32);
+                    }
                 },
                 JS_CLASS_UINT16_ARRAY => unsafe {
-                    get_ta!(u16, i32);
+                    if let Ok(n) = p.as_Uint16Array_unchecked().element(idx as _) {
+                        return JSValue::from(n as i32);
+                    }
                 },
                 JS_CLASS_INT32_ARRAY => unsafe {
-                    get_ta!(i32, i32);
+                    if let Ok(n) = p.as_Int32Array_unchecked().element(idx as _) {
+                        return JSValue::from(n);
+                    }
                 },
                 JS_CLASS_UINT32_ARRAY => unsafe {
-                    get_ta!(u32, u32);
+                    if let Ok(n) = p.as_Uint32Array_unchecked().element(idx as _) {
+                        return JSValue::from(n);
+                    }
                 },
-                JS_CLASS_BIG_INT64_ARRAY => {
-                    unimplemented!()
-                }
-                JS_CLASS_BIG_UINT64_ARRAY => {
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
                     unimplemented!()
                 }
                 JS_CLASS_FLOAT32_ARRAY => unsafe {
-                    get_ta!(f32, f64);
+                    if let Ok(n) = p.as_Float32Array_unchecked().element(idx as _) {
+                        return JSValue::from(n as f64);
+                    }
                 },
                 JS_CLASS_FLOAT64_ARRAY => unsafe {
-                    get_ta!(f64, f64);
+                    if let Ok(n) = p.as_Float64Array_unchecked().element(idx as _) {
+                        return JSValue::from(n as i32);
+                    }
                 },
+
                 _ => {}
             }
         }

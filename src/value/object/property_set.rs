@@ -472,13 +472,13 @@ impl JSValue {
 
     /// Note: `val` is consumed; `self` and `this_obj` keep ref count unchanged.
     #[inline(always)]
-    pub unsafe fn set_property(
+    pub fn set_property(
         self,
         ctx: &mut JSContext,
         prop: JSAtom,
         val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property_internal(ctx, prop, val, self, JS_PROP_THROW)
+        unsafe { self.set_property_internal(ctx, prop, val, self, JS_PROP_THROW) }
     }
 
     /// Note: `val` is consumed
@@ -496,21 +496,24 @@ impl JSValue {
             let idx = JS_VALUE_GET_INT(prop);
             let mut ta_out_of_bound = false;
 
-            unsafe {
-                // early return using fast path if possible
-                match p.class_id() {
-                    JS_CLASS_ARRAY => {
-                        // fast path: is fast array
-                        if p.detailed.fast_array() && p.detailed.extensible() {
-                            let lst = p.fast_array_values_mut_unchecked();
-                            if idx < lst.len() as i32 {
-                                // update array element
+            // early return using fast path if possible
+            match p.class_id() {
+                JS_CLASS_ARRAY => {
+                    // fast path: is fast array
+                    if p.detailed.fast_array() && p.detailed.extensible() {
+                        let lst = unsafe { p.fast_array_values_mut_unchecked() };
+                        if idx < lst.len() as i32 {
+                            // update array element
+                            unsafe {
                                 set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
-                                return Ok(true);
-                            } else if idx == lst.len() as i32 {
-                                // 检查原型链是否有数字属性
-                                let mut has_int_prop = false;
-                                let mut p1 = p.shape().unwrap().proto;
+                            }
+                            return Ok(true);
+                        } else if idx == lst.len() as i32 {
+                            // 检查原型链是否有数字属性
+                            let mut has_int_prop = false;
+                            let mut p1 = p.shape().unwrap().proto;
+
+                            unsafe {
                                 while !p1.is_null() && !has_int_prop {
                                     let sh1 = (*p1).shape().unwrap();
                                     if (*p1).class_id() == JS_CLASS_ARRAY {
@@ -534,117 +537,200 @@ impl JSValue {
                             }
                         }
                     }
-                    JS_CLASS_ARGUMENTS => {
-                        let lst = p.fast_array_values_mut_unchecked();
-                        if idx < lst.len() as i32 {
+                }
+                JS_CLASS_ARGUMENTS => {
+                    let lst = unsafe { p.fast_array_values_mut_unchecked() };
+                    if idx < lst.len() as i32 {
+                        unsafe {
                             set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
-                            return Ok(true);
                         }
-                    }
-                    JS_CLASS_UINT8C_ARRAY => {
-                        let mut v = 0;
-                        if JS_ToUint8ClampFree(ctx, &mut v, val) != 0 {
-                            return Err(-1);
-                        }
-                        if idx >= p.array_length_unchecked() as i32 {
-                            ta_out_of_bound = true;
-                        } else {
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_mut_ptr::<u8, _>(|ptr| {
-                                    *ptr.add(idx as usize) = v as u8;
-                                });
-                            return Ok(true);
-                        }
-                    }
-                    JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                        let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
-                            n as u8
-                        } else {
-                            return Err(-1);
-                        };
-                        if idx >= p.array_length_unchecked() as i32 {
-                            ta_out_of_bound = true;
-                        } else {
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_mut_ptr::<u8, _>(|ptr| {
-                                    *ptr.add(idx as usize) = v;
-                                });
-                            return Ok(true);
-                        }
-                    }
-                    JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY => {
-                        let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
-                            n as u16
-                        } else {
-                            return Err(-1);
-                        };
-                        if idx >= p.array_length_unchecked() as i32 {
-                            ta_out_of_bound = true;
-                        } else {
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_mut_ptr::<u16, _>(|ptr| {
-                                    *ptr.add(idx as usize) = v;
-                                });
-                            return Ok(true);
-                        }
-                    }
-                    JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
-                        let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
-                            n as u32
-                        } else {
-                            return Err(-1);
-                        };
-                        if idx >= p.array_length_unchecked() as i32 {
-                            ta_out_of_bound = true;
-                        } else {
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_mut_ptr::<u32, _>(|ptr| {
-                                    *ptr.add(idx as usize) = v;
-                                });
-                            return Ok(true);
-                        }
-                    }
-                    JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                        unimplemented!()
-                    }
-                    JS_CLASS_FLOAT32_ARRAY => {
-                        let mut d = 0.0;
-                        if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
-                            return Err(-1);
-                        }
-                        if idx >= p.array_length_unchecked() as i32 {
-                            ta_out_of_bound = true;
-                        } else {
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_mut_ptr::<f32, _>(|ptr| {
-                                    *ptr.add(idx as usize) = d as f32;
-                                });
-                            return Ok(true);
-                        }
-                    }
-                    JS_CLASS_FLOAT64_ARRAY => {
-                        let mut d = 0.0;
-                        if JS_ToFloat64Free(ctx, &mut d, val) != 0 {
-                            return Err(-1);
-                        }
-                        if idx >= p.array_length_unchecked() as i32 {
-                            ta_out_of_bound = true;
-                        } else {
-                            p.as_typed_array_obj_unchecked()
-                                .with_data_mut_ptr::<f64, _>(|ptr| {
-                                    *ptr.add(idx as usize) = d;
-                                });
-                            return Ok(true);
-                        }
-                    }
-                    _ => {
-                        unreachable!()
+                        return Ok(true);
                     }
                 }
 
-                if ta_out_of_bound {
-                    return Ok(true);
+                //
+                // typed array
+                //
+                JS_CLASS_UINT8C_ARRAY => {
+                    let mut v = 0;
+                    if unsafe { JS_ToUint8ClampFree(ctx, &mut v, val) } != 0 {
+                        return Err(-1);
+                    }
+
+                    if unsafe { p.as_Uint8Array_unchecked() }
+                        .set_element(idx as _, v as _)
+                        .is_err()
+                    {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // original code
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<u8, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = v as u8;
+                    //         });
+                    //     return Ok(true);
+                    // }
                 }
+                cid @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY) => {
+                    let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
+                        n as u8
+                    } else {
+                        return Err(-1);
+                    };
+
+                    let r = unsafe {
+                        if cid == JS_CLASS_INT8_ARRAY {
+                            p.as_Int8Array_unchecked().set_element(idx as _, v as _)
+                        } else {
+                            p.as_Uint8Array_unchecked().set_element(idx as _, v as _)
+                        }
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // original code
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<u8, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = v;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                cid @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
+                    let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
+                        n as u16
+                    } else {
+                        return Err(-1);
+                    };
+
+                    let r = unsafe {
+                        if cid == JS_CLASS_INT16_ARRAY {
+                            p.as_Int16Array_unchecked().set_element(idx as _, v as _)
+                        } else {
+                            p.as_Uint16Array_unchecked().set_element(idx as _, v as _)
+                        }
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<u16, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = v;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                cid @ (JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY) => {
+                    let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
+                        n as u32
+                    } else {
+                        return Err(-1);
+                    };
+
+                    let r = unsafe {
+                        if cid == JS_CLASS_INT32_ARRAY {
+                            p.as_Int32Array_unchecked().set_element(idx as _, v as _)
+                        } else {
+                            p.as_Uint32Array_unchecked().set_element(idx as _, v as _)
+                        }
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<u32, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = v;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                JS_CLASS_FLOAT32_ARRAY => {
+                    let mut d = 0.0;
+                    if unsafe { JS_ToFloat64Free(ctx, &mut d, val) } != 0 {
+                        return Err(-1);
+                    }
+
+                    let r = unsafe { p.as_Float32Array_unchecked().set_element(idx as _, d as _) };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // original code
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<f32, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = d as f32;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                JS_CLASS_FLOAT64_ARRAY => {
+                    let mut d = 0.0;
+                    if unsafe { JS_ToFloat64Free(ctx, &mut d, val) } != 0 {
+                        return Err(-1);
+                    }
+
+                    let r = unsafe { p.as_Float64Array_unchecked().set_element(idx as _, d) };
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // original code
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<f64, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = d;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+                    unimplemented!()
+                }
+
+                _ => {
+                    unreachable!()
+                }
+            }
+
+            if ta_out_of_bound {
+                return Ok(true);
             }
         }
 

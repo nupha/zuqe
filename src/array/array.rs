@@ -161,6 +161,7 @@ impl JSObject {
 
     /// if object is Array or Argument class, and is fast array, returns values mut.
     /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
+    #[inline(always)]
     pub unsafe fn fast_array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
         debug_assert!(
             matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
