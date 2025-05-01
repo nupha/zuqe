@@ -36,6 +36,7 @@ pub enum ArrayBufferContent {
 }
 
 impl ArrayBufferContent {
+    /// for SharedArrayBuffer
     pub fn is_shared(&self) -> bool {
         if let Self::Shared(_) = self {
             true
@@ -44,6 +45,7 @@ impl ArrayBufferContent {
         }
     }
 
+    /// byte length
     pub fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
@@ -53,32 +55,15 @@ impl ArrayBufferContent {
         }
     }
 
-    #[deprecated(note = "this is unsafe")]
-    pub fn as_ptr(&self) -> *const u8 {
-        match self {
-            Self::Empty => std::ptr::null(),
-            Self::Owned(b) => b.as_ptr(),
-            Self::Shared(a) => a.read().unwrap().as_ptr(),
-            Self::Raw(p, _, _) => p.as_ptr(),
-        }
-    }
-
-    #[deprecated(note = "this is unsafe")]
+    #[deprecated(
+        note = "it's unsafe for SharedArrayBuffer with Arc+Mutex, don't use this. will be removed"
+    )]
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         match self {
             Self::Empty => std::ptr::null_mut(),
             Self::Owned(b) => b.as_mut_ptr(),
             Self::Shared(a) => a.write().unwrap().as_mut_ptr(),
             Self::Raw(p, _, _) => p.as_ptr(),
-        }
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        match self {
-            Self::Empty => &[],
-            Self::Owned(b) => b.deref(),
-            Self::Shared(a) => todo!(),
-            Self::Raw(p, len, _) => unsafe { std::slice::from_raw_parts(p.as_ptr(), *len) },
         }
     }
 
@@ -135,17 +120,13 @@ pub struct JSArrayBuffer {
     pub detached: bool,
 
     /// if shared, the array buffer cannot be detached
+    #[deprecated(note = "use content is_shared() instead")]
     pub shared: bool,
 
     /// typed arrays that based on this array buffer.
     pub array_list: list_head,
 
     pub opaque: *mut c_void,
-    // /// for default allocated buffer, this is used to free `data`.
-    // /// in case `data` is allocated by JSRuntime.sab_funcs.sab_alloc,
-    // /// JSRuntime.sab_funcs.sab_free will be used to free it,
-    // /// this callback is not used in the case.
-    // pub free_func: Option<JSFreeArrayBufferDataFunc>,
 }
 
 impl JSArrayBuffer {
@@ -248,6 +229,7 @@ impl JSContext {
         Ok(ab_obj)
     }
 
+    /// create empty array buffer instance with required capacity.
     pub fn create_array_buffer(
         &mut self,
         new_target: JSValueConst,
@@ -441,6 +423,7 @@ pub unsafe fn js_array_buffer_constructor3(
 /// - opaque: JSArrayBuffer.opaque field
 /// - data: JSArrayBuffer.data field
 /// - data_length: JSArrayBuffer.byte_length field
+#[deprecated(note = "not used")]
 pub unsafe fn js_array_buffer_free(
     rt: *mut JSRuntime,
     opaque: *mut c_void,
@@ -463,17 +446,6 @@ pub unsafe fn js_array_buffer_constructor2(
     (*ctx)
         .create_array_buffer(new_target, class_id, byte_length, std::ptr::null_mut())
         .unwrap_or(JSValue::EXCEPTION)
-
-    // js_array_buffer_constructor3(
-    //     ctx,
-    //     new_target,
-    //     byte_length,
-    //     class_id,
-    //     std::ptr::null_mut(),
-    //     Some(js_array_buffer_free),
-    //     std::ptr::null_mut(),
-    //     true,
-    // )
 }
 
 #[inline(always)]

@@ -163,8 +163,8 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             return Err(-1);
         }
 
-        ta.with_data::<u8, _>(|buf| -> JSResult {
-            let ptr = buf.as_ptr().add(pos as usize);
+        ta.with_bytes_ptr(|ptr| -> JSResult {
+            let ptr = ptr.add(pos as usize);
 
             match class_id {
                 JS_CLASS_INT8_ARRAY => Ok(JSValue::from(*ptr.cast::<i8>() as i32)),
@@ -378,8 +378,8 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             return Err(-1);
         }
 
-        ta.with_data_mut::<u8, _>(|buf| -> Result<(), i32> {
-            let ptr = buf.as_mut_ptr().add(pos as usize);
+        ta.with_bytes_mut_ptr(|ptr| -> Result<(), i32> {
+            let ptr = ptr.add(pos as usize);
 
             match class_id {
                 JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {
