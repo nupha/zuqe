@@ -57,16 +57,15 @@ impl JSTypedArray {
             // XXX: could simplify test by ensuring typed_array.is_null
             // (*self.0.u.array).data.ptr.is_null()
 
-            let abuf = self.buffer.as_ref().u.array_buffer;
-            (*abuf).detached
+            (*self.buffer.as_ref().u.array_buffer).detached
         }
     }
 
-    /// get underlaying array buffer object.
-    #[inline(always)]
-    pub fn array_buffer_obj(&self) -> &JSObject {
-        unsafe { self.buffer.as_ref() }
-    }
+    // /// get underlaying array buffer object.
+    // #[inline(always)]
+    // pub fn array_buffer_obj(&self) -> &JSObject {
+    //     unsafe { self.buffer.as_ref() }
+    // }
 
     /// get underlaying array buffer.
     #[inline(always)]
@@ -120,7 +119,7 @@ impl JSTypedArray {
 
     /// run closure with data ptr casted as type T.
     /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
-    pub fn with_data_ptr<T: Copy, R>(&self, f: impl FnOnce(*const T) -> R) -> R {
+    pub unsafe fn with_data_ptr<T: Copy, R>(&self, f: impl FnOnce(*const T) -> R) -> R {
         debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
         let base = self.offset as usize;
         self.array_buffer()
@@ -129,7 +128,7 @@ impl JSTypedArray {
 
     /// run closure with data ptr casted as type T.
     /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
-    pub fn with_data_mut_ptr<T: Copy, R>(&mut self, f: impl FnOnce(*mut T) -> R) -> R {
+    pub unsafe fn with_data_mut_ptr<T: Copy, R>(&mut self, f: impl FnOnce(*mut T) -> R) -> R {
         debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
         let base = self.offset as usize;
         self.array_buffer_mut()
@@ -168,11 +167,39 @@ impl<'a> TypedArrayObj<'a> {
         unsafe { self.typed_array_ptr().as_mut() }
     }
 
-    /// get underlaying array buffer object.
+    /// get underlaying array buffer data.
     #[inline(always)]
-    pub fn array_buffer_obj(&self) -> &JSObject {
-        unsafe { (*(*self.obj.as_ref()).u.typed_array).buffer.as_ref() }
+    pub fn array_buffer(&self) -> &JSArrayBuffer {
+        unsafe {
+            self.typed_array()
+                .buffer
+                .as_ref()
+                .u
+                .array_buffer
+                .as_ref()
+                .unwrap()
+        }
     }
+
+    /// get underlaying array buffer data.
+    #[inline(always)]
+    pub fn array_buffer_mut(&mut self) -> &mut JSArrayBuffer {
+        unsafe {
+            self.typed_array_mut()
+                .buffer
+                .as_ref()
+                .u
+                .array_buffer
+                .as_mut()
+                .unwrap()
+        }
+    }
+
+    // /// get underlaying array buffer object.
+    // #[inline(always)]
+    // pub fn array_buffer_obj(&self) -> &JSObject {
+    //     unsafe { self.typed_array().buffer.as_ref() }
+    // }
 
     /// setup typed array with array buffer `buffer`, offset in array buffer and type array element count.
     /// Note: array `buffer` is consumed.
@@ -260,60 +287,56 @@ impl<'a> TypedArrayObj<'a> {
         }
     }
 
-    /// run closure with data slice casted as type T.
-    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    /// run closure with underlaying bytes of typed array
     #[inline(always)]
-    pub fn with_data<T: Copy, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
-        self.typed_array().with_data(f)
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        self.array_buffer().with_bytes(f)
     }
 
-    /// run closure with data slice casted as type T.
-    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    /// run closure with underlaying bytes of typed array
     #[inline(always)]
-    pub fn with_data_mut<T: Copy, R>(&mut self, f: impl FnOnce(&mut [T]) -> R) -> R {
-        self.typed_array_mut().with_data_mut(f)
+    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        self.array_buffer_mut().with_bytes_mut(f)
     }
 
-    /// run closure with data ptr casted as type T.
-    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    /// run closure with underlaying bytes of typed array
     #[inline(always)]
-    pub fn with_data_ptr<T: Copy, R>(&self, f: impl FnOnce(*const T) -> R) -> R {
-        self.typed_array().with_data_ptr(f)
+    pub unsafe fn with_bytes_ptr<R>(&self, f: impl FnOnce(*const u8) -> R) -> R {
+        self.array_buffer().with_bytes_ptr(f)
     }
 
-    /// run closure with data ptr casted as type T.
-    /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    /// run closure with underlaying bytes of typed array
     #[inline(always)]
-    pub fn with_data_mut_ptr<T: Copy, R>(&mut self, f: impl FnOnce(*mut T) -> R) -> R {
-        self.typed_array_mut().with_data_mut_ptr(f)
+    pub unsafe fn with_bytes_mut_ptr<R>(&mut self, f: impl FnOnce(*mut u8) -> R) -> R {
+        self.array_buffer_mut().with_bytes_mut_ptr(f)
     }
 
-    // /// get `nth` element. if nth must within .length() bound regardless value type T.
-    // /// if nth is out of bound, returns Err.
-    // pub fn element<T: Copy>(&self, nth: usize) -> Result<T, i32> {
-    //     debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
-    //     self.with_data::<T, _>(|buf| {
-    //         if nth < buf.len() {
-    //             Ok(buf[nth])
-    //         } else {
-    //             Err(-1) // out of bound
-    //         }
-    //     })
+    // /// run closure with data slice casted as type T.
+    // /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    // #[inline(always)]
+    // pub fn with_data<T: Copy, R>(&self, f: impl FnOnce(&[T]) -> R) -> R {
+    //     self.typed_array().with_data(f)
     // }
 
-    // /// set `nth` element value.
-    // /// if `nth` is out of bound, returns Err
-    // pub fn set_element<T: Copy>(&mut self, nth: usize, val: T) -> Result<(), i32> {
-    //     debug_assert!(matches!(std::mem::size_of::<T>(), 1 | 2 | 4 | 8));
+    // /// run closure with data slice casted as type T.
+    // /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    // #[inline(always)]
+    // pub fn with_data_mut<T: Copy, R>(&mut self, f: impl FnOnce(&mut [T]) -> R) -> R {
+    //     self.typed_array_mut().with_data_mut(f)
+    // }
 
-    //     self.with_data_mut::<T, _>(|buf| {
-    //         if nth < buf.len() {
-    //             buf[nth] = val;
-    //             Ok(())
-    //         } else {
-    //             Err(-1) // out of bound
-    //         }
-    //     })
+    // /// run closure with data ptr casted as type T.
+    // /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    // #[inline(always)]
+    // pub fn with_data_ptr<T: Copy, R>(&self, f: impl FnOnce(*const T) -> R) -> R {
+    //     self.typed_array().with_data_ptr(f)
+    // }
+
+    // /// run closure with data ptr casted as type T.
+    // /// T should be one of i8, u8, i16, u16, i32, u32, i64, u64, f32, f64.
+    // #[inline(always)]
+    // pub fn with_data_mut_ptr<T: Copy, R>(&mut self, f: impl FnOnce(*mut T) -> R) -> R {
+    //     self.typed_array_mut().with_data_mut_ptr(f)
     // }
 
     /// create a new TypedArray object with content copy from `self` array.
@@ -415,11 +438,40 @@ macro_rules! typed_array_obj_of {
         pub struct $name<'a>(TypedArrayObj<'a>);
 
         impl<'a> $name<'a> {
+            #[inline(always)]
+            pub fn length(&self) -> usize {
+                self.0.length()
+            }
+
+            /// run closure with data slice.
+            #[inline(always)]
+            pub fn with_data<R>(&self, f: impl FnOnce(&[$ty]) -> R) -> R {
+                self.0.typed_array().with_data::<$ty, R>(f)
+            }
+
+            /// run closure with data slice.
+            #[inline(always)]
+            pub fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut [$ty]) -> R) -> R {
+                self.0.typed_array_mut().with_data_mut::<$ty, R>(f)
+            }
+
+            /// run closure with data ptr.
+            #[inline(always)]
+            pub unsafe fn with_data_ptr<R>(&self, f: impl FnOnce(*const $ty) -> R) -> R {
+                self.0.typed_array().with_data_ptr::<$ty, R>(f)
+            }
+
+            /// run closure with data ptr.
+            #[inline(always)]
+            pub unsafe fn with_data_mut_ptr<R>(&mut self, f: impl FnOnce(*mut $ty) -> R) -> R {
+                self.0.typed_array_mut().with_data_mut_ptr::<$ty, R>(f)
+            }
+
             /// get `nth` element value.
             /// if `nth` is out of bound, returns Err
             pub fn element(&self, nth: usize) -> Result<$ty, i32> {
-                if nth < self.0.length() {
-                    Ok(self.0.with_data_ptr::<$ty, _>(|p| unsafe { *p.add(nth) }))
+                if nth < self.length() {
+                    Ok(unsafe { self.with_data_ptr(|p| *p.add(nth)) })
                 } else {
                     Err(-1)
                 }
@@ -428,13 +480,13 @@ macro_rules! typed_array_obj_of {
             /// set `nth` element value.
             /// if `nth` is out of bound, returns Err
             pub fn set_element(&mut self, nth: usize, val: $ty) -> Result<(), i32> {
-                if nth < self.0.length() {
-                    self.0.with_data_mut_ptr::<$ty, _>(|p| {
-                        unsafe {
+                if nth < self.length() {
+                    unsafe {
+                        self.with_data_mut_ptr(|p| {
                             *p.add(nth) = val;
-                        }
-                        Ok(())
-                    })
+                            Ok(())
+                        })
+                    }
                 } else {
                     Err(-1)
                 }
