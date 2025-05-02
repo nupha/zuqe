@@ -8,6 +8,7 @@ use crate::{
     map::JSMapRecord,
     mem::{js_malloc, js_malloc_typed},
     runtime::JSRuntime,
+    typed_array::TypedArrayValue,
     value::{
         object::{
             js_get_length32, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
@@ -401,7 +402,7 @@ pub unsafe fn js_array_iterator_next(
             done!();
         }
 
-        let len = if let Some(tao) = it.obj.object_unchecked().as_typed_array_obj() {
+        let len = if let Ok(tao) = TryInto::<TypedArrayValue>::try_into(it.obj) {
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 fail!();

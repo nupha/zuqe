@@ -223,32 +223,32 @@ impl JSValue {
                 // types array
                 //
                 JS_CLASS_INT8_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Int8Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Int8Array_unchecked().element(idx as _) {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Uint8Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Uint8Array_unchecked().element(idx as _) {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_INT16_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Int16Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Int16Array_unchecked().element(idx as _) {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_UINT16_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Uint16Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Uint16Array_unchecked().element(idx as _) {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_INT32_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Int32Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Int32Array_unchecked().element(idx as _) {
                         return JSValue::from(n);
                     }
                 },
                 JS_CLASS_UINT32_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Uint32Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Uint32Array_unchecked().element(idx as _) {
                         return JSValue::from(n);
                     }
                 },
@@ -256,12 +256,12 @@ impl JSValue {
                     unimplemented!()
                 }
                 JS_CLASS_FLOAT32_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Float32Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Float32Array_unchecked().element(idx as _) {
                         return JSValue::from(n as f64);
                     }
                 },
                 JS_CLASS_FLOAT64_ARRAY => unsafe {
-                    if let Ok(n) = p.as_Float64Array_unchecked().element(idx as _) {
+                    if let Ok(n) = self.as_Float64Array_unchecked().element(idx as _) {
                         return JSValue::from(n as i32);
                     }
                 },

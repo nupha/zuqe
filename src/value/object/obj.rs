@@ -322,8 +322,8 @@ impl Drop for JSObject {
 }
 
 impl JSValue {
-    /// Direct conversion to object payload reference
-    /// Safety: Value must be JS_TAG_OBJECT or JS_TAG_FUNCTION_BYTECODE
+    /// Get JSObject payload reference of JSValue.
+    /// Safety: if JSValue is not a JS_TAG_OBJECT or JS_TAG_FUNCTION_BYTECODE, behaviour is undefined.
     #[inline(always)]
     pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
         debug_assert!(matches!(
@@ -335,7 +335,7 @@ impl JSValue {
         JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
     }
 
-    /// Get contained object payload reference if available.
+    /// Get JSObject payload reference of JSValue.
     /// Returns None for non-object and non-bytecode-function
     #[inline(always)]
     pub fn object<'a>(self) -> Option<&'a mut JSObject> {

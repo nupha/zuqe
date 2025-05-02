@@ -557,7 +557,7 @@ impl JSValue {
                         return Err(-1);
                     }
 
-                    if unsafe { p.as_Uint8Array_unchecked() }
+                    if unsafe { self.as_Uint8Array_unchecked() }
                         .set_element(idx as _, v as _)
                         .is_err()
                     {
@@ -586,9 +586,9 @@ impl JSValue {
 
                     let r = unsafe {
                         if cid == JS_CLASS_INT8_ARRAY {
-                            p.as_Int8Array_unchecked().set_element(idx as _, v as _)
+                            self.as_Int8Array_unchecked().set_element(idx as _, v as _)
                         } else {
-                            p.as_Uint8Array_unchecked().set_element(idx as _, v as _)
+                            self.as_Uint8Array_unchecked().set_element(idx as _, v as _)
                         }
                     };
 
@@ -618,9 +618,10 @@ impl JSValue {
 
                     let r = unsafe {
                         if cid == JS_CLASS_INT16_ARRAY {
-                            p.as_Int16Array_unchecked().set_element(idx as _, v as _)
+                            self.as_Int16Array_unchecked().set_element(idx as _, v as _)
                         } else {
-                            p.as_Uint16Array_unchecked().set_element(idx as _, v as _)
+                            self.as_Uint16Array_unchecked()
+                                .set_element(idx as _, v as _)
                         }
                     };
 
@@ -649,9 +650,10 @@ impl JSValue {
 
                     let r = unsafe {
                         if cid == JS_CLASS_INT32_ARRAY {
-                            p.as_Int32Array_unchecked().set_element(idx as _, v as _)
+                            self.as_Int32Array_unchecked().set_element(idx as _, v as _)
                         } else {
-                            p.as_Uint32Array_unchecked().set_element(idx as _, v as _)
+                            self.as_Uint32Array_unchecked()
+                                .set_element(idx as _, v as _)
                         }
                     };
 
@@ -677,7 +679,10 @@ impl JSValue {
                         return Err(-1);
                     }
 
-                    let r = unsafe { p.as_Float32Array_unchecked().set_element(idx as _, d as _) };
+                    let r = unsafe {
+                        self.as_Float32Array_unchecked()
+                            .set_element(idx as _, d as _)
+                    };
 
                     if r.is_err() {
                         ta_out_of_bound = true;
@@ -702,7 +707,7 @@ impl JSValue {
                         return Err(-1);
                     }
 
-                    let r = unsafe { p.as_Float64Array_unchecked().set_element(idx as _, d) };
+                    let r = unsafe { self.as_Float64Array_unchecked().set_element(idx as _, d) };
                     if r.is_err() {
                         ta_out_of_bound = true;
                     } else {
