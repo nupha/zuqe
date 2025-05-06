@@ -35,8 +35,6 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SetPropState {
-    /// Set property value for fast path: when self==this_obj
-    Fast,
     /// Try set or define property value
     ExoticAndGoUp,
     /// Property shape
@@ -48,7 +46,7 @@ enum SetPropState {
     /// Read-only error
     ErrReadOnly,
     /// TypedArray out of bounds error
-    TypedArray,
+    ErrTypedArrayOOB,
 }
 
 impl JSObject {
@@ -64,52 +62,54 @@ impl JSObject {
         let class_id = self.class_id();
         let p = self as *mut JSObject;
 
-        if let Some((prs, pr)) = self.find_own_property_mut(prop) {
-            match prs.flags() {
-                f if f & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH)
-                    == JS_PROP_WRITABLE =>
-                {
-                    // fast case
-                    set_value(ctx, &mut pr.u.value, val);
-                    return Ok(true);
-                }
-                f if f & JS_PROP_LENGTH != 0 => {
-                    // set .length property of an array object
-                    debug_assert!(self.class_id() == JS_CLASS_ARRAY);
-                    debug_assert_eq!(prop, JS_ATOM_length);
-                    return self.set_array_length(ctx, val, flags).map_err(|_| None);
-                }
-                f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
-                    return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
-                        0 => Ok(false),
-                        1 => Ok(true),
-                        -1 => Err(None),
-                        _ => unreachable!(),
-                    };
-                }
-                f if f & JS_PROP_TMASK == JS_PROP_VARREF => {
-                    /* JS_PROP_WRITABLE is always true for variable
-                    references, but they are write protected in module name
-                    spaces. */
-                    if class_id == JS_CLASS_MODULE_NS {
+        loop {
+            if let Some((prs, pr)) = self.find_own_property_mut(prop) {
+                match prs.flags() {
+                    f if f & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH)
+                        == JS_PROP_WRITABLE =>
+                    {
+                        // fast case
+                        set_value(ctx, &mut pr.u.value, val);
+                        return Ok(true);
+                    }
+                    f if f & JS_PROP_LENGTH != 0 => {
+                        // set .length property of an array object
+                        debug_assert!(self.class_id() == JS_CLASS_ARRAY);
+                        debug_assert_eq!(prop, JS_ATOM_length);
+                        return self.set_array_length(ctx, val, flags).map_err(|_| None);
+                    }
+                    f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
+                        return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
+                            0 => Ok(false),
+                            1 => Ok(true),
+                            -1 => Err(None),
+                            _ => unreachable!(),
+                        };
+                    }
+                    f if f & JS_PROP_TMASK == JS_PROP_VARREF => {
+                        /* JS_PROP_WRITABLE is always true for variable
+                        references, but they are write protected in module name
+                        spaces. */
+                        if class_id == JS_CLASS_MODULE_NS {
+                            return Err(Some(SetPropState::ErrReadOnly));
+                        }
+                        set_value(ctx, (*pr.u.var_ref).pvalue, val);
+                        return Ok(true);
+                    }
+                    f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {
+                        if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
+                            JS_FreeValue(ctx, val);
+                            return Err(None);
+                        }
+                        continue; // try again
+                    }
+                    _ => {
                         return Err(Some(SetPropState::ErrReadOnly));
                     }
-                    set_value(ctx, (*pr.u.var_ref).pvalue, val);
-                    return Ok(true);
                 }
-                f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {
-                    if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
-                        JS_FreeValue(ctx, val);
-                        return Err(None);
-                    }
-                    return Err(Some(SetPropState::Fast));
-                }
-                _ => {
-                    return Err(Some(SetPropState::ErrReadOnly));
-                }
+            } else {
+                return Err(Some(SetPropState::ExoticAndGoUp));
             }
-        } else {
-            return Err(Some(SetPropState::ExoticAndGoUp));
         }
     }
 
@@ -124,27 +124,29 @@ impl JSObject {
     ) -> Result<bool, Option<SetPropState>> {
         let p = self as *mut JSObject;
 
-        if let Some((prs, pr)) = self.find_own_property_mut(prop) {
-            let pr_flags = prs.flags();
-            if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
-                return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
-                    0 => Ok(false),
-                    1 => Ok(true),
-                    -1 => Err(None),
-                    _ => unreachable!(),
-                };
-            } else if pr_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
-                // Instantiate property and retry (potentially useless)
-                if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
-                    return Err(None);
+        loop {
+            if let Some((prs, pr)) = self.find_own_property_mut(prop) {
+                let pr_flags = prs.flags();
+                if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
+                    return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
+                        0 => Ok(false),
+                        1 => Ok(true),
+                        -1 => Err(None),
+                        _ => unreachable!(),
+                    };
+                } else if pr_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
+                    // Instantiate property and retry (potentially useless)
+                    if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
+                        return Err(None);
+                    }
+                    continue; // try again
+                } else if pr_flags & JS_PROP_WRITABLE == 0 {
+                    return Err(Some(SetPropState::ErrReadOnly));
                 }
-                return Err(Some(SetPropState::SetterOrAutoInit));
-            } else if pr_flags & JS_PROP_WRITABLE == 0 {
-                return Err(Some(SetPropState::ErrReadOnly));
             }
-        }
 
-        Err(Some(SetPropState::ExoticAndGoUp))
+            return Err(Some(SetPropState::ExoticAndGoUp));
+        }
     }
 }
 
@@ -208,30 +210,24 @@ impl JSValue {
         } else {
             p_self = self.object_unchecked() as _;
             p_this = this_obj.object_unchecked() as _;
-            if p_this != p_self {
-                SetPropState::SetterOrAutoInit
+
+            if p_this == p_self {
+                match (*p_this).set_property_fast(ctx, prop, val, this_obj, flags) {
+                    Ok(b) => {
+                        return Ok(b);
+                    }
+                    Err(None) => {
+                        return Err(-1);
+                    }
+                    Err(Some(st)) => st,
+                }
             } else {
-                SetPropState::Fast
+                SetPropState::SetterOrAutoInit
             }
         };
 
         loop {
             match state {
-                SetPropState::Fast => {
-                    // fast path for self == this_obj
-                    debug_assert_eq!(p_this, p_self);
-                    match (*p_this).set_property_fast(ctx, prop, val, this_obj, flags) {
-                        Ok(b) => return Ok(b),
-                        Err(Some(st)) => {
-                            state = st;
-                            continue;
-                        }
-                        Err(None) => {
-                            return Err(-1);
-                        }
-                    }
-                }
-
                 SetPropState::ExoticAndGoUp => {
                     if (*p_self).detailed.is_exotic() {
                         if (*p_self).detailed.fast_array() {
@@ -253,7 +249,7 @@ impl JSValue {
                                 } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                                     .contains(&(*p_self).class_id())
                                 {
-                                    state = SetPropState::TypedArray;
+                                    state = SetPropState::ErrTypedArrayOOB;
                                     continue;
                                 }
                             } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
@@ -265,7 +261,7 @@ impl JSValue {
                                         JS_FreeValue(ctx, val);
                                         return Err(-1);
                                     }
-                                    state = SetPropState::TypedArray;
+                                    state = SetPropState::ErrTypedArrayOOB;
                                     continue;
                                 }
                             }
@@ -490,7 +486,7 @@ impl JSValue {
                         Ok(false)
                     };
                 }
-                SetPropState::TypedArray => {
+                SetPropState::ErrTypedArrayOOB => {
                     // must convert the argument even if out of bound access
                     if matches!(
                         (*p_self).class_id(),
