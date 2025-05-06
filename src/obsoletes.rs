@@ -778,3 +778,14 @@ pub unsafe fn JS_EvalObject(
         Err(_) => JSValue::EXCEPTION,
     }
 }
+
+#[deprecated(note = "use JSModuleDef::build_ns() instead")]
+pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
+    (*m).build_ns(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSModuleDef::ns() instead")]
+pub unsafe fn js_get_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
+    (*m).ns(ctx.as_mut().unwrap()).unwrap_or(JSValue::EXCEPTION)
+}

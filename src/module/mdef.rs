@@ -340,7 +340,7 @@ impl JSModuleDef {
     }
 
     /// build module ns object
-    unsafe fn build_ns(&mut self, ctx: &mut JSContext) -> JSResult {
+    pub(crate) unsafe fn build_ns(&mut self, ctx: &mut JSContext) -> JSResult {
         let mut s_s: GetExportNamesState = std::mem::zeroed();
         let s = &mut s_s;
 
@@ -1141,17 +1141,6 @@ pub fn js_default_module_normalize_name(
     }
 
     Ok(normalized.to_string_lossy().to_string())
-}
-
-#[deprecated(note = "use JSModuleDef::build_ns() instead")]
-pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
-    (*m).build_ns(ctx.as_mut().unwrap())
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-#[deprecated(note = "use JSModuleDef::ns() instead")]
-pub unsafe fn js_get_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
-    (*m).ns(ctx.as_mut().unwrap()).unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn js_module_ns_autoinit(

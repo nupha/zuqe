@@ -142,7 +142,7 @@ impl JSContext {
             fd.arguments_allowed = true;
         }
         fd.js_mode = js_mode as u8;
-        fd.func_name = JS_DupAtom(self, JS_ATOM__eval_);
+        fd.func_name = JS_ATOM__eval_.dup(self.rt());
 
         if !b.is_null() {
             if add_closure_variables(self, fd.deref_mut(), b, scope_idx).is_err() {
@@ -207,7 +207,6 @@ impl JSContext {
         }
     }
 
-    // /// 'input' must be zero terminated i.e. input[input_len] = '\0'.
     // pub fn eval_hook(
     //     ctx: &mut JSContext,
     //     this_obj: JSValueConst,
