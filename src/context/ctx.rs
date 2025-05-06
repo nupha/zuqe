@@ -180,6 +180,13 @@ impl JSContext {
         JSContextHandle::from(self as *mut JSContext)
     }
 
+    /// Increase context ref count by 1.
+    #[inline(always)]
+    pub fn dup(&mut self) -> &mut JSContext {
+        self.header.ref_count += 1;
+        self
+    }
+
     /// Pushes a new stack frame onto the execution stack
     ///
     /// # Safety
@@ -265,9 +272,9 @@ pub enum AtomicOp {
     Xor,
 }
 
-pub unsafe fn JS_DupContext(ctx: *mut JSContext) -> *mut JSContext {
-    (*ctx).header.ref_count += 1;
-    ctx
+#[deprecated(note = "use JSContext::dup() instead")]
+pub fn JS_DupContext(ctx: *mut JSContext) -> *mut JSContext {
+    unsafe { (*ctx).dup() }
 }
 
 pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {

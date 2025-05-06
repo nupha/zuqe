@@ -391,7 +391,7 @@ pub unsafe fn js_instantiate_prototype(
     atom: JSAtom,
     opaque: *mut c_void,
 ) -> JSValue {
-    let this_val = JS_MKPTR!(JSTag::Object, p.cast());
+    let this_val = JS_MKPTR!(JSTag::Object, (p as *mut JSObject).cast());
     let obj = JS_NewObject(ctx);
     if obj.is_exception() {
         return JSValue::EXCEPTION;

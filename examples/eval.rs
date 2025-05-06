@@ -18,8 +18,8 @@ use zhuque::{
     promise::PromiseValue,
     runtime::JSRuntime,
     value::{
-        object::{JS_DefinePropertyValueStr, JS_PROP_C_W_E},
-        JSValue, JSValueConst, JS_FreeValue, JS_TAG_MODULE, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, JS_TAG_MODULE,
+        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 
@@ -196,15 +196,18 @@ pub unsafe fn js_module_set_import_meta(
         return -1;
     };
 
-    JS_DefinePropertyValueStr(
-        ctx,
-        meta_obj,
-        c"url",
-        (*ctx).create_string_from_utf8(aurl.into_bytes()),
-        JS_PROP_C_W_E,
-    );
-    JS_DefinePropertyValueStr(ctx, meta_obj, c"main", is_main.into(), JS_PROP_C_W_E);
-    JS_FreeValue(ctx, meta_obj);
+    meta_obj
+        .define_property_value_str(
+            ctx.as_mut().unwrap(),
+            "url",
+            (*ctx).create_string_from_utf8(aurl.into_bytes()),
+            JS_PROP_C_W_E,
+        )
+        .unwrap();
+
+    meta_obj
+        .define_property_value_str(ctx.as_mut().unwrap(), "main", is_main.into(), JS_PROP_C_W_E)
+        .unwrap();
 
     0
 }

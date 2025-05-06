@@ -2,7 +2,7 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_MAX_INT, JS_ATOM_NULL},
     context::{is_strict_mode, JSContext},
-    value::{JSTag, JSValueConst, JS_VALUE_GET_OBJ},
+    value::JSTag,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
@@ -14,7 +14,8 @@ use super::{
 };
 
 impl JSObject {
-    /// delete a property. returns false if the property is not configurable; true is delete is successful
+    /// delete a property in shape or by exotic handler.
+    /// returns false if the property is not configurable; true is delete is successful
     pub fn delete_property(&mut self, ctx: &mut JSContext, prop: JSAtom) -> Result<bool, i32> {
         let sh = self.shape_mut().unwrap();
         let mut idx_and_flags: Option<(usize, u32)> = None;
@@ -109,7 +110,7 @@ impl JSObject {
             break;
         }
 
-        return Ok(true);
+        Ok(true)
     }
 }
 
@@ -128,14 +129,13 @@ impl JSValue {
         }
 
         unsafe {
-            let p = JS_VALUE_GET_OBJ(obj1);
-            let res = (*p).delete_property(ctx, prop);
+            let res = obj1.object_unchecked().delete_property(ctx, prop);
             JS_FreeValue(ctx, obj1);
 
             if res? {
                 Ok(true)
             } else if flags & JS_PROP_THROW != 0
-                || ((flags & JS_PROP_THROW_STRICT) != 0 && is_strict_mode(ctx))
+                || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
             {
                 ctx.JS_ThrowTypeError(c"could not delete property");
                 Err(-1)
@@ -167,50 +167,4 @@ impl JSValue {
             res
         }
     }
-}
-
-/* 返回 -1、FALSE 或 TRUE。如果不可配置或无效对象则返回 FALSE。出现异常时返回 -1。
-flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT */
-#[deprecated(note = "use JSValue::delete_property() instead")]
-pub unsafe fn JS_DeleteProperty(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    prop: JSAtom,
-    flags: u32,
-) -> Result<bool, i32> {
-    obj.delete_property(ctx.as_mut().unwrap(), prop, flags)
-
-    // let obj1 = JS_ToObject(ctx, obj);
-    // if JS_IsException(obj1) {
-    //     return Err(-1);
-    // }
-
-    // let p = JS_VALUE_GET_OBJ(obj1);
-    // let res = p.as_mut().unwrap().delete_property(ctx, prop);
-    // JS_FreeValue(ctx, obj1);
-    // if res < 0 {
-    //     return Err(-1);
-    // } else if res != 0 {
-    //     return Ok(true);
-    // } else if flags & JS_PROP_THROW != 0
-    //     || ((flags & JS_PROP_THROW_STRICT) != 0 && is_strict_mode(ctx))
-    // {
-    //     ctx.as_mut()
-    //         .unwrap()
-    //         .JS_ThrowTypeError(c"could not delete property");
-
-    //     Err(-1)
-    // } else {
-    //     Ok(false)
-    // }
-}
-
-#[deprecated(note = "use JSValue::delete_property_i64() instead")]
-pub unsafe fn JS_DeletePropertyInt64(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    idx: i64,
-    flags: u32,
-) -> Result<bool, i32> {
-    obj.delete_property_i64(ctx.as_mut().unwrap(), idx, flags)
 }

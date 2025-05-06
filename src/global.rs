@@ -142,23 +142,25 @@ pub unsafe fn JS_DefineGlobalFunction(
 
 pub unsafe fn JS_GetGlobalVar(ctx: *mut JSContext, prop: JSAtom, throw_ref_error: bool) -> JSValue {
     // no exotic behavior is possible in global_var_obj
-    let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-
-    if let Some((prs, pr)) = (*p).find_own_property(prop) {
+    if let Some((prs, pr)) = (*ctx)
+        .global_var_obj
+        .object_unchecked()
+        .find_own_property(prop)
+    {
         // XXX: should handle JS_PROP_TMASK properties
-        return if unlikely(JS_IsUninitialized(pr.u.value)) {
+        if unlikely(JS_IsUninitialized(pr.u.value)) {
             JS_ThrowReferenceErrorUninitialized(ctx, prs.atom)
         } else {
             pr.u.value.dup()
-        };
+        }
+    } else {
+        (*ctx).global().get_property_internal(
+            ctx.as_mut().unwrap(),
+            prop,
+            (*ctx).global_obj,
+            throw_ref_error,
+        )
     }
-
-    (*ctx).global_obj.get_property_internal(
-        ctx.as_mut().unwrap(),
-        prop,
-        (*ctx).global_obj,
-        throw_ref_error,
-    )
 }
 
 // construct a reference to a global variable

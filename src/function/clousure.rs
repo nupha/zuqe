@@ -13,10 +13,10 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         object::{
-            JSAutoInitIDEnum, JS_DefineAutoInitProperty, JS_NewObjectClass, JS_NewObjectProto,
-            JS_SetConstructorBit, JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JS_NewObjectClass, JS_NewObjectProto, JS_SetConstructorBit,
+            JS_PROP_WRITABLE,
         },
-        JSValue, JS_FreeValue, JS_IsException, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JSValue, JS_FreeValue, JS_VALUE_GET_PTR,
     },
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
 };
@@ -261,15 +261,15 @@ pub unsafe fn js_closure(
         // creating cycles for every javascript function. The prototype
         // object is created on the fly when first accessed
         JS_SetConstructorBit(ctx, func_obj, true);
-        JS_DefineAutoInitProperty(
-            ctx,
-            func_obj,
-            JS_ATOM_prototype,
-            JSAutoInitIDEnum::JS_AUTOINIT_ID_PROTOTYPE,
-            std::ptr::null_mut(),
-            JS_PROP_WRITABLE,
-        )
-        .expect("TODO");
+        func_obj
+            .define_auto_init_property(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_prototype,
+                JSAutoInitIDEnum::JS_AUTOINIT_ID_PROTOTYPE,
+                std::ptr::null_mut(),
+                JS_PROP_WRITABLE,
+            )
+            .expect("TODO");
     }
 
     func_obj

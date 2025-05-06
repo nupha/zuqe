@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
-    context::{JSContext, JSContextHandle, JS_DupContext, JS_FreeContext},
+    context::{JSContext, JSContextHandle, JS_FreeContext},
     error::{JSResult, JS_ThrowStackOverflow},
     function::JS_CALL_FLAG_CONSTRUCTOR,
     gc::JS_MarkFunc,
@@ -15,8 +15,7 @@ use crate::{
     types::list_head,
     value::{
         object::{
-            JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyGetSet,
-            JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
+            JSAutoInitIDEnum, JSObject, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
         },
         JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,
         JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
@@ -552,7 +551,7 @@ impl JSContext {
         unsafe {
             let cfunc = &mut p.u.cfunc;
 
-            cfunc.realm = JS_DupContext(self);
+            cfunc.realm = self.dup();
             cfunc.c_function.native_callback = callback;
             cfunc.length = length;
             cfunc.cproto = cproto;
@@ -612,7 +611,7 @@ pub unsafe fn JS_NewCFunction3(
 
     {
         let cf = &mut p.u.cfunc;
-        cf.realm = JS_DupContext(ctx);
+        cf.realm = ctx.as_mut().unwrap().dup();
         cf.c_function.generic = func;
         cf.length = length;
         cf.cproto = cproto;
@@ -739,9 +738,8 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                 // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                 prop_flags = 0;
             }
-            JS_DefineAutoInitProperty(
-                ctx,
-                obj,
+            obj.define_auto_init_property(
+                ctx.as_mut().unwrap(),
                 atom,
                 JSAutoInitIDEnum::JS_AUTOINIT_ID_PROP,
                 e as *mut c_void,
@@ -800,7 +798,15 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                 JSValue::UNDEFINED
             };
 
-            JS_DefinePropertyGetSet(ctx, obj, atom, getter, setter, prop_flags as _);
+            obj.define_property_getset(
+                ctx.as_mut().unwrap(),
+                atom,
+                getter,
+                setter,
+                prop_flags as _,
+            )
+            .unwrap();
+
             return 0;
         }
         JS_DEF_PROP_INT32 => {
@@ -816,9 +822,8 @@ pub unsafe fn JS_InstantiateFunctionListItem(
             val = JSValue::UNDEFINED;
         }
         JS_DEF_PROP_STRING | JS_DEF_OBJECT => {
-            JS_DefineAutoInitProperty(
-                ctx,
-                obj,
+            obj.define_auto_init_property(
+                ctx.as_mut().unwrap(),
                 atom,
                 JSAutoInitIDEnum::JS_AUTOINIT_ID_PROP,
                 e as *mut c_void,

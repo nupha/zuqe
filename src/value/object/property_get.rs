@@ -26,71 +26,28 @@ use crate::{
 };
 
 use super::{
-    JSPropertyDescriptor, JS_AutoInitProperty, JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_TMASK,
-    JS_PROP_VARREF,
+    JSObject, JSPropertyDescriptor, JS_AutoInitProperty, JS_PROP_AUTOINIT, JS_PROP_GETSET,
+    JS_PROP_TMASK, JS_PROP_VARREF,
 };
 
-impl JSValue {
-    /// Note: returned value ref_count is duplicared.
-    pub(crate) unsafe fn get_property_internal(
-        self,
+impl JSObject {
+    /// walk up proto chain and get property value by shape or exotic handler.
+    /// Note: returned value is duplicated.
+    unsafe fn retrive_property_by_shape_or_exotic(
+        &mut self,
         ctx: &mut JSContext,
         prop: JSAtom,
         this_obj: JSValueConst,
         throw_ref_error: bool,
     ) -> JSValue {
-        let mut p = match JS_VALUE_GET_TAG(self) {
-            JS_TAG_OBJECT => JS_VALUE_GET_OBJ(self),
-            JS_TAG_NULL => {
-                return ctx.JS_ThrowTypeError(CStr::from_ptr(
-                    format!("cannot read property '{}' of null\0", prop.to_str(ctx.rt()))
-                        .as_ptr()
-                        .cast(),
-                ));
-            }
-            JS_TAG_UNDEFINED => {
-                return ctx.JS_ThrowTypeError(CStr::from_ptr(
-                    format!(
-                        "cannot read property '{}' of undefined\0",
-                        prop.to_str(ctx.rt())
-                    )
-                    .as_ptr()
-                    .cast(),
-                ));
-            }
-            JS_TAG_EXCEPTION => {
-                return JSValue::EXCEPTION;
-            }
-            JS_TAG_STRING => {
-                let ss = self.string();
-                if prop.is_int_type() {
-                    let idx = __JS_AtomToUInt32(prop);
-                    if idx < ss.len() as u32 {
-                        let ch = ss.content().chars().nth(idx as usize).unwrap();
-                        return ctx.create_string_from_char(ch);
-                    }
-                } else if prop == JS_ATOM_length {
-                    return JSValue::from_i32(ss.len() as i32);
-                }
-
-                // cannot raise an exception
-                JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self))
-            }
-            _ => {
-                // cannot raise an exception
-                JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self))
-            }
-        };
-
-        if p.is_null() {
-            return JSValue::UNDEFINED;
-        }
+        let mut p = self as *mut JSObject;
 
         loop {
+            // 1. find in shape
             if let Some((prs, pr)) = (*p).find_own_property_mut(prop) {
                 match prs.flags() & JS_PROP_TMASK {
                     JS_PROP_GETSET => {
-                        return if (*pr).u.getset.getter.is_null() {
+                        return if pr.u.getset.getter.is_null() {
                             JSValue::UNDEFINED
                         } else {
                             let func: JSValue =
@@ -122,6 +79,7 @@ impl JSValue {
                 }
             }
 
+            // 2. try exotic handler
             if (*p).detailed.is_exotic() {
                 if (*p).detailed.fast_array() {
                     if prop.is_int_type() {
@@ -187,6 +145,7 @@ impl JSValue {
                 }
             }
 
+            // 3. walk up proto chain
             p = (*(*p).shape).proto;
             if p.is_null() {
                 break;
@@ -197,6 +156,66 @@ impl JSValue {
             JS_ThrowReferenceErrorNotDefined(ctx, prop)
         } else {
             JSValue::UNDEFINED
+        }
+    }
+}
+
+impl JSValue {
+    /// Note: returned value ref_count is duplicared.
+    pub(crate) unsafe fn get_property_internal(
+        self,
+        ctx: &mut JSContext,
+        prop: JSAtom,
+        this_obj: JSValueConst,
+        throw_ref_error: bool,
+    ) -> JSValue {
+        let p = match JS_VALUE_GET_TAG(self) {
+            JS_TAG_OBJECT => JS_VALUE_GET_OBJ(self),
+            JS_TAG_NULL => {
+                return ctx.JS_ThrowTypeError(CStr::from_ptr(
+                    format!("cannot read property '{}' of null\0", prop.to_str(ctx.rt()))
+                        .as_ptr()
+                        .cast(),
+                ));
+            }
+            JS_TAG_UNDEFINED => {
+                return ctx.JS_ThrowTypeError(CStr::from_ptr(
+                    format!(
+                        "cannot read property '{}' of undefined\0",
+                        prop.to_str(ctx.rt())
+                    )
+                    .as_ptr()
+                    .cast(),
+                ));
+            }
+            JS_TAG_EXCEPTION => {
+                return JSValue::EXCEPTION;
+            }
+            JS_TAG_STRING => {
+                let ss = self.string();
+                if prop.is_int_type() {
+                    let idx = __JS_AtomToUInt32(prop);
+                    if idx < ss.len() as u32 {
+                        let ch = ss.content().chars().nth(idx as usize).unwrap();
+                        return ctx.create_string_from_char(ch);
+                    }
+                } else if prop == JS_ATOM_length {
+                    return JSValue::from_i32(ss.len() as i32);
+                }
+
+                // cannot raise an exception
+                JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self))
+            }
+            _ => {
+                // cannot raise an exception
+                JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self))
+            }
+        };
+
+        if p.is_null() {
+            JSValue::UNDEFINED
+        } else {
+            (*p).retrive_property_by_shape_or_exotic(ctx, prop, this_obj, throw_ref_error)
         }
     }
 
@@ -373,59 +392,4 @@ impl JSValue {
             ret
         }
     }
-}
-
-/// returned value has its ref_count increased by 1.
-#[deprecated(note = "use JSValue::get_property_internal() instead")]
-pub unsafe fn JS_GetPropertyInternal(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    prop: JSAtom,
-    this_obj: JSValueConst,
-    throw_ref_error: bool,
-) -> JSValue {
-    obj.get_property_internal(ctx.as_mut().unwrap(), prop, this_obj, throw_ref_error)
-}
-
-#[deprecated(note = "use JSValue::get_property() instead")]
-#[inline(always)]
-pub unsafe fn JS_GetProperty(ctx: *mut JSContext, this_obj: JSValueConst, prop: JSAtom) -> JSValue {
-    JS_GetPropertyInternal(ctx, this_obj, prop, this_obj, false)
-}
-
-/// NOTE: returned property value has increased ref_count by 1
-#[deprecated(note = "use JSValue::get_property_value() instead")]
-pub unsafe fn JS_GetPropertyValue(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    prop: JSValue,
-) -> JSValue {
-    this_obj.get_property_value(ctx.as_mut().unwrap(), prop)
-}
-
-#[deprecated(note = "use JSValue::get_property_u32() instead")]
-pub unsafe fn JS_GetPropertyUint32(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    idx: u32,
-) -> JSValue {
-    this_obj.get_property_u32(ctx.as_mut().unwrap(), idx)
-}
-
-#[deprecated(note = "use JSValue::get_property_i64() instead")]
-pub unsafe fn JS_GetPropertyInt64(ctx: *mut JSContext, obj: JSValueConst, idx: i64) -> JSValue {
-    obj.get_property_i64(ctx.as_mut().unwrap(), idx)
-}
-
-/// Check if an object has a generalized numeric property `idx`. Returns:
-/// Err for exception,
-/// Ok(Some(_)) if property exists,
-/// Ok(None) if proprty does not exist.
-#[deprecated(note = "use JSValue::try_get_property_i64() instead")]
-pub unsafe fn JS_TryGetPropertyInt64(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    idx: i64,
-) -> Result<Option<JSValue>, i32> {
-    obj.try_get_property_i64(ctx.as_mut().unwrap(), idx)
 }

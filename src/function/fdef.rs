@@ -1,11 +1,9 @@
-use std::{ffi::CStr, ops::DerefMut};
+use std::ops::DerefMut;
 
 use crate::{
-    atom::{
-        consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL,
-    },
+    atom::{consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
-    context::{JSContext, JS_DupContext, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_INDIRECT},
     function::{
@@ -502,7 +500,7 @@ impl JSFunctionDef {
         bf.backtrace_barrier = self.backtrace_barrier;
         bf.is_direct_or_indirect_eval =
             matches!(self.eval_type, JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT);
-        bf.realm = JS_DupContext(ctx);
+        bf.realm = ctx.dup();
 
         bf.cpool_count = self.cpool_count as _;
         bf.var_count = self.var_count;

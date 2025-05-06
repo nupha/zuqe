@@ -35,7 +35,6 @@ use crate::{
             js_string_proto_funcs,
         },
     },
-    obsoletes::JS_NewGlobalCConstructor2,
     promise::{js_promise_funcs, js_promise_proto_funcs, PromiseValue},
     typed_array::{
         js_dataview_constructor, js_dataview_proto_funcs, js_typed_array_base_constructor,
@@ -45,8 +44,7 @@ use crate::{
     value::{
         js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
-            get_proto_obj, js_new_shape2, js_object_seal, JS_DefinePropertyValue,
-            JS_DefinePropertyValueStr, JS_GetProperty, JS_NewObject, JS_NewObjectProto,
+            get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
             JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
             JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE,
             JS_PROP_LENGTH, JS_PROP_WRITABLE,
@@ -647,19 +645,17 @@ impl JSContext {
             );
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
-            let obj = JS_GetProperty(
-                self,
-                self.class_proto[JS_CLASS_ARRAY as usize],
-                JS_ATOM_toString,
-            );
+            let obj =
+                self.class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_toString);
             // XXX: should use alias method in JSCFunctionListEntry
-            JS_DefinePropertyValue(
-                self,
-                typed_array_base_proto,
-                JS_ATOM_toString,
-                obj,
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            );
+            typed_array_base_proto
+                .define_property_value(
+                    self,
+                    JS_ATOM_toString,
+                    obj,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
 
             let typed_array_base_func =
                 JS_NewCFunction(self, js_typed_array_base_constructor, c"TypedArray", 0);
@@ -675,14 +671,14 @@ impl JSContext {
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
                 self.class_proto[i as usize] = JS_NewObjectProto(self, typed_array_base_proto);
-
-                JS_DefinePropertyValueStr(
-                    self,
-                    self.class_proto[i as usize],
-                    c"BYTES_PER_ELEMENT",
-                    (1 << typed_array_size_log2(i)).into(),
-                    0,
-                );
+                self.class_proto[i as usize]
+                    .define_property_value_str(
+                        self,
+                        "BYTES_PER_ELEMENT",
+                        (1 << typed_array_size_log2(i)).into(),
+                        0,
+                    )
+                    .unwrap();
 
                 let name = JSAtom(JS_ATOM_Uint8ClampedArray.0 + (i - JS_CLASS_UINT8C_ARRAY) as u32)
                     .to_utf8_string(self.handle())
@@ -701,12 +697,14 @@ impl JSContext {
                 );
                 self.add_global_constructor(name.as_ref(), func_obj, self.class_proto[i as usize]);
 
-                func_obj.define_property_value_str(
-                    self,
-                    "BYTES_PER_ELEMENT",
-                    (1 << typed_array_size_log2(i)).into(),
-                    0,
-                );
+                func_obj
+                    .define_property_value_str(
+                        self,
+                        "BYTES_PER_ELEMENT",
+                        (1 << typed_array_size_log2(i)).into(),
+                        0,
+                    )
+                    .unwrap();
             }
             JS_FreeValue(self, typed_array_base_proto);
             JS_FreeValue(self, typed_array_base_func);

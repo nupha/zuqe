@@ -27,12 +27,12 @@ use crate::{
     },
     value::{
         object::{
-            JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyValueStr,
-            JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JSObject, JS_NewObjectClass, JS_NewObjectProto,
+            JS_NewObjectProtoClass, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
+            JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsUndefined, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
 };
@@ -448,16 +448,16 @@ impl JSModuleDef {
                     }
                 }
                 ExportedNameEntryEnum::EXPORTED_NAME_NS => {
-                    /* the exported namespace must be created on demand */
-                    if JS_DefineAutoInitProperty(
-                        ctx,
-                        obj,
-                        en.export_name,
-                        JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
-                        en.u.module.cast(),
-                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
-                    )
-                    .is_err()
+                    // the exported namespace must be created on demand
+                    if obj
+                        .define_auto_init_property(
+                            ctx,
+                            en.export_name,
+                            JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
+                            en.u.module.cast(),
+                            JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
+                        )
+                        .is_err()
                     {
                         js_free(ctx, s.exported_names.cast());
                         JS_FreeValue(ctx, obj);

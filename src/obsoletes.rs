@@ -15,8 +15,8 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
     value::{
-        object::JSObject, JSString, JSValue, JSValueConst, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        object::{JSAutoInitIDEnum, JSObject},
+        JSString, JSValue, JSValueConst, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
 };
 
@@ -718,6 +718,240 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
 #[deprecated(note = "use PromiseValue::result() instead")]
 pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
     UncheckedInto::<PromiseValue>::unchecked_into(promise).result()
+}
+
+/* allowed flags:
+   JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
+   JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+   JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_HAS_ENUMERABLE,
+   JS_PROP_THROW, JS_PROP_NO_EXOTIC.
+   If JS_PROP_THROW is set, return an exception instead of FALSE.
+   if JS_PROP_NO_EXOTIC is set, do not call the exotic
+   define_own_property callback.
+   return -1 (exception), FALSE or TRUE.
+*/
+/// Note: property `val` is duplicated inside.
+#[deprecated(note = "use JSValue::define_property() instead")]
+pub unsafe fn JS_DefineProperty(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: JSAtom,
+    val: JSValueConst,
+    getter: JSValueConst,
+    setter: JSValueConst,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property(ctx.as_mut().unwrap(), prop, val, getter, setter, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+/// shortcut to add or redefine a new property value.
+/// Note: property value is consumed.
+#[deprecated(note = "use JSValue::defined_property_value() instead")]
+pub unsafe fn JS_DefinePropertyValue(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: JSAtom,
+    val: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property_value(ctx.as_mut().unwrap(), prop, val, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::defined_property_value_str() instead")]
+pub unsafe fn JS_DefinePropertyValueStr(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: &CStr,
+    val: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property_value_str(
+            ctx.as_mut().unwrap(),
+            prop.to_string_lossy().as_ref(),
+            val,
+            flags,
+        )
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::defined_property_value_value() instead")]
+pub unsafe fn JS_DefinePropertyValueValue(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: JSValue,
+    val: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property_value_value(ctx.as_mut().unwrap(), prop, val, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::create_data_property_u32() instead")]
+pub unsafe fn JS_CreateDataPropertyUint32(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    idx: i64,
+    val: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .create_data_property_u32(ctx.as_mut().unwrap(), idx, val, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::defined_property_value_u32() instead")]
+pub unsafe fn JS_DefinePropertyValueUint32(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    idx: u32,
+    val: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property_value_u32(ctx.as_mut().unwrap(), idx, val, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::defined_property_value_i64() instead")]
+pub unsafe fn JS_DefinePropertyValueInt64(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    idx: i64,
+    val: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property_value_i64(ctx.as_mut().unwrap(), idx, val, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::defined_property_desc() instead")]
+pub unsafe fn JS_DefinePropertyDesc(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    prop: JSAtom,
+    desc: JSValueConst,
+    flags: u32,
+) -> Result<bool, i32> {
+    obj.define_property_desc(ctx.as_mut().unwrap(), prop, desc, flags)
+
+    // let mut d: JSPropertyDescriptor = std::mem::zeroed();
+    // js_obj_to_desc(ctx, &mut d, desc)?;
+
+    // let ret = JS_DefineProperty(ctx, obj, prop, d.value, d.getter, d.setter, d.flags | flags);
+    // js_free_desc(ctx, &mut d);
+
+    // Ok(ret != 0)
+}
+
+/// `getter` and `setter` are consumed.
+#[deprecated(note = "use JSValue::define_property_getset() instead")]
+pub unsafe fn JS_DefinePropertyGetSet(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: JSAtom,
+    getter: JSValue,
+    setter: JSValue,
+    flags: u32,
+) -> i32 {
+    this_obj
+        .define_property_getset(ctx.as_mut().unwrap(), prop, getter, setter, flags)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::define_auto_init_property() instead")]
+pub unsafe fn JS_DefineAutoInitProperty(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: JSAtom,
+    id: JSAutoInitIDEnum,
+    opaque: *mut std::ffi::c_void,
+    flags: u32,
+) -> Result<bool, i32> {
+    this_obj.define_auto_init_property(ctx.as_mut().unwrap(), prop, id, opaque, flags)
+}
+
+/// returned value has its ref_count increased by 1.
+#[deprecated(note = "use JSValue::get_property_internal() instead")]
+pub unsafe fn JS_GetPropertyInternal(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    prop: JSAtom,
+    this_obj: JSValueConst,
+    throw_ref_error: bool,
+) -> JSValue {
+    obj.get_property_internal(ctx.as_mut().unwrap(), prop, this_obj, throw_ref_error)
+}
+
+#[deprecated(note = "use JSValue::get_property() instead")]
+#[inline(always)]
+pub unsafe fn JS_GetProperty(ctx: *mut JSContext, this_obj: JSValueConst, prop: JSAtom) -> JSValue {
+    this_obj.get_property(ctx.as_mut().unwrap(), prop)
+}
+
+/// NOTE: returned property value has increased ref_count by 1
+#[deprecated(note = "use JSValue::get_property_value() instead")]
+pub unsafe fn JS_GetPropertyValue(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: JSValue,
+) -> JSValue {
+    this_obj.get_property_value(ctx.as_mut().unwrap(), prop)
+}
+
+#[deprecated(note = "use JSValue::get_property_u32() instead")]
+pub unsafe fn JS_GetPropertyUint32(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    idx: u32,
+) -> JSValue {
+    this_obj.get_property_u32(ctx.as_mut().unwrap(), idx)
+}
+
+#[deprecated(note = "use JSValue::get_property_i64() instead")]
+pub unsafe fn JS_GetPropertyInt64(ctx: *mut JSContext, obj: JSValueConst, idx: i64) -> JSValue {
+    obj.get_property_i64(ctx.as_mut().unwrap(), idx)
+}
+
+/// Check if an object has a generalized numeric property `idx`. Returns:
+/// Err for exception,
+/// Ok(Some(_)) if property exists,
+/// Ok(None) if proprty does not exist.
+#[deprecated(note = "use JSValue::try_get_property_i64() instead")]
+pub unsafe fn JS_TryGetPropertyInt64(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    idx: i64,
+) -> Result<Option<JSValue>, i32> {
+    obj.try_get_property_i64(ctx.as_mut().unwrap(), idx)
+}
+
+/* 返回 -1、FALSE 或 TRUE。如果不可配置或无效对象则返回 FALSE。出现异常时返回 -1。
+flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT */
+#[deprecated(note = "use JSValue::delete_property() instead")]
+pub unsafe fn JS_DeleteProperty(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    prop: JSAtom,
+    flags: u32,
+) -> Result<bool, i32> {
+    obj.delete_property(ctx.as_mut().unwrap(), prop, flags)
+}
+
+#[deprecated(note = "use JSValue::delete_property_i64() instead")]
+pub unsafe fn JS_DeletePropertyInt64(
+    ctx: *mut JSContext,
+    obj: JSValueConst,
+    idx: i64,
+    flags: u32,
+) -> Result<bool, i32> {
+    obj.delete_property_i64(ctx.as_mut().unwrap(), idx, flags)
 }
 
 /// the indirection is needed to make 'eval' optional.

@@ -398,11 +398,11 @@ impl JSValue {
         JS_VALUE_GET_TAG(*self) == JS_TAG_INT
     }
 
-    /// Determine if value can be called as a function.
-    /// Value is callable in three cases:
-    /// 1. Compiled bytecode functions
-    /// 2. Proxy objects wrapping functions
-    /// 3. Objects of native class which has `call`
+    /// Determine if value `self` can be called like a function, that means value is a:
+    ///
+    /// - Compiled bytecode functions
+    /// - Proxy objects that wrapping a function
+    /// - Objects of native class which has `call` handler
     pub fn is_callable(self, ctx: &JSContext) -> bool {
         if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
             false

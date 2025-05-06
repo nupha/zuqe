@@ -33,8 +33,123 @@ use super::{
     JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetPropState {
+    /// Set property value for fast path: when self==this_obj
+    Fast,
+    /// Try set or define property value
+    ExoticAndGoUp,
+    /// Property shape
+    SetterOrAutoInit,
+    /// Property not found on object and ancestors
+    Add,
+    /// Create new property on object
+    CreateProp,
+    /// Read-only error
+    ErrReadOnly,
+    /// TypedArray out of bounds error
+    TypedArray,
+}
+
+impl JSObject {
+    #[inline(always)]
+    unsafe fn set_property_fast(
+        &mut self,
+        ctx: &mut JSContext,
+        prop: JSAtom,
+        val: JSValue,
+        this_obj: JSValue,
+        flags: u32,
+    ) -> Result<bool, Option<SetPropState>> {
+        let class_id = self.class_id();
+        let p = self as *mut JSObject;
+
+        if let Some((prs, pr)) = self.find_own_property_mut(prop) {
+            match prs.flags() {
+                f if f & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH)
+                    == JS_PROP_WRITABLE =>
+                {
+                    // fast case
+                    set_value(ctx, &mut pr.u.value, val);
+                    return Ok(true);
+                }
+                f if f & JS_PROP_LENGTH != 0 => {
+                    // set .length property of an array object
+                    debug_assert!(self.class_id() == JS_CLASS_ARRAY);
+                    debug_assert_eq!(prop, JS_ATOM_length);
+                    return self.set_array_length(ctx, val, flags).map_err(|_| None);
+                }
+                f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
+                    return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
+                        0 => Ok(false),
+                        1 => Ok(true),
+                        -1 => Err(None),
+                        _ => unreachable!(),
+                    };
+                }
+                f if f & JS_PROP_TMASK == JS_PROP_VARREF => {
+                    /* JS_PROP_WRITABLE is always true for variable
+                    references, but they are write protected in module name
+                    spaces. */
+                    if class_id == JS_CLASS_MODULE_NS {
+                        return Err(Some(SetPropState::ErrReadOnly));
+                    }
+                    set_value(ctx, (*pr.u.var_ref).pvalue, val);
+                    return Ok(true);
+                }
+                f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {
+                    if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
+                        JS_FreeValue(ctx, val);
+                        return Err(None);
+                    }
+                    return Err(Some(SetPropState::Fast));
+                }
+                _ => {
+                    return Err(Some(SetPropState::ErrReadOnly));
+                }
+            }
+        } else {
+            return Err(Some(SetPropState::ExoticAndGoUp));
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn set_property_setter(
+        &mut self,
+        ctx: &mut JSContext,
+        prop: JSAtom,
+        val: JSValue,
+        this_obj: JSValue,
+        flags: u32,
+    ) -> Result<bool, Option<SetPropState>> {
+        let p = self as *mut JSObject;
+
+        if let Some((prs, pr)) = self.find_own_property_mut(prop) {
+            let pr_flags = prs.flags();
+            if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
+                return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
+                    0 => Ok(false),
+                    1 => Ok(true),
+                    -1 => Err(None),
+                    _ => unreachable!(),
+                };
+            } else if pr_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
+                // Instantiate property and retry (potentially useless)
+                if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
+                    return Err(None);
+                }
+                return Err(Some(SetPropState::SetterOrAutoInit));
+            } else if pr_flags & JS_PROP_WRITABLE == 0 {
+                return Err(Some(SetPropState::ErrReadOnly));
+            }
+        }
+
+        Err(Some(SetPropState::ExoticAndGoUp))
+    }
+}
+
 impl JSValue {
-    /// Note: `val` is consumed; `self` and `this_obj` keep ref count unchanged.
+    /// Note: `val` is consumed; `self` and `this_obj` are not consumed.
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     /// If this_obj != self, then self must be an object (Reflect.set case).
@@ -43,36 +158,18 @@ impl JSValue {
         ctx: &mut JSContext,
         prop: JSAtom,
         val: JSValue,
-        this_obj: JSValueConst,
+        this_obj: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum State {
-            /// Set property value for fast path: when self==this_obj
-            FastPath,
-            /// Try set or define property value
-            TrySetOrDefine,
-            /// Try set property value using setter
-            TrySetter,
-            /// Property not found on object and ancestors
-            GeneralSet,
-            /// Create new property on object
-            CreateProp,
-            /// Read-only error
-            ErrReadOnly,
-            /// TypedArray out of bounds error
-            ErrTypedArrayOob,
-        }
-
-        let p: *mut JSObject;
-        let mut p1: *mut JSObject;
+        let mut p_self: *mut JSObject;
+        let p_this: *mut JSObject;
         let this_tag = JS_VALUE_GET_NORM_TAG(this_obj);
 
         let mut state = if this_tag != JSTag::Object {
             if JS_VALUE_GET_TAG(self) == JSTag::Object as i32 {
-                p = std::ptr::null_mut();
-                p1 = self.object_unchecked() as _; // won't be null
-                State::TrySetter
+                p_self = self.object_unchecked() as _;
+                p_this = std::ptr::null_mut();
+                SetPropState::SetterOrAutoInit
             } else {
                 match this_tag {
                     JSTag::Null => {
@@ -98,123 +195,51 @@ impl JSValue {
                     }
                     _ => {
                         // even on a primitive type we can have setters on the prototype
-                        p = std::ptr::null_mut();
-                        p1 = JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self));
-                        if p1.is_null() {
-                            State::GeneralSet
+                        p_this = std::ptr::null_mut();
+                        p_self = JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self));
+                        if p_self.is_null() {
+                            SetPropState::Add
                         } else {
-                            State::TrySetter
+                            SetPropState::SetterOrAutoInit
                         }
                     }
                 }
             }
         } else {
-            p = this_obj.object_unchecked() as _;
-            p1 = self.object_unchecked() as _;
-            debug_assert!(!p1.is_null());
-            debug_assert!(!p.is_null());
-            if p != p1 {
-                State::TrySetter
+            p_self = self.object_unchecked() as _;
+            p_this = this_obj.object_unchecked() as _;
+            if p_this != p_self {
+                SetPropState::SetterOrAutoInit
             } else {
-                State::FastPath
+                SetPropState::Fast
             }
         };
 
         loop {
             match state {
-                State::FastPath => {
-                    // in case self == this_obj
-                    if let Some((prs, pr)) = (*p1).find_own_property_mut(prop) {
-                        match prs.flags() {
-                            f if f & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH)
-                                == JS_PROP_WRITABLE =>
-                            {
-                                // fast case
-                                set_value(ctx, &mut pr.u.value, val);
-                                return Ok(true);
-                            }
-                            f if f & JS_PROP_LENGTH != 0 => {
-                                // set .length property of an array object
-                                debug_assert!((*p).class_id() == JS_CLASS_ARRAY);
-                                debug_assert_eq!(prop, JS_ATOM_length);
-                                return (*p).set_array_length(ctx, val, flags);
-                            }
-                            f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
-                                return match call_setter(
-                                    ctx,
-                                    pr.u.getset.setter,
-                                    this_obj,
-                                    val,
-                                    flags,
-                                ) {
-                                    0 => Ok(false),
-                                    1 => Ok(true),
-                                    -1 => Err(-1),
-                                    _ => unreachable!(),
-                                };
-                            }
-                            f if f & JS_PROP_TMASK == JS_PROP_VARREF => {
-                                /* JS_PROP_WRITABLE is always true for variable
-                                references, but they are write protected in module name
-                                spaces. */
-                                if (*p).class_id() == JS_CLASS_MODULE_NS {
-                                    state = State::ErrReadOnly;
-                                    continue;
-                                }
-                                set_value(ctx, (*pr.u.var_ref).pvalue, val);
-                                return Ok(true);
-                            }
-                            f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {
-                                if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
-                                    JS_FreeValue(ctx, val);
-                                    return Err(-1);
-                                }
-                                continue; // State::Retry
-                            }
-                            _ => {
-                                state = State::ErrReadOnly;
-                                continue;
-                            }
-                        }
-                    } else {
-                        state = State::TrySetOrDefine;
-                        continue;
-                    }
-                }
-                State::TrySetter => {
-                    debug_assert!(!p1.is_null());
-
-                    if let Some((prs, pr)) = (*p1).find_own_property_mut(prop) {
-                        let pr_flags = prs.flags();
-                        if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
-                            return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags)
-                            {
-                                0 => Ok(false),
-                                1 => Ok(true),
-                                -1 => Err(-1),
-                                _ => unreachable!(),
-                            };
-                        } else if pr_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
-                            // Instantiate property and retry (potentially useless)
-                            if JS_AutoInitProperty(ctx, p1, prop, pr, prs) != 0 {
-                                return Err(-1);
-                            }
-                            continue; // state keep current
-                        } else if pr_flags & JS_PROP_WRITABLE == 0 {
-                            state = State::ErrReadOnly;
+                SetPropState::Fast => {
+                    // fast path for self == this_obj
+                    debug_assert_eq!(p_this, p_self);
+                    match (*p_this).set_property_fast(ctx, prop, val, this_obj, flags) {
+                        Ok(b) => return Ok(b),
+                        Err(Some(st)) => {
+                            state = st;
                             continue;
                         }
-                    } else {
-                        state = State::GeneralSet;
+                        Err(None) => {
+                            return Err(-1);
+                        }
                     }
                 }
-                State::TrySetOrDefine => {
-                    if (*p1).detailed.is_exotic() {
-                        if (*p1).detailed.fast_array() {
+
+                SetPropState::ExoticAndGoUp => {
+                    if (*p_self).detailed.is_exotic() {
+                        if (*p_self).detailed.fast_array() {
+                            // set array element
                             if prop.is_int_type() {
                                 let idx = __JS_AtomToUInt32(prop);
-                                if idx < (*p1).array_length_unchecked() as u32 {
-                                    if p == p1 {
+                                if idx < (*p_self).array_length_unchecked() as u32 {
+                                    if p_this == p_self {
                                         return this_obj.set_property_value(
                                             ctx,
                                             JSValue::from_i32(idx as _),
@@ -222,17 +247,17 @@ impl JSValue {
                                             flags,
                                         );
                                     } else {
-                                        state = State::GeneralSet;
+                                        state = SetPropState::Add;
                                         continue;
                                     }
                                 } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                                    .contains(&(*p1).class_id())
+                                    .contains(&(*p_self).class_id())
                                 {
-                                    state = State::ErrTypedArrayOob;
+                                    state = SetPropState::TypedArray;
                                     continue;
                                 }
                             } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                                .contains(&(*p1).class_id())
+                                .contains(&(*p_self).class_id())
                             {
                                 let ret = JS_AtomIsNumericIndex(ctx, prop);
                                 if ret != 0 {
@@ -240,16 +265,17 @@ impl JSValue {
                                         JS_FreeValue(ctx, val);
                                         return Err(-1);
                                     }
-                                    state = State::ErrTypedArrayOob;
+                                    state = SetPropState::TypedArray;
                                     continue;
                                 }
                             }
                         } else {
-                            let em = ctx.rt().class_array[(*p1).class_id() as usize].exotic;
+                            // use exotic handler
+                            let em = ctx.rt().class_array[(*p_self).class_id() as usize].exotic;
                             if !em.is_null() {
                                 if let Some(cb) = (*em).set_property {
-                                    /* set_property can free the prototype */
-                                    let obj1 = JS_MKPTR!(JSTag::Object, p1.cast()).dup();
+                                    // set_property can free the prototype
+                                    let obj1 = JS_MKPTR!(JSTag::Object, p_self.cast()).dup();
                                     let ret = cb(ctx, obj1, prop, val, this_obj, flags as _);
                                     JS_FreeValue(ctx, obj1);
                                     JS_FreeValue(ctx, val);
@@ -259,10 +285,9 @@ impl JSValue {
                                         -1 => Err(-1),
                                         _ => unreachable!(),
                                     };
-                                }
-                                if let Some(cb) = (*em).get_own_property {
-                                    /* get_own_property can free the prototype */
-                                    let obj1 = JS_MKPTR!(JSTag::Object, p1.cast()).dup();
+                                } else if let Some(cb) = (*em).get_own_property {
+                                    // get_own_property can free the prototype
+                                    let obj1 = JS_MKPTR!(JSTag::Object, p_self.cast()).dup();
                                     let mut desc: JSPropertyDescriptor = std::mem::zeroed();
                                     let mut ret = cb(ctx, &mut desc, obj1, prop);
                                     JS_FreeValue(ctx, obj1);
@@ -290,11 +315,11 @@ impl JSValue {
                                         } else {
                                             JS_FreeValue(ctx, desc.value);
                                             if desc.flags & JS_PROP_WRITABLE == 0 {
-                                                state = State::ErrReadOnly;
+                                                state = SetPropState::ErrReadOnly;
                                                 continue;
                                             }
 
-                                            if p == p1 {
+                                            if p_this == p_self {
                                                 let ret = this_obj.define_property(
                                                     ctx,
                                                     prop,
@@ -306,7 +331,7 @@ impl JSValue {
                                                 JS_FreeValue(ctx, val);
                                                 return ret;
                                             } else {
-                                                state = State::GeneralSet;
+                                                state = SetPropState::Add;
                                                 continue;
                                             }
                                         }
@@ -314,27 +339,39 @@ impl JSValue {
                                 }
                             }
                         }
-                    }
+                    } // is_exotic()
 
-                    // upward for protortype
-                    p1 = (*p1).shape().unwrap().proto;
-
-                    state = if p1.is_null() {
-                        State::GeneralSet
+                    // walk up proto chain
+                    p_self = (*p_self).shape().unwrap().proto;
+                    state = if p_self.is_null() {
+                        SetPropState::Add
                     } else {
-                        State::TrySetter
+                        SetPropState::SetterOrAutoInit
                     };
                     continue;
                 }
+                SetPropState::SetterOrAutoInit => {
+                    match (*p_self).set_property_setter(ctx, prop, val, this_obj, flags) {
+                        Ok(b) => {
+                            return Ok(b);
+                        }
+                        Err(Some(st)) => {
+                            state = st;
+                            continue;
+                        }
+                        Err(None) => {
+                            return Err(-1);
+                        }
+                    }
+                }
 
-                State::GeneralSet => {
+                SetPropState::Add => {
                     if flags & JS_PROP_NO_ADD != 0 {
                         JS_FreeValue(ctx, val);
                         JS_ThrowReferenceErrorNotDefined(ctx, prop);
                         return Err(-1);
                     }
-
-                    if p.is_null() {
+                    if p_this.is_null() {
                         JS_FreeValue(ctx, val);
                         return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, c"not an object") {
                             Err(-1)
@@ -342,8 +379,7 @@ impl JSValue {
                             Ok(false)
                         };
                     }
-
-                    if !(*p).detailed.extensible() {
+                    if !(*p_this).detailed.extensible() {
                         JS_FreeValue(ctx, val);
                         return if ctx
                             .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
@@ -354,25 +390,25 @@ impl JSValue {
                         };
                     }
 
-                    if p == JS_VALUE_GET_OBJ(self) {
-                        if (*p).detailed.is_exotic() {
-                            if (*p).class_id() == JS_CLASS_ARRAY
-                                && (*p).detailed.fast_array()
+                    if p_this == JS_VALUE_GET_OBJ(self) {
+                        if (*p_this).detailed.is_exotic() {
+                            if (*p_this).class_id() == JS_CLASS_ARRAY
+                                && (*p_this).detailed.fast_array()
                                 && prop.is_int_type()
                             {
                                 let idx = __JS_AtomToUInt32(prop);
-                                if idx == (*p).array_length_unchecked() as u32 {
-                                    return add_fast_array_element(ctx, p, val, flags);
+                                if idx == (*p_this).array_length_unchecked() as u32 {
+                                    return add_fast_array_element(ctx, p_this, val, flags);
                                 } else {
-                                    state = State::CreateProp;
+                                    state = SetPropState::CreateProp;
                                     continue;
                                 }
                             } else {
-                                state = State::CreateProp;
+                                state = SetPropState::CreateProp;
                                 continue;
                             }
                         } else {
-                            match (*p).add_property(ctx, prop, JS_PROP_C_W_E) {
+                            match (*p_this).add_property(ctx, prop, JS_PROP_C_W_E) {
                                 Ok(pr) => {
                                     (*pr).u.value = val;
                                     return Ok(true);
@@ -386,7 +422,7 @@ impl JSValue {
                     } else {
                         // generic case: modify the property in this_obj if it already exists
                         let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                        let ret = JS_GetOwnPropertyInternal(ctx, &mut desc, p, prop);
+                        let ret = JS_GetOwnPropertyInternal(ctx, &mut desc, p_this, prop);
                         if ret < 0 {
                             JS_FreeValue(ctx, val);
                             return Err(-1);
@@ -406,9 +442,9 @@ impl JSValue {
                             } else {
                                 JS_FreeValue(ctx, desc.value);
                                 if desc.flags & JS_PROP_WRITABLE == 0
-                                    || (*p).class_id() == JS_CLASS_MODULE_NS
+                                    || (*p_this).class_id() == JS_CLASS_MODULE_NS
                                 {
-                                    state = State::ErrReadOnly;
+                                    state = SetPropState::ErrReadOnly;
                                     continue;
                                 }
                             }
@@ -423,13 +459,13 @@ impl JSValue {
                             JS_FreeValue(ctx, val);
                             return ret;
                         } else {
-                            state = State::CreateProp;
+                            state = SetPropState::CreateProp;
                             continue;
                         }
                     }
                 }
-                State::CreateProp => {
-                    let ret = (*p).create_property(
+                SetPropState::CreateProp => {
+                    let ret = (*p_this).create_property(
                         ctx,
                         prop,
                         val,
@@ -446,7 +482,7 @@ impl JSValue {
                     return ret;
                 }
 
-                State::ErrReadOnly => {
+                SetPropState::ErrReadOnly => {
                     JS_FreeValue(ctx, val);
                     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                         Err(-1)
@@ -454,10 +490,10 @@ impl JSValue {
                         Ok(false)
                     };
                 }
-                State::ErrTypedArrayOob => {
+                SetPropState::TypedArray => {
                     // must convert the argument even if out of bound access
                     if matches!(
-                        (*p1).class_id(),
+                        (*p_self).class_id(),
                         JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
                     ) {
                         unimplemented!()
