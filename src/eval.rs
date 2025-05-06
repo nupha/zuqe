@@ -15,9 +15,8 @@ use crate::{
         js_create_module_function, js_free_module_def, js_link_module, js_resolve_module,
         JSModuleDef, JS_NewModuleValue,
     },
-    parse::{JSParseState, JS_DetectModule},
+    parse::{skip_shebang, JSParseState, JS_DetectModule},
     stack_frame::JSStackFrame,
-    unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
         JSValue, JSValueConst, JS_FreeValue, JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE,
         JS_TAG_OBJECT, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
@@ -57,8 +56,6 @@ impl JSContext {
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
-        // debug_assert_eq!(input[input.len() - 1], 0);
-
         let mut s = JSParseState::new(self, input.as_ptr().cast(), input.count_bytes(), filename);
 
         macro_rules! fail1 {
@@ -319,34 +316,6 @@ pub fn __JS_EvalInternal(
     scope_idx: i32,
 ) -> JSValue {
     unsafe { ctx.eval_internal(this_obj, input, filename, flags, scope_idx) }
-}
-
-pub unsafe fn skip_shebang(pp: *mut *const u8, buf_end: *const u8) {
-    let mut p = *pp;
-
-    if *p.offset(0) == b'#' && *p.offset(1) == b'!' {
-        p = p.offset(2);
-        while p < buf_end {
-            match *p {
-                b'\n' | b'\r' => {
-                    break;
-                }
-                b if b >= 0x80 => {
-                    if let Ok(c) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
-                        if matches!(c, '\u{2028}' | '\u{2029}') {
-                            break;
-                        }
-                    } else {
-                        p = p.offset(1); // skip invalid UTF-8
-                    }
-                }
-                _ => {
-                    p = p.offset(1);
-                }
-            }
-        }
-        *pp = p;
-    }
 }
 
 /// `fun_obj` is consumed, `this_obj` is not consumed.

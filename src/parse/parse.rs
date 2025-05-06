@@ -479,6 +479,34 @@ impl JSParseState<'_> {
     }
 }
 
+pub unsafe fn skip_shebang(pp: *mut *const u8, buf_end: *const u8) {
+    let mut p = *pp;
+
+    if *p.offset(0) == b'#' && *p.offset(1) == b'!' {
+        p = p.offset(2);
+        while p < buf_end {
+            match *p {
+                b'\n' | b'\r' => {
+                    break;
+                }
+                b if b >= 0x80 => {
+                    if let Ok(c) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
+                        if matches!(c, '\u{2028}' | '\u{2029}') {
+                            break;
+                        }
+                    } else {
+                        p = p.offset(1); // skip invalid UTF-8
+                    }
+                }
+                _ => {
+                    p = p.offset(1);
+                }
+            }
+        }
+        *pp = p;
+    }
+}
+
 #[deprecated(note = "use JSParseState::parse_program() instead")]
 pub unsafe fn js_parse_program(s: &mut JSParseState) -> i32 {
     if s.parse_program().is_err() {

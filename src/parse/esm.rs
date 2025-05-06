@@ -5,7 +5,6 @@ use crate::{
     bytecode::OpCodeTemp,
     context::JSContext,
     error::JS_ThrowSyntaxErrorAtom,
-    eval::skip_shebang,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::js_resize_array,
     module::{
@@ -20,6 +19,7 @@ use super::{
     error::{js_parse_error, js_parse_error_reserved_identifier},
     function::JSParseFunctionEnum,
     obj::set_object_name,
+    parse::skip_shebang,
     state::JSParseState,
     token::{
         peek_token, simple_next_token, token_is_ident, token_is_pseudo_keyword, CHAR_BRACKET_L,
