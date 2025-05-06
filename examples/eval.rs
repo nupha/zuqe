@@ -1,15 +1,19 @@
-use std::{ffi::CStr, ops::DerefMut, path::PathBuf};
+use std::{
+    ffi::{CStr, CString},
+    ops::DerefMut,
+    path::PathBuf,
+};
 
 use zhuque::{
     atom::JS_FreeAtom,
     context::{JSContext, JS_FreeContext},
     error::JS_ThrowReferenceError,
     eval::{
-        JS_Eval, JS_EvalFunction, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL,
-        JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
+        JS_EvalFunction, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
+        JS_EVAL_TYPE_MODULE,
     },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
-    module::{JSModuleDef, JS_GetImportMeta, JS_SetModuleLoaderFunc},
+    module::{JSModuleDef, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,
     promise::PromiseValue,
     runtime::JSRuntime,
@@ -31,7 +35,7 @@ fn main() {
 
     let filename = args.get(1).unwrap().clone();
     let script = std::fs::read_to_string(&filename).unwrap();
-    let src = format!("{script}\0"); // add tailing '\0'
+    let src = CString::new(script).unwrap();
 
     unsafe {
         if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
@@ -41,7 +45,7 @@ fn main() {
 
             let eval_flags = if filename.ends_with(".mjs") {
                 JS_EVAL_TYPE_MODULE
-            } else if JS_DetectModule(CStr::from_ptr(src.as_ptr().cast())) {
+            } else if JS_DetectModule(src.as_c_str()) {
                 JS_EVAL_TYPE_MODULE
             } else {
                 JS_EVAL_TYPE_GLOBAL
@@ -49,10 +53,8 @@ fn main() {
 
             let r = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
                 // for the modules, we compile then run to be able to set import.meta
-                let mfun = JS_Eval(
-                    ctx.deref_mut(),
-                    src.as_ptr().cast(),
-                    src.len() - 1,
+                let mfun = ctx.deref_mut().eval(
+                    src.as_c_str(),
                     &filename,
                     eval_flags | JS_EVAL_FLAG_COMPILE_ONLY,
                 );
@@ -63,13 +65,7 @@ fn main() {
                     JSValue::EXCEPTION
                 }
             } else {
-                JS_Eval(
-                    ctx.deref_mut(),
-                    src.as_ptr().cast(),
-                    src.len() - 1,
-                    &filename,
-                    eval_flags,
-                )
+                ctx.deref_mut().eval(src.as_c_str(), &filename, eval_flags)
             };
 
             loop {
@@ -122,15 +118,11 @@ pub fn js_module_loader(
     match std::fs::read(module_name) {
         Ok(buf) => {
             // compile the module
-            let func_val = unsafe {
-                JS_Eval(
-                    ctx,
-                    buf.as_ptr().cast::<u8>(),
-                    buf.len(),
-                    module_name,
-                    JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
-                )
-            };
+            let func_val = ctx.eval(
+                CString::new(buf).unwrap().as_c_str(),
+                module_name,
+                JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
+            );
             if func_val.is_exception() {
                 return std::ptr::null_mut();
             }
@@ -172,9 +164,6 @@ pub unsafe fn js_module_set_import_meta(
 ) -> i32 {
     debug_assert_eq!(JS_VALUE_GET_TAG(func_val), JS_TAG_MODULE);
 
-    // let mut buf: [u8; PATH_MAX as usize + 16] = [0; PATH_MAX as usize + 16];
-
-    // Rust does not have a direct equivalent of assert, so we leave it as a comment.
     let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
 
     // make module name to absolute url
@@ -201,10 +190,11 @@ pub unsafe fn js_module_set_import_meta(
     }
     let aurl = format!("file://{}", normalized.display());
 
-    let meta_obj = JS_GetImportMeta(ctx, m);
-    if meta_obj.is_exception() {
+    let meta_obj = if let Ok(m) = (*m).import_meta(ctx.as_mut().unwrap()) {
+        m
+    } else {
         return -1;
-    }
+    };
 
     JS_DefinePropertyValueStr(
         ctx,

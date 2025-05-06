@@ -13,7 +13,6 @@ use crate::{
     class::{JSClassID, JS_SetConstructor, JS_SetConstructor2},
     context::{JSContext, JS_MODE_STRICT},
     error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
-    eval::__JS_EvalInternal,
     function::{
         js_async_function_proto_funcs, js_function_proto, BytecodeFunctionValue, JSCFunction,
         JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode,
@@ -429,9 +428,18 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_eval(&mut self) {
-        self.eval_callback.replace(__JS_EvalInternal);
+        self.eval_handle.replace(
+            |ctx: &mut JSContext,
+             this_obj: JSValueConst,
+             input: &CStr,
+             filename: &str,
+             flags: u32,
+             scope_idx: i32|
+             -> JSValue {
+                unsafe { ctx.eval_internal(this_obj, input, filename, flags, scope_idx) }
+            },
+        );
 
-        //JS_NewCFunction(self, js_global_eval, c"eval", 1);
         self.eval_func = self
             .create_native_function(js_global_eval, "eval", 1, JSCFunctionEnum::NativeFunc, 0)
             .unwrap();

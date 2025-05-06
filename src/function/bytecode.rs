@@ -6,7 +6,7 @@ use crate::{
     atom::{consts::JS_ATOM_prototype, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
     bytecode::{opcode_info_final, opcode_info_intermediate, run_bytecodes},
     context::{JSContext, JS_FreeContext},
-    eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
+    eval::JS_EVAL_TYPE_INDIRECT,
     function::{func_kind_to_class_id, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
     mem::js_free_rt,
@@ -562,8 +562,13 @@ impl BytecodeFunctionValue {
             return JSValue::EXCEPTION;
         }
 
-        // eval script
-        let obj = JS_EvalObject(ctx, (*ctx).global_obj, src, JS_EVAL_TYPE_INDIRECT, -1);
+        // eval string `src`
+        let obj = src.eval_object(
+            ctx.as_mut().unwrap(),
+            (*ctx).global_obj,
+            JS_EVAL_TYPE_INDIRECT,
+            -1,
+        );
         JS_FreeValue(ctx, src);
 
         if obj.is_exception() {

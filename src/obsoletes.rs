@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{c_char, c_void, CStr, CString};
 
 use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
@@ -718,4 +718,63 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
 #[deprecated(note = "use PromiseValue::result() instead")]
 pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
     UncheckedInto::<PromiseValue>::unchecked_into(promise).result()
+}
+
+/// the indirection is needed to make 'eval' optional.
+#[deprecated(note = "use JSContext::eval_internal() instead")]
+pub unsafe fn JS_EvalInternal(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    input: &CStr,
+    filename: &str,
+    flags: u32,
+    scope_idx: i32,
+) -> JSValue {
+    (*ctx).eval_internal(this_obj, input, filename, flags, scope_idx)
+}
+
+#[deprecated(note = "use JSContext::eval_this() instead")]
+pub unsafe fn JS_EvalThis(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    input: &CStr,
+    filename: &str,
+    flags: u32,
+) -> JSValue {
+    (*ctx).eval_with_this(this_obj, input, filename, flags)
+}
+
+#[deprecated(note = "use JSContext::eval() instead")]
+pub unsafe fn JS_Eval(
+    ctx: *mut JSContext,
+    input: &CStr,
+    filename: &str,
+    eval_flags: u32,
+) -> JSValue {
+    (*ctx).eval(input, filename, eval_flags)
+}
+
+/// both `this_obj` and `val` are not consumed.
+#[deprecated(note = "use JSValue::eval() instead")]
+pub unsafe fn JS_EvalObject(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    val: JSValueConst,
+    flags: u32,
+    scope_idx: i32,
+) -> JSValue {
+    if !val.is_string() {
+        return val.dup(); // dup and return val
+    }
+
+    match val.coerce_to_utf8(ctx.into()) {
+        Ok(str) => (*ctx).eval_internal(
+            this_obj,
+            CString::new(str.as_bytes()).unwrap().as_c_str(),
+            "<input>",
+            flags,
+            scope_idx,
+        ),
+        Err(_) => JSValue::EXCEPTION,
+    }
 }

@@ -198,7 +198,8 @@ impl JSFunctionDef {
     }
 }
 
-/// Get func object closure with captured variables.
+/// Get func object closure with captured variables, returns function object.
+/// `bfunc` is consumed.
 pub unsafe fn js_closure(
     ctx: *mut JSContext,
     bfunc: JSValue,
@@ -209,13 +210,13 @@ pub unsafe fn js_closure(
     debug_assert!(!b.is_null());
 
     let func_obj = JS_NewObjectClass(ctx, func_kind_to_class_id[(*b).func_kind as usize]);
-    if JS_IsException(func_obj) {
+    if func_obj.is_exception() {
         JS_FreeValue(ctx, bfunc);
         return JSValue::EXCEPTION;
     }
 
     let func_obj = js_closure2(ctx, func_obj, b, cur_var_refs, sf);
-    if JS_IsException(func_obj) {
+    if func_obj.is_exception() {
         JS_FreeValue(ctx, func_obj);
         return JSValue::EXCEPTION;
     }
@@ -274,6 +275,7 @@ pub unsafe fn js_closure(
     func_obj
 }
 
+/// `func_obj` is consumed
 pub unsafe fn js_closure2(
     ctx: *mut JSContext,
     func_obj: JSValue,

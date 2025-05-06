@@ -1,12 +1,8 @@
 use std::ops::DerefMut;
 
 use zhuque::{
-    context::JS_FreeContext,
-    eval::{JS_Eval, JS_EVAL_TYPE_GLOBAL},
-    gc::JS_DumpGCObjects,
-    mem::JS_DEFAULT_MALLOC_FUNCTIONS,
-    runtime::JSRuntime,
-    value::JS_FreeValue,
+    context::JS_FreeContext, eval::JS_EVAL_TYPE_GLOBAL, gc::JS_DumpGCObjects,
+    mem::JS_DEFAULT_MALLOC_FUNCTIONS, runtime::JSRuntime, value::JS_FreeValue,
 };
 
 fn main() {
@@ -38,10 +34,8 @@ fn main() {
             // //function g(a) { 10} // fail
             // "#;
 
-            let r = JS_Eval(
-                ctx.deref_mut(),
-                src.as_ptr().cast(),
-                src.count_bytes(),
+            let r = ctx.deref_mut().eval(
+                src,
                 "<test>",
                 JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
             );

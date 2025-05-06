@@ -1,23 +1,16 @@
 use crate::{
     context::JSContext,
     error::JSResult,
-    eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
+    eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallArgs, JSCFunctionListEntry},
     value::{js_parseFloat, js_parseInt, JSValue, JS_ToFloat64},
     JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
 };
 
 pub fn js_global_eval(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe {
-        JS_EvalObject(
-            ctx,
-            ctx.global_obj,
-            args.get_raw(0),
-            JS_EVAL_TYPE_INDIRECT,
-            -1,
-        )
+    args.get_raw(0)
+        .eval_object(ctx, ctx.global(), JS_EVAL_TYPE_INDIRECT, -1)
         .check_exception()
-    }
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;

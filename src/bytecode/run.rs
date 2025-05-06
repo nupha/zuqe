@@ -28,7 +28,7 @@ use crate::{
         JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL, JS_THROW_VAR_RO,
         JS_THROW_VAR_UNINITIALIZED,
     },
-    eval::{JS_EvalObject, JS_EVAL_TYPE_DIRECT},
+    eval::JS_EVAL_TYPE_DIRECT,
     function::{
         build_arg_list, js_build_arguments, js_build_mapped_arguments, js_build_rest, js_closure,
         js_function_apply, js_poll_interrupts, CallArgs, JSFunctionBytecode, JSFunctionKindEnum,
@@ -799,17 +799,29 @@ pub unsafe fn run_bytecodes(
                     sf.cur_pc_offset = pc.offset_from(pc_base) as _;
 
                     let ret_val = if (*call_argv.offset(-1)).is_same(ctx.eval_func) {
-                        JS_EvalObject(
-                            ctx,
-                            JSValue::UNDEFINED,
-                            if call_argc > 0 {
-                                *call_argv
-                            } else {
-                                JSValue::UNDEFINED
-                            },
-                            JS_EVAL_TYPE_DIRECT,
-                            scope_idx as _,
-                        )
+                        if call_argc > 0 {
+                            (*call_argv).eval_object(
+                                ctx,
+                                JSValue::UNDEFINED,
+                                JS_EVAL_TYPE_DIRECT,
+                                scope_idx as _,
+                            )
+                        } else {
+                            JSValue::UNDEFINED
+                        }
+
+                        // original code:
+                        // JS_EvalObject(
+                        //     ctx,
+                        //     JSValue::UNDEFINED,
+                        //     if call_argc > 0 {
+                        //         *call_argv
+                        //     } else {
+                        //         JSValue::UNDEFINED
+                        //     },
+                        //     JS_EVAL_TYPE_DIRECT,
+                        //     scope_idx as _,
+                        // )
                     } else {
                         JS_CallInternal(
                             ctx,
@@ -839,17 +851,29 @@ pub unsafe fn run_bytecodes(
 
                     if let Ok(mut tab) = build_arg_list(ctx, SP![-1]) {
                         let ret_val = if SP![-2].is_same(ctx.eval_func) {
-                            JS_EvalObject(
-                                ctx,
-                                JSValue::UNDEFINED,
-                                if tab.len() > 0 {
-                                    tab[0]
-                                } else {
-                                    JSValue::UNDEFINED
-                                },
-                                JS_EVAL_TYPE_DIRECT,
-                                scope_idx,
-                            )
+                            if !tab.is_empty() {
+                                tab[0].eval_object(
+                                    ctx,
+                                    JSValue::UNDEFINED,
+                                    JS_EVAL_TYPE_DIRECT,
+                                    scope_idx,
+                                )
+                            } else {
+                                JSValue::UNDEFINED
+                            }
+
+                            // original code:
+                            // JS_EvalObject(
+                            //     ctx,
+                            //     JSValue::UNDEFINED,
+                            //     if tab.len() > 0 {
+                            //         tab[0]
+                            //     } else {
+                            //         JSValue::UNDEFINED
+                            //     },
+                            //     JS_EVAL_TYPE_DIRECT,
+                            //     scope_idx,
+                            // )
                         } else {
                             JS_Call(
                                 ctx,

@@ -1,12 +1,10 @@
-use std::ptr::NonNull;
-
 use crate::{
     context::JSContext,
     error::{JSResult, JS_ThrowStackOverflow},
     function::{js_async_function_call, CallArgs, JS_Call},
     mem::{js_free, js_resize_array},
     module::JSModuleStatus,
-    promise::{self, js_promise_then, JSPromiseStateEnum, PromiseValue},
+    promise::{js_promise_then, JSPromiseStateEnum, PromiseValue},
     runtime::js_check_stack_overflow,
     utils::UncheckedInto,
     value::{JSValue, JS_FreeValue, JS_VALUE_GET_PTR},

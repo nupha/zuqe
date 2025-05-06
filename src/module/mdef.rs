@@ -11,8 +11,8 @@ use crate::{
     class::JSClassExoticMethods,
     context::JSContext,
     error::{
-        JSResult, JS_GetException, JS_ThrowReferenceError, JS_ThrowStackOverflow,
-        JS_ThrowSyntaxError, JS_ThrowSyntaxErrorAtom,
+        JSResult, JS_ThrowReferenceError, JS_ThrowStackOverflow, JS_ThrowSyntaxError,
+        JS_ThrowSyntaxErrorAtom,
     },
     function::{
         js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSVarKindEnum, JSVarRef, JS_Call,
@@ -27,13 +27,12 @@ use crate::{
     },
     value::{
         object::{
-            JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_NewObjectClass,
-            JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
-            JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JSObject, JS_DefineAutoInitProperty, JS_DefinePropertyValueStr,
+            JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsUndefined, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
-        JS_VALUE_GET_TAG,
+        JS_IsUndefined, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
 };
@@ -118,7 +117,9 @@ pub struct JSModuleDef {
     eval_exception */
     pub eval_has_exception: bool,
     pub eval_exception: JSValue,
-    pub meta_obj: JSValue, /* for import.meta */
+
+    /// the import.meta object
+    pub meta_obj: JSValue,
 }
 
 impl JSModuleDef {
@@ -487,6 +488,32 @@ impl JSModuleDef {
 
         Ok(self.module_ns.dup())
     }
+
+    /// get module import.meta object.
+    pub fn import_meta(&mut self, ctx: *mut JSContext) -> JSResult {
+        // allocate meta_obj only if requested to save memory
+        let mut meta = self.meta_obj;
+        if meta.is_undefined() {
+            meta = unsafe { JS_NewObjectProto(ctx, JSValue::NULL).check_exception()? };
+            self.meta_obj = meta;
+        }
+        Ok(meta.dup())
+    }
+
+    /// set module import.meta props.
+    pub fn set_import_meta(
+        &mut self,
+        ctx: &mut JSContext,
+        url: &str,
+        is_main: bool,
+    ) -> Result<(), i32> {
+        let meta_obj = self.import_meta(ctx)?.into_rc(ctx.rt());
+
+        let sval = ctx.create_string(url);
+        meta_obj.define_property_value_str(ctx, "url", sval, JS_PROP_C_W_E)?;
+        meta_obj.define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)?;
+        Ok(())
+    }
 }
 
 /// Note: 'name' is freed on error
@@ -567,22 +594,6 @@ pub unsafe fn find_export_entry<'a>(
         .iter()
         .find(|me| me.export_name == export_name)
         .map(|me| me.deref())
-
-    // for me in (*m).export_entries.iter() {
-    //     if me.export_name == export_name {
-    //         return me;
-    //     }
-    // }
-
-    // let mut i = 0;
-    // while i < (*m).export_entries_count {
-    //     let me = (*m).export_entries.offset(i as isize);
-    //     if (*me).export_name == export_name {
-    //         return me;
-    //     }
-    //     i += 1;
-    // }
-    // std::ptr::null_mut()
 }
 
 pub unsafe fn add_req_module_entry(
@@ -1136,150 +1147,6 @@ pub fn js_default_module_normalize_name(
 pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
     (*m).build_ns(ctx.as_mut().unwrap())
         .unwrap_or(JSValue::EXCEPTION)
-
-    // let mut s_s: GetExportNamesState = std::mem::zeroed();
-    // let s = &mut s_s;
-
-    // let obj = JS_NewObjectClass(ctx, JS_CLASS_MODULE_NS);
-    // if obj.is_exception() {
-    //     return obj;
-    // }
-    // let p = obj.object_unchecked();
-
-    // let ret = (*m).get_exported_names(ctx.as_mut().unwrap(), s, false);
-    // js_free(ctx, s.modules.cast());
-    // if ret.is_err() {
-    //     js_free(ctx, s.exported_names.cast());
-    //     JS_FreeValue(ctx, obj);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // /* Resolve the exported names. The ambiguous exports are removed */
-    // for i in 0..s.exported_names_count {
-    //     let en = s.exported_names.add(i as usize).as_mut().unwrap();
-
-    //     let mut res_me = std::ptr::null_mut::<JSExportEntry>();
-    //     let mut res_m = std::ptr::null_mut::<JSModuleDef>();
-    //     let res = if !en.u.me.is_null() {
-    //         // fast case: no resolution needed
-    //         res_me = en.u.me;
-    //         res_m = m;
-    //         JSResolveResultEnum::JS_RESOLVE_RES_FOUND
-    //     } else {
-    //         js_resolve_export(ctx, &mut res_m, &mut res_me, m, en.export_name)
-    //     };
-
-    //     if res != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
-    //         if res != JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS {
-    //             js_resolve_export_throw_error(ctx, res, m, en.export_name);
-    //             js_free(ctx, s.exported_names.cast());
-    //             JS_FreeValue(ctx, obj);
-    //             return JSValue::EXCEPTION;
-    //         }
-    //         en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
-    //     } else {
-    //         if (*res_me).local_name == JS_ATOM__star_ {
-    //             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
-    //             en.u.module = (*(*res_m)
-    //                 .req_module_entries
-    //                 .add((*res_me).u.req_module_idx as usize))
-    //             .module;
-    //         } else {
-    //             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
-    //             if !(*res_me).u.local.var_ref.is_null() {
-    //                 en.u.var_ref = (*res_me).u.local.var_ref;
-    //             } else {
-    //                 let p1 = (*res_m).func_obj.object_unchecked();
-    //                 en.u.var_ref = p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
-    //             }
-    //         }
-    //     }
-    // }
-
-    // // sort the exported names
-    // let names = std::slice::from_raw_parts_mut(s.exported_names, s.exported_names_count as usize);
-    // names.sort_by(|a, b| {
-    //     // XXX: should avoid allocation memory in atom comparison
-    //     let str1 = a.export_name.to_value(ctx.as_mut().unwrap(), true);
-    //     let str2 = b.export_name.to_value(ctx.as_mut().unwrap(), true);
-
-    //     let res = if JS_IsException(str1) || JS_IsException(str2) {
-    //         // XXX: raise an error ?
-    //         Ordering::Equal
-    //     } else {
-    //         (*JS_VALUE_GET_STRING(str1))
-    //             .content()
-    //             .cmp((*JS_VALUE_GET_STRING(str2)).content())
-    //     };
-
-    //     JS_FreeValue(ctx, str1);
-    //     JS_FreeValue(ctx, str2);
-
-    //     res
-    // });
-
-    // // original c code
-    // // rqsort(
-    // //     (*s).exported_names,
-    // //     (*s).exported_names_count as usize,
-    // //     std::mem::size_of::<ExportedNameEntry>(),
-    // //     exported_names_cmp,
-    // //     ctx,
-    // // );
-
-    // for i in 0..s.exported_names_count {
-    //     let en = s.exported_names.add(i as usize).as_mut().unwrap();
-
-    //     match en.export_type {
-    //         ExportedNameEntryEnum::EXPORTED_NAME_NORMAL => {
-    //             let var_ref = en.u.var_ref;
-    //             if let Ok(pr) = p.add_property(
-    //                 ctx.as_mut().unwrap(),
-    //                 en.export_name,
-    //                 JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
-    //             ) {
-    //                 (*var_ref).u0.header.ref_count += 1;
-    //                 (*pr).u.var_ref = var_ref;
-    //             } else {
-    //                 js_free(ctx, s.exported_names.cast());
-    //                 JS_FreeValue(ctx, obj);
-    //                 return JSValue::EXCEPTION;
-    //             }
-    //         }
-    //         ExportedNameEntryEnum::EXPORTED_NAME_NS => {
-    //             /* the exported namespace must be created on demand */
-    //             if JS_DefineAutoInitProperty(
-    //                 ctx,
-    //                 obj,
-    //                 en.export_name,
-    //                 JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
-    //                 en.u.module.cast(),
-    //                 JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
-    //             )
-    //             .is_err()
-    //             {
-    //                 js_free(ctx, s.exported_names.cast());
-    //                 JS_FreeValue(ctx, obj);
-    //                 return JSValue::EXCEPTION;
-    //             }
-    //         }
-    //         _ => {}
-    //     }
-    // }
-
-    // js_free(ctx, s.exported_names.cast());
-
-    // obj.define_property_value(
-    //     ctx.as_mut().unwrap(),
-    //     JS_ATOM_Symbol_toStringTag,
-    //     JS_ATOM_Module.to_value(ctx.as_mut().unwrap(), true),
-    //     0,
-    // )
-    // .unwrap();
-
-    // p.detailed.set_extensible(false);
-
-    // return obj;
 }
 
 #[deprecated(note = "use JSModuleDef::ns() instead")]
@@ -1809,24 +1676,16 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: *mut JSContext, n_stack_levels: i32)
     }
 }
 
+#[deprecated(note = "use JSModuleDef::import_meta() instead")]
 pub unsafe fn JS_GetImportMeta(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
-    // allocate meta_obj only if requested to save memory
-    let mut obj = (*m).meta_obj;
-    if JS_IsUndefined(obj) {
-        obj = JS_NewObjectProto(ctx, JSValue::NULL);
-        if JS_IsException(obj) {
-            return JSValue::EXCEPTION;
-        }
-        (*m).meta_obj = obj;
-    }
-    JS_DupValue(ctx, obj)
+    (*m).import_meta(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
-/// get module import.meta object
+/// get module import.meta object of context current execution.
 pub unsafe fn js_import_meta(ctx: *mut JSContext) -> JSValue {
     let filename = JS_GetScriptOrModuleName(ctx, 0);
     if filename == JS_ATOM_NULL {
-        // C2RS: goto fail is replaced with a conditional block
         ctx.as_mut()
             .unwrap()
             .JS_ThrowTypeError(c"import.meta not supported in this context ");
@@ -1838,14 +1697,14 @@ pub unsafe fn js_import_meta(ctx: *mut JSContext) -> JSValue {
     let m = js_find_loaded_module(ctx, filename);
     JS_FreeAtom(ctx, filename);
     if m.is_null() {
-        // C2RS: goto fail is replaced with a conditional block
         ctx.as_mut()
             .unwrap()
             .JS_ThrowTypeError(c"import.meta not supported in this context");
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
+    } else {
+        (*m).import_meta(ctx.as_mut().unwrap())
+            .unwrap_or(JSValue::EXCEPTION)
     }
-
-    JS_GetImportMeta(ctx, m)
 }
 
 pub unsafe fn JS_SetModuleLoaderFunc(

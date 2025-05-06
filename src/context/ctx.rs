@@ -1,5 +1,4 @@
 use std::{
-    ffi::CStr,
     ops::{Deref, DerefMut},
     os::raw::c_char,
     ptr::{self, NonNull},
@@ -116,7 +115,7 @@ pub struct JSContext {
         Option<unsafe fn(ctx: *mut JSContext, pattern: JSValue, flags: JSValue) -> JSValue>,
 
     /// eval callback
-    pub eval_callback: Option<EvalFunc>,
+    pub eval_handle: Option<EvalFunc>,
 
     /// User data pointer
     pub user_opaque: *mut std::ffi::c_void,
