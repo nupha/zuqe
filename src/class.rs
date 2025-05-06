@@ -242,8 +242,8 @@ impl JSContext {
             JS_TAG_NULL
         );
 
+        let old = self.class_proto[class_id as usize].replace(proto_obj);
         unsafe {
-            let old = self.class_proto[class_id as usize].replace(proto_obj);
             JS_FreeValue(self, old);
         }
     }

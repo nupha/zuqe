@@ -63,8 +63,8 @@ impl JSContext {
     /// put `obj` to current_exception, returns Exception value
     /// Note: obj is consumed.
     pub fn JS_Throw(&mut self, obj: JSValue) -> JSValue {
+        let old = self.rt_mut().current_exception.replace(obj);
         unsafe {
-            let old = self.rt_mut().current_exception.replace(obj);
             JS_FreeValue(self, old); // free old exception value
         }
         JSValue::EXCEPTION

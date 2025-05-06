@@ -296,7 +296,7 @@ pub const JS_DEF_ALIAS: u8 = 9;
 
 impl JSValue {
     //
-    // CONSTANT JSVALUES
+    // CONSTANT JS VALUES
     //
     pub const NULL: JSValue = JS_MKVAL!(JSTag::Null, 0);
     pub const UNDEFINED: JSValue = JS_MKVAL!(JSTag::Undefined, 0);
@@ -308,7 +308,7 @@ impl JSValue {
 
     /// set new value and returns the old value.
     #[inline(always)]
-    pub unsafe fn replace(&mut self, new_val: JSValue) -> JSValue {
+    pub fn replace(&mut self, new_val: JSValue) -> JSValue {
         std::mem::replace(self, new_val)
     }
 

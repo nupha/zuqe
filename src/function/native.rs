@@ -95,9 +95,7 @@ impl<'a> CallArgs<'a> {
     /// set this value.
     /// Note: `this_val` is not consumed, caller should free it.
     pub fn set_this_raw(&mut self, this_val: JSValue) {
-        unsafe {
-            self.this_value.replace(this_val);
-        }
+        self.this_value.replace(this_val);
     }
 
     /// get nth argument raw value
@@ -138,7 +136,7 @@ impl<'a> CallArgs<'a> {
     pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Result<JSValue, i32> {
         if let Some(lst) = self.data.as_deref_mut() {
             if nth < lst.len() {
-                return Ok(unsafe { lst[nth].replace(val) });
+                return Ok(lst[nth].replace(val));
             }
         }
 
