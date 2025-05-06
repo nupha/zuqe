@@ -539,11 +539,11 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                     match prs.flags() & JS_PROP_TMASK {
                         JS_PROP_GETSET => {
                             (*desc).flags |= JS_PROP_GETSET;
-                            if !(*pr).u.getset.getter.is_null() {
+                            if !pr.u.getset.getter.is_null() {
                                 (*desc).getter =
                                     JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast()).dup();
                             }
-                            if !(*pr).u.getset.setter.is_null() {
+                            if !pr.u.getset.setter.is_null() {
                                 (*desc).setter =
                                     JS_MKPTR!(JSTag::Object, pr.u.getset.setter.cast()).dup();
                             }

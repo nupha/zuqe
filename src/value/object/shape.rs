@@ -7,10 +7,9 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
-    list_entry,
     mem::{js_free_rt, js_mallocz_rt, js_trigger_gc},
     runtime::JSRuntime,
-    types::{likely, list_find, list_foreach, unlikely},
+    types::{likely, list_find},
     value::{JSTag, JSValue, JS_DupValue, JS_FreeValueRT, JS_UNDEFINED},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
@@ -45,13 +44,13 @@ impl JSShapeProperty {
         self.bitfield = (self.bitfield & !Self::FLAGS_MASK) | ((f & 0x3f) << 26);
     }
 
-    pub fn hash_next(&self) -> u32 {
-        self.bitfield & Self::NEXT_HASH_MASK
-    }
+    // pub fn hash_next(&self) -> u32 {
+    //     self.bitfield & Self::NEXT_HASH_MASK
+    // }
 
-    pub fn set_hash_next(&mut self, h: u32) {
-        self.bitfield = (self.bitfield & !Self::NEXT_HASH_MASK) | (h & Self::NEXT_HASH_MASK);
-    }
+    // pub fn set_hash_next(&mut self, h: u32) {
+    //     self.bitfield = (self.bitfield & !Self::NEXT_HASH_MASK) | (h & Self::NEXT_HASH_MASK);
+    // }
 }
 
 #[repr(C)]
