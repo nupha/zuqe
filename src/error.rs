@@ -18,8 +18,7 @@ use crate::{
             JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
-        JS_IsEmptyString, JS_IsObject, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        JS_IsEmptyString, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
 };
@@ -507,7 +506,7 @@ pub unsafe fn js_error_toString(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    if !JS_IsObject(this_val) {
+    if !this_val.is_object() {
         return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
     }
 
@@ -525,7 +524,11 @@ pub unsafe fn js_error_toString(
     if msg.is_undefined() {
         msg = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
     } else {
-        msg = JS_ToStringFree(ctx, msg);
+        let s = msg
+            .coerce_to_string_value(ctx.as_mut().unwrap())
+            .unwrap_or(JSValue::EXCEPTION);
+        JS_FreeValue(ctx, msg);
+        msg = s;
     }
     if msg.is_exception() {
         JS_FreeValue(ctx, name);
