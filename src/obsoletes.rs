@@ -13,6 +13,7 @@ use crate::{
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
+    utils::UncheckedInto,
     value::{
         object::JSObject, JSString, JSValue, JSValueConst, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG,
@@ -644,7 +645,7 @@ pub unsafe fn JS_PromiseState(
     ctx: *const JSContext,
     promise: JSValue,
 ) -> Result<JSPromiseStateEnum, i32> {
-    promise.as_promise_unchecked().state()
+    UncheckedInto::<PromiseValue>::unchecked_into(promise).state()
 }
 
 /// to free `fd` and all its children
@@ -716,5 +717,5 @@ pub unsafe fn js_evaluate_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
 
 #[deprecated(note = "use PromiseValue::result() instead")]
 pub unsafe fn JS_PromiseResult(ctx: *mut JSContext, promise: JSValue) -> JSValue {
-    promise.as_promise_unchecked().result()
+    UncheckedInto::<PromiseValue>::unchecked_into(promise).result()
 }

@@ -16,6 +16,7 @@ use crate::{
     iterator::{js_create_array_iterator, JSIteratorKindEnum, JS_IteratorClose, JS_IteratorNext},
     js_core::js_get_this,
     typed_array::typed_array_size_log2,
+    utils::UncheckedInto,
     value::{
         object::{
             js_get_length64, JSObject, JS_SpeciesConstructor, JS_ToObject, JS_PROP_C_W_E,
@@ -219,8 +220,7 @@ pub unsafe fn js_typed_array_constructor_ta(
     src_obj: JSValueConst,
     classid: i32,
 ) -> JSValue {
-    src_obj
-        .typed_array_unchecked()
+    UncheckedInto::<TypedArrayValue>::unchecked_into(src_obj)
         .create_to_new(ctx.as_mut().unwrap(), new_target, classid as JSClassID)
         .unwrap_or(JSValue::EXCEPTION)
 }
@@ -601,7 +601,7 @@ pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResul
 
         let count = std::cmp::min(final_ - from, len - to);
         if count > 0 {
-            let mut tao = args.this_raw().typed_array_unchecked();
+            let mut tao: TypedArrayValue = args.this_raw().unchecked_into();
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 return Err(-1);
@@ -625,7 +625,7 @@ pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResul
 pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let this_val = args.this_raw();
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let mut p = unsafe { this_val.typed_array_unchecked() };
+    let mut p: TypedArrayValue = unsafe { this_val.unchecked_into() };
 
     let v64: u64;
 
@@ -810,7 +810,7 @@ pub fn js_typed_array_reverse(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     // let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
 
     unsafe {
-        let mut tao = this_val.typed_array_unchecked();
+        let mut tao: TypedArrayValue = this_val.unchecked_into();
 
         macro_rules! swap_slice {
             ($ty:ident, $shift:expr) => {
@@ -990,7 +990,7 @@ pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
 
     if len > 1 {
-        let mut p = unsafe { this_val.typed_array_unchecked() };
+        let mut p: TypedArrayValue = unsafe { this_val.unchecked_into() };
 
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {
@@ -1218,7 +1218,7 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         inc = 1;
     }
 
-    let p = unsafe { this_val.typed_array_unchecked() };
+    let p: TypedArrayValue = unsafe { this_val.unchecked_into() };
     let mut res = -1;
 
     if p.is_detached() {

@@ -11,6 +11,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_GetImportMeta, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,
+    promise::PromiseValue,
     runtime::JSRuntime,
     value::{
         object::{JS_DefinePropertyValueStr, JS_PROP_C_W_E},
@@ -88,7 +89,7 @@ fn main() {
             } else {
                 println!(">>> RESULT: {r:?}, {:?}", r.coerce_to_utf8(ctx));
 
-                if let Some(pr) = r.as_promise() {
+                if let Ok(pr) = TryInto::<PromiseValue>::try_into(r) {
                     let v = pr.result();
                     println!("promise state: {:?}", pr.state());
                     println!("promise result: {:?}", v);

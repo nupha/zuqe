@@ -1,16 +1,17 @@
-use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
+use std::ptr::NonNull;
 
 use crate::{
     array_buffer::{js_array_buffer_constructor1, JSArrayBuffer},
     atom::consts::JS_ATOM_Symbol_iterator,
     class::{js_create_from_ctor, JSClassID},
-    context::{JSContext, JSContextHandle},
+    context::JSContext,
     error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},
     gc::{JS_MarkFunc, JS_MarkValue},
     iterator::js_array_from_iterator,
     mem::js_malloc_typed,
     runtime::JSRuntime,
     types::{list_add_tail, list_del, list_head},
+    utils::{UncheckedFrom, UncheckedInto},
     value::{
         object::{js_get_length64, JSObject, JS_ToObject},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToInt64Sat, JS_TAG_OBJECT,
@@ -178,6 +179,8 @@ impl TypedArrayValue {
         let ob = self.0.object_unchecked();
         ob.u.typed_array = Box::into_raw(ta);
         (*ob.u.array).typed_array_count = count as u32;
+
+        // TODO: remove this.
         (*ob.u.array).data.ptr = (*abuf).content.as_mut_ptr().offset(offset as isize).cast();
 
         Ok(())
@@ -462,21 +465,8 @@ typed_array_obj_of!(Float32Array, f32, JS_CLASS_FLOAT32_ARRAY);
 typed_array_obj_of!(Float64Array, f64, JS_CLASS_FLOAT64_ARRAY);
 
 impl JSValue {
-    /// Cast to TypedArrayValue.
-    /// If value is not a TypedArray or DataView, behavior is undefined.
-    #[inline(always)]
-    pub unsafe fn typed_array_unchecked(self) -> TypedArrayValue {
-        debug_assert!(self.is_object());
-        debug_assert!(matches!(
-            self.object_unchecked().class_id(),
-            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW
-        ));
-
-        std::mem::transmute(self)
-    }
-
-    /// If value is a TypedArray or DataView, returns the inner TypedArrayValue.
-    /// Otherwise, raise Error to ctx, and returns Err.
+    /// If value is a TypedArray or DataView, returns TypedArrayValue.
+    /// Otherwise, raise Error, and returns Err.
     pub fn typed_array_must(
         self,
         ctx: &mut JSContext,
@@ -497,10 +487,25 @@ impl JSValue {
                 }
             }
 
-            Ok(unsafe { self.typed_array_unchecked() })
+            Ok(unsafe { self.unchecked_into() })
         } else {
             Err(-1)
         }
+    }
+}
+
+impl UncheckedFrom<JSValue> for TypedArrayValue {
+    /// Inteprete JSValue as TypedArrayValue.
+    /// If value is not a TypedArray or DataView, behavior is undefined.
+    #[inline(always)]
+    unsafe fn unchecked_from(val: JSValue) -> Self {
+        debug_assert!(val.is_object());
+        debug_assert!(matches!(
+            val.object_unchecked().class_id(),
+            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW
+        ));
+
+        std::mem::transmute(val)
     }
 }
 
@@ -523,6 +528,13 @@ impl TryFrom<JSValue> for TypedArrayValue {
     }
 }
 
+impl From<TypedArrayValue> for JSValue {
+    #[inline(always)]
+    fn from(value: TypedArrayValue) -> Self {
+        value.0
+    }
+}
+
 impl JSContext {
     /// create an TypedArray with empty array buffer.
     /// `count`: number of elements
@@ -539,18 +551,19 @@ impl JSContext {
                 .check_exception()?
         };
 
-        let obj = unsafe { js_create_from_ctor(self, new_target, classid).check_exception()? };
-        if obj
-            .typed_array_unchecked()
-            .init(self, buffer, 0, count)
-            .is_err()
-        {
-            JS_FreeValue(self, buffer);
-            JS_FreeValue(self, obj);
-            return Err(-1);
-        }
+        unsafe {
+            let obj = js_create_from_ctor(self, new_target, classid).check_exception()?;
+            if UncheckedInto::<TypedArrayValue>::unchecked_into(obj)
+                .init(self, buffer, 0, count)
+                .is_err()
+            {
+                JS_FreeValue(self, buffer);
+                JS_FreeValue(self, obj);
+                return Err(-1);
+            }
 
-        Ok(obj)
+            Ok(obj)
+        }
     }
 
     /// create a TypedArray from an existing `source`. The source value could be:
@@ -606,23 +619,23 @@ impl JSContext {
 
                         let buffer = source.dup();
 
-                        let obj =
-                            js_create_from_ctor(self, new_target, classid).check_exception()?;
-                        if obj
-                            .typed_array_unchecked()
+                        let obj: TypedArrayValue = js_create_from_ctor(self, new_target, classid)
+                            .check_exception()?
+                            .unchecked_into();
+
+                        if UncheckedInto::<TypedArrayValue>::unchecked_into(obj)
                             .init(self, buffer, offset, count)
                             .is_err()
                         {
                             JS_FreeValue(self, buffer);
-                            JS_FreeValue(self, obj);
+                            JS_FreeValue(self, obj.into());
                             return Err(-1);
                         }
 
-                        Ok(obj)
+                        Ok(obj.into())
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        return source
-                            .typed_array_unchecked()
+                        return UncheckedInto::<TypedArrayValue>::unchecked_into(source)
                             .create_to_new(self, new_target, classid);
                     }
                     _ => {
@@ -662,8 +675,7 @@ impl JSContext {
                             .check_exception()?
                             .into_rc(self.rt());
 
-                        if new_arr
-                            .typed_array_unchecked()
+                        if UncheckedInto::<TypedArrayValue>::unchecked_into(*new_arr)
                             .init(self, buffer, 0, count)
                             .is_err()
                         {
@@ -708,7 +720,7 @@ pub unsafe fn typed_array_init(
     offset: u64,
     count: u64,
 ) -> i32 {
-    obj.typed_array_unchecked()
+    UncheckedInto::<TypedArrayValue>::unchecked_into(obj)
         .init(ctx.as_mut().unwrap(), buffer, offset as _, count as _)
         .map_or(-1, |_| 0)
 }

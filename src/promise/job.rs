@@ -5,8 +5,10 @@ use crate::{
     error::JSResult,
     function::{CallArgs, JS_Call},
     list_entry,
+    promise::PromiseValue,
     runtime::JSRuntime,
     types::{list_add_tail, list_del, list_empty, list_head},
+    utils::UncheckedInto,
     value::{JSValue, JS_FreeValue, JS_ToBool},
 };
 
@@ -102,7 +104,7 @@ pub fn js_promise_resolve_thenable_job(ctx: &mut JSContext, args: CallArgs) -> J
     #[cfg(feature = "DUMP_PROMISE")]
     println!("js_promise_resolve_thenable_job");
 
-    let promise = unsafe { args.get_raw(0).as_promise_unchecked() };
+    let promise: PromiseValue = unsafe { args.get_raw(0).unchecked_into() };
     let thenable = args.get_raw(1);
     let then = args.get_raw(2);
     let mut rr = promise.create_resolving_functions(ctx)?;

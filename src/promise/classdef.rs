@@ -9,6 +9,7 @@ use crate::{
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     obsoletes::JS_NewCFunctionData,
+    utils::UncheckedInto,
     value::{
         object::{JS_NewObject, JS_SpeciesConstructor, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E},
         JSValue, JSValueRc, JS_FreeValue,
@@ -19,7 +20,7 @@ use crate::{
 
 use super::{
     js_promise_all_resolve_element, remainingElementsCount_add, PROMISE_MAGIC_all,
-    PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any,
+    PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any, PromiseValue,
 };
 
 //
@@ -27,7 +28,7 @@ use super::{
 //
 
 pub fn js_promise_then(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe { args.this_raw().as_promise_unchecked() }
+    unsafe { UncheckedInto::<PromiseValue>::unchecked_into(args.this_raw()) }
         .then(ctx, args.get_raw(0), args.get_raw(1))
         .map(|p| p.into())
 }

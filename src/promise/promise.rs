@@ -14,6 +14,7 @@ use crate::{
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     types::{init_list_head, list_del, list_foreach, list_foreach_safe, list_head},
+    utils::{UncheckedFrom, UncheckedInto},
     value::{
         object::{JS_NewObject, JS_NewObjectProtoClass, JS_PROP_C_W_E},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
@@ -59,6 +60,28 @@ pub struct JSPromiseData {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct PromiseValue(pub(super) JSValue);
+
+impl TryFrom<JSValue> for PromiseValue {
+    type Error = i32;
+
+    /// interpret value as PromiseValue.
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if value.is_object() && unsafe { value.object_unchecked().class_id() } == JS_CLASS_PROMISE {
+            Ok(unsafe { std::mem::transmute(value) })
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl UncheckedFrom<JSValue> for PromiseValue {
+    #[inline(always)]
+    unsafe fn unchecked_from(value: JSValue) -> Self {
+        debug_assert!(value.is_object());
+        debug_assert_eq!(value.object_unchecked().class_id(), JS_CLASS_PROMISE);
+        std::mem::transmute(value)
+    }
+}
 
 impl From<PromiseValue> for JSValue {
     #[inline(always)]
@@ -175,7 +198,7 @@ impl PromiseValue {
         let resolving_funcs = [data[0].dup(), data[1].dup()];
         JS_FreeValue(ctx, executor);
 
-        Ok((result_promise.as_promise_unchecked(), resolving_funcs))
+        Ok((result_promise.unchecked_into(), resolving_funcs))
     }
 
     #[inline(always)]
@@ -340,27 +363,6 @@ impl PromiseValue {
                 Box::from_raw(rd).free(ctx.rt_mut());
             });
         }
-    }
-}
-
-impl JSValue {
-    /// interpret value `self` as PromiseValue.
-    /// returns None if `self` is not a JS_CLASS_PROMISE class object
-    pub fn as_promise(self) -> Option<PromiseValue> {
-        if self.is_object() && unsafe { self.object_unchecked().class_id() } == JS_CLASS_PROMISE {
-            unsafe { Some(std::mem::transmute(self)) }
-        } else {
-            None
-        }
-    }
-
-    /// interpret value `self` as PromiseValue.
-    /// must ensure `self` is a JS_CLASS_PROMISE class object, otherwise behavior is undefined.
-    #[inline(always)]
-    pub unsafe fn as_promise_unchecked(self) -> PromiseValue {
-        debug_assert!(self.is_object());
-        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_PROMISE);
-        std::mem::transmute(self)
     }
 }
 

@@ -8,6 +8,7 @@ use crate::{
     module::JSModuleStatus,
     promise::{self, js_promise_then, JSPromiseStateEnum},
     runtime::js_check_stack_overflow,
+    utils::UncheckedInto,
     value::{JSValue, JS_FreeValue, JS_VALUE_GET_PTR},
 };
 
@@ -469,7 +470,7 @@ impl JSModuleDef {
                 return Err(ctx.get_exception());
             }
 
-            let promise = ret_val.as_promise_unchecked(); // must be a Promise
+            let promise: promise::PromiseValue = ret_val.unchecked_into(); // must be a Promise
 
             match promise.state().unwrap() {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED => {

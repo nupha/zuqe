@@ -11,10 +11,11 @@ use crate::{
         JSGCPhaseEnum, JS_MarkFunc,
     },
     mem::{js_free_rt, js_malloc_typed},
-    promise::js_promise_resolve,
+    promise::{js_promise_resolve, PromiseValue},
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
     types::{init_list_head, list_add, list_add_tail, list_del},
+    utils::UncheckedInto,
     value::{
         object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
@@ -366,7 +367,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
                 [JSValue::UNDEFINED; 2]
             };
 
-        let res = promise.as_promise_unchecked().reaction(
+        let res = UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
             ctx.as_mut().unwrap(),
             &resolving_funcs,
             &[JSValue::UNDEFINED; 2], // no need to create 'thrownawayCapability' as in the spec

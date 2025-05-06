@@ -5,6 +5,31 @@ use crate::{
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
 };
 
+pub trait UncheckedFrom<T>: Sized {
+    unsafe fn unchecked_from(value: T) -> Self;
+}
+
+pub trait UncheckedInto<T>: Sized {
+    unsafe fn unchecked_into(self) -> T;
+}
+
+impl<T> UncheckedFrom<T> for T {
+    #[inline(always)]
+    unsafe fn unchecked_from(t: T) -> T {
+        t
+    }
+}
+
+impl<T, U> UncheckedInto<U> for T
+where
+    U: UncheckedFrom<T>,
+{
+    #[inline]
+    unsafe fn unchecked_into(self) -> U {
+        U::unchecked_from(self)
+    }
+}
+
 fn get_frame_address(level: usize) -> Option<usize> {
     // NOTE: 除了libc, 还可以用backtrace实现
 

@@ -7,8 +7,9 @@ use crate::{
     function::{CallArgs, JSCFunctionListEntry, JS_Call},
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
-    promise::js_promise_resolve,
+    promise::{js_promise_resolve, PromiseValue},
     runtime::JSRuntime,
+    utils::UncheckedInto,
     value::{
         object::JS_NewObjectClass, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT,
         JS_ToBool,
@@ -225,7 +226,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
             JSValueRc::undefined((*ctx).rt()),
         ];
 
-        let res = value_wrapper_promise.as_promise_unchecked().reaction(
+        let res = UncheckedInto::<PromiseValue>::unchecked_into(*value_wrapper_promise).reaction(
             ctx.as_mut().unwrap(),
             &[*resolve_reject[0], *resolve_reject[1]],
             &[*resolving_funcs[0], *resolving_funcs[1]],

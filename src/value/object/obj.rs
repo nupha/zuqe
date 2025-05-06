@@ -337,7 +337,7 @@ impl JSValue {
 
     /// Get JSObject payload reference of JSValue.
     /// Returns None for non-object and non-bytecode-function
-    #[inline(always)]
+    #[inline]
     pub fn object<'a>(self) -> Option<&'a mut JSObject> {
         if matches!(
             JS_VALUE_GET_TAG(self),
