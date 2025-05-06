@@ -11,8 +11,8 @@ use crate::{
     class::JSClassExoticMethods,
     context::JSContext,
     error::{
-        JS_GetException, JS_ThrowReferenceError, JS_ThrowStackOverflow, JS_ThrowSyntaxError,
-        JS_ThrowSyntaxErrorAtom,
+        JSResult, JS_GetException, JS_ThrowReferenceError, JS_ThrowStackOverflow,
+        JS_ThrowSyntaxError, JS_ThrowSyntaxErrorAtom,
     },
     function::{
         js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSVarKindEnum, JSVarRef, JS_Call,
@@ -262,6 +262,231 @@ pub struct JSResolveState {
     array: *mut JSResolveEntry,
     size: i32,
     count: i32,
+}
+
+impl JSModuleDef {
+    pub unsafe fn get_exported_names(
+        &self,
+        ctx: &mut JSContext,
+        s: &mut GetExportNamesState,
+        from_star: bool,
+    ) -> Result<(), i32> {
+        // check circular reference
+        for i in 0..s.modules_count {
+            if *s.modules.add(i as usize) as *const JSModuleDef == self {
+                return Ok(());
+            }
+        }
+
+        if js_resize_array(
+            ctx,
+            std::ptr::addr_of_mut!(s.modules).cast(),
+            std::mem::size_of::<*mut JSModuleDef>() as _,
+            &mut s.modules_size,
+            s.modules_count + 1,
+        ) != 0
+        {
+            return Err(-1);
+        }
+
+        *s.modules.add(s.modules_count as usize) = self as *const JSModuleDef as *mut JSModuleDef;
+        s.modules_count += 1;
+
+        for me in self.export_entries.iter() {
+            if from_star && me.export_name == JS_ATOM_default {
+                continue;
+            }
+
+            if let Some(j) = find_exported_name(s, me.export_name) {
+                let en = s.exported_names.add(j as usize).as_mut().unwrap();
+                en.u.me = std::ptr::null_mut();
+            } else {
+                if js_resize_array(
+                    ctx,
+                    std::ptr::addr_of_mut!(s.exported_names).cast(),
+                    std::mem::size_of::<ExportedNameEntry>() as _,
+                    &mut s.exported_names_size,
+                    s.exported_names_count + 1,
+                ) != 0
+                {
+                    return Err(-1);
+                }
+
+                let en = s
+                    .exported_names
+                    .add(s.exported_names_count as usize)
+                    .as_mut()
+                    .unwrap();
+                s.exported_names_count += 1;
+                en.export_name = me.export_name;
+
+                // avoid a second lookup for simple module exports
+                en.u.me = if from_star || me.export_type != JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                    std::ptr::null_mut()
+                } else {
+                    me.deref() as *const JSExportEntry as *mut JSExportEntry
+                };
+            }
+        }
+
+        for i in 0..self.star_export_entries_count {
+            let se = self.star_export_entries.add(i as usize);
+            let m1 = (*self.req_module_entries.add((*se).req_module_idx as usize)).module;
+            (*m1).get_exported_names(ctx, s, true)?;
+        }
+
+        Ok(())
+    }
+
+    /// build module ns object
+    unsafe fn build_ns(&mut self, ctx: &mut JSContext) -> JSResult {
+        let mut s_s: GetExportNamesState = std::mem::zeroed();
+        let s = &mut s_s;
+
+        let obj = JS_NewObjectClass(ctx, JS_CLASS_MODULE_NS).check_exception()?;
+        let p = obj.object_unchecked();
+
+        let ret = self.get_exported_names(ctx, s, false);
+        js_free(ctx, s.modules.cast());
+        if ret.is_err() {
+            js_free(ctx, s.exported_names.cast());
+            JS_FreeValue(ctx, obj);
+            return Err(-1);
+        }
+
+        /* Resolve the exported names. The ambiguous exports are removed */
+        for i in 0..s.exported_names_count {
+            let en = s.exported_names.add(i as usize).as_mut().unwrap();
+
+            let mut res_me = std::ptr::null_mut::<JSExportEntry>();
+            let mut res_m = std::ptr::null_mut::<JSModuleDef>();
+            let res = if !en.u.me.is_null() {
+                // fast case: no resolution needed
+                res_me = en.u.me;
+                res_m = self;
+                JSResolveResultEnum::JS_RESOLVE_RES_FOUND
+            } else {
+                js_resolve_export(ctx, &mut res_m, &mut res_me, self, en.export_name)
+            };
+
+            if res != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
+                if res != JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS {
+                    js_resolve_export_throw_error(ctx, res, self, en.export_name);
+                    js_free(ctx, s.exported_names.cast());
+                    JS_FreeValue(ctx, obj);
+                    return Err(-1);
+                }
+                en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
+            } else {
+                if (*res_me).local_name == JS_ATOM__star_ {
+                    en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
+                    en.u.module = (*(*res_m)
+                        .req_module_entries
+                        .add((*res_me).u.req_module_idx as usize))
+                    .module;
+                } else {
+                    en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
+                    if !(*res_me).u.local.var_ref.is_null() {
+                        en.u.var_ref = (*res_me).u.local.var_ref;
+                    } else {
+                        let p1 = (*res_m).func_obj.object_unchecked();
+                        en.u.var_ref =
+                            p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
+                    }
+                }
+            }
+        }
+
+        // sort the exported names
+        let names =
+            std::slice::from_raw_parts_mut(s.exported_names, s.exported_names_count as usize);
+        names.sort_by(|a, b| {
+            // XXX: should avoid allocation memory in atom comparison
+            let str1 = a.export_name.to_value(ctx, true);
+            let str2 = b.export_name.to_value(ctx, true);
+
+            let res = if str1.is_exception() || str2.is_exception() {
+                // XXX: raise an error ?
+                Ordering::Equal
+            } else {
+                str1.string().content().cmp(str2.string().content())
+            };
+
+            JS_FreeValue(ctx, str1);
+            JS_FreeValue(ctx, str2);
+
+            res
+        });
+
+        // original c code
+        // rqsort(
+        //     (*s).exported_names,
+        //     (*s).exported_names_count as usize,
+        //     std::mem::size_of::<ExportedNameEntry>(),
+        //     exported_names_cmp,
+        //     ctx,
+        // );
+
+        for i in 0..s.exported_names_count {
+            let en = s.exported_names.add(i as usize).as_mut().unwrap();
+
+            match en.export_type {
+                ExportedNameEntryEnum::EXPORTED_NAME_NORMAL => {
+                    let var_ref = en.u.var_ref;
+                    if let Ok(pr) = p.add_property(
+                        ctx,
+                        en.export_name,
+                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
+                    ) {
+                        (*var_ref).u0.header.ref_count += 1;
+                        (*pr).u.var_ref = var_ref;
+                    } else {
+                        js_free(ctx, s.exported_names.cast());
+                        JS_FreeValue(ctx, obj);
+                        return Err(-1);
+                    }
+                }
+                ExportedNameEntryEnum::EXPORTED_NAME_NS => {
+                    /* the exported namespace must be created on demand */
+                    if JS_DefineAutoInitProperty(
+                        ctx,
+                        obj,
+                        en.export_name,
+                        JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
+                        en.u.module.cast(),
+                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
+                    )
+                    .is_err()
+                    {
+                        js_free(ctx, s.exported_names.cast());
+                        JS_FreeValue(ctx, obj);
+                        return Err(-1);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        js_free(ctx, s.exported_names.cast());
+
+        let ms = JS_ATOM_Module.to_value(ctx, true);
+        obj.define_property_value(ctx, JS_ATOM_Symbol_toStringTag, ms, 0)
+            .unwrap();
+
+        p.detailed.set_extensible(false);
+
+        Ok(obj)
+    }
+
+    /// get module ns object. if ns object is not initialized, initialize it and return.
+    pub fn ns(&mut self, ctx: &mut JSContext) -> JSResult {
+        if self.module_ns.is_undefined() {
+            let ns = unsafe { self.build_ns(ctx)? };
+            self.module_ns = ns;
+        }
+
+        Ok(self.module_ns.dup())
+    }
 }
 
 /// Note: 'name' is freed on error
@@ -622,113 +847,14 @@ pub unsafe fn find_exported_name(s: *mut GetExportNamesState, name: JSAtom) -> O
     return None;
 }
 
+#[deprecated(note = "use JSModuleDef::get_exportd_names() instead")]
 pub unsafe fn get_exported_names(
     ctx: *mut JSContext,
     s: *mut GetExportNamesState,
     m: *mut JSModuleDef,
     from_star: bool,
 ) -> Result<(), i32> {
-    // check circular reference
-    for i in 0..(*s).modules_count {
-        if *(*s).modules.add(i as usize) == m {
-            return Ok(());
-        }
-    }
-
-    if js_resize_array(
-        ctx,
-        std::ptr::addr_of_mut!((*s).modules).cast(),
-        std::mem::size_of::<*mut JSModuleDef>() as _,
-        &mut (*s).modules_size,
-        (*s).modules_count + 1,
-    ) != 0
-    {
-        return Err(-1);
-    }
-
-    *(*s).modules.add((*s).modules_count as usize) = m;
-    (*s).modules_count += 1;
-
-    for me in (*m).export_entries.iter() {
-        if from_star && me.export_name == JS_ATOM_default {
-            continue;
-        }
-
-        if let Some(j) = find_exported_name(s, me.export_name) {
-            let en = (*s).exported_names.add(j as usize).as_mut().unwrap();
-            en.u.me = std::ptr::null_mut();
-        } else {
-            if js_resize_array(
-                ctx,
-                std::ptr::addr_of_mut!((*s).exported_names).cast(),
-                std::mem::size_of::<ExportedNameEntry>() as _,
-                &mut (*s).exported_names_size,
-                (*s).exported_names_count + 1,
-            ) != 0
-            {
-                return Err(-1);
-            }
-            let en = (*s)
-                .exported_names
-                .add((*s).exported_names_count as usize)
-                .as_mut()
-                .unwrap();
-            (*s).exported_names_count += 1;
-            en.export_name = me.export_name;
-
-            // avoid a second lookup for simple module exports
-            if from_star || me.export_type != JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                en.u.me = std::ptr::null_mut();
-            } else {
-                en.u.me = me.deref() as *const JSExportEntry as *mut JSExportEntry;
-            }
-        }
-    }
-
-    // for i in 0..(*m).export_entries_count {
-    //     let me = (*m).export_entries.add(i as usize).as_mut().unwrap();
-    //     if from_star && me.export_name == JS_ATOM_default {
-    //         continue;
-    //     }
-
-    //     if let Some(j) = find_exported_name(s, me.export_name) {
-    //         let en = (*s).exported_names.add(j as usize).as_mut().unwrap();
-    //         en.u.me = std::ptr::null_mut();
-    //     } else {
-    //         if js_resize_array(
-    //             ctx,
-    //             std::ptr::addr_of_mut!((*s).exported_names).cast(),
-    //             std::mem::size_of::<ExportedNameEntry>() as _,
-    //             &mut (*s).exported_names_size,
-    //             (*s).exported_names_count + 1,
-    //         ) != 0
-    //         {
-    //             return Err(-1);
-    //         }
-    //         let en = (*s)
-    //             .exported_names
-    //             .add((*s).exported_names_count as usize)
-    //             .as_mut()
-    //             .unwrap();
-    //         (*s).exported_names_count += 1;
-    //         en.export_name = me.export_name;
-
-    //         // avoid a second lookup for simple module exports
-    //         if from_star || me.export_type != JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-    //             en.u.me = std::ptr::null_mut();
-    //         } else {
-    //             en.u.me = me;
-    //         }
-    //     }
-    // }
-
-    for i in 0..(*m).star_export_entries_count {
-        let se = (*m).star_export_entries.add(i as usize);
-        let m1 = (*(*m).req_module_entries.add((*se).req_module_idx as usize)).module;
-        get_exported_names(ctx, s, m1, true)?;
-    }
-
-    Ok(())
+    (*m).get_exported_names(ctx.as_mut().unwrap(), s.as_mut().unwrap(), from_star)
 }
 
 pub unsafe fn add_module_variables(ctx: *mut JSContext, fd: *mut JSFunctionDef) -> i32 {
@@ -1006,161 +1132,159 @@ pub fn js_default_module_normalize_name(
     Ok(normalized.to_string_lossy().to_string())
 }
 
+#[deprecated(note = "use JSModuleDef::build_ns() instead")]
 pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
-    let mut s_s: GetExportNamesState = std::mem::zeroed();
-    let s = &mut s_s;
+    (*m).build_ns(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
 
-    let obj = JS_NewObjectClass(ctx, JS_CLASS_MODULE_NS);
-    if obj.is_exception() {
-        return obj;
-    }
-    let p = obj.object_unchecked();
+    // let mut s_s: GetExportNamesState = std::mem::zeroed();
+    // let s = &mut s_s;
 
-    let ret = get_exported_names(ctx, s, m, false);
-    js_free(ctx, s.modules.cast());
-    if ret.is_err() {
-        js_free(ctx, s.exported_names.cast());
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    // let obj = JS_NewObjectClass(ctx, JS_CLASS_MODULE_NS);
+    // if obj.is_exception() {
+    //     return obj;
+    // }
+    // let p = obj.object_unchecked();
 
-    /* Resolve the exported names. The ambiguous exports are removed */
-    for i in 0..s.exported_names_count {
-        let en = s.exported_names.add(i as usize).as_mut().unwrap();
+    // let ret = (*m).get_exported_names(ctx.as_mut().unwrap(), s, false);
+    // js_free(ctx, s.modules.cast());
+    // if ret.is_err() {
+    //     js_free(ctx, s.exported_names.cast());
+    //     JS_FreeValue(ctx, obj);
+    //     return JSValue::EXCEPTION;
+    // }
 
-        let mut res_me = std::ptr::null_mut::<JSExportEntry>();
-        let mut res_m = std::ptr::null_mut::<JSModuleDef>();
-        let res = if !en.u.me.is_null() {
-            // fast case: no resolution needed
-            res_me = en.u.me;
-            res_m = m;
-            JSResolveResultEnum::JS_RESOLVE_RES_FOUND
-        } else {
-            js_resolve_export(ctx, &mut res_m, &mut res_me, m, en.export_name)
-        };
+    // /* Resolve the exported names. The ambiguous exports are removed */
+    // for i in 0..s.exported_names_count {
+    //     let en = s.exported_names.add(i as usize).as_mut().unwrap();
 
-        if res != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
-            if res != JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS {
-                js_resolve_export_throw_error(ctx, res, m, en.export_name);
-                js_free(ctx, s.exported_names.cast());
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-            en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
-        } else {
-            if (*res_me).local_name == JS_ATOM__star_ {
-                en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
-                en.u.module = (*(*res_m)
-                    .req_module_entries
-                    .add((*res_me).u.req_module_idx as usize))
-                .module;
-            } else {
-                en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
-                if !(*res_me).u.local.var_ref.is_null() {
-                    en.u.var_ref = (*res_me).u.local.var_ref;
-                } else {
-                    let p1 = (*res_m).func_obj.object_unchecked();
-                    en.u.var_ref = p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
-                }
-            }
-        }
-    }
+    //     let mut res_me = std::ptr::null_mut::<JSExportEntry>();
+    //     let mut res_m = std::ptr::null_mut::<JSModuleDef>();
+    //     let res = if !en.u.me.is_null() {
+    //         // fast case: no resolution needed
+    //         res_me = en.u.me;
+    //         res_m = m;
+    //         JSResolveResultEnum::JS_RESOLVE_RES_FOUND
+    //     } else {
+    //         js_resolve_export(ctx, &mut res_m, &mut res_me, m, en.export_name)
+    //     };
 
-    // sort the exported names
-    let names = std::slice::from_raw_parts_mut(s.exported_names, s.exported_names_count as usize);
-    names.sort_by(|a, b| {
-        // XXX: should avoid allocation memory in atom comparison
-        let str1 = a.export_name.to_value(ctx.as_mut().unwrap(), true);
-        let str2 = b.export_name.to_value(ctx.as_mut().unwrap(), true);
+    //     if res != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
+    //         if res != JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS {
+    //             js_resolve_export_throw_error(ctx, res, m, en.export_name);
+    //             js_free(ctx, s.exported_names.cast());
+    //             JS_FreeValue(ctx, obj);
+    //             return JSValue::EXCEPTION;
+    //         }
+    //         en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
+    //     } else {
+    //         if (*res_me).local_name == JS_ATOM__star_ {
+    //             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
+    //             en.u.module = (*(*res_m)
+    //                 .req_module_entries
+    //                 .add((*res_me).u.req_module_idx as usize))
+    //             .module;
+    //         } else {
+    //             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
+    //             if !(*res_me).u.local.var_ref.is_null() {
+    //                 en.u.var_ref = (*res_me).u.local.var_ref;
+    //             } else {
+    //                 let p1 = (*res_m).func_obj.object_unchecked();
+    //                 en.u.var_ref = p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
+    //             }
+    //         }
+    //     }
+    // }
 
-        let res = if JS_IsException(str1) || JS_IsException(str2) {
-            // XXX: raise an error ?
-            Ordering::Equal
-        } else {
-            (*JS_VALUE_GET_STRING(str1))
-                .content()
-                .cmp((*JS_VALUE_GET_STRING(str2)).content())
-        };
+    // // sort the exported names
+    // let names = std::slice::from_raw_parts_mut(s.exported_names, s.exported_names_count as usize);
+    // names.sort_by(|a, b| {
+    //     // XXX: should avoid allocation memory in atom comparison
+    //     let str1 = a.export_name.to_value(ctx.as_mut().unwrap(), true);
+    //     let str2 = b.export_name.to_value(ctx.as_mut().unwrap(), true);
 
-        JS_FreeValue(ctx, str1);
-        JS_FreeValue(ctx, str2);
+    //     let res = if JS_IsException(str1) || JS_IsException(str2) {
+    //         // XXX: raise an error ?
+    //         Ordering::Equal
+    //     } else {
+    //         (*JS_VALUE_GET_STRING(str1))
+    //             .content()
+    //             .cmp((*JS_VALUE_GET_STRING(str2)).content())
+    //     };
 
-        res
-    });
+    //     JS_FreeValue(ctx, str1);
+    //     JS_FreeValue(ctx, str2);
 
-    // original c code
-    // rqsort(
-    //     (*s).exported_names,
-    //     (*s).exported_names_count as usize,
-    //     std::mem::size_of::<ExportedNameEntry>(),
-    //     exported_names_cmp,
-    //     ctx,
-    // );
+    //     res
+    // });
 
-    for i in 0..s.exported_names_count {
-        let en = s.exported_names.add(i as usize).as_mut().unwrap();
+    // // original c code
+    // // rqsort(
+    // //     (*s).exported_names,
+    // //     (*s).exported_names_count as usize,
+    // //     std::mem::size_of::<ExportedNameEntry>(),
+    // //     exported_names_cmp,
+    // //     ctx,
+    // // );
 
-        match en.export_type {
-            ExportedNameEntryEnum::EXPORTED_NAME_NORMAL => {
-                let var_ref = en.u.var_ref;
-                if let Ok(pr) = p.add_property(
-                    ctx.as_mut().unwrap(),
-                    en.export_name,
-                    JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
-                ) {
-                    (*var_ref).u0.header.ref_count += 1;
-                    (*pr).u.var_ref = var_ref;
-                } else {
-                    js_free(ctx, s.exported_names.cast());
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-            }
-            ExportedNameEntryEnum::EXPORTED_NAME_NS => {
-                /* the exported namespace must be created on demand */
-                if JS_DefineAutoInitProperty(
-                    ctx,
-                    obj,
-                    en.export_name,
-                    JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
-                    en.u.module.cast(),
-                    JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
-                )
-                .is_err()
-                {
-                    js_free(ctx, s.exported_names.cast());
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-            }
-            _ => {}
-        }
-    }
+    // for i in 0..s.exported_names_count {
+    //     let en = s.exported_names.add(i as usize).as_mut().unwrap();
 
-    js_free(ctx, s.exported_names.cast());
+    //     match en.export_type {
+    //         ExportedNameEntryEnum::EXPORTED_NAME_NORMAL => {
+    //             let var_ref = en.u.var_ref;
+    //             if let Ok(pr) = p.add_property(
+    //                 ctx.as_mut().unwrap(),
+    //                 en.export_name,
+    //                 JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
+    //             ) {
+    //                 (*var_ref).u0.header.ref_count += 1;
+    //                 (*pr).u.var_ref = var_ref;
+    //             } else {
+    //                 js_free(ctx, s.exported_names.cast());
+    //                 JS_FreeValue(ctx, obj);
+    //                 return JSValue::EXCEPTION;
+    //             }
+    //         }
+    //         ExportedNameEntryEnum::EXPORTED_NAME_NS => {
+    //             /* the exported namespace must be created on demand */
+    //             if JS_DefineAutoInitProperty(
+    //                 ctx,
+    //                 obj,
+    //                 en.export_name,
+    //                 JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
+    //                 en.u.module.cast(),
+    //                 JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
+    //             )
+    //             .is_err()
+    //             {
+    //                 js_free(ctx, s.exported_names.cast());
+    //                 JS_FreeValue(ctx, obj);
+    //                 return JSValue::EXCEPTION;
+    //             }
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
-    obj.define_property_value(
-        ctx.as_mut().unwrap(),
-        JS_ATOM_Symbol_toStringTag,
-        JS_ATOM_Module.to_value(ctx.as_mut().unwrap(), true),
-        0,
-    )
-    .unwrap();
+    // js_free(ctx, s.exported_names.cast());
 
-    p.detailed.set_extensible(false);
+    // obj.define_property_value(
+    //     ctx.as_mut().unwrap(),
+    //     JS_ATOM_Symbol_toStringTag,
+    //     JS_ATOM_Module.to_value(ctx.as_mut().unwrap(), true),
+    //     0,
+    // )
+    // .unwrap();
 
-    return obj;
+    // p.detailed.set_extensible(false);
+
+    // return obj;
 }
 
+#[deprecated(note = "use JSModuleDef::ns() instead")]
 pub unsafe fn js_get_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
-    if JS_IsUndefined((*m).module_ns) {
-        let val = js_build_module_ns(ctx, m);
-        if JS_IsException(val) {
-            return JSValue::EXCEPTION;
-        }
-        (*m).module_ns = val;
-    }
-    return JS_DupValue(ctx, (*m).module_ns);
+    (*m).ns(ctx.as_mut().unwrap()).unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn js_module_ns_autoinit(
@@ -1169,12 +1293,14 @@ pub unsafe fn js_module_ns_autoinit(
     atom: JSAtom,
     opaque: *mut c_void,
 ) -> JSValue {
-    js_get_module_ns(ctx, opaque.cast::<JSModuleDef>())
+    (*opaque.cast::<JSModuleDef>())
+        .ns(ctx.as_mut().unwrap())
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
 unsafe fn js_module_ns_has(ctx: *mut JSContext, obj: JSValueConst, atom: JSAtom) -> i32 {
-    (*JS_VALUE_GET_OBJ(obj)).find_own_property1(atom).is_none() as i32
+    obj.object_unchecked().find_own_property1(atom).is_none() as i32
 }
 
 pub static js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
@@ -1516,11 +1642,11 @@ pub unsafe fn js_inner_module_linking(
             .module;
             if (*mi).import_name == JS_ATOM__star_ {
                 // name space import
-                let val = js_get_module_ns(ctx, m1);
-                if JS_IsException(val) {
-                    // C2RS: goto fail replaced with early return
+                let val = if let Ok(o) = (*m1).ns(ctx.as_mut().unwrap()) {
+                    o
+                } else {
                     return -1;
-                }
+                };
 
                 set_value(
                     ctx,
@@ -1551,10 +1677,11 @@ pub unsafe fn js_inner_module_linking(
                         .offset((*res_me).u.req_module_idx as isize))
                     .module;
 
-                    let val = js_get_module_ns(ctx, m2);
-                    if JS_IsException(val) {
+                    let val = if let Ok(o) = (*m2).ns(ctx.as_mut().unwrap()) {
+                        o
+                    } else {
                         return -1;
-                    }
+                    };
 
                     if let Ok(mut var_ref) = js_create_module_var(ctx, true) {
                         set_value(ctx, &mut var_ref.value_or_links.value, val);

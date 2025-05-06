@@ -6,7 +6,7 @@ use crate::{
     function::{js_async_function_call, CallArgs, JS_Call},
     mem::{js_free, js_resize_array},
     module::JSModuleStatus,
-    promise::{self, js_promise_then, JSPromiseStateEnum},
+    promise::{self, js_promise_then, JSPromiseStateEnum, PromiseValue},
     runtime::js_check_stack_overflow,
     utils::UncheckedInto,
     value::{JSValue, JS_FreeValue, JS_VALUE_GET_PTR},
@@ -450,27 +450,25 @@ impl JSModuleDef {
         Ok(JSValue::UNDEFINED)
     }
 
-    /// execute module sync. returns error value on failure.
+    /// execute module in sync mode. returns error value on failure.
     pub unsafe fn execute_sync(&mut self, ctx: &mut JSContext) -> Result<(), JSValue> {
-        if let Some(cb) = self.init_func {
-            // Native module init : no asynchronous execution
-            if cb(ctx, self) < 0 {
+        if let Some(f) = self.init_func {
+            // has native module init fn: no asynchronous execution
+            if f(ctx, self) < 0 {
                 return Err(ctx.get_exception());
             }
         } else {
-            let ret_val = js_async_function_call(
+            let promise: PromiseValue = js_async_function_call(
                 ctx,
                 self.func_obj,
                 JSValue::UNDEFINED,
                 0,
                 std::ptr::null_mut(),
                 0,
-            );
-            if ret_val.is_exception() {
-                return Err(ctx.get_exception());
-            }
-
-            let promise: promise::PromiseValue = ret_val.unchecked_into(); // must be a Promise
+            )
+            .check_exception()
+            .map_err(|_| ctx.get_exception())? // return Err with current exception
+            .unchecked_into(); // return val must be a Promise
 
             match promise.state().unwrap() {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED => {

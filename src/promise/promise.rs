@@ -285,7 +285,7 @@ impl PromiseValue {
         }
     }
 
-    /// get Promise current result.
+    /// get current Promise result.
     /// returned value is duplicated, caller must free it.
     pub fn result(self) -> JSValue {
         unsafe {
