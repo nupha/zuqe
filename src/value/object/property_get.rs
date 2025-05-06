@@ -8,7 +8,12 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::JS_CallFree,
+    typed_array::{
+        Float32Array, Float64Array, Int16Array, Int32Array, Int8Array, Uint16Array, Uint32Array,
+        Uint8Array,
+    },
     types::unlikely,
+    utils::UncheckedInto,
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive, JS_IsUninitialized,
         JS_TAG_EXCEPTION, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED,
@@ -223,32 +228,44 @@ impl JSValue {
                 // types array
                 //
                 JS_CLASS_INT8_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Int8Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Int8Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Uint8Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Uint8Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_INT16_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Int16Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Int16Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_UINT16_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Uint16Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Uint16Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n as i32);
                     }
                 },
                 JS_CLASS_INT32_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Int32Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Int32Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n);
                     }
                 },
                 JS_CLASS_UINT32_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Uint32Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Uint32Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n);
                     }
                 },
@@ -256,12 +273,16 @@ impl JSValue {
                     unimplemented!()
                 }
                 JS_CLASS_FLOAT32_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Float32Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Float32Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n as f64);
                     }
                 },
                 JS_CLASS_FLOAT64_ARRAY => unsafe {
-                    if let Ok(n) = self.as_Float64Array_unchecked().element(idx as _) {
+                    if let Ok(n) =
+                        UncheckedInto::<Float64Array>::unchecked_into(self).element(idx as _)
+                    {
                         return JSValue::from(n as i32);
                     }
                 },

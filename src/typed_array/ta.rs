@@ -431,25 +431,23 @@ macro_rules! typed_array_obj_of {
             }
         }
 
-        paste::item! {
-            impl TypedArrayValue {
-                /// Cast to expected type. if object is not of proper class, behavior is undefined.
-                #[inline(always)]
-                pub unsafe fn [<as_ $name _unchecked>](self) -> $name  {
-                    debug_assert!(matches!(self.class_id(), $class_id));
-                    std::mem::transmute(self)
-                }
+        impl UncheckedFrom<JSValue> for $name {
+            #[inline(always)]
+            unsafe fn unchecked_from(value: JSValue) -> $name {
+                debug_assert!(value.is_object());
+                debug_assert!(matches!(
+                    unsafe { value.object_unchecked().class_id() },
+                    $class_id
+                ));
+                std::mem::transmute(value)
             }
+        }
 
-            impl JSValue {
-                /// Cast to expected type. If object is not of proper class, behavior is undefined.
-                #[inline(always)]
-                pub unsafe fn [<as_ $name _unchecked>]( self) -> $name {
-                    debug_assert!(self.is_object());
-                    debug_assert!(matches!(unsafe {self.object_unchecked().class_id()}, $class_id));
-
-                    std::mem::transmute(self)
-                }
+        impl UncheckedFrom<TypedArrayValue> for $name {
+            #[inline(always)]
+            unsafe fn unchecked_from(value: TypedArrayValue) -> $name {
+                debug_assert!(matches!(value.class_id(), $class_id));
+                std::mem::transmute(value)
             }
         }
     };

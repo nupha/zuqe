@@ -6,7 +6,6 @@ use crate::{
     atom::{consts::JS_ATOM_prototype, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
     bytecode::{opcode_info_final, opcode_info_intermediate, run_bytecodes},
     context::{JSContext, JS_FreeContext},
-    error::JSResult,
     eval::{JS_EvalObject, JS_EVAL_TYPE_INDIRECT},
     function::{func_kind_to_class_id, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},

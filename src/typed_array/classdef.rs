@@ -15,7 +15,7 @@ use crate::{
     function::{CallArgs, JSCFunctionListEntry, JS_Call, JS_CallConstructor},
     iterator::{js_create_array_iterator, JSIteratorKindEnum, JS_IteratorClose, JS_IteratorNext},
     js_core::js_get_this,
-    typed_array::typed_array_size_log2,
+    typed_array::{typed_array_size_log2, Float32Array, Float64Array},
     utils::UncheckedInto,
     value::{
         object::{
@@ -1335,17 +1335,18 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = unsafe { p.as_Float32Array_unchecked() }.with_data(|lst| {
-                        if inc > 0 {
-                            lst.iter().skip(k as usize).position(|x| x.is_nan())
-                        } else {
-                            lst.iter()
-                                .enumerate()
-                                .take(k as usize + 1)
-                                .rev()
-                                .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
-                        }
-                    });
+                    let found = unsafe { UncheckedInto::<Float32Array>::unchecked_into(p) }
+                        .with_data(|lst| {
+                            if inc > 0 {
+                                lst.iter().skip(k as usize).position(|x| x.is_nan())
+                            } else {
+                                lst.iter()
+                                    .enumerate()
+                                    .take(k as usize + 1)
+                                    .rev()
+                                    .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
+                            }
+                        });
 
                     if let Some(i) = found {
                         res = i as i32;
@@ -1365,17 +1366,18 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = unsafe { p.as_Float64Array_unchecked() }.with_data(|lst| {
-                        if inc > 0 {
-                            lst.iter().skip(k as usize).position(|x| x.is_nan())
-                        } else {
-                            lst.iter()
-                                .enumerate()
-                                .take(k as usize + 1)
-                                .rev()
-                                .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
-                        }
-                    });
+                    let found = unsafe { UncheckedInto::<Float64Array>::unchecked_into(p) }
+                        .with_data(|lst| {
+                            if inc > 0 {
+                                lst.iter().skip(k as usize).position(|x| x.is_nan())
+                            } else {
+                                lst.iter()
+                                    .enumerate()
+                                    .take(k as usize + 1)
+                                    .rev()
+                                    .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
+                            }
+                        });
 
                     if let Some(i) = found {
                         res = i as i32;

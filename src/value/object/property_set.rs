@@ -9,6 +9,11 @@ use crate::{
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
     function::call_setter,
+    typed_array::{
+        Float32Array, Float64Array, Int16Array, Int32Array, Int8Array, Uint16Array, Uint32Array,
+        Uint8Array,
+    },
+    utils::UncheckedInto,
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT16_ARRAY,
@@ -557,7 +562,7 @@ impl JSValue {
                         return Err(-1);
                     }
 
-                    if unsafe { self.as_Uint8Array_unchecked() }
+                    if unsafe { UncheckedInto::<Uint8Array>::unchecked_into(self) }
                         .set_element(idx as _, v as _)
                         .is_err()
                     {
@@ -586,9 +591,11 @@ impl JSValue {
 
                     let r = unsafe {
                         if cid == JS_CLASS_INT8_ARRAY {
-                            self.as_Int8Array_unchecked().set_element(idx as _, v as _)
+                            UncheckedInto::<Int8Array>::unchecked_into(self)
+                                .set_element(idx as _, v as _)
                         } else {
-                            self.as_Uint8Array_unchecked().set_element(idx as _, v as _)
+                            UncheckedInto::<Uint8Array>::unchecked_into(self)
+                                .set_element(idx as _, v as _)
                         }
                     };
 
@@ -618,9 +625,10 @@ impl JSValue {
 
                     let r = unsafe {
                         if cid == JS_CLASS_INT16_ARRAY {
-                            self.as_Int16Array_unchecked().set_element(idx as _, v as _)
+                            UncheckedInto::<Int16Array>::unchecked_into(self)
+                                .set_element(idx as _, v as _)
                         } else {
-                            self.as_Uint16Array_unchecked()
+                            UncheckedInto::<Uint16Array>::unchecked_into(self)
                                 .set_element(idx as _, v as _)
                         }
                     };
@@ -650,9 +658,10 @@ impl JSValue {
 
                     let r = unsafe {
                         if cid == JS_CLASS_INT32_ARRAY {
-                            self.as_Int32Array_unchecked().set_element(idx as _, v as _)
+                            UncheckedInto::<Int32Array>::unchecked_into(self)
+                                .set_element(idx as _, v as _)
                         } else {
-                            self.as_Uint32Array_unchecked()
+                            UncheckedInto::<Uint32Array>::unchecked_into(self)
                                 .set_element(idx as _, v as _)
                         }
                     };
@@ -680,7 +689,7 @@ impl JSValue {
                     }
 
                     let r = unsafe {
-                        self.as_Float32Array_unchecked()
+                        UncheckedInto::<Float32Array>::unchecked_into(self)
                             .set_element(idx as _, d as _)
                     };
 
@@ -707,7 +716,9 @@ impl JSValue {
                         return Err(-1);
                     }
 
-                    let r = unsafe { self.as_Float64Array_unchecked().set_element(idx as _, d) };
+                    let r = unsafe {
+                        UncheckedInto::<Float64Array>::unchecked_into(self).set_element(idx as _, d)
+                    };
                     if r.is_err() {
                         ta_out_of_bound = true;
                     } else {
