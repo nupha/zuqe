@@ -323,7 +323,7 @@ impl JSValue {
 
     /// increase value refcount
     #[inline(always)]
-    pub(crate) fn dup(self) -> Self {
+    pub fn dup(self) -> Self {
         if JS_VALUE_HAS_REF_COUNT(self) {
             match JS_VALUE_GET_TAG(self) {
                 JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {

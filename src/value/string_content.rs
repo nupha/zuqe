@@ -59,7 +59,8 @@ impl StringContent {
         } else if data.is_ascii() {
             Ok(Self::Utf8(data))
         } else {
-            let mut u = Vec::<u16>::try_with_capacity(data.len() / 2).map_err(|_| -1)?;
+            let mut u = Vec::<u16>::new();
+            u.try_reserve_exact(data.len() / 2).map_err(|_| -1)?;
             u.extend(unsafe { String::from_utf8_unchecked(data).encode_utf16() });
             u.shrink_to_fit();
             Ok(Self::Utf16(u))

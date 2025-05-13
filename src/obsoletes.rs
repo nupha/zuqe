@@ -975,7 +975,7 @@ pub unsafe fn JS_EvalThis(
     filename: &str,
     flags: u32,
 ) -> JSValue {
-    (*ctx).eval_with_this(this_obj, input, filename, flags)
+    (*ctx).eval_this(this_obj, input, filename, flags)
 }
 
 #[deprecated(note = "use JSContext::eval() instead")]

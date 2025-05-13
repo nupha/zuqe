@@ -11,9 +11,10 @@ use crate::{
     error::JSResult,
     list_entry,
     mem::js_malloc_typed,
+    obsoletes::JS_GetOpaque,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
-    types::{init_list_head, list_foreach_safe, list_head},
+    types::{init_list_head, list_foreach, list_foreach_safe, list_head},
     value::{JSValue, JSValueConst, JS_ToIndex},
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
 };
@@ -482,6 +483,39 @@ pub unsafe fn js_shared_array_buffer_constructor(
         JSValue::EXCEPTION
     } else {
         js_array_buffer_constructor2(ctx, new_target, len as _, JS_CLASS_SHARED_ARRAY_BUFFER)
+    }
+}
+
+pub unsafe fn JS_DetachArrayBuffer(ctx: *mut JSContext, obj: JSValueConst) {
+    if let Some(mut abuf) = obj
+        .object_unchecked()
+        .opaque::<JSArrayBuffer>(JS_CLASS_ARRAY_BUFFER)
+    {
+        if !abuf.as_ref().detached {
+            let abuf = abuf.as_mut();
+            match &abuf.content {
+                ArrayBufferContent::Raw(ptr, len, fin) => {
+                    if let Some(f) = fin {
+                        f((*ctx).rt_mut(), abuf.opaque, ptr.as_ptr(), *len);
+                    }
+                }
+                _ => {}
+            }
+
+            abuf.detached = true;
+
+            list_foreach(&mut abuf.array_list, |el| {
+                let ta = list_entry!(el, JSTypedArray, link);
+                let p = (*ta).obj;
+
+                // Note: the typed array length and offset fields are not modified
+                if (*p).class_id() != JS_CLASS_DATAVIEW {
+                    (*(*p).u.array).typed_array_count = 0;
+                    // TODO: remove this
+                    (*(*p).u.array).data.ptr = std::ptr::null_mut();
+                }
+            });
+        }
     }
 }
 

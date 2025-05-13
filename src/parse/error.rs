@@ -20,7 +20,7 @@ pub unsafe fn js_parse_error(s: *mut JSParseState, message: &CStr) -> i32 {
     build_backtrace(
         ctx,
         (*ctx).rt().current_exception,
-        (*s).filename.as_ptr().cast(),
+        Some((*s).filename),
         Some((*s).line_num),
         backtrace_flags,
     );

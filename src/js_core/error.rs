@@ -129,14 +129,8 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     // skip the Error() function in the backtrace
     unsafe {
-        build_backtrace(
-            ctx,
-            obj,
-            std::ptr::null_mut(),
-            Some(0),
-            JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL,
-        )
-    };
+        build_backtrace(ctx, obj, None, Some(0), JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
+    }
 
     Ok(obj)
 }

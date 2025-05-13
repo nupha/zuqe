@@ -284,7 +284,7 @@ impl<'s> JSParseState<'s> {
                         self.token.u.regexp.body,
                         self.token.u.regexp.flags,
                     );
-                    if JS_IsException(str) {
+                    if str.is_exception() {
                         // add the line number info
                         let backtrace_flags =
                             if !self.cur_func.is_null() && (*self.cur_func).backtrace_barrier {
@@ -295,7 +295,7 @@ impl<'s> JSParseState<'s> {
                         build_backtrace(
                             self.ctx,
                             (*self.ctx).rt().current_exception,
-                            self.filename.as_ptr().cast(),
+                            Some(self.filename),
                             Some(self.token.line_num),
                             backtrace_flags,
                         );

@@ -280,6 +280,11 @@ impl JSFunctionDef {
         fd.filename = ctx.create_atom(filename)?;
         fd.line_num = line_num;
 
+        println!(
+            "[O.o] filename atom: {:?}",
+            fd.filename.to_utf8_string(ctx.handle())
+        );
+
         fd.pc2line = None;
         // (*fd).pc2line_last_line_num = line_num;
         // (*fd).pc2line_last_pc = 0;

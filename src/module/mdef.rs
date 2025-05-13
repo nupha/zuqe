@@ -489,11 +489,11 @@ impl JSModuleDef {
     }
 
     /// get module import.meta object.
-    pub fn import_meta(&mut self, ctx: *mut JSContext) -> JSResult {
+    pub fn import_meta(&mut self, ctx: &mut JSContext) -> JSResult {
         // allocate meta_obj only if requested to save memory
         let mut meta = self.meta_obj;
         if meta.is_undefined() {
-            meta = unsafe { JS_NewObjectProto(ctx, JSValue::NULL).check_exception()? };
+            meta = ctx.create_object_with_proto(JSValue::NULL)?;
             self.meta_obj = meta;
         }
         Ok(meta.dup())

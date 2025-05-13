@@ -219,7 +219,7 @@ impl JSContext {
     // }
 
     #[inline(always)]
-    pub fn eval_with_this(
+    pub fn eval_this(
         &mut self,
         this_obj: JSValueConst,
         input: &CStr,
@@ -235,7 +235,7 @@ impl JSContext {
 
     #[inline(always)]
     pub fn eval(&mut self, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
-        self.eval_with_this(self.global_obj, input, filename, eval_flags)
+        self.eval_this(self.global_obj, input, filename, eval_flags)
     }
 
     /// eval source script with auto detecting module or global mode. returns EXCEPTION when error.

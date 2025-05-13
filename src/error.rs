@@ -97,7 +97,7 @@ impl JSContext {
 
         if add_backtrace {
             unsafe {
-                build_backtrace(self, obj, std::ptr::null_mut(), Some(0), 0);
+                build_backtrace(self, obj, None, Some(0), 0);
             }
         }
 
@@ -212,21 +212,22 @@ and line number information (used for parse error). */
 unsafe fn inner_build_backtrace(
     ctx: *mut JSContext,
     error_obj: JSValueConst,
-    filename: *const c_char,
+    filename: Option<&str>,
     line_num: Option<u32>,
     mut backtrace_flags: i32,
-    dbuf: &mut std::io::Cursor<&mut Vec<u8>>,
-) -> std::io::Result<()> {
-    if !filename.is_null() {
+) -> std::io::Result<String> {
+    let mut buf = Vec::<u8>::with_capacity(128);
+    let mut dbuf = std::io::Cursor::new(&mut buf);
+
+    if let Some(filename) = filename {
         // filename and line no
-        let c_filename = CStr::from_ptr(filename.cast());
-        dbuf.write_fmt(format_args!("    at {c_filename:?}"))?;
+        dbuf.write_fmt(format_args!("    at {filename}"))?;
         if let Some(ln) = line_num {
             dbuf.write_fmt(format_args!(":{ln}"))?;
         }
         dbuf.write_all(b"\n")?;
 
-        let str = (*ctx).create_string(c_filename.to_string_lossy().as_ref());
+        let str = (*ctx).create_string(filename);
         let _ = error_obj.define_property_value(
             ctx.as_mut().unwrap(),
             JS_ATOM_fileName,
@@ -241,7 +242,7 @@ unsafe fn inner_build_backtrace(
         );
 
         if backtrace_flags & JS_BACKTRACE_FLAG_SINGLE_LEVEL != 0 {
-            return Ok(());
+            return Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string());
         }
     }
 
@@ -300,7 +301,7 @@ unsafe fn inner_build_backtrace(
         sf = (*sf).prev_frame;
     }
 
-    Ok(())
+    Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())
 }
 
 /* if filename != NULL, an additional level is added with the filename
@@ -308,34 +309,18 @@ and line number information (used for parse error). */
 pub unsafe fn build_backtrace(
     ctx: *mut JSContext,
     error_obj: JSValueConst,
-    filename: *const c_char,
+    filename: Option<&str>,
     line_num: Option<u32>,
     backtrace_flags: i32,
 ) {
-    // TODO: use SmallVec?
-    let mut buf = Vec::<u8>::with_capacity(128);
-
-    let ret = {
-        let mut dbuf = std::io::Cursor::new(&mut buf);
-        let r = inner_build_backtrace(
-            ctx,
-            error_obj,
-            filename,
-            line_num,
-            backtrace_flags,
-            &mut dbuf,
-        );
-
-        r
-    };
-
+    let tb = inner_build_backtrace(ctx, error_obj, filename, line_num, backtrace_flags);
     let _ = error_obj.define_property_value(
         ctx.as_mut().unwrap(),
         JS_ATOM_stack,
-        if ret.is_err() {
-            JSValue::NULL
+        if let Ok(s) = tb {
+            (*ctx).create_string_from_utf8(s.into_bytes())
         } else {
-            (*ctx).create_string(std::str::from_utf8_unchecked(buf.as_slice()))
+            JSValue::NULL
         },
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
     );

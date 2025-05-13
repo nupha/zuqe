@@ -316,6 +316,13 @@ impl JSValue {
 
         Ok(ret)
     }
+
+    /// coerce value to i32.
+    /// Note: value `self` is not consumed
+    #[inline(always)]
+    pub fn coerce_to_i32(self, ctx: &mut JSContext) -> Result<i32, i32> {
+        self.dup().coerce_to_i32_free(ctx)
+    }
 }
 
 #[deprecated(note = "use JSValue::from_i32() instead")]

@@ -403,6 +403,11 @@ impl JSContextHandle {
     pub fn as_raw(self) -> NonNull<JSContext> {
         self.0
     }
+
+    #[inline(always)]
+    pub fn as_ptr(self) -> *mut JSContext {
+        self.0.as_ptr()
+    }
 }
 
 impl From<*mut JSContext> for JSContextHandle {

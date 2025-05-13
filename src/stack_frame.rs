@@ -80,14 +80,7 @@ impl JSStackFrame {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-
-            build_backtrace(
-                ctx,
-                ctx.rt().current_exception,
-                std::ptr::null(),
-                Some(0),
-                0,
-            );
+            build_backtrace(ctx, ctx.rt().current_exception, None, Some(0), 0);
         }
 
         if !JS_IsUncatchableError(ctx, ctx.rt().current_exception) {
