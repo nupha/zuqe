@@ -154,7 +154,7 @@ pub unsafe fn JS_GetGlobalVar(ctx: *mut JSContext, prop: JSAtom, throw_ref_error
             pr.u.value.dup()
         }
     } else {
-        (*ctx).global().get_property_internal(
+        (*ctx).global_obj.get_property_internal(
             ctx.as_mut().unwrap(),
             prop,
             (*ctx).global_obj,

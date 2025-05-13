@@ -9,7 +9,7 @@ use crate::{
 
 pub fn js_global_eval(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     args.get_raw(0)
-        .eval_object(ctx, ctx.global(), JS_EVAL_TYPE_INDIRECT, -1)
+        .eval_object(ctx, ctx.global_obj, JS_EVAL_TYPE_INDIRECT, -1)
         .check_exception()
 }
 

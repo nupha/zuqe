@@ -233,10 +233,11 @@ impl JSContext {
         self.current_exception
     }
 
-    /// get global object
+    /// Get global object value, duplicated.
+    /// Note: the return value is duplicated, so the caller should free it.
     #[inline(always)]
-    pub fn global(&self) -> JSValue {
-        self.global_obj
+    pub fn global_object_dup(&self) -> JSValue {
+        self.global_obj.dup()
     }
 }
 

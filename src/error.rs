@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    ffi::{c_char, CStr},
-    io::Write,
-};
+use std::{borrow::Cow, ffi::CStr, io::Write};
 
 use crate::{
     atom::{consts::*, JSAtom, ATOM_GET_STR_BUF_SIZE, JS_ATOM_NULL},
@@ -191,18 +187,15 @@ pub unsafe fn JS_GetException(ctx: *mut JSContext) -> JSValue {
 /* Note: it is important that no exception is returned by this function */
 pub unsafe fn is_backtrace_needed(obj: JSValueConst) -> bool {
     if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
-        return false;
+        false
+    } else {
+        let p = obj.object_unchecked();
+        if p.class_id() != JS_CLASS_ERROR {
+            false
+        } else {
+            p.find_own_property1(JS_ATOM_stack).is_none()
+        }
     }
-
-    let p = JS_VALUE_GET_OBJ(obj);
-    if (*p).class_id() != JS_CLASS_ERROR {
-        return false;
-    }
-    if (*p).find_own_property1(JS_ATOM_stack).is_some() {
-        return false;
-    }
-
-    true
 }
 
 impl JSContext {
