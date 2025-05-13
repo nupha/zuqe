@@ -3,10 +3,10 @@ use std::ffi::CStr;
 use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
-    error::{build_backtrace, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
+    error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
     parse::token::CHAR_SLASH,
-    value::{JS_FreeValue, JS_IsException, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
+    value::{JS_FreeValue, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
 };
 
 use super::{
@@ -292,13 +292,13 @@ impl<'s> JSParseState<'s> {
                             } else {
                                 0
                             };
-                        build_backtrace(
-                            self.ctx,
+
+                        (*self.ctx).build_backtrace_to(
                             (*self.ctx).rt().current_exception,
-                            Some(self.filename),
-                            Some(self.token.line_num),
+                            Some((self.filename, self.token.line_num)),
                             backtrace_flags,
                         );
+
                         return Err(-1);
                     }
 

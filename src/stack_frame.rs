@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     context::JSContext,
-    error::{build_backtrace, is_backtrace_needed, JS_IsUncatchableError},
+    error::{is_backtrace_needed, JS_IsUncatchableError},
     iterator::JS_IteratorClose,
     types::{list_empty, list_head},
     value::{JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
@@ -80,7 +80,7 @@ impl JSStackFrame {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-            build_backtrace(ctx, ctx.rt().current_exception, None, Some(0), 0);
+            ctx.build_backtrace_to(ctx.rt().current_exception, None, 0);
         }
 
         if !JS_IsUncatchableError(ctx, ctx.rt().current_exception) {

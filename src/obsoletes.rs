@@ -1023,3 +1023,16 @@ pub unsafe fn js_build_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JS
 pub unsafe fn js_get_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSValue {
     (*m).ns(ctx.as_mut().unwrap()).unwrap_or(JSValue::EXCEPTION)
 }
+
+/// build traceback, set it as property of `error_obj`.
+/// if filename/line number is provided, they are defined as property of `error_obj` too.
+/// `error_obj` ref count is unchanged.
+#[deprecated(note = "use JSContext::build_backtrace_to() instead")]
+pub unsafe fn build_backtrace(
+    ctx: *mut JSContext,
+    error_obj: JSValueConst,
+    file_line: Option<(&str, u32)>, // filename and line number
+    backtrace_flags: i32,
+) {
+    (*ctx).build_backtrace_to(error_obj, file_line, backtrace_flags);
+}

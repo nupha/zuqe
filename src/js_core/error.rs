@@ -1,7 +1,7 @@
 use crate::{
     atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
     context::{JSContext, JS_GetActiveFunction},
-    error::{build_backtrace, JSErrorEnum, JSResult, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL},
+    error::{JSErrorEnum, JSResult, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL},
     function::{CallArgs, JS_GetFunctionRealm},
     iterator::iterator_to_array,
     value::{
@@ -128,9 +128,7 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     // skip the Error() function in the backtrace
-    unsafe {
-        build_backtrace(ctx, obj, None, Some(0), JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
-    }
+    ctx.build_backtrace_to(obj, None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
 
     Ok(obj)
 }

@@ -96,9 +96,7 @@ impl JSContext {
         );
 
         if add_backtrace {
-            unsafe {
-                build_backtrace(self, obj, None, Some(0), 0);
-            }
+            self.build_backtrace_to(obj, None, 0);
         }
 
         self.JS_Throw(obj)
@@ -207,138 +205,129 @@ pub unsafe fn is_backtrace_needed(obj: JSValueConst) -> bool {
     true
 }
 
-/* if filename != NULL, an additional level is added with the filename
-and line number information (used for parse error). */
-unsafe fn inner_build_backtrace(
-    ctx: *mut JSContext,
-    error_obj: JSValueConst,
-    filename: Option<&str>,
-    line_num: Option<u32>,
-    mut backtrace_flags: i32,
-) -> std::io::Result<String> {
-    let mut buf = Vec::<u8>::with_capacity(128);
-    let mut dbuf = std::io::Cursor::new(&mut buf);
+impl JSContext {
+    fn inner_build_backtrace(
+        &mut self,
+        error_obj: JSValueConst,
+        file_line: Option<(&str, u32)>, // filename and line number
+        mut backtrace_flags: i32,
+    ) -> Result<String, i32> {
+        let mut buf = Vec::<u8>::with_capacity(128);
+        let mut dbuf = std::io::Cursor::new(&mut buf);
 
-    if let Some(filename) = filename {
-        // filename and line no
-        dbuf.write_fmt(format_args!("    at {filename}"))?;
-        if let Some(ln) = line_num {
-            dbuf.write_fmt(format_args!(":{ln}"))?;
-        }
-        dbuf.write_all(b"\n")?;
+        if let Some((filename, line_num)) = file_line {
+            // filename and line no
+            dbuf.write_fmt(format_args!("    at {filename}:{line_num}\n"))
+                .map_err(|e| -1)?;
 
-        let str = (*ctx).create_string(filename);
-        let _ = error_obj.define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_fileName,
-            str,
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        );
-        let _ = error_obj.define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_lineNumber,
-            JSValue::from_i32(line_num.map_or(-1, |x| x as i32)),
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        );
+            let str = (*self).create_string(filename);
+            error_obj.define_property_value(
+                self,
+                JS_ATOM_fileName,
+                str,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )?;
+            error_obj.define_property_value(
+                self,
+                JS_ATOM_lineNumber,
+                JSValue::from(line_num as i32),
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )?;
 
-        if backtrace_flags & JS_BACKTRACE_FLAG_SINGLE_LEVEL != 0 {
-            return Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string());
-        }
-    }
-
-    let mut sf = (*ctx).rt().current_stack_frame;
-    while !sf.is_null() {
-        if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
-            backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
-            sf = (*sf).prev_frame;
-            continue;
-        }
-
-        let str1 = get_func_name(ctx, (*sf).cur_func).map_or(Cow::Borrowed("<anonymous>"), |x| {
-            if x.len() == 0 {
-                Cow::Borrowed("<anonymous>")
-            } else {
-                x
+            if backtrace_flags & JS_BACKTRACE_FLAG_SINGLE_LEVEL != 0 {
+                return Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string());
             }
-        });
-        dbuf.write_fmt(format_args!("    at {}", str1))?;
+        }
 
-        let p = JS_VALUE_GET_OBJ((*sf).cur_func);
-        let mut backtrace_barrier = false;
+        let mut sf = self.rt().current_stack_frame;
+        while !sf.is_null() {
+            if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
+                backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
+                sf = unsafe { (*sf).prev_frame };
+                continue;
+            }
 
-        if js_class_has_bytecode((*p).class_id()) {
-            let b = (*p).u.func.function_bytecode;
-            backtrace_barrier = (*b).backtrace_barrier;
+            let str1 = unsafe { get_func_name(self, (*sf).cur_func) }.map_or(
+                Cow::Borrowed("<anonymous>"),
+                |x| {
+                    if x.len() == 0 {
+                        Cow::Borrowed("<anonymous>")
+                    } else {
+                        x
+                    }
+                },
+            );
+            dbuf.write_fmt(format_args!("    at {}", str1))
+                .map_err(|e| -1)?;
 
-            if (*b).has_debug {
-                let line_num1 = (*b).find_line_num(
-                    ((*sf).cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
-                );
+            let p = unsafe { (*sf).cur_func.object_unchecked() };
+            let mut backtrace_barrier = false;
 
-                // let atom_str = JS_AtomToCString(ctx, (*b).debug.filename);
-                let atom_str = (*b)
-                    .debug
-                    .filename
-                    .to_utf8_string(ctx.into())
-                    .unwrap_or(Cow::Borrowed("<null>"));
+            if js_class_has_bytecode(p.class_id()) {
+                unsafe {
+                    let b = p.u.func.function_bytecode;
+                    backtrace_barrier = (*b).backtrace_barrier;
 
-                dbuf.write_fmt(format_args!(" ({}", atom_str.as_ref()))?;
-                if let Some(n) = line_num1 {
-                    dbuf.write_fmt(format_args!(":{n}"))?;
+                    if (*b).has_debug {
+                        let line_num1 = (*b).find_line_num(
+                            ((*sf).cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
+                        );
+
+                        // let atom_str = JS_AtomToCString(ctx, (*b).debug.filename);
+                        let atom_str = (*b)
+                            .debug
+                            .filename
+                            .to_utf8_string(self.handle())
+                            .unwrap_or(Cow::Borrowed("<null>"));
+
+                        dbuf.write_fmt(format_args!(" ({}", atom_str.as_ref()))
+                            .map_err(|e| -1)?;
+                        if let Some(n) = line_num1 {
+                            dbuf.write_fmt(format_args!(":{n}")).map_err(|e| -1)?;
+                        }
+                        dbuf.write_all(b")").map_err(|e| -1)?;
+                    }
                 }
-                dbuf.write_all(b")")?;
+            } else {
+                dbuf.write_all(b" (native)").map_err(|e| -1)?;
             }
-        } else {
-            dbuf.write_all(b" (native)")?;
-        }
-        dbuf.write_all(b"\n")?;
+            dbuf.write_all(b"\n").map_err(|e| -1)?;
 
-        /* stop backtrace if JS_EVAL_FLAG_BACKTRACE_BARRIER was used */
-        if backtrace_barrier {
-            break;
+            /* stop backtrace if JS_EVAL_FLAG_BACKTRACE_BARRIER was used */
+            if backtrace_barrier {
+                break;
+            }
+
+            sf = unsafe { (*sf).prev_frame };
         }
 
-        sf = (*sf).prev_frame;
+        Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())
     }
 
-    Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())
-}
-
-/* if filename != NULL, an additional level is added with the filename
-and line number information (used for parse error). */
-pub unsafe fn build_backtrace(
-    ctx: *mut JSContext,
-    error_obj: JSValueConst,
-    filename: Option<&str>,
-    line_num: Option<u32>,
-    backtrace_flags: i32,
-) {
-    let tb = inner_build_backtrace(ctx, error_obj, filename, line_num, backtrace_flags);
-    let _ = error_obj.define_property_value(
-        ctx.as_mut().unwrap(),
-        JS_ATOM_stack,
-        if let Ok(s) = tb {
-            (*ctx).create_string_from_utf8(s.into_bytes())
+    /// build traceback, set it as property of `error_obj`.
+    /// if filename/line number is provided, they are defined as property of `error_obj` too.
+    /// `error_obj` ref count is unchanged.
+    pub fn build_backtrace_to(
+        &mut self,
+        error_obj: JSValueConst,
+        file_line: Option<(&str, u32)>,
+        backtrace_flags: i32,
+    ) {
+        let tb = self.inner_build_backtrace(error_obj, file_line, backtrace_flags);
+        let tb_val = if let Ok(s) = tb {
+            self.create_string_from_utf8(s.into_bytes())
         } else {
             JSValue::NULL
-        },
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
+        };
+
+        let _ = error_obj.define_property_value(
+            self,
+            JS_ATOM_stack,
+            tb_val,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        );
+    }
 }
-
-// /// TODO: remove using libc
-// #[deprecated(note = "use JSContext::JS_ThrowTypeErr()")]
-// pub unsafe fn __JS_ThrowTypeErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-//     let mut buf = [0u8; ATOM_GET_STR_BUF_SIZE];
-
-//     libc::snprintf(
-//         buf.as_mut_ptr() as *mut libc::c_char,
-//         buf.len(),
-//         fmt.as_ptr() as *const libc::c_char,
-//         atom.to_str((*ctx).rt()),
-//     );
-//     (*ctx).JS_ThrowTypeError(CStr::from_bytes_with_nul(buf.as_slice()).unwrap())
-// }
 
 // never use it directly
 pub unsafe fn __JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
