@@ -17,8 +17,7 @@ use crate::{
     types::{init_list_head, list_add, list_add_tail, list_del},
     utils::UncheckedInto,
     value::{
-        object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
+        object::JS_PROP_CONFIGURABLE, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
     },
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
@@ -193,23 +192,22 @@ pub unsafe fn js_async_function_resolve_create(
     let mut resolving_funcs = [JSValue::UNDEFINED; 2];
 
     for i in 0..2 {
-        let f = JS_NewObjectProtoClass(
-            ctx,
-            ctx.function_proto,
-            JS_CLASS_ASYNC_FUNCTION_RESOLVE + i as JSClassID,
-        );
+        let func_obj = ctx
+            .create_object_with_proto_and_classid(
+                ctx.function_proto,
+                JS_CLASS_ASYNC_FUNCTION_RESOLVE + i as JSClassID,
+            )
+            .map_err(|e| {
+                JS_FreeValue(ctx, resolving_funcs[0]);
+                JS_FreeValue(ctx, resolving_funcs[1]);
+                e
+            })?;
 
-        if f.is_exception() {
-            JS_FreeValue(ctx, resolving_funcs[0]);
-            JS_FreeValue(ctx, resolving_funcs[1]);
-            return Err(-1);
-        }
-
-        let p = f.object_unchecked();
+        let p = func_obj.object_unchecked();
         (*s).header.ref_count += 1;
         p.u.async_function_data = s;
 
-        resolving_funcs[i] = f;
+        resolving_funcs[i] = func_obj;
     }
 
     return Ok(resolving_funcs);

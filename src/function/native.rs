@@ -14,9 +14,7 @@ use crate::{
     stack_frame::JSStackFrame,
     types::list_head,
     value::{
-        object::{
-            JSAutoInitIDEnum, JSObject, JS_NewObject, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
-        },
+        object::{JSAutoInitIDEnum, JSObject, JS_NewObject, JS_PROP_CONFIGURABLE},
         JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,
         JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
         JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_TAG_OBJECT,
@@ -521,6 +519,7 @@ impl NativeFunctionValue {
 impl JSContext {
     /// Create new function object with native callback and speficied proto object.
     /// at least `length` arguments will be readable in arguments.
+    /// `proto_val` is not consumed.
     pub fn create_native_function_with_proto(
         &mut self,
         callback: JSNativeCallback,
@@ -537,19 +536,16 @@ impl JSContext {
                 | JSCFunctionEnum::NativeConstructorOrFunc
         ));
 
-        let func_obj = unsafe {
-            JS_NewObjectProtoClass(self, proto_val, JS_CLASS_C_FUNCTION).check_exception()?
-        };
+        let func_obj = self.create_object_with_proto_and_classid(proto_val, JS_CLASS_C_FUNCTION)?;
+        let ob = unsafe { func_obj.object_unchecked() };
 
-        let p = unsafe { func_obj.object_unchecked() };
-
-        p.detailed.set_constructor(matches!(
+        ob.detailed.set_constructor(matches!(
             cproto,
             JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
         ));
 
         unsafe {
-            let cfunc = &mut p.u.cfunc;
+            let cfunc = &mut ob.u.cfunc;
 
             cfunc.realm = self.dup();
             cfunc.c_function.native_callback = callback;
@@ -592,7 +588,7 @@ impl JSContext {
 }
 
 // Note: at least 'length' arguments will be readable in 'argv'
-#[deprecated(note = "use native callback instead")]
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
 pub unsafe fn JS_NewCFunction3(
     ctx: *mut JSContext,
     func: JSCFunction,
@@ -602,10 +598,13 @@ pub unsafe fn JS_NewCFunction3(
     magic: i16,
     proto_val: JSValueConst,
 ) -> JSValue {
-    let func_obj = JS_NewObjectProtoClass(ctx, proto_val, JS_CLASS_C_FUNCTION);
-    if func_obj.is_exception() {
-        return func_obj;
-    }
+    let func_obj = if let Ok(o) =
+        (*ctx).create_object_with_proto_and_classid(proto_val, JS_CLASS_C_FUNCTION)
+    {
+        o
+    } else {
+        return JSValue::EXCEPTION;
+    };
 
     let p = func_obj.object_unchecked();
 

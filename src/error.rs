@@ -13,10 +13,7 @@ use crate::{
         JS_GetFunctionBytecode,
     },
     value::{
-        object::{
-            JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_WRITABLE,
-        },
+        object::{JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE},
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
         JS_IsEmptyString, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -80,26 +77,24 @@ impl JSContext {
         message: &CStr,
         add_backtrace: bool,
     ) -> JSValue {
-        let mut obj = unsafe {
-            JS_NewObjectProtoClass(
-                self,
-                self.native_error_proto[error_num as usize],
-                JS_CLASS_ERROR,
-            )
+        let obj = if let Ok(o) = self.create_object_with_proto_and_classid(
+            self.native_error_proto[error_num as usize],
+            JS_CLASS_ERROR,
+        ) {
+            o
+        } else {
+            // out of memory: throw NULL to avoid recursing
+            JSValue::NULL
         };
 
-        if obj.is_exception() {
-            // out of memory: throw JS_NULL to avoid recursing
-            obj = JSValue::NULL;
-        } else {
-            let s = self.create_string(message.to_string_lossy().as_ref());
-            let _ = obj.define_property_value(
-                self,
-                JS_ATOM_message,
-                s,
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            );
-        }
+        let s = self.create_string(message.to_string_lossy().as_ref());
+        let _ = obj.define_property_value(
+            self,
+            JS_ATOM_message,
+            s,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        );
+
         if add_backtrace {
             unsafe {
                 build_backtrace(self, obj, std::ptr::null_mut(), Some(0), 0);

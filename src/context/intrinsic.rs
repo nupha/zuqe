@@ -45,9 +45,9 @@ use crate::{
         js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
             get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
-            JS_NewObjectProtoClass, JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE,
-            JS_PROP_LENGTH, JS_PROP_WRITABLE,
+            JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH,
+            JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_FreeValue,
     },
@@ -127,7 +127,9 @@ impl JSContext {
         // Array
         unsafe {
             // the array prototype is an array
-            let array_proto = JS_NewObjectProtoClass(self, object_proto, JS_CLASS_ARRAY);
+            let array_proto = self
+                .create_object_with_proto_and_classid(object_proto, JS_CLASS_ARRAY)
+                .unwrap();
             self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
 
             self.array_shape = js_new_shape2(
@@ -331,11 +333,12 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_number(&mut self) {
-        let number_proto = JS_NewObjectProtoClass(
-            self,
-            self.class_proto[JS_CLASS_OBJECT as usize],
-            JS_CLASS_NUMBER,
-        );
+        let number_proto = self
+            .create_object_with_proto_and_classid(
+                self.class_proto[JS_CLASS_OBJECT as usize],
+                JS_CLASS_NUMBER,
+            )
+            .unwrap();
         JS_SetObjectData(self, number_proto, JSValue::ZERO);
         self.class_proto[JS_CLASS_NUMBER as usize] = number_proto;
         JS_SetPropertyFunctionList(
@@ -356,11 +359,12 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_boolean(&mut self) {
-        let bool_proto = JS_NewObjectProtoClass(
-            self,
-            self.class_proto[JS_CLASS_OBJECT as usize],
-            JS_CLASS_BOOLEAN,
-        );
+        let bool_proto = self
+            .create_object_with_proto_and_classid(
+                self.class_proto[JS_CLASS_OBJECT as usize],
+                JS_CLASS_BOOLEAN,
+            )
+            .unwrap();
         self.class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
         JS_SetObjectData(self, bool_proto, JSValue::FALSE);
         JS_SetPropertyFunctionList(
@@ -374,11 +378,12 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_string(&mut self) {
-        let string_proto = JS_NewObjectProtoClass(
-            self,
-            self.class_proto[JS_CLASS_OBJECT as usize],
-            JS_CLASS_STRING,
-        );
+        let string_proto = self
+            .create_object_with_proto_and_classid(
+                self.class_proto[JS_CLASS_OBJECT as usize],
+                JS_CLASS_STRING,
+            )
+            .unwrap();
         self.class_proto[JS_CLASS_STRING as usize] = string_proto;
         JS_SetObjectData(
             self,

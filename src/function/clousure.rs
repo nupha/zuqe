@@ -12,10 +12,7 @@ use crate::{
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
-        object::{
-            JSAutoInitIDEnum, JS_NewObjectClass, JS_NewObjectProto, JS_SetConstructorBit,
-            JS_PROP_WRITABLE,
-        },
+        object::{JSAutoInitIDEnum, JS_NewObjectProto, JS_SetConstructorBit, JS_PROP_WRITABLE},
         JSValue, JS_FreeValue, JS_VALUE_GET_PTR,
     },
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
@@ -209,11 +206,14 @@ pub unsafe fn js_closure(
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
     debug_assert!(!b.is_null());
 
-    let func_obj = JS_NewObjectClass(ctx, func_kind_to_class_id[(*b).func_kind as usize]);
-    if func_obj.is_exception() {
+    let func_obj = if let Ok(o) =
+        (*ctx).create_object_with_classid(func_kind_to_class_id[(*b).func_kind as usize])
+    {
+        o
+    } else {
         JS_FreeValue(ctx, bfunc);
         return JSValue::EXCEPTION;
-    }
+    };
 
     let func_obj = js_closure2(ctx, func_obj, b, cur_var_refs, sf);
     if func_obj.is_exception() {

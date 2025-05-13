@@ -16,7 +16,7 @@ use crate::{
     types::{init_list_head, list_del, list_foreach, list_foreach_safe, list_head},
     utils::{UncheckedFrom, UncheckedInto},
     value::{
-        object::{JS_NewObject, JS_NewObjectProtoClass, JS_PROP_C_W_E},
+        object::{JS_NewObject, JS_PROP_C_W_E},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
         JS_ToInt32,
     },
@@ -227,25 +227,25 @@ impl PromiseValue {
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         for i in 0..2 {
-            let func_obj = unsafe {
-                JS_NewObjectProtoClass(
-                    ctx,
-                    ctx.function_proto,
-                    JS_CLASS_PROMISE_RESOLVE_FUNCTION + i,
-                )
-            };
-
-            if func_obj.is_exception() {
-                unsafe {
-                    if i != 0 {
+            let func_obj = if let Ok(o) = ctx.create_object_with_proto_and_classid(
+                ctx.function_proto,
+                JS_CLASS_PROMISE_RESOLVE_FUNCTION + i,
+            ) {
+                o
+            } else {
+                if i != 0 {
+                    unsafe {
                         JS_FreeValue(ctx, resolving_funcs[0]);
                     }
+                }
 
-                    // consume sr_ptr
+                // consume sr_ptr
+                unsafe {
                     js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
                 }
+
                 return Err(-1);
-            }
+            };
 
             unsafe {
                 sr_ptr.as_mut().ref_count += 1;

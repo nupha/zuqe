@@ -7,10 +7,7 @@ use crate::{
         JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
     },
     value::{
-        object::{
-            JS_GetOwnProperty, JS_NewObjectProtoClass, JS_OrdinaryIsInstanceOf,
-            JS_PROP_CONFIGURABLE,
-        },
+        object::{JS_GetOwnProperty, JS_OrdinaryIsInstanceOf, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JS_ConcatString3, JS_FreeValue, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
         JS_VALUE_GET_NORM_TAG,
     },
@@ -51,10 +48,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     args.this_value.ensure_callable(ctx)?;
 
     let func_obj =
-        unsafe { JS_NewObjectProtoClass(ctx, ctx.function_proto, JS_CLASS_BOUND_FUNCTION) };
-    if func_obj.is_exception() {
-        return Err(-1);
-    }
+        ctx.create_object_with_proto_and_classid(ctx.function_proto, JS_CLASS_BOUND_FUNCTION)?;
 
     let p = unsafe { func_obj.object_unchecked() };
     p.detailed.set_constructor(args.this_value.is_constructor());

@@ -5,7 +5,7 @@ use crate::{
     function::{CallArgs, JS_GetFunctionRealm},
     iterator::iterator_to_array,
     value::{
-        object::{JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+        object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
         JSValue, JS_FreeValue,
     },
     JS_CLASS_ERROR,
@@ -42,11 +42,18 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         proto = proto1.dup();
     }
 
-    let obj = unsafe { JS_NewObjectProtoClass(ctx, proto, JS_CLASS_ERROR) };
+    let obj = ctx
+        .create_object_with_proto_and_classid(proto, JS_CLASS_ERROR)
+        .map_err(|e| {
+            unsafe {
+                JS_FreeValue(ctx, proto);
+            }
+            e
+        })?;
+
     unsafe {
         JS_FreeValue(ctx, proto);
     }
-    let obj = obj.check_exception()?;
 
     let mut arg_index = if args.magic == JSErrorEnum::Aggregate as i32 {
         1
@@ -136,24 +143,22 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &mut JSContext, errors: JSValue) -> JSValue {
-    let obj = unsafe {
-        JS_NewObjectProtoClass(
-            ctx,
-            ctx.native_error_proto[JSErrorEnum::Aggregate as usize],
-            JS_CLASS_ERROR,
-        )
-    };
-
-    if obj.is_exception() {
+    let obj = if let Ok(o) = ctx.create_object_with_proto_and_classid(
+        ctx.native_error_proto[JSErrorEnum::Aggregate as usize],
+        JS_CLASS_ERROR,
+    ) {
+        o
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     obj.define_property_value(
         ctx,
         JS_ATOM_errors,
         errors.dup(),
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
+    )
+    .unwrap();
 
     obj
 }

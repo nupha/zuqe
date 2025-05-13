@@ -20,10 +20,9 @@ use crate::{
         object::{
             js_get_length32, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
             JS_GetOwnPropertyInternal, JS_GetPrototypeFree, JS_IsCFunction, JS_IsInstanceOf,
-            JS_NewObjectProto, JS_NewObjectProtoClass, JS_SetConstructorBit, JS_GPN_SET_ENUM,
-            JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_WRITABLE,
+            JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
@@ -183,17 +182,22 @@ pub unsafe fn js_op_define_class(
             parent_class = ctx.function_proto.dup();
         }
 
-        proto = JS_NewObjectProto(ctx, parent_proto);
-        if proto.is_exception() {
+        proto = if let Ok(o) = ctx.create_object_with_proto(parent_proto) {
+            o
+        } else {
             break true; // fail
-        }
+        };
 
         let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
         debug_assert_eq!((*b).func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
-        ctor = JS_NewObjectProtoClass(ctx, parent_class, JS_CLASS_BYTECODE_FUNCTION);
-        if ctor.is_exception() {
+
+        ctor = if let Ok(o) =
+            ctx.create_object_with_proto_and_classid(parent_class, JS_CLASS_BYTECODE_FUNCTION)
+        {
+            o
+        } else {
             break true; // fail
-        }
+        };
 
         ctor = js_closure2(ctx, ctor, b, cur_var_refs, sf);
         bfunc = JSValue::UNDEFINED;

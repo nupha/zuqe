@@ -11,9 +11,9 @@ use crate::{
     typed_array::TypedArrayValue,
     value::{
         object::{
-            js_get_length32, JS_GetPrototypeFree, JS_NewObject, JS_NewObjectClass,
-            JS_NewObjectProtoClass, JS_ToObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
-            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            js_get_length32, JS_GetPrototypeFree, JS_NewObject, JS_ToObject, JS_ToObjectFree,
+            PropertyEnum, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_ToStringCheckObject,
         JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
@@ -360,11 +360,12 @@ pub unsafe fn js_create_array_iterator(
     (*it).kind = kind;
     (*it).idx = 0;
 
-    let enum_obj = JS_NewObjectClass(ctx, class_id);
-    if enum_obj.is_exception() {
+    let enum_obj = if let Ok(o) = (*ctx).create_object_with_classid(class_id) {
+        o
+    } else {
         JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
-    }
+    };
 
     enum_obj.object_unchecked().set_opaque(it.cast());
 
@@ -470,11 +471,14 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
         return JSValue::EXCEPTION;
     };
 
-    let enum_obj = JS_NewObjectProtoClass(ctx, JSValue::NULL, JS_CLASS_FOR_IN_ITERATOR);
-    if enum_obj.is_exception() {
+    let enum_obj = if let Ok(o) =
+        (*ctx).create_object_with_proto_and_classid(JSValue::NULL, JS_CLASS_FOR_IN_ITERATOR)
+    {
+        o
+    } else {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
-    }
+    };
 
     it.is_array = false;
     it.obj = obj;

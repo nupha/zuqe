@@ -14,8 +14,8 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JSObject, JSPropertyDescriptor, JS_NewObject, JS_NewObjectProtoClass, PropertyEnum,
-            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+            JSObject, JSPropertyDescriptor, JS_NewObject, PropertyEnum, JS_PROP_CONFIGURABLE,
+            JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG,
@@ -440,7 +440,10 @@ pub unsafe fn js_create_from_ctor(
         }
     };
 
-    let obj = JS_NewObjectProtoClass(ctx, proto, class_id);
+    let obj = (*ctx)
+        .create_object_with_proto_and_classid(proto, class_id)
+        .unwrap_or(JSValue::EXCEPTION);
+
     JS_FreeValue(ctx, proto);
     return obj;
 }

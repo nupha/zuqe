@@ -6,24 +6,23 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         object::{
-            add_property, js_get_length32, JS_NewObjectProtoClass, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF, JS_PROP_WRITABLE,
+            js_get_length32, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+            JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
-        JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_OBJECT,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT,
 };
 
 pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSValue {
-    let val = JS_NewObjectProtoClass(
-        ctx,
+    let val = if let Ok(o) = ctx.create_object_with_proto_and_classid(
         ctx.class_proto[JS_CLASS_OBJECT as usize],
         JS_CLASS_ARGUMENTS,
-    );
-    if val.is_exception() {
+    ) {
+        o
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     let p = val.object_unchecked();
 
@@ -71,14 +70,14 @@ pub unsafe fn js_build_mapped_arguments(
     sf: &mut JSStackFrame,
     arg_count: i32,
 ) -> JSValue {
-    let val = JS_NewObjectProtoClass(
-        ctx,
+    let val = if let Ok(o) = ctx.create_object_with_proto_and_classid(
         ctx.class_proto[JS_CLASS_OBJECT as usize],
         JS_CLASS_MAPPED_ARGUMENTS,
-    );
-    if val.is_exception() {
-        return val;
-    }
+    ) {
+        o
+    } else {
+        return JSValue::EXCEPTION;
+    };
 
     let p = val.object_unchecked();
 

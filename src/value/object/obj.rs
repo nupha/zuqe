@@ -7,6 +7,7 @@ use crate::{
     callable::JSCFunctionDataRecord,
     class::JSClassID,
     context::JSContext,
+    error::JSResult,
     function::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
         JSObjectFunc, JS_CallFree,
@@ -471,25 +472,80 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 #[cfg(not(target_pointer_width = "64"))]
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
+impl JSContext {
+    /// create new instance with specified prototype value and class id.
+    /// `proto` is Prototype object (can be JSValue::NULL).
+    /// `proto` is not consumed.
+    pub fn create_object_with_proto_and_classid(
+        &mut self,
+        proto: JSValue,
+        class_id: JSClassID,
+    ) -> JSResult {
+        unsafe {
+            let proto_ob = get_proto_obj(proto);
+            let sh: *mut JSShape = match find_hashed_shape_proto(self.rt_mut(), proto_ob) {
+                Some(sh) => js_dup_shape(sh),
+                None => {
+                    let new_sh = js_new_shape(self, proto_ob);
+                    if new_sh.is_null() {
+                        return Err(-1);
+                    } else {
+                        new_sh
+                    }
+                }
+            };
+
+            JS_NewObjectFromShape(self, sh, class_id).check_exception()
+        }
+    }
+
+    /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
+    /// returns Err if fail.
+    #[inline(always)]
+    pub fn create_object_with_classid(&mut self, class_id: JSClassID) -> JSResult {
+        self.create_object_with_proto_and_classid(self.class_proto[class_id as usize], class_id)
+    }
+
+    /// create new instance of basic object with given prototype value.
+    /// returns Err if fail.
+    /// `proto` is not consumed.
+    #[inline(always)]
+    pub fn create_object_with_proto(&mut self, proto: JSValue) -> JSResult {
+        self.create_object_with_proto_and_classid(proto, JS_CLASS_OBJECT)
+    }
+
+    /// Create new instance of basic object using default Object prototype
+    /// returns Err if fail.
+    #[inline(always)]
+    pub fn create_object(&mut self) -> JSResult {
+        self.create_object_with_classid(JS_CLASS_OBJECT)
+    }
+}
+
+#[deprecated(note = "use JSContext::create_object_with_proto_and_classid() instead")]
 pub unsafe fn JS_NewObjectProtoClass(
     ctx: *mut JSContext,
     proto_val: JSValueConst,
     class_id: JSClassID,
 ) -> JSValue {
-    let proto = get_proto_obj(proto_val);
-    let sh: *mut JSShape = match find_hashed_shape_proto((*ctx).rt_mut(), proto) {
-        Some(sh) => js_dup_shape(sh),
-        None => {
-            let new_sh = js_new_shape(ctx, proto);
-            if new_sh.is_null() {
-                return JSValue::EXCEPTION;
-            } else {
-                new_sh
-            }
-        }
-    };
+    (*ctx)
+        .create_object_with_proto_and_classid(proto_val, class_id)
+        .unwrap_or(JSValue::EXCEPTION)
 
-    JS_NewObjectFromShape(ctx, sh, class_id)
+    // let proto = get_proto_obj(proto_val);
+    // let sh: *mut JSShape = match find_hashed_shape_proto((*ctx).rt_mut(), proto) {
+    //     Some(sh) => js_dup_shape(sh),
+    //     None => {
+    //         let new_sh = js_new_shape(ctx, proto);
+    //         if new_sh.is_null() {
+    //             return JSValue::EXCEPTION;
+    //         } else {
+    //             new_sh
+    //         }
+    //     }
+    // };
+
+    // JS_NewObjectFromShape(ctx, sh, class_id)
 }
 
 /// Instantiate object of specific class
@@ -497,26 +553,32 @@ pub unsafe fn JS_NewObjectProtoClass(
 /// - ctx: Runtime context
 /// - class_id: JS_CLASS_* identifier
 /// Returns: New object or Exception
+#[deprecated(note = "use JSContext::create_object_with_classid() instead")]
 pub unsafe fn JS_NewObjectClass(ctx: *mut JSContext, class_id: JSClassID) -> JSValue {
-    JS_NewObjectProtoClass(ctx, (*ctx).class_proto[class_id as usize], class_id)
+    (*ctx)
+        .create_object_with_classid(class_id)
+        .unwrap_or(JSValue::EXCEPTION)
+    // JS_NewObjectProtoClass(ctx, (*ctx).class_proto[class_id as usize], class_id)
 }
 
 /// Create plain object with specified prototype
 /// Parameters:
 /// - ctx: JavaScript context
 /// - proto: Prototype object (can be null)
+#[deprecated(note = "use JSContext::create_object_with_proto() instead")]
 pub unsafe fn JS_NewObjectProto(ctx: *mut JSContext, proto: JSValueConst) -> JSValue {
     JS_NewObjectProtoClass(ctx, proto, JS_CLASS_OBJECT)
 }
 
 /// Create basic object using default Object prototype
+#[deprecated(note = "use JSContext::create_object() instead")]
 pub unsafe fn JS_NewObject(ctx: *mut JSContext) -> JSValue {
-    /* inline JS_NewObjectClass(ctx, JS_CLASS_OBJECT); */
-    JS_NewObjectProtoClass(
-        ctx,
-        (*ctx).class_proto[JS_CLASS_OBJECT as usize],
-        JS_CLASS_OBJECT,
-    )
+    (*ctx).create_object().unwrap_or(JSValue::EXCEPTION)
+    // JS_NewObjectProtoClass(
+    //     ctx,
+    //     (*ctx).class_proto[JS_CLASS_OBJECT as usize],
+    //     JS_CLASS_OBJECT,
+    // )
 }
 
 /// Modify an object's prototype chain
@@ -872,15 +934,21 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
             unimplemented!()
         }
         JSTag::Int | JSTag::Float64 => {
-            let obj = JS_NewObjectClass(ctx, JS_CLASS_NUMBER);
+            let obj = (*ctx)
+                .create_object_with_classid(JS_CLASS_NUMBER)
+                .unwrap_or(JSValue::EXCEPTION);
             set_value!(obj);
         }
         JSTag::String => {
-            let obj = JS_NewObjectClass(ctx, JS_CLASS_STRING);
+            let obj = (*ctx)
+                .create_object_with_classid(JS_CLASS_STRING)
+                .unwrap_or(JSValue::EXCEPTION);
             set_value!(obj);
         }
         JSTag::Symbol => {
-            let obj = JS_NewObjectClass(ctx, JS_CLASS_SYMBOL);
+            let obj = (*ctx)
+                .create_object_with_classid(JS_CLASS_SYMBOL)
+                .unwrap_or(JSValue::EXCEPTION);
             set_value!(obj);
         }
         _ => {

@@ -27,9 +27,8 @@ use crate::{
     },
     value::{
         object::{
-            JSAutoInitIDEnum, JSObject, JS_NewObjectClass, JS_NewObjectProto,
-            JS_NewObjectProtoClass, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
-            JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JSObject, JS_NewObjectProto, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
@@ -344,7 +343,7 @@ impl JSModuleDef {
         let mut s_s: GetExportNamesState = std::mem::zeroed();
         let s = &mut s_s;
 
-        let obj = JS_NewObjectClass(ctx, JS_CLASS_MODULE_NS).check_exception()?;
+        let obj = ctx.create_object_with_classid(JS_CLASS_MODULE_NS)?;
         let p = obj.object_unchecked();
 
         let ret = self.get_exported_names(ctx, s, false);
@@ -1249,10 +1248,13 @@ pub unsafe fn js_create_module_var(
 // Create the <eval> function associated with the module
 pub unsafe fn js_create_module_bytecode_function(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32 {
     let bfunc = (*m).func_obj;
-    let func_obj = JS_NewObjectProtoClass(ctx, (*ctx).function_proto, JS_CLASS_BYTECODE_FUNCTION);
-    if func_obj.is_exception() {
+    let func_obj = if let Ok(o) = (*ctx)
+        .create_object_with_proto_and_classid((*ctx).function_proto, JS_CLASS_BYTECODE_FUNCTION)
+    {
+        o
+    } else {
         return -1;
-    }
+    };
 
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
     let p = func_obj.object_unchecked();

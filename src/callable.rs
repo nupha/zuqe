@@ -10,10 +10,7 @@ use crate::{
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{
-        object::JS_NewObjectProtoClass, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT,
-        JS_VALUE_GET_TAG,
-    },
+    value::{JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
     JS_CLASS_C_FUNCTION_DATA,
 };
 
@@ -100,11 +97,8 @@ impl JSContext {
         data: &[JSValueConst],
     ) -> JSResult {
         let s = JSCFunctionDataRecord::new(self, callback, length, magic, data)?;
-
-        let func_obj = unsafe {
-            JS_NewObjectProtoClass(self, self.function_proto, JS_CLASS_C_FUNCTION_DATA)
-                .check_exception()?
-        };
+        let func_obj = self
+            .create_object_with_proto_and_classid(self.function_proto, JS_CLASS_C_FUNCTION_DATA)?;
 
         unsafe {
             func_obj

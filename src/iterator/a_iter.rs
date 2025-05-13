@@ -10,10 +10,7 @@ use crate::{
     promise::{js_promise_resolve, PromiseValue},
     runtime::JSRuntime,
     utils::UncheckedInto,
-    value::{
-        object::JS_NewObjectClass, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT,
-        JS_ToBool,
-    },
+    value::{JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_ToBool},
     JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
 };
 
@@ -47,11 +44,9 @@ impl JSContext {
             .check_exception()?
             .into_rc(self.rt());
 
-        let async_iter = unsafe {
-            JS_NewObjectClass(self, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
-                .check_exception()?
-                .into_rc(self.rt())
-        };
+        let async_iter = self
+            .create_object_with_classid(JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)?
+            .into_rc(self.rt());
 
         if let Some(p) = unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) } {
             let mut s = unsafe { Box::from_raw(p.as_ptr()) };
