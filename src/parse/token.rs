@@ -205,12 +205,13 @@ impl<'s> JSParseState<'s> {
                             isa = Some(ISA::SkipLineComment);
                         }
                         b'=' => {
-                            p = p.offset(2);
+                            // /=
+                            p = p.add(2);
                             self.token.val = TOK_DIV_ASSIGN;
                         }
-                        c => {
-                            p = p.offset(1);
-                            self.token.val = c as i32;
+                        _ => {
+                            p = p.add(1);
+                            self.token.val = b'/' as i32;
                         }
                     } // starts with '/'
                 }

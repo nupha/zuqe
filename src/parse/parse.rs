@@ -3,9 +3,9 @@ use std::{ffi::CStr, ops::DerefMut};
 use smallvec::SmallVec;
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
-    context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{JS_MODE_STRICT, JS_MODE_STRIP},
     error::JS_THROW_ERROR_DELETE_SUPER,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
@@ -86,7 +86,6 @@ impl JSParseState<'_> {
         js_parse_get_pos(self, &mut pos);
 
         while self.token.val == TOK_STRING {
-            // 将 C 字符串转换为 Rust 的字符串切片
             let token_str = CStr::from_ptr(self.token.ptr.offset(1).cast())
                 .to_str()
                 .unwrap();

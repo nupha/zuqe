@@ -150,8 +150,6 @@ impl<'s> JSParseState<'s> {
 
     // allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
     pub(super) unsafe fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
-        let op: i32;
-
         match self.token.val {
             // '+', '-', '!', '~'
             op @ (CHAR_PLUS | CHAR_MINUS | 0x21 | 0x7e | TOK_VOID) => {
@@ -256,8 +254,7 @@ impl<'s> JSParseState<'s> {
                     let mut scope: i32 = 0;
                     let mut label: i32 = 0;
                     let mut name = JS_ATOM_NULL;
-                    op = self.token.val;
-
+                    let tok = self.token.val;
                     self.get_lvalue(
                         &mut opcode,
                         &mut scope,
@@ -265,7 +262,7 @@ impl<'s> JSParseState<'s> {
                         &mut label,
                         std::ptr::null_mut(),
                         true,
-                        op,
+                        tok,
                     )?;
 
                     emit_op(

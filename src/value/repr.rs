@@ -36,10 +36,7 @@ impl JSValue {
             JSTag::Null => "null".into(),
             JSTag::Exception => "[exception]".into(),
             JSTag::Uninitialized => "[uninitialized]".into(),
-            JSTag::Float64 => {
-                println!("[O.o] f={}", JS_VALUE_GET_FLOAT64(self));
-                format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into()
-            }
+            JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
             JSTag::String => {
                 let p = unsafe { self.string() };
                 let sep = '\"';
