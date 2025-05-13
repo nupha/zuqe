@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::JSFunctionDef,
@@ -40,9 +42,9 @@ impl<'s> JSParseState<'s> {
                     .u
                     .ident
                     .atom
-                    .to_value(self.ctx.as_mut().unwrap(), false);
+                    .to_value(self.ctx.deref_mut(), false);
                 let ret = emit_push_const(self, val, true);
-                JS_FreeValue((*self).ctx, val);
+                JS_FreeValue(self.ctx.as_ptr(), val);
                 if ret != 0 {
                     return Err(-1);
                 }

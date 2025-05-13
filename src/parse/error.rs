@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::DerefMut};
 
 use crate::error::{JSErrorEnum, JS_BACKTRACE_FLAG_SINGLE_LEVEL};
 
@@ -6,7 +6,7 @@ use super::state::JSParseState;
 
 /// always returns -1
 pub unsafe fn js_parse_error(s: *mut JSParseState, message: &CStr) -> i32 {
-    let ctx = (*s).ctx.as_mut().unwrap();
+    let ctx = (*s).ctx.deref_mut();
 
     ctx.JS_ThrowError2(JSErrorEnum::Syntax, message, false);
 

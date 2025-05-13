@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     array::JS_NewArray,
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
@@ -6,7 +8,7 @@ use crate::{
     unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
     value::{
         object::{seal_template_obj, JS_PROP_ENUMERABLE, JS_PROP_THROW},
-        JSValue, JS_FreeValue, StringContent, JS_UNDEFINED,
+        JSValue, JS_FreeValue, StringContent,
     },
 };
 
@@ -43,7 +45,7 @@ impl<'s> JSParseState<'s> {
                 }
                 '\\' => {
                     res_string.push_char(c).map_err(|_| {
-                        (*self.ctx).JS_ThrowOutOfMemory();
+                        self.ctx.JS_ThrowOutOfMemory();
                         -1
                     })?;
                     if p >= self.buf_end {
@@ -91,25 +93,25 @@ impl<'s> JSParseState<'s> {
     }
 
     pub unsafe fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<(), i32> {
-        let ctx = self.ctx;
-        let mut raw_array = JS_UNDEFINED;
-        let mut template_object = JS_UNDEFINED;
+        let mut ctx = self.ctx;
+        let mut raw_array = JSValue::UNDEFINED;
+        let mut template_object = JSValue::UNDEFINED;
 
         if call {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
-            template_object = JS_NewArray(ctx).check_exception()?;
+            template_object = JS_NewArray(ctx.as_ptr()).check_exception()?;
 
             let ret = emit_push_const(self, template_object, false);
-            JS_FreeValue(ctx, template_object);
+            JS_FreeValue(ctx.as_ptr(), template_object);
             if ret != 0 {
                 return Err(-1);
             }
 
-            raw_array = JS_NewArray(ctx).check_exception()?;
+            raw_array = JS_NewArray(ctx.as_ptr()).check_exception()?;
 
             template_object.define_property_value(
-                ctx.as_mut().unwrap(),
+                ctx.deref_mut(),
                 JS_ATOM_raw,
                 raw_array,
                 JS_PROP_THROW,
@@ -123,7 +125,7 @@ impl<'s> JSParseState<'s> {
 
             if call {
                 raw_array.define_property_value_u32(
-                    ctx.as_mut().unwrap(),
+                    ctx.deref_mut(),
                     depth as _,
                     self.token.u.str.str.dup(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
@@ -139,7 +141,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 template_object.define_property_value_u32(
-                    ctx.as_mut().unwrap(),
+                    ctx.deref_mut(),
                     depth as _,
                     cooked.u.str.str,
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
@@ -147,14 +149,14 @@ impl<'s> JSParseState<'s> {
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
-                JS_FreeValue(ctx, self.token.u.str.str);
+                JS_FreeValue(ctx.as_ptr(), self.token.u.str.str);
                 self.token.u.str.str = JSValue::UNDEFINED;
 
                 self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
                 let str = cooked.u.str.str.string();
                 if depth == 0 || !str.is_empty() {
                     let ret = emit_push_const(self, cooked.u.str.str, true);
-                    JS_FreeValue(self.ctx, cooked.u.str.str);
+                    JS_FreeValue(self.ctx.as_ptr(), cooked.u.str.str);
                     if ret != 0 {
                         return Err(-1);
                     }
@@ -168,15 +170,15 @@ impl<'s> JSParseState<'s> {
                     }
                     depth += 1;
                 } else {
-                    JS_FreeValue(self.ctx, cooked.u.str.str);
+                    JS_FreeValue(self.ctx.as_ptr(), cooked.u.str.str);
                 }
             }
 
             if self.token.u.str.sep == b'`' as i32 {
                 // template is done
                 if call {
-                    seal_template_obj(ctx, raw_array);
-                    seal_template_obj(ctx, template_object);
+                    seal_template_obj(ctx.as_ptr(), raw_array);
+                    seal_template_obj(ctx.as_ptr(), template_object);
                     *argc = depth + 1;
                 } else {
                     emit_op(self, OpCode::CALL_METHOD);

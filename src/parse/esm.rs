@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::DerefMut};
 
 use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
@@ -50,13 +50,13 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        let module_name = JS_ValueToAtom(self.ctx, self.token.u.str.str);
+        let module_name = JS_ValueToAtom(self.ctx.as_ptr(), self.token.u.str.str);
         if module_name == JS_ATOM_NULL {
             return Err(-1);
         }
 
         if self.next_token().is_err() {
-            JS_FreeAtom(self.ctx, module_name);
+            JS_FreeAtom(self.ctx.as_ptr(), module_name);
             return Err(-1);
         }
 
@@ -74,12 +74,12 @@ impl<'s> JSParseState<'s> {
         let module_name: JSAtom;
 
         if self.token.val == TOK_STRING {
-            module_name = JS_ValueToAtom(ctx, self.token.u.str.str);
+            module_name = JS_ValueToAtom(ctx.as_ptr(), self.token.u.str.str);
             if module_name == JS_ATOM_NULL {
                 return Err(-1);
             }
             if self.next_token().is_err() {
-                JS_FreeAtom(ctx, module_name);
+                JS_FreeAtom(ctx.as_ptr(), module_name);
                 return Err(-1);
             }
         } else {
@@ -92,13 +92,8 @@ impl<'s> JSParseState<'s> {
                     }
 
                     // "default" import
-                    let local_name = self
-                        .token
-                        .u
-                        .ident
-                        .atom
-                        .dup((*ctx).rt())
-                        .into_rc((*ctx).rt());
+                    let rt = ctx.rt();
+                    let local_name = self.token.u.ident.atom.dup(rt).into_rc(rt);
 
                     self.next_token()?;
                     if add_import(self, m, *local_name, JS_ATOM_default) != 0 {
@@ -196,8 +191,8 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = add_req_module_entry(ctx, m, module_name);
-        JS_FreeAtom(ctx, module_name);
+        let idx = add_req_module_entry(ctx.as_ptr(), m, module_name);
+        JS_FreeAtom(ctx.as_ptr(), module_name);
         if idx < 0 {
             return Err(-1);
         }
@@ -215,7 +210,7 @@ unsafe fn parse_export_name(s: *mut JSParseState) -> JSAtom {
         js_parse_error(s, c"identifier expected");
         return JS_ATOM_NULL;
     }
-    JS_DupAtom((*s).ctx, (*s).token.u.ident.atom)
+    (*s).token.u.ident.atom.dup((*s).ctx.rt())
 }
 
 /// Parse an 'as' clause and return the export name
@@ -225,7 +220,7 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
 
     if token_is_pseudo_keyword(s, JS_ATOM_as) {
         if (*s).next_token().is_err() {
-            JS_FreeAtom(ctx, export_name);
+            JS_FreeAtom(ctx.as_ptr(), export_name);
             return JS_ATOM_NULL;
         }
         export_name = parse_export_name(s);
@@ -233,7 +228,7 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
             return JS_ATOM_NULL;
         }
         if (*s).next_token().is_err() {
-            JS_FreeAtom(ctx, export_name);
+            JS_FreeAtom(ctx.as_ptr(), export_name);
             return JS_ATOM_NULL;
         }
     }
@@ -288,12 +283,12 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 }
                 export_name = JS_ATOM_NULL;
                 if (*s).next_token().is_err() {
-                    JS_FreeAtom(ctx, local_name);
+                    JS_FreeAtom(ctx.as_ptr(), local_name);
                     return -1;
                 }
                 export_name = parse_as_clause(s, local_name);
                 if export_name == JS_ATOM_NULL {
-                    JS_FreeAtom(ctx, local_name);
+                    JS_FreeAtom(ctx.as_ptr(), local_name);
                     return -1;
                 }
                 exports.push((local_name, export_name));
@@ -320,8 +315,8 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     export_name,
                     JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
                 );
-                JS_FreeAtom(ctx, local_name);
-                JS_FreeAtom(ctx, export_name);
+                JS_FreeAtom(ctx.as_ptr(), local_name);
+                JS_FreeAtom(ctx.as_ptr(), export_name);
                 if me.is_null() {
                     return -1;
                 }
@@ -334,8 +329,8 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 } else {
                     return -1;
                 };
-                let idx = add_req_module_entry(ctx, m, module_name);
-                JS_FreeAtom(ctx, module_name);
+                let idx = add_req_module_entry(ctx.as_ptr(), m, module_name);
+                JS_FreeAtom(ctx.as_ptr(), module_name);
                 if idx < 0 {
                     return -1;
                 }
@@ -344,11 +339,6 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT;
                     me.u.req_module_idx = idx;
                 }
-                // for i in first_export..(*m).export_entries_count {
-                //     me = &mut *(*m).export_entries.offset(i as isize);
-                //     (*me).export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT;
-                //     (*me).u.req_module_idx = idx;
-                // }
             }
         }
 
@@ -362,13 +352,13 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             let module_name = if let Ok(n) = (*s).parse_from_clause() {
                 n
             } else {
-                JS_FreeAtom(ctx, export_name);
+                JS_FreeAtom(ctx.as_ptr(), export_name);
                 return -1;
             };
-            let idx = add_req_module_entry(ctx, m, module_name);
-            JS_FreeAtom(ctx, module_name);
+            let idx = add_req_module_entry(ctx.as_ptr(), m, module_name);
+            JS_FreeAtom(ctx.as_ptr(), module_name);
             if idx < 0 {
-                JS_FreeAtom(ctx, export_name);
+                JS_FreeAtom(ctx.as_ptr(), export_name);
                 return -1;
             }
             me = add_export_entry(
@@ -378,7 +368,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 export_name,
                 JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT,
             );
-            JS_FreeAtom(ctx, export_name);
+            JS_FreeAtom(ctx.as_ptr(), export_name);
             if me.is_null() {
                 return -1;
             }
@@ -480,8 +470,8 @@ pub unsafe fn add_export_entry2(
 
     let mut me = Box::new(JSExportEntry {
         export_type,
-        local_name: JS_DupAtom(ctx, local_name),
-        export_name: JS_DupAtom(ctx, export_name),
+        local_name: local_name.dup((*ctx).rt()),
+        export_name: export_name.dup((*ctx).rt()),
         u: JSExportEntry_u { req_module_idx: 0 },
     });
 
@@ -498,7 +488,14 @@ pub unsafe fn add_export_entry(
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
 ) -> *mut JSExportEntry {
-    add_export_entry2((*s).ctx, s, m, local_name, export_name, export_type)
+    add_export_entry2(
+        (*s).ctx.as_ptr(),
+        s,
+        m,
+        local_name,
+        export_name,
+        export_type,
+    )
 }
 
 pub unsafe fn add_import(
@@ -507,8 +504,6 @@ pub unsafe fn add_import(
     local_name: JSAtom,
     import_name: JSAtom,
 ) -> i32 {
-    let ctx: *mut JSContext = (*s).ctx;
-
     if local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval {
         return js_parse_error(s, c"invalid import binding");
     }
@@ -523,9 +518,10 @@ pub unsafe fn add_import(
         }
     }
 
+    let mut ctx = (*s).ctx;
     let is_local = import_name == JS_ATOM__star_;
     let var_idx = if let Ok(vi) = (*(*s).cur_func).add_closure_var(
-        ctx.as_mut().unwrap(),
+        ctx.deref_mut(),
         is_local,
         false,
         (*m).import_entries_count,
@@ -540,7 +536,7 @@ pub unsafe fn add_import(
     };
 
     if js_resize_array(
-        ctx,
+        ctx.as_ptr(),
         std::ptr::addr_of_mut!((*m).import_entries).cast(),
         std::mem::size_of::<JSImportEntry>() as _,
         std::ptr::addr_of_mut!((*m).import_entries_size),
@@ -554,7 +550,7 @@ pub unsafe fn add_import(
         .import_entries
         .offset((*m).import_entries_count as isize);
     (*m).import_entries_count += 1;
-    (*mi).import_name = JS_DupAtom(ctx, import_name);
+    (*mi).import_name = import_name.dup(ctx.rt());
     (*mi).var_idx = var_idx;
 
     return 0;

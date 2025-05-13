@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     atom::{
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
@@ -11,6 +13,7 @@ use crate::{
 };
 
 use super::{
+    class::js_parse_property_name,
     emit::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u16, emit_u32, emit_u8,
         js_emit_spread_code,
@@ -20,7 +23,6 @@ use super::{
     function::{js_parse_check_duplicate_parameter, push_break_entry},
     obj::set_object_name,
     parse::{js_define_var, js_parse_skip_parens_token},
-    class::js_parse_property_name,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
     token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
 };
@@ -33,7 +35,7 @@ pub unsafe fn js_parse_destructuring_element(
     mut has_ellipsis: i32,
     allow_initializer: bool,
 ) -> i32 {
-    let ctx = (*s).ctx.as_mut().unwrap();
+    let ctx = (*s).ctx.deref_mut();
 
     let mut label_parse: i32 = 0;
     let mut label_assign: i32 = 0;
@@ -75,14 +77,14 @@ pub unsafe fn js_parse_destructuring_element(
             if (*s).token.val == '=' as i32 {
                 let label_hasval = emit_goto(s, OpCode::IF_FALSE, -1);
                 if (*s).next_token().is_err() {
-                    JS_FreeAtom((*s).ctx, var_name);
-                    JS_FreeAtom((*s).ctx, prop_name);
+                    JS_FreeAtom(ctx, var_name);
+                    JS_FreeAtom(ctx, prop_name);
                     return -1;
                 }
                 emit_op(s, OpCode::DROP);
                 if (*s).parse_assign_expr().is_err() {
-                    JS_FreeAtom((*s).ctx, var_name);
-                    JS_FreeAtom((*s).ctx, prop_name);
+                    JS_FreeAtom(ctx, var_name);
+                    JS_FreeAtom(ctx, prop_name);
                     return -1;
                 }
                 if opcode == opcodes::op_scope_get_var as i32
@@ -646,15 +648,13 @@ pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg:
         return JS_ATOM_NULL;
     }
 
-    let name = JS_DupAtom((*s).ctx, (*s).token.u.ident.atom);
+    let name = (*s).token.u.ident.atom.dup((*s).ctx.rt());
     if is_arg && js_parse_check_duplicate_parameter(s, name) != 0 {
-        // C2RS: goto fail replaced with early return
-        JS_FreeAtom((*s).ctx, name);
+        JS_FreeAtom((*s).ctx.as_ptr(), name);
         return JS_ATOM_NULL;
     }
     if (*s).next_token().is_err() {
-        // C2RS: goto fail replaced with early return
-        JS_FreeAtom((*s).ctx, name);
+        JS_FreeAtom((*s).ctx.as_ptr(), name);
         return JS_ATOM_NULL;
     }
 

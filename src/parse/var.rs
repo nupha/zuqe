@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     atom::{consts::JS_ATOM_arguments, JSAtom},
     context::JS_MODE_STRICT,
@@ -29,21 +31,21 @@ pub unsafe fn define_var(
         };
     }
 
-    let ctx = (*s).ctx;
+    let mut ctx = (*s).ctx;
     let vd: *mut JSVarDef;
     let mut idx: i32;
 
     match var_def_type {
         JSVarDefEnum::JS_VAR_DEF_WITH => {
             idx = (*fd)
-                .add_scope_var(ctx.as_mut().unwrap(), name, JSVarKindEnum::JS_VAR_NORMAL)
+                .add_scope_var(ctx.deref_mut(), name, JSVarKindEnum::JS_VAR_NORMAL)
                 .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_LET
         | JSVarDefEnum::JS_VAR_DEF_CONST
         | JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
         | JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL => {
-            idx = find_lexical_decl(ctx, fd, name, (*fd).scope_first, true);
+            idx = find_lexical_decl(ctx.as_ptr(), fd, name, (*fd).scope_first, true);
             if idx >= 0 {
                 if idx < GLOBAL_VAR_OFFSET {
                     if (*fd).vars.offset(idx as _).as_ref().unwrap().scope_level
@@ -99,7 +101,7 @@ pub unsafe fn define_var(
                 && matches!((*fd).eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
                 && (*fd).scope_level == (*fd).body_scope
             {
-                let hf = add_global_var((*s).ctx, fd, name);
+                let hf = add_global_var(ctx.as_ptr(), fd, name);
                 if hf.is_null() {
                     return -1;
                 }
@@ -115,7 +117,7 @@ pub unsafe fn define_var(
                     JSVarKindEnum::JS_VAR_NORMAL
                 };
                 idx = (*fd)
-                    .add_scope_var(ctx.as_mut().unwrap(), name, var_kind)
+                    .add_scope_var(ctx.deref_mut(), name, var_kind)
                     .map_or(-1, |x| x as i32);
                 if idx >= 0 {
                     vd = (*fd).vars.offset(idx as _);
@@ -126,11 +128,11 @@ pub unsafe fn define_var(
         }
         JSVarDefEnum::JS_VAR_DEF_CATCH => {
             idx = (*fd)
-                .add_scope_var(ctx.as_mut().unwrap(), name, JSVarKindEnum::JS_VAR_CATCH)
+                .add_scope_var(ctx.deref_mut(), name, JSVarKindEnum::JS_VAR_CATCH)
                 .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_VAR => {
-            if find_lexical_decl(ctx, fd, name, (*fd).scope_first, false) >= 0 {
+            if find_lexical_decl(ctx.as_ptr(), fd, name, (*fd).scope_first, false) >= 0 {
                 goto_invalid_lexical_redefinition!();
             }
             if (*fd).is_global_var {
@@ -143,19 +145,19 @@ pub unsafe fn define_var(
                     }
                 }
 
-                let hf = add_global_var((*s).ctx, fd, name);
+                let hf = add_global_var(ctx.as_ptr(), fd, name);
                 if hf.is_null() {
                     return -1;
                 }
                 idx = GLOBAL_VAR_OFFSET;
             } else {
                 #[cfg(debug_assertions)]
-                let _name_refcnt = name.ref_count((*(*s).ctx).rt());
+                let _name_refcnt = name.ref_count(ctx.rt());
 
                 idx = if let Some(id) = (*fd).find_var(name) {
                     // the variable already exists, don't add it again
                     id
-                } else if let Ok(id) = (*fd).add_var(ctx.as_mut().unwrap(), name) {
+                } else if let Ok(id) = (*fd).add_var(ctx.deref_mut(), name) {
                     if name == JS_ATOM_arguments && (*fd).has_arguments_binding {
                         (*fd).arguments_var_idx.replace(id);
                     }

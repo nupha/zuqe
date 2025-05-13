@@ -97,7 +97,7 @@ pub struct JSTokenRegexp {
 
 impl<'s> JSParseState<'s> {
     pub unsafe fn next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow((*self.ctx).rt(), 0) {
+        if js_check_stack_overflow(self.ctx.rt(), 0) {
             js_parse_error(self, c"stack overflow");
             return Err(-1);
         }
@@ -572,9 +572,9 @@ impl<'s> JSParseState<'s> {
             | ATOD_ACCEPT_SUFFIX;
 
         let radix = 0;
-        let ret = js_atof(self.ctx, *p, p, radix, flags).check_exception()?;
+        let ret = js_atof(self.ctx.as_ptr(), *p, p, radix, flags).check_exception()?;
         if JS_VALUE_IS_NAN(ret) {
-            JS_FreeValue(self.ctx, ret);
+            JS_FreeValue(self.ctx.as_ptr(), ret);
             js_parse_error(self, c"invalid number literal");
             return Err(-1);
         }
@@ -590,7 +590,7 @@ impl<'s> JSParseState<'s> {
             .next()
         {
             if Self::is_ident_next(c) {
-                JS_FreeValue(self.ctx, ret);
+                JS_FreeValue(self.ctx.as_ptr(), ret);
                 js_parse_error(self, c"invalid number literal");
                 return Err(-1);
             }
@@ -646,17 +646,17 @@ impl<'s> JSParseState<'s> {
 
         match token.val {
             TOK_NUMBER => {
-                JS_FreeValue(self.ctx, token.u.num.val);
+                JS_FreeValue(self.ctx.as_ptr(), token.u.num.val);
             }
             TOK_STRING | TOK_TEMPLATE => {
-                JS_FreeValue(self.ctx, token.u.str.str);
+                JS_FreeValue(self.ctx.as_ptr(), token.u.str.str);
             }
             TOK_REGEXP => {
-                JS_FreeValue(self.ctx, token.u.regexp.body);
-                JS_FreeValue(self.ctx, token.u.regexp.flags);
+                JS_FreeValue(self.ctx.as_ptr(), token.u.regexp.body);
+                JS_FreeValue(self.ctx.as_ptr(), token.u.regexp.flags);
             }
             TOK_IDENT | TOK_PRIVATE_NAME | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
-                JS_FreeAtom(self.ctx, token.u.ident.atom);
+                JS_FreeAtom(self.ctx.as_ptr(), token.u.ident.atom);
             }
             _ => {}
         }

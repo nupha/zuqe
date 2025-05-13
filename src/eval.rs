@@ -56,7 +56,12 @@ impl JSContext {
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
-        let mut s = JSParseState::new(self, input.as_ptr().cast(), input.count_bytes(), filename);
+        let mut s = JSParseState::new(
+            self.handle(),
+            input.as_ptr().cast(),
+            input.count_bytes(),
+            filename,
+        );
 
         macro_rules! fail1 {
             ($m:expr) => {

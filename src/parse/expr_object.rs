@@ -53,7 +53,7 @@ impl<'s> JSParseState<'s> {
             let mut name: JSAtom = JS_ATOM_NULL;
             let prop_type = js_parse_property_name(self, &mut name, true, true, false);
             if prop_type < 0 {
-                JS_FreeAtom(self.ctx, name);
+                JS_FreeAtom(self.ctx.as_ptr(), name);
                 return Err(-1);
             };
 
@@ -106,7 +106,7 @@ impl<'s> JSParseState<'s> {
                     .parse_function_decl(func_type, func_kind, JS_ATOM_NULL, start_ptr, start_line)
                     .is_err()
                 {
-                    JS_FreeAtom(self.ctx, name);
+                    JS_FreeAtom(self.ctx.as_ptr(), name);
                     return Err(-1);
                 }
 
@@ -119,11 +119,11 @@ impl<'s> JSParseState<'s> {
                 emit_u8(self, op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
             } else {
                 if self.parse_expect(CHAR_COLON).is_err() {
-                    JS_FreeAtom(self.ctx, name);
+                    JS_FreeAtom(self.ctx.as_ptr(), name);
                     return Err(-1);
                 }
                 if self.parse_assign_expr().is_err() {
-                    JS_FreeAtom(self.ctx, name);
+                    JS_FreeAtom(self.ctx.as_ptr(), name);
                     return Err(-1);
                 }
 
@@ -134,7 +134,7 @@ impl<'s> JSParseState<'s> {
                 } else if name == JS_ATOM___proto__ {
                     if has_proto {
                         js_parse_error(self, c"\"duplicate __proto__ property name\"");
-                        JS_FreeAtom(self.ctx, name);
+                        JS_FreeAtom(self.ctx.as_ptr(), name);
                         return Err(-1);
                     }
                     emit_op(self, OpCode::SET_PROTO);
@@ -146,7 +146,7 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            JS_FreeAtom(self.ctx, name);
+            JS_FreeAtom(self.ctx.as_ptr(), name);
 
             // next
             if self.token.val != ',' as i32 {

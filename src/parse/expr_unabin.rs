@@ -36,32 +36,32 @@ impl<'s> JSParseState<'s> {
             && level == 4
             && peek_token(self, false) == TOK_IN
         {
-            let atom = JS_DupAtom(self.ctx, self.token.u.ident.atom);
+            let atom = self.token.u.ident.atom.dup(self.ctx.rt());
 
             if self.next_token().is_err() {
-                JS_FreeAtom(self.ctx, atom);
+                JS_FreeAtom(self.ctx.as_ptr(), atom);
                 return Err(-1);
             }
             if self.token.val != TOK_IN {
-                JS_FreeAtom(self.ctx, atom);
+                JS_FreeAtom(self.ctx.as_ptr(), atom);
                 return Err(-1);
             }
             if self.next_token().is_err() {
-                JS_FreeAtom(self.ctx, atom);
+                JS_FreeAtom(self.ctx.as_ptr(), atom);
                 return Err(-1);
             }
             if self
                 .parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)
                 .is_err()
             {
-                JS_FreeAtom(self.ctx, atom);
+                JS_FreeAtom(self.ctx.as_ptr(), atom);
                 return Err(-1);
             }
 
             emit_op_temp(self, OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
             emit_atom_dup(self, atom);
             emit_u16(self, (*self.cur_func).scope_level as _);
-            JS_FreeAtom(self.ctx, atom);
+            JS_FreeAtom(self.ctx.as_ptr(), atom);
 
             return Ok(());
         } else {
@@ -300,7 +300,7 @@ impl<'s> JSParseState<'s> {
                 syntax error. */
                 if parse_flags & PF_POW_FORBIDDEN != 0 {
                     JS_ThrowSyntaxError(
-                    self.ctx,
+                    self.ctx.as_ptr(),
                     c"unparenthesized unary expression can't appear on the left-hand side of '**'",
                 );
                     return Err(-1);

@@ -227,7 +227,7 @@ impl JSContext {
         self.current_exception = JSValue::UNDEFINED;
     }
 
-    /// Returns the current exception
+    /// Returns the current exception value with its ref count 'AS-IS'.
     #[inline(always)]
     pub fn exception(&self) -> JSValue {
         self.current_exception

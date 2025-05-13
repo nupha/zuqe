@@ -40,13 +40,13 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
                     .as_ptr()
                     .offset(define_class_pos as isize + 1),
             ));
-            JS_FreeAtom((*s).ctx, atom);
+            JS_FreeAtom((*s).ctx.as_ptr(), atom);
             put_u32(
                 (*fd)
                     .byte_code
                     .as_mut_ptr()
                     .offset(define_class_pos as isize + 1),
-                JS_DupAtom((*s).ctx, name).0,
+                JS_DupAtom((*s).ctx.as_ptr(), name).0,
             );
             (*fd).last_opcode_pos = -1;
         }

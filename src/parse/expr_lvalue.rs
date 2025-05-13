@@ -244,7 +244,7 @@ impl<'s> JSParseState<'s> {
             opcodes::OP_get_array_el | opcodes::OP_get_ref_value => {
                 // depth = 2
                 if opcode == opcodes::OP_get_ref_value as i32 {
-                    JS_FreeAtom(self.ctx, name);
+                    JS_FreeAtom(self.ctx.as_ptr(), name);
                     emit_label(self, label);
                 }
                 match special {

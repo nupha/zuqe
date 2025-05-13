@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::DerefMut};
 
 use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
@@ -44,7 +44,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
 
     macro_rules! fail {
         () => {
-            JS_FreeAtom(s.ctx, label_name);
+            JS_FreeAtom(s.ctx.as_ptr(), label_name);
             return -1;
         };
     }
@@ -52,7 +52,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
     // specific label handling
     // XXX: support multiple labels on loop statements
     if is_label(s) {
-        label_name = JS_DupAtom(s.ctx, s.token.u.ident.atom);
+        label_name = JS_DupAtom(s.ctx.as_ptr(), s.token.u.ident.atom);
 
         let mut be = (*s.cur_func).top_break;
         while !be.is_null() {
@@ -96,7 +96,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             pop_break_entry(s.cur_func);
 
             // done
-            JS_FreeAtom(s.ctx, label_name);
+            JS_FreeAtom(s.ctx.as_ptr(), label_name);
             return 0;
         }
     }
@@ -260,7 +260,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
         }
     }
 
-    JS_FreeAtom(s.ctx, label_name);
+    JS_FreeAtom(s.ctx.as_ptr(), label_name);
     return 0;
 }
 
@@ -268,7 +268,7 @@ pub unsafe fn js_unsupported_keyword(s: &mut JSParseState, atom: JSAtom) -> i32 
     js_parse_error(
         s,
         CStr::from_bytes_with_nul(
-            format!("unsupported keyword: {}\0", atom.to_str((*s.ctx).rt())).as_bytes(),
+            format!("unsupported keyword: {}\0", atom.to_str(s.ctx.rt())).as_bytes(),
         )
         .unwrap(),
     )
@@ -700,9 +700,9 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                     return Err(-1);
                 }
             } else {
-                name = JS_DupAtom(s.ctx, s.token.u.ident.atom);
+                name = JS_DupAtom(s.ctx.as_ptr(), s.token.u.ident.atom);
                 if s.next_token().is_err() || js_define_var(s, name, TOK_CATCH) < 0 {
-                    JS_FreeAtom(s.ctx, name);
+                    JS_FreeAtom(s.ctx.as_ptr(), name);
                     return Err(-1);
                 }
                 // store the exception value in the catch variable
@@ -764,8 +764,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
         if let Some(vidx) = (*s.cur_func).eval_ret_idx {
             // 'finally' updates eval_ret only if not a normal termination
-            saved_eval_ret_idx =
-                (*(*s).cur_func).add_var(s.ctx.as_mut().unwrap(), JS_ATOM__ret_)?;
+            saved_eval_ret_idx = (*(*s).cur_func).add_var(s.ctx.deref_mut(), JS_ATOM__ret_)?;
 
             emit_op(s, OpCode::GET_LOC);
             emit_u16(s, vidx);
@@ -1028,7 +1027,7 @@ pub unsafe fn js_parse_for_in_of(
     label_name: JSAtom,
     is_async: bool,
 ) -> Result<(), i32> {
-    let ctx = s.ctx.as_mut().unwrap();
+    let mut ctx = s.ctx;
     let fd = s.cur_func.as_mut().unwrap();
     let block_scope_level = fd.scope_level;
 
@@ -1089,13 +1088,13 @@ pub unsafe fn js_parse_for_in_of(
             }
             var_name = JS_ATOM_NULL;
         } else {
-            var_name = JS_DupAtom(ctx, s.token.u.ident.atom);
+            var_name = JS_DupAtom(ctx.as_ptr(), s.token.u.ident.atom);
             if (*s).next_token().is_err() {
-                JS_FreeAtom(s.ctx, var_name);
+                JS_FreeAtom(s.ctx.as_ptr(), var_name);
                 return Err(-1);
             }
             if js_define_var(s, var_name, tok) != 0 {
-                JS_FreeAtom(s.ctx, var_name);
+                JS_FreeAtom(s.ctx.as_ptr(), var_name);
                 return Err(-1);
             }
             emit_op_temp(
@@ -1174,7 +1173,7 @@ pub unsafe fn js_parse_for_in_of(
         // object (only used with "for in" with a non lexical variable
         // in non strict mode)
         if s.next_token().is_err() || s.parse_assign_expr2(0).is_err() {
-            JS_FreeAtom(ctx, var_name);
+            JS_FreeAtom(ctx.as_ptr(), var_name);
             return Err(-1);
         }
         if var_name != JS_ATOM_NULL {
@@ -1183,7 +1182,7 @@ pub unsafe fn js_parse_for_in_of(
             emit_u16(s, fd.scope_level as _);
         }
     }
-    JS_FreeAtom(ctx, var_name);
+    JS_FreeAtom(ctx.as_ptr(), var_name);
 
     if token_is_pseudo_keyword(s, JS_ATOM_of) {
         is_for_of = true;

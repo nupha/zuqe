@@ -1,6 +1,6 @@
 use crate::{
     bytecode::OpCodeTemp,
-    context::JSContext,
+    context::{JSContext, JSContextHandle},
     function::{get_first_lexical_var, JSFunctionDef, JSVarScope},
     value::JSValue,
 };
@@ -33,7 +33,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
-    pub ctx: *mut JSContext,
+    pub ctx: JSContextHandle,
     /// Line number of the previously processed token
     pub last_line_num: u32,
     /// Current line number being processed
@@ -74,7 +74,12 @@ impl<'s> JSParseState<'s> {
     /// * `input` - Input buffer containing source code
     /// * `input_len` - Length of input buffer
     /// * `filename` - Name of source file
-    pub fn new(ctx: *mut JSContext, input: *const u8, input_len: usize, filename: &'s str) -> Self {
+    pub fn new(
+        ctx: JSContextHandle,
+        input: *const u8,
+        input_len: usize,
+        filename: &'s str,
+    ) -> Self {
         let s = Self {
             ctx,
             last_line_num: 0,

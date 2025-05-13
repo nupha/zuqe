@@ -71,7 +71,7 @@ impl<'s> JSParseState<'s> {
                 )?;
 
                 if self.parse_assign_expr2(parse_flags).is_err() {
-                    JS_FreeAtom(self.ctx, name);
+                    JS_FreeAtom(self.ctx.as_ptr(), name);
                     return Err(-1);
                 }
 
@@ -138,7 +138,7 @@ impl<'s> JSParseState<'s> {
                 emit_op(self, OpCode::DROP);
 
                 if self.parse_assign_expr2(parse_flags).is_err() {
-                    JS_FreeAtom(self.ctx, name);
+                    JS_FreeAtom(self.ctx.as_ptr(), name);
                     return Err(-1);
                 }
 
@@ -271,7 +271,7 @@ impl<'s> JSParseState<'s> {
                     .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 });
 
                 // parse_regexp:
-                if let Some(cb) = (*self.ctx).compile_regexp {
+                if let Some(cb) = self.ctx.compile_regexp {
                     /* the previous token is '/' or '/=', so no need to free */
                     if js_parse_regexp(self) != 0 {
                         return Err(-1);
@@ -280,7 +280,7 @@ impl<'s> JSParseState<'s> {
                     emit_push_const(self, self.token.u.regexp.body, false);
 
                     let str = cb(
-                        self.ctx,
+                        self.ctx.as_ptr(),
                         self.token.u.regexp.body,
                         self.token.u.regexp.flags,
                     );
@@ -293,8 +293,9 @@ impl<'s> JSParseState<'s> {
                                 0
                             };
 
-                        (*self.ctx).build_backtrace_to(
-                            (*self.ctx).rt().current_exception,
+                        let exc = self.ctx.rt().current_exception;
+                        self.ctx.build_backtrace_to(
+                            exc,
                             Some((self.filename, self.token.line_num)),
                             backtrace_flags,
                         );
@@ -303,7 +304,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     let ret = emit_push_const(self, str, false);
-                    JS_FreeValue(self.ctx, str);
+                    JS_FreeValue(self.ctx.as_ptr(), str);
                     if ret != 0 {
                         return Err(-1);
                     }
@@ -421,8 +422,7 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else {
-                        name = JS_DupAtom(self.ctx, JS_ATOM_async);
-                        // C2RS: goto do_get_var translated to label
+                        name = JS_ATOM_async.dup(self.ctx.rt());
                         emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                         emit_u32(self, name.0);
                         emit_u16(self, (*self.cur_func).scope_level as _);
@@ -438,10 +438,10 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    name = JS_DupAtom(self.ctx, self.token.u.ident.atom);
+                    name = self.token.u.ident.atom.dup(self.ctx.rt());
 
                     if self.next_token().is_err() {
-                        JS_FreeAtom(self.ctx, name);
+                        JS_FreeAtom(self.ctx.as_ptr(), name);
                         return Err(-1);
                     }
 

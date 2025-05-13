@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::DerefMut};
 
 use smallvec::SmallVec;
 
@@ -58,7 +58,7 @@ impl JSParseState<'_> {
 
         if !self.is_module {
             // hidden variable <ret> for the return value
-            fd.eval_ret_idx = Some(fd.add_var(self.ctx.as_mut().unwrap(), JS_ATOM__ret_)?);
+            fd.eval_ret_idx = Some(fd.add_var(self.ctx.deref_mut(), JS_ATOM__ret_)?);
         }
 
         while self.token.val != TOK_EOF {
@@ -237,7 +237,11 @@ impl JSParseState<'_> {
             }
         }
 
-        let atom = (*self.ctx).create_atom(std::str::from_utf8_unchecked(&buf))?;
+        let atom = self
+            .ctx
+            .deref_mut()
+            .create_atom(std::str::from_utf8_unchecked(&buf))?;
+
         *input = p; // consume input string: move pointer forward
 
         Ok((atom, has_escape))
@@ -286,7 +290,7 @@ impl JSParseState<'_> {
         tok: i32,
         export_flag: bool,
     ) -> Result<(), i32> {
-        let ctx: *mut JSContext = self.ctx;
+        let ctx = self.ctx;
         let fd: *mut JSFunctionDef = self.cur_func;
 
         loop {
@@ -304,14 +308,14 @@ impl JSParseState<'_> {
                 #[cfg(debug_assertions)]
                 let _name_refcnt = self.token.u.ident.atom.ref_count((*ctx).rt());
 
-                let name = JS_DupAtom(ctx, self.token.u.ident.atom);
+                let name = self.token.u.ident.atom.dup(ctx.rt());
 
                 if self.next_token().is_err() {
-                    JS_FreeAtom(ctx, name);
+                    JS_FreeAtom(ctx.as_ptr(), name);
                     return Err(-1);
                 }
                 if js_define_var(self, name, tok) != 0 {
-                    JS_FreeAtom(ctx, name);
+                    JS_FreeAtom(ctx.as_ptr(), name);
                     return Err(-1);
                 }
                 if export_flag {
@@ -324,14 +328,14 @@ impl JSParseState<'_> {
                     )
                     .is_null()
                     {
-                        JS_FreeAtom(ctx, name);
+                        JS_FreeAtom(ctx.as_ptr(), name);
                         return Err(-1);
                     }
                 }
 
                 if self.token.val == '=' as i32 {
                     if self.next_token().is_err() {
-                        JS_FreeAtom(ctx, name);
+                        JS_FreeAtom(ctx.as_ptr(), name);
                         return Err(-1);
                     }
                     if tok == TOK_VAR {
@@ -357,14 +361,14 @@ impl JSParseState<'_> {
                             )
                             .is_err()
                         {
-                            JS_FreeAtom(ctx, name1);
-                            JS_FreeAtom(ctx, name);
+                            JS_FreeAtom(ctx.as_ptr(), name1);
+                            JS_FreeAtom(ctx.as_ptr(), name);
                             return Err(-1);
                         }
 
                         if self.parse_assign_expr2(parse_flags).is_err() {
-                            JS_FreeAtom(ctx, name1);
-                            JS_FreeAtom(ctx, name);
+                            JS_FreeAtom(ctx.as_ptr(), name1);
+                            JS_FreeAtom(ctx.as_ptr(), name);
                             return Err(-1);
                         }
 
@@ -380,7 +384,7 @@ impl JSParseState<'_> {
                         );
                     } else {
                         if self.parse_assign_expr2(parse_flags).is_err() {
-                            JS_FreeAtom(ctx, name);
+                            JS_FreeAtom(ctx.as_ptr(), name);
                             return Err(-1);
                         }
                         set_object_name(self, name);
@@ -401,7 +405,7 @@ impl JSParseState<'_> {
                 } else {
                     if tok == TOK_CONST {
                         js_parse_error(self, c"missing initializer for const variable");
-                        JS_FreeAtom(ctx, name);
+                        JS_FreeAtom(ctx.as_ptr(), name);
                         return Err(-1);
                     } else if tok == TOK_LET {
                         // initialize lexical variable upon entering its scope
@@ -412,7 +416,7 @@ impl JSParseState<'_> {
                     }
                 }
 
-                JS_FreeAtom(ctx, name);
+                JS_FreeAtom(ctx.as_ptr(), name);
             } else {
                 let mut skip_bits: i32 = 0;
 
@@ -838,10 +842,10 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             assert!((*fd).last_opcode_pos > 0);
             (*fd).byte_code.truncate((*fd).last_opcode_pos as _);
 
-            let val = name.to_value((*s).ctx.as_mut().unwrap(), false);
+            let val = name.to_value((*s).ctx.deref_mut(), false);
             let ret = emit_push_const(s, val, true);
-            JS_FreeValue((*s).ctx, val);
-            JS_FreeAtom((*s).ctx, name);
+            JS_FreeValue((*s).ctx.as_ptr(), val);
+            JS_FreeAtom((*s).ctx.as_ptr(), name);
 
             if ret != 0 {
                 return ret;

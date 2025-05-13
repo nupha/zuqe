@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::DerefMut};
 
 use crate::{
     atom::{
@@ -11,9 +11,7 @@ use crate::{
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
-    function::{
-        js_new_function_def, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum,
-    },
+    function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::{js_free, js_resize_array, js_strndup},
     module::JSExportTypeEnum,
     parse::{
@@ -62,9 +60,9 @@ pub unsafe fn js_parse_class(
 
     macro_rules! fail {
         () => {
-            JS_FreeAtom(ctx, name);
-            JS_FreeAtom(ctx, class_name);
-            JS_FreeAtom(ctx, class_var_name);
+            JS_FreeAtom(ctx.as_ptr(), name);
+            JS_FreeAtom(ctx.as_ptr(), class_name);
+            JS_FreeAtom(ctx.as_ptr(), class_var_name);
             (*fd).js_mode = saved_js_mode;
             return -1;
         };
@@ -88,7 +86,7 @@ pub unsafe fn js_parse_class(
             js_parse_error_reserved_identifier(s);
             fail!();
         }
-        class_name = JS_DupAtom(ctx, (*s).token.u.ident.atom);
+        class_name = (*s).token.u.ident.atom.dup(ctx.rt());
         if (*s).next_token().is_err() {
             fail!();
         }
@@ -102,7 +100,7 @@ pub unsafe fn js_parse_class(
         } else {
             class_var_name = class_name;
         }
-        class_var_name = JS_DupAtom(ctx, class_var_name);
+        class_var_name = class_var_name.dup(ctx.rt());
     }
 
     (*s).push_scope();
@@ -239,7 +237,7 @@ pub unsafe fn js_parse_class(
             // allow "static" field name
             if (*s).token.val == ';' as i32 || (*s).token.val == '=' as i32 {
                 is_static = false;
-                name = JS_DupAtom(ctx, JS_ATOM_static);
+                name = JS_ATOM_static.dup(ctx.rt());
                 prop_type = PROP_TYPE_IDENT;
             }
         }
@@ -267,7 +265,7 @@ pub unsafe fn js_parse_class(
             let is_set: bool = prop_type - PROP_TYPE_GET != 0;
 
             if is_private {
-                let idx = find_private_class_field(ctx, fd, name, (*fd).scope_level);
+                let idx = find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level);
                 if idx >= 0 {
                     let var_kind = (*(*fd).vars.offset(idx as _)).var_kind();
                     let is_static1 = (*(*fd).vars.offset(idx as _)).is_static_private();
@@ -340,7 +338,7 @@ pub unsafe fn js_parse_class(
                 // XXX: missing function name
                 emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                 if is_set {
-                    let setter_name = get_private_setter_name(ctx, name);
+                    let setter_name = get_private_setter_name(ctx.as_ptr(), name);
                     if setter_name == JS_ATOM_NULL {
                         fail!();
                     }
@@ -352,7 +350,7 @@ pub unsafe fn js_parse_class(
                         JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
                         is_static,
                     );
-                    JS_FreeAtom(ctx, setter_name);
+                    JS_FreeAtom(ctx.as_ptr(), setter_name);
                     if ret < 0 {
                         fail!();
                     }
@@ -389,7 +387,7 @@ pub unsafe fn js_parse_class(
             }
 
             if is_private {
-                if find_private_class_field(ctx, fd, name, (*fd).scope_level) >= 0 {
+                if find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level) >= 0 {
                     private_field_already_defined!();
                 }
                 if add_private_class_field(
@@ -417,7 +415,7 @@ pub unsafe fn js_parse_class(
             if name == JS_ATOM_NULL {
                 // save the computed field name into a variable
                 field_var_name = js_atom_concat_num(
-                    ctx,
+                    ctx.as_ptr(),
                     if is_static {
                         JS_ATOM_static_computed_field
                     } else {
@@ -429,7 +427,7 @@ pub unsafe fn js_parse_class(
                     fail!();
                 }
                 if define_var(s, fd, field_var_name, JSVarDefEnum::JS_VAR_DEF_CONST) < 0 {
-                    JS_FreeAtom(ctx, field_var_name);
+                    JS_FreeAtom(ctx.as_ptr(), field_var_name);
                     fail!();
                 }
                 emit_op(s, OpCode::TO_PROPKEY);
@@ -447,7 +445,7 @@ pub unsafe fn js_parse_class(
                 emit_atom_dup(s, field_var_name);
                 emit_u16(s, (*(*s).cur_func).scope_level as _);
                 cf.computed_fields_count += 1;
-                JS_FreeAtom(ctx, field_var_name);
+                JS_FreeAtom(ctx.as_ptr(), field_var_name);
             } else if is_private {
                 emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
                 emit_atom_dup(s, name);
@@ -524,7 +522,7 @@ pub unsafe fn js_parse_class(
                 ctor_fd = method_fd;
             } else if is_private {
                 (*method_fd).need_home_object = true; // needed for brand check
-                if find_private_class_field(ctx, fd, name, (*fd).scope_level) >= 0 {
+                if find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level) >= 0 {
                     private_field_already_defined!();
                 }
                 if add_private_class_field(
@@ -556,7 +554,7 @@ pub unsafe fn js_parse_class(
         if is_static {
             emit_op(s, OpCode::SWAP);
         }
-        JS_FreeAtom(ctx, name);
+        JS_FreeAtom(ctx.as_ptr(), name);
         name = JS_ATOM_NULL;
     }
 
@@ -583,11 +581,15 @@ pub unsafe fn js_parse_class(
 
     // store the class source code in the constructor.
     if (*fd).js_mode & JS_MODE_STRIP as u8 == 0 {
-        js_free(ctx, (*ctor_fd).source.cast());
+        js_free(ctx.as_ptr(), (*ctor_fd).source.cast());
         debug_assert!((*s).buf_ptr >= class_start_ptr);
         (*ctor_fd).source_len = ((*s).buf_ptr as usize - class_start_ptr as usize) as u32;
-        (*ctor_fd).source =
-            js_strndup(ctx, class_start_ptr.cast(), (*ctor_fd).source_len as _).cast();
+        (*ctor_fd).source = js_strndup(
+            ctx.as_ptr(),
+            class_start_ptr.cast(),
+            (*ctor_fd).source_len as _,
+        )
+        .cast();
         if (*ctor_fd).source.is_null() {
             fail!();
         }
@@ -711,8 +713,8 @@ pub unsafe fn js_parse_class(
     }
 
     // Cleanup
-    JS_FreeAtom(ctx, class_name);
-    JS_FreeAtom(ctx, class_var_name);
+    JS_FreeAtom(ctx.as_ptr(), class_name);
+    JS_FreeAtom(ctx.as_ptr(), class_var_name);
     (*fd).js_mode = saved_js_mode;
 
     return 0;
@@ -740,7 +742,7 @@ pub unsafe fn js_parse_property_name(
         if allow_method {
             if token_is_pseudo_keyword(s, JS_ATOM_get) || token_is_pseudo_keyword(s, JS_ATOM_set) {
                 /* get x(), set x() */
-                name = JS_DupAtom((*s).ctx, (*s).token.u.ident.atom);
+                name = (*s).token.u.ident.atom.dup((*s).ctx.rt());
                 if (*s).next_token().is_err() {
                     break Some(GotoLabel::Fail(name));
                 }
@@ -757,7 +759,7 @@ pub unsafe fn js_parse_property_name(
                 } else {
                     PROP_TYPE_SET
                 };
-                JS_FreeAtom((*s).ctx, name);
+                JS_FreeAtom((*s).ctx.as_ptr(), name);
             } else if (*s).token.val == '*' as i32 {
                 if (*s).next_token().is_err() {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
@@ -766,7 +768,7 @@ pub unsafe fn js_parse_property_name(
             } else if token_is_pseudo_keyword(s, JS_ATOM_async)
                 && peek_token(s, true) != '\n' as i32
             {
-                name = JS_DupAtom((*s).ctx, (*s).token.u.ident.atom);
+                name = (*s).token.u.ident.atom.dup((*s).ctx.rt());
                 if (*s).next_token().is_err() {
                     break Some(GotoLabel::Fail(name));
                 }
@@ -779,7 +781,7 @@ pub unsafe fn js_parse_property_name(
                     break Some(GotoLabel::IdentFound(true));
                 }
 
-                JS_FreeAtom((*s).ctx, name);
+                JS_FreeAtom((*s).ctx.as_ptr(), name);
                 if (*s).token.val == '*' as i32 {
                     if (*s).next_token().is_err() {
                         break Some(GotoLabel::Fail(JS_ATOM_NULL));
@@ -793,7 +795,7 @@ pub unsafe fn js_parse_property_name(
 
         match (*s).token.val {
             TOK_STRING => {
-                name = JS_ValueToAtom((*s).ctx, (*s).token.u.str.str);
+                name = JS_ValueToAtom((*s).ctx.as_ptr(), (*s).token.u.str.str);
                 if name == JS_ATOM_NULL {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
                 }
@@ -804,7 +806,7 @@ pub unsafe fn js_parse_property_name(
             TOK_NUMBER => {
                 // JSValue int32 or float64
                 let val = (*s).token.u.num.val;
-                name = JS_ValueToAtom((*s).ctx, val);
+                name = JS_ValueToAtom((*s).ctx.as_ptr(), val);
 
                 if name == JS_ATOM_NULL {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
@@ -827,7 +829,7 @@ pub unsafe fn js_parse_property_name(
                 name = JS_ATOM_NULL;
             }
             TOK_PRIVATE_NAME if allow_private => {
-                name = JS_DupAtom((*s).ctx, (*s).token.u.ident.atom);
+                name = JS_DupAtom((*s).ctx.as_ptr(), (*s).token.u.ident.atom);
                 if (*s).next_token().is_err() {
                     break Some(GotoLabel::Fail(name));
                 }
@@ -838,7 +840,7 @@ pub unsafe fn js_parse_property_name(
                 let is_non_reserved_ident =
                     (*s).token.val == TOK_IDENT && !(*s).token.u.ident.is_reserved;
                 /* keywords and reserved words have a valid atom */
-                name = JS_DupAtom((*s).ctx, (*s).token.u.ident.atom);
+                name = JS_DupAtom((*s).ctx.as_ptr(), (*s).token.u.ident.atom);
                 if (*s).next_token().is_err() {
                     break Some(GotoLabel::Fail(name));
                 }
@@ -865,14 +867,14 @@ pub unsafe fn js_parse_property_name(
                 }
             }
             GotoLabel::InvalidProp => {
-                JS_FreeAtom((*s).ctx, name);
+                JS_FreeAtom((*s).ctx.as_ptr(), name);
                 js_parse_error(s, c"invalid property name");
                 *pname = JS_ATOM_NULL;
                 return -1;
             }
             GotoLabel::Fail(atom) => {
                 if atom != JS_ATOM_NULL {
-                    JS_FreeAtom((*s).ctx, atom);
+                    JS_FreeAtom((*s).ctx.as_ptr(), atom);
                 }
                 *pname = JS_ATOM_NULL;
                 return -1;
@@ -881,7 +883,7 @@ pub unsafe fn js_parse_property_name(
     }
 
     if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR) && (*s).token.val != '(' as i32 {
-        JS_FreeAtom((*s).ctx, name);
+        JS_FreeAtom((*s).ctx.as_ptr(), name);
         js_parse_error(s, c"invalid property name");
         *pname = JS_ATOM_NULL;
         -1
@@ -896,7 +898,7 @@ pub unsafe fn js_parse_function_class_fields_init(
     s: *mut JSParseState,
 ) -> Result<Box<JSFunctionDef>, i32> {
     let mut fd = JSFunctionDef::new(
-        (*s).ctx.as_mut().unwrap(),
+        (*s).ctx.deref_mut(),
         (*s).cur_func,
         false,
         false,
@@ -975,7 +977,7 @@ pub unsafe fn cpool_add(s: *mut JSParseState, val: JSValue) -> i32 {
     let fd = (*s).cur_func;
 
     if js_resize_array(
-        (*s).ctx,
+        (*s).ctx.as_ptr(),
         std::ptr::addr_of_mut!((*fd).cpool).cast(),
         std::mem::size_of::<JSValue>() as _,
         &mut (*fd).cpool_size,
@@ -997,8 +999,7 @@ pub unsafe fn add_private_class_field(
     var_kind: JSVarKindEnum,
     is_static: bool,
 ) -> i32 {
-    let ctx = (*s).ctx;
-    let idx = if let Ok(i) = (*fd).add_scope_var(ctx.as_mut().unwrap(), name, var_kind) {
+    let idx = if let Ok(i) = (*fd).add_scope_var((*s).ctx.deref_mut(), name, var_kind) {
         i
     } else {
         return -1;
