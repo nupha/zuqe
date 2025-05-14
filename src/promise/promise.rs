@@ -47,14 +47,15 @@ pub enum JSPromiseStateEnum {
 pub struct JSPromiseData {
     pub promise_state: JSPromiseStateEnum,
 
-    /// 0=fulfill, 1=reject, list of JSPromiseReactionData.link.
+    /// list of JSPromiseReactionData.link: #0 for fulfill, #1 for reject.
     /// TODO: use [Vec<Box<JSPromiseReactionData>>; 2]
     pub promise_reactions: [list_head; 2],
 
+    /// Note: will be freed in PromiseValue::hook_finalizer().
+    pub promise_result: JSValue,
+
     /// Note: only useful to debug
     pub is_handled: bool,
-
-    pub promise_result: JSValue,
 }
 
 #[repr(transparent)]
@@ -274,26 +275,28 @@ impl PromiseValue {
         Ok(resolving_funcs)
     }
 
-    /// get Promise current state.
-    pub fn state(self) -> Result<JSPromiseStateEnum, i32> {
+    /// get Promise meta data.
+    fn meta<'a>(self) -> Option<&'a JSPromiseData> {
         unsafe {
             self.0
                 .object_unchecked()
                 .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-                .map(|x| x.as_ref().promise_state)
-                .ok_or(-1)
+                .map(|x| x.as_ref())
         }
     }
 
-    /// get current Promise result.
+    /// get Promise state.
+    #[inline(always)]
+    pub fn state(self) -> Result<JSPromiseStateEnum, i32> {
+        self.meta().map(|s| s.promise_state).ok_or(-1)
+    }
+
+    /// get Promise result.
     /// returned value is duplicated, caller must free it.
+    #[inline(always)]
     pub fn result(self) -> JSValue {
-        unsafe {
-            self.0
-                .object_unchecked()
-                .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-                .map_or(JSValue::UNDEFINED, |s| s.as_ref().promise_result.dup())
-        }
+        self.meta()
+            .map_or(JSValue::UNDEFINED, |s| s.promise_result.dup())
     }
 
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.

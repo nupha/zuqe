@@ -14,8 +14,12 @@ use super::{
     opcode_info_final, opcode_info_intermediate, opcodes, OP_COUNT_FINAL, OP_COUNT_INTERMEDIATE,
 };
 
-#[cfg(feature = "dump_bytecode")]
-pub unsafe fn dump_opcode_one(ctx: &mut JSContext, b: &JSFunctionBytecode, pc: usize) -> usize {
+#[cfg(all(debug_assertions, feature = "dump_bytecode"))]
+pub unsafe fn debug_dump_opcode_one(
+    ctx: &mut JSContext,
+    b: &JSFunctionBytecode,
+    pc: usize,
+) -> usize {
     let mut pos = pc;
     let tab = b.bytecode_slice();
     let op = tab[pos];
@@ -150,7 +154,7 @@ pub unsafe fn dump_opcode_one(ctx: &mut JSContext, b: &JSFunctionBytecode, pc: u
             // C2RS: goto has_loc replaced with inline logic
             printf(" {}: ", idx);
             if idx < var_count {
-                print_atom((*ctx).rt, (*vars.offset(idx as isize)).var_name);
+                print_atom(ctx.rt, (*vars.offset(idx as isize)).var_name);
             }
         }
 
@@ -160,10 +164,12 @@ pub unsafe fn dump_opcode_one(ctx: &mut JSContext, b: &JSFunctionBytecode, pc: u
             } else {
                 get_u16(tab.as_ptr().offset(pos as _)) as usize
             };
-            print!(
-                " {idx}:{}",
-                b.get_var(idx as _).unwrap().var_name.to_str((*ctx).rt())
-            );
+
+            if let Some(vi) = b.get_var(idx as _) {
+                print!(" {idx}:{}", vi.var_name.to_str(ctx.rt()));
+            } else {
+                print!(" {idx}:?");
+            }
         }
 
         #[cfg(feature = "short_opcode")]
@@ -172,16 +178,17 @@ pub unsafe fn dump_opcode_one(ctx: &mut JSContext, b: &JSFunctionBytecode, pc: u
             // C2RS: goto has_arg replaced with inline logic
             printf(" {}: ", idx);
             if idx < arg_count {
-                print_atom((*ctx).rt, (*args.offset(idx as isize)).var_name);
+                print_atom(ctx.rt, (*args.offset(idx as isize)).var_name);
             }
         }
 
         "arg" => {
             let idx = get_u16(tab.as_ptr().offset(pos as _)) as usize;
-            print!(
-                " {idx}:{}",
-                b.get_arg(idx as _).unwrap().var_name.to_str((*ctx).rt())
-            );
+            if let Some(vi) = b.get_arg(idx as _) {
+                print!(" {idx}:{}", vi.var_name.to_str(ctx.rt()));
+            } else {
+                print!(" {idx}:?");
+            }
         }
 
         #[cfg(feature = "short_opcode")]

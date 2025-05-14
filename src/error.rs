@@ -52,8 +52,8 @@ pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl JSContext {
-    /// put `obj` to current_exception, returns Exception value
-    /// Note: obj is consumed.
+    /// put `obj` to current_exception, free old exception value. returns Exception value.
+    /// Note: `obj` is consumed.
     pub fn JS_Throw(&mut self, obj: JSValue) -> JSValue {
         let old = self.rt_mut().current_exception.replace(obj);
         unsafe {

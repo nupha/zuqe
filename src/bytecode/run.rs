@@ -171,11 +171,11 @@ pub unsafe fn run_bytecodes(
     'restart: loop {
         // loop running bytecodes
         let state: State = 'opcodes: loop {
-            #[cfg(feature = "dump_bytecode")]
+            #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
             {
                 let pos = pc.offset_from(pc_base) as usize;
                 print!("[O.o] RUN {:5}: ", pos);
-                crate::bytecode::dump::dump_opcode_one(ctx, b, pos);
+                crate::bytecode::dump::debug_dump_opcode_one(ctx, b, pos);
                 println!();
             }
 
