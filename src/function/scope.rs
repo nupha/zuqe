@@ -32,7 +32,7 @@ impl JSFunctionDef {
     ) -> Result<u16, i32> {
         let idx = self.add_var(ctx, name)?;
 
-        let vd = self.vars.offset(idx as _).as_mut().unwrap();
+        let vd = self.vars.get_mut(idx as usize).unwrap();
         vd.set_var_kind(var_kind);
         vd.scope_level = self.scope_level;
         vd.scope_next = self.scope_first;
@@ -41,37 +41,42 @@ impl JSFunctionDef {
             .get_mut((*self).scope_level as usize)
             .unwrap()
             .first = idx as i32;
-        (*self).scope_first = idx as i32;
+
+        self.scope_first = idx as i32;
 
         Ok(idx)
     }
 
     // find a 'var' declaration in same or descendant scope of `scope_level`
-    pub unsafe fn find_var_in_child_scope(
-        &mut self,
-        name: JSAtom,
-        scope_level: i32,
-    ) -> Option<u16> {
-        for i in 0..self.var_count {
-            let vd = self.vars.add(i as usize).as_mut().unwrap();
-            if vd.var_name == name && vd.scope_level == 0 {
-                if is_child_scope(self, vd.scope_next, scope_level) {
-                    return Some(i);
-                }
-            }
-        }
-        None
+    pub fn find_var_in_child_scope(&self, name: JSAtom, scope_level: i32) -> Option<u16> {
+        self.vars
+            .iter()
+            .position(|vd| {
+                vd.var_name == name
+                    && vd.scope_level == 0
+                    && is_child_scope(self, vd.scope_next, scope_level)
+            })
+            .map(|x| x as u16)
+
+        // for i in 0..self.var_count {
+        //     let vd = self.vars.add(i as usize).as_mut().unwrap();
+        //     if vd.var_name == name && vd.scope_level == 0 {
+        //         if is_child_scope(self, vd.scope_next, scope_level) {
+        //             return Some(i);
+        //         }
+        //     }
+        // }
+        // None
     }
 }
 
-/* return true if scope == parent_scope or if scope is a child of
-parent_scope */
-pub unsafe fn is_child_scope(fd: *mut JSFunctionDef, mut scope: i32, parent_scope: i32) -> bool {
+/* return true if scope == parent_scope or if scope is a child of parent_scope */
+pub fn is_child_scope(fd: *const JSFunctionDef, mut scope: i32, parent_scope: i32) -> bool {
     while scope >= 0 {
         if scope == parent_scope {
             return true;
         }
-        scope = (*fd).scopes[scope as usize].parent;
+        scope = unsafe { (*fd).scopes[scope as usize].parent };
     }
 
     return false;
@@ -115,10 +120,10 @@ pub unsafe fn resolve_scope_var(
     let mut var_idx: i32 = -1;
     let mut idx = (*s).scopes[scope_level as usize].first;
     while idx >= 0 {
-        let vd = (*s).vars.offset(idx as isize);
-        if (*vd).var_name == var_name {
+        let vd = (*s).vars.get(idx as usize).unwrap();
+        if vd.var_name == var_name {
             if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
-                if (*vd).is_const() {
+                if vd.is_const() {
                     push_vec_u8(bc, opcodes::OP_throw_error);
                     push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
                     push_vec_u8(bc, JS_THROW_VAR_RO);
@@ -127,12 +132,15 @@ pub unsafe fn resolve_scope_var(
             }
             var_idx = idx;
             break;
-        } else if (*vd).var_name == JS_ATOM__with_ && !is_pseudo_var {
+        }
+
+        if vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
             push_vec_u8(bc, opcodes::OP_get_loc);
             push_vec_u16(bc, idx as _);
             var_object_test(ctx, s, var_name, op, bc, &mut label_done, true);
         }
-        idx = (*vd).scope_next;
+
+        idx = vd.scope_next;
     }
 
     let mut is_arg_scope = idx == ARG_SCOPE_END;
@@ -161,7 +169,7 @@ pub unsafe fn resolve_scope_var(
                 op as u8,
                 opcodes::op_scope_put_var | opcodes::op_scope_make_ref
             )
-            && (*(*s).vars.add(var_idx as usize)).is_const()
+            && (*s).vars.get(var_idx as usize).unwrap().is_const()
         {
             // only happens when assigning a function expression name
             // in strict mode
@@ -177,7 +185,7 @@ pub unsafe fn resolve_scope_var(
         match op as u8 {
             opcodes::op_scope_make_ref => {
                 if var_idx & ARGUMENT_VAR_OFFSET == 0
-                    && (*s).vars.add(var_idx as usize).as_ref().unwrap().var_kind()
+                    && (*s).vars.get(var_idx as usize).unwrap().var_kind()
                         == JSVarKindEnum::JS_VAR_FUNCTION_NAME
                 {
                     // Create a dummy object reference for the func_var
@@ -193,13 +201,7 @@ pub unsafe fn resolve_scope_var(
                         var_idx -= ARGUMENT_VAR_OFFSET;
                         OpCode::GET_ARG
                     } else {
-                        if (*s)
-                            .vars
-                            .add(var_idx as usize)
-                            .as_ref()
-                            .unwrap()
-                            .is_lexical()
-                        {
+                        if (*s).vars.get(var_idx as usize).unwrap().is_lexical() {
                             OpCode::GET_LOC_CHECK
                         } else {
                             OpCode::GET_LOC
@@ -247,7 +249,7 @@ pub unsafe fn resolve_scope_var(
                     );
                     push_vec_u16(bc, (var_idx - ARGUMENT_VAR_OFFSET) as u16);
                 } else {
-                    let vd = (*s).vars.offset(var_idx as isize).as_ref().unwrap();
+                    let vd = (*s).vars.get(var_idx as usize).unwrap();
                     let is_lexical = vd.is_lexical();
                     if is_put {
                         // scope_put_XXX
@@ -317,13 +319,13 @@ pub unsafe fn resolve_scope_var(
         idx = (*fd).scopes[scope_level as usize].first;
 
         while idx >= 0 {
-            let vd1 = (*fd).vars.offset(idx as isize);
-            if (*vd1).var_name == var_name {
+            let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+            if vd.var_name == var_name {
                 if matches!(
                     op as u8,
                     opcodes::op_scope_put_var | opcodes::op_scope_make_ref
                 ) {
-                    if (*vd1).is_const() {
+                    if vd.is_const() {
                         push_vec_u8(bc, opcodes::OP_throw_error);
                         push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
                         push_vec_u8(bc, JS_THROW_VAR_RO);
@@ -332,15 +334,17 @@ pub unsafe fn resolve_scope_var(
                 }
                 var_idx = idx;
                 break;
-            } else if (*vd1).var_name == JS_ATOM__with_ && !is_pseudo_var {
-                (*vd1).set_is_captured(true);
+            }
+
+            if vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
+                vd.set_is_captured(true);
                 match (*s).get_closure_var2(
                     ctx,
                     fd,
                     true,
                     false,
                     idx as u16,
-                    (*vd1).var_name,
+                    vd.var_name,
                     false,
                     false,
                     JSVarKindEnum::JS_VAR_NORMAL,
@@ -356,7 +360,7 @@ pub unsafe fn resolve_scope_var(
                     }
                 }
             }
-            idx = (*vd1).scope_next;
+            idx = vd.scope_next;
         }
 
         is_arg_scope = idx == ARG_SCOPE_END;
@@ -389,8 +393,11 @@ pub unsafe fn resolve_scope_var(
 
         // check eval object
         if !is_arg_scope && (*fd).var_object_idx.is_some() && !is_pseudo_var {
-            let vd1 = (*fd).vars.add((*fd).var_object_idx.unwrap() as usize);
-            (*vd1).set_is_captured(true);
+            let vd1 = (*fd)
+                .vars
+                .get_mut((*fd).var_object_idx.unwrap() as usize)
+                .unwrap();
+            vd1.set_is_captured(true);
             idx = (*s)
                 .get_closure_var2(
                     ctx,
@@ -398,7 +405,7 @@ pub unsafe fn resolve_scope_var(
                     true,
                     false,
                     (*fd).var_object_idx.unwrap(),
-                    (*vd1).var_name,
+                    vd1.var_name,
                     false,
                     false,
                     JSVarKindEnum::JS_VAR_NORMAL,
@@ -412,8 +419,11 @@ pub unsafe fn resolve_scope_var(
 
         // check eval object in argument scope
         if !is_pseudo_var && (*fd).arg_var_object_idx.is_some() {
-            let vd2 = (*fd).vars.add((*fd).arg_var_object_idx.unwrap() as usize);
-            (*vd2).set_is_captured(true);
+            let vd2 = (*fd)
+                .vars
+                .get_mut((*fd).arg_var_object_idx.unwrap() as usize)
+                .unwrap();
+            vd2.set_is_captured(true);
             idx = (*s)
                 .get_closure_var2(
                     ctx,
@@ -421,7 +431,7 @@ pub unsafe fn resolve_scope_var(
                     true,
                     false,
                     (*fd).arg_var_object_idx.unwrap(),
-                    (*vd2).var_name,
+                    vd2.var_name,
                     false,
                     false,
                     JSVarKindEnum::JS_VAR_NORMAL,
@@ -518,7 +528,7 @@ pub unsafe fn resolve_scope_var(
                 JSVarKindEnum::JS_VAR_NORMAL,
             )
         } else {
-            let vd3 = (*fd).vars.offset(var_idx as isize).as_mut().unwrap();
+            let vd3 = (*fd).vars.get_mut(var_idx as usize).unwrap();
             vd3.set_is_captured(true);
             (*s).get_closure_var2(
                 ctx,

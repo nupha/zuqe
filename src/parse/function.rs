@@ -371,17 +371,21 @@ impl<'s> JSParseState<'s> {
             them. */
             let mut idx = fd1.scopes[fd1.scope_level as usize].first;
             while idx >= 0 {
-                let vd = fd1.vars.offset(idx as isize).as_mut().unwrap();
-                if vd.scope_level != fd1.scope_level {
+                let (scope_level, var_name, scope_next) = {
+                    let vd = fd1.vars.get(idx as usize).unwrap();
+                    (vd.scope_level, vd.var_name, vd.scope_next)
+                };
+
+                if scope_level != fd1.scope_level {
                     break;
                 }
 
-                if fd1.find_var(vd.var_name).is_none() {
-                    if fd1.add_var(ctx.deref_mut(), vd.var_name).is_err() {
+                if fd1.find_var(var_name).is_none() {
+                    if fd1.add_var(ctx.deref_mut(), var_name).is_err() {
                         fail!();
                     }
 
-                    let vd = fd1.vars.offset(idx as isize).as_mut().unwrap(); /* fd->vars may have been reallocated */
+                    let vd = fd1.vars.get(idx as usize).unwrap(); // fd->vars may have been reallocated
                     emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                     emit_atom_dup(self, vd.var_name);
                     emit_u16(self, fd1.scope_level as _);
@@ -391,7 +395,7 @@ impl<'s> JSParseState<'s> {
                     emit_u16(self, 0);
                 }
 
-                idx = vd.scope_next;
+                idx = scope_next;
             }
 
             /* the argument scope has no parent, hence we don't use pop_scope(s) */
@@ -730,7 +734,11 @@ impl<'s> JSParseState<'s> {
 
                 if lexical_func_idx >= 0 {
                     /* lexical variable will be initialized upon entering scope */
-                    (*(*self.cur_func).vars.offset(lexical_func_idx as isize)).func_pool_idx = idx;
+                    (*self.cur_func)
+                        .vars
+                        .get_mut(lexical_func_idx as usize)
+                        .unwrap()
+                        .func_pool_idx = idx;
                     emit_op(self, OpCode::DROP);
                 } else {
                     /* store function object into its lexical name */
@@ -754,7 +762,11 @@ impl<'s> JSParseState<'s> {
                             .offset((var_idx - ARGUMENT_VAR_OFFSET) as isize))
                         .func_pool_idx = idx;
                     } else {
-                        (*(*self.cur_func).vars.offset(var_idx as isize)).func_pool_idx = idx;
+                        (*self.cur_func)
+                            .vars
+                            .get_mut(var_idx as usize)
+                            .unwrap()
+                            .func_pool_idx = idx;
                     }
                 } else {
                     let func_var_name = if func_name == JS_ATOM_NULL {
@@ -882,10 +894,8 @@ pub unsafe fn js_parse_check_duplicate_parameter(s: *mut JSParseState, name: JSA
         }
     }
 
-    for i in 0..(*fd).var_count {
-        if (*(*fd).vars.offset(i as isize)).var_name == name {
-            return js_parse_error(s, c"duplicate parameter names not allowed in this context");
-        }
+    if (*fd).vars.iter().any(|vd| vd.var_name == name) {
+        return js_parse_error(s, c"duplicate parameter names not allowed in this context");
     }
 
     return 0;
@@ -958,16 +968,15 @@ pub unsafe fn js_parse_function_check_names(
 
                 // Check if argument name duplicates a destructuring parameter
                 // XXX: should have a flag for such variables
-                for i in 0..(*fd).var_count {
-                    if (*(*fd).vars.offset(i as isize)).var_name == name
-                        && (*(*fd).vars.offset(i as isize)).scope_level == 0
-                    {
-                        // C2RS: goto duplicate replaced with return
-                        return js_parse_error(
-                            s,
-                            c"duplicate argument names not allowed in this context",
-                        );
-                    }
+                if (*fd)
+                    .vars
+                    .iter()
+                    .any(|vd| vd.var_name == name && vd.scope_level == 0)
+                {
+                    return js_parse_error(
+                        s,
+                        c"duplicate argument names not allowed in this context",
+                    );
                 }
             }
         }

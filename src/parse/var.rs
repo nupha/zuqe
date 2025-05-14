@@ -5,7 +5,7 @@ use crate::{
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{
-        add_global_var, find_lexical_decl, is_child_scope, JSFunctionDef, JSVarDef, JSVarDefEnum,
+        add_global_var, find_lexical_decl, is_child_scope, JSFunctionDef, JSVarDefEnum,
         JSVarKindEnum, GLOBAL_VAR_OFFSET,
     },
 };
@@ -32,7 +32,6 @@ pub unsafe fn define_var(
     }
 
     let mut ctx = (*s).ctx;
-    let vd: *mut JSVarDef;
     let mut idx: i32;
 
     match var_def_type {
@@ -48,21 +47,17 @@ pub unsafe fn define_var(
             idx = find_lexical_decl(ctx.as_ptr(), fd, name, (*fd).scope_first, true);
             if idx >= 0 {
                 if idx < GLOBAL_VAR_OFFSET {
-                    if (*fd).vars.offset(idx as _).as_ref().unwrap().scope_level
-                        == (*fd).scope_level
-                    {
+                    let vd = (*fd).vars.get(idx as usize).unwrap();
+                    if vd.scope_level == (*fd).scope_level {
                         // same scope: in non strict mode, functions can be redefined (annex B.3.3.4).
                         if !((*fd).js_mode & JS_MODE_STRICT as u8 == 0
                             && var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
-                            && (*fd).vars.offset(idx as _).as_ref().unwrap().var_kind()
-                                == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
+                            && vd.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
                         {
                             goto_redef_lex_error!();
                         }
-                    } else if (*fd).vars.offset(idx as _).as_ref().unwrap().var_kind()
-                        == JSVarKindEnum::JS_VAR_CATCH
-                        && ((*fd).vars.offset(idx as _).as_ref().unwrap().scope_level + 2)
-                            == (*fd).scope_level
+                    } else if vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH
+                        && vd.scope_level + 2 == (*fd).scope_level
                     {
                         goto_redef_lex_error!();
                     }
@@ -120,9 +115,9 @@ pub unsafe fn define_var(
                     .add_scope_var(ctx.deref_mut(), name, var_kind)
                     .map_or(-1, |x| x as i32);
                 if idx >= 0 {
-                    vd = (*fd).vars.offset(idx as _);
-                    (*vd).set_is_lexical(true);
-                    (*vd).set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
+                    let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+                    vd.set_is_lexical(true);
+                    vd.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                 }
             }
         }
@@ -161,7 +156,7 @@ pub unsafe fn define_var(
                     if name == JS_ATOM_arguments && (*fd).has_arguments_binding {
                         (*fd).arguments_var_idx.replace(id);
                     }
-                    (*fd).vars.offset(id as _).as_mut().unwrap().scope_next = (*fd).scope_level;
+                    (*fd).vars.get_mut(id as usize).unwrap().scope_next = (*fd).scope_level;
                     id as i32
                 } else {
                     // TODO: how to handle add_var() error?

@@ -535,14 +535,6 @@ fn main() {
     std::env::set_var("RUST_LOG", "INFO");
     env_logger::init();
 
-    let test_files = [
-        "/Users/johnray/devel/test262/test/harness/assert-false.js",
-        "/Users/johnray/devel/test262/test/harness/assert-notsamevalue-nan.js",
-        "/Users/johnray/devel/test262/test/harness/assert-notsamevalue-notsame.js",
-        "/Users/johnray/devel/test262/test/harness/assert-notsamevalue-objects.js",
-        "/Users/johnray/devel/test262/test/harness/assert-notsamevalue-tostring.js",
-    ];
-
     let mut fp = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -551,9 +543,6 @@ fn main() {
 
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
         run_test(&fname.unwrap(), &mut fp);
-    }
-
-    for f in test_files {
-        run_test(Path::new(f), &mut fp);
+        fp.flush().unwrap();
     }
 }

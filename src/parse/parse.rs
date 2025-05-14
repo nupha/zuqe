@@ -777,12 +777,13 @@ pub unsafe fn has_with_scope(s: *mut JSFunctionDef, mut scope_level: i32) -> boo
     while !s.is_null() {
         let mut scope_idx = (*s).scopes[scope_level as usize].first;
         while scope_idx >= 0 {
-            let vd = (*s).vars.offset(scope_idx as isize).as_mut().unwrap();
+            let vd = (*s).vars.get(scope_idx as usize).unwrap();
             if vd.var_name == JS_ATOM__with_ {
                 return true;
             }
             scope_idx = vd.scope_next;
         }
+
         // check parent scopes
         scope_level = (*s).parent_scope_level;
         s = (*s).parent;

@@ -32,6 +32,7 @@ pub struct JSMapRecord {
 impl Drop for JSMapRecord {
     fn drop(&mut self) {
         println!("JSMapRecord::drop({self:p})");
+
         debug_assert_eq!(self.ref_count, 0);
         debug_assert!(self.map.is_null());
         debug_assert!(self.next_weak_ref.is_null());
@@ -66,7 +67,7 @@ impl JSMapState {
         key: JSValueConst,
     ) -> Result<NonNull<JSMapRecord>, i32> {
         // new record
-        let mut mr = unsafe {
+        let mut rec = unsafe {
             Box::from_raw(
                 js_malloc_typed::<JSMapRecord>(ctx, 1, true)
                     .ok_or(-1)?
@@ -74,15 +75,17 @@ impl JSMapState {
             )
         };
 
-        mr.ref_count = 1;
-        mr.map = self as *mut _;
-        mr.empty = false;
-        mr.key = unsafe {
+        debug_assert!((self as *mut Self).is_aligned());
+
+        rec.ref_count = 1;
+        rec.map = self as *mut _;
+        rec.empty = false;
+        rec.key = unsafe {
             if self.is_weak {
                 let p = key.object_unchecked();
                 // Add the weak reference
-                mr.next_weak_ref = p.first_weak_ref;
-                p.first_weak_ref = mr.as_mut() as *mut _;
+                rec.next_weak_ref = p.first_weak_ref;
+                p.first_weak_ref = rec.as_mut() as *mut _;
                 key
             } else {
                 key.dup()
@@ -92,8 +95,8 @@ impl JSMapState {
         unsafe {
             // insert to state hash table
             let h = map_hash_key(ctx, key) & (self.hash_size - 1);
-            list_add_tail(&mut (*mr).hash_link, self.hash_table.offset(h as isize));
-            list_add_tail(&mut (*mr).link, &mut self.records);
+            list_add_tail(&mut (*rec).hash_link, self.hash_table.offset(h as isize));
+            list_add_tail(&mut (*rec).link, &mut self.records);
 
             self.record_count += 1;
 
@@ -102,7 +105,7 @@ impl JSMapState {
             }
         }
 
-        Ok(unsafe { NonNull::new_unchecked(Box::into_raw(mr)) })
+        Ok(unsafe { NonNull::new_unchecked(Box::into_raw(rec)) })
     }
 }
 

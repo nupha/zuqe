@@ -267,33 +267,32 @@ pub unsafe fn js_parse_class(
             if is_private {
                 let idx = find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level);
                 if idx >= 0 {
-                    let var_kind = (*(*fd).vars.offset(idx as _)).var_kind();
-                    let is_static1 = (*(*fd).vars.offset(idx as _)).is_static_private();
-                    if var_kind == JSVarKindEnum::JS_VAR_PRIVATE_FIELD
-                        || var_kind == JSVarKindEnum::JS_VAR_PRIVATE_METHOD
-                        || var_kind == JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
-                        || var_kind
-                            == if is_set {
-                                JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                            } else {
-                                JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                            }
+                    let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+                    let var_kind = vd.var_kind();
+
+                    if matches!(
+                        var_kind,
+                        JSVarKindEnum::JS_VAR_PRIVATE_FIELD
+                            | JSVarKindEnum::JS_VAR_PRIVATE_METHOD
+                            | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
+                    ) || var_kind
+                        == if is_set {
+                            JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                        } else {
+                            JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                        }
                         || (var_kind
                             == if is_set {
                                 JSVarKindEnum::JS_VAR_PRIVATE_GETTER
                             } else {
                                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER
                             }
-                            && is_static != is_static1)
+                            && is_static != vd.is_static_private())
                     {
                         private_field_already_defined!();
                     }
-                    (*fd)
-                        .vars
-                        .offset(idx as _)
-                        .as_mut()
-                        .unwrap()
-                        .set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
+
+                    vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
                 } else {
                     if add_private_class_field(
                         s,
@@ -1005,7 +1004,7 @@ pub unsafe fn add_private_class_field(
         return -1;
     };
 
-    let vd = (*fd).vars.offset(idx as isize).as_mut().unwrap();
+    let vd = (*fd).vars.get_mut(idx as usize).unwrap();
     vd.set_is_lexical(true);
     vd.set_is_const(true);
     vd.set_is_static_private(is_static);
@@ -1022,13 +1021,14 @@ pub unsafe fn find_private_class_field(
 ) -> i32 {
     let mut idx = (*fd).scopes[scope_level as usize].first;
     while idx != -1 {
-        if (*(*fd).vars.offset(idx as isize)).scope_level != scope_level {
+        let vd = (*fd).vars.get(idx as usize).unwrap();
+        if vd.scope_level != scope_level {
             break;
         }
-        if (*(*fd).vars.offset(idx as isize)).var_name == name {
+        if vd.var_name == name {
             return idx;
         }
-        idx = (*(*fd).vars.offset(idx as isize)).scope_next;
+        idx = vd.scope_next;
     }
 
     return -1;

@@ -148,7 +148,10 @@ impl JSVarDef {
 #[cfg(debug_assertions)]
 impl Drop for JSVarDef {
     fn drop(&mut self) {
-        debug_assert_eq!(self.var_name, JS_ATOM_NULL, "forgot free var name atom");
+        debug_assert_eq!(
+            self.var_name, JS_ATOM_NULL,
+            "[O.o] forgot to free var name atom"
+        );
     }
 }
 
@@ -241,46 +244,42 @@ impl JSFunctionDef {
     }
 
     /// return the new variable index or error
-    pub unsafe fn add_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
+    pub fn add_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
-        if self.var_count >= JS_MAX_LOCAL_VARS {
+        if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.JS_ThrowInternalError(c"too many local variables");
             return Err(-1);
         }
 
-        if js_resize_array(
-            ctx,
-            std::ptr::addr_of_mut!(self.vars).cast(),
-            std::mem::size_of::<JSVarDef>() as i32,
-            std::ptr::addr_of_mut!(self.var_size),
-            self.var_count as i32 + 1,
-        ) != 0
-        {
-            return Err(-1);
+        if self.vars.len() == self.vars.capacity() {
+            if self.vars.try_reserve_exact(4).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
         }
 
-        let vd = self.vars.offset(self.var_count as _).as_mut().unwrap();
-        self.var_count += 1;
-        std::ptr::write_bytes(vd, 0, 1);
-        vd.var_name = JS_DupAtom(ctx, name);
-        vd.func_pool_idx = -1;
+        self.vars.push(JSVarDef {
+            var_name: name.dup(ctx.rt()),
+            func_pool_idx: -1,
+            scope_level: 0,
+            scope_next: 0,
+            bitfields: 0,
+        });
 
-        Ok(self.var_count - 1)
+        Ok(self.vars.len() as u16 - 1)
     }
 
     /// define pseudo variable named `this`
-    pub unsafe fn add_var_this(&mut self, ctx: &mut JSContext) -> Result<u16, i32> {
+    pub fn add_var_this(&mut self, ctx: &mut JSContext) -> Result<u16, i32> {
         let idx = self.add_var(ctx, JS_ATOM_this)?;
-
         if self.is_derived_class_constructor {
-            let vd = self.vars.add(idx as usize);
+            let vd = self.vars.get_mut(idx as usize).unwrap();
 
             // used to trigger 'uninitialized' checks
             // in a derived class constructor
             // XXX: should have is_this flag or var type
-            (*vd).set_is_lexical(true);
+            vd.set_is_lexical(true);
         }
-
         Ok(idx)
     }
 
@@ -296,16 +295,15 @@ impl JSFunctionDef {
             if self.arguments_arg_idx.is_none() {
                 if find_var_in_scope(ctx, self, JS_ATOM_arguments, ARG_SCOPE_INDEX).is_none() {
                     // XXX: the scope links are not fully updated. May be an
-                    // issue if there are child scopes of the argument
-                    // scope
+                    // issue if there are child scopes of the argument scope
                     let idx = self.add_var(ctx, JS_ATOM_arguments)?;
 
-                    (*(self.vars.add(idx as usize))).scope_next =
-                        self.scopes[ARG_SCOPE_INDEX as usize].first;
-                    self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx as i32;
-                    (*self.vars.add(idx as usize)).scope_level = ARG_SCOPE_INDEX;
-                    (*self.vars.add(idx as usize)).set_is_lexical(true);
+                    let vd = self.vars.get_mut(idx as usize).unwrap();
+                    vd.scope_next = self.scopes[ARG_SCOPE_INDEX as usize].first;
+                    vd.scope_level = ARG_SCOPE_INDEX;
+                    vd.set_is_lexical(true);
 
+                    self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx as i32;
                     self.arguments_arg_idx.replace(idx);
                 }
             }
@@ -326,16 +324,16 @@ impl JSFunctionDef {
         if let Some(i) = self.func_var_idx {
             Ok(i)
         } else {
-            let i = self.add_var(ctx, name)?;
-            self.func_var_idx.replace(i);
+            let vi = self.add_var(ctx, name)?;
+            self.func_var_idx.replace(vi);
 
-            let vd = self.vars.add(i as usize);
-            (*vd).set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
+            let vd = self.vars.get_mut(vi as usize).unwrap();
+            vd.set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
             if self.js_mode & JS_MODE_STRICT as u8 != 0 {
-                (*vd).set_is_const(true);
+                vd.set_is_const(true);
             }
 
-            Ok(i)
+            Ok(vi)
         }
     }
 
@@ -351,18 +349,31 @@ impl JSFunctionDef {
         None
     }
 
-    /// find variable by name
+    /// find variable by name. if not found in vars, find it in args.
     pub fn find_var(&self, name: JSAtom) -> Option<i32> {
-        unsafe {
-            for i in (0..self.var_count).rev() {
-                let vd = self.vars.add(i as usize);
-                if (*vd).var_name == name && (*vd).scope_level == 0 {
-                    return Some(i as _);
+        self.vars
+            .iter()
+            .enumerate()
+            .rev() // search in reveresed order
+            .find_map(|(i, vd)| {
+                if vd.var_name == name && vd.scope_level == 0 {
+                    Some(i as i32)
+                } else {
+                    None
                 }
-            }
-        }
+            })
+            .or(self.find_arg(name))
 
-        self.find_arg(name)
+        // unsafe {
+        //     for i in (0..self.var_count).rev() {
+        //         let vd = self.vars.add(i as usize);
+        //         if (*vd).var_name == name && (*vd).scope_level == 0 {
+        //             return Some(i as _);
+        //         }
+        //     }
+        // }
+
+        // self.find_arg(name)
     }
 }
 
@@ -449,7 +460,7 @@ pub unsafe fn find_lexical_decl(
     check_catch_var: bool,
 ) -> i32 {
     while scope_idx >= 0 {
-        let vd = (*fd).vars.offset(scope_idx as isize).as_mut().unwrap();
+        let vd = (*fd).vars.get(scope_idx as usize).unwrap();
         if vd.var_name == name
             && (vd.is_lexical()
                 || (vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH && check_catch_var))
@@ -809,27 +820,26 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
 
                 let mut scope_idx = (*s).scopes[scope as usize].first;
                 while scope_idx >= 0 {
-                    let vd = (*s).vars.add(scope_idx as usize);
-                    if (*vd).scope_level == scope {
+                    let vd = (*s).vars.get(scope_idx as usize).unwrap();
+                    if vd.scope_level == scope {
                         if scope_idx as u16 != (*s).arguments_arg_idx.unwrap_or(u16::MAX) {
                             if matches!(
-                                (*vd).var_kind(),
+                                vd.var_kind(),
                                 JSVarKindEnum::JS_VAR_FUNCTION_DECL
                                     | JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL
                             ) {
                                 push_vec_u8(&mut bc_out, OpCode::FCLOSURE as u8);
-                                push_vec_u32(&mut bc_out, (*vd).func_pool_idx as u32);
+                                push_vec_u32(&mut bc_out, vd.func_pool_idx as u32);
 
                                 push_vec_u8(&mut bc_out, OpCode::PUT_LOC as u8);
                                 push_vec_u16(&mut bc_out, scope_idx as u16);
                             } else {
-                                /* XXX: should check if variable can be used
-                                before initialization */
+                                // XXX: should check if variable can be used before initialization
                                 push_vec_u8(&mut bc_out, OpCode::SET_LOC_UNINITIALIZED as u8);
                                 push_vec_u16(&mut bc_out, scope_idx as u16);
                             }
                         }
-                        scope_idx = (*vd).scope_next;
+                        scope_idx = vd.scope_next;
                     } else {
                         break;
                     }
@@ -839,9 +849,9 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 let scope = get_u16(bc_buf.add(pos as usize + 1)) as i32;
                 let mut scope_idx = (*s).scopes[scope as usize].first;
                 while scope_idx >= 0 {
-                    let vd = (*s).vars.add(scope_idx as usize);
-                    if (*vd).scope_level == scope {
-                        if (*vd).is_captured() {
+                    let vd = (*s).vars.get(scope_idx as usize).unwrap();
+                    if vd.scope_level == scope {
+                        if vd.is_captured() {
                             push_vec_u8(&mut bc_out, OpCode::CLOSE_LOC as u8);
                             push_vec_u16(&mut bc_out, scope_idx as u16);
                         }
@@ -1044,8 +1054,8 @@ pub unsafe fn mark_eval_captured_variables(
 ) {
     let mut idx = (*s).scopes[scope_level as usize].first;
     while idx >= 0 {
-        let vd = (*s).vars.offset(idx as isize);
-        (*vd).set_is_captured(true);
-        idx = (*vd).scope_next;
+        let vd = (*s).vars.get_mut(idx as usize).unwrap();
+        vd.set_is_captured(true);
+        idx = vd.scope_next;
     }
 }

@@ -1,4 +1,6 @@
-use std::ops::DerefMut;
+use std::{mem::MaybeUninit, ops::DerefMut};
+
+use fallible_collections::FallibleBox;
 
 use crate::{
     atom::{consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
@@ -98,12 +100,8 @@ pub struct JSFunctionDef {
 
     pub js_mode: u8,
 
-    /// 变量定义数组. TODO: use Vec<JSVarDef>
-    pub vars: *mut JSVarDef,
-    // 已分配变量空间
-    pub var_size: i32,
-    // 变量计数
-    pub var_count: u16,
+    /// vars defination list
+    pub vars: Vec<JSVarDef>,
 
     /// 参数定义数组. TODO: use Vec<JSVarDef>
     pub args: *mut JSVarDef,
@@ -234,89 +232,191 @@ pub struct JSFunctionDef {
 
 impl JSFunctionDef {
     /// alloc a function def, and initialize it.
-    unsafe fn new0(
+    fn new0(
         ctx: &mut JSContext,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: u32,
     ) -> Result<Box<Self>, i32> {
-        let ptr = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
-        let mut fd = Box::from_raw(ptr.as_ptr());
-
-        fd.ctx = ctx;
-        fd.parent = std::ptr::null_mut();
-        fd.parent_cpool_idx = -1;
-        fd.is_eval = is_eval;
-        fd.is_func_expr = is_func_expr;
-        fd.byte_code = Vec::with_capacity(128);
-        fd.last_opcode_pos = -1;
-        fd.func_name = JS_ATOM_NULL;
-        fd.var_object_idx = None;
-        fd.arg_var_object_idx = None;
-        fd.arguments_var_idx = None;
-        fd.arguments_arg_idx = None;
-        fd.func_var_idx = None;
-        fd.eval_ret_idx = None;
-        fd.this_var_idx = None;
-        fd.new_target_var_idx = None;
-        fd.home_object_var_idx = None;
-        fd.this_active_func_var_idx = None;
-
-        /* XXX: should distinguish arg, var and var object and body scopes */
-        fd.scopes = {
-            let mut arr = Vec::<JSVarScope>::new();
-            arr.try_reserve_exact(4).map_err(|_| -1)?;
-            arr.push(JSVarScope {
-                first: -1,
-                parent: -1,
-            });
-            arr
+        let o = JSFunctionDef {
+            ctx: ctx,
+            parent: std::ptr::null_mut(),
+            parent_cpool_idx: -1,
+            parent_scope_level: 0,
+            child_list: list_head::default(),
+            link: list_head::default(),
+            is_eval,
+            eval_type: 0,
+            is_global_var: false,
+            is_func_expr,
+            has_home_object: false,
+            has_prototype: false,
+            has_simple_parameter_list: false,
+            has_parameter_expressions: false,
+            has_use_strict: false,
+            has_eval_call: false,
+            has_arguments_binding: false,
+            has_this_binding: false,
+            new_target_allowed: false,
+            super_call_allowed: false,
+            super_allowed: false,
+            arguments_allowed: false,
+            is_derived_class_constructor: false,
+            in_function_body: false,
+            backtrace_barrier: false,
+            func_kind: JSFunctionKindEnum::JS_FUNC_NORMAL,
+            func_type: JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+            func_name: JS_ATOM_NULL,
+            js_mode: 0,
+            vars: Vec::new(),
+            args: std::ptr::null_mut(),
+            arg_size: 0,
+            arg_count: 0,
+            defined_arg_count: 0,
+            func_var_idx: None,
+            this_var_idx: None,
+            new_target_var_idx: None,
+            this_active_func_var_idx: None,
+            home_object_var_idx: None,
+            arguments_var_idx: None,
+            arguments_arg_idx: None,
+            eval_ret_idx: None,
+            arg_var_object_idx: None,
+            var_object_idx: None,
+            need_home_object: false,
+            scope_level: 0,
+            scope_first: -1,
+            scopes: {
+                let mut arr = Vec::<JSVarScope>::new();
+                arr.try_reserve_exact(4).map_err(|_| -1)?;
+                arr.push(JSVarScope {
+                    first: -1,
+                    parent: -1,
+                });
+                arr
+            },
+            body_scope: -1,
+            global_var_count: 0,
+            global_var_size: 0,
+            global_vars: std::ptr::null_mut(),
+            byte_code: Vec::with_capacity(128),
+            last_opcode_pos: -1,
+            last_opcode_line_num: line_num,
+            use_short_opcodes: false,
+            label_slots: std::ptr::null_mut(),
+            label_size: 0,
+            label_count: 0,
+            top_break: std::ptr::null_mut(),
+            cpool: std::ptr::null_mut(),
+            cpool_count: 0,
+            cpool_size: 0,
+            closure_vars: None,
+            jump_slots: std::ptr::null_mut(),
+            jump_size: 0,
+            jump_count: 0,
+            line_number_slots: std::ptr::null_mut(),
+            line_number_size: 0,
+            line_number_count: 0,
+            line_number_last: 0,
+            line_number_last_pc: 0,
+            filename: ctx.create_atom(filename)?,
+            line_num,
+            pc2line: None,
+            source: std::ptr::null_mut(),
+            source_len: 0,
+            module: std::ptr::null_mut(),
+            has_await: false,
         };
-        fd.scope_level = 0;
-        fd.scope_first = -1;
-        fd.body_scope = -1;
 
-        fd.filename = ctx.create_atom(filename)?;
-        fd.line_num = line_num;
+        let mut fd = unsafe {
+            let mut p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
+            p.as_ptr().write(o);
 
-        fd.pc2line = None;
-        // (*fd).pc2line_last_line_num = line_num;
-        // (*fd).pc2line_last_pc = 0;
+            init_list_head(&mut p.as_mut().child_list);
 
-        fd.last_opcode_line_num = line_num;
+            Box::from_raw(p.as_ptr())
 
-        fd.cpool = std::ptr::null_mut();
-        fd.cpool_count = 0;
-        fd.cpool_size = 0;
-        fd.arg_count = 0;
-        fd.var_count = 0;
-        fd.closure_vars = None;
-        fd.defined_arg_count = 0;
-        fd.global_var_count = 0;
-        fd.global_var_size = 0;
-        fd.global_vars = std::ptr::null_mut();
+            // let ptr = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
+            // let p = ptr.as_ptr();
 
-        fd.label_slots = std::ptr::null_mut();
-        fd.label_size = 0;
-        fd.label_count = 0;
-        fd.top_break = std::ptr::null_mut();
+            // (*p).closure_vars = None;
+            // (*p).ctx = ctx;
+            // (*p).parent = std::ptr::null_mut();
+            // (*p).parent_cpool_idx = -1;
+            // (*p).is_eval = is_eval;
+            // (*p).is_func_expr = is_func_expr;
+            // (*p).byte_code = Vec::with_capacity(128);
+            // (*p).last_opcode_pos = -1;
+            // (*p).func_name = JS_ATOM_NULL;
+            // (*p).var_object_idx = None;
+            // (*p).arg_var_object_idx = None;
+            // (*p).arguments_var_idx = None;
+            // (*p).arguments_arg_idx = None;
+            // (*p).func_var_idx = None;
+            // (*p).eval_ret_idx = None;
+            // (*p).this_var_idx = None;
+            // (*p).new_target_var_idx = None;
+            // (*p).home_object_var_idx = None;
+            // (*p).this_active_func_var_idx = None;
 
-        fd.jump_slots = std::ptr::null_mut();
-        fd.jump_size = 0;
-        fd.jump_count = 0;
+            // /* XXX: should distinguish arg, var and var object and body scopes */
+            // (*p).scopes = {
+            //     let mut arr = Vec::<JSVarScope>::new();
+            //     arr.try_reserve_exact(4).map_err(|_| -1)?;
+            //     arr.push(JSVarScope {
+            //         first: -1,
+            //         parent: -1,
+            //     });
+            //     arr
+            // };
+            // (*p).scope_level = 0;
+            // (*p).scope_first = -1;
+            // (*p).body_scope = -1;
 
-        fd.line_number_slots = std::ptr::null_mut();
-        fd.line_number_size = 0;
-        fd.line_number_count = 0;
+            // (*p).filename = ctx.create_atom(filename)?;
+            // (*p).line_num = line_num;
 
-        init_list_head(&mut fd.child_list);
+            // (*p).pc2line = None;
+            // // (*fd).pc2line_last_line_num = line_num;
+            // // (*fd).pc2line_last_pc = 0;
+
+            // (*p).last_opcode_line_num = line_num;
+
+            // (*p).cpool = std::ptr::null_mut();
+            // (*p).cpool_count = 0;
+            // (*p).cpool_size = 0;
+            // (*p).arg_count = 0;
+            // (*p).defined_arg_count = 0;
+            // (*p).global_var_count = 0;
+            // (*p).global_var_size = 0;
+            // (*p).global_vars = std::ptr::null_mut();
+
+            // (*p).label_slots = std::ptr::null_mut();
+            // (*p).label_size = 0;
+            // (*p).label_count = 0;
+            // (*p).top_break = std::ptr::null_mut();
+
+            // (*p).jump_slots = std::ptr::null_mut();
+            // (*p).jump_size = 0;
+            // (*p).jump_count = 0;
+
+            // (*p).line_number_slots = std::ptr::null_mut();
+            // (*p).line_number_size = 0;
+            // (*p).line_number_count = 0;
+
+            // Box::from_raw(ptr.as_ptr())
+        };
+
+        unsafe {
+            init_list_head(&mut fd.child_list);
+        }
 
         Ok(fd)
     }
 
     /// create function def and attach to parent-child chain
-    pub unsafe fn new(
+    pub fn new(
         ctx: &mut JSContext,
         parent: *mut JSFunctionDef,
         is_eval: bool,
@@ -332,14 +432,17 @@ impl JSFunctionDef {
         })
     }
 
-    unsafe fn set_parent(&mut self, parent: *mut JSFunctionDef) {
+    fn set_parent(&mut self, parent: *mut JSFunctionDef) {
         debug_assert!(!parent.is_null());
         debug_assert!(self.parent.is_null());
 
         self.parent = parent;
-        self.js_mode = (*parent).js_mode;
-        self.parent_scope_level = (*parent).scope_level as i32;
-        list_add_tail(&mut self.link, &mut (*parent).child_list);
+        self.js_mode = unsafe { (*parent).js_mode };
+        self.parent_scope_level = unsafe { (*parent).scope_level as i32 };
+
+        unsafe {
+            list_add_tail(&mut self.link, &mut (*parent).child_list);
+        }
     }
 
     /// update label ref count by delta. returns updated ref count.
@@ -403,14 +506,20 @@ impl JSFunctionDef {
             self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = ARG_SCOPE_END;
         }
 
-        for idx in 0..self.var_count {
-            let vd = self.vars.offset(idx as isize);
-            debug_assert!((*vd).scope_level >= 0 && (*vd).scope_level < self.scopes.len() as i32);
-
-            let scope = self.scopes.get_mut((*vd).scope_level as usize).unwrap();
-            (*vd).scope_next = scope.first;
+        for (idx, vd) in self.vars.iter_mut().enumerate() {
+            debug_assert!(vd.scope_level >= 0 && vd.scope_level < self.scopes.len() as i32);
+            let scope = self.scopes.get_mut(vd.scope_level as usize).unwrap();
+            vd.scope_next = scope.first;
             scope.first = idx as i32;
         }
+        // for idx in 0..self.var_count {
+        //     let vd = self.vars.offset(idx as isize);
+        //     debug_assert!((*vd).scope_level >= 0 && (*vd).scope_level < self.scopes.len() as i32);
+
+        //     let scope = self.scopes.get_mut((*vd).scope_level as usize).unwrap();
+        //     (*vd).scope_next = scope.first;
+        //     scope.first = idx as i32;
+        // }
 
         for i in 2..self.scopes.len() {
             if self.scopes[i].first < 0 {
@@ -420,13 +529,19 @@ impl JSFunctionDef {
             }
         }
 
-        for idx in 0..self.var_count {
-            let vd = self.vars.offset(idx as isize);
-            if (*vd).scope_next < 0 && (*vd).scope_level > 1 {
-                let parent = self.scopes[(*vd).scope_level as usize].parent;
-                (*vd).scope_next = self.scopes[parent as usize].first;
+        for vd in self.vars.iter_mut() {
+            if vd.scope_next < 0 && vd.scope_level > 1 {
+                let parent = self.scopes[vd.scope_level as usize].parent;
+                vd.scope_next = self.scopes[parent as usize].first;
             }
         }
+        // for idx in 0..self.var_count {
+        //     let vd = self.vars.offset(idx as isize);
+        //     if (*vd).scope_next < 0 && (*vd).scope_level > 1 {
+        //         let parent = self.scopes[(*vd).scope_level as usize].parent;
+        //         (*vd).scope_next = self.scopes[parent as usize].first;
+        //     }
+        // }
 
         // if the function contains an eval call, the closure variables
         // are used to compile the eval and they must be ordered by scope,
@@ -512,7 +627,7 @@ impl JSFunctionDef {
         bf.realm = ctx.dup();
 
         bf.cpool_count = self.cpool_count as _;
-        bf.var_count = self.var_count;
+        bf.var_count = self.vars.len() as _;
         bf.arg_count = self.arg_count;
         bf.defined_arg_count = self.defined_arg_count;
 
@@ -529,7 +644,7 @@ impl JSFunctionDef {
         };
 
         if self.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
-            let n = self.arg_count + self.var_count;
+            let n = self.arg_count + self.vars.len() as u16;
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
                 let mut i = bin_size;
@@ -598,7 +713,7 @@ impl JSFunctionDef {
             }
             if bf.var_count != 0 {
                 std::ptr::copy_nonoverlapping(
-                    self.vars.cast::<u8>(),
+                    self.vars.as_ptr().cast::<u8>(),
                     bin.as_mut_ptr().add(
                         bf.vardefs_start as usize
                             + bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
@@ -614,12 +729,15 @@ impl JSFunctionDef {
                 js_free(ctx, self.args.cast());
                 self.args = std::ptr::null_mut();
             }
-            if !self.vars.is_null() {
-                js_free(ctx, self.vars.cast());
-                self.vars = std::ptr::null_mut();
-            }
             self.arg_count = 0;
-            self.var_count = 0;
+
+            #[cfg(not(debug_assertions))]
+            self.vars.clear();
+
+            #[cfg(debug_assertions)]
+            for mut vd in self.vars.drain(..) {
+                vd.var_name = JS_ATOM_NULL;
+            }
         }
 
         // 3. closure vars section
@@ -702,11 +820,7 @@ impl JSFunctionDef {
                     } else {
                         &[]
                     },
-                    if self.var_count > 0 {
-                        std::slice::from_raw_parts(self.vars, self.var_count as _)
-                    } else {
-                        &[]
-                    },
+                    self.vars.as_slice(),
                     self.closure_vars.as_deref().unwrap_or(&[]),
                     if self.cpool_count > 0 {
                         std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
@@ -760,16 +874,13 @@ impl JSFunctionDef {
             self.cpool = std::ptr::null_mut();
         }
 
-        for i in 0..self.var_count {
-            JS_FreeAtom(ctx, (*self.vars.offset(i as isize)).var_name);
+        for mut vd in self.vars.drain(..) {
+            JS_FreeAtom(ctx, vd.var_name);
+
             #[cfg(debug_assertions)]
             {
-                (*self.vars.offset(i as isize)).var_name = JS_ATOM_NULL;
+                vd.var_name = JS_ATOM_NULL;
             }
-        }
-        if !self.vars.is_null() {
-            js_free(ctx, self.vars.cast());
-            self.vars = std::ptr::null_mut();
         }
 
         for i in 0..self.arg_count {
@@ -1002,18 +1113,18 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
         debug_assert!((0..(*fd).scopes.len() as i32).contains(&scope_level));
         let mut scope_idx = (*fd).scopes[scope_level as usize].first;
         while scope_idx >= 0 {
-            let vd = (*fd).vars.add(scope_idx as usize);
-            (*vd).set_is_captured(true);
+            let vd = (*fd).vars.get_mut(scope_idx as usize).unwrap();
+            vd.set_is_captured(true);
             s.get_closure_var2(
                 ctx,
                 fd,
                 true,
                 false,
                 scope_idx as u16,
-                (*vd).var_name,
-                (*vd).is_const(),
-                (*vd).is_lexical(),
-                (*vd).var_kind(),
+                vd.var_name,
+                vd.is_const(),
+                vd.is_lexical(),
+                vd.var_kind(),
             )
             .expect("TODO");
             scope_idx = (*vd).scope_next;
@@ -1041,36 +1152,33 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
                 }
             }
 
-            for i in 0..(*fd).var_count {
-                let vd = (*fd).vars.add(i as usize);
+            for (i, vd) in (*fd).vars.iter().enumerate() {
                 // do not close top level last result
-                if (*vd).scope_level == 0 && !matches!((*vd).var_name, JS_ATOM__ret_ | JS_ATOM_NULL)
-                {
+                if vd.scope_level == 0 && !matches!(vd.var_name, JS_ATOM__ret_ | JS_ATOM_NULL) {
                     s.get_closure_var2(
                         ctx,
                         fd,
                         true,
                         false,
-                        i,
-                        (*vd).var_name,
+                        i as _,
+                        vd.var_name,
                         false,
-                        (*vd).is_lexical(),
+                        vd.is_lexical(),
                         JSVarKindEnum::JS_VAR_NORMAL,
                     )
                     .expect("TODO");
                 }
             }
         } else {
-            for i in 0..(*fd).var_count {
-                let vd = (*fd).vars.add(i as usize);
+            for (i, vd) in (*fd).vars.iter().enumerate() {
                 // do not close top level last result
-                if (*vd).scope_level == 0 && is_var_in_arg_scope(vd) {
+                if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                     s.get_closure_var2(
                         ctx,
                         fd,
                         true,
                         false,
-                        i,
+                        i as _,
                         (*vd).var_name,
                         false,
                         (*vd).is_lexical(),
@@ -1152,11 +1260,10 @@ pub unsafe fn find_var_in_scope(
 
     let mut scope_idx = fd.scopes[scope_level as usize].first;
     while scope_idx >= 0 {
-        let vd = fd.vars.add(scope_idx as usize);
-        if (*vd).scope_level != scope_level {
+        let vd = fd.vars.get(scope_idx as usize).unwrap();
+        if vd.scope_level != scope_level {
             break;
-        }
-        if (*vd).var_name == name {
+        } else if vd.var_name == name {
             return Some(scope_idx as u16);
         }
         scope_idx = (*vd).scope_next;
@@ -1451,11 +1558,12 @@ pub unsafe fn find_private_class_field_all(
 
     let mut idx = (*fd).scopes[scope_level as usize].first;
     while idx >= 0 {
-        if (*(*fd).vars.offset(idx as isize)).var_name == name {
+        if (*fd).vars.get(idx as usize).unwrap().var_name == name {
             return idx;
         }
-        idx = (*(*fd).vars.offset(idx as isize)).scope_next;
+        idx = (*fd).vars.get(idx as usize).unwrap().scope_next;
     }
+
     return -1;
 }
 
@@ -1475,7 +1583,7 @@ pub unsafe fn resolve_scope_private_field1(
     'outer: loop {
         idx = find_private_class_field_all(ctx, fd, var_name, scope_level);
         if idx >= 0 {
-            var_kind = (*(*fd).vars.offset(idx as isize)).var_kind();
+            var_kind = (*fd).vars.get(idx as usize).unwrap().var_kind();
             if is_ref {
                 idx = if let Ok(vi) = (*s).get_closure_var2(
                     ctx,
@@ -1568,14 +1676,13 @@ pub unsafe fn instantiate_hoisted_definitions(
         }
     }
 
-    for i in 0..(*s).var_count {
-        let vd = (*s).vars.offset(i as isize);
-        if (*vd).scope_level == 0 && (*vd).func_pool_idx >= 0 {
+    for (i, vd) in (*s).vars.iter().enumerate() {
+        if vd.scope_level == 0 && vd.func_pool_idx >= 0 {
             push_vec_u8(bc, OpCode::FCLOSURE as u8);
             push_vec_u32(bc, (*vd).func_pool_idx as u32);
 
             push_vec_u8(bc, OpCode::PUT_LOC as u8);
-            push_vec_u16(bc, i as u16);
+            push_vec_u16(bc, i as _);
         }
     }
 
