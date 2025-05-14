@@ -296,10 +296,19 @@ impl JSFunctionDef {
         fd.global_var_count = 0;
         fd.global_var_size = 0;
         fd.global_vars = std::ptr::null_mut();
+
         fd.label_slots = std::ptr::null_mut();
         fd.label_size = 0;
         fd.label_count = 0;
         fd.top_break = std::ptr::null_mut();
+
+        fd.jump_slots = std::ptr::null_mut();
+        fd.jump_size = 0;
+        fd.jump_count = 0;
+
+        fd.line_number_slots = std::ptr::null_mut();
+        fd.line_number_size = 0;
+        fd.line_number_count = 0;
 
         init_list_head(&mut fd.child_list);
 
@@ -601,10 +610,14 @@ impl JSFunctionDef {
             // SAFEGUARD: we have copy arg and var definations to function bytecode above.
             // we do vardefs and *_count clean-ups here in advance,
             // so that when calling js_free_function_def() later, it will not free vardefs.
-            js_free(ctx, self.args.cast());
-            js_free(ctx, self.vars.cast());
-            self.args = std::ptr::null_mut();
-            self.vars = std::ptr::null_mut();
+            if !self.args.is_null() {
+                js_free(ctx, self.args.cast());
+                self.args = std::ptr::null_mut();
+            }
+            if !self.vars.is_null() {
+                js_free(ctx, self.vars.cast());
+                self.vars = std::ptr::null_mut();
+            }
             self.arg_count = 0;
             self.var_count = 0;
         }
@@ -726,14 +739,26 @@ impl JSFunctionDef {
         );
         self.byte_code.clear();
 
-        js_free(ctx, self.jump_slots.cast());
-        js_free(ctx, self.label_slots.cast());
-        js_free(ctx, self.line_number_slots.cast());
+        if !self.jump_slots.is_null() {
+            js_free(ctx, self.jump_slots.cast());
+            self.jump_slots = std::ptr::null_mut();
+        }
+        if !self.label_slots.is_null() {
+            js_free(ctx, self.label_slots.cast());
+            self.label_slots = std::ptr::null_mut();
+        }
+        if !self.line_number_slots.is_null() {
+            js_free(ctx, self.line_number_slots.cast());
+            self.line_number_slots = std::ptr::null_mut();
+        }
 
         for i in 0..self.cpool_count {
             JS_FreeValue(ctx, *self.cpool.offset(i as isize));
         }
-        js_free(ctx, self.cpool.cast());
+        if !self.cpool.is_null() {
+            js_free(ctx, self.cpool.cast());
+            self.cpool = std::ptr::null_mut();
+        }
 
         for i in 0..self.var_count {
             JS_FreeAtom(ctx, (*self.vars.offset(i as isize)).var_name);
@@ -742,7 +767,10 @@ impl JSFunctionDef {
                 (*self.vars.offset(i as isize)).var_name = JS_ATOM_NULL;
             }
         }
-        js_free(ctx, self.vars.cast());
+        if !self.vars.is_null() {
+            js_free(ctx, self.vars.cast());
+            self.vars = std::ptr::null_mut();
+        }
 
         for i in 0..self.arg_count {
             JS_FreeAtom(ctx, (*self.args.offset(i as isize)).var_name);
@@ -751,12 +779,18 @@ impl JSFunctionDef {
                 (*self.args.offset(i as isize)).var_name = JS_ATOM_NULL;
             }
         }
-        js_free(ctx, self.args.cast());
+        if !self.args.is_null() {
+            js_free(ctx, self.args.cast());
+            self.args = std::ptr::null_mut();
+        }
 
         for i in 0..self.global_var_count {
             JS_FreeAtom(ctx, (*self.global_vars.offset(i as isize)).var_name);
         }
-        js_free(ctx, self.global_vars.cast());
+        if !self.global_vars.is_null() {
+            js_free(ctx, self.global_vars.cast());
+            self.global_vars = std::ptr::null_mut();
+        }
 
         if let Some(mut lst) = self.closure_vars.take() {
             for cv in lst.drain(..) {
@@ -766,7 +800,11 @@ impl JSFunctionDef {
 
         JS_FreeAtom(ctx, self.func_name);
         JS_FreeAtom(ctx, self.filename);
-        js_free(ctx, self.source.cast());
+
+        if !self.source.is_null() {
+            js_free(ctx, self.source.cast());
+            self.source = std::ptr::null_mut();
+        }
 
         if !self.parent.is_null() {
             // remove from parent's list
@@ -1659,8 +1697,10 @@ pub unsafe fn instantiate_hoisted_definitions(
         (*(*s).label_slots.offset(l as isize)).pos2 = bc.len() as i32;
     }
 
-    js_free(ctx, (*s).global_vars.cast());
-    (*s).global_vars = std::ptr::null_mut();
+    if !(*s).global_vars.is_null() {
+        js_free(ctx, (*s).global_vars.cast());
+        (*s).global_vars = std::ptr::null_mut();
+    }
     (*s).global_var_count = 0;
     (*s).global_var_size = 0;
 }

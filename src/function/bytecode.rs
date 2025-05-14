@@ -639,7 +639,11 @@ pub unsafe fn free_function_bytecode(rt: *mut JSRuntime, b: *mut JSFunctionBytec
     if (*b).has_debug {
         (*b).debug.pc2line_buf.take();
         JS_FreeAtomRT(rt, (*b).debug.filename);
-        js_free_rt(rt, (*b).debug.source.cast());
+
+        if !(*b).debug.source.is_null() {
+            js_free_rt(rt, (*b).debug.source.cast());
+            (*b).debug.source = std::ptr::null_mut();
+        }
 
         // safe guard
         (*b).debug.filename = JS_ATOM_NULL;

@@ -730,11 +730,11 @@ pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
 pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     // first pass to remove the records from the WeakMap/WeakSet lists
     let mut mr = (*p).first_weak_ref;
-    while mr != std::ptr::null_mut() {
+    while !mr.is_null() {
         let s = (*mr).map;
-        assert!((*s).is_weak);
-        assert!(!(*mr).empty); // no iterator on WeakMap/WeakSet
-                               // C2RS: Use addr_of_mut! to get raw pointers to struct fields
+        debug_assert!((*s).is_weak);
+        debug_assert!(!(*mr).empty); // no iterator on WeakMap/WeakSet
+
         list_del(std::ptr::addr_of_mut!((*mr).hash_link));
         list_del(std::ptr::addr_of_mut!((*mr).link));
         mr = (*mr).next_weak_ref;
@@ -742,14 +742,14 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
 
     // second pass to free the values
     mr = (*p).first_weak_ref;
-    while mr != std::ptr::null_mut() {
+    while !mr.is_null() {
         let mr_next = (*mr).next_weak_ref;
         JS_FreeValueRT(rt, (*mr).value);
         js_free_rt(rt, mr.cast());
         mr = mr_next;
     }
 
-    (*p).first_weak_ref = std::ptr::null_mut(); // fail safe
+    (*p).first_weak_ref = std::ptr::null_mut();
 }
 
 /// Checks if a JSValue is a specific C function.

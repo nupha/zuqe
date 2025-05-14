@@ -201,6 +201,7 @@ pub unsafe fn js_malloc_rt(rt: *mut JSRuntime, nbytes: usize) -> *mut c_void {
 }
 
 pub unsafe fn js_free_rt(rt: *mut JSRuntime, ptr: *mut c_void) {
+    debug_assert!(!ptr.is_null());
     ((*rt).mf.js_free)(&mut (*rt).malloc_state, ptr);
 }
 

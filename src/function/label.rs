@@ -956,13 +956,17 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         (*s).jump_slots = std::ptr::null_mut();
     }
 
-    js_free(ctx, (*s).label_slots.cast());
-    (*s).label_slots = std::ptr::null_mut();
+    if !(*s).label_slots.is_null() {
+        js_free(ctx, (*s).label_slots.cast());
+        (*s).label_slots = std::ptr::null_mut();
+    }
 
     // XXX: should delay until copying to runtime bytecode function /
     compute_pc2line_info(s);
-    js_free(ctx, (*s).line_number_slots.cast());
-    (*s).line_number_slots = std::ptr::null_mut();
+    if !(*s).line_number_slots.is_null() {
+        js_free(ctx, (*s).line_number_slots.cast());
+        (*s).line_number_slots = std::ptr::null_mut();
+    }
 
     // set the new byte code
     bc_out.shrink_to_fit();

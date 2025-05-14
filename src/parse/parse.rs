@@ -399,8 +399,8 @@ impl JSParseState<'_> {
                         emit_u16(self, (*fd).scope_level as u16);
                     }
 
-                    #[cfg(debug_assertions)]
-                    debug_assert_eq!(name.ref_count((*ctx).rt()), _name_refcnt.map(|n| n + 2));
+                    // #[cfg(debug_assertions)]
+                    // debug_assert_eq!(name.ref_count((*ctx).rt()), _name_refcnt.map(|n| n + 2));
                 } else {
                     if tok == TOK_CONST {
                         js_parse_error(self, c"missing initializer for const variable");

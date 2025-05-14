@@ -1,5 +1,8 @@
+#![allow(non_snake_case)]
+
 use std::{
     ffi::{CStr, CString},
+    io::Write,
     ops::DerefMut,
     path::{Path, PathBuf},
 };
@@ -82,7 +85,7 @@ fn js_string_codePointRange(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     ctx.create_string_from_content(cc).check_exception()
 }
 
-fn js_createRealm(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+fn js_createRealm(ctx: &mut JSContext, _: CallArgs) -> JSResult {
     let ctx1 = ctx.rt_mut().create_context()?;
     let ret = setup_ctx_helpers(ctx1);
     unsafe {
@@ -96,50 +99,59 @@ fn setup_ctx_helpers(mut ctx: JSContextHandle) -> Result<JSValue, i32> {
     let ctx = ctx.deref_mut();
     let global = ctx.global_object_dup().check_exception()?;
 
-    let s = ctx.create_native_function(js_print, "print", 1, JSCFunctionEnum::NativeFunc, 0)?;
-    global.set_property_str(ctx, "print", s)?;
+    {
+        let s = ctx.create_native_function(js_print, "print", 1, JSCFunctionEnum::NativeFunc, 0)?;
+        global.set_property_str(ctx, "print", s)?;
+    }
 
     // $262
     let obj262 = ctx.create_object()?;
 
-    let f = ctx.create_native_function(
-        js_detachArrayBuffer,
-        "detachArrayBuffer",
-        1,
-        JSCFunctionEnum::NativeFunc,
-        0,
-    )?;
-    obj262.set_property_str(ctx, "detachArrayBuffer", f)?;
+    {
+        let f = ctx.create_native_function(
+            js_detachArrayBuffer,
+            "detachArrayBuffer",
+            1,
+            JSCFunctionEnum::NativeFunc,
+            0,
+        )?;
+        obj262.set_property_str(ctx, "detachArrayBuffer", f)?;
+    }
 
-    let f = ctx.create_native_function(
-        js_evalScript,
-        "evalScript",
-        1,
-        JSCFunctionEnum::NativeFunc,
-        0,
-    )?;
-    obj262.set_property_str(ctx, "evalScript", f)?;
+    {
+        let f = ctx.create_native_function(
+            js_evalScript,
+            "evalScript",
+            1,
+            JSCFunctionEnum::NativeFunc,
+            0,
+        )?;
+        obj262.set_property_str(ctx, "evalScript", f)?;
+    }
 
-    let f = ctx.create_native_function(
-        js_string_codePointRange,
-        "codePointRange",
-        1,
-        JSCFunctionEnum::NativeFunc,
-        0,
-    )?;
-    obj262.set_property_str(ctx, "codePointRange", f)?;
+    {
+        let f = ctx.create_native_function(
+            js_string_codePointRange,
+            "codePointRange",
+            1,
+            JSCFunctionEnum::NativeFunc,
+            0,
+        )?;
+        obj262.set_property_str(ctx, "codePointRange", f)?;
+    }
 
-    let f = ctx.create_native_function(
-        js_createRealm,
-        "createRealm",
-        1,
-        JSCFunctionEnum::NativeFunc,
-        0,
-    )?;
-    obj262.set_property_str(ctx, "createRealm", f)?;
+    {
+        let f = ctx.create_native_function(
+            js_createRealm,
+            "createRealm",
+            1,
+            JSCFunctionEnum::NativeFunc,
+            0,
+        )?;
+        obj262.set_property_str(ctx, "createRealm", f)?;
+    }
 
     obj262.set_property_str(ctx, "global", global.dup())?;
-
     global.set_property_str(ctx, "$262", obj262.dup())?;
 
     unsafe {
@@ -371,7 +383,7 @@ fn run_test_content(
     }
 }
 
-fn run_test(filename: &Path) {
+fn run_test(filename: &Path, outf: &mut dyn Write) {
     let harness_path = filename
         .ancestors()
         .find(|p| p.ends_with("test"))
@@ -463,20 +475,28 @@ fn run_test(filename: &Path) {
                     if let Some(ty) = neg.type_.as_ref() {
                         let err_class = msg.as_ref().split(":").next().unwrap();
                         if err_class == ty {
-                            log::info!("pass: '{}'", filename.display());
+                            writeln!(
+                                outf,
+                                "pass: '{}', expected error class: {}",
+                                filename.display(),
+                                ty
+                            )
+                            .unwrap();
                         } else {
-                            log::error!(
+                            writeln!(
+                                outf,
                                 "fail: '{}', expected error class: {}, got: {}",
                                 filename.display(),
                                 ty,
                                 err_class
-                            );
+                            )
+                            .unwrap();
                         }
                     } else {
-                        log::info!("pass: '{}'", filename.display());
+                        writeln!(outf, "pass: '{}'", filename.display()).unwrap();
                     }
                 } else {
-                    log::error!("fail: '{}', {}", filename.display(), msg);
+                    writeln!(outf, "fail: '{}', {}", filename.display(), msg).unwrap();
                 }
 
                 unsafe {
@@ -484,13 +504,15 @@ fn run_test(filename: &Path) {
                 }
             } else {
                 if let Some(neg) = &negative {
-                    log::error!(
+                    writeln!(
+                        outf,
                         "fail: '{}', expect throw error {}",
                         filename.display(),
                         neg.type_.as_ref().map_or("", |s| s.as_str())
-                    );
+                    )
+                    .unwrap();
                 } else {
-                    log::info!("pass: {}", filename.display());
+                    writeln!(outf, "pass: {}", filename.display()).unwrap();
                 }
             }
         }
@@ -504,7 +526,7 @@ fn run_test(filename: &Path) {
     // JS_DumpAtoms(js.as_mut());
 
     unsafe {
-        JS_FreeContext(ctx.deref_mut());
+        JS_FreeContext(ctx.as_ptr());
     }
     drop(rt);
 }
@@ -521,7 +543,17 @@ fn main() {
         "/Users/johnray/devel/test262/test/harness/assert-notsamevalue-tostring.js",
     ];
 
+    let mut fp = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open("test262-result.txt")
+        .unwrap();
+
+    for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
+        run_test(&fname.unwrap(), &mut fp);
+    }
+
     for f in test_files {
-        run_test(Path::new(f));
+        run_test(Path::new(f), &mut fp);
     }
 }
