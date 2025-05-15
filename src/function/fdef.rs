@@ -102,6 +102,8 @@ pub struct JSFunctionDef {
     pub vars: Vec<JSVarDef>,
     /// arguments defination list
     pub args: Vec<JSVarDef>,
+    /// global vars defination list.
+    pub global_vars: Vec<JSGlobalVar>,
 
     /// for length function property
     pub defined_arg_count: u16,
@@ -142,13 +144,6 @@ pub struct JSFunctionDef {
 
     // 函数体或eval的作用域
     pub body_scope: i32,
-
-    /// global vars defination list. TODO: use Vec<JSGlobalVar>
-    pub global_vars: *mut JSGlobalVar,
-    // 全局变量计数
-    pub global_var_count: u16,
-    // 全局变量分配大小
-    pub global_var_size: i32,
 
     // 字节码缓冲区
     pub byte_code: Vec<u8>,
@@ -263,8 +258,11 @@ impl JSFunctionDef {
             func_type: JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
             func_name: JS_ATOM_NULL,
             js_mode: 0,
+
             vars: Vec::new(),
             args: Vec::new(),
+            global_vars: Vec::new(),
+
             defined_arg_count: 0,
             func_var_idx: None,
             this_var_idx: None,
@@ -289,9 +287,6 @@ impl JSFunctionDef {
                 arr
             },
             body_scope: -1,
-            global_var_count: 0,
-            global_var_size: 0,
-            global_vars: std::ptr::null_mut(),
             byte_code: Vec::with_capacity(128),
             last_opcode_pos: -1,
             last_opcode_line_num: line_num,
@@ -878,13 +873,8 @@ impl JSFunctionDef {
                 vd.var_name = JS_ATOM_NULL;
             }
         }
-
-        for i in 0..self.global_var_count {
-            JS_FreeAtom(ctx, (*self.global_vars.offset(i as isize)).var_name);
-        }
-        if !self.global_vars.is_null() {
-            js_free(ctx, self.global_vars.cast());
-            self.global_vars = std::ptr::null_mut();
+        for gv in self.global_vars.drain(..) {
+            JS_FreeAtom(ctx, gv.var_name);
         }
 
         if let Some(mut lst) = self.closure_vars.take() {
@@ -1688,11 +1678,10 @@ pub unsafe fn instantiate_hoisted_definitions(
         (*s).jump_size += 1;
     }
 
-    // add the global variables (only happens if s->is_global_var is true)
-    for i in 0..(*s).global_var_count {
-        let hf = (*s).global_vars.offset(i as isize);
+    // add the global variables (only happens if JSFunctionDef::is_global_var is true)
+    for hf in (*s).global_vars.iter() {
         let mut has_closure: i32 = 0;
-        let mut force_init = (*hf).force_init();
+        let mut force_init = hf.force_init();
         let mut idx = 0;
 
         // we are in an eval, so the closure contains all the enclosing variables.
@@ -1701,7 +1690,7 @@ pub unsafe fn instantiate_hoisted_definitions(
             for (j, cv) in cvars.iter().enumerate() {
                 idx = j;
                 match cv.var_name {
-                    n if n == (*hf).var_name => {
+                    n if n == hf.var_name => {
                         has_closure = 2;
                         force_init = false;
                         break;
@@ -1724,34 +1713,34 @@ pub unsafe fn instantiate_hoisted_definitions(
                 flags |= JS_PROP_CONFIGURABLE;
             }
 
-            if (*hf).cpool_idx >= 0 && !(*hf).is_lexical() {
+            if hf.cpool_idx >= 0 && !hf.is_lexical() {
                 // global function definitions need a specific handling
                 push_vec_u8(bc, OpCode::FCLOSURE as u8);
-                push_vec_u32(bc, (*hf).cpool_idx as u32);
+                push_vec_u32(bc, hf.cpool_idx as u32);
 
                 push_vec_u8(bc, OpCode::DEFINE_FUNC as u8);
-                push_vec_u32(bc, (*hf).var_name.0);
+                push_vec_u32(bc, hf.var_name.0);
                 push_vec_u8(bc, flags as u8);
 
                 continue; // next global var
             } else {
-                if (*hf).is_lexical() {
+                if hf.is_lexical() {
                     flags |= DEFINE_GLOBAL_LEX_VAR as u32;
-                    if !(*hf).is_const() {
+                    if !hf.is_const() {
                         flags |= JS_PROP_WRITABLE;
                     }
                 }
                 push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
-                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0); // dup to compensate later free
+                push_vec_u32(bc, JS_DupAtom(ctx, hf.var_name).0); // dup to compensate later free
                 push_vec_u8(bc, flags as u8);
             }
         }
 
-        if (*hf).cpool_idx >= 0 || force_init {
-            if (*hf).cpool_idx >= 0 {
+        if hf.cpool_idx >= 0 || force_init {
+            if hf.cpool_idx >= 0 {
                 push_vec_u8(bc, OpCode::FCLOSURE as u8);
                 push_vec_u32(bc, (*hf).cpool_idx as u32);
-                if (*hf).var_name == JS_ATOM__default_ {
+                if hf.var_name == JS_ATOM__default_ {
                     // set default export function name
                     push_vec_u8(bc, OpCode::SET_NAME as u8);
                     push_vec_u32(bc, JS_DupAtom(ctx, JS_ATOM_default).0);
@@ -1775,7 +1764,7 @@ pub unsafe fn instantiate_hoisted_definitions(
         }
 
         // done_global_var:
-        JS_FreeAtom(ctx, (*hf).var_name);
+        JS_FreeAtom(ctx, hf.var_name);
     }
 
     if !(*s).module.is_null() {
@@ -1786,10 +1775,5 @@ pub unsafe fn instantiate_hoisted_definitions(
         (*(*s).label_slots.offset(l as isize)).pos2 = bc.len() as i32;
     }
 
-    if !(*s).global_vars.is_null() {
-        js_free(ctx, (*s).global_vars.cast());
-        (*s).global_vars = std::ptr::null_mut();
-    }
-    (*s).global_var_count = 0;
-    (*s).global_var_size = 0;
+    (*s).global_vars.clear();
 }

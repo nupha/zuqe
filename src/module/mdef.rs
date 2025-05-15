@@ -868,23 +868,19 @@ pub unsafe fn get_exported_names(
 }
 
 pub unsafe fn add_module_variables(ctx: *mut JSContext, fd: *mut JSFunctionDef) -> i32 {
-    let m: *mut JSModuleDef = (*fd).module;
-
     // The imported global variables were added as closure variables
     // in js_parse_import(). We add here the module global
     // variables.
-
-    for i in 0..(*fd).global_var_count {
-        let hf = ((*fd).global_vars).offset(i as isize);
+    for (i, hf) in (*fd).global_vars.iter().enumerate() {
         if (*fd)
             .add_closure_var(
                 ctx.as_mut().unwrap(),
                 true,
                 false,
-                i,
-                (*hf).var_name,
-                (*hf).is_const(),
-                (*hf).is_lexical(),
+                i as _,
+                hf.var_name,
+                hf.is_const(),
+                hf.is_lexical(),
                 JSVarKindEnum::JS_VAR_NORMAL,
             )
             .is_err()
@@ -892,6 +888,8 @@ pub unsafe fn add_module_variables(ctx: *mut JSContext, fd: *mut JSFunctionDef) 
             return -1;
         }
     }
+
+    let m: *mut JSModuleDef = (*fd).module;
 
     // resolve the variable names of the local exports
     for me in (*m).export_entries.iter_mut() {

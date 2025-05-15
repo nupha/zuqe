@@ -168,7 +168,7 @@ pub unsafe fn is_var_in_arg_scope(vd: *const JSVarDef) -> bool {
     )
 }
 
-#[repr(C)]
+#[derive(Debug)]
 pub struct JSGlobalVar {
     pub cpool_idx: i32, // if >= 0, index in the constant pool for hoisted
 
@@ -210,40 +210,29 @@ impl JSFunctionDef {
         ctx: &mut JSContext,
         name: JSAtom,
     ) -> Result<&mut JSGlobalVar, i32> {
-        if js_resize_array(
-            ctx,
-            std::ptr::addr_of_mut!(self.global_vars).cast(),
-            std::mem::size_of::<JSGlobalVar>() as _,
-            std::ptr::addr_of_mut!(self.global_var_size),
-            self.global_var_count as i32 + 1,
-        ) != 0
-        {
-            return Err(-1);
+        if self.global_vars.len() == self.global_vars.capacity() {
+            if self.global_vars.try_reserve_exact(2).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
         }
 
-        let i = (*self).global_var_count;
-        self.global_var_count += 1;
+        let mut hf = JSGlobalVar {
+            cpool_idx: -1,
+            bitfields: 0,
+            scope_level: self.scope_level,
+            var_name: name.dup(ctx.rt()),
+        };
+        hf.set_force_init(false);
+        hf.set_is_lexical(false);
+        hf.set_is_const(false);
+        self.global_vars.push(hf);
 
-        let hf = self.global_vars.offset(i as _);
-        (*hf).cpool_idx = -1;
-        (*hf).set_force_init(false);
-        (*hf).set_is_lexical(false);
-        (*hf).set_is_const(false);
-        (*hf).scope_level = (*self).scope_level;
-        (*hf).var_name = JS_DupAtom(ctx, name);
-
-        Ok(hf.as_mut().unwrap())
+        Ok(self.global_vars.last_mut().unwrap())
     }
 
     pub fn find_global_var(&self, name: JSAtom) -> Option<&JSGlobalVar> {
-        if self.global_var_count != 0 {
-            debug_assert!(!self.global_vars.is_null());
-            unsafe { std::slice::from_raw_parts(self.global_vars, self.global_var_count as usize) }
-                .iter()
-                .find(|x| x.var_name == name)
-        } else {
-            None
-        }
+        self.global_vars.iter().find(|x| x.var_name == name)
     }
 
     /// add new argument to the function, returns arg id or error
@@ -476,65 +465,40 @@ impl JSFunctionDef {
         ctx: &mut JSContext,
         bc_buf: &mut Vec<u8>,
     ) {
-        'global_var: for i in 0..self.global_var_count {
-            let hf = self.global_vars.add(i as usize);
-
+        'g_var: for hf in self.global_vars.iter() {
             // check if global variable (XXX: simplify)
             if let Some(cvars) = self.closure_vars.as_ref() {
                 for cv in cvars {
                     match cv.var_name {
                         JS_ATOM__var_ | JS_ATOM__arg_var_ => {
-                            continue 'global_var;
+                            continue 'g_var;
                         }
-                        name if name == (*hf).var_name => {
-                            if (*cv).is_lexical() {
+                        name if name == hf.var_name => {
+                            if cv.is_lexical() {
                                 // Check if a lexical variable is
                                 // redefined as 'var'. XXX: Could abort
                                 // compilation here, but for consistency
                                 // with the other checks, we delay the
                                 // error generation.
                                 push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-                                push_vec_u32(bc_buf, JS_DupAtom(ctx, (*hf).var_name).0);
+                                push_vec_u32(bc_buf, JS_DupAtom(ctx, hf.var_name).0);
                                 push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
                             }
-                            continue 'global_var;
+                            continue 'g_var;
                         }
                         _ => {}
                     }
                 }
             }
 
-            // for idx in 0..self.closure_var_count {
-            //     let cv = self.closure_vars.add(idx as usize);
-            //     match (*cv).var_name {
-            //         name if name == (*hf).var_name => {
-            //             if (*cv).is_lexical() {
-            //                 // Check if a lexical variable is
-            //                 // redefined as 'var'. XXX: Could abort
-            //                 // compilation here, but for consistency
-            //                 // with the other checks, we delay the
-            //                 // error generation.
-            //                 push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-            //                 push_vec_u32(bc_buf, JS_DupAtom(ctx, (*hf).var_name).0);
-            //                 push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
-            //             }
-            //             continue 'global_var;
-            //         }
-            //         JS_ATOM__var_ | JS_ATOM__arg_var_ => {
-            //             continue 'global_var;
-            //         }
-            //         _ => {}
-            //     }
-            // }
-
             push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
-            push_vec_u32(bc_buf, JS_DupAtom(ctx, (*hf).var_name).0);
+            push_vec_u32(bc_buf, JS_DupAtom(ctx, hf.var_name).0);
 
             let mut flags = 0;
-            if (*hf).is_lexical() {
+            if hf.is_lexical() {
                 flags |= DEFINE_GLOBAL_LEX_VAR;
             }
-            if (*hf).cpool_idx >= 0 {
+            if hf.cpool_idx >= 0 {
                 flags |= DEFINE_GLOBAL_FUNC_VAR;
             }
             push_vec_u8(bc_buf, flags);
