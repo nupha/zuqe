@@ -1244,7 +1244,7 @@ pub unsafe fn skip_dead_code(
             //     }
             // }
 
-            debug_assert!((*s).label_slots[label as usize].first_reloc.is_null());
+            debug_assert!((*s).label_slots[label as usize].pending_relocs.is_empty());
         } else {
             // XXX: output a warning for unreachable code?
             match oi.fmt {

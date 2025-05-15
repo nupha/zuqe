@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use crate::{
     atom::{JSAtom, JS_FreeAtom},
     bytecode::{opcode_info_intermediate, opcodes, OPSpecialObjectEnum, OpCode},
@@ -8,7 +6,7 @@ use crate::{
         skip_dead_code, JSFunctionDef, LineNumberSlot, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
-    mem::{js_free, js_malloc, js_mallocz},
+    mem::{js_free, js_mallocz},
     parse::JSParseState,
     utils::{
         get_u16, get_u32, push_vec_leb128, push_vec_short_code, push_vec_short_int,
@@ -21,7 +19,6 @@ use super::optimize::{CodeContext, OPTIMIZE};
 
 #[derive(Debug)]
 pub struct RelocEntry {
-    pub next: *mut Self,
     pub addr: usize, /* address to patch */
     pub size: i32,   /* address size: 1, 2 or 4 bytes */
 }
@@ -38,28 +35,20 @@ pub struct LabelInfo {
     pub addr: i32,
 
     /// pending relocations
-    /// TODO: use Vec<RelocEntry> or LinkedList<RelocEntry>
-    pub first_reloc: *mut RelocEntry,
+    pub pending_relocs: Vec<RelocEntry>,
 }
 
 impl LabelInfo {
-    fn add_reloc(
-        &mut self,
-        ctx: &mut JSContext,
-        addr: usize,
-        size: i32,
-    ) -> Result<NonNull<RelocEntry>, i32> {
-        // TODO: handle alloc fail
-        let re = Box::new(RelocEntry {
-            next: self.first_reloc,
-            addr,
-            size,
-        });
+    fn add_reloc(&mut self, ctx: &mut JSContext, addr: usize, size: i32) -> Result<(), i32> {
+        if self.pending_relocs.len() == self.pending_relocs.capacity() {
+            if self.pending_relocs.try_reserve_exact(4).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
+        }
 
-        let p = Box::into_raw(re);
-        self.first_reloc = p;
-
-        Ok(unsafe { NonNull::new_unchecked(p) })
+        self.pending_relocs.push(RelocEntry { addr, size });
+        Ok(())
     }
 }
 
@@ -78,7 +67,7 @@ impl JSFunctionDef {
             pos: -1,
             pos2: -1,
             addr: -1,
-            first_reloc: std::ptr::null_mut(),
+            pending_relocs: Vec::new(),
         });
 
         Ok(self.label_slots.len() as u32 - 1)
@@ -254,31 +243,25 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 debug_assert_eq!(lb.addr, -1);
                 lb.addr = bc_out.len() as _;
 
-                // resolve the relocation entries. free RelocEntry
-                let mut re = (*lb).first_reloc;
-                while !re.is_null() {
-                    let diff = lb.addr as usize - (*re).addr;
-                    let re_next = (*re).next;
-                    match (*re).size {
-                        4 => put_u32(bc_out.as_mut_ptr().add((*re).addr as usize), diff as _),
+                // resolve pending relocation entries
+                while let Some(re) = lb.pending_relocs.pop() {
+                    let delta = lb.addr as usize - re.addr;
+                    match re.size {
+                        4 => put_u32(bc_out.as_mut_ptr().add(re.addr as usize), delta as u32),
                         2 => {
-                            debug_assert_eq!(diff, (diff as i16) as usize);
-                            put_u16(bc_out.as_mut_ptr().add((*re).addr as usize), diff as u16);
+                            debug_assert_eq!(delta, (delta as i16) as usize);
+                            put_u16(bc_out.as_mut_ptr().add(re.addr as usize), delta as u16);
                         }
                         1 => {
-                            assert_eq!(diff, (diff as i8) as usize);
-                            put_u8(bc_out.as_mut_ptr().add((*re).addr as usize), diff as u8);
+                            assert_eq!(delta, (delta as i8) as usize);
+                            put_u8(bc_out.as_mut_ptr().add(re.addr as usize), delta as u8);
                         }
                         _ => {
                             unreachable!()
                         }
                     }
-
-                    drop(Box::from_raw(re));
-                    re = re_next;
                 }
 
-                lb.first_reloc = std::ptr::null_mut();
                 None
             }
             opcodes::OP_call | opcodes::OP_call_method => {
@@ -898,7 +881,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
     // check that there were no missing labels
     #[cfg(debug_assertions)]
     for lb in (*s).label_slots.iter() {
-        debug_assert!(lb.first_reloc.is_null());
+        debug_assert!(lb.pending_relocs.is_empty());
     }
 
     #[cfg(feature = "short_opcode")]
