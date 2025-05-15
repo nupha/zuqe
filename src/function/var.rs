@@ -10,7 +10,6 @@ use crate::{
         get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
         resolve_scope_var, skip_dead_code, JSFunctionDef,
     },
-    mem::js_resize_array,
     runtime::JS_MAX_LOCAL_VARS,
     utils::{get_u16, get_u32, push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, M2},
 };
@@ -205,7 +204,7 @@ impl JSGlobalVar {
 
 impl JSFunctionDef {
     /// add a global variable definition
-    pub unsafe fn add_global_var(
+    pub fn add_global_var(
         &mut self,
         ctx: &mut JSContext,
         name: JSAtom,

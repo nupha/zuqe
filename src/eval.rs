@@ -156,7 +156,7 @@ impl JSContext {
         }
 
         fd.module = m;
-        if !m.is_null() || (flags & JS_EVAL_FLAG_ASYNC != 0) {
+        if !m.is_null() || flags & JS_EVAL_FLAG_ASYNC != 0 {
             fd.in_function_body = true;
             fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }
