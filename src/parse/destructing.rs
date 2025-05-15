@@ -625,16 +625,10 @@ pub unsafe fn js_parse_destructuring_element(
             return -1;
         }
 
-        // C2RS: memset replaced with label ref adjustment
         (*s).cur_func.as_mut().unwrap().byte_code[start_addr as usize..assign_addr as usize]
             .fill(OpCode::NOP as u8);
-        (*(*s)
-            .cur_func
-            .as_mut()
-            .unwrap()
-            .label_slots
-            .offset(label_parse as isize))
-        .ref_count -= 1;
+
+        (*s).cur_func.as_mut().unwrap().label_slots[label_parse as usize].ref_count -= 1;
         has_initializer = false;
     }
 

@@ -2,7 +2,7 @@ use crate::{
     atom::{JSAtom, JS_ATOM_NULL},
     context::{JSContext, JS_MODE_ASYNC, JS_MODE_STRICT},
     function::{
-        JSClosureVar, JSFunctionBytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
+        JSClosureVar, JSFunctionBytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelInfo,
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
@@ -229,7 +229,7 @@ pub unsafe fn dump_byte_code(
     cpools: &[JSValue],
     source: *const i8,
     line_num: i32,
-    label_slots: *const LabelSlot,
+    labels: &[LabelInfo], // for pass 1, 2 only
     b: *const JSFunctionBytecode,
 ) {
     let len = tab.len() as i32;
@@ -241,7 +241,6 @@ pub unsafe fn dump_byte_code(
         OP_COUNT_INTERMEDIATE
     };
 
-    let mut addr: i32;
     let mut pos: i32 = 0;
     let mut pos_next: i32;
     let mut bits = vec![0_u8; tab.len()];
@@ -261,13 +260,12 @@ pub unsafe fn dump_byte_code(
                 #[cfg(feature = "short_opcode")]
                 "label8" => {
                     pos += 1;
-                    addr = *tab.offset(pos) as i8 as i32;
-                    // C2RS: goto has_addr replaced with inline logic
+                    addr = *tab.offset(pos) as i32;
                     if pass == 1 {
-                        addr = (*label_slots.offset(addr as isize)).pos;
+                        addr = (*labels.offset(addr as isize)).pos;
                     }
                     if pass == 2 {
-                        addr = (*label_slots.offset(addr as isize)).pos2;
+                        addr = (*labels.offset(addr as isize)).pos2;
                     }
                     if pass == 3 {
                         addr += pos;
@@ -279,15 +277,12 @@ pub unsafe fn dump_byte_code(
                 #[cfg(feature = "short_opcode")]
                 "label16" => {
                     pos += 1;
-                    addr = get_u16(tab.offset(pos)) as i16 as i32;
-                    // C2RS: goto has_addr replaced with inline logic
+                    let addr = get_u16(tab.offset(pos)) as i32;
                     if pass == 1 {
-                        addr = (*label_slots.offset(addr as isize)).pos;
-                    }
-                    if pass == 2 {
-                        addr = (*label_slots.offset(addr as isize)).pos2;
-                    }
-                    if pass == 3 {
+                        addr = labels[addr as usize].pos;
+                    } else if pass == 2 {
+                        addr = labels[addr as usize].pos2;
+                    } else if pass == 3 {
                         addr += pos;
                     }
                     if addr >= 0 && addr < len {
@@ -300,12 +295,12 @@ pub unsafe fn dump_byte_code(
                         pos += 4;
                     }
                     pos += 1;
-                    addr = get_u32(tab.as_ptr().add(pos as _)) as i32;
+                    let addr = get_u32(tab.as_ptr().add(pos as _));
 
                     let pc = match pass {
-                        1 => (*label_slots.offset(addr as isize)).pos,
-                        2 => (*label_slots.offset(addr as isize)).pos2,
-                        3 => addr + pos,
+                        1 => labels[addr as usize].pos,
+                        2 => labels[addr as usize].pos2,
+                        3 => addr as i32 + pos,
                         _ => {
                             unreachable!()
                         }
@@ -322,13 +317,13 @@ pub unsafe fn dump_byte_code(
     }
 
     macro_rules! has_addr1 {
-        () => {
+        ($addr:expr) => {
             if pass == 1 {
-                print!(" {}:{}", addr, (*label_slots.offset(addr as isize)).pos);
+                print!(" {}:{}", $addr, labels[$addr as usize].pos);
             } else if pass == 2 {
-                print!(" {}:{}", addr, (*label_slots.offset(addr as isize)).pos2);
+                print!(" {}:{}", $addr, labels[$addr as usize].pos2);
             } else if pass == 3 {
-                print!(" {}", addr + pos);
+                print!(" {}", $addr as i32 + pos);
             }
         };
     }
@@ -456,18 +451,18 @@ pub unsafe fn dump_byte_code(
 
             #[cfg(feature = "short_opcode")]
             "label8" => {
-                addr = get_i8(tab.as_ptr().offset(pos));
-                has_addr1();
+                let addr = get_i8(tab.as_ptr().offset(pos));
+                has_addr1(addr);
             }
             #[cfg(feature = "short_opcode")]
             "label16" => {
-                addr = get_i16(tab.as_ptr().offset(pos));
-                has_addr1!();
+                let addr = get_i16(tab.as_ptr().offset(pos));
+                has_addr1!(addr);
             }
 
             f @ ("label" | "label_u16") => {
-                addr = get_u32(tab.as_ptr().offset(pos as _)) as _;
-                has_addr1!();
+                let addr = get_u32(tab.as_ptr().offset(pos as _));
+                has_addr1!(addr);
 
                 if f == "label_u16" {
                     print!(", {}", get_u16(tab.as_ptr().add(pos as usize + 4)));
@@ -515,13 +510,13 @@ pub unsafe fn dump_byte_code(
                     JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
                 );
 
-                addr = get_u32(tab.as_ptr().offset(pos as isize + 4)) as _;
+                let addr = get_u32(tab.as_ptr().offset(pos as isize + 4));
                 if pass == 1 {
-                    print!(", {}:{}", addr, (*label_slots.offset(addr as isize)).pos);
+                    print!(", {}:{}", addr, labels[addr as usize].pos);
                 } else if pass == 2 {
-                    print!(", {}:{}", addr, (*label_slots.offset(addr as isize)).pos2);
+                    print!(", {}:{}", addr, labels[addr as usize].pos2);
                 } else if pass == 3 {
-                    print!(", {}", addr + pos + 4);
+                    print!(", {}", addr as i32 + pos + 4);
                 }
 
                 if f == "atom_label_u8" {
@@ -718,7 +713,7 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
         } else {
             -1
         },
-        std::ptr::null_mut(),
+        &[],
         b,
     );
 

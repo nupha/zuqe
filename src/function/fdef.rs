@@ -28,6 +28,8 @@ use crate::{
     JS_MKPTR,
 };
 
+use super::LabelInfo;
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct JSFunctionDef {
@@ -159,12 +161,7 @@ pub struct JSFunctionDef {
     pub use_short_opcodes: bool,
 
     /// 标签槽数组
-    /// TODO: use Vec<LabelSlot>
-    pub label_slots: *mut LabelSlot,
-    // 标签槽分配大小
-    pub label_size: i32,
-    // 标签数量
-    pub label_count: u16,
+    pub label_slots: Vec<LabelInfo>,
 
     // break/continue label stack
     pub top_break: *mut BlockEnv,
@@ -285,9 +282,9 @@ impl JSFunctionDef {
             last_opcode_pos: -1,
             last_opcode_line_num: line_num,
             use_short_opcodes: false,
-            label_slots: std::ptr::null_mut(),
-            label_size: 0,
-            label_count: 0,
+
+            label_slots: Vec::new(),
+
             top_break: std::ptr::null_mut(),
             closure_vars: None,
             jump_slots: std::ptr::null_mut(),
@@ -307,88 +304,18 @@ impl JSFunctionDef {
             has_await: false,
         };
 
-        let mut fd = unsafe {
+        let fd = unsafe {
             let mut p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
             p.as_ptr().write(o);
 
             init_list_head(&mut p.as_mut().child_list);
 
             Box::from_raw(p.as_ptr())
-
-            // let ptr = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
-            // let p = ptr.as_ptr();
-
-            // (*p).closure_vars = None;
-            // (*p).ctx = ctx;
-            // (*p).parent = std::ptr::null_mut();
-            // (*p).parent_cpool_idx = -1;
-            // (*p).is_eval = is_eval;
-            // (*p).is_func_expr = is_func_expr;
-            // (*p).byte_code = Vec::with_capacity(128);
-            // (*p).last_opcode_pos = -1;
-            // (*p).func_name = JS_ATOM_NULL;
-            // (*p).var_object_idx = None;
-            // (*p).arg_var_object_idx = None;
-            // (*p).arguments_var_idx = None;
-            // (*p).arguments_arg_idx = None;
-            // (*p).func_var_idx = None;
-            // (*p).eval_ret_idx = None;
-            // (*p).this_var_idx = None;
-            // (*p).new_target_var_idx = None;
-            // (*p).home_object_var_idx = None;
-            // (*p).this_active_func_var_idx = None;
-
-            // /* XXX: should distinguish arg, var and var object and body scopes */
-            // (*p).scopes = {
-            //     let mut arr = Vec::<JSVarScope>::new();
-            //     arr.try_reserve_exact(4).map_err(|_| -1)?;
-            //     arr.push(JSVarScope {
-            //         first: -1,
-            //         parent: -1,
-            //     });
-            //     arr
-            // };
-            // (*p).scope_level = 0;
-            // (*p).scope_first = -1;
-            // (*p).body_scope = -1;
-
-            // (*p).filename = ctx.create_atom(filename)?;
-            // (*p).line_num = line_num;
-
-            // (*p).pc2line = None;
-            // // (*fd).pc2line_last_line_num = line_num;
-            // // (*fd).pc2line_last_pc = 0;
-
-            // (*p).last_opcode_line_num = line_num;
-
-            // (*p).cpool = std::ptr::null_mut();
-            // (*p).cpool_count = 0;
-            // (*p).cpool_size = 0;
-            // (*p).arg_count = 0;
-            // (*p).defined_arg_count = 0;
-            // (*p).global_var_count = 0;
-            // (*p).global_var_size = 0;
-            // (*p).global_vars = std::ptr::null_mut();
-
-            // (*p).label_slots = std::ptr::null_mut();
-            // (*p).label_size = 0;
-            // (*p).label_count = 0;
-            // (*p).top_break = std::ptr::null_mut();
-
-            // (*p).jump_slots = std::ptr::null_mut();
-            // (*p).jump_size = 0;
-            // (*p).jump_count = 0;
-
-            // (*p).line_number_slots = std::ptr::null_mut();
-            // (*p).line_number_size = 0;
-            // (*p).line_number_count = 0;
-
-            // Box::from_raw(ptr.as_ptr())
         };
 
-        unsafe {
-            init_list_head(&mut fd.child_list);
-        }
+        // unsafe {
+        //     init_list_head(&mut fd.child_list);
+        // }
 
         Ok(fd)
     }
@@ -426,15 +353,16 @@ impl JSFunctionDef {
     /// update label ref count by delta. returns updated ref count.
     pub unsafe fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
         debug_assert!(
-            label < self.label_count as u32,
+            label < self.label_slots.len() as u32,
             "label={label}, count={}",
-            self.label_count
+            self.label_slots.len()
         );
 
-        let ls = self.label_slots.offset(label as isize);
-        (*ls).ref_count += delta;
-        debug_assert!((*ls).ref_count >= 0);
-        (*ls).ref_count
+        let lb = self.label_slots.get_mut(label as usize).unwrap();
+        lb.ref_count += delta;
+        debug_assert!(lb.ref_count >= 0);
+
+        lb.ref_count
     }
 
     /// the pc2line table gives a line number for each PC value
@@ -800,7 +728,7 @@ impl JSFunctionDef {
                     self.cpool.as_slice(),
                     self.source.cast(),
                     self.line_num as _,
-                    self.label_slots,
+                    self.label_slots.as_slice(),
                     std::ptr::null_mut(),
                 );
             }
@@ -828,10 +756,7 @@ impl JSFunctionDef {
             js_free(ctx, self.jump_slots.cast());
             self.jump_slots = std::ptr::null_mut();
         }
-        if !self.label_slots.is_null() {
-            js_free(ctx, self.label_slots.cast());
-            self.label_slots = std::ptr::null_mut();
-        }
+        // self.label_slots.clear();
         if !self.line_number_slots.is_null() {
             js_free(ctx, self.line_number_slots.cast());
             self.line_number_slots = std::ptr::null_mut();
@@ -904,29 +829,6 @@ pub struct BlockEnv {
     pub label_finally: i32,
     pub scope_level: i32,
     pub has_iterator: bool,
-}
-
-#[derive(Debug)]
-pub struct LabelSlot {
-    pub ref_count: i32,
-
-    /// phase 1 address, -1 means not resolved yet
-    pub pos: i32,
-    /// phase 2 address, -1 means not resolved yet
-    pub pos2: i32,
-    /// phase 3 address, -1 means not resolved yet
-    pub addr: i32,
-
-    /// relocations
-    /// TODO: use Vec<RelocEntry> or LinkedList<RelocEntry>
-    pub first_reloc: *mut RelocEntry,
-}
-
-#[derive(Debug)]
-pub struct RelocEntry {
-    pub next: *mut Self,
-    pub addr: usize, /* address to patch */
-    pub size: i32,   /* address size: 1, 2 or 4 bytes */
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1281,7 +1183,7 @@ pub unsafe fn get_label_pos(s: *mut JSFunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
-        pos = (*(*s).label_slots.add(label as usize)).pos;
+        pos = (*s).label_slots[label as usize].pos;
 
         loop {
             match (*s).byte_code[pos as usize] {
@@ -1297,7 +1199,7 @@ pub unsafe fn get_label_pos(s: *mut JSFunctionDef, mut label: i32) -> i32 {
                 }
             }
 
-            break; // loop
+            break;
         }
     }
 
@@ -1342,9 +1244,7 @@ pub unsafe fn skip_dead_code(
             //     }
             // }
 
-            debug_assert!((*(*s).label_slots.add(label as usize))
-                .first_reloc
-                .is_null());
+            debug_assert!((*s).label_slots[label as usize].first_reloc.is_null());
         } else {
             // XXX: output a warning for unreachable code?
             match oi.fmt {
@@ -1756,7 +1656,7 @@ pub unsafe fn instantiate_hoisted_definitions(
         push_vec_u8(bc, OpCode::RETURN_UNDEF as u8);
         push_vec_u8(bc, OpCodeTemp::LABEL as u8);
         push_vec_u32(bc, l);
-        (*(*s).label_slots.offset(l as isize)).pos2 = bc.len() as i32;
+        (*s).label_slots[l as usize].pos2 = bc.len() as i32;
     }
 
     (*s).global_vars.clear();

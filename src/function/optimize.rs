@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode},
     context::{JSContext, JS_MODE_STRICT},
-    function::{code_has_label, find_jump_target, JSFunctionDef, LabelSlot},
+    function::{code_has_label, find_jump_target, JSFunctionDef, LabelInfo},
     utils::{
         get_u16, get_u32, push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32,
         push_vec_u8, put_u16, put_u32, M2, M3,
@@ -661,12 +661,12 @@ pub unsafe fn optimize_scope_make_ref(
     s: *const JSFunctionDef,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
-    ls: *mut LabelSlot,
+    label: &LabelInfo,
     mut pos_next: usize,
     get_op: OpCode,
     var_idx: i32,
 ) -> usize {
-    debug_assert!((*ls).pos >= 0);
+    debug_assert!(label.pos >= 0);
 
     /* XXX: should optimize `loc(a) += expr` as `expr add_loc(a)`
       but only if expr does not modify `a`.
@@ -681,7 +681,7 @@ pub unsafe fn optimize_scope_make_ref(
         pos_next += 1;
     }
 
-    let label_pos = (*ls).pos as usize;
+    let label_pos = label.pos as usize;
     let mut pos = label_pos - 5;
     debug_assert_eq!(*bc_buf.add(pos), opcodes::op_label);
 
@@ -715,7 +715,7 @@ pub unsafe fn optimize_scope_make_global_ref(
     s: *mut JSFunctionDef,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
-    ls: *mut LabelSlot,
+    label: &LabelInfo,
     pos_next: u32,
     var_name: JSAtom,
 ) -> u32 {
@@ -732,7 +732,7 @@ pub unsafe fn optimize_scope_make_global_ref(
         push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
     }
 
-    let label_pos = (*ls).pos as usize;
+    let label_pos = label.pos as usize;
     let end_pos = label_pos + 2;
     let mut pos = label_pos - 5;
     debug_assert_eq!(*bc_buf.add(pos), opcodes::op_label);

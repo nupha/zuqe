@@ -5,7 +5,7 @@ use crate::{
     error::JS_THROW_VAR_RO,
     function::{
         add_arguments_var, add_func_var, resolve_pseudo_var, var_object_test, JSFunctionDef,
-        JSVarKindEnum, LabelSlot, ARGUMENT_VAR_OFFSET, ARG_SCOPE_END,
+        JSVarKindEnum, LabelInfo, ARGUMENT_VAR_OFFSET, ARG_SCOPE_END,
     },
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
 };
@@ -91,7 +91,7 @@ pub unsafe fn resolve_scope_var(
     op: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
-    ls: *mut LabelSlot,
+    label: Option<&LabelInfo>,
     mut pos_next: usize,
 ) -> usize {
     let ctx = ctx.as_mut().unwrap();
@@ -101,7 +101,7 @@ pub unsafe fn resolve_scope_var(
             if let Some(l) = $label {
                 push_vec_u8(bc, opcodes::op_label);
                 push_vec_u32(bc, l);
-                (*(*s).label_slots.add(l as usize)).pos2 = bc.len() as i32;
+                (*s).label_slots[l as usize].pos2 = bc.len() as i32;
             }
             return pos_next;
         };
@@ -184,6 +184,8 @@ pub unsafe fn resolve_scope_var(
         // can be used with a closure (module global variable case).
         match op as u8 {
             opcodes::op_scope_make_ref => {
+                debug_assert!(label.is_some());
+
                 if var_idx & ARGUMENT_VAR_OFFSET == 0
                     && (*s).vars.get(var_idx as usize).unwrap().var_kind()
                         == JSVarKindEnum::JS_VAR_FUNCTION_NAME
@@ -196,7 +198,8 @@ pub unsafe fn resolve_scope_var(
                     push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
                     push_vec_u8(bc, opcodes::OP_push_atom_value);
                     push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
-                } else if label_done.is_none() && can_opt_put_ref_value(bc_buf, (*ls).pos) {
+                } else if label_done.is_none() && can_opt_put_ref_value(bc_buf, label.unwrap().pos)
+                {
                     let get_op = if var_idx & ARGUMENT_VAR_OFFSET != 0 {
                         var_idx -= ARGUMENT_VAR_OFFSET;
                         OpCode::GET_ARG
@@ -207,8 +210,16 @@ pub unsafe fn resolve_scope_var(
                             OpCode::GET_LOC
                         }
                     };
-                    pos_next =
-                        optimize_scope_make_ref(ctx, s, bc, bc_buf, ls, pos_next, get_op, var_idx);
+                    pos_next = optimize_scope_make_ref(
+                        ctx,
+                        s,
+                        bc,
+                        bc_buf,
+                        label.unwrap(),
+                        pos_next,
+                        get_op,
+                        var_idx,
+                    );
                 } else {
                     // Create a dummy object with a named slot that is
                     // a reference to the local variable
@@ -229,6 +240,8 @@ pub unsafe fn resolve_scope_var(
             | opcodes::op_scope_get_var
             | opcodes::op_scope_put_var
             | opcodes::op_scope_put_var_init => {
+                debug_assert!(label.is_none());
+
                 if op == opcodes::op_scope_get_ref {
                     push_vec_u8(bc, opcodes::OP_undefined);
                 }
@@ -454,8 +467,8 @@ pub unsafe fn resolve_scope_var(
         fd = s;
     }
 
-    // flag for goto has_idx
-    let mut goto_has_idx = false;
+    // state flag. TODO: use Option<i32> to indicate closure var index found.
+    let mut has_idx = false;
 
     if var_idx < 0 && (*fd).is_eval {
         if let Some(cvars) = (*fd).closure_vars.as_ref() {
@@ -478,7 +491,7 @@ pub unsafe fn resolve_scope_var(
                         idx1 as i32
                     };
 
-                    goto_has_idx = true; // goto has_idx
+                    has_idx = true;
                     break;
                 } else if !is_pseudo_var
                     && matches!(
@@ -550,11 +563,11 @@ pub unsafe fn resolve_scope_var(
         .map_or(-1, |x| x as i32);
 
         if idx >= 0 {
-            goto_has_idx = true;
+            has_idx = true;
         }
     }
 
-    if goto_has_idx {
+    if has_idx {
         // found closure var idx
         let cv = (*s)
             .closure_vars
@@ -574,6 +587,8 @@ pub unsafe fn resolve_scope_var(
         } else {
             match op as u8 {
                 opcodes::op_scope_make_ref => {
+                    debug_assert!(label.is_some());
+
                     if cv.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_NAME {
                         // Create a dummy object reference for the func_var
                         push_vec_u8(bc, opcodes::OP_object);
@@ -583,13 +598,15 @@ pub unsafe fn resolve_scope_var(
                         push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
                         push_vec_u8(bc, opcodes::OP_push_atom_value);
                         push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
-                    } else if label_done.is_none() && can_opt_put_ref_value(bc_buf, (*ls).pos) {
+                    } else if label_done.is_none()
+                        && can_opt_put_ref_value(bc_buf, label.unwrap().pos)
+                    {
                         pos_next = optimize_scope_make_ref(
                             ctx,
                             s,
                             bc,
                             bc_buf,
-                            ls,
+                            label.unwrap(),
                             pos_next,
                             if cv.is_lexical() {
                                 OpCode::GET_VAR_REF_CHECK
@@ -664,10 +681,18 @@ pub unsafe fn resolve_scope_var(
     //
     match op as u8 {
         opcodes::op_scope_make_ref => {
-            if label_done.is_none() && can_opt_put_global_ref_value(bc_buf, (*ls).pos) {
-                pos_next =
-                    optimize_scope_make_global_ref(ctx, s, bc, bc_buf, ls, pos_next as _, var_name)
-                        as _;
+            debug_assert!(label.is_some());
+
+            if label_done.is_none() && can_opt_put_global_ref_value(bc_buf, label.unwrap().pos) {
+                pos_next = optimize_scope_make_global_ref(
+                    ctx,
+                    s,
+                    bc,
+                    bc_buf,
+                    label.unwrap(),
+                    pos_next as _,
+                    var_name,
+                ) as _;
             } else {
                 push_vec_u8(bc, opcodes::OP_make_var_ref);
                 push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);

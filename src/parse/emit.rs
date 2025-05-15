@@ -162,7 +162,7 @@ impl JSFunctionDef {
         debug_assert!(label >= 0);
         self.emit_u8(OpCodeTemp::LABEL as u8);
         self.emit_u32(label as _);
-        self.label_slots.offset(label as _).as_mut().unwrap().pos = self.byte_code.len() as _;
+        self.label_slots[label as usize].pos = self.byte_code.len() as _;
     }
 
     /* return the label ID offset */
@@ -170,14 +170,14 @@ impl JSFunctionDef {
         if label >= 0 {
             self.emit_op_temp(OpCodeTemp::LABEL, last_line_num);
             self.emit_u32(label as _);
-            self.label_slots.offset(label as _).as_mut().unwrap().pos = self.byte_code.len() as _;
+            self.label_slots[label as usize].pos = self.byte_code.len() as _;
             self.byte_code.len() as i32 - 4
         } else {
             -1
         }
     }
 
-    /* return label or -1 if dead code */
+    /// return label or -1 if dead code
     pub unsafe fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: u32) -> i32 {
         if self.is_live_code() {
             if label < 0 {
@@ -188,12 +188,7 @@ impl JSFunctionDef {
             self.emit_op(opcode, last_line_num);
             self.emit_u32(label as _);
 
-            self.label_slots
-                .offset(label as _)
-                .as_mut()
-                .unwrap()
-                .ref_count += 1;
-
+            self.label_slots[label as usize].ref_count += 1;
             label
         } else {
             -1

@@ -1,12 +1,14 @@
+use std::ptr::NonNull;
+
 use crate::{
     atom::{JSAtom, JS_FreeAtom},
     bytecode::{opcode_info_intermediate, opcodes, OPSpecialObjectEnum, OpCode},
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
-        skip_dead_code, JSFunctionDef, LabelSlot, LineNumberSlot, RelocEntry, PC2LINE_BASE,
-        PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
+        skip_dead_code, JSFunctionDef, LineNumberSlot, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX,
+        PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
-    mem::{js_free, js_malloc, js_mallocz, js_resize_array},
+    mem::{js_free, js_malloc, js_mallocz},
     parse::JSParseState,
     utils::{
         get_u16, get_u32, push_vec_leb128, push_vec_short_code, push_vec_short_int,
@@ -17,31 +19,69 @@ use crate::{
 
 use super::optimize::{CodeContext, OPTIMIZE};
 
+#[derive(Debug)]
+pub struct RelocEntry {
+    pub next: *mut Self,
+    pub addr: usize, /* address to patch */
+    pub size: i32,   /* address size: 1, 2 or 4 bytes */
+}
+
+#[derive(Debug)]
+pub struct LabelInfo {
+    pub ref_count: i32,
+
+    /// phase 1 address, -1 means not resolved yet
+    pub pos: i32,
+    /// phase 2 address, -1 means not resolved yet
+    pub pos2: i32,
+    /// phase 3 address, -1 means not resolved yet
+    pub addr: i32,
+
+    /// pending relocations
+    /// TODO: use Vec<RelocEntry> or LinkedList<RelocEntry>
+    pub first_reloc: *mut RelocEntry,
+}
+
+impl LabelInfo {
+    fn add_reloc(
+        &mut self,
+        ctx: &mut JSContext,
+        addr: usize,
+        size: i32,
+    ) -> Result<NonNull<RelocEntry>, i32> {
+        // TODO: handle alloc fail
+        let re = Box::new(RelocEntry {
+            next: self.first_reloc,
+            addr,
+            size,
+        });
+
+        let p = Box::into_raw(re);
+        self.first_reloc = p;
+
+        Ok(unsafe { NonNull::new_unchecked(p) })
+    }
+}
+
 impl JSFunctionDef {
-    /// Create label slot in JSFunctionDef, returns new label id.
+    /// Create new label in JSFunctionDef, returns new label id.
     pub unsafe fn add_label(&mut self) -> Result<u32, i32> {
-        if js_resize_array(
-            self.ctx,
-            std::ptr::addr_of_mut!(self.label_slots).cast(),
-            std::mem::size_of::<LabelSlot>() as _,
-            std::ptr::addr_of_mut!(self.label_size),
-            self.label_count as i32 + 1,
-        ) != 0
-        {
-            return Err(-1);
+        if self.label_slots.len() == self.label_slots.capacity() {
+            if self.label_slots.try_reserve_exact(4).is_err() {
+                (*self.ctx).JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
         }
 
-        let label = self.label_count;
-        self.label_count += 1;
+        self.label_slots.push(LabelInfo {
+            ref_count: 0,
+            pos: -1,
+            pos2: -1,
+            addr: -1,
+            first_reloc: std::ptr::null_mut(),
+        });
 
-        let ls = self.label_slots.offset(label as _);
-        (*ls).ref_count = 0;
-        (*ls).pos = -1;
-        (*ls).pos2 = -1;
-        (*ls).addr = -1;
-        (*ls).first_reloc = std::ptr::null_mut();
-
-        Ok(label as u32)
+        Ok(self.label_slots.len() as u32 - 1)
     }
 }
 
@@ -60,7 +100,7 @@ pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum ResolveLabelsProcess {
+enum ResolveLabelsState {
     NoChange,
     HasLabel { label: u32, op: u8 },
     HasGoto { label: u32, op: u8 },
@@ -187,7 +227,6 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
     let mut cc = CodeContext::new(&(*s).byte_code);
 
     let mut label: u32;
-    let label_slots = (*s).label_slots;
     let mut line_num = (*s).line_num;
     let mut pos = 0_usize;
     let mut pos_next: usize;
@@ -199,7 +238,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         let len = oi.size as usize;
         pos_next = pos + len;
 
-        let mut processing: Option<ResolveLabelsProcess> = match op {
+        let mut state: Option<ResolveLabelsState> = match op {
             opcodes::op_line_num => {
                 /* line number info (for debug). We put it in a separate
                 compressed table to reduce memory usage and get better
@@ -209,16 +248,16 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
             opcodes::op_label => {
                 label = get_u32(bc_buf.add(pos as usize + 1));
-                debug_assert!(label < (*s).label_count as u32);
+                debug_assert!(label < (*s).label_slots.len() as u32);
 
-                let ls = label_slots.add(label as usize);
-                debug_assert_eq!((*ls).addr, -1);
-                (*ls).addr = bc_out.len() as _;
+                let lb = (*s).label_slots.get_mut(label as usize).unwrap();
+                debug_assert_eq!(lb.addr, -1);
+                lb.addr = bc_out.len() as _;
 
-                // resolve the relocation entries
-                let mut re = (*ls).first_reloc;
+                // resolve the relocation entries. free RelocEntry
+                let mut re = (*lb).first_reloc;
                 while !re.is_null() {
-                    let diff = (*ls).addr as usize - (*re).addr;
+                    let diff = lb.addr as usize - (*re).addr;
                     let re_next = (*re).next;
                     match (*re).size {
                         4 => put_u32(bc_out.as_mut_ptr().add((*re).addr as usize), diff as _),
@@ -234,10 +273,12 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                             unreachable!()
                         }
                     }
-                    js_free(ctx, re.cast());
+
+                    drop(Box::from_raw(re));
                     re = re_next;
                 }
-                (*ls).first_reloc = std::ptr::null_mut();
+
+                lb.first_reloc = std::ptr::null_mut();
                 None
             }
             opcodes::OP_call | opcodes::OP_call_method => {
@@ -262,9 +303,9 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             | opcodes::OP_throw
             | opcodes::OP_throw_error => {
                 pos_next = skip_dead_code(s, bc_buf, bc_len, pos_next, &mut (line_num as i32));
-                Some(ResolveLabelsProcess::NoChange)
+                Some(ResolveLabelsState::NoChange)
             }
-            opcodes::OP_goto => Some(ResolveLabelsProcess::HasGoto {
+            opcodes::OP_goto => Some(ResolveLabelsState::HasGoto {
                 label: get_u32(bc_buf.add(pos + 1)),
                 op: opcodes::OP_goto,
             }),
@@ -278,9 +319,9 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 //         break;
                 //     }
                 // }
-                Some(ResolveLabelsProcess::HasGoto { label, op })
+                Some(ResolveLabelsState::HasGoto { label, op })
             }
-            opcodes::OP_catch => Some(ResolveLabelsProcess::HasLabel {
+            opcodes::OP_catch => Some(ResolveLabelsState::HasLabel {
                 label: get_u32(bc_buf.add(pos + 1)),
                 op,
             }),
@@ -289,11 +330,11 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     cc.optimize_if_true_false(s, op, pos, &mut pos_next, &mut line_num, &mut bc_out)
                         .map(|(op1, label)| {
                             //op = op1;
-                            ResolveLabelsProcess::HasLabel { label, op: op1 }
+                            ResolveLabelsState::HasLabel { label, op: op1 }
                         })
                 } else {
                     let label = get_u32(bc_buf.add(pos + 1));
-                    Some(ResolveLabelsProcess::HasLabel { label, op })
+                    Some(ResolveLabelsState::HasLabel { label, op })
                 }
             }
 
@@ -310,8 +351,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 if OPTIMIZE {
                     label = find_jump_target(s, label, &mut op1, std::ptr::null_mut());
                 }
-                debug_assert!(label < (*s).label_count as u32);
-                let ls = label_slots.add(label as usize);
+                debug_assert!(label < (*s).label_slots.len() as u32);
+                let lb = (*s).label_slots.get_mut(label as usize).unwrap();
                 (*s).add_pc2line_info(bc_out.len() as _, line_num);
 
                 #[cfg(feature = "short_opcode")]
@@ -326,12 +367,15 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
                 push_vec_u8(&mut bc_out, op);
                 push_vec_u32(&mut bc_out, atom);
-                let delta = (*ls).addr as i32 - bc_out.len() as i32;
+                let delta = (*lb).addr as i32 - bc_out.len() as i32;
                 push_vec_u32(&mut bc_out, delta as u32);
-                if (*ls).addr == -1 {
+                if lb.addr == -1 {
                     // unresolved yet: create a new relocation entry
-                    if add_reloc(ctx, ls, bc_out.len() - 4, 4).is_null() {
-                        goto = Some(ResolveLabelsProcess::Fail);
+                    if lb
+                        .add_reloc(ctx.as_mut().unwrap(), bc_out.len() - 4, 4)
+                        .is_err()
+                    {
+                        goto = Some(ResolveLabelsState::Fail);
                     }
                 }
                 push_vec_u8(&mut bc_out, is_with);
@@ -339,7 +383,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
 
             opcodes::OP_drop => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if OPTIMIZE {
                     /* remove useless drops before return */
                     if cc.code_match(pos_next, &[opcodes::OP_return_undef as i32]) {
@@ -353,7 +397,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
 
             opcodes::OP_null | opcodes::OP_push_false | opcodes::OP_push_true => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
 
                 #[cfg(feature = "short_opcode")]
                 {
@@ -395,7 +439,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                         pos_next,
                         &[M2(opcodes::OP_if_false as i32, opcodes::OP_if_true as i32)],
                     ) {
-                        goto = Some(ResolveLabelsProcess::HasConstantTest(
+                        goto = Some(ResolveLabelsState::HasConstantTest(
                             op == opcodes::OP_push_true,
                         ));
                     }
@@ -403,7 +447,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 goto
             }
             opcodes::OP_push_i32 => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
 
                 if OPTIMIZE {
                     let val = get_u32(bc_buf.add(pos + 1)) as i32;
@@ -435,7 +479,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                         &[M2(OpCode::IF_FALSE as i32, OpCode::IF_TRUE as i32)],
                     ) {
                         // Optimize constant tests: `if (0)`, `if (1)`, `if (!0)`...
-                        goto = Some(ResolveLabelsProcess::HasConstantTest(val != 0));
+                        goto = Some(ResolveLabelsState::HasConstantTest(val != 0));
                     } else {
                         (*s).add_pc2line_info(bc_out.len() as _, line_num);
                         push_vec_short_int(&mut bc_out, val);
@@ -447,7 +491,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
             #[cfg(feature = "short_opcode")]
             opcodes::OP_push_const | opcodes::OP_fclosure => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if (OPTIMIZE) {
                     let idx = get_u32(bc_buf + pos + 1);
                     if (idx < 256) {
@@ -461,7 +505,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
             #[cfg(feature = "short_opcode")]
             opcodes::OP_get_field => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if (OPTIMIZE) {
                     let atom = get_u32(bc_buf + pos + 1);
                     if (atom == JS_ATOM_length) {
@@ -475,7 +519,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
 
             opcodes::OP_push_atom_value => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if OPTIMIZE {
                     let atom = JSAtom(get_u32(bc_buf.add(pos as usize + 1)));
                     // remove push/drop pairs generated by the parser
@@ -500,7 +544,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 goto
             }
             opcodes::OP_to_propkey | opcodes::OP_to_propkey2 => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if OPTIMIZE {
                     // remove redundant to_propkey/to_propkey2 opcodes when storing simple data
                     if cc.code_match(
@@ -542,7 +586,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 goto
             }
             opcodes::OP_undefined => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if OPTIMIZE {
                     // remove push/drop pairs generated by the parser
                     if cc.code_match(pos_next, &[OpCode::DROP as _]) {
@@ -564,7 +608,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                         .code_match(pos_next, &[M2(OpCode::IF_FALSE as _, OpCode::IF_TRUE as _)])
                     {
                         // transform undefined if_true(l1)/if_false(l1) -> nop/goto(l1)
-                        goto = Some(ResolveLabelsProcess::HasConstantTest(false));
+                        goto = Some(ResolveLabelsState::HasConstantTest(false));
                     }
 
                     #[cfg(feature = "short_opcode")]
@@ -593,14 +637,14 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                             push_vec_u8(&mut bc_out, OpCode::IS_UNDEFINED as _);
                             pos_next = cc.pos;
                             op = cc.op ^ OP_if_false ^ OP_if_true;
-                            goto = Some(ResolveLabelsProcess::HasLabel(cc.label));
+                            goto = Some(ResolveLabelsState::HasLabel(cc.label));
                         }
                     }
                 }
                 goto
             }
             opcodes::OP_insert2 => {
-                let mut goto = Some(ResolveLabelsProcess::NoChange);
+                let mut goto = Some(ResolveLabelsState::NoChange);
                 if OPTIMIZE {
                     // Transformation:
                     // insert2 put_field(a) drop -> put_field(a)
@@ -628,7 +672,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 if OPTIMIZE && cc.optimize_dup(s, pos, &mut pos_next, &mut line_num, &mut bc_out) {
                     None
                 } else {
-                    Some(ResolveLabelsProcess::NoChange)
+                    Some(ResolveLabelsState::NoChange)
                 }
             }
             opcodes::OP_get_loc => {
@@ -637,7 +681,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 {
                     None
                 } else {
-                    Some(ResolveLabelsProcess::NoChange)
+                    Some(ResolveLabelsState::NoChange)
                 }
             }
 
@@ -651,7 +695,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     cc.optimize_put_loc(s, op, pos, &mut pos_next, &mut line_num, &mut bc_out);
                     None
                 } else {
-                    Some(ResolveLabelsProcess::NoChange)
+                    Some(ResolveLabelsState::NoChange)
                 }
             }
             opcodes::OP_post_inc | opcodes::OP_post_dec => {
@@ -667,7 +711,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 {
                     None
                 } else {
-                    Some(ResolveLabelsProcess::NoChange)
+                    Some(ResolveLabelsState::NoChange)
                 }
             }
 
@@ -676,21 +720,21 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 unimplemented!()
             }
 
-            _ => Some(ResolveLabelsProcess::NoChange),
+            _ => Some(ResolveLabelsState::NoChange),
         }; // match op
 
         // dispatch post process
-        while let Some(p) = processing.take() {
+        while let Some(p) = state.take() {
             match p {
-                ResolveLabelsProcess::NoChange => {
+                ResolveLabelsState::NoChange => {
                     (*s).add_pc2line_info(bc_out.len() as _, line_num);
                     push_vec_slice(&mut bc_out, bc_buf.add(pos as usize), len as usize)?;
                 }
-                ResolveLabelsProcess::HasGoto {
+                ResolveLabelsState::HasGoto {
                     mut label,
                     op: goto_op,
                 } => {
-                    processing = Some(ResolveLabelsProcess::HasLabel { label, op: goto_op });
+                    state = Some(ResolveLabelsState::HasLabel { label, op: goto_op });
                     if OPTIMIZE {
                         let mut line1 = -1;
                         /* Use custom matcher because multiple labels can follow */
@@ -698,7 +742,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                         if code_has_label(&mut cc, pos_next as _, label) {
                             /* jump to next instruction: remove jump */
                             (*s).update_label_ref_count(label, -1);
-                            processing.take(); // don't process label
+                            state.take(); // don't process label
                         } else if matches!(
                             op1,
                             opcodes::OP_return | opcodes::OP_return_undef | opcodes::OP_throw
@@ -711,7 +755,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                             push_vec_u8(&mut bc_out, op1);
                             pos_next =
                                 skip_dead_code(s, bc_buf, bc_len, pos_next, &mut (line_num as i32));
-                            processing.take(); // don't process label
+                            state.take(); // don't process label
                         }
 
                         /* XXX: should duplicate single instructions followed by goto or return */
@@ -722,18 +766,18 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                         */
                     }
                 }
-                ResolveLabelsProcess::HasLabel {
+                ResolveLabelsState::HasLabel {
                     label,
                     op: label_op,
                 } => {
+                    debug_assert!(label < (*s).label_slots.len() as u32);
+
                     (*s).add_pc2line_info(bc_out.len() as _, line_num);
                     if label_op == opcodes::OP_goto {
                         pos_next =
                             skip_dead_code(s, bc_buf, bc_len, pos_next, &mut (line_num as i32));
                     }
-                    debug_assert!(label < (*s).label_count as u32);
-
-                    let ls = label_slots.add(label as usize);
+                    let lb = (*s).label_slots.get_mut(label as usize).unwrap();
 
                     #[cfg(feature = "short_opcode")]
                     {
@@ -763,16 +807,16 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                                     opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false),
                                 );
                                 push_vec_u8(&mut bc_out, 0);
-                                if !add_reloc(ctx, ls, bc_out.len() - 1, 1) {
-                                    processing = Some(ResolveLabelsProcess::Fail);
+                                if ls.add_reloc(ctx, bc_out.len() - 1, 1).is_err() {
+                                    state = Some(ResolveLabelsState::Fail);
                                 }
                             } else if (diff < 32768 && label_op == OP_goto) {
                                 (*jp).size = 2;
                                 (*jp).op = OP_goto16;
                                 push_vec_u8(&mut bc_out, opcodes::OP_goto16);
                                 push_vec_u16(&mut bc_out, 0);
-                                if !add_reloc(ctx, ls, bc_out.len() - 2, 2) {
-                                    processing = Some(ResolveLabelsProcess::Fail);
+                                if ls.add_reloc(ctx, bc_out.len() - 2, 2).is_err() {
+                                    state = Some(ResolveLabelsState::Fail);
                                 }
                             }
                         } else {
@@ -800,17 +844,20 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     }
 
                     push_vec_u8(&mut bc_out, label_op);
-                    let delta = (*ls).addr as i32 - bc_out.len() as i32; // could be minus
+                    let delta = (*lb).addr as i32 - bc_out.len() as i32; // could be minus
                     push_vec_u32(&mut bc_out, delta as u32);
 
-                    if (*ls).addr == -1 {
-                        /* unresolved yet: create a new relocation entry */
-                        if add_reloc(ctx, ls, bc_out.len() - 4, 4).is_null() {
-                            processing = Some(ResolveLabelsProcess::Fail);
+                    if (*lb).addr == -1 {
+                        // unresolved yet: create a new relocation entry
+                        if lb
+                            .add_reloc(ctx.as_mut().unwrap(), bc_out.len() - 4, 4)
+                            .is_err()
+                        {
+                            state = Some(ResolveLabelsState::Fail);
                         }
                     }
                 }
-                ResolveLabelsProcess::HasConstantTest(val) => {
+                ResolveLabelsState::HasConstantTest(val) => {
                     debug_assert!(matches!(
                         cc.op as u8,
                         opcodes::OP_if_true | opcodes::OP_if_false
@@ -824,7 +871,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                             // transform null|false if_false(l1) -> goto l1
                             // transform true if_true(l1) -> goto l1 */
                             pos_next = cc.pos;
-                            processing = Some(ResolveLabelsProcess::HasGoto {
+                            state = Some(ResolveLabelsState::HasGoto {
                                 label: cc.label as _,
                                 op: opcodes::OP_goto,
                             });
@@ -838,7 +885,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                         }
                     }
                 }
-                ResolveLabelsProcess::Fail => {
+                ResolveLabelsState::Fail => {
                     drop(bc_out);
                     return Err(-1);
                 }
@@ -850,8 +897,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
     // check that there were no missing labels
     #[cfg(debug_assertions)]
-    for i in 0..(*s).label_count {
-        debug_assert!((*label_slots.add(i as usize)).first_reloc.is_null());
+    for lb in (*s).label_slots.iter() {
+        debug_assert!(lb.first_reloc.is_null());
     }
 
     #[cfg(feature = "short_opcode")]
@@ -956,10 +1003,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         (*s).jump_slots = std::ptr::null_mut();
     }
 
-    if !(*s).label_slots.is_null() {
-        js_free(ctx, (*s).label_slots.cast());
-        (*s).label_slots = std::ptr::null_mut();
-    }
+    (*s).label_slots.clear();
 
     // XXX: should delay until copying to runtime bytecode function /
     compute_pc2line_info(s);
@@ -1054,41 +1098,21 @@ pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
     }
 }
 
-pub unsafe fn add_reloc(
-    ctx: *mut JSContext,
-    ls: *mut LabelSlot,
-    addr: usize,
-    size: i32,
-) -> *mut RelocEntry {
-    let re = js_malloc(ctx, std::mem::size_of::<RelocEntry>() as usize).cast::<RelocEntry>();
-    if re.is_null() {
-        return std::ptr::null_mut();
-    }
-    (*re).addr = addr;
-    (*re).size = size;
-    (*re).next = (*ls).first_reloc;
-    (*ls).first_reloc = re;
-
-    re
-}
-
 /// return the target label, following the OP_goto jumps
 /// the first opcode at destination is stored in *pop
 pub unsafe fn find_jump_target(
     s: *mut JSFunctionDef,
-    label: u32,
+    mut label: u32,
     pop: *mut u8,
     pline: *mut i32,
 ) -> u32 {
     (*s).update_label_ref_count(label as _, -1);
 
-    let mut label = label;
-    let mut pos: i32;
     let mut op: u8 = 0;
 
     for _ in 0..10 {
-        debug_assert!(label < (*s).label_count as u32);
-        pos = (*(*s).label_slots.offset(label as isize)).pos2;
+        debug_assert!(label < (*s).label_slots.len() as u32);
+        let mut pos = (*s).label_slots[label as usize].pos2;
 
         loop {
             op = (*s).byte_code[pos as usize];
