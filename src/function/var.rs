@@ -7,7 +7,7 @@ use crate::{
     error::JS_THROW_VAR_REDECL,
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
-        add_var_this, get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
+        get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
         resolve_scope_var, skip_dead_code, JSFunctionDef,
     },
     mem::js_resize_array,
@@ -204,6 +204,37 @@ impl JSGlobalVar {
 }
 
 impl JSFunctionDef {
+    /// add a global variable definition
+    pub unsafe fn add_global_var(
+        &mut self,
+        ctx: &mut JSContext,
+        name: JSAtom,
+    ) -> Result<&mut JSGlobalVar, i32> {
+        if js_resize_array(
+            ctx,
+            std::ptr::addr_of_mut!(self.global_vars).cast(),
+            std::mem::size_of::<JSGlobalVar>() as _,
+            std::ptr::addr_of_mut!(self.global_var_size),
+            self.global_var_count as i32 + 1,
+        ) != 0
+        {
+            return Err(-1);
+        }
+
+        let i = (*self).global_var_count;
+        self.global_var_count += 1;
+
+        let hf = self.global_vars.offset(i as _);
+        (*hf).cpool_idx = -1;
+        (*hf).set_force_init(false);
+        (*hf).set_is_lexical(false);
+        (*hf).set_is_const(false);
+        (*hf).scope_level = (*self).scope_level;
+        (*hf).var_name = JS_DupAtom(ctx, name);
+
+        Ok(hf.as_mut().unwrap())
+    }
+
     pub fn find_global_var(&self, name: JSAtom) -> Option<&JSGlobalVar> {
         if self.global_var_count != 0 {
             debug_assert!(!self.global_vars.is_null());
@@ -385,69 +416,6 @@ impl JSFunctionDef {
 
         // self.find_arg(name)
     }
-}
-
-#[deprecated(note = "use JSFunctionDef::find_global_var() instead")]
-pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: JSAtom) -> *mut JSGlobalVar {
-    (*fd)
-        .find_global_var(name)
-        .map_or(std::ptr::null_mut(), |v| v as *const JSGlobalVar as *mut _)
-}
-
-/* add a global variable definition */
-pub unsafe fn add_global_var(
-    ctx: *mut JSContext,
-    s: *mut JSFunctionDef,
-    name: JSAtom,
-) -> *mut JSGlobalVar {
-    if js_resize_array(
-        ctx,
-        std::ptr::addr_of_mut!((*s).global_vars).cast(),
-        std::mem::size_of::<JSGlobalVar>() as _,
-        std::ptr::addr_of_mut!((*s).global_var_size),
-        (*s).global_var_count as i32 + 1,
-    ) != 0
-    {
-        return std::ptr::null_mut();
-    }
-
-    let i = (*s).global_var_count;
-    (*s).global_var_count += 1;
-
-    let hf = (*s).global_vars.offset(i as _);
-    (*hf).cpool_idx = -1;
-    (*hf).set_force_init(false);
-    (*hf).set_is_lexical(false);
-    (*hf).set_is_const(false);
-    (*hf).scope_level = (*s).scope_level;
-    (*hf).var_name = JS_DupAtom(ctx, name);
-
-    return hf;
-}
-
-#[deprecated(note = "use JSFunctionDef::add_arg() instead")]
-pub unsafe fn add_arg(ctx: *mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd)
-        .add_arg(ctx.as_mut().unwrap(), name)
-        .map_or(-1, |x| x as i32)
-}
-
-#[deprecated(note = "use JSFunctionDef::find_arg() instead")]
-/* return the variable index or -1 if not found,
-add ARGUMENT_VAR_OFFSET for argument variables */
-pub unsafe fn find_arg(ctx: *const JSContext, fd: *const JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd).find_arg(name).unwrap_or(-1)
-}
-
-#[deprecated(note = "use JSFunctionDef::find_var_or_arg() instead")]
-pub unsafe fn find_var(ctx: *const JSContext, fd: *const JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd).find_var(name).unwrap_or(-1)
-}
-
-#[deprecated(note = "use JSFunctionDef::add_var() instead")]
-/* return the variable index or -1 if error */
-pub unsafe fn add_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: JSAtom) -> *mut JSGlobalVar {

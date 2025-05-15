@@ -6,7 +6,8 @@ use crate::{
     class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{
-        JSCFunction, JSFunctionBytecode, JSFunctionDef, JSNativeCallback, JSVarKindEnum, JSVarRef,
+        JSCFunction, JSFunctionBytecode, JSFunctionDef, JSGlobalVar, JSNativeCallback,
+        JSVarKindEnum, JSVarRef,
     },
     generator::JSAsyncGeneratorData,
     module::JSModuleDef,
@@ -1092,4 +1093,47 @@ pub unsafe fn js_same_value_zero(
 pub unsafe fn js_parse_error(s: *mut JSParseState, message: &CStr) -> i32 {
     (*s).throw_syntax_error(message);
     -1
+}
+
+#[deprecated(note = "use JSFunctionDef::find_global_var() instead")]
+pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: JSAtom) -> *mut JSGlobalVar {
+    (*fd)
+        .find_global_var(name)
+        .map_or(std::ptr::null_mut(), |v| v as *const JSGlobalVar as *mut _)
+}
+
+/* add a global variable definition */
+#[deprecated(note = "use JSFunctionDef::add_global_var() instead")]
+pub unsafe fn add_global_var(
+    ctx: *mut JSContext,
+    s: *mut JSFunctionDef,
+    name: JSAtom,
+) -> *mut JSGlobalVar {
+    (*s).add_global_var(ctx.as_mut().unwrap(), name)
+        .map_or(std::ptr::null_mut(), |p| p as *mut JSGlobalVar)
+}
+
+#[deprecated(note = "use JSFunctionDef::add_arg() instead")]
+pub unsafe fn add_arg(ctx: *mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
+    (*fd)
+        .add_arg(ctx.as_mut().unwrap(), name)
+        .map_or(-1, |x| x as i32)
+}
+
+#[deprecated(note = "use JSFunctionDef::find_arg() instead")]
+/* return the variable index or -1 if not found,
+add ARGUMENT_VAR_OFFSET for argument variables */
+pub unsafe fn find_arg(ctx: *const JSContext, fd: *const JSFunctionDef, name: JSAtom) -> i32 {
+    (*fd).find_arg(name).unwrap_or(-1)
+}
+
+#[deprecated(note = "use JSFunctionDef::find_var_or_arg() instead")]
+pub unsafe fn find_var(ctx: *const JSContext, fd: *const JSFunctionDef, name: JSAtom) -> i32 {
+    (*fd).find_var(name).unwrap_or(-1)
+}
+
+#[deprecated(note = "use JSFunctionDef::add_var() instead")]
+/* return the variable index or -1 if error */
+pub unsafe fn add_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
+    (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }

@@ -5,8 +5,8 @@ use crate::{
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{
-        add_global_var, find_lexical_decl, is_child_scope, JSFunctionDef, JSVarDefEnum,
-        JSVarKindEnum, GLOBAL_VAR_OFFSET,
+        find_lexical_decl, is_child_scope, JSFunctionDef, JSVarDefEnum, JSVarKindEnum,
+        GLOBAL_VAR_OFFSET,
     },
 };
 
@@ -101,13 +101,13 @@ pub unsafe fn define_var(
                 && matches!((*fd).eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
                 && (*fd).scope_level == (*fd).body_scope
             {
-                let hf = add_global_var(ctx.as_ptr(), fd, name);
-                if hf.is_null() {
+                if let Ok(hf) = (*fd).add_global_var(ctx.deref_mut(), name) {
+                    hf.set_is_lexical(true);
+                    hf.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
+                    idx = GLOBAL_VAR_OFFSET;
+                } else {
                     return -1;
                 }
-                (*hf).set_is_lexical(true);
-                (*hf).set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
-                idx = GLOBAL_VAR_OFFSET;
             } else {
                 let var_kind = if var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL {
                     JSVarKindEnum::JS_VAR_FUNCTION_DECL
@@ -137,19 +137,19 @@ pub unsafe fn define_var(
             }
             if (*fd).is_global_var {
                 if let Some(hf) = (*fd).find_global_var(name) {
-                    if (*hf).is_lexical()
-                        && (*hf).scope_level == (*fd).scope_level
+                    if hf.is_lexical()
+                        && hf.scope_level == (*fd).scope_level
                         && (*fd).eval_type == JS_EVAL_TYPE_MODULE
                     {
                         goto_invalid_lexical_redefinition!();
                     }
                 }
 
-                let hf = add_global_var(ctx.as_ptr(), fd, name);
-                if hf.is_null() {
+                if let Ok(_) = (*fd).add_global_var(ctx.deref_mut(), name) {
+                    idx = GLOBAL_VAR_OFFSET;
+                } else {
                     return -1;
                 }
-                idx = GLOBAL_VAR_OFFSET;
             } else {
                 #[cfg(debug_assertions)]
                 let _name_refcnt = name.ref_count(ctx.rt());

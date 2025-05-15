@@ -33,7 +33,7 @@ use crate::{
 pub struct JSFunctionDef {
     pub ctx: *mut JSContext,
 
-    /// 父函数定义
+    /// parent function def
     /// TODO: use Option<Box<JSFunctionDef>>
     pub parent: *mut JSFunctionDef,
 
@@ -143,12 +143,12 @@ pub struct JSFunctionDef {
     // 函数体或eval的作用域
     pub body_scope: i32,
 
+    /// global vars defination list. TODO: use Vec<JSGlobalVar>
+    pub global_vars: *mut JSGlobalVar,
     // 全局变量计数
     pub global_var_count: u16,
     // 全局变量分配大小
     pub global_var_size: i32,
-    // 全局变量数组. TODO: use Vec<JSGlobalVar>
-    pub global_vars: *mut JSGlobalVar,
 
     // 字节码缓冲区
     pub byte_code: Vec<u8>,

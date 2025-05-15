@@ -6,8 +6,8 @@ use crate::{
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{
-        add_global_var, find_lexical_decl, BlockEnv, JSFunctionDef, JSFunctionKindEnum,
-        JSVarDefEnum, ARGUMENT_VAR_OFFSET,
+        find_lexical_decl, BlockEnv, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum,
+        ARGUMENT_VAR_OFFSET,
     },
     mem::js_strndup,
     module::JSExportTypeEnum,
@@ -703,16 +703,15 @@ impl<'s> JSParseState<'s> {
 
                 if create_func_var {
                     if (*self.cur_func).is_global_var {
-                        // the global variable must be defined at the start of the  function
-                        let hf = add_global_var(ctx.as_ptr(), self.cur_func, func_name);
-                        if hf.is_null() {
-                            return Err(-1);
-                        }
+                        // the global variable must be defined at the start of the function
+                        let hf = (*self.cur_func).add_global_var(ctx.deref_mut(), func_name)?;
+
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
                         checks) */
-                        (*hf).scope_level = 0;
-                        (*hf).set_force_init((*self.cur_func).js_mode & JS_MODE_STRICT as u8 != 0);
+                        hf.scope_level = 0;
+                        hf.set_force_init((*self.cur_func).js_mode & JS_MODE_STRICT as u8 != 0);
+
                         /* store directly into global var, bypass lexical scope */
                         emit_op(self, OpCode::DUP);
                         emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
@@ -777,11 +776,8 @@ impl<'s> JSParseState<'s> {
                     };
 
                     /* the variable will be assigned at the top of the function */
-                    let hf = add_global_var(ctx.as_ptr(), self.cur_func, func_var_name);
-                    if hf.is_null() {
-                        return Err(-1);
-                    }
-                    (*hf).cpool_idx = idx;
+                    let hf = (*self.cur_func).add_global_var(ctx.deref_mut(), func_var_name)?;
+                    hf.cpool_idx = idx;
 
                     if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
                         if add_export_entry(
