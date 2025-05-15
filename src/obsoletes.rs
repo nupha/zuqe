@@ -1137,3 +1137,10 @@ pub unsafe fn find_var(ctx: *const JSContext, fd: *const JSFunctionDef, name: JS
 pub unsafe fn add_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
     (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }
+
+// return the constant pool index. 'val' is not duplicated.
+#[deprecated(note = "use JSParseState::cpool_add() instead")]
+pub unsafe fn cpool_add(s: *mut JSParseState, ctx: &mut JSContext, val: JSValue) -> i32 {
+    let fd = (*s).cur_func;
+    (*fd).cpool_add(ctx, val).map_or(-1, |x| x as i32)
+}

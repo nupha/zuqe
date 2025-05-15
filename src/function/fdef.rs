@@ -118,26 +118,25 @@ pub struct JSFunctionDef {
     //
     // pseudo vars
     //
-    /// this
+    /// `this`
     pub this_var_idx: Option<u16>,
-    /// new.target
+    /// `new.target`
     pub new_target_var_idx: Option<u16>,
-    /// this.active_func
+    /// `this.active_func`
     pub this_active_func_var_idx: Option<u16>,
-    /// home
+    /// `home`
     pub home_object_var_idx: Option<u16>,
     /// `arguments` variable
     pub arguments_var_idx: Option<u16>,
     /// `arguments` in arg section
     pub arguments_arg_idx: Option<u16>,
-    /// <ret>
+    /// `<ret>`
     pub eval_ret_idx: Option<u16>,
-    /// <arg_var>
+    /// `<arg_var>`
     pub arg_var_object_idx: Option<u16>,
-    /// <var>
+    /// `<var>`
     pub var_object_idx: Option<u16>,
 
-    // 需要home对象
     pub need_home_object: bool,
 
     /// current scope id
