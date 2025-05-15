@@ -560,7 +560,7 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         (*s.cur_func).last_opcode_pos = bc.len() as i32 - 5;
 
         // relocate labels
-        for lb in &mut (*s.cur_func).label_slots[label_cont as usize..] {
+        for lb in &mut (*s.cur_func).labels[label_cont as usize..] {
             if lb.pos >= pos_cont as i32 && lb.pos < pos_body as i32 {
                 lb.pos += offset as i32;
             }
@@ -904,7 +904,7 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
                 .offset(default_label_pos as isize),
             label_case as _,
         );
-        (*s.cur_func).label_slots[label_case as usize].pos = default_label_pos + 4;
+        (*s.cur_func).labels[label_case as usize].pos = default_label_pos + 4;
     } else {
         emit_label(s, label_case);
     }
@@ -1265,7 +1265,7 @@ pub unsafe fn js_parse_for_in_of(
         (*s.cur_func).last_opcode_pos = bc.len() as i32 - 5;
 
         // relocate labels
-        for lb in &mut (*s.cur_func).label_slots[label_cont as usize..] {
+        for lb in &mut (*s.cur_func).labels[label_cont as usize..] {
             if lb.pos >= pos_next as i32 && lb.pos < pos_expr as i32 {
                 lb.pos += offset as i32;
             }

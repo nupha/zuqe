@@ -20,6 +20,8 @@ use crate::{
     },
 };
 
+use super::JSContextHandle;
+
 /// Represents a lexical environment
 #[repr(C)]
 pub struct JSLexEnv {
@@ -172,12 +174,6 @@ impl JSContext {
     #[inline(always)]
     pub fn rt_mut(&mut self) -> &mut JSRuntime {
         unsafe { self.rt.as_mut() }
-    }
-
-    /// Convert to context handle, a non-null pointer to JSContext
-    #[inline(always)]
-    pub fn handle(&mut self) -> JSContextHandle {
-        JSContextHandle::from(self as *mut JSContext)
     }
 
     /// Increase context ref count by 1.
@@ -392,41 +388,5 @@ impl JSRuntime {
             ctx.intrinsic_typed_arrays();
         }
         Ok(ctx)
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct JSContextHandle(NonNull<JSContext>);
-
-impl JSContextHandle {
-    #[inline(always)]
-    pub fn as_raw(self) -> NonNull<JSContext> {
-        self.0
-    }
-
-    #[inline(always)]
-    pub fn as_ptr(self) -> *mut JSContext {
-        self.0.as_ptr()
-    }
-}
-
-impl From<*mut JSContext> for JSContextHandle {
-    fn from(ctx: *mut JSContext) -> Self {
-        debug_assert!(!ctx.is_null());
-        unsafe { Self(NonNull::new_unchecked(ctx)) }
-    }
-}
-
-impl Deref for JSContextHandle {
-    type Target = JSContext;
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
-    }
-}
-
-impl DerefMut for JSContextHandle {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
     }
 }

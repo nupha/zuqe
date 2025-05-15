@@ -1140,9 +1140,9 @@ pub unsafe fn add_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom)
 
 // return the constant pool index. 'val' is not duplicated.
 #[deprecated(note = "use JSParseState::cpool_add() instead")]
-pub unsafe fn cpool_add(s: *mut JSParseState, ctx: &mut JSContext, val: JSValue) -> i32 {
+pub unsafe fn cpool_add(s: *mut JSParseState, ctx: *mut JSContext, val: JSValue) -> i32 {
     let fd = (*s).cur_func;
-    (*fd).cpool_add(ctx, val).map_or(-1, |x| x as i32)
+    (*fd).cpool_add(ctx.into(), val).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use LabelInfo::add_reloc() instead")]
@@ -1152,20 +1152,5 @@ pub unsafe fn add_reloc(
     addr: usize,
     size: i32,
 ) -> *mut RelocEntry {
-    unreachable!("use LabelInfo::add_reloc() instead")
-
-    // (*ls)
-    //     .add_reloc(ctx.as_mut().unwrap(), addr, size)
-    //     .map_or(std::ptr::null_mut(), |x| x.as_ptr())
-
-    // let re = js_malloc(ctx, std::mem::size_of::<RelocEntry>() as usize).cast::<RelocEntry>();
-    // if re.is_null() {
-    //     return std::ptr::null_mut();
-    // }
-    // (*re).addr = addr;
-    // (*re).size = size;
-    // (*re).next = (*ls).first_reloc;
-    // (*ls).first_reloc = re;
-
-    // re
+    unreachable!("use LabelInfo::add_reloc() instead");
 }

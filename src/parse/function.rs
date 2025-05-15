@@ -678,7 +678,7 @@ impl<'s> JSParseState<'s> {
 
             // the real object will be set at the end of the compilation
             let cp_idx = (*self.cur_func)
-                .cpool_add(ctx.deref_mut(), JSValue::NULL)
+                .cpool_add(ctx, JSValue::NULL)
                 .map_or(-1, |x| x as i32);
 
             fd1.parent_cpool_idx = cp_idx;

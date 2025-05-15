@@ -27,11 +27,11 @@ use crate::{
     },
     value::{
         object::{
-            JSAutoInitIDEnum, JSObject, JS_NewObjectProto, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-            JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JSObject, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
+            JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_TAG_OBJECT,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
 };
@@ -1594,7 +1594,7 @@ pub unsafe fn js_inner_module_linking(
             0,
             std::ptr::null_mut(),
         );
-        if JS_IsException(ret_val) {
+        if ret_val.is_exception() {
             return -1;
         }
         JS_FreeValue(ctx, ret_val);

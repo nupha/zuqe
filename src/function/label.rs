@@ -55,14 +55,14 @@ impl LabelInfo {
 impl JSFunctionDef {
     /// Create new label in JSFunctionDef, returns new label id.
     pub unsafe fn add_label(&mut self) -> Result<u32, i32> {
-        if self.label_slots.len() == self.label_slots.capacity() {
-            if self.label_slots.try_reserve_exact(4).is_err() {
-                (*self.ctx).JS_ThrowOutOfMemory();
+        if self.labels.len() == self.labels.capacity() {
+            if self.labels.try_reserve_exact(4).is_err() {
+                self.ctx.JS_ThrowOutOfMemory();
                 return Err(-1);
             }
         }
 
-        self.label_slots.push(LabelInfo {
+        self.labels.push(LabelInfo {
             ref_count: 0,
             pos: -1,
             pos2: -1,
@@ -70,7 +70,7 @@ impl JSFunctionDef {
             pending_relocs: Vec::new(),
         });
 
-        Ok(self.label_slots.len() as u32 - 1)
+        Ok(self.labels.len() as u32 - 1)
     }
 }
 
@@ -118,7 +118,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
     if (*s).line_number_size != 0 && (*s).js_mode & JS_MODE_STRIP as u8 == 0 {
         (*s).line_number_slots = js_mallocz(
-            (*s).ctx,
+            (*s).ctx.as_ptr(),
             std::mem::size_of::<LineNumberSlot>() * (*s).line_number_size as usize,
         )
         .cast();
@@ -237,9 +237,9 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
             opcodes::op_label => {
                 label = get_u32(bc_buf.add(pos as usize + 1));
-                debug_assert!(label < (*s).label_slots.len() as u32);
+                debug_assert!(label < (*s).labels.len() as u32);
 
-                let lb = (*s).label_slots.get_mut(label as usize).unwrap();
+                let lb = (*s).labels.get_mut(label as usize).unwrap();
                 debug_assert_eq!(lb.addr, -1);
                 lb.addr = bc_out.len() as _;
 
@@ -334,8 +334,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 if OPTIMIZE {
                     label = find_jump_target(s, label, &mut op1, std::ptr::null_mut());
                 }
-                debug_assert!(label < (*s).label_slots.len() as u32);
-                let lb = (*s).label_slots.get_mut(label as usize).unwrap();
+                debug_assert!(label < (*s).labels.len() as u32);
+                let lb = (*s).labels.get_mut(label as usize).unwrap();
                 (*s).add_pc2line_info(bc_out.len() as _, line_num);
 
                 #[cfg(feature = "short_opcode")]
@@ -753,14 +753,14 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     label,
                     op: label_op,
                 } => {
-                    debug_assert!(label < (*s).label_slots.len() as u32);
+                    debug_assert!(label < (*s).labels.len() as u32);
 
                     (*s).add_pc2line_info(bc_out.len() as _, line_num);
                     if label_op == opcodes::OP_goto {
                         pos_next =
                             skip_dead_code(s, bc_buf, bc_len, pos_next, &mut (line_num as i32));
                     }
-                    let lb = (*s).label_slots.get_mut(label as usize).unwrap();
+                    let lb = (*s).labels.get_mut(label as usize).unwrap();
 
                     #[cfg(feature = "short_opcode")]
                     {
@@ -880,7 +880,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
     // check that there were no missing labels
     #[cfg(debug_assertions)]
-    for lb in (*s).label_slots.iter() {
+    for lb in (*s).labels.iter() {
         debug_assert!(lb.pending_relocs.is_empty());
     }
 
@@ -986,7 +986,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         (*s).jump_slots = std::ptr::null_mut();
     }
 
-    (*s).label_slots.clear();
+    (*s).labels.clear();
 
     // XXX: should delay until copying to runtime bytecode function /
     compute_pc2line_info(s);
@@ -1094,8 +1094,8 @@ pub unsafe fn find_jump_target(
     let mut op: u8 = 0;
 
     for _ in 0..10 {
-        debug_assert!(label < (*s).label_slots.len() as u32);
-        let mut pos = (*s).label_slots[label as usize].pos2;
+        debug_assert!(label < (*s).labels.len() as u32);
+        let mut pos = (*s).labels[label as usize].pos2;
 
         loop {
             op = (*s).byte_code[pos as usize];

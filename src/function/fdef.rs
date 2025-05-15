@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     atom::{consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
-    context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{JSContext, JSContextHandle, JS_MODE_STRICT, JS_MODE_STRIP},
     error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_INDIRECT},
     function::{
@@ -33,7 +33,7 @@ use super::LabelInfo;
 #[derive(Debug)]
 #[repr(C)]
 pub struct JSFunctionDef {
-    pub ctx: *mut JSContext,
+    pub ctx: JSContextHandle,
 
     /// parent function def
     /// TODO: use Option<Box<JSFunctionDef>>
@@ -161,7 +161,7 @@ pub struct JSFunctionDef {
     pub use_short_opcodes: bool,
 
     /// 标签槽数组
-    pub label_slots: Vec<LabelInfo>,
+    pub labels: Vec<LabelInfo>,
 
     // break/continue label stack
     pub top_break: *mut BlockEnv,
@@ -212,14 +212,14 @@ pub struct JSFunctionDef {
 impl JSFunctionDef {
     /// alloc a function def, and initialize it.
     fn new0(
-        ctx: &mut JSContext,
+        mut ctx: JSContextHandle,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: u32,
     ) -> Result<Box<Self>, i32> {
         let o = JSFunctionDef {
-            ctx: ctx,
+            ctx,
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
@@ -283,7 +283,7 @@ impl JSFunctionDef {
             last_opcode_line_num: line_num,
             use_short_opcodes: false,
 
-            label_slots: Vec::new(),
+            labels: Vec::new(),
 
             top_break: std::ptr::null_mut(),
             closure_vars: None,
@@ -305,7 +305,7 @@ impl JSFunctionDef {
         };
 
         let fd = unsafe {
-            let mut p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
+            let mut p = js_malloc_typed::<JSFunctionDef>(ctx.as_ptr(), 1, true).ok_or(-1)?;
             p.as_ptr().write(o);
 
             init_list_head(&mut p.as_mut().child_list);
@@ -329,7 +329,7 @@ impl JSFunctionDef {
         filename: &str,
         line_num: u32,
     ) -> Result<Box<Self>, i32> {
-        Self::new0(ctx, is_eval, is_func_expr, filename, line_num).map(|mut fd| {
+        Self::new0(ctx.handle(), is_eval, is_func_expr, filename, line_num).map(|mut fd| {
             if !parent.is_null() {
                 fd.set_parent(parent);
             }
@@ -351,14 +351,14 @@ impl JSFunctionDef {
     }
 
     /// update label ref count by delta. returns updated ref count.
-    pub unsafe fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
+    pub fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
         debug_assert!(
-            label < self.label_slots.len() as u32,
+            label < self.labels.len() as u32,
             "label={label}, count={}",
-            self.label_slots.len()
+            self.labels.len()
         );
 
-        let lb = self.label_slots.get_mut(label as usize).unwrap();
+        let lb = self.labels.get_mut(label as usize).unwrap();
         lb.ref_count += delta;
         debug_assert!(lb.ref_count >= 0);
 
@@ -728,7 +728,7 @@ impl JSFunctionDef {
                     self.cpool.as_slice(),
                     self.source.cast(),
                     self.line_num as _,
-                    self.label_slots.as_slice(),
+                    self.labels.as_slice(),
                     std::ptr::null_mut(),
                 );
             }
@@ -1183,7 +1183,7 @@ pub unsafe fn get_label_pos(s: *mut JSFunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
-        pos = (*s).label_slots[label as usize].pos;
+        pos = (*s).labels[label as usize].pos;
 
         loop {
             match (*s).byte_code[pos as usize] {
@@ -1244,7 +1244,7 @@ pub unsafe fn skip_dead_code(
             //     }
             // }
 
-            debug_assert!((*s).label_slots[label as usize].pending_relocs.is_empty());
+            debug_assert!((*s).labels[label as usize].pending_relocs.is_empty());
         } else {
             // XXX: output a warning for unreachable code?
             match oi.fmt {
@@ -1259,7 +1259,7 @@ pub unsafe fn skip_dead_code(
                     }
 
                     let atom = JSAtom(get_u32(bc_buf.add(current_pos as usize + 1)));
-                    JS_FreeAtom((*s).ctx, atom);
+                    JS_FreeAtom((*s).ctx.as_ptr(), atom);
                 }
                 _ => {}
             }
@@ -1656,7 +1656,7 @@ pub unsafe fn instantiate_hoisted_definitions(
         push_vec_u8(bc, OpCode::RETURN_UNDEF as u8);
         push_vec_u8(bc, OpCodeTemp::LABEL as u8);
         push_vec_u32(bc, l);
-        (*s).label_slots[l as usize].pos2 = bc.len() as i32;
+        (*s).labels[l as usize].pos2 = bc.len() as i32;
     }
 
     (*s).global_vars.clear();

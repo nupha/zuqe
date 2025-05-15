@@ -101,7 +101,7 @@ pub unsafe fn resolve_scope_var(
             if let Some(l) = $label {
                 push_vec_u8(bc, opcodes::op_label);
                 push_vec_u32(bc, l);
-                (*s).label_slots[l as usize].pos2 = bc.len() as i32;
+                (*s).labels[l as usize].pos2 = bc.len() as i32;
             }
             return pos_next;
         };

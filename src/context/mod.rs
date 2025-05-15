@@ -1,4 +1,5 @@
 mod ctx;
+mod handle;
 mod intrinsic;
 
-pub use ctx::*;
+pub use {ctx::*, handle::*};

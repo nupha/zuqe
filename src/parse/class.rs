@@ -964,7 +964,7 @@ pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDe
     (*s).cur_func = (*(*s).cur_func).parent;
 
     let cpool_idx = (*(*s).cur_func)
-        .cpool_add((*s).ctx.deref_mut(), JSValue::NULL)
+        .cpool_add((*s).ctx, JSValue::NULL)
         .map_or(-1, |x| x as i32);
 
     (*(*cf).fields_init_fd).parent_cpool_idx = cpool_idx;

@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     atom::{consts::*, JSAtom, JSAtomTypeHint, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
@@ -35,7 +37,7 @@ impl JSFunctionDef {
 
     /// emit an atom, increase ref_count
     pub unsafe fn emit_atom_dup(&mut self, name: JSAtom) {
-        self.emit_u32(JS_DupAtom(self.ctx, name).0);
+        self.emit_u32(JS_DupAtom(self.ctx.as_ptr(), name).0);
     }
 
     unsafe fn emit_op_u8(&mut self, op: u8, last_line_num: u32) {
@@ -162,7 +164,7 @@ impl JSFunctionDef {
         debug_assert!(label >= 0);
         self.emit_u8(OpCodeTemp::LABEL as u8);
         self.emit_u32(label as _);
-        self.label_slots[label as usize].pos = self.byte_code.len() as _;
+        self.labels[label as usize].pos = self.byte_code.len() as _;
     }
 
     /* return the label ID offset */
@@ -170,7 +172,7 @@ impl JSFunctionDef {
         if label >= 0 {
             self.emit_op_temp(OpCodeTemp::LABEL, last_line_num);
             self.emit_u32(label as _);
-            self.label_slots[label as usize].pos = self.byte_code.len() as _;
+            self.labels[label as usize].pos = self.byte_code.len() as _;
             self.byte_code.len() as i32 - 4
         } else {
             -1
@@ -188,7 +190,7 @@ impl JSFunctionDef {
             self.emit_op(opcode, last_line_num);
             self.emit_u32(label as _);
 
-            self.label_slots[label as usize].ref_count += 1;
+            self.labels[label as usize].ref_count += 1;
             label
         } else {
             -1
@@ -205,7 +207,8 @@ impl JSFunctionDef {
         if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
             // Note: converting to atom will consume the string,
             // so clone the string description to keep val's refcount
-            if let Ok(atom) = (*self.ctx)
+            if let Ok(atom) = self
+                .ctx
                 .rt_mut()
                 .add_atom_jsstring(val.with_string(|s| s.clone()), JSAtomTypeHint::String)
             {
@@ -223,7 +226,7 @@ impl JSFunctionDef {
             // }
         }
 
-        if let Ok(idx) = self.cpool_add(self.ctx.as_mut().unwrap(), val.dup()) {
+        if let Ok(idx) = self.cpool_add(self.ctx, val.dup()) {
             self.emit_op(OpCode::PUSH_CONST, last_line_num);
             self.emit_u32(idx as u32);
             0

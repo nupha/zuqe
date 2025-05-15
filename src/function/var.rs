@@ -590,7 +590,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 let label_id = get_u32(bc_buf.add(pos + 5));
                 let scope = get_u16(bc_buf.add(pos + 9));
 
-                let lb = (*s).label_slots.get_mut(label_id as usize).unwrap();
+                let lb = (*s).labels.get_mut(label_id as usize).unwrap();
                 lb.ref_count -= 1; // always remove label reference
 
                 // debug: get atom refcount before resolve_scope_var()
@@ -658,8 +658,8 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 if OPTIMIZE {
                     // remove calls to empty finalizers
                     let label_id = get_u32(bc_buf.add(pos + 1));
-                    debug_assert!(label_id < (*s).label_slots.len() as u32);
-                    let lb = (*s).label_slots.get_mut(label_id as usize).unwrap();
+                    debug_assert!(label_id < (*s).labels.len() as u32);
+                    let lb = (*s).labels.get_mut(label_id as usize).unwrap();
                     if cc.code_match(lb.pos as _, &[OpCode::RET as i32]) {
                         lb.ref_count -= 1;
                     } else {
@@ -748,8 +748,8 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
             }
             opcodes::op_label => {
                 let label_id = get_u32(bc_buf.add(pos + 1));
-                debug_assert!(label_id < (*s).label_slots.len() as u32);
-                let lb = (*s).label_slots.get_mut(label_id as usize).unwrap();
+                debug_assert!(label_id < (*s).labels.len() as u32);
+                let lb = (*s).labels.get_mut(label_id as usize).unwrap();
                 debug_assert_eq!(lb.pos2, -1);
                 lb.pos2 = bc_out.len() as i32 + oi.size as i32;
                 no_change!(pos, len);
@@ -829,7 +829,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 {
                     let lab0 = cc.label;
                     let mut lab1 = lab0;
-                    debug_assert!(lab1 >= 0 && lab1 < (*s).label_slots.len() as i32);
+                    debug_assert!(lab1 >= 0 && lab1 < (*s).labels.len() as i32);
 
                     let op1 = cc.op;
                     let pos1 = cc.pos;
