@@ -515,7 +515,12 @@ pub unsafe fn resolve_scope_var(
     if var_idx >= 0 {
         // find the corresponding closure variable
         idx = if var_idx & ARGUMENT_VAR_OFFSET != 0 {
-            (*(*fd).args.offset((var_idx - ARGUMENT_VAR_OFFSET) as isize)).set_is_captured(true);
+            (*fd)
+                .args
+                .get_mut((var_idx - ARGUMENT_VAR_OFFSET) as usize)
+                .unwrap()
+                .set_is_captured(true);
+
             (*s).get_closure_var2(
                 ctx,
                 fd,

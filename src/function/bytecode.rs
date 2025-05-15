@@ -56,7 +56,8 @@ pub struct JSFunctionBytecode {
     pub cpool_count: u16,
     pub arg_count: u16,
     pub var_count: u16,
-    pub defined_arg_count: u16, // for length function property
+    /// for length function property
+    pub defined_arg_count: u16,
     pub closure_var_count: u16,
 
     // TODO: use Option<JSFunctionBytecode>>
@@ -178,6 +179,9 @@ impl JSFunctionBytecode {
 
     pub unsafe fn closure_vars_slice(&self) -> &[JSClosureVar] {
         if self.closure_var_count > 0 {
+            debug_assert!(self.closure_var_start >= 0);
+            debug_assert!(self.closure_var_count < u16::MAX);
+
             std::slice::from_raw_parts(
                 self.binary
                     .as_ptr()

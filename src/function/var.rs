@@ -216,31 +216,29 @@ impl JSFunctionDef {
     }
 
     /// add new argument to the function, returns arg id or error
-    pub unsafe fn add_arg(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
+    pub fn add_arg(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
-        if self.arg_count >= JS_MAX_LOCAL_VARS {
+        if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.JS_ThrowInternalError(c"too many arguments");
             return Err(-1);
         }
 
-        if js_resize_array(
-            ctx,
-            std::ptr::addr_of_mut!(self.args).cast(),
-            std::mem::size_of::<JSVarDef>() as _,
-            &mut self.arg_size,
-            self.arg_count as i32 + 1,
-        ) != 0
-        {
-            return Err(-1);
+        if self.args.len() == self.args.capacity() {
+            if self.args.try_reserve_exact(2).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
         }
 
-        let vd = self.args.offset(self.arg_count as isize).as_mut().unwrap();
-        std::ptr::write_bytes(vd, 0, 1);
-        vd.var_name = JS_DupAtom(ctx, name);
-        vd.func_pool_idx = -1;
-        self.arg_count += 1;
+        self.args.push(JSVarDef {
+            var_name: name.dup(ctx.rt()),
+            func_pool_idx: -1,
+            scope_level: 0,
+            scope_next: 0,
+            bitfields: 0,
+        });
 
-        Ok(self.arg_count - 1)
+        Ok(self.args.len() as u16 - 1)
     }
 
     /// return the new variable index or error
@@ -341,12 +339,24 @@ impl JSFunctionDef {
     /// returns the variable index (add ARGUMENT_VAR_OFFSET for argument variables)
     /// or None if not found.
     pub fn find_arg(&self, name: JSAtom) -> Option<i32> {
-        for i in (0..self.arg_count).rev() {
-            if unsafe { (*self.args.offset(i as _)).var_name } == name {
-                return Some(i as i32 | ARGUMENT_VAR_OFFSET);
-            }
-        }
-        None
+        self.args
+            .iter()
+            .enumerate()
+            .rev() // search in reveresed order
+            .find_map(|(i, vd)| {
+                if vd.var_name == name {
+                    Some(i as i32 | ARGUMENT_VAR_OFFSET)
+                } else {
+                    None
+                }
+            })
+
+        // for i in (0..self.arg_count).rev() {
+        //     if unsafe { (*self.args.offset(i as _)).var_name } == name {
+        //         return Some(i as i32 | ARGUMENT_VAR_OFFSET);
+        //     }
+        // }
+        // None
     }
 
     /// find variable by name. if not found in vars, find it in args.

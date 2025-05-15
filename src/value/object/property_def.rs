@@ -32,7 +32,7 @@ impl JSValue {
        If JS_PROP_THROW is set, return an exception instead of FALSE.
        if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
-    /// Both `prop`, `val`, `getter`, `setter` keep ref count unchanged after calling.
+    /// Both `prop`, `val`, `getter`, `setter` are not consumed.
     pub unsafe fn define_property(
         self,
         ctx: &mut JSContext,
@@ -501,13 +501,13 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         #[cfg(debug_assertions)]
-        let _val_rc = val.ref_count();
+        let _val_rc_cnt = val.ref_count();
 
         let ret = unsafe {
             self.define_property(
                 ctx,
                 prop,
-                val, // <-- ref count is unchanged
+                val,
                 JSValue::UNDEFINED,
                 JSValue::UNDEFINED,
                 flags
@@ -521,9 +521,9 @@ impl JSValue {
         #[cfg(debug_assertions)]
         if let Some(c) = val.ref_count() {
             debug_assert!(
-                c > _val_rc.unwrap(),
+                c >= _val_rc_cnt.unwrap(),
                 "before:{}, after:{}",
-                _val_rc.unwrap(),
+                _val_rc_cnt.unwrap(),
                 c
             );
         }

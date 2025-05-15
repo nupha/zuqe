@@ -1,6 +1,4 @@
-use std::{mem::MaybeUninit, ops::DerefMut};
-
-use fallible_collections::FallibleBox;
+use std::ops::DerefMut;
 
 use crate::{
     atom::{consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
@@ -102,14 +100,10 @@ pub struct JSFunctionDef {
 
     /// vars defination list
     pub vars: Vec<JSVarDef>,
+    /// arguments defination list
+    pub args: Vec<JSVarDef>,
 
-    /// 参数定义数组. TODO: use Vec<JSVarDef>
-    pub args: *mut JSVarDef,
-    // 已分配参数空间
-    pub arg_size: i32,
-    // 参数数量: 函数定义参数个数
-    pub arg_count: u16,
-    // 已定义参数数量
+    /// for length function property
     pub defined_arg_count: u16,
     // 当前函数的变量索引
     pub func_var_idx: Option<u16>,
@@ -270,9 +264,7 @@ impl JSFunctionDef {
             func_name: JS_ATOM_NULL,
             js_mode: 0,
             vars: Vec::new(),
-            args: std::ptr::null_mut(),
-            arg_size: 0,
-            arg_count: 0,
+            args: Vec::new(),
             defined_arg_count: 0,
             func_var_idx: None,
             this_var_idx: None,
@@ -628,7 +620,7 @@ impl JSFunctionDef {
 
         bf.cpool_count = self.cpool_count as _;
         bf.var_count = self.vars.len() as _;
-        bf.arg_count = self.arg_count;
+        bf.arg_count = self.args.len() as _;
         bf.defined_arg_count = self.defined_arg_count;
 
         // initialize offsets to invalid
@@ -644,7 +636,7 @@ impl JSFunctionDef {
         };
 
         if self.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
-            let n = self.arg_count + self.vars.len() as u16;
+            let n: usize = self.args.len() + self.vars.len();
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
                 let mut i = bin_size;
@@ -654,7 +646,7 @@ impl JSFunctionDef {
                     bin_size += ly.align() - m
                 }
                 bf.vardefs_start = i as i32;
-                bin_size += n as usize * ly.size();
+                bin_size += n * ly.size();
             }
         }
 
@@ -706,7 +698,7 @@ impl JSFunctionDef {
         if bf.vardefs_start >= 0 {
             if bf.arg_count != 0 {
                 std::ptr::copy_nonoverlapping(
-                    self.args.cast::<u8>(),
+                    self.args.as_ptr().cast::<u8>(),
                     bin.as_mut_ptr().add(bf.vardefs_start as usize),
                     bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
                 );
@@ -725,18 +717,19 @@ impl JSFunctionDef {
             // SAFEGUARD: we have copy arg and var definations to function bytecode above.
             // we do vardefs and *_count clean-ups here in advance,
             // so that when calling js_free_function_def() later, it will not free vardefs.
-            if !self.args.is_null() {
-                js_free(ctx, self.args.cast());
-                self.args = std::ptr::null_mut();
-            }
-            self.arg_count = 0;
-
             #[cfg(not(debug_assertions))]
-            self.vars.clear();
-
+            {
+                self.args.clear();
+                self.vars.clear();
+            }
             #[cfg(debug_assertions)]
-            for mut vd in self.vars.drain(..) {
-                vd.var_name = JS_ATOM_NULL;
+            {
+                for mut vd in self.args.drain(..) {
+                    vd.var_name = JS_ATOM_NULL;
+                }
+                for mut vd in self.vars.drain(..) {
+                    vd.var_name = JS_ATOM_NULL;
+                }
             }
         }
 
@@ -816,11 +809,7 @@ impl JSFunctionDef {
                     ctx,
                     pass,
                     self.byte_code.as_slice(),
-                    if self.arg_count > 0 {
-                        std::slice::from_raw_parts(self.args, self.arg_count as _)
-                    } else {
-                        &[]
-                    },
+                    self.args.as_slice(),
                     self.vars.as_slice(),
                     self.closure_vars.as_deref().unwrap_or(&[]),
                     if self.cpool_count > 0 {
@@ -875,25 +864,19 @@ impl JSFunctionDef {
             self.cpool = std::ptr::null_mut();
         }
 
-        for mut vd in self.vars.drain(..) {
+        for mut vd in self.args.drain(..) {
             JS_FreeAtom(ctx, vd.var_name);
-
             #[cfg(debug_assertions)]
             {
                 vd.var_name = JS_ATOM_NULL;
             }
         }
-
-        for i in 0..self.arg_count {
-            JS_FreeAtom(ctx, (*self.args.offset(i as isize)).var_name);
+        for mut vd in self.vars.drain(..) {
+            JS_FreeAtom(ctx, vd.var_name);
             #[cfg(debug_assertions)]
             {
-                (*self.args.offset(i as isize)).var_name = JS_ATOM_NULL;
+                vd.var_name = JS_ATOM_NULL;
             }
-        }
-        if !self.args.is_null() {
-            js_free(ctx, self.args.cast());
-            self.args = std::ptr::null_mut();
         }
 
         for i in 0..self.global_var_count {
@@ -1135,18 +1118,17 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
         if !is_arg_scope {
             // add unscoped variables
             // XXX: propagate is_const and var_kind too ?
-            for i in 0..(*fd).arg_count {
-                let vd = (*fd).args.add(i as usize);
-                if (*vd).var_name != JS_ATOM_NULL {
+            for (i, vd) in (*fd).args.iter().enumerate() {
+                if vd.var_name != JS_ATOM_NULL {
                     s.get_closure_var2(
                         ctx,
                         fd,
                         true,
                         true,
-                        i,
-                        (*vd).var_name,
+                        i as _,
+                        vd.var_name,
                         false,
-                        (*vd).is_lexical(),
+                        vd.is_lexical(),
                         JSVarKindEnum::JS_VAR_NORMAL,
                     )
                     .unwrap();
@@ -1666,9 +1648,8 @@ pub unsafe fn instantiate_hoisted_definitions(
     bc: &mut Vec<u8>,
 ) {
     // add the hoisted functions in arguments and local variables
-    for i in 0..(*s).arg_count {
-        let vd = (*s).args.offset(i as isize);
-        if (*vd).func_pool_idx >= 0 {
+    for (i, vd) in (*s).args.iter().enumerate() {
+        if vd.func_pool_idx >= 0 {
             push_vec_u8(bc, OpCode::FCLOSURE as u8);
             push_vec_u32(bc, (*vd).func_pool_idx as u32);
 

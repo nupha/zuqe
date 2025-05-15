@@ -205,7 +205,7 @@ impl<'s> JSParseState<'s> {
 
             while self.token.val != CHAR_BRACKET_R {
                 let rest = if self.token.val == TOK_ELLIPSIS {
-                    (*fd1).has_simple_parameter_list = false;
+                    fd1.has_simple_parameter_list = false;
                     if self.next_token().is_err() {
                         fail!();
                     }
@@ -218,9 +218,9 @@ impl<'s> JSParseState<'s> {
                     fd1.has_simple_parameter_list = false;
                     if rest {
                         emit_op(self, OpCode::REST);
-                        emit_u16(self, fd1.arg_count as _);
+                        emit_u16(self, fd1.args.len() as _);
                     } else {
-                        /* unnamed arg for destructuring */
+                        // unnamed arg for destructuring
                         let idx = fd1.add_arg(ctx.deref_mut(), JS_ATOM_NULL).expect("TODO") as i32;
                         emit_op(self, OpCode::GET_ARG);
                         emit_u16(self, idx as _);
@@ -321,6 +321,7 @@ impl<'s> JSParseState<'s> {
                         emit_op(self, OpCode::DUP);
                         emit_op(self, OpCode::PUT_ARG);
                         emit_u16(self, idx as _);
+
                         emit_label(self, label);
                         emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                         emit_atom_dup(self, name);
@@ -356,8 +357,8 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && fd1.arg_count != 0)
-                || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.arg_count != 1)
+            if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && !fd1.args.is_empty())
+                || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.args.len() != 1)
             {
                 self.throw_syntax_error(c"invalid number of arguments for getter or setter");
                 fail!();
@@ -756,10 +757,11 @@ impl<'s> JSParseState<'s> {
 
                     // the variable will be assigned at the top of the function
                     if var_idx & ARGUMENT_VAR_OFFSET != 0 {
-                        (*(*self.cur_func)
+                        (*self.cur_func)
                             .args
-                            .offset((var_idx - ARGUMENT_VAR_OFFSET) as isize))
-                        .func_pool_idx = idx;
+                            .get_mut((var_idx - ARGUMENT_VAR_OFFSET) as usize)
+                            .unwrap()
+                            .func_pool_idx = idx;
                     } else {
                         (*self.cur_func)
                             .vars
@@ -887,11 +889,9 @@ pub unsafe fn js_parse_check_duplicate_parameter(s: *mut JSParseState, name: JSA
     // Check for duplicate parameter names
     let fd = (*s).cur_func;
 
-    for i in 0..(*fd).arg_count {
-        if (*(*fd).args.offset(i as isize)).var_name == name {
-            (*s).throw_syntax_error(c"duplicate parameter names not allowed in this context");
-            return -1;
-        }
+    if (*fd).args.iter().any(|vd| vd.var_name == name) {
+        (*s).throw_syntax_error(c"duplicate parameter names not allowed in this context");
+        return -1;
     }
 
     if (*fd).vars.iter().any(|vd| vd.var_name == name) {
@@ -940,48 +940,83 @@ pub unsafe fn js_parse_function_check_names(
             return -1;
         }
 
-        for idx in 0..(*fd).arg_count {
-            name = (*(*fd).args.offset(idx as isize)).var_name;
-            if name == JS_ATOM_eval || name == JS_ATOM_arguments {
-                (*s).throw_syntax_error(c"invalid argument name in strict code");
-                return -1;
-            }
+        if (*fd)
+            .args
+            .iter()
+            .any(|vd| matches!(vd.var_name, JS_ATOM_eval | JS_ATOM_arguments))
+        {
+            (*s).throw_syntax_error(c"invalid argument name in strict code");
+            return -1;
         }
+        // for idx in 0..(*fd).arg_count {
+        //     name = (*(*fd).args.offset(idx as isize)).var_name;
+        //     if name == JS_ATOM_eval || name == JS_ATOM_arguments {
+        //         (*s).throw_syntax_error(c"invalid argument name in strict code");
+        //         return -1;
+        //     }
+        // }
     }
+
     // check async_generator case
-    if ((*fd).js_mode & JS_MODE_STRICT as u8 != 0)
+    if (*fd).js_mode & JS_MODE_STRICT as u8 != 0
         || !(*fd).has_simple_parameter_list
         || ((*fd).func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
             && (*fd).func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
-        || (*fd).func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-        || (*fd).func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
+        || matches!(
+            (*fd).func_type,
+            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW | JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
+        )
     {
-        for idx in 0..(*fd).arg_count {
-            name = (*(*fd).args.offset(idx as isize)).var_name;
-            if name != JS_ATOM_NULL {
-                for i in 0..idx {
-                    if (*(*fd).args.offset(i as isize)).var_name == name {
-                        (*s).throw_syntax_error(
-                            c"duplicate argument names not allowed in this context",
-                        );
-                        return -1;
-                    }
-                }
+        for (idx, name) in (*fd).args.iter().enumerate().filter_map(|(i, vd)| {
+            if vd.var_name != JS_ATOM_NULL {
+                Some((i, vd.var_name))
+            } else {
+                None
+            }
+        }) {
+            if (*fd).args.iter().take(idx).any(|d| d.var_name == name) {
+                (*s).throw_syntax_error(c"duplicate argument names not allowed in this context");
+                return -1;
+            }
 
-                // Check if argument name duplicates a destructuring parameter
-                // XXX: should have a flag for such variables
-                if (*fd)
-                    .vars
-                    .iter()
-                    .any(|vd| vd.var_name == name && vd.scope_level == 0)
-                {
-                    (*s).throw_syntax_error(
-                        c"duplicate argument names not allowed in this context",
-                    );
-                    return -1;
-                }
+            // Check if argument name duplicates a destructuring parameter
+            // XXX: should have a flag for such variables
+            if (*fd)
+                .vars
+                .iter()
+                .any(|d| d.var_name == name && d.scope_level == 0)
+            {
+                (*s).throw_syntax_error(c"duplicate argument names not allowed in this context");
+                return -1;
             }
         }
+
+        // for idx in 0..(*fd).arg_count {
+        //     name = (*(*fd).args.offset(idx as isize)).var_name;
+        //     if name != JS_ATOM_NULL {
+        //         for i in 0..idx {
+        //             if (*(*fd).args.offset(i as isize)).var_name == name {
+        //                 (*s).throw_syntax_error(
+        //                     c"duplicate argument names not allowed in this context",
+        //                 );
+        //                 return -1;
+        //             }
+        //         }
+
+        //         // Check if argument name duplicates a destructuring parameter
+        //         // XXX: should have a flag for such variables
+        //         if (*fd)
+        //             .vars
+        //             .iter()
+        //             .any(|vd| vd.var_name == name && vd.scope_level == 0)
+        //         {
+        //             (*s).throw_syntax_error(
+        //                 c"duplicate argument names not allowed in this context",
+        //             );
+        //             return -1;
+        //         }
+        //     }
+        // }
     }
 
     return 0;
