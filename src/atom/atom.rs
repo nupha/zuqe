@@ -425,7 +425,7 @@ pub unsafe fn find_atom(ctx: *mut JSContext, name: &str) -> JSAtom {
     (*ctx).create_atom(name).unwrap_or(JS_ATOM_NULL)
 }
 
-pub unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
+unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
     if let Some(p) = (*rt).get_atom_desc(i) {
         if Rc::strong_count(p) > 1 {
             Rc::decrement_strong_count(p.as_ref());

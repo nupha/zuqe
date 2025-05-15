@@ -1,5 +1,5 @@
 use std::{
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     os::raw::c_char,
     ptr::{self, NonNull},
 };
