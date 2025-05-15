@@ -16,7 +16,6 @@ use crate::{
 };
 
 use super::{
-    class::cpool_add,
     destructing::js_parse_destructuring_element,
     emit::{
         emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
@@ -678,8 +677,11 @@ impl<'s> JSParseState<'s> {
             func_name = fd1.func_name;
 
             // the real object will be set at the end of the compilation
-            let idx = cpool_add(self, JSValue::NULL);
-            fd1.parent_cpool_idx = idx;
+            let cp_idx = (*self.cur_func)
+                .cpool_add(ctx.deref_mut(), JSValue::NULL)
+                .map_or(-1, |x| x as i32);
+
+            fd1.parent_cpool_idx = cp_idx;
 
             if is_expr {
                 // for constructors, no code needs to be generated here
@@ -690,7 +692,7 @@ impl<'s> JSParseState<'s> {
                 ) {
                     // OP_fclosure creates the function object from the bytecode and adds the scope information
                     emit_op(self, OpCode::FCLOSURE);
-                    emit_u32(self, idx as _);
+                    emit_u32(self, cp_idx as _);
 
                     if func_name == JS_ATOM_NULL {
                         emit_op(self, OpCode::SET_NAME);
@@ -699,7 +701,7 @@ impl<'s> JSParseState<'s> {
                 }
             } else if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
                 emit_op(self, OpCode::FCLOSURE);
-                emit_u32(self, idx as _);
+                emit_u32(self, cp_idx as _);
 
                 if create_func_var {
                     if (*self.cur_func).is_global_var {
@@ -737,7 +739,7 @@ impl<'s> JSParseState<'s> {
                         .vars
                         .get_mut(lexical_func_idx as usize)
                         .unwrap()
-                        .func_pool_idx = idx;
+                        .func_pool_idx = cp_idx;
                     emit_op(self, OpCode::DROP);
                 } else {
                     /* store function object into its lexical name */
@@ -760,13 +762,13 @@ impl<'s> JSParseState<'s> {
                             .args
                             .get_mut((var_idx - ARGUMENT_VAR_OFFSET) as usize)
                             .unwrap()
-                            .func_pool_idx = idx;
+                            .func_pool_idx = cp_idx;
                     } else {
                         (*self.cur_func)
                             .vars
                             .get_mut(var_idx as usize)
                             .unwrap()
-                            .func_pool_idx = idx;
+                            .func_pool_idx = cp_idx;
                     }
                 } else {
                     let func_var_name = if func_name == JS_ATOM_NULL {
@@ -777,7 +779,7 @@ impl<'s> JSParseState<'s> {
 
                     /* the variable will be assigned at the top of the function */
                     let hf = (*self.cur_func).add_global_var(ctx.deref_mut(), func_var_name)?;
-                    hf.cpool_idx = idx;
+                    hf.cpool_idx = cp_idx;
 
                     if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
                         if add_export_entry(

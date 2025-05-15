@@ -12,7 +12,7 @@ use crate::{
     },
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    mem::{js_free, js_resize_array, js_strndup},
+    mem::{js_free, js_strndup},
     module::JSExportTypeEnum,
     parse::{
         esm::add_export_entry,
@@ -963,31 +963,15 @@ pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDe
     emit_op(s, OpCode::RETURN_UNDEF);
     (*s).cur_func = (*(*s).cur_func).parent;
 
-    let cpool_idx = cpool_add(s, JSValue::NULL);
+    let cpool_idx = (*(*s).cur_func)
+        .cpool_add((*s).ctx.deref_mut(), JSValue::NULL)
+        .map_or(-1, |x| x as i32);
+
     (*(*cf).fields_init_fd).parent_cpool_idx = cpool_idx;
     emit_op(s, OpCode::FCLOSURE);
     emit_u32(s, cpool_idx as _);
 
     emit_op(s, OpCode::SET_HOME_OBJECT);
-}
-
-// return the constant pool index. 'val' is not duplicated.
-pub unsafe fn cpool_add(s: *mut JSParseState, val: JSValue) -> i32 {
-    let fd = (*s).cur_func;
-
-    if js_resize_array(
-        (*s).ctx.as_ptr(),
-        std::ptr::addr_of_mut!((*fd).cpool).cast(),
-        std::mem::size_of::<JSValue>() as _,
-        &mut (*fd).cpool_size,
-        (*fd).cpool_count + 1,
-    ) != 0
-    {
-        return -1;
-    }
-    *((*fd).cpool.offset((*fd).cpool_count as isize)) = val;
-    (*fd).cpool_count += 1;
-    (*fd).cpool_count - 1
 }
 
 // add a private field variable in the current scope

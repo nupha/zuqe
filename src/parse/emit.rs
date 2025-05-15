@@ -228,15 +228,13 @@ impl JSFunctionDef {
             // }
         }
 
-        let idx = self.cpool_add(val.dup());
-        if idx < 0 {
-            return -1;
+        if let Ok(idx) = self.cpool_add(self.ctx.as_mut().unwrap(), val.dup()) {
+            self.emit_op(OpCode::PUSH_CONST, last_line_num);
+            self.emit_u32(idx as u32);
+            0
+        } else {
+            -1
         }
-
-        self.emit_op(OpCode::PUSH_CONST, last_line_num);
-        self.emit_u32(idx as u32);
-
-        0
     }
 
     /* initialize the class fields, called by the constructor. Note:
@@ -348,27 +346,6 @@ impl JSFunctionDef {
     //         return js_parse_error(s, c"break/continue label not found");
     //     }
     // }
-
-    /// return the constant pool index. 'val' is consumed
-    pub unsafe fn cpool_add(&mut self, val: JSValue) -> i32 {
-        if js_resize_array(
-            self.ctx,
-            std::ptr::addr_of_mut!(self.cpool).cast(),
-            std::mem::size_of::<JSValue>() as _,
-            &mut self.cpool_size,
-            self.cpool_count + 1,
-        ) != 0
-        {
-            JS_FreeValue(self.ctx, val);
-            return -1;
-        }
-
-        *(self.cpool.offset(self.cpool_count as isize)) = val;
-        self.cpool_count += 1;
-
-        // returns new const idx
-        self.cpool_count - 1
-    }
 
     #[inline(always)]
     pub unsafe fn get_prev_opcode(&self) -> u8 {

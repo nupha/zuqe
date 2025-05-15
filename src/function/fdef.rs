@@ -98,6 +98,8 @@ pub struct JSFunctionDef {
 
     pub js_mode: u8,
 
+    /// constants pool (string, function, number）.
+    pub cpool: Vec<JSValue>,
     /// vars defination list
     pub vars: Vec<JSVarDef>,
     /// arguments defination list
@@ -109,6 +111,9 @@ pub struct JSFunctionDef {
     pub defined_arg_count: u16,
     // 当前函数的变量索引
     pub func_var_idx: Option<u16>,
+
+    /// closure vars list
+    pub closure_vars: Option<Vec<JSClosureVar>>,
 
     //
     // pseudo vars
@@ -164,17 +169,6 @@ pub struct JSFunctionDef {
 
     // break/continue label stack
     pub top_break: *mut BlockEnv,
-
-    /// 常量池（字符串、函数、数字）.
-    /// TODO: use Vec<JSValue>
-    pub cpool: *mut JSValue,
-    // 常量池计数
-    pub cpool_count: i32,
-    // 常量池分配大小
-    pub cpool_size: i32,
-
-    /// closure vars list
-    pub closure_vars: Option<Vec<JSClosureVar>>,
 
     // 跳转槽数组. TODO: use Vec<JumpSlot>
     pub jump_slots: *mut JumpSlot,
@@ -259,6 +253,7 @@ impl JSFunctionDef {
             func_name: JS_ATOM_NULL,
             js_mode: 0,
 
+            cpool: Vec::new(),
             vars: Vec::new(),
             args: Vec::new(),
             global_vars: Vec::new(),
@@ -295,9 +290,6 @@ impl JSFunctionDef {
             label_size: 0,
             label_count: 0,
             top_break: std::ptr::null_mut(),
-            cpool: std::ptr::null_mut(),
-            cpool_count: 0,
-            cpool_size: 0,
             closure_vars: None,
             jump_slots: std::ptr::null_mut(),
             jump_size: 0,
@@ -548,8 +540,9 @@ impl JSFunctionDef {
         // first create all the child functions
         let r = list_foreach_safe_with_ret(&mut self.child_list, |el| {
             let fd1 = list_entry!(el, JSFunctionDef, link);
+
             let cpool_idx: i32 = (*fd1).parent_cpool_idx;
-            debug_assert!(cpool_idx >= 0);
+            debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
             let func_obj = Box::from_raw(fd1).make_function(ctx);
             if func_obj.is_exception() {
@@ -557,8 +550,8 @@ impl JSFunctionDef {
             }
             debug_assert_eq!(JS_VALUE_GET_TAG(func_obj), JS_TAG_FUNCTION_BYTECODE);
 
-            // put child func to parent's constant pool
-            *self.cpool.add(cpool_idx as usize) = func_obj;
+            // put child function to parent's constant pool
+            self.cpool[cpool_idx as usize] = func_obj;
 
             None
         });
@@ -613,7 +606,7 @@ impl JSFunctionDef {
             matches!(self.eval_type, JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT);
         bf.realm = ctx.dup();
 
-        bf.cpool_count = self.cpool_count as _;
+        bf.cpool_count = self.cpool.len() as _;
         bf.var_count = self.vars.len() as _;
         bf.arg_count = self.args.len() as _;
         bf.defined_arg_count = self.defined_arg_count;
@@ -674,7 +667,7 @@ impl JSFunctionDef {
         // 1. cpool section
         if bf.cpool_start >= 0 {
             std::ptr::copy_nonoverlapping(
-                self.cpool,
+                self.cpool.as_ptr(),
                 bin.as_mut_ptr()
                     .add(bf.cpool_start as usize)
                     .cast::<JSValue>(),
@@ -684,9 +677,7 @@ impl JSFunctionDef {
             // SAFEGUARD: we have copy cpool values to function bytecode above.
             // we do cpool pointer and count clean-ups here in advance,
             // so that js_free_function_def() will not free them again.
-            js_free(ctx, self.cpool.cast());
-            self.cpool = std::ptr::null_mut();
-            self.cpool_count = 0;
+            self.cpool.clear();
         }
 
         // 2. vardef section
@@ -807,11 +798,7 @@ impl JSFunctionDef {
                     self.args.as_slice(),
                     self.vars.as_slice(),
                     self.closure_vars.as_deref().unwrap_or(&[]),
-                    if self.cpool_count > 0 {
-                        std::slice::from_raw_parts(self.cpool, self.cpool_count as _)
-                    } else {
-                        &[]
-                    },
+                    self.cpool.as_slice(),
                     self.source.cast(),
                     self.line_num as _,
                     self.label_slots,
@@ -851,12 +838,8 @@ impl JSFunctionDef {
             self.line_number_slots = std::ptr::null_mut();
         }
 
-        for i in 0..self.cpool_count {
-            JS_FreeValue(ctx, *self.cpool.offset(i as isize));
-        }
-        if !self.cpool.is_null() {
-            js_free(ctx, self.cpool.cast());
-            self.cpool = std::ptr::null_mut();
+        for v in self.cpool.drain(..) {
+            JS_FreeValue(ctx, v);
         }
 
         for mut vd in self.args.drain(..) {
@@ -866,6 +849,7 @@ impl JSFunctionDef {
                 vd.var_name = JS_ATOM_NULL;
             }
         }
+
         for mut vd in self.vars.drain(..) {
             JS_FreeAtom(ctx, vd.var_name);
             #[cfg(debug_assertions)]
@@ -873,6 +857,7 @@ impl JSFunctionDef {
                 vd.var_name = JS_ATOM_NULL;
             }
         }
+
         for gv in self.global_vars.drain(..) {
             JS_FreeAtom(ctx, gv.var_name);
         }
