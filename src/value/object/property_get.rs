@@ -220,9 +220,24 @@ impl JSValue {
     }
 
     /// returned value has ref_count increased by 1.
+    /// returns Exception when fail.
     #[inline(always)]
     pub fn get_property(self, ctx: &mut JSContext, prop: JSAtom) -> JSValue {
         unsafe { self.get_property_internal(ctx, prop, self, false) }
+    }
+
+    /// returned value has ref_count increased by 1.
+    /// returns Exception when fail.
+    pub fn get_property_str(self, ctx: &mut JSContext, prop: &str) -> JSValue {
+        if let Ok(atom) = ctx.create_atom(prop) {
+            let ret = self.get_property(ctx, atom);
+            unsafe {
+                JS_FreeAtom(ctx, atom);
+            }
+            ret
+        } else {
+            JSValue::EXCEPTION
+        }
     }
 
     /// NOTE: returned property value has increased ref_count by 1

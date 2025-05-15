@@ -67,7 +67,7 @@ impl PromiseResolvingFuncValue {
             return JSValue::UNDEFINED;
         } else if resolution.is_same(s.promise.0) {
             ctx.JS_ThrowTypeError(c"promise self resolution");
-            let error = ctx.get_exception();
+            let error = ctx.take_exception();
             s.promise.fulfill_or_reject(ctx, error, true);
             JS_FreeValue(ctx, error);
             return JSValue::UNDEFINED;
@@ -75,7 +75,7 @@ impl PromiseResolvingFuncValue {
 
         let then = resolution.get_property(ctx, JS_ATOM_then);
         if then.is_exception() {
-            let error = ctx.get_exception();
+            let error = ctx.take_exception();
             s.promise.fulfill_or_reject(ctx, error, true);
             JS_FreeValue(ctx, error);
             JSValue::UNDEFINED

@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
+    atom::{JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{OpCode, OpCodeTemp},
     error::JS_ThrowSyntaxError,
     function::JSFunctionKindEnum,
@@ -11,7 +11,6 @@ use crate::{
 
 use super::{
     emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u16, get_prev_opcode},
-    error::js_parse_error,
     expr_lvalue::PutLValueEnum,
     parse::js_parse_delete,
     state::{JSParseState, PF_POSTFIX_CALL, PF_POW_FORBIDDEN},
@@ -31,7 +30,9 @@ impl<'s> JSParseState<'s> {
     ) -> Result<(), i32> {
         if level == 0 {
             return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
-        } else if self.token.val == TOK_PRIVATE_NAME
+        }
+
+        if self.token.val == TOK_PRIVATE_NAME
             && (parse_flags & PF_IN_ACCEPTED) != 0
             && level == 4
             && peek_token(self, false) == TOK_IN
@@ -114,7 +115,7 @@ impl<'s> JSParseState<'s> {
                 },
                 5 => match op {
                     TOK_EQ => OpCode::EQ,
-                    TOK_NEQ => OpCode::NEG,
+                    TOK_NEQ => OpCode::NEQ,
                     TOK_STRICT_EQ => OpCode::STRICT_EQ,
                     TOK_STRICT_NEQ => OpCode::STRICT_NEQ,
                     _ => {
@@ -231,11 +232,11 @@ impl<'s> JSParseState<'s> {
                     (*self.cur_func).func_kind,
                     JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
                 ) {
-                    js_parse_error(self, c"unexpected 'await' keyword");
+                    self.throw_syntax_error(c"unexpected 'await' keyword");
                     return Err(-1);
                 }
                 if !(*self.cur_func).in_function_body {
-                    js_parse_error(self, c"await in default expression");
+                    self.throw_syntax_error(c"await in default expression");
                     return Err(-1);
                 }
 

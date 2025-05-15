@@ -273,7 +273,7 @@ pub unsafe fn JS_IteratorClose(
     }
 
     if is_exception_pending {
-        ctx.as_mut().unwrap().JS_Throw(exc_obj);
+        ctx.as_mut().unwrap().throw(exc_obj);
     }
 
     if res == -1 {

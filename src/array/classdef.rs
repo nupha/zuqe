@@ -4,10 +4,7 @@ use crate::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
     },
-    bytecode::{
-        arithmatic::{js_strict_eq2, JSStrictEqModeEnum},
-        js_for_of_start,
-    },
+    bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
     class::js_create_from_ctor,
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowStackOverflow},
@@ -1079,31 +1076,49 @@ pub unsafe fn js_array_indexOf(
         let mut count = 0;
         if js_get_fast_array(ctx, obj, &mut arrp, &mut count) {
             let mut idx = n as usize;
+
             while (idx as i64) < (count as i64) {
-                if js_strict_eq2(
-                    ctx,
-                    (*argv.offset(0)).dup(),
-                    (*arrp.offset(idx as isize)).dup(),
+                if (*argv.offset(0)).strict_eq_with_mode(
+                    *arrp.offset(idx as isize),
                     JSStrictEqModeEnum::JS_EQ_STRICT,
                 ) {
                     JS_FreeValue(ctx, obj);
-                    return JSValue::from_i64(idx as i64);
+                    return JSValue::from(idx as i64);
                 }
+
+                // if js_strict_eq2(
+                //     ctx,
+                //     (*argv.offset(0)).dup(),
+                //     (*arrp.offset(idx as isize)).dup(),
+                //     JSStrictEqModeEnum::JS_EQ_STRICT,
+                // ) {
+                //     JS_FreeValue(ctx, obj);
+                //     return JSValue::from_i64(idx as i64);
+                // }
+
                 idx += 1;
             }
         }
+
         while n < len {
             match obj.try_get_property_i64(ctx.as_mut().unwrap(), n) {
                 Ok(Some(v)) => {
-                    if js_strict_eq2(
-                        ctx,
-                        (*argv.offset(0)).dup(),
-                        v,
-                        JSStrictEqModeEnum::JS_EQ_STRICT,
-                    ) {
+                    let b =
+                        (*argv.offset(0)).strict_eq_with_mode(v, JSStrictEqModeEnum::JS_EQ_STRICT);
+                    JS_FreeValue(ctx, v);
+                    if b {
                         res = n;
                         break;
                     }
+                    // if js_strict_eq2(
+                    //     ctx,
+                    //     (*argv.offset(0)).dup(),
+                    //     v,
+                    //     JSStrictEqModeEnum::JS_EQ_STRICT,
+                    // ) {
+                    //     res = n;
+                    //     break;
+                    // }
                 }
                 Ok(None) => {}
                 Err(_) => {
@@ -1152,15 +1167,23 @@ pub unsafe fn js_array_lastIndexOf(
         for n in (0..=cnt).rev() {
             match obj.try_get_property_i64(ctx.as_mut().unwrap(), n) {
                 Ok(Some(v)) => {
-                    if js_strict_eq2(
-                        ctx,
-                        (*argv.offset(0)).dup(),
-                        v,
-                        JSStrictEqModeEnum::JS_EQ_STRICT,
-                    ) {
+                    let b =
+                        (*argv.offset(0)).strict_eq_with_mode(v, JSStrictEqModeEnum::JS_EQ_STRICT);
+                    JS_FreeValue(ctx, v);
+                    if b {
                         res = n;
                         break;
                     }
+
+                    // if js_strict_eq2(
+                    //     ctx,
+                    //     (*argv.offset(0)).dup(),
+                    //     v,
+                    //     JSStrictEqModeEnum::JS_EQ_STRICT,
+                    // ) {
+                    //     res = n;
+                    //     break;
+                    // }
                 }
                 Ok(None) => {}
                 Err(_) => {
@@ -1208,15 +1231,24 @@ pub unsafe fn js_array_includes(
         if js_get_fast_array(ctx, obj, &mut arrp, &mut count) {
             let mut idx = n;
             while idx < count as i64 {
-                if js_strict_eq2(
-                    ctx,
-                    (*argv.offset(0)).dup(),
-                    (*arrp.offset(idx as isize)).dup(),
+                if (*argv.offset(0)).strict_eq_with_mode(
+                    *arrp.offset(idx as isize),
                     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
                 ) {
                     res = true;
                     break;
                 }
+
+                // if js_strict_eq2(
+                //     ctx,
+                //     (*argv.offset(0)).dup(),
+                //     (*arrp.offset(idx as isize)).dup(),
+                //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
+                // ) {
+                //     res = true;
+                //     break;
+                // }
+
                 idx += 1;
             }
         }
@@ -1228,15 +1260,24 @@ pub unsafe fn js_array_includes(
                 return JSValue::EXCEPTION;
             }
 
-            if js_strict_eq2(
-                ctx,
-                (*argv.offset(0)).dup(),
-                val,
-                JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
-            ) {
+            let b = (*argv.offset(0))
+                .strict_eq_with_mode(val, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO);
+            JS_FreeValue(ctx, val);
+            if b {
                 res = true;
                 break;
             }
+
+            // if js_strict_eq2(
+            //     ctx,
+            //     (*argv.offset(0)).dup(),
+            //     val,
+            //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
+            // ) {
+            //     res = true;
+            //     break;
+            // }
+
             n += 1;
         }
     }

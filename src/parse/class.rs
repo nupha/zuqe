@@ -34,7 +34,7 @@ use super::{
     emit::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u16, emit_u32, emit_u8,
     },
-    error::{js_parse_error, js_parse_error_reserved_identifier},
+    error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     parse::js_parse_expect,
@@ -69,7 +69,7 @@ pub unsafe fn js_parse_class(
     }
     macro_rules! private_field_already_defined {
         () => {
-            js_parse_error(s, c"private class field is already defined");
+            (*s).throw_syntax_error(c"private class field is already defined");
             fail!();
         };
     }
@@ -91,7 +91,7 @@ pub unsafe fn js_parse_class(
             fail!();
         }
     } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
-        js_parse_error(s, c"class statement requires a name");
+        (*s).throw_syntax_error(c"class statement requires a name");
         fail!();
     }
     if !is_class_expr {
@@ -258,7 +258,7 @@ pub unsafe fn js_parse_class(
             || (name == JS_ATOM_prototype && is_static)
             || name == JS_ATOM_hash_constructor
         {
-            js_parse_error(s, c"invalid method name");
+            (*s).throw_syntax_error(c"invalid method name");
             fail!();
         }
         if prop_type == PROP_TYPE_GET || prop_type == PROP_TYPE_SET {
@@ -381,7 +381,7 @@ pub unsafe fn js_parse_class(
 
             // XXX: spec: not consistent with method name checks
             if name == JS_ATOM_constructor || name == JS_ATOM_prototype {
-                js_parse_error(s, c"invalid field name");
+                (*s).throw_syntax_error(c"invalid field name");
                 fail!();
             }
 
@@ -489,7 +489,7 @@ pub unsafe fn js_parse_class(
                 func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
             } else if name == JS_ATOM_constructor && !is_static {
                 if !ctor_fd.is_null() {
-                    js_parse_error(s, c"property constructor appears more than once");
+                    (*s).throw_syntax_error(c"property constructor appears more than once");
                     fail!();
                 }
                 func_type = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
@@ -558,7 +558,7 @@ pub unsafe fn js_parse_class(
     }
 
     if (*s).token.val != '}' as i32 {
-        js_parse_error(s, c"expecting '}'");
+        (*s).throw_syntax_error(c"expecting '}'");
         fail!();
     }
 
@@ -867,7 +867,7 @@ pub unsafe fn js_parse_property_name(
             }
             GotoLabel::InvalidProp => {
                 JS_FreeAtom((*s).ctx.as_ptr(), name);
-                js_parse_error(s, c"invalid property name");
+                (*s).throw_syntax_error(c"invalid property name");
                 *pname = JS_ATOM_NULL;
                 return -1;
             }
@@ -883,7 +883,7 @@ pub unsafe fn js_parse_property_name(
 
     if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR) && (*s).token.val != '(' as i32 {
         JS_FreeAtom((*s).ctx.as_ptr(), name);
-        js_parse_error(s, c"invalid property name");
+        (*s).throw_syntax_error(c"invalid property name");
         *pname = JS_ATOM_NULL;
         -1
     } else {

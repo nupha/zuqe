@@ -67,7 +67,7 @@ pub fn promise_reaction_job(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     let mut res = if handler.is_undefined() {
         if is_reject {
-            ctx.JS_Throw(arg.dup())
+            ctx.throw(arg.dup())
         } else {
             arg.dup()
         }
@@ -77,7 +77,7 @@ pub fn promise_reaction_job(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     is_reject = res.is_exception();
     if is_reject {
-        res = ctx.get_exception();
+        res = ctx.take_exception();
     }
 
     let func = args.get_raw(is_reject as usize); // resolve or reject function
@@ -111,7 +111,7 @@ pub fn js_promise_resolve_thenable_job(ctx: &mut JSContext, args: CallArgs) -> J
 
     let res = unsafe { JS_Call(ctx, then, thenable, 2, rr.as_mut_ptr()) };
     if res.is_exception() {
-        let error = ctx.get_exception();
+        let error = ctx.take_exception();
         unsafe {
             JS_Call(
                 ctx,

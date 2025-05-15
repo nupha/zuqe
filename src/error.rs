@@ -54,7 +54,7 @@ pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 impl JSContext {
     /// put `obj` to current_exception, free old exception value. returns Exception value.
     /// Note: `obj` is consumed.
-    pub fn JS_Throw(&mut self, obj: JSValue) -> JSValue {
+    pub fn throw(&mut self, obj: JSValue) -> JSValue {
         let old = self.rt_mut().current_exception.replace(obj);
         unsafe {
             JS_FreeValue(self, old); // free old exception value
@@ -62,12 +62,9 @@ impl JSContext {
         JSValue::EXCEPTION
     }
 
-    #[inline]
-    pub fn JS_ThrowInternalError(&mut self, message: &CStr) -> JSValue {
-        self.JS_ThrowError(JSErrorEnum::Internal, message)
-    }
-
-    pub fn JS_ThrowError2(
+    /// make error object and throw it as current exception.
+    /// old exception will be freed.
+    pub fn throw_error_ex(
         &mut self,
         error_num: JSErrorEnum,
         message: &CStr,
@@ -95,9 +92,11 @@ impl JSContext {
             self.build_backtrace_to(obj, None, 0);
         }
 
-        self.JS_Throw(obj)
+        self.throw(obj)
     }
 
+    /// make error object and throw it as current exception.
+    /// old exception will be freed.
     pub fn JS_ThrowError(&mut self, error_num: JSErrorEnum, message: &CStr) -> JSValue {
         let rt = self.rt();
 
@@ -106,7 +105,12 @@ impl JSContext {
         let add_backtrace = !rt.in_out_of_memory
             && (sf.is_null() || unsafe { JS_GetFunctionBytecode((*sf).cur_func).is_null() });
 
-        self.JS_ThrowError2(error_num, message, add_backtrace)
+        self.throw_error_ex(error_num, message, add_backtrace)
+    }
+
+    #[inline]
+    pub fn JS_ThrowInternalError(&mut self, message: &CStr) -> JSValue {
+        self.JS_ThrowError(JSErrorEnum::Internal, message)
     }
 
     #[inline]
@@ -170,7 +174,7 @@ impl JSContext {
 
     /// get and return current pending exception value. replace current_exception with null.
     /// Note: returnd value should be freed by caller
-    pub fn get_exception(&mut self) -> JSValue {
+    pub fn take_exception(&mut self) -> JSValue {
         std::mem::replace(&mut self.rt_mut().current_exception, JSValue::NULL)
     }
 }
@@ -179,9 +183,9 @@ pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 /* only taken into account if filename is provided */
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
-#[deprecated(note = "use JSContext::get_exception() instead")]
+#[deprecated(note = "use JSContext::take_exception() instead")]
 pub unsafe fn JS_GetException(ctx: *mut JSContext) -> JSValue {
-    (*ctx).get_exception()
+    (*ctx).take_exception()
 }
 
 /* Note: it is important that no exception is returned by this function */

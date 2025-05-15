@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-use super::{error::js_parse_error, state::JSParseState};
+use super::state::JSParseState;
 
 pub unsafe fn define_var(
     s: *mut JSParseState,
@@ -21,13 +21,15 @@ pub unsafe fn define_var(
     macro_rules! goto_redef_lex_error {
         () => {
             // redefining a scoped var in the same scope: error
-            return js_parse_error(s, c"invalid redefinition of lexical identifier");
+            (*s).throw_syntax_error(c"invalid redefinition of lexical identifier");
+            return -1;
         };
     }
     macro_rules! goto_invalid_lexical_redefinition {
         () => {
             // error to redefine a var that inside a lexical scope
-            return js_parse_error(s, c"invalid redefinition of lexical identifier");
+            (*s).throw_syntax_error(c"invalid redefinition of lexical identifier");
+            return -1;
         };
     }
 
@@ -74,20 +76,23 @@ pub unsafe fn define_var(
                 && (*fd).find_arg(name).is_some()
             {
                 // lexical variable redefines a parameter name
-                return js_parse_error(s, c"invalid redefinition of parameter name");
+                (*s).throw_syntax_error(c"invalid redefinition of parameter name");
+                return -1;
             }
 
             if (*fd)
                 .find_var_in_child_scope(name, (*fd).scope_level)
                 .is_some()
             {
-                return js_parse_error(s, c"invalid redefinition of a variable");
+                (*s).throw_syntax_error(c"invalid redefinition of a variable");
+                return -1;
             }
 
             if (*fd).is_global_var {
                 if let Some(hf) = (*fd).find_global_var(name) {
                     if is_child_scope(fd, hf.scope_level, (*fd).scope_level) {
-                        return js_parse_error(s, c"invalid redefinition of global identifier");
+                        (*s).throw_syntax_error(c"invalid redefinition of global identifier");
+                        return -1;
                     }
                 }
             }

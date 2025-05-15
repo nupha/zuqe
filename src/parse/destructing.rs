@@ -18,7 +18,6 @@ use super::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u16, emit_u32, emit_u8,
         js_emit_spread_code,
     },
-    error::js_parse_error,
     expr_lvalue::PutLValueEnum,
     function::{js_parse_check_duplicate_parameter, push_break_entry},
     obj::set_object_name,
@@ -243,7 +242,7 @@ pub unsafe fn js_parse_destructuring_element(
                 }
 
                 if (*s).token.val != '}' as i32 {
-                    js_parse_error(s, c"assignment rest property must be last");
+                    (*s).throw_syntax_error(c"assignment rest property must be last");
                     var_error!();
                 }
                 emit_op(s, OpCode::OBJECT);
@@ -382,7 +381,7 @@ pub unsafe fn js_parse_destructuring_element(
                 if (*(*s).cur_func).js_mode & JS_MODE_STRICT as u8 != 0
                     && (prop_name == JS_ATOM_eval || prop_name == JS_ATOM_arguments)
                 {
-                    js_parse_error(s, c"invalid destructuring target");
+                    (*s).throw_syntax_error(c"invalid destructuring target");
                     prop_error!();
                 }
                 if has_ellipsis != 0 {
@@ -461,11 +460,12 @@ pub unsafe fn js_parse_destructuring_element(
         while (*s).token.val != ']' as i32 {
             /* get the next value */
             if (*s).token.val == TOK_ELLIPSIS {
-                if ((*s).next_token().is_err()) {
+                if (*s).next_token().is_err() {
                     return -1;
                 }
                 if (*s).token.val == ',' as i32 || (*s).token.val == ']' as i32 {
-                    return js_parse_error(s, c"missing binding pattern...");
+                    (*s).throw_syntax_error(c"missing binding pattern...");
+                    return -1;
                 }
                 has_spread = true;
             }
@@ -485,7 +485,8 @@ pub unsafe fn js_parse_destructuring_element(
             {
                 if has_spread {
                     if tok1 == '=' as i32 {
-                        return js_parse_error(s, c"rest element cannot have a default value");
+                        (*s).throw_syntax_error(c"rest element cannot have a default value");
+                        return -1;
                     }
                     js_emit_spread_code(s, 0);
                 } else {
@@ -579,7 +580,8 @@ pub unsafe fn js_parse_destructuring_element(
                 break;
             }
             if has_spread {
-                return js_parse_error(s, c"rest element must be the last one");
+                (*s).throw_syntax_error(c"rest element must be the last one");
+                return -1;
             }
             /* accept a trailing comma before the ']' */
             if (*s).parse_expect(CHAR_COMMA).is_err() {
@@ -595,7 +597,8 @@ pub unsafe fn js_parse_destructuring_element(
             return -1;
         }
     } else {
-        return js_parse_error(s, c"invalid assignment syntax");
+        (*s).throw_syntax_error(c"invalid assignment syntax");
+        return -1;
     }
 
     if (*s).token.val == '=' as i32 && allow_initializer {
@@ -618,7 +621,7 @@ pub unsafe fn js_parse_destructuring_element(
         js_parse_skip_parens_token() was wrong in the parsing */
         //        assert(hasval);
         if !hasval {
-            js_parse_error(s, c"too complicated destructuring expression");
+            (*s).throw_syntax_error(c"too complicated destructuring expression");
             return -1;
         }
 
@@ -644,7 +647,7 @@ pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg:
             && ((*s).token.u.ident.atom == JS_ATOM_eval
                 || (*s).token.u.ident.atom == JS_ATOM_arguments))
     {
-        js_parse_error(s, c"invalid destructuring target");
+        (*s).throw_syntax_error(c"invalid destructuring target");
         return JS_ATOM_NULL;
     }
 

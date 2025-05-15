@@ -244,7 +244,7 @@ impl JSAsyncGeneratorData {
                             == JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
                             && next.completion_type == GEN_MAGIC_THROW
                         {
-                            ctx.JS_Throw(value);
+                            ctx.throw(value);
                             unsafe {
                                 (*self.func_state).throw_flag = true;
                             }
@@ -278,7 +278,7 @@ impl JSAsyncGeneratorData {
                         let func_ret = async_func_resume(ctx, self.func_state);
                         if (*self.func_state).is_completed {
                             if func_ret.is_exception() {
-                                let value = (*ctx).get_exception();
+                                let value = (*ctx).take_exception();
                                 self.complete(ctx);
                                 self.reject(ctx, value);
                                 JS_FreeValue(ctx, value);
@@ -446,7 +446,7 @@ pub unsafe fn js_async_generator_completed_return(
     // A poisoned .constructor property is observable and the resulting
     // exception should be delivered to the catch handler.
     if promise.is_exception() {
-        let mut err = (*ctx).get_exception().into_rc(ctx.rt());
+        let mut err = (*ctx).take_exception().into_rc(ctx.rt());
         promise = js_promise_resolve(
             ctx,
             ctx.promise_ctor,
@@ -567,7 +567,7 @@ pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) 
         }
 
         if is_reject {
-            ctx.JS_Throw(val.dup());
+            ctx.throw(val.dup());
         } else {
             // return value of await
             unsafe {
@@ -628,7 +628,7 @@ pub unsafe fn js_async_generator_next(
         }
     } else {
         (*ctx).JS_ThrowTypeError(c"not an AsyncGeneratorValue object");
-        let mut err = (*ctx).get_exception();
+        let mut err = (*ctx).take_exception();
         let res2 = JS_Call(
             ctx.as_mut().unwrap(),
             resolving_funcs[1],

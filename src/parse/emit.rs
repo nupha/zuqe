@@ -1,17 +1,13 @@
-use std::rc::Rc;
-
 use crate::{
     atom::{consts::*, JSAtom, JSAtomTypeHint, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
     mem::js_resize_array,
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
-    value::{
-        JSValue, JSValueConst, JS_FreeValue, JS_TAG_STRING, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
-    },
+    value::{JSValue, JSValueConst, JS_FreeValue, JS_TAG_STRING, JS_VALUE_GET_TAG},
 };
 
-use super::{error::js_parse_error, state::JSParseState};
+use super::state::JSParseState;
 
 /* argument of OP_special_object */
 pub enum OPSpecialObjectEnum {
@@ -781,13 +777,15 @@ pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) 
         top = (*top).prev;
     }
 
-    if name == JS_ATOM_NULL {
+    (*s).throw_syntax_error(if name == JS_ATOM_NULL {
         if is_continue {
-            return js_parse_error(s, c"continue must be inside loop");
+            c"continue must be inside loop"
         } else {
-            return js_parse_error(s, c"break must be inside loop or switch");
+            c"break must be inside loop or switch"
         }
     } else {
-        return js_parse_error(s, c"break/continue label not found");
-    }
+        c"break/continue label not found"
+    });
+
+    -1
 }

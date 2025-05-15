@@ -744,6 +744,7 @@ impl JSFunctionDef {
         if bf.closure_var_start >= 0 {
             let cvars = self.closure_vars.take().unwrap();
             bf.closure_var_count = cvars.len() as _;
+            debug_assert!(bf.closure_var_count < u16::MAX as _);
 
             let mut ptr = bin
                 .as_mut_ptr()

@@ -22,7 +22,7 @@ use super::{
         emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
         emit_return, emit_u16, emit_u32, js_is_live_code,
     },
-    error::{js_parse_error, js_parse_error_reserved_identifier},
+    error::js_parse_error_reserved_identifier,
     esm::{add_export_entry, JSParseExportEnum},
     obj::set_object_name,
     parse::{js_parse_skip_parens_token, reparse_ident_token},
@@ -339,7 +339,7 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                 } else {
-                    js_parse_error(self, c"missing formal parameter");
+                    self.throw_syntax_error(c"missing formal parameter");
                     fail!();
                 }
 
@@ -359,7 +359,7 @@ impl<'s> JSParseState<'s> {
             if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && fd1.arg_count != 0)
                 || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.arg_count != 1)
             {
-                js_parse_error(self, c"invalid number of arguments for getter or setter");
+                self.throw_syntax_error(c"invalid number of arguments for getter or setter");
                 fail!();
             }
         }
@@ -584,7 +584,7 @@ impl<'s> JSParseState<'s> {
                 } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                     && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
                 {
-                    js_parse_error(self, c"function name expected");
+                    self.throw_syntax_error(c"function name expected");
                     return Err(-1);
                 }
             }
@@ -604,8 +604,7 @@ impl<'s> JSParseState<'s> {
         {
             if let Some(v) = fd0.find_global_var(func_name) {
                 if v.scope_level == fd0.scope_level {
-                    js_parse_error(
-                        self,
+                    self.throw_syntax_error(
                         c"invalid redefinition of global identifier in module code",
                     );
                     JS_FreeAtom(ctx.as_ptr(), func_name);
@@ -634,7 +633,7 @@ impl<'s> JSParseState<'s> {
                 if let Some(hf) = fd0.find_global_var(func_name) {
                     /* XXX: should check scope chain */
                     if (*hf).scope_level == fd0.scope_level {
-                        js_parse_error(self, c"invalid redefinition of global identifier");
+                        self.throw_syntax_error(c"invalid redefinition of global identifier");
                         JS_FreeAtom(ctx.as_ptr(), func_name);
                         return Err(-1);
                     }
@@ -890,12 +889,14 @@ pub unsafe fn js_parse_check_duplicate_parameter(s: *mut JSParseState, name: JSA
 
     for i in 0..(*fd).arg_count {
         if (*(*fd).args.offset(i as isize)).var_name == name {
-            return js_parse_error(s, c"duplicate parameter names not allowed in this context");
+            (*s).throw_syntax_error(c"duplicate parameter names not allowed in this context");
+            return -1;
         }
     }
 
     if (*fd).vars.iter().any(|vd| vd.var_name == name) {
-        return js_parse_error(s, c"duplicate parameter names not allowed in this context");
+        (*s).throw_syntax_error(c"duplicate parameter names not allowed in this context");
+        return -1;
     }
 
     return 0;
@@ -929,19 +930,21 @@ pub unsafe fn js_parse_function_check_names(
 
     if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
         if !(*fd).has_simple_parameter_list && (*fd).has_use_strict {
-            return js_parse_error(
-                s,
+            (*s).throw_syntax_error(
                 c"\"use strict\" not allowed in function with default or destructuring parameter",
             );
+            return -1;
         }
         if func_name == JS_ATOM_eval || func_name == JS_ATOM_arguments {
-            return js_parse_error(s, c"invalid function name in strict code");
+            (*s).throw_syntax_error(c"invalid function name in strict code");
+            return -1;
         }
 
         for idx in 0..(*fd).arg_count {
             name = (*(*fd).args.offset(idx as isize)).var_name;
             if name == JS_ATOM_eval || name == JS_ATOM_arguments {
-                return js_parse_error(s, c"invalid argument name in strict code");
+                (*s).throw_syntax_error(c"invalid argument name in strict code");
+                return -1;
             }
         }
     }
@@ -958,11 +961,10 @@ pub unsafe fn js_parse_function_check_names(
             if name != JS_ATOM_NULL {
                 for i in 0..idx {
                     if (*(*fd).args.offset(i as isize)).var_name == name {
-                        // C2RS: goto duplicate replaced with return
-                        return js_parse_error(
-                            s,
+                        (*s).throw_syntax_error(
                             c"duplicate argument names not allowed in this context",
                         );
+                        return -1;
                     }
                 }
 
@@ -973,10 +975,10 @@ pub unsafe fn js_parse_function_check_names(
                     .iter()
                     .any(|vd| vd.var_name == name && vd.scope_level == 0)
                 {
-                    return js_parse_error(
-                        s,
+                    (*s).throw_syntax_error(
                         c"duplicate argument names not allowed in this context",
                     );
+                    return -1;
                 }
             }
         }

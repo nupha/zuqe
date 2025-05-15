@@ -68,8 +68,8 @@ pub unsafe fn JS_CallInternal(
 
     if JS_VALUE_GET_TAG(func_obj) != JSTag::Object as i32 {
         return if (flags & JS_CALL_FLAG_GENERATOR) != 0 {
-            // func_obj 是生成器函数，可取得JSFuncAsyncState
-            // JSFuncAsyncState中已设置本async function专用栈帧
+            // `func_obj` is a generator function, get attached JSFuncAsyncState.
+            // the JSFuncAsyncState provides a dedicated stack frame for the async function
             let s = JS_VALUE_GET_PTR(func_obj).cast::<JSAsyncFunctionState>();
             let sf = &mut (*s).frame;
             let p = sf.cur_func.object_unchecked();
@@ -106,6 +106,7 @@ pub unsafe fn JS_CallInternal(
 
     let p = func_obj.object_unchecked();
     let cid = p.class_id();
+
     if cid != JS_CLASS_BYTECODE_FUNCTION {
         return if let Some(cb) = rt.class_array[cid as usize].call {
             #[cfg(debug_assertions)]

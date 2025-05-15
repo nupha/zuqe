@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::{context::JSContext, value::JSValue};
+use crate::{context::JSContext, error::JSErrorEnum, value::JSValue};
 
 use super::super::string::strstart;
 
@@ -271,7 +271,7 @@ pub unsafe fn js_atof(
                     if (i32::MIN as i64..=i32::MAX as i64).contains(&i) {
                         JSValue::from_i32(i as i32)
                     } else {
-                        JSValue::from_i64(i)
+                        JSValue::from(i)
                     }
                 } else {
                     fail!();
@@ -284,9 +284,14 @@ pub unsafe fn js_atof(
             return val;
         }
         ATOD_TYPE_BIG_INT => {
-            log::warn!("BigInt is not impleted");
-            fail!();
+            // fail!();
+            (*ctx).JS_ThrowError(JSErrorEnum::Syntax, c"big int is not supported");
+            if !pp.is_null() {
+                *pp = p;
+            }
+            JSValue::EXCEPTION
         }
+
         _ => unreachable!(),
     }
 }

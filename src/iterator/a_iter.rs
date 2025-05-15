@@ -150,7 +150,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
                 .into_rc((*ctx).rt());
 
             if method.is_exception() {
-                return done_resolve(resolving_funcs, (*ctx).get_exception(), 1, promise);
+                return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
             } else if method.is_undefined_or_null() {
                 let (err, is_reject) = if magic == GEN_MAGIC_RETURN {
                     (
@@ -180,7 +180,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
         .into_rc((*ctx).rt());
 
         if value.is_exception() {
-            return done_resolve(resolving_funcs, (*ctx).get_exception(), 1, promise);
+            return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
         }
 
         if done == 2 {
@@ -188,14 +188,14 @@ pub unsafe fn js_async_from_sync_iterator_next(
             let mut _done = false;
             value = JS_IteratorGetCompleteValue(ctx, *obj, &mut _done).into_rc((*ctx).rt());
             if value.is_exception() {
-                let err = (*ctx).get_exception();
+                let err = (*ctx).take_exception();
                 return done_resolve(resolving_funcs, err, 1, promise);
             }
             done = _done as i32;
         }
 
         if value.is_exception() {
-            return done_resolve(resolving_funcs, (*ctx).get_exception(), 1, promise);
+            return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
         }
 
         let value_wrapper_promise =
@@ -203,7 +203,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
                 .into_rc((*ctx).rt());
 
         if value_wrapper_promise.is_exception() {
-            return done_resolve(resolving_funcs, (*ctx).get_exception(), 1, promise);
+            return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
         }
 
         let resolve_reject: [JSValueRc; 2] = [
@@ -233,7 +233,7 @@ pub unsafe fn js_async_from_sync_iterator_next(
         promise.into()
     } else {
         (*ctx).JS_ThrowTypeError(c"not an Async-from-Sync Iterator");
-        let err = (*ctx).get_exception();
+        let err = (*ctx).take_exception();
         return done_resolve(resolving_funcs, err, 1, promise);
     }
 }

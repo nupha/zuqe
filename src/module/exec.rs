@@ -115,7 +115,7 @@ impl JSModuleDef {
     ) -> Result<i32, JSValue> {
         if js_check_stack_overflow(ctx.rt(), 0) {
             JS_ThrowStackOverflow(ctx);
-            return Err(ctx.get_exception());
+            return Err(ctx.take_exception());
         }
 
         #[cfg(DUMP_MODULE_RESOLVE)]
@@ -199,7 +199,7 @@ impl JSModuleDef {
                     (*m1).async_parent_modules_count + 1,
                 ) != 0
                 {
-                    return Err((*ctx).get_exception());
+                    return Err((*ctx).take_exception());
                 }
 
                 *(*m1)
@@ -453,7 +453,7 @@ impl JSModuleDef {
         if let Some(f) = self.init_func {
             // has native module init fn: no asynchronous execution
             if f(ctx, self) < 0 {
-                return Err(ctx.get_exception());
+                return Err(ctx.take_exception());
             }
         } else {
             let promise: PromiseValue = js_async_function_call(
@@ -465,7 +465,7 @@ impl JSModuleDef {
                 0,
             )
             .check_exception()
-            .map_err(|_| ctx.get_exception())? // return Err with current exception
+            .map_err(|_| ctx.take_exception())? // return Err with current exception
             .unchecked_into(); // return val must be a Promise
 
             match promise.state().unwrap() {
@@ -480,7 +480,7 @@ impl JSModuleDef {
                 JSPromiseStateEnum::JS_PROMISE_PENDING => {
                     JS_FreeValue(ctx, promise.into());
                     ctx.JS_ThrowTypeError(c"promise is pending");
-                    return Err(ctx.get_exception());
+                    return Err(ctx.take_exception());
                 }
             }
         }

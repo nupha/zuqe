@@ -5,9 +5,8 @@ use crate::{
     context::JSContext,
     value::{
         object::JSObject, JSFloat64Union, JSTag, JSValue, JSValueConst, JS_ConcatString,
-        JS_FreeValue, JS_IsHTMLDDA, HINT_NONE, HINT_NUMBER, JS_NAN, JS_TAG_INT,
-        JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
+        JS_FreeValue, JS_IsHTMLDDA, HINT_NONE, HINT_NUMBER, JS_TAG_INT, JS_VALUE_GET_FLOAT64,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
 };
 
@@ -19,9 +18,10 @@ pub(super) enum BinaryOp {
 }
 
 impl BinaryOp {
-    /// value tag check fast path
+    /// value tag check fast path.
+    /// Note: op1, op2 are not consumed.
     #[inline(always)]
-    pub unsafe fn new_fast(op1: JSValue, op2: JSValue, allow_float: bool) -> Option<Self> {
+    pub fn new_fast(op1: JSValue, op2: JSValue, allow_float: bool) -> Option<Self> {
         match (JS_VALUE_GET_NORM_TAG(op1), JS_VALUE_GET_NORM_TAG(op2)) {
             (JSTag::Int, JSTag::Int) => {
                 Some(Self::Int(JS_VALUE_GET_INT(op1), JS_VALUE_GET_INT(op2)))
@@ -46,8 +46,8 @@ impl BinaryOp {
     /// mode: 0 = allow int, 1 = allow int/float, 2 = allow int/float/string
     /// primitive_hint: Some(_) 使用toPrimitive(), None 不使用toPrimitive()
     /// Note: op1, op2 are consumed
-    pub unsafe fn new_slow(
-        ctx: *mut JSContext,
+    pub fn new_slow(
+        ctx: &mut JSContext,
         op1: JSValue,
         op2: JSValue,
         mode: u8,
@@ -59,10 +59,12 @@ impl BinaryOp {
             let n1 = if JS_VALUE_GET_TAG(op1) == JS_TAG_INT {
                 JS_VALUE_GET_INT(op1)
             } else {
-                if let Ok(n) = op1.coerce_to_i32_free(ctx.as_mut().unwrap()) {
+                if let Ok(n) = op1.coerce_to_i32_free(ctx) {
                     n
                 } else {
-                    JS_FreeValue(ctx, op2);
+                    unsafe {
+                        JS_FreeValue(ctx, op2);
+                    }
                     return Err(-1);
                 }
             };
@@ -70,7 +72,7 @@ impl BinaryOp {
             let n2 = if JS_VALUE_GET_TAG(op2) == JS_TAG_INT {
                 JS_VALUE_GET_INT(op2)
             } else {
-                if let Ok(n) = op2.coerce_to_i32_free(ctx.as_mut().unwrap()) {
+                if let Ok(n) = op2.coerce_to_i32_free(ctx) {
                     n
                 } else {
                     return Err(-1);
@@ -111,15 +113,13 @@ impl BinaryOp {
 
                     (JSTag::Object, _) | (_, JSTag::Object) if primitive_hint.is_some() => {
                         let hint = primitive_hint.unwrap();
-                        let p1 = if let Ok(v) = op1.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
-                        {
-                            v.into_rc((*ctx).rt())
+                        let p1 = if let Ok(v) = op1.coerce_to_primitive(ctx, hint) {
+                            v.into_rc(ctx.rt())
                         } else {
                             break Err(-1);
                         };
-                        let p2 = if let Ok(v) = op2.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
-                        {
-                            v.into_rc((*ctx).rt())
+                        let p2 = if let Ok(v) = op2.coerce_to_primitive(ctx, hint) {
+                            v.into_rc(ctx.rt())
                         } else {
                             break Err(-1);
                         };
@@ -130,18 +130,14 @@ impl BinaryOp {
 
                     _ => {
                         if let Some(hint) = primitive_hint {
-                            let p1 = if let Ok(v) =
-                                op1.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
-                            {
-                                v.into_rc((*ctx).rt())
+                            let p1 = if let Ok(v) = op1.coerce_to_primitive(ctx, hint) {
+                                v.into_rc(ctx.rt())
                             } else {
                                 break Err(-1);
                             };
 
-                            let p2 = if let Ok(v) =
-                                op2.coerce_to_primitive(ctx.as_mut().unwrap(), hint)
-                            {
-                                v.into_rc((*ctx).rt())
+                            let p2 = if let Ok(v) = op2.coerce_to_primitive(ctx, hint) {
+                                v.into_rc(ctx.rt())
                             } else {
                                 break Err(-1);
                             };
@@ -150,11 +146,11 @@ impl BinaryOp {
                             op2 = p2;
                         } else {
                             let n1 = JSValue::from(op1)
-                                .coerce_to_numeric_free(ctx.as_mut().unwrap())?
-                                .into_rc((*ctx).rt());
+                                .coerce_to_numeric_free(ctx)?
+                                .into_rc(ctx.rt());
                             let n2 = JSValue::from(op2)
-                                .coerce_to_number_free(ctx.as_mut().unwrap())?
-                                .into_rc((*ctx).rt());
+                                .coerce_to_number_free(ctx)?
+                                .into_rc(ctx.rt());
 
                             op1 = n1;
                             op2 = n2;
@@ -240,14 +236,14 @@ impl BinaryOp {
         match self {
             BinaryOp::Int(a, b) => {
                 if b == 0 {
-                    Ok(JS_NAN)
+                    Ok(JSValue::NAN)
                 } else {
                     Ok(JSValue::from_i32(a % b))
                 }
             }
             BinaryOp::Float(a, b) => {
                 if b == 0.0 {
-                    Ok(JS_NAN)
+                    Ok(JSValue::NAN)
                 } else {
                     // JS mod 遵循IEEE754标准，fmod():
                     let n = (a / b).trunc(); // 向零取整
@@ -257,7 +253,7 @@ impl BinaryOp {
                     } else {
                         m
                     };
-                    Ok(JSValue::from_f64(m))
+                    Ok(JSValue::from(m))
                 }
             }
             BinaryOp::HasString(a, b) => {
@@ -275,21 +271,21 @@ impl BinaryOp {
             BinaryOp::Int(a, b) => {
                 if b == 1 || (a == 0 && b == 0) {
                     // pow(0,0)=1
-                    Ok(JSValue::from_i32(1))
+                    Ok(JSValue::from(1))
                 } else if a == 0 {
                     Ok(JSValue::ZERO)
                 } else if b > 0 {
-                    Ok(JSValue::from_i64((a as i64).pow(b as u32)))
+                    Ok(JSValue::from((a as i64).pow(b as u32)))
                 } else {
-                    Ok(JSValue::from_f64((a as f64).powf(b as f64)))
+                    Ok(JSValue::from((a as f64).powf(b as f64)))
                 }
             }
             BinaryOp::Float(a, b) => {
                 if b.is_infinite() && a.abs() == 1.0 {
                     // not compatible with IEEE 754
-                    Ok(JS_NAN)
+                    Ok(JSValue::NAN)
                 } else {
-                    Ok(JSValue::from_f64(a.powf(b)))
+                    Ok(JSValue::from(a.powf(b)))
                 }
             }
             BinaryOp::HasString(a, b) => {
@@ -304,14 +300,14 @@ impl BinaryOp {
 
     pub fn shl(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) << (v2 & 0x1f))),
+            Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) << (v2 & 0x1f))),
             _ => unreachable!(),
         }
     }
 
     pub fn shr(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) >> (v2 & 0x1f))),
+            Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) >> (v2 & 0x1f))),
             _ => unreachable!(),
         }
     }
@@ -339,7 +335,7 @@ impl BinaryOp {
 
     pub fn xor(self, ctx: *mut JSContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) ^ (v2 as u32))),
+            Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) ^ (v2 as u32))),
             _ => unreachable!(),
         }
     }
@@ -349,7 +345,7 @@ macro_rules! rel {
     ($self:expr, $ctx:expr, $op:pat) => {
         match $self {
             Self::Int(a, b) => matches!(a.cmp(&b), $op),
-            Self::Float(a, b) => a.partial_cmp(&b).map_or(false, |c|matches!(c , $op)), // got false if NaN
+            Self::Float(a, b) => a.partial_cmp(&b).map_or(false, |c|matches!(c , $op)), // false if NaN
             Self::HasString(s1, s2) => {
                 if JS_VALUE_GET_TAG(s1) == JS_VALUE_GET_TAG(s2) {
                     // both is string
@@ -403,7 +399,7 @@ impl UnaryOp {
                         _ => unreachable!(),
                     }
                 } else {
-                    unsafe { val.coerce_to_i32_free(ctx).map(|i| Self::Int(i)) }
+                    val.coerce_to_i32_free(ctx).map(|i| Self::Int(i))
                 }
             }
         }
@@ -414,7 +410,7 @@ impl UnaryOp {
     pub fn new_int(ctx: &mut JSContext, op1: JSValue) -> Result<Self, i32> {
         match JS_VALUE_GET_NORM_TAG(op1) {
             JSTag::Int => Ok(Self::Int(JS_VALUE_GET_INT(op1))),
-            _ => unsafe { op1.coerce_to_i32_free(ctx).map(|i| Self::Int(i)) },
+            _ => op1.coerce_to_i32_free(ctx).map(|i| Self::Int(i)),
         }
     }
 
@@ -487,19 +483,22 @@ pub(super) unsafe fn op_binary_logic(
     opcode: OpCode,
     sp: *mut JSValue,
 ) -> Result<*mut JSValue, i32> {
-    if let Ok(res) =
-        BinaryOp::new_slow(ctx, *sp.offset(-2), *sp.offset(-1), 0, None).and_then(|binop| {
-            match opcode {
-                OpCode::SHL => binop.shl(ctx),
-                OpCode::SHR => binop.shr(ctx),
-                OpCode::SAR => binop.sar(ctx),
-                OpCode::AND => binop.and(ctx),
-                OpCode::OR => binop.or(ctx),
-                OpCode::XOR => binop.xor(ctx),
-                _ => unreachable!(),
-            }
-        })
-    {
+    if let Ok(res) = BinaryOp::new_slow(
+        ctx.as_mut().unwrap(),
+        *sp.offset(-2),
+        *sp.offset(-1),
+        0,
+        None,
+    )
+    .and_then(|binop| match opcode {
+        OpCode::SHL => binop.shl(ctx),
+        OpCode::SHR => binop.shr(ctx),
+        OpCode::SAR => binop.sar(ctx),
+        OpCode::AND => binop.and(ctx),
+        OpCode::OR => binop.or(ctx),
+        OpCode::XOR => binop.xor(ctx),
+        _ => unreachable!(),
+    }) {
         *sp.offset(-2) = res;
         Ok(sp.offset(-1))
     } else {
@@ -509,23 +508,26 @@ pub(super) unsafe fn op_binary_logic(
     }
 }
 
+/// op1, op2 are consumed
 pub(super) unsafe fn relational(
     ctx: *mut JSContext,
     op1: JSValue,
     op2: JSValue,
     opcode: OpCode,
 ) -> Result<bool, i32> {
-    let binop = if let Some(b) = BinaryOp::new_fast(op1, op2, true) {
-        b
+    let binop = if let Some(bop) = BinaryOp::new_fast(op1, op2, true) {
+        bop
     } else {
-        BinaryOp::new_slow(ctx, op1, op2, 3, Some(HINT_NUMBER))?
+        BinaryOp::new_slow(ctx.as_mut().unwrap(), op1, op2, 3, Some(HINT_NUMBER))?
     };
+
+    // will consume op1, op2
     match opcode {
         OpCode::LT => Ok(binop.lt(ctx)),
         OpCode::LTE => Ok(binop.lte(ctx)),
         OpCode::GT => Ok(binop.gt(ctx)),
         OpCode::GTE => Ok(binop.gte(ctx)),
-        _ => todo!(),
+        _ => unreachable!(),
     }
 }
 
@@ -539,8 +541,8 @@ pub enum JSStrictEqModeEnum {
 
 impl JSValue {
     /// compare JSValues equality in given mode.
-    /// Note: both values keep ref_count unchanged after calling.
-    pub fn strict_eq2(self, other: JSValue, eq_mode: JSStrictEqModeEnum) -> bool {
+    /// Note: `self` and `other` are not consumed.
+    pub fn strict_eq_with_mode(self, other: JSValue, eq_mode: JSStrictEqModeEnum) -> bool {
         let tag1 = JS_VALUE_GET_NORM_TAG(self);
         let tag2 = JS_VALUE_GET_NORM_TAG(other);
 
@@ -554,7 +556,8 @@ impl JSValue {
             },
             (JSTag::Symbol, JSTag::Symbol) => JS_VALUE_GET_PTR(self) == JS_VALUE_GET_PTR(other),
             (JSTag::Object, JSTag::Object) => unsafe {
-                self.object_unchecked() as *mut JSObject == other.object_unchecked() as *mut JSObject
+                self.object_unchecked() as *mut JSObject
+                    == other.object_unchecked() as *mut JSObject
             },
             (JSTag::Int, JSTag::Float64)
             | (JSTag::Float64, JSTag::Int)
@@ -595,75 +598,55 @@ impl JSValue {
         res
     }
 
-    /// compare JSValues equality. both values keep ref_count unchanged after calling.
+    /// compare JSValues equality.
+    /// both `self` and `other` are not consumed.
     #[inline(always)]
     pub fn strict_eq(self, other: JSValue) -> bool {
-        self.strict_eq2(other, JSStrictEqModeEnum::JS_EQ_STRICT)
+        self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_STRICT)
     }
 
-    /// compare if two values are same. both values keep ref_count unchanged after calling.
+    /// compare if two values are same.
+    /// both `self` and `other` are not consumed.
     #[inline(always)]
     pub fn is_same(self, other: JSValue) -> bool {
-        self.strict_eq2(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE)
+        self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE)
     }
 
-    /// both values keep ref_count unchanged after calling.
+    /// both `self` and `other` are not consumed.
     #[inline(always)]
-    pub fn is_same0(self, other: JSValueConst) -> bool {
-        self.strict_eq2(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO)
+    pub fn is_same0(self, other: JSValue) -> bool {
+        self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO)
     }
 }
 
-/// op1, op2 are consumed
-#[deprecated(note = "use JSValue::strict_eq2() instead")]
-pub unsafe fn js_strict_eq2(
-    ctx: *mut JSContext,
-    op1: JSValue,
-    op2: JSValue,
-    eq_mode: JSStrictEqModeEnum,
-) -> bool {
-    let res = op1.strict_eq2(op2, eq_mode);
-    JS_FreeValue(ctx, op1);
-    JS_FreeValue(ctx, op2);
-    res
-}
-
-/// op1, op2 are consumed
-#[deprecated(note = "use JSValue::strict_eq() instead")]
-pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> bool {
-    let res = op1.strict_eq(op2);
-    JS_FreeValue(ctx, op1);
-    JS_FreeValue(ctx, op2);
-    res
-}
-
-#[deprecated(note = "use JSValue::is_same0() instead")]
-pub unsafe fn js_same_value_zero(
-    ctx: *mut JSContext,
-    op1: JSValueConst,
-    op2: JSValueConst,
-) -> bool {
-    op1.is_same0(op2)
-}
-
+/// test equality for SP[-2] and SP[-1].
+/// SP[-2] and SP[-1] are consumed.
 #[inline(always)]
 pub unsafe fn js_eq(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
     let op1 = *sp.offset(-2);
     let op2 = *sp.offset(-1);
 
     if let Some(bop) = BinaryOp::new_fast(op1, op2, true) {
-        // fast path
-        let b = match bop {
+        // fast path: numbers
+        let res = match bop {
             BinaryOp::Int(a, b) => a == b,
             BinaryOp::Float(a, b) => a == b,
             _ => unreachable!(),
         };
-        Ok(b ^ is_neq)
+
+        JS_FreeValue(ctx, op1);
+        JS_FreeValue(ctx, op2);
+        *sp.offset(-2) = JSValue::UNDEFINED;
+        *sp.offset(-1) = JSValue::UNDEFINED;
+
+        Ok(res ^ is_neq)
     } else {
         js_eq_slow(ctx, sp, is_neq)
     }
 }
 
+/// slow test equality for SP[-2] and SP[-1].
+/// SP[-2] and SP[-1] are consumed.
 pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
     macro_rules! exception {
         () => {
@@ -699,12 +682,12 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
             (JSTag::Null, JSTag::Undefined) | (JSTag::Undefined, JSTag::Null) => true,
 
             (JSTag::Bool, _) => {
-                op1 = JSValue::from_i32(JS_VALUE_GET_INT(op1));
-                continue; // goto redo
+                op1 = JSValue::from(JS_VALUE_GET_INT(op1));
+                continue; // redo
             }
             (_, JSTag::Bool) => {
-                op2 = JSValue::from_i32(JS_VALUE_GET_INT(op2));
-                continue; // goto redo
+                op2 = JSValue::from(JS_VALUE_GET_INT(op2));
+                continue; // redo
             }
 
             (JSTag::String, number_tags!()) | (number_tags!(), JSTag::String) => {
@@ -773,6 +756,9 @@ pub unsafe fn js_eq_slow(ctx: *mut JSContext, sp: *mut JSValue, is_neq: bool) ->
 
         break b; // done
     };
+
+    (*sp.offset(-2)) = JSValue::UNDEFINED;
+    (*sp.offset(-1)) = JSValue::UNDEFINED;
 
     Ok(res ^ is_neq)
 }

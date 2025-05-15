@@ -8,7 +8,6 @@ use crate::{
     function::JSFunctionKindEnum,
     parse::{
         emit::{emit_atom_dup, emit_goto, emit_label, emit_op, emit_return, emit_u32, emit_u8},
-        error::js_parse_error,
         token::{
             CHAR_BRACKET_R, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_R,
             CHAR_STAR, TOK_YIELD,
@@ -26,10 +25,10 @@ impl<'s> JSParseState<'s> {
             (*self.cur_func).func_kind,
             JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
-            js_parse_error(self, c"unexpected 'yield' keyword");
+            self.throw_syntax_error(c"unexpected 'yield' keyword");
             return Err(-1);
         } else if !(*self.cur_func).in_function_body {
-            js_parse_error(self, c"yield in default expression");
+            self.throw_syntax_error(c"yield in default expression");
             return Err(-1);
         }
 

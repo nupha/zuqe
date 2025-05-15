@@ -1,7 +1,8 @@
 use std::ffi::{c_char, c_void, CStr, CString};
 
 use crate::{
-    atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
+    atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint, JS_FreeAtom, JS_NewAtom},
+    bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{
@@ -16,7 +17,8 @@ use crate::{
     utils::UncheckedInto,
     value::{
         object::{JSAutoInitIDEnum, JSObject},
-        JSString, JSValue, JSValueConst, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSString, JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -895,6 +897,22 @@ pub unsafe fn JS_GetProperty(ctx: *mut JSContext, this_obj: JSValueConst, prop: 
     this_obj.get_property(ctx.as_mut().unwrap(), prop)
 }
 
+#[deprecated(note = "use JSValue::get_property_str() instead")]
+pub unsafe fn JS_GetPropertyStr(
+    ctx: *mut JSContext,
+    this_obj: JSValueConst,
+    prop: *const c_char,
+) -> JSValue {
+    this_obj.get_property_str(
+        ctx.as_mut().unwrap(),
+        CStr::from_ptr(prop).to_string_lossy().as_ref(),
+    )
+    // let atom = JS_NewAtom(ctx, CStr::from_ptr(prop));
+    // let ret = JS_GetProperty(ctx, this_obj, atom);
+    // JS_FreeAtom(ctx, atom);
+    // return ret;
+}
+
 /// NOTE: returned property value has increased ref_count by 1
 #[deprecated(note = "use JSValue::get_property_value() instead")]
 pub unsafe fn JS_GetPropertyValue(
@@ -1035,4 +1053,43 @@ pub unsafe fn build_backtrace(
     backtrace_flags: i32,
 ) {
     (*ctx).build_backtrace_to(error_obj, file_line, backtrace_flags);
+}
+
+/// op1, op2 are consumed
+#[deprecated(note = "use JSValue::strict_eq_with_mode() instead")]
+pub unsafe fn js_strict_eq2(
+    ctx: *mut JSContext,
+    op1: JSValue,
+    op2: JSValue,
+    eq_mode: JSStrictEqModeEnum,
+) -> bool {
+    let res = op1.strict_eq_with_mode(op2, eq_mode);
+    JS_FreeValue(ctx, op1);
+    JS_FreeValue(ctx, op2);
+    res
+}
+
+/// op1, op2 are consumed
+#[deprecated(note = "use JSValue::strict_eq() instead")]
+pub unsafe fn js_strict_eq(ctx: *mut JSContext, op1: JSValue, op2: JSValue) -> bool {
+    let res = op1.strict_eq(op2);
+    JS_FreeValue(ctx, op1);
+    JS_FreeValue(ctx, op2);
+    res
+}
+
+#[deprecated(note = "use JSValue::is_same0() instead")]
+pub unsafe fn js_same_value_zero(
+    ctx: *mut JSContext,
+    op1: JSValueConst,
+    op2: JSValueConst,
+) -> bool {
+    op1.is_same0(op2)
+}
+
+/// always returns -1
+#[deprecated(note = "use JSParseState::throw_syntax_error() instead")]
+pub unsafe fn js_parse_error(s: *mut JSParseState, message: &CStr) -> i32 {
+    (*s).throw_syntax_error(message);
+    -1
 }

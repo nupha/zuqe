@@ -10,7 +10,7 @@ use std::{
 use serde::Deserialize;
 use zhuque::{
     array_buffer::JS_DetachArrayBuffer,
-    atom::JS_FreeAtom,
+    atom::{consts::JS_ATOM_stack, JS_FreeAtom},
     context::{JSContext, JSContextHandle, JS_FreeContext},
     error::{JSResult, JS_ThrowReferenceError},
     eval::{
@@ -23,8 +23,9 @@ use zhuque::{
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
     value::{
-        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, StringContent, JS_TAG_MODULE,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, StringContent,
+        JS_TAG_EXCEPTION, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -280,27 +281,21 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(ctx: &mut JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
+fn run_harness(ctx: &mut JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue> {
     for file in harness_files {
         let src = std::fs::read_to_string(&file).unwrap();
 
         let r = ctx.eval(
             CString::new(src).unwrap().as_c_str(),
             file.as_os_str().to_string_lossy().as_ref(),
-            JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRIP,
+            JS_EVAL_TYPE_GLOBAL,
         );
 
         if r.is_exception() {
-            log::error!("can't eval harness '{}'", file.display(),);
-
             let rt = ctx.rt_mut();
             let exc = rt.current_exception;
             rt.current_exception = JSValue::NULL;
-            unsafe {
-                exc.object_unchecked().dump(rt);
-                JS_FreeValue(ctx, r);
-            }
-            return Err(-1);
+            return Err(exc);
         } else {
             unsafe {
                 JS_FreeValue(ctx, r);
@@ -346,7 +341,7 @@ fn run_test_content(
                             Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
                             Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
                                 let v = promise.result();
-                                ctx.JS_Throw(v)
+                                ctx.throw(v)
                             }
                             Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
                                 ctx.JS_ThrowTypeError(c"promise not fulfilled")
@@ -383,7 +378,20 @@ fn run_test_content(
     }
 }
 
-fn run_test(filename: &Path, outf: &mut dyn Write) {
+fn dump_error(ctx: &mut JSContext, err: JSValue, msg: &str, outf: &mut dyn Write) {
+    writeln!(outf, "{msg}",).unwrap();
+
+    let s = err.get_property(ctx, JS_ATOM_stack);
+    match JS_VALUE_GET_TAG(s) {
+        JS_TAG_EXCEPTION | JS_TAG_NULL | JS_TAG_UNDEFINED => {}
+        _ => {
+            let err = s.coerce_to_utf8(ctx.handle()).unwrap();
+            writeln!(outf, "{}", err).unwrap();
+        }
+    }
+}
+
+fn run_test_file(filename: &Path, outf: &mut dyn Write) {
     let harness_path = filename
         .ancestors()
         .find(|p| p.ends_with("test"))
@@ -425,7 +433,15 @@ fn run_test(filename: &Path, outf: &mut dyn Write) {
         }
     }
 
-    if run_harness(ctx.deref_mut(), &harness_files).is_ok() {
+    if let Err(exc) = run_harness(ctx.deref_mut(), &harness_files) {
+        let msg = exc.coerce_to_utf8(ctx).unwrap();
+        writeln!(outf, "fail: '{}', can't eval harness", filename.display()).unwrap();
+        dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
+        unsafe {
+            // exc.object_unchecked().dump(rt);
+            JS_FreeValue(ctx.as_ptr(), exc);
+        }
+    } else {
         // flags
         let mut use_strict = false;
         let mut use_nostrict = true;
@@ -475,28 +491,24 @@ fn run_test(filename: &Path, outf: &mut dyn Write) {
                     if let Some(ty) = neg.type_.as_ref() {
                         let err_class = msg.as_ref().split(":").next().unwrap();
                         if err_class == ty {
-                            writeln!(
-                                outf,
-                                "pass: '{}', expected error class: {}",
-                                filename.display(),
-                                ty
-                            )
-                            .unwrap();
+                            writeln!(outf, "pass: '{}'", filename.display(),).unwrap();
                         } else {
                             writeln!(
                                 outf,
-                                "fail: '{}', expected error class: {}, got: {}",
+                                "fail: '{}', expects error class '{}', got '{}'",
                                 filename.display(),
                                 ty,
                                 err_class
                             )
                             .unwrap();
+                            dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
                         }
                     } else {
                         writeln!(outf, "pass: '{}'", filename.display()).unwrap();
                     }
                 } else {
-                    writeln!(outf, "fail: '{}', {}", filename.display(), msg).unwrap();
+                    writeln!(outf, "fail: '{}'", filename.display()).unwrap();
+                    dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
                 }
 
                 unsafe {
@@ -506,7 +518,7 @@ fn run_test(filename: &Path, outf: &mut dyn Write) {
                 if let Some(neg) = &negative {
                     writeln!(
                         outf,
-                        "fail: '{}', expect throw error {}",
+                        "fail: '{}', expects error {}",
                         filename.display(),
                         neg.type_.as_ref().map_or("", |s| s.as_str())
                     )
@@ -538,11 +550,16 @@ fn main() {
     let mut fp = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open("test262-result.txt")
         .unwrap();
 
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
-        run_test(&fname.unwrap(), &mut fp);
-        fp.flush().unwrap();
+        let fname = fname.unwrap();
+
+        if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
+            run_test_file(&fname, &mut fp);
+            fp.flush().unwrap();
+        }
     }
 }

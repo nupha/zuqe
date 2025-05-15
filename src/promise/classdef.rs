@@ -71,7 +71,7 @@ pub fn js_promise_then_finally_func(ctx: &mut JSContext, args: CallArgs) -> JSRe
                 if cc.magic == 0 {
                     val.check_exception() // resolve
                 } else {
-                    cx.JS_Throw(val); // reject
+                    cx.throw(val); // reject
                     Err(-1)
                 }
             },
@@ -218,7 +218,7 @@ pub unsafe fn js_promise_all(
     };
 
     let fail_reject = |promise: JSValueRc| -> JSValue {
-        let mut error = (*ctx).get_exception().into_rc((*ctx).rt());
+        let mut error = (*ctx).take_exception().into_rc((*ctx).rt());
         let ret = JS_Call(
             ctx.as_mut().unwrap(),
             *resolving_funcs[1],
@@ -437,7 +437,7 @@ pub unsafe fn js_promise_race(
     };
 
     let fail_reject = |promise: JSValueRc| -> JSValue {
-        let mut error = (*ctx).get_exception().into_rc((*ctx).rt());
+        let mut error = (*ctx).take_exception().into_rc((*ctx).rt());
         let ret = JS_Call(
             ctx.as_mut().unwrap(),
             *resolving_funcs[1],
@@ -593,7 +593,7 @@ pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
 //     args.data_raw(0).dup().check_exception()
 // }
 // pub fn js_promise_finally_thrower(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-//     ctx.JS_Throw(args.data_raw(0).dup());
+//     ctx.throw(args.data_raw(0).dup());
 //     Err(-1)
 // }
 

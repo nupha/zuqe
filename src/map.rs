@@ -64,7 +64,7 @@ impl JSMapState {
     pub fn add_record(
         &mut self,
         ctx: &mut JSContext,
-        key: JSValueConst,
+        key: JSValue,
     ) -> Result<NonNull<JSMapRecord>, i32> {
         // new record
         let mut rec = unsafe {
@@ -84,6 +84,7 @@ impl JSMapState {
             if self.is_weak {
                 let p = key.object_unchecked();
                 // Add the weak reference
+                debug_assert!(p.first_weak_ref.is_aligned());
                 rec.next_weak_ref = p.first_weak_ref;
                 p.first_weak_ref = rec.as_mut() as *mut _;
                 key

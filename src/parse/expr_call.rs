@@ -10,7 +10,6 @@ use super::{
         emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
         emit_u16, emit_u32, get_prev_opcode,
     },
-    error::js_parse_error,
     parse::has_with_scope,
     state::JSParseState,
     token::{CHAR_COMMA, TOK_ELLIPSIS},
@@ -77,7 +76,8 @@ impl<'s> JSParseState<'s> {
 
         while self.token.val != ')' as i32 {
             if arg_count >= 65535 {
-                return Err(js_parse_error(self, c"Too many call arguments"));
+                self.throw_syntax_error(c"Too many call arguments");
+                return Err(-1);
             }
             if self.token.val == TOK_ELLIPSIS {
                 break;

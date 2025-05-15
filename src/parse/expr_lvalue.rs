@@ -6,11 +6,7 @@ use crate::{
 };
 
 use super::{
-    emit::{
-        emit_atom_dup, emit_label, emit_label_raw, emit_op, emit_op_temp, emit_push_const,
-        emit_u16, emit_u32, emit_u8, get_prev_opcode,
-    },
-    error::js_parse_error,
+    emit::{emit_atom_dup, emit_label, emit_op, emit_op_temp, emit_u16, emit_u32, get_prev_opcode},
     state::{JSParseState, PF_POSTFIX_CALL},
     token::{TOK_DEC, TOK_FOR, TOK_INC},
 };
@@ -42,16 +38,13 @@ impl<'s> JSParseState<'s> {
     ) -> Result<(), i32> {
         macro_rules! throw_error {
             () => {
-                js_parse_error(
-                    self,
-                    match tok {
-                        TOK_FOR => c"invalid for in/of left hand-side",
-                        TOK_INC | TOK_DEC => c"invalid increment/decrement operand",
-                        // 91='[', 123='{'
-                        91 | 123 => c"invalid destructuring target",
-                        _ => c"invalid assignment left-hand side",
-                    },
-                );
+                self.throw_syntax_error(match tok {
+                    TOK_FOR => c"invalid for in/of left hand-side",
+                    TOK_INC | TOK_DEC => c"invalid increment/decrement operand",
+                    // 91='[', 123='{'
+                    91 | 123 => c"invalid destructuring target",
+                    _ => c"invalid assignment left-hand side",
+                });
             };
         }
 
@@ -82,7 +75,7 @@ impl<'s> JSParseState<'s> {
                     JS_ATOM_arguments | JS_ATOM_eval
                         if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 =>
                     {
-                        js_parse_error(self, c"invalid lvalue in strict mode");
+                        self.throw_syntax_error(c"invalid lvalue in strict mode");
                         return Err(-1);
                     }
                     JS_ATOM_this | JS_ATOM_new_target => {

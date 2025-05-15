@@ -12,13 +12,13 @@ use crate::{
     },
 };
 
-use super::{error::js_parse_error, state::JSParseState, token::TOK_TEMPLATE};
+use super::{state::JSParseState, token::TOK_TEMPLATE};
 
 impl<'s> JSParseState<'s> {
     pub unsafe fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
         macro_rules! template_error {
             ($msg:expr) => {
-                js_parse_error(self, $msg);
+                self.throw_syntax_error($msg);
                 return Err(-1);
             };
         }
@@ -71,7 +71,7 @@ impl<'s> JSParseState<'s> {
                 let mut p_next = std::ptr::null::<u8>();
                 c = unicode_from_utf8(p.offset(-1), UTF8_CHAR_LEN_MAX as _, &mut p_next).map_err(
                     |_| {
-                        js_parse_error(self, c"invalid UTF-8 sequence");
+                        self.throw_syntax_error(c"invalid UTF-8 sequence");
                         -1
                     },
                 )?;
@@ -79,7 +79,7 @@ impl<'s> JSParseState<'s> {
             }
 
             if res_string.push_char(c).is_err() {
-                (*self.ctx).JS_ThrowOutOfMemory();
+                self.ctx.JS_ThrowOutOfMemory();
                 return Err(-1);
             }
         }
@@ -193,7 +193,7 @@ impl<'s> JSParseState<'s> {
 
             depth += 1;
             if self.token.val != b'}' as i32 {
-                js_parse_error(self, c"expected '}' after template expression");
+                self.throw_syntax_error(c"expected '}' after template expression");
                 return Err(-1);
             }
 

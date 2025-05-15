@@ -2,7 +2,6 @@ use crate::bytecode::OpCode;
 
 use super::{
     emit::{emit_goto, emit_label, emit_op},
-    error::js_parse_error,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED},
     token::{CHAR_COLON, TOK_DOUBLE_QUESTION_MARK, TOK_LAND, TOK_LOR},
 };
@@ -93,7 +92,7 @@ impl<'s> JSParseState<'s> {
 
                 if self.token.val != op {
                     if self.token.val == TOK_DOUBLE_QUESTION_MARK {
-                        js_parse_error(self, c"cannot mix ?? with && or ||");
+                        self.throw_syntax_error(c"cannot mix ?? with && or ||");
                         return Err(-1);
                     }
                     break;

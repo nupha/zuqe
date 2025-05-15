@@ -6,7 +6,6 @@ use crate::{
     parse::{
         class::js_parse_property_name,
         emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u16, emit_u8},
-        error::js_parse_error,
         obj::{set_object_name, set_object_name_computed},
         token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
         JSParseFunctionEnum,
@@ -133,7 +132,7 @@ impl<'s> JSParseState<'s> {
                     emit_op(self, OpCode::DROP);
                 } else if name == JS_ATOM___proto__ {
                     if has_proto {
-                        js_parse_error(self, c"\"duplicate __proto__ property name\"");
+                        self.throw_syntax_error(c"\"duplicate __proto__ property name\"");
                         JS_FreeAtom(self.ctx.as_ptr(), name);
                         return Err(-1);
                     }

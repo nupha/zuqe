@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
@@ -17,7 +17,7 @@ use super::{
         emit_atom_dup, emit_goto, emit_label, emit_label_raw, emit_op, emit_op_temp,
         emit_push_const, emit_u16, emit_u32, emit_u8, get_prev_opcode, OPSpecialObjectEnum,
     },
-    error::{js_parse_error, js_parse_error_reserved_identifier},
+    error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -315,7 +315,7 @@ impl<'s> JSParseState<'s> {
                     emit_op(self, OpCode::REGEXP);
                     self.next_token()?;
                 } else {
-                    js_parse_error(self, c"RegExp are not supported");
+                    self.throw_syntax_error(c"RegExp are not supported");
                     return Err(-1);
                 }
             }
@@ -431,8 +431,7 @@ impl<'s> JSParseState<'s> {
                     if self.token.u.ident.atom == JS_ATOM_arguments
                         && !(*self.cur_func).arguments_allowed
                     {
-                        js_parse_error(
-                            self,
+                        self.throw_syntax_error(
                             c"'arguments' identifier is not allowed in class field initializer",
                         );
                         return Err(-1);
@@ -483,11 +482,11 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if !token_is_pseudo_keyword(self, JS_ATOM_target) {
-                        js_parse_error(self, c"expecting target");
+                        self.throw_syntax_error(c"expecting target");
                         return Err(-1);
                     }
                     if !(*self.cur_func).new_target_allowed {
-                        js_parse_error(self, c"new.target only allowed within functions");
+                        self.throw_syntax_error(c"new.target only allowed within functions");
                         return Err(-1);
                     }
 
@@ -514,8 +513,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 if self.token.val == b'(' as i32 {
                     if !(*self.cur_func).super_call_allowed {
-                        js_parse_error(
-                            self,
+                        self.throw_syntax_error(
                             c"super() is only valid in a derived class constructor",
                         );
                         return Err(-1);
@@ -523,7 +521,7 @@ impl<'s> JSParseState<'s> {
                     call_type = FuncCallType::FUNC_CALL_SUPER_CTOR;
                 } else if self.token.val == b'.' as i32 || self.token.val == b'[' as i32 {
                     if !(*self.cur_func).super_allowed {
-                        js_parse_error(self, c"'super' is only valid in a method");
+                        self.throw_syntax_error(c"'super' is only valid in a method");
                         return Err(-1);
                     }
 
@@ -535,7 +533,7 @@ impl<'s> JSParseState<'s> {
                     emit_u16(self, 0);
                     emit_op(self, OpCode::GET_SUPER);
                 } else {
-                    js_parse_error(self, c"invalid use of 'super'");
+                    self.throw_syntax_error(c"invalid use of 'super'");
                     return Err(-1);
                 }
             }
@@ -544,11 +542,11 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == b'.' as i32 {
                     self.next_token()?;
                     if !token_is_pseudo_keyword(self, JS_ATOM_meta) {
-                        js_parse_error(self, c"meta expected");
+                        self.throw_syntax_error(c"meta expected");
                         return Err(-1);
                     }
                     if !self.is_module {
-                        js_parse_error(self, c"import.meta only valid in module code");
+                        self.throw_syntax_error(c"import.meta only valid in module code");
                         return Err(-1);
                     }
                     self.next_token()?;
@@ -561,7 +559,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_expect(CHAR_BRACKET_L)?;
                     if !accept_lparen {
-                        js_parse_error(self, c"invalid use of 'import()'");
+                        self.throw_syntax_error(c"invalid use of 'import()'");
                         return Err(-1);
                     }
                     self.parse_assign_expr()?;
@@ -576,7 +574,7 @@ impl<'s> JSParseState<'s> {
                     CStr::from_ptr(self.token.ptr.cast()),
                     len
                 );
-                js_parse_error(self, CStr::from_ptr(msg.as_ptr().cast()));
+                self.throw_syntax_error(CStr::from_ptr(msg.as_ptr().cast()));
                 return Err(-1);
             }
         }
@@ -612,7 +610,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token.val == TOK_TEMPLATE && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
                 if optional_chaining_label >= 0 {
-                    js_parse_error(self, c"template literal cannot appear in an optional chain");
+                    self.throw_syntax_error(c"template literal cannot appear in an optional chain");
                     return Err(-1);
                 }
 

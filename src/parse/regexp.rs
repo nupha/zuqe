@@ -1,9 +1,6 @@
 use std::ffi::CStr;
 
-use crate::{
-    parse::{error::js_parse_error, token::TOK_REGEXP},
-    value::StringContent,
-};
+use crate::{parse::token::TOK_REGEXP, value::StringContent};
 
 use super::JSParseState;
 
@@ -15,19 +12,19 @@ pub unsafe fn js_parse_regexp(s: *mut JSParseState) -> i32 {
     }
     macro_rules! eof_error {
         () => {
-            js_parse_error(s, c"unexpected end of regexp");
+            (*s).throw_syntax_error(c"unexpected end of regexp");
             fail!();
         };
     }
     macro_rules! eol_error {
         () => {
-            js_parse_error(s, c"unexpected line terminator in regexp");
+            (*s).throw_syntax_error(c"unexpected line terminator in regexp");
             fail!();
         };
     }
     macro_rules! invalid_utf8 {
         () => {
-            js_parse_error(s, c"invalid UTF-8 sequence");
+            (*s).throw_syntax_error(c"invalid UTF-8 sequence");
             fail!();
         };
     }

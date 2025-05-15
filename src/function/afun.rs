@@ -252,7 +252,7 @@ pub unsafe fn js_async_function_resolve_call(
 
     (*s).throw_flag = is_reject;
     if is_reject {
-        ctx.JS_Throw(arg.dup());
+        ctx.throw(arg.dup());
     } else {
         // return value of await
         *(*s)
@@ -298,7 +298,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
         let ret2: JSValue;
 
         if func_ret.is_exception() {
-            let error = (*ctx).get_exception();
+            let error = (*ctx).take_exception();
             ret2 = JS_Call(
                 ctx.as_mut().unwrap(),
                 (*s).resolving_funcs[1], // reject
@@ -335,7 +335,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
         let promise = js_promise_resolve(ctx, (*ctx).promise_ctor, 1, &mut value, 0);
         JS_FreeValue(ctx, value);
         if promise.is_exception() {
-            let mut error = (*ctx).get_exception();
+            let mut error = (*ctx).take_exception();
             let ret2 = JS_Call(
                 ctx.as_mut().unwrap(),
                 (*s).resolving_funcs[1],
@@ -352,7 +352,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
                 rr
             } else {
                 JS_FreeValue(ctx, promise);
-                let mut error = (*ctx).get_exception();
+                let mut error = (*ctx).take_exception();
                 let ret2 = JS_Call(
                     ctx.as_mut().unwrap(),
                     (*s).resolving_funcs[1],
@@ -374,7 +374,7 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
         if res.is_err() {
-            let mut error = (*ctx).get_exception();
+            let mut error = (*ctx).take_exception();
             let ret2 = JS_Call(
                 ctx.as_mut().unwrap(),
                 (*s).resolving_funcs[1],

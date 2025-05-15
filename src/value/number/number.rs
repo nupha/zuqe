@@ -246,13 +246,13 @@ impl JSValue {
         }
     }
 
-    /// Note: value `self` is consumed.
+    /// Note: `self` is consumed regardless of success or failure.
     #[inline(always)]
     pub fn coerce_to_number_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
         unsafe { Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER) }
     }
 
-    /// Note: value `self` is consumed.
+    /// Note: `self` is consumed regardless of success or failure.
     #[inline(always)]
     pub fn coerce_to_numeric_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
         unsafe { Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC) }
@@ -271,7 +271,7 @@ impl JSValue {
     }
 
     /// coerce value to i32.
-    /// Note: value `self` is consumed
+    /// Note: value `self` is consumed regardless of success or failure.
     pub fn coerce_to_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
         let mut val = self;
 

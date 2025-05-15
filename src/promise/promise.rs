@@ -133,7 +133,7 @@ impl PromiseValue {
 
         let ret = JS_Call(ctx, executor, JSValue::UNDEFINED, 2, args.as_mut_ptr());
         if ret.is_exception() {
-            let mut error = ctx.get_exception();
+            let mut error = ctx.take_exception();
             let ret2 = JS_Call(ctx, args[1], JSValue::UNDEFINED, 1, &mut error);
             JS_FreeValue(ctx, error);
             if ret2.is_exception() {

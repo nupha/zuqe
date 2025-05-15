@@ -6,7 +6,6 @@ use crate::{
 };
 
 use super::{
-    error::js_parse_error,
     state::JSParseState,
     token::{JSToken, TOK_STRING},
 };
@@ -25,14 +24,14 @@ impl<'s> JSParseState<'s> {
         loop {
             if p >= self.buf_end {
                 if do_throw {
-                    js_parse_error(self, c"unexpected end of string");
+                    self.throw_syntax_error(c"unexpected end of string");
                 }
                 return Err(-1);
             }
 
             if content.capacity() == content.len() {
                 if content.try_reserve_exact(32).is_err() {
-                    (*self.ctx).JS_ThrowOutOfMemory();
+                    self.ctx.JS_ThrowOutOfMemory();
                     return Err(-1);
                 }
             }
@@ -50,7 +49,7 @@ impl<'s> JSParseState<'s> {
                         // do not update s->line_num
                     } else {
                         if do_throw {
-                            js_parse_error(self, c"unexpected end of string");
+                            self.throw_syntax_error(c"unexpected end of string");
                         }
                         return Err(-1);
                     }
@@ -59,7 +58,7 @@ impl<'s> JSParseState<'s> {
                     // handle ASCII control characters
                     if self.cur_func.is_null() {
                         if do_throw {
-                            js_parse_error(self, c"invalid character in a JSON string");
+                            self.throw_syntax_error(c"invalid character in a JSON string");
                         }
                         return Err(-1);
                     }
@@ -87,7 +86,7 @@ impl<'s> JSParseState<'s> {
                         '\0' => {
                             if p >= self.buf_end {
                                 if do_throw {
-                                    js_parse_error(self, c"unexpected end of string");
+                                    self.throw_syntax_error(c"unexpected end of string");
                                 }
                                 return Err(-1);
                             }
@@ -112,8 +111,7 @@ impl<'s> JSParseState<'s> {
                         c1 @ ('0'..='9') => {
                             if self.cur_func.is_null() {
                                 if do_throw {
-                                    js_parse_error(
-                                        self,
+                                    self.throw_syntax_error(
                                         c"malformed escape sequence in string literal",
                                     );
                                 }
@@ -130,14 +128,11 @@ impl<'s> JSParseState<'s> {
                             } else {
                                 // ES2021: octal escapes 8/9 not allowed in strict mode/templates
                                 if do_throw {
-                                    js_parse_error(
-                                        self,
-                                        if c1 >= '8' || sep == '`' {
-                                            c"malformed escape sequence in string literal"
-                                        } else {
-                                            c"octal escape sequences are not allowed in strict mode"
-                                        },
-                                    );
+                                    self.throw_syntax_error(if c1 >= '8' || sep == '`' {
+                                        c"malformed escape sequence in string literal"
+                                    } else {
+                                        c"octal escape sequences are not allowed in strict mode"
+                                    });
                                 }
                                 return Err(-1);
                             }
@@ -160,7 +155,7 @@ impl<'s> JSParseState<'s> {
                                     }
                                     Err(_) => {
                                         if do_throw {
-                                            js_parse_error(self, c"invalid UTF-8 sequence");
+                                            self.throw_syntax_error(c"invalid UTF-8 sequence");
                                         }
                                         return Err(-1);
                                     }
@@ -178,8 +173,7 @@ impl<'s> JSParseState<'s> {
                             }
                             Err(-1) => {
                                 if do_throw {
-                                    js_parse_error(
-                                        self,
+                                    self.throw_syntax_error(
                                         c"malformed escape sequence in string literal",
                                     );
                                 }
@@ -212,7 +206,7 @@ impl<'s> JSParseState<'s> {
                             }
                             Err(_) => {
                                 if do_throw {
-                                    js_parse_error(self, c"invalid UTF-8 sequence");
+                                    self.throw_syntax_error(c"invalid UTF-8 sequence");
                                 }
                                 return Err(-1);
                             }
@@ -233,7 +227,8 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        let str_val = (*self.ctx)
+        let str_val = self
+            .ctx
             .create_string_from_content(content)
             .check_exception()?;
 
@@ -334,7 +329,7 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     // parse a legacy octal sequence
-                    js_parse_error(self, c"octal escape sequence is not supported");
+                    self.throw_syntax_error(c"octal escape sequence is not supported");
                     return Err(-1);
 
                     // TODO parse \0nnn octal sequence - legacy

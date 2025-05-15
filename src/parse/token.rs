@@ -14,7 +14,6 @@ use crate::{
 };
 
 use super::{
-    error::js_parse_error,
     function::JSParseFunctionEnum,
     state::{JSParsePos, JSParseState},
 };
@@ -98,7 +97,7 @@ pub struct JSTokenRegexp {
 impl<'s> JSParseState<'s> {
     pub unsafe fn next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(self.ctx.rt(), 0) {
-            js_parse_error(self, c"stack overflow");
+            self.throw_syntax_error(c"stack overflow");
             return Err(-1);
         }
 
@@ -167,7 +166,7 @@ impl<'s> JSParseState<'s> {
                             p = p.offset(2);
                             'comment_loop: loop {
                                 if *p == 0 && p >= self.buf_end {
-                                    js_parse_error(self, c"unexpected end of comment");
+                                    self.throw_syntax_error(c"unexpected end of comment");
                                     self.token.val = TOK_ERROR;
                                     return Err(-1);
                                 }
@@ -226,11 +225,11 @@ impl<'s> JSParseState<'s> {
                                 isa = Some(ISA::HasIdent(c1));
                             } else {
                                 // syntax error?
-                                js_parse_error(self, c"syntax error");
+                                self.throw_syntax_error(c"syntax error");
                                 return Err(-1);
                             }
                         } else {
-                            js_parse_error(self, c"syntax error");
+                            self.throw_syntax_error(c"syntax error");
                             return Err(-1);
                         }
                     }
@@ -256,7 +255,7 @@ impl<'s> JSParseState<'s> {
                     };
 
                     if !Self::is_ident_first(c1) {
-                        js_parse_error(self, c"invalid first charactor of private name");
+                        self.throw_syntax_error(c"invalid first charactor of private name");
                         isa = Some(ISA::Fail);
                     } else {
                         p = p1;
@@ -281,7 +280,7 @@ impl<'s> JSParseState<'s> {
                 '0' => {
                     // in strict mode, octal literals are not accepted
                     if is_digit(*p.add(1)) && (*self.cur_func).js_mode & JS_MODE_STRICT as u8 != 0 {
-                        js_parse_error(self, c"octal literals are deprecated in strict mode");
+                        self.throw_syntax_error(c"octal literals are deprecated in strict mode");
                         isa = Some(ISA::Fail);
                     } else {
                         isa = Some(ISA::ParseNumber);
@@ -499,7 +498,7 @@ impl<'s> JSParseState<'s> {
                             } else if JSParseState::is_ident_first(code) {
                                 isa = Some(ISA::HasIdent(code));
                             } else {
-                                js_parse_error(self, c"unexpected character");
+                                self.throw_syntax_error(c"unexpected character");
                                 isa = Some(ISA::Fail);
                             }
                         }
@@ -572,11 +571,14 @@ impl<'s> JSParseState<'s> {
             | ATOD_ACCEPT_UNDERSCORES
             | ATOD_ACCEPT_SUFFIX;
 
-        let radix = 0;
-        let ret = js_atof(self.ctx.as_ptr(), *p, p, radix, flags).check_exception()?;
-        if JS_VALUE_IS_NAN(ret) {
+        let ret = js_atof(self.ctx.as_ptr(), *p, p, 0, flags);
+        if ret.is_exception() {
+            let exc_obj = self.ctx.take_exception();
+            self.throw(exc_obj);
+            return Err(-1);
+        } else if JS_VALUE_IS_NAN(ret) {
             JS_FreeValue(self.ctx.as_ptr(), ret);
-            js_parse_error(self, c"invalid number literal");
+            self.throw_syntax_error(c"invalid number literal");
             return Err(-1);
         }
 
@@ -584,7 +586,7 @@ impl<'s> JSParseState<'s> {
         if let Some(c) = CStr::from_ptr(*p.cast())
             .to_str()
             .map_err(|_| {
-                js_parse_error(self, c"invalid UTF-8 sequence");
+                self.throw_syntax_error(c"invalid UTF-8 sequence");
                 -1
             })?
             .chars()
@@ -592,7 +594,7 @@ impl<'s> JSParseState<'s> {
         {
             if Self::is_ident_next(c) {
                 JS_FreeValue(self.ctx.as_ptr(), ret);
-                js_parse_error(self, c"invalid number literal");
+                self.throw_syntax_error(c"invalid number literal");
                 return Err(-1);
             }
         }

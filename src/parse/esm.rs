@@ -1,7 +1,7 @@
 use std::{ffi::CStr, ops::DerefMut};
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     bytecode::OpCodeTemp,
     context::JSContext,
     error::JS_ThrowSyntaxErrorAtom,
@@ -16,7 +16,7 @@ use crate::{
 use super::{
     class::js_parse_class,
     emit::{emit_atom_dup, emit_op_temp, emit_u16},
-    error::{js_parse_error, js_parse_error_reserved_identifier},
+    error::js_parse_error_reserved_identifier,
     function::JSParseFunctionEnum,
     obj::set_object_name,
     parse::skip_shebang,
@@ -39,14 +39,14 @@ pub enum JSParseExportEnum {
 impl<'s> JSParseState<'s> {
     unsafe fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
         if !token_is_pseudo_keyword(self, JS_ATOM_from) {
-            js_parse_error(self, c"from clause expected");
+            self.throw_syntax_error(c"from clause expected");
             return Err(-1);
         }
 
         self.next_token()?;
 
         if self.token.val != TOK_STRING {
-            js_parse_error(self, c"string expected");
+            self.throw_syntax_error(c"string expected");
             return Err(-1);
         }
 
@@ -112,15 +112,14 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if !token_is_pseudo_keyword(self, JS_ATOM_as) {
-                        if js_parse_error(self, c"expecting 'as'") != 0 {
-                            return Err(-1);
-                        };
+                        self.throw_syntax_error(c"expecting 'as'");
+                        return Err(-1);
                     }
 
                     self.next_token()?;
 
                     if !token_is_ident(self.token.val) {
-                        js_parse_error(self, c"identifier expected");
+                        self.throw_syntax_error(c"identifier expected");
                         return Err(-1);
                     }
 
@@ -141,7 +140,7 @@ impl<'s> JSParseState<'s> {
 
                     while self.token.val != '}' as i32 {
                         if !token_is_ident(self.token.val) {
-                            js_parse_error(self, c"identifier expected");
+                            self.throw_syntax_error(c"identifier expected");
                             return Err(-1);
                         }
 
@@ -159,7 +158,7 @@ impl<'s> JSParseState<'s> {
                             self.next_token()?;
 
                             if !token_is_ident(self.token.val) {
-                                js_parse_error(self, c"identifier expected");
+                                self.throw_syntax_error(c"identifier expected");
                                 return Err(-1);
                             }
 
@@ -207,7 +206,7 @@ impl<'s> JSParseState<'s> {
 /// Parse an identifier and return its atom
 unsafe fn parse_export_name(s: *mut JSParseState) -> JSAtom {
     if !token_is_ident((*s).token.val) {
-        js_parse_error(s, c"identifier expected");
+        (*s).throw_syntax_error(c"identifier expected");
         return JS_ATOM_NULL;
     }
     (*s).token.u.ident.atom.dup((*s).ctx.rt())
@@ -426,7 +425,8 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
         }
 
         _ => {
-            return js_parse_error(s, c"invalid export syntax");
+            (*s).throw_syntax_error(c"invalid export syntax");
+            return -1;
         }
     }
 
@@ -443,17 +443,14 @@ pub unsafe fn add_export_entry2(
 ) -> *mut JSExportEntry {
     if find_export_entry(ctx, m, export_name).is_some() {
         if !s.is_null() {
-            js_parse_error(
-                s,
-                CStr::from_ptr(
-                    format!(
-                        "duplicate exported name '{}'\0",
-                        export_name.to_str((*ctx).rt()),
-                    )
-                    .as_ptr()
-                    .cast(),
-                ),
-            );
+            (*s).throw_syntax_error(CStr::from_ptr(
+                format!(
+                    "duplicate exported name '{}'\0",
+                    export_name.to_str((*ctx).rt()),
+                )
+                .as_ptr()
+                .cast(),
+            ));
         } else {
             JS_ThrowSyntaxErrorAtom(ctx, c"duplicate exported name '%s'", export_name);
         }
@@ -505,7 +502,8 @@ pub unsafe fn add_import(
     import_name: JSAtom,
 ) -> i32 {
     if local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval {
-        return js_parse_error(s, c"invalid import binding");
+        (*s).throw_syntax_error(c"invalid import binding");
+        return -1;
     }
 
     if local_name != JS_ATOM_default {
@@ -514,7 +512,8 @@ pub unsafe fn add_import(
             .as_ref()
             .map_or(false, |lst| lst.iter().any(|cv| cv.var_name == local_name))
         {
-            return js_parse_error(s, c"duplicate import binding");
+            (*s).throw_syntax_error(c"duplicate import binding");
+            return -1;
         }
     }
 

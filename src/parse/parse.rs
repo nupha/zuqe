@@ -22,7 +22,7 @@ use super::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_push_const, emit_return,
         emit_u16, emit_u8, get_prev_opcode,
     },
-    error::{js_parse_error, js_parse_error_reserved_identifier},
+    error::js_parse_error_reserved_identifier,
     esm::{add_export_entry, js_parse_export},
     function::JSParseFunctionEnum,
     obj::set_object_name,
@@ -212,7 +212,7 @@ impl JSParseState<'_> {
                 c = if let Some(u) = char::from_u32(cp) {
                     u
                 } else {
-                    js_parse_error(self, c"invalid char for ident");
+                    self.throw_syntax_error(c"invalid char for ident");
                     return Err(-1);
                 };
                 p1 = p_temp;
@@ -300,7 +300,7 @@ impl JSParseState<'_> {
                 }
 
                 if self.token.u.ident.atom == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
-                    js_parse_error(self, c"'let' is not a valid lexical identifier");
+                    self.throw_syntax_error(c"'let' is not a valid lexical identifier");
                     return Err(-1);
                 }
 
@@ -403,7 +403,7 @@ impl JSParseState<'_> {
                     // debug_assert_eq!(name.ref_count((*ctx).rt()), _name_refcnt.map(|n| n + 2));
                 } else {
                     if tok == TOK_CONST {
-                        js_parse_error(self, c"missing initializer for const variable");
+                        self.throw_syntax_error(c"missing initializer for const variable");
                         JS_FreeAtom(ctx.as_ptr(), name);
                         return Err(-1);
                     } else if tok == TOK_LET {
@@ -435,7 +435,7 @@ impl JSParseState<'_> {
                         return Err(-1);
                     }
                 } else {
-                    js_parse_error(self, c"variable name expected");
+                    self.throw_syntax_error(c"variable name expected");
                     return Err(-1);
                 }
             }
@@ -453,14 +453,11 @@ impl JSParseState<'_> {
         if self.token.val != tok {
             /* XXX: dump token correctly in all cases */
             debug_assert!(tok > 0);
-            js_parse_error(
-                self,
-                CStr::from_ptr(
-                    format!("expecting '{}'\0", std::char::from_u32(tok as u32).unwrap())
-                        .as_ptr()
-                        .cast(),
-                ),
-            );
+            self.throw_syntax_error(CStr::from_ptr(
+                format!("expecting '{}'\0", std::char::from_u32(tok as u32).unwrap())
+                    .as_ptr()
+                    .cast(),
+            ));
             Err(-1)
         } else {
             self.next_token()
@@ -473,7 +470,7 @@ impl JSParseState<'_> {
                 // automatic insertion of ';'
                 Ok(())
             } else {
-                js_parse_error(self, c"expecting ';'");
+                self.throw_syntax_error(c"expecting ';'");
                 Err(-1)
             }
         } else {
@@ -553,15 +550,18 @@ pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32
     let fd = (*s).cur_func;
 
     if name == JS_ATOM_yield && (*fd).func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
-        return js_parse_error(s, c"yield is a reserved identifier");
+        (*s).throw_syntax_error(c"yield is a reserved identifier");
+        return -1;
     }
     if (name == JS_ATOM_arguments || name == JS_ATOM_eval)
         && ((*fd).js_mode & JS_MODE_STRICT as u8 != 0)
     {
-        return js_parse_error(s, c"invalid variable name in strict mode");
+        (*s).throw_syntax_error(c"invalid variable name in strict mode");
+        return -1;
     }
     if (name == JS_ATOM_let || name == JS_ATOM_undefined) && (tok == TOK_LET || tok == TOK_CONST) {
-        return js_parse_error(s, c"invalid lexical variable name");
+        (*s).throw_syntax_error(c"invalid lexical variable name");
+        return -1;
     }
 
     let var_def_type = match tok {
@@ -911,14 +911,16 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
                 return 0;
             }
             if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
-                return js_parse_error(s, c"cannot delete a direct reference in strict mode");
+                (*s).throw_syntax_error(c"cannot delete a direct reference in strict mode");
+                return -1;
             } else {
                 (*fd).byte_code[(*fd).last_opcode_pos as usize] =
                     OpCodeTemp::SCOPE_DELETE_VAR as u8;
             }
         }
         opcodes::op_scope_get_private_field => {
-            return js_parse_error(s, c"cannot delete a private class field");
+            (*s).throw_syntax_error(c"cannot delete a private class field");
+            return -1;
         }
         opcodes::OP_get_super_value => {
             (*fd).byte_code.truncate((*fd).last_opcode_pos as _); // (*fd).byte_code.size = (*fd).last_opcode_pos;

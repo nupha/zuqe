@@ -730,6 +730,8 @@ pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
 pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     // first pass to remove the records from the WeakMap/WeakSet lists
     let mut mr = (*p).first_weak_ref;
+    debug_assert!(mr.is_aligned(), "{mr:p}");
+
     while !mr.is_null() {
         let s = (*mr).map;
         debug_assert!((*s).is_weak);

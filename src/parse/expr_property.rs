@@ -8,7 +8,6 @@ use crate::{
 
 use super::{
     emit::{emit_atom_dup, emit_op, emit_op_temp, emit_push_const, emit_u16, get_prev_opcode},
-    error::js_parse_error,
     state::JSParseState,
     token::{token_is_ident, CHAR_SQUARE_R, TOK_PRIVATE_NAME},
 };
@@ -23,7 +22,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_PRIVATE_NAME {
             /* private class field */
             if get_prev_opcode(fd) == opcodes::OP_get_super {
-                js_parse_error(self, c"private class field forbidden after super");
+                self.throw_syntax_error(c"private class field forbidden after super");
                 return Err(-1);
             }
             if has_optional_chain {
@@ -34,7 +33,8 @@ impl<'s> JSParseState<'s> {
             emit_u16(self, (*(*self).cur_func).scope_level as _);
         } else {
             if !token_is_ident((*self).token.val) {
-                return Err(js_parse_error(self, c"expecting field name"));
+                self.throw_syntax_error(c"expecting field name");
+                return Err(-1);
             }
             if get_prev_opcode(fd) == opcodes::OP_get_super {
                 let val = self

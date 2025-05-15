@@ -558,10 +558,9 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::CALL | OpCode::TAIL_CALL => {
-                    let call_argc = get_u16(pc) as i32;
+                    let call_argc = get_u16(pc);
                     PC_GO!(2);
 
-                    // has_call_argc:
                     let call_argv = sp.offset(-(call_argc as isize));
                     sf.cur_pc_offset = pc.offset_from(pc_base) as _;
                     let ret_val = JS_CallInternal(
@@ -581,7 +580,7 @@ pub unsafe fn run_bytecodes(
                         for i in -1..call_argc as i32 {
                             JS_FreeValue(ctx, *call_argv.offset(i as isize));
                         }
-                        SP_GO!(-(call_argc + 1));
+                        SP_GO!(-(call_argc as i32 + 1));
                         SP![0] = ret_val;
                         SP_GO!(1);
                     }
@@ -757,7 +756,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::THROW => {
                     SP_GO!(-1);
-                    ctx.JS_Throw(SP![0]);
+                    ctx.throw(SP![0]);
                     break State::Exception;
                 }
                 OpCode::THROW_ERROR => {
@@ -1821,7 +1820,7 @@ pub unsafe fn run_bytecodes(
                     if opcode == OpCode::PLUS
                         && matches!(JS_VALUE_GET_NORM_TAG(op1), JSTag::Int | JSTag::Float64)
                     {
-                        // do nothing
+                        // + before an int or float: do nothing
                     } else {
                         if let Ok(res) = UnaryOp::new(ctx, op1, true).map(|unary| match opcode {
                             OpCode::PLUS => unary.plus(),
