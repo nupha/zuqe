@@ -51,8 +51,7 @@ pub struct JSParseState<'s> {
     /// End of the input buffer
     pub buf_end: *const u8,
 
-    /// Current function being parsed
-    /// TODO: use Box<JSFunctionDef>
+    /// Raw pointer to current parsing function def.
     pub cur_func: *mut JSFunctionDef,
 
     /// Indicates if parsing a JavaScript module
@@ -120,7 +119,7 @@ impl<'s> JSParseState<'s> {
     /// * `Err(-1)` - If scope creation fails
     pub unsafe fn push_scope(&mut self) -> Result<i32, i32> {
         if !self.cur_func.is_null() {
-            let fd = self.cur_func.as_mut().unwrap();
+            let fd = self.cur_func();
 
             let scope = fd.scopes.len(); // new scope id
 
@@ -144,6 +143,13 @@ impl<'s> JSParseState<'s> {
         }
     }
 
+    /// Get current function def being parsed.
+    /// Will panic if cur_func is null.
+    #[inline(always)]
+    pub unsafe fn cur_func(&mut self) -> &mut JSFunctionDef {
+        self.cur_func.as_mut().unwrap()
+    }
+
     /// Exits the current lexical scope
     ///
     /// Restores the parent scope and updates variable accessibility.
@@ -154,7 +160,7 @@ impl<'s> JSParseState<'s> {
     pub unsafe fn pop_scope(&mut self) {
         if !self.cur_func.is_null() {
             // disable scoped variables
-            let fd = self.cur_func.as_mut().unwrap();
+            let fd = self.cur_func();
             let scope = fd.scope_level;
 
             fd.scope_level = fd.scopes[scope as usize].parent;
@@ -180,7 +186,7 @@ impl<'s> JSParseState<'s> {
         while scope > scope_stop {
             emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
             emit_u16(self, scope as _);
-            scope = (*self.cur_func).scopes[scope as usize].parent;
+            scope = self.cur_func().scopes[scope as usize].parent;
         }
     }
 }

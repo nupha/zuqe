@@ -48,32 +48,35 @@ impl<'s> JSParseState<'s> {
             };
         }
 
-        let fd = self.cur_func;
+        //let fd = self.cur_func;
         let mut scope = 0;
         let mut name = JS_ATOM_NULL;
         let mut label = -1;
         let depth: i32;
 
         // we check the last opcode to get the lvalue type
-        let mut opcode = get_prev_opcode(fd);
+        let mut opcode = get_prev_opcode(self.cur_func());
 
         match opcode {
             opcodes::op_scope_get_var => {
                 name = JSAtom(get_u32(
-                    (*fd)
+                    self.cur_func()
                         .byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1),
+                        .offset(self.cur_func().last_opcode_pos as isize + 1),
                 ));
+
+                let last_opcode_pos = self.cur_func().last_opcode_pos;
                 scope = get_u16(
-                    (*fd)
+                    self.cur_func()
                         .byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 5),
+                        .offset(last_opcode_pos as isize + 5),
                 );
+
                 match name {
                     JS_ATOM_arguments | JS_ATOM_eval
-                        if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 =>
+                        if self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 =>
                     {
                         self.throw_syntax_error(c"invalid lvalue in strict mode");
                         return Err(-1);
@@ -88,26 +91,28 @@ impl<'s> JSParseState<'s> {
                 }
             }
             opcodes::OP_get_field => {
+                let last_opcode_pos = self.cur_func().last_opcode_pos;
                 name = JSAtom(get_u32(
-                    (*fd)
+                    self.cur_func()
                         .byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1),
+                        .offset(last_opcode_pos as isize + 1),
                 ));
                 depth = 1;
             }
             opcodes::op_scope_get_private_field => {
+                let last_opcode_pos = self.cur_func().last_opcode_pos;
                 name = JSAtom(get_u32(
-                    (*fd)
+                    self.cur_func()
                         .byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1),
+                        .offset(last_opcode_pos as isize + 1),
                 ));
                 scope = get_u16(
-                    (*fd)
+                    self.cur_func()
                         .byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 5),
+                        .offset(last_opcode_pos as isize + 5),
                 );
                 depth = 1;
             }
@@ -124,23 +129,22 @@ impl<'s> JSParseState<'s> {
         }
 
         // remove the last opcode
-        debug_assert!((*fd).last_opcode_pos > 0);
-        (*fd).byte_code.truncate((*fd).last_opcode_pos as _);
-        (*fd).last_opcode_pos = -1;
+        let last_opcode_pos = self.cur_func().last_opcode_pos;
+        debug_assert!(last_opcode_pos > 0);
+        self.cur_func().byte_code.truncate(last_opcode_pos as _);
+        self.cur_func().last_opcode_pos = -1;
 
         if keep {
             // get the value but keep the object/fields on the stack
             match opcode {
                 opcodes::op_scope_get_var => {
-                    label = (*self.cur_func)
-                        .add_label()
-                        .expect("add_label() can't fail") as i32;
+                    label = self.cur_func().add_label().expect("add_label() can't fail") as i32;
 
                     emit_op_temp(self, OpCodeTemp::SCOPE_MAKE_REF);
                     emit_atom_dup(self, name);
                     emit_u32(self, label as _);
                     emit_u16(self, scope);
-                    (*fd).update_label_ref_count(label as _, 1);
+                    self.cur_func().update_label_ref_count(label as _, 1);
                     emit_op(self, OpCode::GET_REF_VALUE);
 
                     opcode = OpCode::GET_REF_VALUE as _;
@@ -172,15 +176,13 @@ impl<'s> JSParseState<'s> {
         } else {
             match opcode {
                 opcodes::op_scope_get_var => {
-                    label = (*self.cur_func)
-                        .add_label()
-                        .expect("add_label() can't fail") as i32;
+                    label = self.cur_func().add_label().expect("add_label() can't fail") as i32;
 
                     emit_op_temp(self, OpCodeTemp::SCOPE_MAKE_REF);
                     emit_atom_dup(self, name);
                     emit_u32(self, label as _);
                     emit_u16(self, scope);
-                    (*fd).update_label_ref_count(label as _, 1);
+                    self.cur_func().update_label_ref_count(label as _, 1);
 
                     opcode = OpCode::GET_REF_VALUE as _;
                 }

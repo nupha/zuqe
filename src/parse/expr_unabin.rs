@@ -61,7 +61,7 @@ impl<'s> JSParseState<'s> {
 
             emit_op_temp(self, OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
             emit_atom_dup(self, atom);
-            emit_u16(self, (*self.cur_func).scope_level as _);
+            emit_u16(self, self.cur_func().scope_level as _);
             JS_FreeAtom(self.ctx.as_ptr(), atom);
 
             return Ok(());
@@ -211,11 +211,10 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
-                /* reference access should not return an exception, so we
-                patch the get_var */
-                let fd = self.cur_func;
-                if get_prev_opcode(fd) == OpCodeTemp::SCOPE_GET_VAR as u8 {
-                    (*fd).byte_code[(*fd).last_opcode_pos as usize] =
+                // reference access should not return an exception, so we patch the get_var
+                if get_prev_opcode(self.cur_func()) == OpCodeTemp::SCOPE_GET_VAR as u8 {
+                    let last_opcode_pos = self.cur_func().last_opcode_pos;
+                    self.cur_func().byte_code[last_opcode_pos as usize] =
                         OpCodeTemp::SCOPE_GET_VAR_UNDEF as u8;
                 }
                 emit_op(self, OpCode::TYPEOF);
@@ -229,13 +228,13 @@ impl<'s> JSParseState<'s> {
             }
             TOK_AWAIT => {
                 if matches!(
-                    (*self.cur_func).func_kind,
+                    self.cur_func().func_kind,
                     JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
                 ) {
                     self.throw_syntax_error(c"unexpected 'await' keyword");
                     return Err(-1);
                 }
-                if !(*self.cur_func).in_function_body {
+                if !self.cur_func().in_function_body {
                     self.throw_syntax_error(c"await in default expression");
                     return Err(-1);
                 }
@@ -243,7 +242,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
-                (*self.cur_func).has_await = true;
+                self.cur_func().has_await = true;
                 emit_op(self, OpCode::AWAIT);
                 parse_flags = 0;
             }

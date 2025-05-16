@@ -35,7 +35,7 @@ impl<'s> JSParseState<'s> {
         self.parse_logical_and_or(TOK_LOR, parse_flags)?;
 
         if self.token.val == TOK_DOUBLE_QUESTION_MARK {
-            let label1 = (*self.cur_func).add_label()? as i32;
+            let label1 = self.cur_func().add_label()? as i32;
 
             loop {
                 self.next_token()?;
@@ -67,7 +67,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if self.token.val == op {
-            let label1 = (*self.cur_func).add_label()? as i32;
+            let label1 = self.cur_func().add_label()? as i32;
 
             loop {
                 self.next_token()?;

@@ -279,7 +279,7 @@ impl<'s> JSParseState<'s> {
                 }
                 '0' => {
                     // in strict mode, octal literals are not accepted
-                    if is_digit(*p.add(1)) && (*self.cur_func).js_mode & JS_MODE_STRICT as u8 != 0 {
+                    if is_digit(*p.add(1)) && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
                         self.throw_syntax_error(c"octal literals are deprecated in strict mode");
                         isa = Some(ISA::Fail);
                     } else {
@@ -807,57 +807,59 @@ pub unsafe fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i3
 }
 
 // convert a TOK_IDENT to a keyword when needed
-pub unsafe fn update_token_ident(s: *mut JSParseState) {
-    let cf = (*s).cur_func.as_mut().unwrap();
-
+pub unsafe fn update_token_ident(s: &mut JSParseState) {
     // don't change match arm order
-    let is_keyword: bool = match (*s).token.u.ident.atom {
+    let is_keyword: bool = match s.token.u.ident.atom {
         JS_ATOM_yield => {
+            let fd = s.cur_func();
             matches!(
-                cf.func_kind,
+                fd.func_kind,
                 JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-            ) || (cf.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-                && !cf.in_function_body
-                && !cf.parent.is_null()
+            ) || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
+                && !fd.in_function_body
+                && !fd.parent.is_null()
                 && matches!(
-                    (*cf.parent).func_kind,
+                    (*fd.parent).func_kind,
                     JSFunctionKindEnum::JS_FUNC_GENERATOR
                         | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
                 ))
         }
         JS_ATOM_await => {
-            (*s).is_module
+            let is_module = s.is_module;
+            let fd = s.cur_func();
+
+            is_module
                 || matches!(
-                    cf.func_kind,
+                    fd.func_kind,
                     JSFunctionKindEnum::JS_FUNC_GENERATOR
                         | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
                 )
-                || cf.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
-                || (cf.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-                    && !cf.in_function_body
-                    && !cf.parent.is_null()
+                || fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
+                || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
+                    && !fd.in_function_body
+                    && !fd.parent.is_null()
                     && (matches!(
-                        (*cf.parent).func_kind,
+                        (*fd.parent).func_kind,
                         JSFunctionKindEnum::JS_FUNC_ASYNC
                             | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR,
-                    ) || (*cf.parent).func_type
+                    ) || (*fd.parent).func_type
                         == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
         }
 
         a if (1..=JS_ATOM_LAST_KEYWORD.0).contains(&a.0) => true,
         a if (JS_ATOM_FIRST_STRICT_KEYWORD.0..=JS_ATOM_LAST_STRICT_KEYWORD.0).contains(&a.0) => {
-            cf.js_mode & JS_MODE_STRICT as u8 != 0
+            s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
         }
         _ => false,
     };
 
     if is_keyword {
-        if (*s).token.u.ident.has_escape {
-            (*s).token.u.ident.is_reserved = true;
-            (*s).token.val = TOK_IDENT;
+        if s.token.u.ident.has_escape {
+            s.token.u.ident.is_reserved = true;
+            s.token.val = TOK_IDENT;
         } else {
             // The keywords atoms are pre allocated
-            (*s).token.val = (*s).token.u.ident.atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
+            s.token.val = s.token.u.ident.atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
         }
     }
 }

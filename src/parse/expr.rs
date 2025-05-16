@@ -199,7 +199,7 @@ impl<'s> JSParseState<'s> {
                 // as an lvalue. This also prevents the conversion of
                 // of get_var to get_ref for method lookup in function
                 // call inside `with` statement.
-                (*self.cur_func).last_opcode_pos = -1;
+                self.cur_func().last_opcode_pos = -1;
             }
 
             if self.token.val != CHAR_COMMA {
@@ -287,7 +287,7 @@ impl<'s> JSParseState<'s> {
                     if str.is_exception() {
                         // add the line number info
                         let backtrace_flags =
-                            if !self.cur_func.is_null() && (*self.cur_func).backtrace_barrier {
+                            if !self.cur_func.is_null() && self.cur_func().backtrace_barrier {
                                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
                             } else {
                                 0
@@ -425,11 +425,11 @@ impl<'s> JSParseState<'s> {
                         name = JS_ATOM_async.dup(self.ctx.rt());
                         emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                         emit_u32(self, name.0);
-                        emit_u16(self, (*self.cur_func).scope_level as _);
+                        emit_u16(self, self.cur_func().scope_level as _);
                     }
                 } else {
                     if self.token.u.ident.atom == JS_ATOM_arguments
-                        && !(*self.cur_func).arguments_allowed
+                        && !self.cur_func().arguments_allowed
                     {
                         self.throw_syntax_error(
                             c"'arguments' identifier is not allowed in class field initializer",
@@ -447,7 +447,7 @@ impl<'s> JSParseState<'s> {
                     // do_get_var:
                     emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                     emit_u32(self, name.0);
-                    emit_u16(self, (*self.cur_func).scope_level as _);
+                    emit_u16(self, self.cur_func().scope_level as _);
                 }
             }
             // '{' | '['
@@ -485,7 +485,7 @@ impl<'s> JSParseState<'s> {
                         self.throw_syntax_error(c"expecting target");
                         return Err(-1);
                     }
-                    if !(*self.cur_func).new_target_allowed {
+                    if !self.cur_func().new_target_allowed {
                         self.throw_syntax_error(c"new.target only allowed within functions");
                         return Err(-1);
                     }
@@ -512,7 +512,7 @@ impl<'s> JSParseState<'s> {
             TOK_SUPER => {
                 self.next_token()?;
                 if self.token.val == b'(' as i32 {
-                    if !(*self.cur_func).super_call_allowed {
+                    if !self.cur_func().super_call_allowed {
                         self.throw_syntax_error(
                             c"super() is only valid in a derived class constructor",
                         );
@@ -520,7 +520,7 @@ impl<'s> JSParseState<'s> {
                     }
                     call_type = FuncCallType::FUNC_CALL_SUPER_CTOR;
                 } else if self.token.val == b'.' as i32 || self.token.val == b'[' as i32 {
-                    if !(*self.cur_func).super_allowed {
+                    if !self.cur_func().super_allowed {
                         self.throw_syntax_error(c"'super' is only valid in a method");
                         return Err(-1);
                     }
@@ -582,7 +582,6 @@ impl<'s> JSParseState<'s> {
         let mut optional_chaining_label = -1;
 
         loop {
-            let fd = self.cur_func;
             let mut has_optional_chain: bool = false;
 
             let mut arg_count: i32;
@@ -596,16 +595,24 @@ impl<'s> JSParseState<'s> {
 
                 if self.token.val == b'(' as i32 && accept_lparen {
                     self.parse_func_call(
-                        fd,
+                        self.cur_func,
                         call_type,
                         has_optional_chain,
                         &mut optional_chaining_label,
                     )?;
                     call_type = FuncCallType::FUNC_CALL_NORMAL;
                 } else if self.token.val == b'[' as i32 {
-                    self.parse_array_access(fd, has_optional_chain, &mut optional_chaining_label)?;
+                    self.parse_array_access(
+                        self.cur_func,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
                 } else {
-                    self.parse_property(fd, has_optional_chain, &mut optional_chaining_label)?;
+                    self.parse_property(
+                        self.cur_func,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
                 }
             } else if self.token.val == TOK_TEMPLATE && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
@@ -616,13 +623,13 @@ impl<'s> JSParseState<'s> {
 
                 call_type = FuncCallType::FUNC_CALL_TEMPLATE;
                 let op = self.parse_func_call2(
-                    fd,
+                    self.cur_func,
                     call_type,
                     has_optional_chain,
                     &mut optional_chaining_label,
                 );
                 self.parse_func_call3(
-                    fd,
+                    self.cur_func,
                     op,
                     call_type,
                     has_optional_chain,
@@ -632,7 +639,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token.val == CHAR_BRACKET_L && accept_lparen {
                 /* function call */
                 self.parse_func_call(
-                    fd,
+                    self.cur_func,
                     call_type,
                     has_optional_chain,
                     &mut optional_chaining_label,
@@ -640,30 +647,38 @@ impl<'s> JSParseState<'s> {
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == b'.' as i32 {
                 self.next_token()?;
-                self.parse_property(fd, has_optional_chain, &mut optional_chaining_label)?;
+                self.parse_property(
+                    self.cur_func,
+                    has_optional_chain,
+                    &mut optional_chaining_label,
+                )?;
             } else if self.token.val == b'[' as i32 {
-                self.parse_array_access(fd, has_optional_chain, &mut optional_chaining_label)?;
+                self.parse_array_access(
+                    self.cur_func,
+                    has_optional_chain,
+                    &mut optional_chaining_label,
+                )?;
             } else {
                 break;
             }
         } // loop
 
         if optional_chaining_label >= 0 {
-            let fd = self.cur_func;
             emit_label_raw(self, optional_chaining_label);
 
             /* modify the last opcode to indicate optional chain */
-            match get_prev_opcode(fd) {
+            match get_prev_opcode(self.cur_func()) {
                 op @ (opcodes::OP_get_field | opcodes::OP_get_array_el) => {
-                    (*fd).byte_code[(*fd).last_opcode_pos as usize] = if op == opcodes::OP_get_field
-                    {
-                        OpCodeTemp::GET_FIELD_OPT_CHAIN
-                    } else {
-                        OpCodeTemp::GET_ARRAY_EL_OPT_CHAIN
-                    } as u8;
+                    let last_opcode_pos = self.cur_func().last_opcode_pos;
+                    self.cur_func().byte_code[last_opcode_pos as usize] =
+                        if op == opcodes::OP_get_field {
+                            OpCodeTemp::GET_FIELD_OPT_CHAIN
+                        } else {
+                            OpCodeTemp::GET_ARRAY_EL_OPT_CHAIN
+                        } as u8;
                 }
                 _ => {
-                    (*fd).last_opcode_pos = -1;
+                    self.cur_func().last_opcode_pos = -1;
                 }
             }
         }
@@ -677,7 +692,7 @@ impl<'s> JSParseState<'s> {
         drop_count: i32,
     ) {
         if *poptional_chaining_label < 0 {
-            *poptional_chaining_label = (*(*self).cur_func).add_label().map_or(-1, |x| x as i32);
+            *poptional_chaining_label = self.cur_func().add_label().map_or(-1, |x| x as i32);
         }
 
         // XXX: could be more efficient with a specific opcode

@@ -118,7 +118,7 @@ impl<'s> JSParseState<'s> {
                                 return Err(-1);
                             }
 
-                            if (*self.cur_func).js_mode & JS_MODE_STRICT as u8 == 0 && sep != '`' {
+                            if self.cur_func().js_mode & JS_MODE_STRICT as u8 == 0 && sep != '`' {
                                 // parse escape sequence in non-strict mode
                                 do_parse_escape = Some(c1);
                             } else if c1 == '0' && !(b'0'..=b'9').contains(&*p.add(1)) {

@@ -186,7 +186,10 @@ impl JSContext {
         }
 
         // now s.cur_func should be restored to `fd`
-        debug_assert_eq!(s.cur_func, fd.deref_mut() as *mut JSFunctionDef);
+        debug_assert_eq!(
+            s.cur_func() as *mut JSFunctionDef,
+            fd.deref_mut() as *mut JSFunctionDef
+        );
 
         // create the function object and all the enclosed functions.
         // FIXME: fd is dropped here, how about s.cur_func pointer?

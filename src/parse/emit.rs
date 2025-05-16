@@ -398,262 +398,77 @@ impl JSFunctionDef {
     // }
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u8(s: *mut JSParseState, val: u8) {
-    (*(*s).cur_func).emit_u8(val)
-    //push_vec_u8(&mut (*(*s).cur_func).byte_code, val);
+    (*s).cur_func().emit_u8(val)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u16(s: *mut JSParseState, val: u16) {
-    //push_vec_u16(&mut (*(*s).cur_func).byte_code, val);
-    (*(*s).cur_func).emit_u16(val)
+    (*s).cur_func().emit_u16(val)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u32(s: *mut JSParseState, val: u32) {
-    //push_vec_u32(&mut (*(*s).cur_func).byte_code, val);
-    (*(*s).cur_func).emit_u32(val)
+    (*s).cur_func().emit_u32(val)
 }
 
 /// emit an atom, increase ref_count
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_atom_dup(s: *mut JSParseState, name: JSAtom) {
-    (*(*s).cur_func).emit_atom_dup(name)
+    (*s).cur_func().emit_atom_dup(name)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 unsafe fn emit_op_u8(s: *mut JSParseState, op: u8) {
-    (*(*s).cur_func).emit_op_u8(op, (*s).last_line_num)
-
-    // let fd = (*s).cur_func;
-    // let bc = &mut (*fd).byte_code;
-
-    // // Use the line number of the last token used, not the next token,
-    // // nor the current offset in the source file.
-    // if unlikely((*fd).last_opcode_line_num != (*s).last_line_num) {
-    //     push_vec_u8(bc, OpCodeTemp::LINE_NUM as u8);
-    //     push_vec_u32(bc, (*s).last_line_num as u32);
-    //     (*fd).last_opcode_line_num = (*s).last_line_num;
-    // }
-
-    // (*fd).last_opcode_pos = bc.len() as i32;
-    // bc.push(op);
+    (*s).cur_func().emit_op_u8(op, (*s).last_line_num)
 }
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
-    //emit_op_u8(s, op as u8)
-    (*(*s).cur_func).emit_op(op, (*s).last_line_num)
+    (*s).cur_func().emit_op(op, (*s).last_line_num)
 }
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
-    // emit_op_u8(s, op as u8)
-    (*(*s).cur_func).emit_op_temp(op, (*s).last_line_num)
+    (*s).cur_func().emit_op_temp(op, (*s).last_line_num)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
-    (*(*s).cur_func).emit_return(hasval, (*s).last_line_num)
-
-    // // execute the finally blocks before return
-    // if (*(*s).cur_func).func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
-    //     if !hasval {
-    //         // no value: direct return in case of async generator
-    //         emit_op(s, OpCode::UNDEFINED);
-    //         hasval = true;
-    //     } else if (*(*s).cur_func).func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
-    //         // the await must be done before handling the "finally" in
-    //         // case it raises an exception
-    //         emit_op(s, OpCode::AWAIT);
-    //     }
-    // }
-
-    // let mut top = (*(*s).cur_func).top_break;
-    // while !top.is_null() {
-    //     if (*top).has_iterator || (*top).label_finally != -1 {
-    //         if !hasval {
-    //             emit_op(s, OpCode::UNDEFINED);
-    //             hasval = true;
-    //         }
-    //         // Remove the stack elements up to and including the catch
-    //         // offset. When 'yield' is used in an expression we have
-    //         // no easy way to count them, so we use this specific
-    //         // instruction instead.
-    //         emit_op(s, OpCode::NIP_CATCH);
-    //         // stack: iter_obj next ret_val
-    //         if (*top).has_iterator {
-    //             if (*(*s).cur_func).func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
-    //                 emit_op(s, OpCode::NIP); // next
-    //                 emit_op(s, OpCode::SWAP);
-    //                 emit_op(s, OpCode::GET_FIELD2);
-    //                 emit_atom(s, JS_ATOM_return);
-
-    //                 // stack: iter_obj return_func
-    //                 emit_op(s, OpCode::DUP);
-    //                 emit_op(s, OpCode::IS_UNDEFINED_OR_NULL);
-
-    //                 let label_next = emit_goto(s, OpCode::IF_TRUE, -1);
-    //                 emit_op(s, OpCode::CALL_METHOD);
-    //                 emit_u16(s, 0);
-    //                 emit_op(s, OpCode::ITERATOR_CHECK_OBJECT);
-    //                 emit_op(s, OpCode::AWAIT);
-
-    //                 let label_next2 = emit_goto(s, OpCode::GOTO, -1);
-    //                 emit_label(s, label_next);
-    //                 emit_op(s, OpCode::DROP);
-    //                 emit_label(s, label_next2);
-    //                 emit_op(s, OpCode::DROP);
-    //             } else {
-    //                 emit_op(s, OpCode::ROT3R);
-    //                 emit_op(s, OpCode::UNDEFINED); // dummy catch offset
-    //                 emit_op(s, OpCode::ITERATOR_CLOSE);
-    //             }
-    //         } else {
-    //             // execute the "finally" block
-    //             emit_goto(s, OpCode::GOSUB, (*top).label_finally);
-    //         }
-    //     }
-
-    //     top = (*top).prev;
-    // }
-
-    // if (*(*s).cur_func).is_derived_class_constructor {
-    //     let label_return: i32;
-
-    //     // 'this' can be uninitialized, so it may be accessed only if
-    //     // the derived class constructor does not return an object
-    //     if hasval {
-    //         emit_op(s, OpCode::CHECK_CTOR_RETURN);
-    //         label_return = emit_goto(s, OpCode::IF_FALSE, -1);
-    //         emit_op(s, OpCode::DROP);
-    //     } else {
-    //         label_return = -1;
-    //     }
-
-    //     // The error should be raised in the caller context, so we use
-    //     // a specific opcode
-    //     emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR_CHECKTHIS);
-    //     emit_atom(s, JS_ATOM_this);
-    //     emit_u16(s, 0);
-
-    //     emit_label(s, label_return);
-    //     emit_op(s, OpCode::RETURN);
-    // } else if (*(*s).cur_func).func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
-    //     emit_op(s, OpCode::RETURN_ASYNC);
-    // } else {
-    //     emit_op(
-    //         s,
-    //         if hasval {
-    //             OpCode::RETURN
-    //         } else {
-    //             OpCode::RETURN_UNDEF
-    //         },
-    //     );
-    // }
+    (*s).cur_func().emit_return(hasval, (*s).last_line_num)
 }
 
 /* don't update the last opcode and don't emit line number info */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label_raw(s: *mut JSParseState, label: i32) {
-    (*(*s).cur_func).emit_label_raw(label)
-
-    // debug_assert!(label >= 0);
-
-    // emit_u8(s, OpCodeTemp::LABEL as u8);
-    // emit_u32(s, label as _);
-
-    // (*(*s).cur_func)
-    //     .label_slots
-    //     .offset(label as _)
-    //     .as_mut()
-    //     .unwrap()
-    //     .pos = (*(*s).cur_func).byte_code.len() as _;
+    (*s).cur_func().emit_label_raw(label)
 }
 
 /* return the label ID offset */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label(s: *mut JSParseState, label: i32) -> i32 {
-    (*(*s).cur_func).emit_label(label, (*s).last_line_num)
-
-    // if label >= 0 {
-    //     emit_op_temp(s, OpCodeTemp::LABEL);
-    //     emit_u32(s, label as _);
-    //     (*(*s).cur_func)
-    //         .label_slots
-    //         .offset(label as _)
-    //         .as_mut()
-    //         .unwrap()
-    //         .pos = (*(*s).cur_func).byte_code.len() as _;
-    //     return (*(*s).cur_func).byte_code.len() as i32 - 4;
-    // } else {
-    //     return -1;
-    // }
+    (*s).cur_func().emit_label(label, (*s).last_line_num)
 }
 
 /* return label or -1 if dead code */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_goto(s: *mut JSParseState, opcode: OpCode, label: i32) -> i32 {
-    (*(*s).cur_func).emit_goto(opcode, label, (*s).last_line_num)
-
-    // if js_is_live_code(s) {
-    //     if label < 0 {
-    //         label = (*(*s).cur_func).add_label().map_or(-1, |x| x as i32);
-    //     }
-    //     debug_assert!(label >= 0);
-
-    //     emit_op(s, opcode);
-    //     emit_u32(s, label as _);
-    //     (*(*s).cur_func)
-    //         .label_slots
-    //         .offset(label as _)
-    //         .as_mut()
-    //         .unwrap()
-    //         .ref_count += 1;
-
-    //     return label;
-    // }
-
-    // return -1;
+    (*s).cur_func().emit_goto(opcode, label, (*s).last_line_num)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValueConst, as_atom: bool) -> i32 {
-    (*(*s).cur_func).emit_push_const(val, as_atom, (*s).last_line_num)
-
-    // if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
-    //     // warning: JS_NewAtomStr frees the string value
-    //     JS_DupValue((*s).ctx, val);
-    //     let atom = JS_NewAtomStr((*s).ctx, JS_VALUE_GET_STRING(val));
-
-    //     if atom != JS_ATOM_NULL && !__JS_AtomIsTaggedInt(atom) {
-    //         emit_op(s, OpCode::PUSH_ATOM_VALUE);
-    //         emit_u32(s, atom);
-    //         return 0;
-    //     }
-    // }
-
-    // let idx = cpool_add(s, JS_DupValue((*s).ctx, val));
-    // if idx < 0 {
-    //     return -1;
-    // }
-    // emit_op(s, OpCode::PUSH_CONST);
-    // emit_u32(s, idx as u32);
-    // return 0;
+    (*s).cur_func()
+        .emit_push_const(val, as_atom, (*s).last_line_num)
 }
 
 /* initialize the class fields, called by the constructor. Note:
 super() can be called in an arrow function, so <this> and
 <class_fields_init> can be variable references */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
-    (*(*s).cur_func).emit_class_field_init((*s).last_line_num)
-
-    // emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-    // emit_atom(s, JS_ATOM_class_fields_init);
-    // emit_u16(s, (*(*s).cur_func).scope_level as _);
-
-    // /* no need to call the class field initializer if not defined */
-    // emit_op(s, OpCode::DUP);
-    // let label_next = emit_goto(s, OpCode::IF_FALSE, -1);
-
-    // emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-    // emit_atom(s, JS_ATOM_this);
-    // emit_u16(s, 0);
-
-    // emit_op(s, OpCode::SWAP);
-
-    // emit_op(s, OpCode::CALL_METHOD);
-    // emit_u16(s, 0);
-
-    // emit_label(s, label_next);
-    // emit_op(s, OpCode::DROP);
+    (*s).cur_func().emit_class_field_init((*s).last_line_num)
 }
 
 #[inline(always)]
@@ -666,7 +481,7 @@ pub unsafe fn get_prev_opcode(fd: *mut JSFunctionDef) -> u8 {
 }
 
 pub unsafe fn js_is_live_code(s: *mut JSParseState) -> bool {
-    match get_prev_opcode((*s).cur_func) {
+    match get_prev_opcode((*s).cur_func()) {
         opcodes::OP_tail_call
         | opcodes::OP_tail_call_method
         | opcodes::OP_return
@@ -694,7 +509,7 @@ pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
     emit_op(s, OpCode::PUSH_I32);
     emit_u32(s, 0);
 
-    let label_rest_next = (*(*s).cur_func).add_label().map_or(-1, |x| x as i32);
+    let label_rest_next = (*s).cur_func().add_label().map_or(-1, |x| x as i32);
     emit_label(s, label_rest_next);
     emit_op(s, OpCode::FOR_OF_NEXT);
     emit_u8(s, (2 + depth) as u8); // C2RS: explicit cast from i32 to u8
@@ -711,8 +526,8 @@ pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
 }
 
 pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) -> i32 {
-    let mut scope_level = (*(*s).cur_func).scope_level;
-    let mut top = (*(*s).cur_func).top_break;
+    let mut scope_level = (*s).cur_func().scope_level;
+    let mut top = (*s).cur_func().top_break;
 
     while !top.is_null() {
         (*s).close_scopes(scope_level, (*top).scope_level);

@@ -60,7 +60,7 @@ impl<'s> JSParseState<'s> {
                 // shortcut for x: x
                 emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                 emit_atom_dup(self, name);
-                emit_u16(self, self.cur_func.as_ref().unwrap().scope_level as _);
+                emit_u16(self, self.cur_func().scope_level as _);
                 emit_op(self, OpCode::DEFINE_FIELD);
                 emit_atom_dup(self, name);
             } else if self.token.val == CHAR_BRACKET_L {

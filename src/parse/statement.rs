@@ -54,7 +54,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
     if is_label(s) {
         label_name = JS_DupAtom(s.ctx.as_ptr(), s.token.u.ident.atom);
 
-        let mut be = (*s.cur_func).top_break;
+        let mut be = s.cur_func().top_break;
         while !be.is_null() {
             if (*be).label_name == label_name {
                 s.throw_syntax_error(c"duplicate label name");
@@ -72,9 +72,9 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
         if !matches!(s.token.val, TOK_FOR | TOK_DO | TOK_WHILE) {
             // labelled regular statement
             let mut break_entry: BlockEnv = std::mem::zeroed();
-            let label_break = (*(*s).cur_func).add_label().map_or(-1, |l| l as i32);
+            let label_break = s.cur_func().add_label().map_or(-1, |l| l as i32);
             push_break_entry(
-                (*s).cur_func,
+                s.cur_func(),
                 &mut break_entry,
                 label_name,
                 label_break,
@@ -82,7 +82,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 0,
             );
 
-            let mask = if (*(*s).cur_func).js_mode & JS_MODE_STRICT as u8 == 0
+            let mask = if s.cur_func().js_mode & JS_MODE_STRICT as u8 == 0
                 && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
             {
                 DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL
@@ -93,7 +93,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 fail!();
             }
             emit_label(s, label_break);
-            pop_break_entry(s.cur_func);
+            pop_break_entry(s.cur_func());
 
             // done
             JS_FreeAtom(s.ctx.as_ptr(), label_name);
@@ -109,12 +109,12 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             }
         }
         TOK_RETURN => {
-            let cf = (*s).cur_func.as_mut().unwrap();
-            if cf.is_eval {
+            let fd = s.cur_func();
+            if fd.is_eval {
                 s.throw_syntax_error(c"return not in a function");
                 fail!();
             }
-            if cf.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
+            if fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
                 s.throw_syntax_error(c"return in a static initializer block");
                 fail!();
             }
@@ -333,8 +333,8 @@ pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> 
     res
 }
 
-pub unsafe fn set_eval_ret_undefined(s: *mut JSParseState) {
-    if let Some(vidx) = (*(*s).cur_func).eval_ret_idx {
+pub unsafe fn set_eval_ret_undefined(s: &mut JSParseState) {
+    if let Some(vidx) = (*s).cur_func().eval_ret_idx {
         emit_op(s, OpCode::UNDEFINED);
         emit_op(s, OpCode::PUT_LOC);
         emit_u16(s, vidx);
@@ -387,13 +387,20 @@ unsafe fn stmt_return(s: &mut JSParseState) -> Result<(), i32> {
 }
 
 unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
-    let label_cont = (*(*s).cur_func).add_label()? as i32;
-    let label_break = (*(*s).cur_func).add_label()? as i32;
-    let label1 = (*(*s).cur_func).add_label()? as i32;
+    let (label_cont, label_break, label1) = {
+        let fd = s.cur_func();
+
+        (
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+        )
+    };
+
     let mut break_entry: BlockEnv = std::mem::zeroed();
 
     push_break_entry(
-        (*s).cur_func,
+        s.cur_func(),
         &mut break_entry,
         label_name,
         label_break,
@@ -401,7 +408,7 @@ unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
         0,
     );
 
-    (*s).next_token()?;
+    s.next_token()?;
 
     emit_label(s, label1);
 
@@ -421,32 +428,32 @@ unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     emit_goto(s, OpCode::IF_TRUE, label1);
     emit_label(s, label_break);
 
-    pop_break_entry(s.cur_func);
+    pop_break_entry(s.cur_func());
 
     Ok(())
 }
 
 unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
-    (*s).next_token()?;
+    s.next_token()?;
 
     set_eval_ret_undefined(s);
 
     let mut bits = 0;
     let mut is_async = false;
 
-    if (*s).token.val == '(' as i32 {
+    if s.token.val == '(' as i32 {
         js_parse_skip_parens_token(s, &mut bits, false);
-    } else if (*s).token.val == TOK_AWAIT {
+    } else if s.token.val == TOK_AWAIT {
         if matches!(
-            (*(*s).cur_func).func_kind,
+            s.cur_func().func_kind,
             JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
             s.throw_syntax_error(c"for await is only valid in asynchronous functions");
             return Err(-1);
         }
         is_async = true;
-        (*s).next_token()?;
-        (*(*s).cur_func).has_await = true;
+        s.next_token()?;
+        s.cur_func().has_await = true;
     }
 
     s.parse_expect(CHAR_BRACKET_L)?;
@@ -456,7 +463,7 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         return js_parse_for_in_of(s, label_name, is_async);
     }
 
-    let block_scope_level = (*s.cur_func).scope_level;
+    let block_scope_level = s.cur_func().scope_level;
 
     // create scope for the lexical variables declared in the initial,
     // test and increment expressions
@@ -478,19 +485,27 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         }
 
         // close the closures before the first iteration
-        s.close_scopes((*s.cur_func).scope_level, block_scope_level);
+        let scope_level = s.cur_func().scope_level;
+        s.close_scopes(scope_level, block_scope_level);
     }
 
     s.parse_expect(CHAR_SEMI)?;
 
-    let mut label_test = (*s.cur_func).add_label()? as i32;
-    let mut label_cont = (*s.cur_func).add_label()? as i32;
-    let label_body = (*s.cur_func).add_label()? as i32;
-    let label_break = (*s.cur_func).add_label()? as i32;
+    let (mut label_test, mut label_cont, label_body, label_break) = {
+        let fd = s.cur_func();
+
+        (
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+        )
+    };
+
     let mut break_entry: BlockEnv = std::mem::zeroed();
 
     push_break_entry(
-        s.cur_func,
+        s.cur_func(),
         &mut break_entry,
         label_name,
         label_break,
@@ -519,7 +534,7 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         // skip the end expression
         emit_goto(s, OpCode::GOTO, label_body);
 
-        let p = (*s.cur_func).byte_code.len();
+        let p = s.cur_func().byte_code.len();
         emit_label(s, label_cont);
 
         s.parse_expr()?;
@@ -534,17 +549,18 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
 
     s.parse_expect(CHAR_BRACKET_R)?;
 
-    let pos_body = (*s.cur_func).byte_code.len();
+    let pos_body = s.cur_func().byte_code.len();
     emit_label(s, label_body);
     js_parse_statement(s)?;
 
     // close the closures before the next iteration
     // XXX: check continue case
-    s.close_scopes((*s.cur_func).scope_level, block_scope_level);
+    let scope_level = s.cur_func().scope_level;
+    s.close_scopes(scope_level, block_scope_level);
 
     if OPTIMIZE && label_test != label_body && label_cont != label_test {
         // move the increment code here
-        let bc = &mut (*s.cur_func).byte_code;
+        let bc = &mut s.cur_func().byte_code;
         let chunk_size = pos_body - pos_cont;
         let offset = bc.len() - pos_cont;
 
@@ -557,40 +573,36 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         }
 
         // increment part ends with a goto
-        (*s.cur_func).last_opcode_pos = bc.len() as i32 - 5;
+        s.cur_func().last_opcode_pos = bc.len() as i32 - 5;
 
         // relocate labels
-        for lb in &mut (*s.cur_func).labels[label_cont as usize..] {
+        for lb in &mut s.cur_func().labels[label_cont as usize..] {
             if lb.pos >= pos_cont as i32 && lb.pos < pos_body as i32 {
                 lb.pos += offset as i32;
             }
         }
-
-        // for i in label_cont..(*s.cur_func).label_count as i32 {
-        //     let ls = (*s.cur_func).label_slots.add(i as usize).as_mut().unwrap();
-        //     if ls.pos >= pos_cont as i32 && ls.pos < pos_body as i32 {
-        //         ls.pos += offset as i32;
-        //     }
-        // }
     } else {
         emit_goto(s, OpCode::GOTO, label_cont);
     }
 
     emit_label(s, label_break);
 
-    pop_break_entry(s.cur_func);
+    pop_break_entry(s.cur_func());
     s.pop_scope();
 
     Ok(())
 }
 
 unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
-    let label_cont = (*(*s).cur_func).add_label()? as i32;
-    let label_break = (*(*s).cur_func).add_label()? as i32;
     let mut break_entry: BlockEnv = std::mem::zeroed();
 
+    let (label_cont, label_break) = {
+        let fd = s.cur_func();
+        (fd.add_label()? as i32, fd.add_label()? as i32)
+    };
+
     push_break_entry(
-        (*s).cur_func,
+        s.cur_func(),
         &mut break_entry,
         label_name,
         label_break,
@@ -598,7 +610,7 @@ unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32
         0,
     );
 
-    (*s).next_token()?;
+    s.next_token()?;
 
     set_eval_ret_undefined(s);
 
@@ -613,7 +625,7 @@ unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32
 
     emit_label(s, label_break);
 
-    pop_break_entry(s.cur_func);
+    pop_break_entry(s.cur_func());
 
     Ok(())
 }
@@ -627,7 +639,7 @@ unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr_parens()?;
 
     let mut label1 = emit_goto(s, OpCode::IF_FALSE, -1);
-    let mask = if (*s.cur_func).js_mode & JS_MODE_STRICT as u8 != 0 {
+    let mask = if s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
         0
     } else {
         DECL_MASK_FUNC // Annex B.3.4
@@ -636,9 +648,9 @@ unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
         return Err(-1);
     }
 
-    if (*s).token.val == TOK_ELSE {
+    if s.token.val == TOK_ELSE {
         let label2 = emit_goto(s, OpCode::GOTO, -1);
-        (*s).next_token()?;
+        s.next_token()?;
 
         emit_label(s, label1);
         if js_parse_statement_or_decl(s, mask) != 0 {
@@ -654,24 +666,30 @@ unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
 }
 
 unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
-    let name: JSAtom;
-    let mut block_env: BlockEnv = std::mem::zeroed();
-
     set_eval_ret_undefined(s);
     s.next_token()?;
 
-    let label_catch = (*s.cur_func).add_label()? as i32;
-    let label_catch2 = (*s.cur_func).add_label()? as i32;
-    let label_finally = (*s.cur_func).add_label()? as i32;
-    let label_end = (*s.cur_func).add_label()? as i32;
+    let (label_catch, label_catch2, label_finally, label_end) = {
+        let fd = s.cur_func();
+
+        (
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+        )
+    };
+
+    let mut ctx = s.ctx;
+    let mut block_env: BlockEnv = std::mem::zeroed();
 
     emit_goto(s, OpCode::CATCH, label_catch);
 
-    push_break_entry((*s).cur_func, &mut block_env, JS_ATOM_NULL, -1, -1, 1);
+    push_break_entry(s.cur_func(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
     block_env.label_finally = label_finally;
 
     js_parse_block(s)?;
-    pop_break_entry(s.cur_func);
+    pop_break_entry(s.cur_func());
 
     if js_is_live_code(s) {
         // drop the catch offset
@@ -683,9 +701,9 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         emit_goto(s, OpCode::GOTO, label_end);
     }
 
-    if (*s).token.val == TOK_CATCH {
-        (*s).next_token()?;
-        (*s).push_scope()?; // catch variable
+    if s.token.val == TOK_CATCH {
+        s.next_token()?;
+        s.push_scope()?; // catch variable
         emit_label(s, label_catch);
 
         if s.token.val == CHAR_CURLY_L {
@@ -705,7 +723,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                     return Err(-1);
                 }
             } else {
-                name = JS_DupAtom(s.ctx.as_ptr(), s.token.u.ident.atom);
+                let name = JS_DupAtom(s.ctx.as_ptr(), s.token.u.ident.atom);
                 if s.next_token().is_err() || js_define_var(s, name, TOK_CATCH) < 0 {
                     JS_FreeAtom(s.ctx.as_ptr(), name);
                     return Err(-1);
@@ -713,7 +731,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                 // store the exception value in the catch variable
                 emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR);
                 emit_u32(s, name.0);
-                emit_u16(s, (*s.cur_func).scope_level as _);
+                emit_u16(s, s.cur_func().scope_level as _);
             }
 
             s.parse_expect(CHAR_BRACKET_R)?;
@@ -723,13 +741,13 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         emit_goto(s, OpCode::CATCH, label_catch2);
 
         s.push_scope()?; // catch block
-        push_break_entry(s.cur_func, &mut block_env, JS_ATOM_NULL, -1, -1, 1);
+        push_break_entry(s.cur_func(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
         block_env.label_finally = label_finally;
         js_parse_block(s)?;
-        pop_break_entry(s.cur_func);
+        pop_break_entry(s.cur_func());
 
-        (*s).pop_scope(); // catch block
-        (*s).pop_scope(); // catch variable
+        s.pop_scope(); // catch block
+        s.pop_scope(); // catch variable
 
         if js_is_live_code(s) {
             // drop the catch2 offset
@@ -758,18 +776,20 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.throw_syntax_error(c"expecting catch or finally");
         return Err(-1);
     }
+
     emit_label(s, label_finally);
-    if (*s).token.val == TOK_FINALLY {
-        (*s).next_token()?;
+
+    if s.token.val == TOK_FINALLY {
+        s.next_token()?;
 
         // on the stack: ret_value gosub_ret_value
-        push_break_entry((*s).cur_func, &mut block_env, JS_ATOM_NULL, -1, -1, 2);
+        push_break_entry(s.cur_func(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
 
         let mut saved_eval_ret_idx: u16 = 0;
 
-        if let Some(vidx) = (*s.cur_func).eval_ret_idx {
+        if let Some(vidx) = s.cur_func().eval_ret_idx {
             // 'finally' updates eval_ret only if not a normal termination
-            saved_eval_ret_idx = (*(*s).cur_func).add_var(s.ctx.deref_mut(), JS_ATOM__ret_)?;
+            saved_eval_ret_idx = s.cur_func().add_var(ctx.deref_mut(), JS_ATOM__ret_)?;
 
             emit_op(s, OpCode::GET_LOC);
             emit_u16(s, vidx);
@@ -780,13 +800,13 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
         js_parse_block(s)?;
 
-        if let Some(vidx) = (*s.cur_func).eval_ret_idx {
+        if let Some(vidx) = s.cur_func().eval_ret_idx {
             emit_op(s, OpCode::GET_LOC);
             emit_u16(s, saved_eval_ret_idx);
             emit_op(s, OpCode::PUT_LOC);
             emit_u16(s, vidx);
         }
-        pop_break_entry((*s).cur_func);
+        pop_break_entry(s.cur_func());
     }
     emit_op(s, OpCode::RET);
     emit_label(s, label_end);
@@ -815,13 +835,13 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
     set_eval_ret_undefined(s);
     s.parse_expr_parens()?;
 
-    (*s).push_scope()?;
+    s.push_scope()?;
 
-    let label_break = (*(*s).cur_func).add_label()? as i32;
+    let label_break = s.cur_func().add_label()? as i32;
     let mut break_entry: BlockEnv = std::mem::zeroed();
 
     push_break_entry(
-        (*s).cur_func,
+        s.cur_func(),
         &mut break_entry,
         label_name,
         label_break,
@@ -880,7 +900,7 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
             // proper optimizer operation.
             emit_op_temp(s, OpCodeTemp::LABEL);
             emit_u32(s, 0);
-            default_label_pos = (*s.cur_func).byte_code.len() as i32 - 4;
+            default_label_pos = s.cur_func().byte_code.len() as i32 - 4;
         } else {
             if label_case < 0 {
                 // falling thru direct from switch expression
@@ -897,28 +917,26 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
 
     if default_label_pos >= 0 {
         // Ugly patch for the the `default` label, shameful and risky
+        let fd = s.cur_func();
         put_u32(
-            (*s.cur_func)
-                .byte_code
-                .as_mut_ptr()
-                .offset(default_label_pos as isize),
+            fd.byte_code.as_mut_ptr().offset(default_label_pos as isize),
             label_case as _,
         );
-        (*s.cur_func).labels[label_case as usize].pos = default_label_pos + 4;
+        fd.labels[label_case as usize].pos = default_label_pos + 4;
     } else {
         emit_label(s, label_case);
     }
     emit_label(s, label_break);
     emit_op(s, OpCode::DROP); // drop the switch expression
 
-    pop_break_entry(s.cur_func);
+    pop_break_entry(s.cur_func());
     s.pop_scope();
 
     Ok(())
 }
 
 unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
-    if (*s.cur_func).js_mode & JS_MODE_STRICT as u8 != 0 {
+    if s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
         s.throw_syntax_error(c"invalid keyword: with");
         Err(-1)
     } else {
@@ -928,10 +946,17 @@ unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
         s.parse_expr_parens()?;
 
         s.push_scope()?;
-        with_idx = define_var(s, s.cur_func, JS_ATOM__with_, JSVarDefEnum::JS_VAR_DEF_WITH);
+
+        with_idx = define_var(
+            s,
+            s.cur_func(),
+            JS_ATOM__with_,
+            JSVarDefEnum::JS_VAR_DEF_WITH,
+        );
         if with_idx < 0 {
             return Err(-1);
         }
+
         emit_op(s, OpCode::TO_OBJECT);
         emit_op(s, OpCode::PUT_LOC);
         emit_u16(s, with_idx as _);
@@ -1001,7 +1026,7 @@ unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<(), i32> {
 unsafe fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr()?;
 
-    if let Some(vidx) = (*s.cur_func).eval_ret_idx {
+    if let Some(vidx) = s.cur_func().eval_ret_idx {
         // store the expression value so that it can be returned by eval()
         emit_op(s, OpCode::PUT_LOC);
         emit_u16(s, vidx);
@@ -1020,9 +1045,8 @@ pub unsafe fn js_parse_for_in_of(
     label_name: JSAtom,
     is_async: bool,
 ) -> Result<(), i32> {
-    let mut ctx = s.ctx;
-    let fd = s.cur_func.as_mut().unwrap();
-    let block_scope_level = fd.scope_level;
+    let ctx = s.ctx;
+    let block_scope_level = s.cur_func().scope_level; // save current scope label
 
     let mut var_name = JS_ATOM_NULL;
     let mut has_initializer = false;
@@ -1033,10 +1057,16 @@ pub unsafe fn js_parse_for_in_of(
 
     let mut break_entry: BlockEnv = std::mem::zeroed();
 
-    let label_cont = (*s.cur_func).add_label()? as i32;
-    let label_body = (*s.cur_func).add_label()? as i32;
-    let label_break = (*s.cur_func).add_label()? as i32;
-    let label_next = (*s.cur_func).add_label()? as i32;
+    let (label_cont, label_body, label_break, label_next) = {
+        let fd = s.cur_func();
+
+        (
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+            fd.add_label()? as i32,
+        )
+    };
 
     // create scope for the lexical variables declared in the enumeration
     // expressions. XXX: Not completely correct because of weird capturing
@@ -1046,7 +1076,7 @@ pub unsafe fn js_parse_for_in_of(
     // local for_in scope starts here so individual elements
     // can be closed in statement.
     push_break_entry(
-        s.cur_func,
+        s.cur_func(),
         &mut break_entry,
         label_name,
         label_break,
@@ -1057,7 +1087,7 @@ pub unsafe fn js_parse_for_in_of(
 
     let label_expr = emit_goto(s, OpCode::GOTO, -1);
 
-    let pos_next = (*s.cur_func).byte_code.len();
+    let pos_next = s.cur_func().byte_code.len();
     emit_label(s, label_next);
 
     let tok = if is_let(s, DECL_MASK_OTHER)? {
@@ -1099,7 +1129,7 @@ pub unsafe fn js_parse_for_in_of(
                 },
             );
             emit_atom_dup(s, var_name);
-            emit_u16(s, fd.scope_level as _);
+            emit_u16(s, s.cur_func().scope_level as _);
         }
     } else if !is_async
         && token_is_pseudo_keyword(s, JS_ATOM_async)
@@ -1156,7 +1186,7 @@ pub unsafe fn js_parse_for_in_of(
 
     emit_goto(s, OpCode::GOTO, label_body);
 
-    let pos_expr = (*(s.cur_func)).byte_code.len();
+    let pos_expr = s.cur_func().byte_code.len();
     emit_label(s, label_expr);
 
     if s.token.val == CHAR_EQUAL {
@@ -1172,7 +1202,7 @@ pub unsafe fn js_parse_for_in_of(
         if var_name != JS_ATOM_NULL {
             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR);
             emit_atom_dup(s, var_name);
-            emit_u16(s, fd.scope_level as _);
+            emit_u16(s, s.cur_func().scope_level as _);
         }
     }
     JS_FreeAtom(ctx.as_ptr(), var_name);
@@ -1200,7 +1230,9 @@ pub unsafe fn js_parse_for_in_of(
             return Err(-1);
         }
         if has_initializer
-            && (tok != TOK_VAR || fd.js_mode & JS_MODE_STRICT as u8 != 0 || has_destructuring)
+            && (tok != TOK_VAR
+                || s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+                || has_destructuring)
         {
             s.throw_syntax_error(CStr::from_ptr(
                 format!(
@@ -1227,7 +1259,10 @@ pub unsafe fn js_parse_for_in_of(
 
     // close the scope after having evaluated the expression so that
     // the TDZ values are in the closures
-    s.close_scopes((*s.cur_func).scope_level, block_scope_level);
+    {
+        let scope_level = s.cur_func().scope_level;
+        s.close_scopes(scope_level, block_scope_level);
+    }
 
     emit_op(
         s,
@@ -1249,7 +1284,7 @@ pub unsafe fn js_parse_for_in_of(
 
     if OPTIMIZE {
         // move the `next` code here
-        let bc = &mut (*s.cur_func).byte_code;
+        let bc = &mut s.cur_func().byte_code;
         let chunk_size = pos_expr - pos_next;
         let offset = bc.len() - pos_next;
 
@@ -1262,10 +1297,10 @@ pub unsafe fn js_parse_for_in_of(
         }
 
         // `next` part ends with a goto
-        (*s.cur_func).last_opcode_pos = bc.len() as i32 - 5;
+        s.cur_func().last_opcode_pos = bc.len() as i32 - 5;
 
         // relocate labels
-        for lb in &mut (*s.cur_func).labels[label_cont as usize..] {
+        for lb in &mut s.cur_func().labels[label_cont as usize..] {
             if lb.pos >= pos_next as i32 && lb.pos < pos_expr as i32 {
                 lb.pos += offset as i32;
             }
@@ -1286,7 +1321,8 @@ pub unsafe fn js_parse_for_in_of(
     emit_label(s, label_body);
     js_parse_statement(s)?;
 
-    s.close_scopes((*s.cur_func).scope_level, block_scope_level);
+    let scope_level = s.cur_func().scope_level;
+    s.close_scopes(scope_level, block_scope_level);
 
     emit_label(s, label_cont);
     if is_for_of {
@@ -1320,7 +1356,7 @@ pub unsafe fn js_parse_for_in_of(
     } else {
         emit_op(s, OpCode::DROP);
     }
-    pop_break_entry(s.cur_func);
+    pop_break_entry(s.cur_func());
     s.pop_scope();
 
     Ok(())

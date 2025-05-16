@@ -22,19 +22,19 @@ impl<'s> JSParseState<'s> {
         debug_assert_eq!(self.token.val, TOK_YIELD);
 
         if !matches!(
-            (*self.cur_func).func_kind,
+            self.cur_func().func_kind,
             JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
             self.throw_syntax_error(c"unexpected 'yield' keyword");
             return Err(-1);
-        } else if !(*self.cur_func).in_function_body {
+        } else if !self.cur_func().in_function_body {
             self.throw_syntax_error(c"yield in default expression");
             return Err(-1);
         }
 
         self.next_token()?;
 
-        let is_async = (*self.cur_func).func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
+        let is_async = self.cur_func().func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
         let mut is_star = false;
 
         // XXX: is there a better method to detect 'yield' without parameters?
@@ -54,8 +54,8 @@ impl<'s> JSParseState<'s> {
         }
 
         if is_star {
-            let label_loop = (*self.cur_func).add_label()?;
-            let label_yield = (*self.cur_func).add_label()?;
+            let label_loop = self.cur_func().add_label()?;
+            let label_yield = self.cur_func().add_label()?;
 
             emit_op(
                 self,

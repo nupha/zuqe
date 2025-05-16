@@ -48,17 +48,20 @@ use super::{
 
 impl JSParseState<'_> {
     pub unsafe fn parse_program(&mut self) -> Result<(), i32> {
-        let fd = self.cur_func.as_mut().unwrap();
-
         self.next_token()?;
         self.parse_directives()?;
 
-        fd.is_global_var = matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
-            || fd.js_mode & JS_MODE_STRICT as u8 == 0;
+        {
+            let fd = self.cur_func();
+            fd.is_global_var = matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
+                || fd.js_mode & JS_MODE_STRICT as u8 == 0;
+        }
 
         if !self.is_module {
             // hidden variable <ret> for the return value
-            fd.eval_ret_idx = Some(fd.add_var(self.ctx.deref_mut(), JS_ATOM__ret_)?);
+            let mut ctx = self.ctx;
+            let fd = self.cur_func();
+            fd.eval_ret_idx = Some(fd.add_var(ctx.deref_mut(), JS_ATOM__ret_)?);
         }
 
         while self.token.val != TOK_EOF {
@@ -68,7 +71,7 @@ impl JSParseState<'_> {
         if !self.is_module {
             // return the value of the hidden variable fd.eval_ret_idx
             emit_op(self, OpCode::GET_LOC);
-            emit_u16(self, fd.eval_ret_idx.unwrap());
+            emit_u16(self, self.cur_func().eval_ret_idx.unwrap());
             emit_return(self, true);
         } else {
             emit_return(self, false);
@@ -125,11 +128,11 @@ impl JSParseState<'_> {
 
             match text.as_str() {
                 "use strict" => {
-                    (*self.cur_func).has_use_strict = true;
-                    (*self.cur_func).js_mode |= JS_MODE_STRICT as u8;
+                    self.cur_func().has_use_strict = true;
+                    self.cur_func().js_mode |= JS_MODE_STRICT as u8;
                 }
                 "use strip" => {
-                    (*self.cur_func).js_mode |= JS_MODE_STRIP as u8;
+                    self.cur_func().js_mode |= JS_MODE_STRIP as u8;
                 }
                 _ => {}
             }
@@ -140,7 +143,6 @@ impl JSParseState<'_> {
 
     pub unsafe fn parse_source_element(&mut self) -> Result<(), i32> {
         let tok = self.token.val;
-        let fd = self.cur_func.as_ref().unwrap();
 
         if tok == TOK_FUNCTION
             || (token_is_pseudo_keyword(self, JS_ATOM_async)
@@ -154,12 +156,12 @@ impl JSParseState<'_> {
                 self.token.ptr,
                 self.token.line_num,
             )?;
-        } else if tok == TOK_EXPORT && !fd.module.is_null() {
+        } else if tok == TOK_EXPORT && !self.cur_func().module.is_null() {
             if js_parse_export(self) != 0 {
                 return Err(-1);
             }
         } else if tok == TOK_IMPORT
-            && !fd.module.is_null()
+            && !self.cur_func().module.is_null()
             && !matches!(peek_token(self, false), CHAR_BRACKET_L | CHAR_DOT)
         {
             // the peek_token is needed to avoid confusion with 'import()' or 'import.meta'
@@ -290,7 +292,7 @@ impl JSParseState<'_> {
         export_flag: bool,
     ) -> Result<(), i32> {
         let ctx = self.ctx;
-        let fd: *mut JSFunctionDef = self.cur_func;
+        // let fd = self.cur_func();
 
         loop {
             if self.token.val == TOK_IDENT {
@@ -320,7 +322,7 @@ impl JSParseState<'_> {
                 if export_flag {
                     if add_export_entry(
                         self,
-                        (*fd).module,
+                        self.cur_func().module,
                         name,
                         name,
                         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
@@ -346,7 +348,7 @@ impl JSParseState<'_> {
 
                         emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                         emit_atom_dup(self, name);
-                        emit_u16(self, (*fd).scope_level as u16);
+                        emit_u16(self, self.cur_func().scope_level as u16);
 
                         if self
                             .get_lvalue(
@@ -396,7 +398,7 @@ impl JSParseState<'_> {
                             },
                         );
                         emit_atom_dup(self, name);
-                        emit_u16(self, (*fd).scope_level as u16);
+                        emit_u16(self, self.cur_func().scope_level as u16);
                     }
 
                     // #[cfg(debug_assertions)]
@@ -411,7 +413,7 @@ impl JSParseState<'_> {
                         emit_op(self, OpCode::UNDEFINED);
                         emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                         emit_atom_dup(self, name);
-                        emit_u16(self, (*fd).scope_level as u16);
+                        emit_u16(self, self.cur_func().scope_level as u16);
                     }
                 }
 
@@ -547,14 +549,13 @@ pub unsafe fn js_parse_var(
 }
 
 pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32 {
-    let fd = (*s).cur_func;
+    let fd = (*s).cur_func();
 
-    if name == JS_ATOM_yield && (*fd).func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+    if name == JS_ATOM_yield && fd.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
         (*s).throw_syntax_error(c"yield is a reserved identifier");
         return -1;
     }
-    if (name == JS_ATOM_arguments || name == JS_ATOM_eval)
-        && ((*fd).js_mode & JS_MODE_STRICT as u8 != 0)
+    if (name == JS_ATOM_arguments || name == JS_ATOM_eval) && fd.js_mode & JS_MODE_STRICT as u8 != 0
     {
         (*s).throw_syntax_error(c"invalid variable name in strict mode");
         return -1;
@@ -809,7 +810,7 @@ pub unsafe fn parse_ident(
 }
 
 pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
-    let fd = (*s).cur_func;
+    let fd = (*s).cur_func();
     let name: JSAtom;
 
     if (*s).next_token().is_err() {
@@ -823,24 +824,22 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
         opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
             let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
                 get_u32(
-                    (*fd)
-                        .byte_code
+                    fd.byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1 + 4 + 1),
+                        .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
                 ) as i32
             } else {
                 -1
             };
 
             name = JSAtom(get_u32(
-                (*fd)
-                    .byte_code
+                fd.byte_code
                     .as_ptr()
-                    .offset((*fd).last_opcode_pos as isize + 1),
+                    .offset(fd.last_opcode_pos as isize + 1),
             ));
 
-            assert!((*fd).last_opcode_pos > 0);
-            (*fd).byte_code.truncate((*fd).last_opcode_pos as _);
+            debug_assert!(fd.last_opcode_pos > 0);
+            fd.byte_code.truncate(fd.last_opcode_pos as _);
 
             let val = name.to_value((*s).ctx.deref_mut(), false);
             let ret = emit_push_const(s, val, true);
@@ -862,16 +861,16 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
                 emit_label(s, next_label);
             }
 
-            (*fd).last_opcode_pos = -1;
+            fd.last_opcode_pos = -1;
         }
         opcodes::OP_get_array_el => {
             //(*fd).byte_code.size = (*fd).last_opcode_pos;
 
             // equivelent of  (*fd).byte_code.size = (*fd).last_opcode_pos;
-            assert!((*fd).last_opcode_pos >= 0);
-            (*fd).byte_code.truncate((*fd).last_opcode_pos as _);
+            debug_assert!(fd.last_opcode_pos >= 0);
+            fd.byte_code.truncate(fd.last_opcode_pos as _);
 
-            (*fd).last_opcode_pos = -1;
+            fd.last_opcode_pos = -1;
             emit_op(s, OpCode::DELETE);
         }
         opcodes::op_get_array_el_opt_chain => {
@@ -879,13 +878,12 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             let next_label: i32;
 
             let opt_chain_label = get_u32(
-                (*fd)
-                    .byte_code
+                fd.byte_code
                     .as_ptr()
-                    .offset((*fd).last_opcode_pos as isize + 1 + 1),
+                    .offset(fd.last_opcode_pos as isize + 1 + 1),
             );
 
-            (*fd).byte_code.truncate((*fd).last_opcode_pos as _); // (*fd).byte_code.size = (*fd).last_opcode_pos;
+            fd.byte_code.truncate(fd.last_opcode_pos as _); // (*fd).byte_code.size = (*fd).last_opcode_pos;
 
             emit_op(s, OpCode::DELETE);
             next_label = emit_goto(s, OpCode::GOTO, -1);
@@ -894,28 +892,25 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             emit_op(s, OpCode::DROP);
             emit_op(s, OpCode::PUSH_TRUE);
             emit_label(s, next_label);
-            (*fd).last_opcode_pos = -1;
+            fd.last_opcode_pos = -1;
         }
         opcodes::op_scope_get_var => {
             // 'delete this': this is not a reference
             name = JSAtom(get_u32(
-                (*fd)
-                    .byte_code
+                fd.byte_code
                     .as_ptr()
-                    .offset((*fd).last_opcode_pos as isize + 1),
+                    .offset(fd.last_opcode_pos as isize + 1),
             ));
             if name == JS_ATOM_this || name == JS_ATOM_new_target {
-                // C2RS: goto ret_true 转换为直接执行 ret_true 的逻辑
                 emit_op(s, OpCode::DROP);
                 emit_op(s, OpCode::PUSH_TRUE);
                 return 0;
             }
-            if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
+            if fd.js_mode & JS_MODE_STRICT as u8 != 0 {
                 (*s).throw_syntax_error(c"cannot delete a direct reference in strict mode");
                 return -1;
             } else {
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] =
-                    OpCodeTemp::SCOPE_DELETE_VAR as u8;
+                fd.byte_code[fd.last_opcode_pos as usize] = OpCodeTemp::SCOPE_DELETE_VAR as u8;
             }
         }
         opcodes::op_scope_get_private_field => {
@@ -923,8 +918,8 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             return -1;
         }
         opcodes::OP_get_super_value => {
-            (*fd).byte_code.truncate((*fd).last_opcode_pos as _); // (*fd).byte_code.size = (*fd).last_opcode_pos;
-            (*fd).last_opcode_pos = -1;
+            fd.byte_code.truncate(fd.last_opcode_pos as _);
+            fd.last_opcode_pos = -1;
             emit_op(s, OpCode::THROW_ERROR);
             emit_atom_dup(s, JS_ATOM_NULL);
             emit_u8(s, JS_THROW_ERROR_DELETE_SUPER);
@@ -947,6 +942,6 @@ pub unsafe fn reparse_ident_token(s: *mut JSParseState) {
     {
         (*s).token.val = TOK_IDENT;
         (*s).token.u.ident.is_reserved = false;
-        update_token_ident(s);
+        update_token_ident(s.as_mut().unwrap());
     }
 }

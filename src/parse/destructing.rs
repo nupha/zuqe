@@ -174,10 +174,10 @@ pub unsafe fn js_parse_destructuring_element(
         has_ellipsis = skip_bits & SKIP_HAS_ELLIPSIS;
     }
 
-    label_parse = (*(*s).cur_func).add_label().map_or(-1, |l| l as i32);
-    label_assign = (*(*s).cur_func).add_label().map_or(-1, |l| l as i32);
+    label_parse = (*s).cur_func().add_label().map_or(-1, |l| l as i32);
+    label_assign = (*s).cur_func().add_label().map_or(-1, |l| l as i32);
 
-    start_addr = (*(*s).cur_func).byte_code.len() as i32;
+    start_addr = (*s).cur_func().byte_code.len() as i32;
     if hasval {
         // Consume value from stack
         emit_op(s, OpCode::DUP);
@@ -190,7 +190,7 @@ pub unsafe fn js_parse_destructuring_element(
         emit_label(s, label_assign);
         emit_op(s, OpCode::DUP);
     }
-    assign_addr = (*(*s).cur_func).byte_code.len() as i32;
+    assign_addr = (*s).cur_func().byte_code.len() as i32;
 
     if (*s).token.val == '{' as i32 {
         if (*s).next_token().is_err() {
@@ -217,7 +217,7 @@ pub unsafe fn js_parse_destructuring_element(
                         return -1;
                     }
                     opcode = opcodes::op_scope_get_var as _;
-                    scope = (*(*s).cur_func).scope_level;
+                    scope = (*s).cur_func().scope_level;
                     label_lvalue = -1;
                     depth_lvalue = 0;
                 } else {
@@ -262,7 +262,7 @@ pub unsafe fn js_parse_destructuring_element(
             }
             var_name = JS_ATOM_NULL;
             opcode = opcodes::op_scope_get_var as _;
-            scope = (*(*s).cur_func).scope_level;
+            scope = (*s).cur_func().scope_level;
             label_lvalue = -1;
             depth_lvalue = 0;
 
@@ -378,7 +378,7 @@ pub unsafe fn js_parse_destructuring_element(
                     prop_error!();
                 }
 
-                if (*(*s).cur_func).js_mode & JS_MODE_STRICT as u8 != 0
+                if (*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
                     && (prop_name == JS_ATOM_eval || prop_name == JS_ATOM_arguments)
                 {
                     (*s).throw_syntax_error(c"invalid destructuring target");
@@ -401,7 +401,7 @@ pub unsafe fn js_parse_destructuring_element(
                     emit_op(s, OpCode::DUP);
                     emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
                     emit_atom_dup(s, prop_name);
-                    emit_u16(s, (*(*s).cur_func).scope_level as _);
+                    emit_u16(s, (*s).cur_func().scope_level as _);
 
                     goto_lvalue = true;
                     lvalue!(); // #234 goto lvalue
@@ -453,7 +453,7 @@ pub unsafe fn js_parse_destructuring_element(
 
         /* the block environment is only needed in generators in case
         'yield' triggers a 'return' */
-        push_break_entry((*s).cur_func, &mut block_env, JS_ATOM_NULL, -1, -1, 2);
+        push_break_entry((*s).cur_func(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
         block_env.has_iterator = true;
         emit_op(s, OpCode::FOR_OF_START);
         has_spread = false;
@@ -517,7 +517,7 @@ pub unsafe fn js_parse_destructuring_element(
                         var_error!();
                     }
                     opcode = opcodes::op_scope_get_var as i32;
-                    scope = (*(*s).cur_func).scope_level;
+                    scope = (*s).cur_func().scope_level;
                 } else {
                     if (*s).parse_left_hand_side_expr().is_err() {
                         return -1;
@@ -592,7 +592,7 @@ pub unsafe fn js_parse_destructuring_element(
         /* close iterator object:
         if completed, enum_obj has been replaced by undefined */
         emit_op(s, OpCode::ITERATOR_CLOSE);
-        pop_break_entry((*s).cur_func);
+        pop_break_entry((*s).cur_func());
         if (*s).next_token().is_err() {
             return -1;
         }
@@ -625,10 +625,10 @@ pub unsafe fn js_parse_destructuring_element(
             return -1;
         }
 
-        (*s).cur_func.as_mut().unwrap().byte_code[start_addr as usize..assign_addr as usize]
+        (*s).cur_func().byte_code[start_addr as usize..assign_addr as usize]
             .fill(OpCode::NOP as u8);
 
-        (*s).cur_func.as_mut().unwrap().labels[label_parse as usize].ref_count -= 1;
+        (*s).cur_func().labels[label_parse as usize].ref_count -= 1;
         has_initializer = false;
     }
 
@@ -637,7 +637,7 @@ pub unsafe fn js_parse_destructuring_element(
 
 pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
     if !((*s).token.val == TOK_IDENT && !(*s).token.u.ident.is_reserved)
-        || ((*(*s).cur_func).js_mode & JS_MODE_STRICT as u8 != 0
+        || ((*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
             && ((*s).token.u.ident.atom == JS_ATOM_eval
                 || (*s).token.u.ident.atom == JS_ATOM_arguments))
     {

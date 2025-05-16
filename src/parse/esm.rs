@@ -66,7 +66,7 @@ impl<'s> JSParseState<'s> {
     /// parse import statement
     pub unsafe fn parse_import(&mut self) -> Result<(), i32> {
         let ctx = self.ctx;
-        let m = (*self.cur_func).module;
+        let m = self.cur_func().module;
 
         self.next_token()?;
 
@@ -237,7 +237,7 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
 
 pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
     let ctx = (*s).ctx;
-    let m = (*(*s).cur_func).module;
+    let m = (*s).cur_func().module;
     let mut local_name: JSAtom;
     let mut export_name: JSAtom;
 
@@ -400,7 +400,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             set_object_name(s, JS_ATOM_default);
 
             local_name = JS_ATOM__default_;
-            if define_var(s, (*s).cur_func, local_name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
+            if define_var(s, (*s).cur_func(), local_name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
                 return -1;
             }
             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
@@ -507,7 +507,8 @@ pub unsafe fn add_import(
     }
 
     if local_name != JS_ATOM_default {
-        if (*(*s).cur_func)
+        if (*s)
+            .cur_func()
             .closure_vars
             .as_ref()
             .map_or(false, |lst| lst.iter().any(|cv| cv.var_name == local_name))
@@ -519,7 +520,7 @@ pub unsafe fn add_import(
 
     let mut ctx = (*s).ctx;
     let is_local = import_name == JS_ATOM__star_;
-    let var_idx = if let Ok(vi) = (*(*s).cur_func).add_closure_var(
+    let var_idx = if let Ok(vi) = (*s).cur_func().add_closure_var(
         ctx.deref_mut(),
         is_local,
         false,

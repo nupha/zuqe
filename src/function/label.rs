@@ -85,7 +85,7 @@ pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
 
 #[deprecated(note = "use JSFunctionDef::add_label() instead")]
 pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
-    (*(*s).cur_func).add_label().map_or(-1, |x| x as i32)
+    (*s).cur_func().add_label().map_or(-1, |x| x as i32)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]

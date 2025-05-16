@@ -51,8 +51,8 @@ pub unsafe fn js_parse_class(
     export_flag: JSParseExportEnum,
 ) -> i32 {
     let ctx = (*s).ctx;
-    let fd = (*s).cur_func;
-    let saved_js_mode = (*fd).js_mode;
+    let fd = (*s).cur_func();
+    let saved_js_mode = fd.js_mode;
 
     let mut name = JS_ATOM_NULL;
     let mut class_name = JS_ATOM_NULL;
@@ -63,7 +63,7 @@ pub unsafe fn js_parse_class(
             JS_FreeAtom(ctx.as_ptr(), name);
             JS_FreeAtom(ctx.as_ptr(), class_name);
             JS_FreeAtom(ctx.as_ptr(), class_var_name);
-            (*fd).js_mode = saved_js_mode;
+            fd.js_mode = saved_js_mode;
             return -1;
         };
     }
@@ -75,7 +75,7 @@ pub unsafe fn js_parse_class(
     }
 
     // classes are parsed and executed in strict mode
-    (*fd).js_mode |= JS_MODE_STRICT as u8;
+    fd.js_mode |= JS_MODE_STRICT as u8;
 
     if (*s).next_token().is_err() {
         fail!();
@@ -146,7 +146,7 @@ pub unsafe fn js_parse_class(
     (*s).push_scope();
 
     emit_op(s, OpCode::PUSH_CONST);
-    let ctor_cpool_offset = (*fd).byte_code.len();
+    let ctor_cpool_offset = fd.byte_code.len();
     emit_u32(s, 0); // will be patched at the end of the class parsing
 
     emit_op(s, OpCode::DEFINE_CLASS);
@@ -163,7 +163,7 @@ pub unsafe fn js_parse_class(
         },
     );
     emit_u8(s, class_flags as u8);
-    define_class_offset = (*fd).last_opcode_pos;
+    define_class_offset = fd.last_opcode_pos;
 
     for i in 0..2 {
         let cf = std::ptr::addr_of_mut!(class_fields[i as usize]);
@@ -231,7 +231,7 @@ pub unsafe fn js_parse_class(
                 emit_op(s, OpCode::DROP);
                 // stack is now: <empty>
                 (*s).pop_scope();
-                (*s).cur_func = (*(*s).cur_func).parent;
+                (*s).cur_func = (*s).cur_func().parent;
                 continue;
             }
             // allow "static" field name
@@ -265,9 +265,9 @@ pub unsafe fn js_parse_class(
             let is_set: bool = prop_type - PROP_TYPE_GET != 0;
 
             if is_private {
-                let idx = find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level);
+                let idx = find_private_class_field(ctx.as_ptr(), fd, name, fd.scope_level);
                 if idx >= 0 {
-                    let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+                    let vd = fd.vars.get_mut(idx as usize).unwrap();
                     let var_kind = vd.var_kind();
 
                     if matches!(
@@ -356,7 +356,7 @@ pub unsafe fn js_parse_class(
                 } else {
                     emit_atom_dup(s, name);
                 }
-                emit_u16(s, (*(*s).cur_func).scope_level as _);
+                emit_u16(s, (*s).cur_func().scope_level as _);
             } else {
                 if name == JS_ATOM_NULL {
                     emit_op(s, OpCode::DEFINE_METHOD_COMPUTED);
@@ -386,7 +386,7 @@ pub unsafe fn js_parse_class(
             }
 
             if is_private {
-                if find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level) >= 0 {
+                if find_private_class_field(ctx.as_ptr(), fd, name, fd.scope_level) >= 0 {
                     private_field_already_defined!();
                 }
                 if add_private_class_field(
@@ -403,7 +403,7 @@ pub unsafe fn js_parse_class(
                 emit_atom_dup(s, name);
                 emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                 emit_atom_dup(s, name);
-                emit_u16(s, (*(*s).cur_func).scope_level as _);
+                emit_u16(s, (*s).cur_func().scope_level as _);
             }
 
             if cf.fields_init_fd.is_null() {
@@ -432,7 +432,7 @@ pub unsafe fn js_parse_class(
                 emit_op(s, OpCode::TO_PROPKEY);
                 emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                 emit_atom_dup(s, field_var_name);
-                emit_u16(s, (*(*s).cur_func).scope_level as _);
+                emit_u16(s, (*s).cur_func().scope_level as _);
             }
             (*s).cur_func = (*cf).fields_init_fd;
             emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
@@ -442,13 +442,13 @@ pub unsafe fn js_parse_class(
             if name == JS_ATOM_NULL {
                 emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
                 emit_atom_dup(s, field_var_name);
-                emit_u16(s, (*(*s).cur_func).scope_level as _);
+                emit_u16(s, (*s).cur_func().scope_level as _);
                 cf.computed_fields_count += 1;
                 JS_FreeAtom(ctx.as_ptr(), field_var_name);
             } else if is_private {
                 emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
                 emit_atom_dup(s, name);
-                emit_u16(s, (*(*s).cur_func).scope_level as _);
+                emit_u16(s, (*s).cur_func().scope_level as _);
             }
 
             if (*s).token.val == '=' as i32 {
@@ -473,7 +473,7 @@ pub unsafe fn js_parse_class(
                 emit_op(s, OpCode::DEFINE_FIELD);
                 emit_atom_dup(s, name);
             }
-            (*s).cur_func = (*(*s).cur_func).parent;
+            (*s).cur_func = (*s).cur_func().parent;
             if (*s).parse_expect_semi().is_err() {
                 fail!();
             }
@@ -539,7 +539,7 @@ pub unsafe fn js_parse_class(
                 emit_atom_dup(s, name);
                 emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                 emit_atom_dup(s, name);
-                emit_u16(s, (*(*s).cur_func).scope_level as _);
+                emit_u16(s, (*s).cur_func().scope_level as _);
             } else {
                 if name == JS_ATOM_NULL {
                     emit_op(s, OpCode::DEFINE_METHOD_COMPUTED);
@@ -636,7 +636,7 @@ pub unsafe fn js_parse_class(
         }
         emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
         emit_atom_dup(s, JS_ATOM_class_fields_init);
-        emit_u16(s, (*(*s).cur_func).scope_level as _);
+        emit_u16(s, (*s).cur_func().scope_level as _);
     }
 
     // drop the prototype
@@ -898,7 +898,7 @@ pub unsafe fn js_parse_function_class_fields_init(
 ) -> Result<Box<JSFunctionDef>, i32> {
     let mut fd = JSFunctionDef::new(
         (*s).ctx.deref_mut(),
-        (*s).cur_func,
+        (*s).cur_func(),
         false,
         false,
         (*s).filename,
@@ -953,7 +953,7 @@ pub unsafe fn emit_class_init_start(
 
         emit_label(s, label_add_brand);
     }
-    (*s).cur_func = (*(*s).cur_func).parent;
+    (*s).cur_func = (*s).cur_func().parent;
 
     Ok(())
 }
@@ -961,9 +961,10 @@ pub unsafe fn emit_class_init_start(
 pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {
     (*s).cur_func = (*cf).fields_init_fd;
     emit_op(s, OpCode::RETURN_UNDEF);
-    (*s).cur_func = (*(*s).cur_func).parent;
+    (*s).cur_func = (*s).cur_func().parent;
 
-    let cpool_idx = (*(*s).cur_func)
+    let cpool_idx = (*s)
+        .cur_func()
         .cpool_add((*s).ctx, JSValue::NULL)
         .map_or(-1, |x| x as i32);
 

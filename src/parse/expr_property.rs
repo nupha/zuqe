@@ -29,10 +29,10 @@ impl<'s> JSParseState<'s> {
                 self.optional_chain_test(optional_chaining_label, 1);
             }
             emit_op_temp(self, OpCodeTemp::SCOPE_GET_PRIVATE_FIELD);
-            emit_atom_dup(self, (*self).token.u.ident.atom);
-            emit_u16(self, (*(*self).cur_func).scope_level as _);
+            emit_atom_dup(self, self.token.u.ident.atom);
+            emit_u16(self, self.cur_func().scope_level as _);
         } else {
-            if !token_is_ident((*self).token.val) {
+            if !token_is_ident(self.token.val) {
                 self.throw_syntax_error(c"expecting field name");
                 return Err(-1);
             }
@@ -54,7 +54,7 @@ impl<'s> JSParseState<'s> {
                     self.optional_chain_test(optional_chaining_label, 1);
                 }
                 emit_op(self, OpCode::GET_FIELD);
-                emit_atom_dup(self, (*self).token.u.ident.atom);
+                emit_atom_dup(self, self.token.u.ident.atom);
             }
         }
 
