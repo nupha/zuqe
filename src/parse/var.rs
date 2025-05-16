@@ -4,10 +4,7 @@ use crate::{
     atom::{consts::JS_ATOM_arguments, JSAtom},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{
-        find_lexical_decl, is_child_scope, JSFunctionDef, JSVarDefEnum, JSVarKindEnum,
-        GLOBAL_VAR_OFFSET,
-    },
+    function::{is_child_scope, JSFunctionDef, JSVarDefEnum, JSVarKindEnum, GLOBAL_VAR_OFFSET},
 };
 
 use super::state::JSParseState;
@@ -46,8 +43,9 @@ pub unsafe fn define_var(
         | JSVarDefEnum::JS_VAR_DEF_CONST
         | JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
         | JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL => {
-            idx = find_lexical_decl(ctx.as_ptr(), fd, name, (*fd).scope_first, true);
-            if idx >= 0 {
+            if let Some(id) = (*fd).find_lexical_decl(name, (*fd).scope_first, true) {
+                idx = id as i32;
+
                 if idx < GLOBAL_VAR_OFFSET {
                     let vd = (*fd).vars.get(idx as usize).unwrap();
                     if vd.scope_level == (*fd).scope_level {
@@ -132,9 +130,13 @@ pub unsafe fn define_var(
                 .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_VAR => {
-            if find_lexical_decl(ctx.as_ptr(), fd, name, (*fd).scope_first, false) >= 0 {
+            if (*fd)
+                .find_lexical_decl(name, (*fd).scope_first, false)
+                .is_some()
+            {
                 goto_invalid_lexical_redefinition!();
             }
+
             if (*fd).is_global_var {
                 if let Some(hf) = (*fd).find_global_var(name) {
                     if hf.is_lexical()

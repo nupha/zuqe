@@ -5,10 +5,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{
-        find_lexical_decl, BlockEnv, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum,
-        ARGUMENT_VAR_OFFSET,
-    },
+    function::{BlockEnv, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, ARGUMENT_VAR_OFFSET},
     mem::js_strndup,
     module::JSExportTypeEnum,
     parse::token::{CHAR_EQUAL, CHAR_STAR},
@@ -622,7 +619,9 @@ impl<'s> JSParseState<'s> {
             let func_idx = fd0.find_var(func_name).unwrap_or(-1);
             if fd0.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-                && find_lexical_decl(ctx.as_ptr(), fd0, func_name, fd0.scope_first, false) < 0
+                && fd0
+                    .find_lexical_decl(func_name, fd0.scope_first, false)
+                    .is_none()
                 && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
                 && !(func_name == JS_ATOM_arguments && fd0.has_arguments_binding)
             {

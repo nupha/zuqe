@@ -1206,3 +1206,41 @@ pub unsafe fn parse_ident(
     *pident_has_escape = esc;
     a
 }
+
+/// find a variable declaration in a given scope
+#[deprecated(note = "use JSFunctionDef::find_var_in_scope() instead")]
+pub fn find_var_in_scope(
+    ctx: &JSContext,
+    fd: &mut JSFunctionDef,
+    name: JSAtom,
+    scope_level: i32,
+) -> Option<u16> {
+    debug_assert!(scope_level >= 0);
+    fd.find_var_in_scope(name, scope_level as _)
+}
+
+#[deprecated(note = "use JSFunctionDef::find_lexical_global_var_mut() instead")]
+pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: JSAtom) -> *mut JSGlobalVar {
+    (*fd)
+        .find_lexical_global_var_mut(name)
+        .map_or(std::ptr::null_mut(), |v| v as *mut _)
+}
+
+#[deprecated(note = "use JSFSunctionDef::find_lexical_decl() instead")]
+pub unsafe fn find_lexical_decl(
+    ctx: *const JSContext,
+    fd: *mut JSFunctionDef,
+    name: JSAtom,
+    scope_idx: i32,
+    check_catch_var: bool,
+) -> i32 {
+    debug_assert!(scope_idx >= 0);
+    (*fd)
+        .find_lexical_decl(name, scope_idx as _, check_catch_var)
+        .map_or(-1, |x| x as i32)
+}
+
+#[deprecated(note = "use JSFunctionDef::get_first_lexical_var() instead")]
+pub unsafe fn get_first_lexical_var(fd: *mut JSFunctionDef, scope: i32) -> i32 {
+    (*fd).get_first_lexical_var(scope).map_or(-1, |x| x as i32)
+}

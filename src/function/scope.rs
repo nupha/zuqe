@@ -10,12 +10,9 @@ use crate::{
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
 };
 
-use super::{
-    get_first_lexical_var,
-    optimize::{
-        can_opt_put_global_ref_value, can_opt_put_ref_value, optimize_scope_make_global_ref,
-        optimize_scope_make_ref,
-    },
+use super::optimize::{
+    can_opt_put_global_ref_value, can_opt_put_ref_value, optimize_scope_make_global_ref,
+    optimize_scope_make_ref,
 };
 
 #[repr(C)]
@@ -23,7 +20,9 @@ use super::{
 pub struct JSVarScope {
     /// id of parent scope. -1 for none.
     pub parent: i32,
-    /// id of vars of the last variable in this scope. -1 for none.
+
+    /// index in `vars` of the last variable in this scope.
+    /// -1 for none.
     pub first: i32,
 }
 
@@ -71,7 +70,9 @@ impl JSFunctionDef {
         // disable scoped variables
         let scope = self.scope_level;
         self.scope_level = self.scopes[scope as usize].parent;
-        self.scope_first = unsafe { get_first_lexical_var(self, self.scope_level) };
+        self.scope_first = self
+            .get_first_lexical_var(self.scope_level)
+            .map_or(-1, |x| x as i32);
 
         self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
         self.emit_u16(scope as _);
@@ -110,11 +111,7 @@ impl JSFunctionDef {
         vd.scope_level = self.scope_level;
         vd.scope_next = self.scope_first;
 
-        self.scopes
-            .get_mut((*self).scope_level as usize)
-            .unwrap()
-            .first = idx as i32;
-
+        self.scopes[self.scope_level as usize].first = idx as i32;
         self.scope_first = idx as i32;
 
         Ok(idx)

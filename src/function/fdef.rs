@@ -405,14 +405,15 @@ impl JSFunctionDef {
 
         if self.has_parameter_expressions {
             // special end of variable list marker for the argument scope
-            self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = ARG_SCOPE_END;
+            self.scopes[ARG_SCOPE_INDEX as usize].first = ARG_SCOPE_END;
         }
 
-        for (idx, vd) in self.vars.iter_mut().enumerate() {
-            debug_assert!(vd.scope_level >= 0 && vd.scope_level < self.scopes.len() as i32);
+        for (var_idx, vd) in self.vars.iter_mut().enumerate() {
+            debug_assert!((0..self.scopes.len() as i32).contains(&vd.scope_level));
+
             let scope = self.scopes.get_mut(vd.scope_level as usize).unwrap();
             vd.scope_next = scope.first;
-            scope.first = idx as i32;
+            scope.first = var_idx as i32;
         }
 
         for i in 2..self.scopes.len() {
@@ -1087,29 +1088,6 @@ pub unsafe fn add_arguments_var(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> 
 #[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
 pub unsafe fn add_arguments_arg(ctx: &mut JSContext, fd: &mut JSFunctionDef) -> i32 {
     (*fd).add_arguments(ctx, true).map_or(-1, |x| x as i32)
-}
-
-/// find a variable declaration in a given scope
-pub unsafe fn find_var_in_scope(
-    ctx: &JSContext,
-    fd: &mut JSFunctionDef,
-    name: JSAtom,
-    scope_level: i32,
-) -> Option<u16> {
-    debug_assert!(scope_level >= 0);
-
-    let mut scope_idx = fd.scopes[scope_level as usize].first;
-    while scope_idx >= 0 {
-        let vd = fd.vars.get(scope_idx as usize).unwrap();
-        if vd.scope_level != scope_level {
-            break;
-        } else if vd.var_name == name {
-            return Some(scope_idx as u16);
-        }
-        scope_idx = (*vd).scope_next;
-    }
-
-    None
 }
 
 /// find closure var by name, returning index of the closure var
