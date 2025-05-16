@@ -15,17 +15,21 @@ impl<'s> JSParseState<'s> {
         if self.token.val == b'?' as i32 {
             self.next_token()?;
 
-            let label1 = emit_goto(self, OpCode::IF_FALSE, -1);
+            self.with_cur_func_mut(|s, fd| -> Result<(), i32> {
+                let label1 = fd.emit_goto(OpCode::IF_FALSE, -1, s.last_line_num);
 
-            self.parse_assign_expr()?;
-            self.parse_expect(CHAR_COLON)?;
+                s.parse_assign_expr()?;
+                s.parse_expect(CHAR_COLON)?;
 
-            let label2 = emit_goto(self, OpCode::GOTO, -1);
-            emit_label(self, label1);
+                let label2 = fd.emit_goto(OpCode::GOTO, -1, s.last_line_num);
+                fd.emit_label(label1, s.last_line_num);
 
-            self.parse_assign_expr2(parse_flags & PF_IN_ACCEPTED)?;
+                s.parse_assign_expr2(parse_flags & PF_IN_ACCEPTED)?;
 
-            emit_label(self, label2);
+                fd.emit_label(label2, s.last_line_num);
+                Ok(())
+            })
+            .unwrap()?;
         }
 
         Ok(())
@@ -35,24 +39,29 @@ impl<'s> JSParseState<'s> {
         self.parse_logical_and_or(TOK_LOR, parse_flags)?;
 
         if self.token.val == TOK_DOUBLE_QUESTION_MARK {
-            let label1 = self.cur_func_mut().add_label()? as i32;
+            self.with_cur_func_mut(|s, fd| -> Result<(), i32> {
+                let label1 = fd.add_label()? as i32;
 
-            loop {
-                self.next_token()?;
+                loop {
+                    s.next_token()?;
 
-                emit_op(self, OpCode::DUP);
-                emit_op(self, OpCode::IS_UNDEFINED_OR_NULL);
-                emit_goto(self, OpCode::IF_FALSE, label1);
-                emit_op(self, OpCode::DROP);
+                    let last_line_num = s.last_line_num;
+                    fd.emit_op(OpCode::DUP, last_line_num);
+                    fd.emit_op(OpCode::IS_UNDEFINED_OR_NULL, last_line_num);
+                    fd.emit_goto(OpCode::IF_FALSE, label1, last_line_num);
+                    fd.emit_op(OpCode::DROP, last_line_num);
 
-                self.parse_expr_binary(8, parse_flags & !PF_ARROW_FUNC)?;
+                    s.parse_expr_binary(8, parse_flags & !PF_ARROW_FUNC)?;
 
-                if self.token.val != TOK_DOUBLE_QUESTION_MARK {
-                    break;
+                    if s.token.val != TOK_DOUBLE_QUESTION_MARK {
+                        break;
+                    }
                 }
-            }
 
-            emit_label(self, label1);
+                fd.emit_label(label1, s.last_line_num);
+                Ok(())
+            })
+            .unwrap()?;
         }
 
         Ok(())

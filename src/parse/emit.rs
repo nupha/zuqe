@@ -199,12 +199,7 @@ impl JSFunctionDef {
     }
 
     /// Note: `val` keep ref_count unchanged after calling this function
-    pub unsafe fn emit_push_const(
-        &mut self,
-        val: JSValueConst,
-        as_atom: bool,
-        last_line_num: u32,
-    ) -> i32 {
+    pub fn emit_push_const(&mut self, val: JSValueConst, as_atom: bool, last_line_num: u32) -> i32 {
         if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
             // Note: converting to atom will consume the string,
             // so clone the string description to keep val's refcount
@@ -219,12 +214,6 @@ impl JSFunctionDef {
                     return 0;
                 }
             }
-
-            // if atom != JS_ATOM_NULL && !atom.is_int_type() {
-            //     self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
-            //     self.emit_u32(atom.0);
-            //     return 0;
-            // }
         }
 
         if let Ok(idx) = self.cpool_add(self.ctx, val.dup()) {
@@ -373,30 +362,34 @@ impl JSFunctionDef {
             _ => true,
         }
     }
+}
 
-    // pub unsafe fn throw_parse_error(
-    //     &mut self,
-    //     message: &CStr,
-    //     filename: *const c_char,
-    //     line_num: Option<u32>,
-    // ) {
-    //     let ctx = self.ctx.as_mut().unwrap();
+#[inline(always)]
+pub unsafe fn get_prev_opcode(fd: *const JSFunctionDef) -> u8 {
+    if (*fd).last_opcode_pos < 0 {
+        OpCode::INVALID as _
+    } else {
+        (*fd).byte_code[(*fd).last_opcode_pos as usize] as _
+    }
+}
 
-    //     ctx.JS_ThrowError2(JSErrorEnum::Syntax, message, false);
+pub unsafe fn js_is_live_code(s: *mut JSParseState) -> bool {
+    match get_prev_opcode((*s).cur_func()) {
+        opcodes::OP_tail_call
+        | opcodes::OP_tail_call_method
+        | opcodes::OP_return
+        | opcodes::OP_return_undef
+        | opcodes::OP_return_async
+        | opcodes::OP_throw
+        | opcodes::OP_throw_error
+        | opcodes::OP_goto
+        | opcodes::OP_ret => false,
 
-    //     let mut backtrace_flags = 0;
-    //     if self.backtrace_barrier {
-    //         backtrace_flags = JS_BACKTRACE_FLAG_SINGLE_LEVEL;
-    //     }
+        #[cfg(feature = "short_opcode")]
+        opcodes::OpCode::GOTO8 | opcodes::OpCode::GOTO16 => false,
 
-    //     build_backtrace(
-    //         ctx,
-    //         (*ctx.rt).current_exception,
-    //         filename,
-    //         line_num,
-    //         backtrace_flags,
-    //     );
-    // }
+        _ => true,
+    }
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
@@ -470,34 +463,6 @@ pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
 
 pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
     (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
-}
-
-#[inline(always)]
-pub unsafe fn get_prev_opcode(fd: *const JSFunctionDef) -> u8 {
-    if (*fd).last_opcode_pos < 0 {
-        OpCode::INVALID as _
-    } else {
-        (*fd).byte_code[(*fd).last_opcode_pos as usize] as _
-    }
-}
-
-pub unsafe fn js_is_live_code(s: *mut JSParseState) -> bool {
-    match get_prev_opcode((*s).cur_func()) {
-        opcodes::OP_tail_call
-        | opcodes::OP_tail_call_method
-        | opcodes::OP_return
-        | opcodes::OP_return_undef
-        | opcodes::OP_return_async
-        | opcodes::OP_throw
-        | opcodes::OP_throw_error
-        | opcodes::OP_goto
-        | opcodes::OP_ret => false,
-
-        #[cfg(feature = "short_opcode")]
-        opcodes::OpCode::GOTO8 | opcodes::OpCode::GOTO16 => false,
-
-        _ => true,
-    }
 }
 
 pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {

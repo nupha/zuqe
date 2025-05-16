@@ -37,7 +37,6 @@ use super::{
     error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
-    parse::js_parse_expect,
     state::JSParseState,
     token::{
         peek_token, token_is_ident, token_is_pseudo_keyword, TOK_EXTENDS, TOK_IDENT, TOK_NUMBER,
@@ -127,7 +126,7 @@ pub unsafe fn js_parse_class(
         }
     }
 
-    if js_parse_expect(s, '{' as i32) != 0 {
+    if (*s).parse_expect('{' as i32).is_err() {
         fail!();
     }
 
@@ -822,7 +821,7 @@ pub unsafe fn js_parse_property_name(
                 if (*s).parse_expr().is_err() {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
                 }
-                if js_parse_expect(s, ']' as i32) != 0 {
+                if (*s).parse_expect(']' as i32).is_err() {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
                 }
                 name = JS_ATOM_NULL;

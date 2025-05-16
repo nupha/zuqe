@@ -5,15 +5,15 @@ use crate::{
 
 use super::{
     emit::{emit_atom_dup, emit_op, emit_u16, emit_u32},
-    parse::js_parse_expect,
     state::JSParseState,
     token::TOK_ELLIPSIS,
 };
 
+// -1: error, 0: success
 pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
     macro_rules! done {
         () => {
-            return js_parse_expect(s, ']' as i32);
+            return (*s).parse_expect(']' as i32).map_or(-1, |_| 0);
         };
     }
 

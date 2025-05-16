@@ -1244,3 +1244,52 @@ pub unsafe fn find_lexical_decl(
 pub unsafe fn get_first_lexical_var(fd: *mut JSFunctionDef, scope: i32) -> i32 {
     (*fd).get_first_lexical_var(scope).map_or(-1, |x| x as i32)
 }
+
+#[deprecated(note = "use JSParseState::parse_program() instead")]
+pub unsafe fn js_parse_program(s: &mut JSParseState) -> i32 {
+    if s.parse_program().is_err() {
+        -1
+    } else {
+        0
+    }
+}
+
+#[deprecated(note = "use JSParseState::parse_directives() instead")]
+pub unsafe fn js_parse_directives(s: *mut JSParseState) -> i32 {
+    if (*s).parse_directives().is_err() {
+        -1
+    } else {
+        0
+    }
+}
+
+#[deprecated(note = "use JSParseState::parse_source_element() instead")]
+pub unsafe fn js_parse_source_element(s: *mut JSParseState) -> i32 {
+    if (*s).parse_source_element().is_err() {
+        -1
+    } else {
+        0
+    }
+}
+
+// allowed parse_flags: PF_IN_ACCEPTED
+#[deprecated(note = "use JSParseState::parse_var() instead")]
+pub unsafe fn js_parse_var(
+    s: *mut JSParseState,
+    parse_flags: i32,
+    tok: i32,
+    export_flag: bool,
+) -> i32 {
+    (*s).parse_var(parse_flags, tok, export_flag)
+        .map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use JSParseState::parse_expect_semi() instead")]
+pub unsafe fn js_parse_expect_semi(s: *mut JSParseState) -> i32 {
+    (*s).parse_expect_semi().map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use JSParseState::parse_expect() instead")]
+pub unsafe fn js_parse_expect(s: *mut JSParseState, tok: i32) -> i32 {
+    (*s).parse_expect(tok).map_or(-1, |_| 0)
+}
