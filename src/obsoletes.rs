@@ -1178,7 +1178,7 @@ pub unsafe fn js_parse_template_part(s: *mut JSParseState, p: *const u8) -> i32 
 
 #[deprecated(note = "use JSParseState::push_state() instead")]
 pub unsafe fn push_scope(s: *mut JSParseState) -> i32 {
-    (*s).push_scope().unwrap_or(-1)
+    (*s).push_scope().map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSParseState::pop_state() instead")]

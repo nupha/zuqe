@@ -1,6 +1,6 @@
 use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom},
-    bytecode::{opcodes, OpCode},
+    bytecode::{opcodes, OpCode, OpCodeTemp},
     context::JSContext,
     error::JS_THROW_VAR_RO,
     function::{
@@ -10,9 +10,12 @@ use crate::{
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
 };
 
-use super::optimize::{
-    can_opt_put_global_ref_value, can_opt_put_ref_value, optimize_scope_make_global_ref,
-    optimize_scope_make_ref,
+use super::{
+    get_first_lexical_var,
+    optimize::{
+        can_opt_put_global_ref_value, can_opt_put_ref_value, optimize_scope_make_global_ref,
+        optimize_scope_make_ref,
+    },
 };
 
 #[repr(C)]
@@ -23,6 +26,55 @@ pub struct JSVarScope {
 }
 
 impl JSFunctionDef {
+    /// Enters a new lexical scope for variable declarations.
+    ///
+    /// Create a new scope and push to scopes stack in the function def
+    /// and emits the corresponding bytecode.
+    ///
+    /// Returns:
+    ///
+    ///  * The new scope id.
+    /// * Err(-1) when alloc fail, in this case, current_exception has the exception.
+    pub fn push_scope(&mut self, last_line_num: u32) -> Result<u32, i32> {
+        let scope_id = self.scopes.len(); // new scope id
+
+        if self.scopes.len() == self.scopes.capacity() {
+            if self
+                .scopes
+                .try_reserve_exact(self.scopes.capacity() >> 2)
+                .is_err()
+            {
+                self.ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
+        }
+
+        self.scopes.push(JSVarScope {
+            parent: self.scope_level as i32,
+            first: self.scope_first,
+        });
+        self.scope_level = scope_id as i32;
+
+        self.emit_op_temp(OpCodeTemp::ENTER_SCOPE, last_line_num);
+        self.emit_u16(scope_id as u16);
+
+        Ok(scope_id as _)
+    }
+
+    /// Exits the current lexical scope
+    ///
+    /// Restores the parent scope and updates variable accessibility.
+    /// Emits bytecode for scope cleanup.
+    pub fn pop_scope(&mut self, last_line_num: u32) {
+        // disable scoped variables
+        let scope = self.scope_level;
+        self.scope_level = self.scopes[scope as usize].parent;
+        self.scope_first = unsafe { get_first_lexical_var(self, self.scope_level) };
+
+        self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
+        self.emit_u16(scope as _);
+    }
+
     /// define a variable in the current scope
     pub unsafe fn add_scope_var(
         &mut self,

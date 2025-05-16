@@ -211,7 +211,7 @@ pub struct JSFunctionDef {
 
 impl JSFunctionDef {
     /// alloc a function def, and initialize it.
-    fn new0(
+    pub(crate) fn new0(
         mut ctx: JSContextHandle,
         is_eval: bool,
         is_func_expr: bool,
@@ -313,23 +313,19 @@ impl JSFunctionDef {
             Box::from_raw(p.as_ptr())
         };
 
-        // unsafe {
-        //     init_list_head(&mut fd.child_list);
-        // }
-
         Ok(fd)
     }
 
     /// create function def and attach to parent-child chain
-    pub fn new(
-        ctx: &mut JSContext,
+    pub fn new<X: Into<JSContextHandle>>(
+        ctx: X,
         parent: *mut JSFunctionDef,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: u32,
     ) -> Result<Box<Self>, i32> {
-        Self::new0(ctx.handle(), is_eval, is_func_expr, filename, line_num).map(|mut fd| {
+        Self::new0(ctx.into(), is_eval, is_func_expr, filename, line_num).map(|mut fd| {
             if !parent.is_null() {
                 fd.set_parent(parent);
             }

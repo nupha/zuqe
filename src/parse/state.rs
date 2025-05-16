@@ -1,14 +1,10 @@
+use std::ptr::NonNull;
+
 use crate::{
-    bytecode::OpCodeTemp,
-    context::{JSContext, JSContextHandle},
-    function::{get_first_lexical_var, JSFunctionDef, JSVarScope},
-    value::JSValue,
+    bytecode::OpCodeTemp, context::JSContextHandle, function::JSFunctionDef, value::JSValue,
 };
 
-use super::{
-    emit::{emit_op_temp, emit_u16},
-    token::{JSToken, JSTokenNum, JSTokenUnion},
-};
+use super::token::{JSToken, JSTokenNum, JSTokenUnion};
 
 // Parse flags for controlling expression parsing behavior
 /// Allow the 'in' binary operator
@@ -64,22 +60,24 @@ pub struct JSParseState<'s> {
 }
 
 impl<'s> JSParseState<'s> {
-    /// Creates a new parser state with initial values
-    ///
-    /// # Safety
-    /// This function is unsafe due to raw pointer usage
+    /// Creates a new parser state with root function def.
     ///
     /// # Arguments
     /// * `ctx` - JavaScript context pointer
+    /// * `fd` - The root function def pointer
     /// * `input` - Input buffer containing source code
     /// * `input_len` - Length of input buffer
     /// * `filename` - Name of source file
     pub fn new(
         ctx: JSContextHandle,
+        fd: NonNull<JSFunctionDef>,
         input: *const u8,
         input_len: usize,
         filename: &'s str,
     ) -> Self {
+        // TODO: create root function def
+        // let mut fd = JSFunctionDef::new(ctx, std::ptr::null_mut(), false, false, filename, 1)?;
+
         let s = Self {
             ctx,
             last_line_num: 0,
@@ -97,7 +95,7 @@ impl<'s> JSParseState<'s> {
             buf_end: unsafe { input.add(input_len) },
 
             last_ptr: std::ptr::null(),
-            cur_func_ptr: std::ptr::null_mut(),
+            cur_func_ptr: fd.as_ptr(),
             is_module: false,
             allow_html_comments: false,
             ext_json: false,
@@ -105,43 +103,6 @@ impl<'s> JSParseState<'s> {
         };
 
         s
-    }
-
-    /// Enters a new lexical scope for variable declarations
-    ///
-    /// Creates a new scope for variable declarations and emits the corresponding bytecode.
-    /// The scope is tracked in the current function's scope chain.
-    ///
-    /// # Safety
-    /// This function is unsafe due to raw pointer manipulation
-    ///
-    /// # Returns
-    /// * `Ok(scope_id)` - ID of the newly created scope
-    /// * `Err(-1)` - If scope creation fails
-    pub unsafe fn push_scope(&mut self) -> Result<i32, i32> {
-        if !self.cur_func_ptr.is_null() {
-            let fd = self.cur_func_mut();
-
-            let scope = fd.scopes.len(); // new scope id
-
-            if fd.scopes.len() == fd.scopes.capacity() {
-                fd.scopes
-                    .try_reserve_exact(fd.scopes.capacity() >> 2)
-                    .map_err(|_| -1)?;
-            }
-
-            fd.scopes.push(JSVarScope {
-                parent: fd.scope_level as i32,
-                first: fd.scope_first,
-            });
-            fd.scope_level = scope as i32;
-
-            emit_op_temp(self, OpCodeTemp::ENTER_SCOPE);
-            emit_u16(self, scope as u16);
-            Ok(scope as _)
-        } else {
-            Ok(0)
-        }
     }
 
     /// Get current function def being parsed.
@@ -161,8 +122,26 @@ impl<'s> JSParseState<'s> {
     /// Run closure with cur_func mut ref.
     /// If cur_func is null, returns None.
     #[inline]
-    pub fn with_cur_func_mut<R>(&mut self, f: impl FnOnce(&mut JSFunctionDef) -> R) -> Option<R> {
-        unsafe { self.cur_func_ptr.as_mut().map(f) }
+    pub fn with_cur_func_mut<R>(
+        &mut self,
+        f: impl FnOnce(&mut JSParseState, &mut JSFunctionDef) -> R,
+    ) -> Option<R> {
+        unsafe { self.cur_func_ptr.as_mut().map(|fd| f(self, fd)) }
+    }
+
+    /// Perform push scope on current function def. For detail, see JSFunctionDef::push_scope()
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(scope_id)` - ID of the newly created scope
+    /// * `Err(-1)` - If scope creation fails
+    pub fn push_scope(&mut self) -> Result<u32, i32> {
+        if !self.cur_func_ptr.is_null() {
+            unsafe { (*self.cur_func_ptr).push_scope(self.last_line_num) }
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!("empty current function def");
+        }
     }
 
     /// Exits the current lexical scope
@@ -172,30 +151,16 @@ impl<'s> JSParseState<'s> {
     ///
     /// # Safety
     /// This function is unsafe due to raw pointer manipulation
-    pub unsafe fn pop_scope(&mut self) {
-        let last_line_num = self.last_line_num;
-
-        self.with_cur_func_mut(|fd| {
-            // disable scoped variables
-            let scope = fd.scope_level;
-            fd.scope_level = fd.scopes[scope as usize].parent;
-            fd.scope_first = get_first_lexical_var(fd, fd.scope_level);
-
-            fd.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
-            fd.emit_u16(scope as _);
-        });
-
-        // if !self.cur_func_ptr.is_null() {
-        //     // disable scoped variables
-        //     let fd = self.cur_func_mut();
-        //     let scope = fd.scope_level;
-
-        //     fd.scope_level = fd.scopes[scope as usize].parent;
-        //     fd.scope_first = get_first_lexical_var(fd, fd.scope_level);
-
-        //     emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
-        //     emit_u16(self, scope as _);
-        // }
+    pub fn pop_scope(&mut self) {
+        if !self.cur_func_ptr.is_null() {
+            let last_line_num = self.last_line_num;
+            unsafe {
+                (*self.cur_func_ptr).pop_scope(last_line_num);
+            }
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!("empty current function def");
+        }
     }
 
     /// Closes multiple scopes up to a specified stop point
@@ -213,18 +178,13 @@ impl<'s> JSParseState<'s> {
         let last_line_num = self.last_line_num;
         let mut scope = scope;
 
-        self.with_cur_func_mut(|fd| {
+        self.with_cur_func_mut(|_, fd| {
             while scope > scope_stop {
                 fd.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
                 fd.emit_u16(scope as _);
                 scope = fd.scopes[scope as usize].parent;
             }
         });
-        // while scope > scope_stop {
-        //     emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
-        //     emit_u16(self, scope as _);
-        //     scope = self.cur_func().scopes[scope as usize].parent;
-        // }
     }
 
     /// get parse pos

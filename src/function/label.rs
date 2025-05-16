@@ -54,7 +54,7 @@ impl LabelInfo {
 
 impl JSFunctionDef {
     /// Create new label in JSFunctionDef, returns new label id.
-    pub unsafe fn add_label(&mut self) -> Result<u32, i32> {
+    pub fn add_label(&mut self) -> Result<u32, i32> {
         if self.labels.len() == self.labels.capacity() {
             if self.labels.try_reserve_exact(4).is_err() {
                 self.ctx.JS_ThrowOutOfMemory();

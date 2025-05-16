@@ -1,5 +1,5 @@
 use crate::{
-    atom::{consts::*, JSAtom, JSAtomTypeHint, JS_DupAtom, JS_ATOM_NULL},
+    atom::{consts::*, JSAtom, JSAtomTypeHint, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
@@ -20,24 +20,24 @@ pub enum OPSpecialObjectEnum {
 }
 
 impl JSFunctionDef {
-    pub unsafe fn emit_u8(&mut self, val: u8) {
+    pub fn emit_u8(&mut self, val: u8) {
         push_vec_u8(&mut self.byte_code, val);
     }
 
-    pub unsafe fn emit_u16(&mut self, val: u16) {
+    pub fn emit_u16(&mut self, val: u16) {
         push_vec_u16(&mut self.byte_code, val);
     }
 
-    pub unsafe fn emit_u32(&mut self, val: u32) {
+    pub fn emit_u32(&mut self, val: u32) {
         push_vec_u32(&mut self.byte_code, val);
     }
 
     /// emit an atom, increase ref_count
-    pub unsafe fn emit_atom_dup(&mut self, name: JSAtom) {
-        self.emit_u32(JS_DupAtom(self.ctx.as_ptr(), name).0);
+    pub fn emit_atom_dup(&mut self, name: JSAtom) {
+        self.emit_u32(name.dup(self.ctx.rt()).0);
     }
 
-    unsafe fn emit_op_u8(&mut self, op: u8, last_line_num: u32) {
+    fn emit_op_u8(&mut self, op: u8, last_line_num: u32) {
         let bc = &mut self.byte_code;
 
         // Use the line number of the last token used, not the next token,
@@ -51,14 +51,14 @@ impl JSFunctionDef {
         self.last_opcode_pos = bc.len() as i32;
         bc.push(op);
     }
-    pub unsafe fn emit_op(&mut self, op: OpCode, last_line_num: u32) {
+    pub fn emit_op(&mut self, op: OpCode, last_line_num: u32) {
         self.emit_op_u8(op as u8, last_line_num);
     }
-    pub unsafe fn emit_op_temp(&mut self, op: OpCodeTemp, last_line_num: u32) {
+    pub fn emit_op_temp(&mut self, op: OpCodeTemp, last_line_num: u32) {
         self.emit_op_u8(op as u8, last_line_num);
     }
 
-    pub unsafe fn emit_return(&mut self, mut hasval: bool, last_line_num: u32) {
+    pub fn emit_return(&mut self, mut hasval: bool, last_line_num: u32) {
         // execute the finally blocks before return
         if self.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
             if !hasval {
@@ -74,7 +74,7 @@ impl JSFunctionDef {
 
         let mut top = self.top_break;
         while !top.is_null() {
-            if (*top).has_iterator || (*top).label_finally != -1 {
+            if unsafe { (*top).has_iterator || (*top).label_finally != -1 } {
                 if !hasval {
                     self.emit_op(OpCode::UNDEFINED, last_line_num);
                     hasval = true;
@@ -86,7 +86,7 @@ impl JSFunctionDef {
                 self.emit_op(OpCode::NIP_CATCH, last_line_num);
 
                 // stack: iter_obj next ret_val
-                if (*top).has_iterator {
+                if unsafe { (*top).has_iterator } {
                     if self.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
                         self.emit_op(OpCode::NIP, last_line_num); // next
                         self.emit_op(OpCode::SWAP, last_line_num);
@@ -115,11 +115,15 @@ impl JSFunctionDef {
                     }
                 } else {
                     // execute the "finally" block
-                    self.emit_goto(OpCode::GOSUB, (*top).label_finally, last_line_num);
+                    self.emit_goto(
+                        OpCode::GOSUB,
+                        unsafe { (*top).label_finally },
+                        last_line_num,
+                    );
                 }
             }
 
-            top = (*top).prev;
+            top = unsafe { (*top).prev };
         }
 
         if self.is_derived_class_constructor {
@@ -157,15 +161,15 @@ impl JSFunctionDef {
     }
 
     /* don't update the last opcode and don't emit line number info */
-    unsafe fn emit_label_raw(&mut self, label: i32) {
+    fn emit_label_raw(&mut self, label: i32) {
         debug_assert!(label >= 0);
         self.emit_u8(OpCodeTemp::LABEL as u8);
         self.emit_u32(label as _);
         self.labels[label as usize].pos = self.byte_code.len() as _;
     }
 
-    /* return the label ID offset */
-    pub unsafe fn emit_label(&mut self, label: i32, last_line_num: u32) -> i32 {
+    /// return the label ID offset
+    pub fn emit_label(&mut self, label: i32, last_line_num: u32) -> i32 {
         if label >= 0 {
             self.emit_op_temp(OpCodeTemp::LABEL, last_line_num);
             self.emit_u32(label as _);
@@ -177,7 +181,7 @@ impl JSFunctionDef {
     }
 
     /// return label or -1 if dead code
-    pub unsafe fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: u32) -> i32 {
+    pub fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: u32) -> i32 {
         if self.is_live_code() {
             if label < 0 {
                 label = self.add_label().map_or(-1, |x| x as i32);
@@ -343,7 +347,7 @@ impl JSFunctionDef {
     // }
 
     #[inline(always)]
-    pub unsafe fn get_prev_opcode(&self) -> u8 {
+    pub fn get_prev_opcode(&self) -> u8 {
         if self.last_opcode_pos < 0 {
             OpCode::INVALID as _
         } else {
@@ -351,7 +355,7 @@ impl JSFunctionDef {
         }
     }
 
-    pub unsafe fn is_live_code(&self) -> bool {
+    pub fn is_live_code(&self) -> bool {
         match self.get_prev_opcode() {
             opcodes::OP_tail_call
             | opcodes::OP_tail_call_method

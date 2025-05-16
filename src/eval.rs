@@ -56,13 +56,6 @@ impl JSContext {
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
-        let mut s = JSParseState::new(
-            self.handle(),
-            input.as_ptr().cast(),
-            input.count_bytes(),
-            filename,
-        );
-
         macro_rules! fail1 {
             ($m:expr) => {
                 /* XXX: should free all the unresolved dependencies */
@@ -73,14 +66,12 @@ impl JSContext {
             };
         }
         macro_rules! fail {
-            ($fd:expr, $m:expr) => {
-                s.free_token();
+            ($s:expr, $fd:expr, $m:expr) => {
+                $s.free_token();
                 $fd.free(self);
                 fail1!($m);
             };
         }
-
-        skip_shebang(&mut s.buf_ptr, s.buf_end);
 
         let eval_type = flags & JS_EVAL_TYPE_MASK;
         let mut m: *mut JSModuleDef = std::ptr::null_mut();
@@ -124,81 +115,92 @@ impl JSContext {
             }
         }
 
-        let mut fd = if let Ok(f) =
-            JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)
-        {
-            f
+        // create root function def.
+        let mut root_fd = if let Ok(mut fd) = JSFunctionDef::new(
+            self.handle(),
+            std::ptr::null_mut(),
+            true,
+            false,
+            filename,
+            1,
+        ) {
+            fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+            fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
+
+            if eval_type == JS_EVAL_TYPE_DIRECT {
+                fd.new_target_allowed = (*b).new_target_allowed;
+                fd.super_call_allowed = (*b).super_call_allowed;
+                fd.super_allowed = (*b).super_allowed;
+                fd.arguments_allowed = (*b).arguments_allowed;
+            } else {
+                fd.new_target_allowed = false;
+                fd.super_call_allowed = false;
+                fd.super_allowed = false;
+                fd.arguments_allowed = true;
+            }
+            fd.js_mode = js_mode as u8;
+            fd.func_name = JS_ATOM__eval_.dup(self.rt());
+
+            if !b.is_null() {
+                if add_closure_variables(self, fd.deref_mut(), b, scope_idx).is_err() {
+                    fd.free(self);
+                    fail1!(m);
+                }
+            }
+
+            fd.module = m;
+            if !m.is_null() || flags & JS_EVAL_FLAG_ASYNC != 0 {
+                fd.in_function_body = true;
+                fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+            }
+
+            // init fd body scope #0.
+            fd.body_scope = if let Ok(scope) = fd.push_scope(0) {
+                scope as i32
+            } else {
+                fd.free(self);
+                fail1!(m);
+            };
+
+            fd
         } else {
             fail1!(m);
         };
 
-        fd.eval_type = eval_type;
-        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
-        fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
-        if eval_type == JS_EVAL_TYPE_DIRECT {
-            fd.new_target_allowed = (*b).new_target_allowed;
-            fd.super_call_allowed = (*b).super_call_allowed;
-            fd.super_allowed = (*b).super_allowed;
-            fd.arguments_allowed = (*b).arguments_allowed;
-        } else {
-            fd.new_target_allowed = false;
-            fd.super_call_allowed = false;
-            fd.super_allowed = false;
-            fd.arguments_allowed = true;
-        }
-        fd.js_mode = js_mode as u8;
-        fd.func_name = JS_ATOM__eval_.dup(self.rt());
-
-        if !b.is_null() {
-            if add_closure_variables(self, fd.deref_mut(), b, scope_idx).is_err() {
-                fail!(fd, m);
-            }
-        }
-
-        fd.module = m;
-        if !m.is_null() || flags & JS_EVAL_FLAG_ASYNC != 0 {
-            fd.in_function_body = true;
-            fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
-        }
-
-        s.cur_func_ptr = fd.deref_mut();
-        s.is_module = !m.is_null();
-        s.allow_html_comments = !s.is_module;
-
-        // this block will use s.cur_func pointer.
-        // DON'T write `fd` in this block.
         {
-            // enter body scope.
-            // must set s.cur_func pointer before calling s.push_scope().
-            fd.body_scope = if let Ok(l) = s.push_scope() {
-                l
-            } else {
-                fail!(fd, m);
-            };
+            // create parse state with root fd
+            let mut ps = JSParseState::new(
+                self.handle(),
+                NonNull::new_unchecked(root_fd.as_mut()),
+                input.as_ptr().cast(),
+                input.count_bytes(),
+                filename,
+            );
+            debug_assert_eq!(
+                ps.cur_func_mut() as *mut JSFunctionDef,
+                root_fd.deref_mut() as *mut JSFunctionDef
+            );
+            ps.is_module = !m.is_null();
+            ps.allow_html_comments = m.is_null();
 
-            if s.parse_program().is_err() {
-                fail!(fd, m);
-            }
-
-            if !m.is_null() {
-                (*m).has_tla = fd.has_await;
+            // begin parsing
+            skip_shebang(&mut ps.buf_ptr, ps.buf_end);
+            if ps.parse_program().is_err() {
+                fail!(ps, root_fd, m);
             }
         }
 
-        // now s.cur_func should be restored to `fd`
-        debug_assert_eq!(
-            s.cur_func_mut() as *mut JSFunctionDef,
-            fd.deref_mut() as *mut JSFunctionDef
-        );
+        if !m.is_null() {
+            (*m).has_tla = root_fd.has_await;
+        }
 
         // create the function object and all the enclosed functions.
-        // FIXME: fd is dropped here, how about s.cur_func pointer?
-        let mut fun_obj = fd.make_function(self);
+        let mut fun_obj = root_fd.make_function(self);
         if fun_obj.is_exception() {
             fail1!(m);
         }
 
-        /* Could add a flag to avoid resolution if necessary */
+        // Could add a flag to avoid resolution if necessary
         if !m.is_null() {
             (*m).func_obj = fun_obj;
             if js_resolve_module(self, m) < 0 {

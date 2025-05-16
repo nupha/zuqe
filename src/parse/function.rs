@@ -424,7 +424,7 @@ impl<'s> JSParseState<'s> {
         // in generators, yield expression is forbidden during the parsing of the arguments
         fd1.in_function_body = true;
         // enter body scope
-        fd1.body_scope = self.push_scope().unwrap();
+        fd1.body_scope = self.push_scope().unwrap() as i32;
 
         if self.token.val == TOK_ARROW {
             if self.next_token().is_err() {
