@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    atom::{consts::JS_ATOM__eval_, JS_DupAtom},
+    atom::consts::JS_ATOM__eval_,
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
         add_closure_variables, js_class_has_bytecode, js_closure, JSFunctionBytecode,
@@ -124,6 +124,7 @@ impl JSContext {
             filename,
             1,
         ) {
+            fd.eval_type = eval_type;
             fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
             fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
 

@@ -414,14 +414,6 @@ impl JSFunctionDef {
             vd.scope_next = scope.first;
             scope.first = idx as i32;
         }
-        // for idx in 0..self.var_count {
-        //     let vd = self.vars.offset(idx as isize);
-        //     debug_assert!((*vd).scope_level >= 0 && (*vd).scope_level < self.scopes.len() as i32);
-
-        //     let scope = self.scopes.get_mut((*vd).scope_level as usize).unwrap();
-        //     (*vd).scope_next = scope.first;
-        //     scope.first = idx as i32;
-        // }
 
         for i in 2..self.scopes.len() {
             if self.scopes[i].first < 0 {
@@ -437,13 +429,6 @@ impl JSFunctionDef {
                 vd.scope_next = self.scopes[parent as usize].first;
             }
         }
-        // for idx in 0..self.var_count {
-        //     let vd = self.vars.offset(idx as isize);
-        //     if (*vd).scope_next < 0 && (*vd).scope_level > 1 {
-        //         let parent = self.scopes[(*vd).scope_level as usize].parent;
-        //         (*vd).scope_next = self.scopes[parent as usize].first;
-        //     }
-        // }
 
         // if the function contains an eval call, the closure variables
         // are used to compile the eval and they must be ordered by scope,

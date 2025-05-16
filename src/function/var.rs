@@ -5,7 +5,7 @@ use crate::{
     bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
     context::{JSContext, JS_MODE_STRICT},
     error::JS_THROW_VAR_REDECL,
-    eval::JS_EVAL_TYPE_GLOBAL,
+    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL},
     function::{
         get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
         resolve_scope_var, skip_dead_code, JSFunctionDef,
@@ -473,7 +473,7 @@ impl JSFunctionDef {
                             continue 'g_var;
                         }
                         name if name == hf.var_name => {
-                            if cv.is_lexical() {
+                            if self.eval_type == JS_EVAL_TYPE_DIRECT && cv.is_lexical() {
                                 // Check if a lexical variable is
                                 // redefined as 'var'. XXX: Could abort
                                 // compilation here, but for consistency

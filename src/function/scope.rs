@@ -21,8 +21,10 @@ use super::{
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct JSVarScope {
-    pub parent: i32, // index into fd->scopes of the enclosing scope
-    pub first: i32,  // index into fd->vars of the last variable in this scope
+    /// id of parent scope. -1 for none.
+    pub parent: i32,
+    /// id of vars of the last variable in this scope. -1 for none.
+    pub first: i32,
 }
 
 impl JSFunctionDef {
@@ -35,7 +37,7 @@ impl JSFunctionDef {
     ///
     ///  * The new scope id.
     /// * Err(-1) when alloc fail, in this case, current_exception has the exception.
-    pub fn push_scope(&mut self, last_line_num: u32) -> Result<u32, i32> {
+    pub fn push_scope(&mut self, last_line_num: u32) -> Result<u16, i32> {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
@@ -73,6 +75,25 @@ impl JSFunctionDef {
 
         self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
         self.emit_u16(scope as _);
+    }
+
+    /// Closes multiple scopes from `scope_from` up to `scope_stop` point.
+    ///
+    /// Emits leave scope operations for all scopes from current until scope_stop.
+    /// Used during control flow changes that require multiple scope exits.
+    ///
+    /// # Arguments
+    /// * `scope_from` - Starting scope ID to close from
+    /// * `scope_stop` - Stop closing scopes at this ID
+    pub fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: u32) {
+        let mut scope = scope_from as i32;
+
+        while scope > scope_stop as i32 {
+            self.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
+            self.emit_u16(scope as _);
+
+            scope = self.scopes[scope as usize].parent; // -1 means no parent
+        }
     }
 
     /// define a variable in the current scope

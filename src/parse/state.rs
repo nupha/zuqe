@@ -135,7 +135,7 @@ impl<'s> JSParseState<'s> {
     ///
     /// * `Ok(scope_id)` - ID of the newly created scope
     /// * `Err(-1)` - If scope creation fails
-    pub fn push_scope(&mut self) -> Result<u32, i32> {
+    pub fn push_scope(&mut self) -> Result<u16, i32> {
         if !self.cur_func_ptr.is_null() {
             unsafe { (*self.cur_func_ptr).push_scope(self.last_line_num) }
         } else {
@@ -144,13 +144,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    /// Exits the current lexical scope
-    ///
-    /// Restores the parent scope and updates variable accessibility.
-    /// Emits bytecode for scope cleanup.
-    ///
-    /// # Safety
-    /// This function is unsafe due to raw pointer manipulation
+    /// Perform pop scope on current function def. For detail, see JSFunctionDef::pop_scope()
     pub fn pop_scope(&mut self) {
         if !self.cur_func_ptr.is_null() {
             let last_line_num = self.last_line_num;
@@ -163,28 +157,16 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    /// Closes multiple scopes up to a specified stop point
-    ///
-    /// Emits leave scope operations for all scopes from current until scope_stop.
-    /// Used during control flow changes that require multiple scope exits.
-    ///
-    /// # Safety
-    /// This function is unsafe due to raw pointer manipulation
-    ///
-    /// # Arguments
-    /// * `scope` - Starting scope ID to close from
-    /// * `scope_stop` - Stop closing scopes at this ID
-    pub unsafe fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
-        let last_line_num = self.last_line_num;
-        let mut scope = scope;
-
-        self.with_cur_func_mut(|_, fd| {
-            while scope > scope_stop {
-                fd.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
-                fd.emit_u16(scope as _);
-                scope = fd.scopes[scope as usize].parent;
+    /// Perform close scopes on current function def. For detail, see JSFunctionDef::close_scopes()
+    pub fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
+        if !self.cur_func_ptr.is_null() {
+            unsafe {
+                (*self.cur_func_ptr).close_scopes(scope as _, scope_stop as _, self.last_line_num);
             }
-        });
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!("empty current function def");
+        }
     }
 
     /// get parse pos
