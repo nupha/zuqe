@@ -749,26 +749,6 @@ pub unsafe fn js_parse_skip_parens_token(
     tok
 }
 
-#[deprecated(note = "use JSParseState::parse_template_part() instead")]
-pub unsafe fn js_parse_template_part(s: *mut JSParseState, p: *const u8) -> i32 {
-    (*s).parse_template_part(p).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::push_state() instead")]
-pub unsafe fn push_scope(s: *mut JSParseState) -> i32 {
-    (*s).push_scope().unwrap_or(-1)
-}
-
-#[deprecated(note = "use JSParseState::pop_state() instead")]
-pub unsafe fn pop_scope(s: *mut JSParseState) {
-    (*s).pop_scope();
-}
-
-#[deprecated(note = "use JSParseState::close_scopes() instead")]
-pub unsafe fn close_scopes(s: *mut JSParseState, scope: i32, scope_stop: i32) {
-    (*s).close_scopes(scope, scope_stop);
-}
-
 // XXX: remove
 pub unsafe fn has_with_scope(s: *mut JSFunctionDef, mut scope_level: i32) -> bool {
     let mut s = s;
@@ -790,22 +770,6 @@ pub unsafe fn has_with_scope(s: *mut JSFunctionDef, mut scope_level: i32) -> boo
     }
 
     false
-}
-
-// 'c' is the first character. Return JS_ATOM_NULL in case of error
-#[deprecated(note = "use JSParseState::parse_ident() instead")]
-pub unsafe fn parse_ident(
-    s: *mut JSParseState,
-    pp: *mut *const u8,
-    pident_has_escape: *mut bool,
-    c: char,
-    is_private: bool,
-) -> JSAtom {
-    let (a, esc) = (*s)
-        .parse_ident(pp, c, is_private)
-        .unwrap_or((JS_ATOM_NULL, false));
-    *pident_has_escape = esc;
-    a
 }
 
 pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {

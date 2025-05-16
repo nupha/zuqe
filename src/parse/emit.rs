@@ -426,16 +426,6 @@ pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
     (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
 }
 
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
-    (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
-    (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
-}
-
 /* don't update the last opcode and don't emit line number info */
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label_raw(s: *mut JSParseState, label: i32) {
@@ -468,6 +458,14 @@ super() can be called in an arrow function, so <this> and
 pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
     (*s).cur_func_mut()
         .emit_class_field_init((*s).last_line_num)
+}
+
+pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
+    (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
+}
+
+pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
+    (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
 }
 
 #[inline(always)]

@@ -158,6 +158,13 @@ impl<'s> JSParseState<'s> {
         self.cur_func_ptr.as_mut().unwrap()
     }
 
+    /// Run closure with cur_func mut ref.
+    /// If cur_func is null, returns None.
+    #[inline]
+    pub fn with_cur_func_mut<R>(&mut self, f: impl FnOnce(&mut JSFunctionDef) -> R) -> Option<R> {
+        unsafe { self.cur_func_ptr.as_mut().map(f) }
+    }
+
     /// Exits the current lexical scope
     ///
     /// Restores the parent scope and updates variable accessibility.
@@ -166,17 +173,29 @@ impl<'s> JSParseState<'s> {
     /// # Safety
     /// This function is unsafe due to raw pointer manipulation
     pub unsafe fn pop_scope(&mut self) {
-        if !self.cur_func_ptr.is_null() {
-            // disable scoped variables
-            let fd = self.cur_func_mut();
-            let scope = fd.scope_level;
+        let last_line_num = self.last_line_num;
 
+        self.with_cur_func_mut(|fd| {
+            // disable scoped variables
+            let scope = fd.scope_level;
             fd.scope_level = fd.scopes[scope as usize].parent;
             fd.scope_first = get_first_lexical_var(fd, fd.scope_level);
 
-            emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
-            emit_u16(self, scope as _);
-        }
+            fd.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
+            fd.emit_u16(scope as _);
+        });
+
+        // if !self.cur_func_ptr.is_null() {
+        //     // disable scoped variables
+        //     let fd = self.cur_func_mut();
+        //     let scope = fd.scope_level;
+
+        //     fd.scope_level = fd.scopes[scope as usize].parent;
+        //     fd.scope_first = get_first_lexical_var(fd, fd.scope_level);
+
+        //     emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
+        //     emit_u16(self, scope as _);
+        // }
     }
 
     /// Closes multiple scopes up to a specified stop point
@@ -190,12 +209,22 @@ impl<'s> JSParseState<'s> {
     /// # Arguments
     /// * `scope` - Starting scope ID to close from
     /// * `scope_stop` - Stop closing scopes at this ID
-    pub unsafe fn close_scopes(&mut self, mut scope: i32, scope_stop: i32) {
-        while scope > scope_stop {
-            emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
-            emit_u16(self, scope as _);
-            scope = self.cur_func().scopes[scope as usize].parent;
-        }
+    pub unsafe fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
+        let last_line_num = self.last_line_num;
+        let mut scope = scope;
+
+        self.with_cur_func_mut(|fd| {
+            while scope > scope_stop {
+                fd.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, last_line_num);
+                fd.emit_u16(scope as _);
+                scope = fd.scopes[scope as usize].parent;
+            }
+        });
+        // while scope > scope_stop {
+        //     emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
+        //     emit_u16(self, scope as _);
+        //     scope = self.cur_func().scopes[scope as usize].parent;
+        // }
     }
 }
 

@@ -1,7 +1,9 @@
 use std::ffi::{c_char, c_void, CStr, CString};
 
 use crate::{
-    atom::{JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint, JS_FreeAtom, JS_NewAtom},
+    atom::{
+        JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint, JS_FreeAtom, JS_NewAtom, JS_ATOM_NULL,
+    },
     bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
     context::JSContext,
@@ -1167,4 +1169,40 @@ pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
 #[deprecated(note = "use JSFunctionDef::add_label() instead")]
 pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
     (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32)
+}
+
+#[deprecated(note = "use JSParseState::parse_template_part() instead")]
+pub unsafe fn js_parse_template_part(s: *mut JSParseState, p: *const u8) -> i32 {
+    (*s).parse_template_part(p).map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use JSParseState::push_state() instead")]
+pub unsafe fn push_scope(s: *mut JSParseState) -> i32 {
+    (*s).push_scope().unwrap_or(-1)
+}
+
+#[deprecated(note = "use JSParseState::pop_state() instead")]
+pub unsafe fn pop_scope(s: *mut JSParseState) {
+    (*s).pop_scope();
+}
+
+#[deprecated(note = "use JSParseState::close_scopes() instead")]
+pub unsafe fn close_scopes(s: *mut JSParseState, scope: i32, scope_stop: i32) {
+    (*s).close_scopes(scope, scope_stop);
+}
+
+// 'c' is the first character. Return JS_ATOM_NULL in case of error
+#[deprecated(note = "use JSParseState::parse_ident() instead")]
+pub unsafe fn parse_ident(
+    s: *mut JSParseState,
+    pp: *mut *const u8,
+    pident_has_escape: *mut bool,
+    c: char,
+    is_private: bool,
+) -> JSAtom {
+    let (a, esc) = (*s)
+        .parse_ident(pp, c, is_private)
+        .unwrap_or((JS_ATOM_NULL, false));
+    *pident_has_escape = esc;
+    a
 }
