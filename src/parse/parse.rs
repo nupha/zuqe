@@ -28,8 +28,7 @@ use super::{
     obj::set_object_name,
     regexp::js_parse_regexp,
     state::{
-        js_parse_get_pos, JSParsePos, JSParseState, PF_POW_FORBIDDEN, SKIP_HAS_ASSIGNMENT,
-        SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI,
+        JSParseState, PF_POW_FORBIDDEN, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI,
     },
     statement::{js_parse_statement_or_decl, DECL_MASK_ALL},
     token::{
@@ -85,8 +84,7 @@ impl JSParseState<'_> {
             return Ok(());
         }
 
-        let mut pos: JSParsePos = std::mem::zeroed();
-        js_parse_get_pos(self, &mut pos);
+        let pos = self.get_pos();
 
         while self.token.val == TOK_STRING {
             let token_str = CStr::from_ptr(self.token.ptr.offset(1).cast())
@@ -607,8 +605,7 @@ pub unsafe fn js_parse_skip_parens_token(
     let mut state = [0u8; 256];
     let mut level = 1_usize;
 
-    let mut pos: JSParsePos = JSParsePos::default();
-    js_parse_get_pos(s, &mut pos);
+    let pos = (*s).get_pos();
     let mut last_tok = 0;
 
     loop {

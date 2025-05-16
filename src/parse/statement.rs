@@ -286,8 +286,7 @@ pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> 
 
     if token_is_pseudo_keyword(s, JS_ATOM_let) {
         {
-            let mut pos = JSParsePos::default();
-            js_parse_get_pos(s, &mut pos);
+            let pos = (*s).get_pos();
 
             loop {
                 (*s).next_token()?;

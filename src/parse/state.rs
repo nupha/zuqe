@@ -226,12 +226,22 @@ impl<'s> JSParseState<'s> {
         //     scope = self.cur_func().scopes[scope as usize].parent;
         // }
     }
+
+    /// get parse pos
+    pub fn get_pos(&self) -> JSParsePos {
+        JSParsePos {
+            last_line_num: self.last_line_num,
+            line_num: self.token.line_num,
+            ptr: self.token.ptr,
+            got_lf: self.got_lf,
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
 /// Represents a position in the source code during parsing
 ///
 /// Used for backtracking and position tracking during parsing operations.
+#[derive(Debug)]
 pub struct JSParsePos {
     /// Line number of the last processed token
     pub last_line_num: u32,
@@ -243,23 +253,12 @@ pub struct JSParsePos {
     pub ptr: *const u8,
 }
 
-impl Default for JSParsePos {
-    fn default() -> Self {
-        Self {
-            last_line_num: Default::default(),
-            line_num: Default::default(),
-            got_lf: Default::default(),
-            ptr: std::ptr::null_mut(),
-        }
-    }
-}
-
+#[deprecated(note = "use JSParseState::get_pos() instead")]
 pub unsafe fn js_parse_get_pos(s: *mut JSParseState, sp: *mut JSParsePos) -> i32 {
     (*sp).last_line_num = (*s).last_line_num;
     (*sp).line_num = (*s).token.line_num;
     (*sp).ptr = (*s).token.ptr;
     (*sp).got_lf = (*s).got_lf;
-
     return 0;
 }
 

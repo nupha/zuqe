@@ -38,7 +38,7 @@ use super::{
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     parse::js_parse_expect,
-    state::{js_parse_get_pos, JSParsePos, JSParseState},
+    state::JSParseState,
     token::{
         peek_token, token_is_ident, token_is_pseudo_keyword, TOK_EXTENDS, TOK_IDENT, TOK_NUMBER,
         TOK_PRIVATE_NAME, TOK_STATIC, TOK_STRING,
@@ -1030,8 +1030,7 @@ pub unsafe fn js_parse_class_default_ctor(
     has_super: bool,
     pfd: *mut *mut JSFunctionDef,
 ) -> i32 {
-    let mut pos: JSParsePos = std::mem::zeroed();
-    js_parse_get_pos(s, &mut pos);
+    let pos = (*s).get_pos();
 
     let (str, func_type) = if has_super {
         // spec change: no argument evaluation
