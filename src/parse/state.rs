@@ -52,7 +52,8 @@ pub struct JSParseState<'s> {
     pub buf_end: *const u8,
 
     /// Raw pointer to current parsing function def.
-    pub cur_func: *mut JSFunctionDef,
+    /// null if no current function def.
+    pub cur_func_ptr: *mut JSFunctionDef,
 
     /// Indicates if parsing a JavaScript module
     pub is_module: bool,
@@ -96,7 +97,7 @@ impl<'s> JSParseState<'s> {
             buf_end: unsafe { input.add(input_len) },
 
             last_ptr: std::ptr::null(),
-            cur_func: std::ptr::null_mut(),
+            cur_func_ptr: std::ptr::null_mut(),
             is_module: false,
             allow_html_comments: false,
             ext_json: false,
@@ -118,7 +119,7 @@ impl<'s> JSParseState<'s> {
     /// * `Ok(scope_id)` - ID of the newly created scope
     /// * `Err(-1)` - If scope creation fails
     pub unsafe fn push_scope(&mut self) -> Result<i32, i32> {
-        if !self.cur_func.is_null() {
+        if !self.cur_func_ptr.is_null() {
             let fd = self.cur_func_mut();
 
             let scope = fd.scopes.len(); // new scope id
@@ -147,14 +148,14 @@ impl<'s> JSParseState<'s> {
     /// Will panic if cur_func is null.
     #[inline(always)]
     pub unsafe fn cur_func(&self) -> &JSFunctionDef {
-        self.cur_func.as_ref().unwrap()
+        self.cur_func_ptr.as_ref().unwrap()
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
     pub unsafe fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
-        self.cur_func.as_mut().unwrap()
+        self.cur_func_ptr.as_mut().unwrap()
     }
 
     /// Exits the current lexical scope
@@ -165,7 +166,7 @@ impl<'s> JSParseState<'s> {
     /// # Safety
     /// This function is unsafe due to raw pointer manipulation
     pub unsafe fn pop_scope(&mut self) {
-        if !self.cur_func.is_null() {
+        if !self.cur_func_ptr.is_null() {
             // disable scoped variables
             let fd = self.cur_func_mut();
             let scope = fd.scope_level;

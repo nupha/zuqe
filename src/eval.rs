@@ -161,7 +161,7 @@ impl JSContext {
             fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }
 
-        s.cur_func = fd.deref_mut();
+        s.cur_func_ptr = fd.deref_mut();
         s.is_module = !m.is_null();
         s.allow_html_comments = !s.is_module;
 

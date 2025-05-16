@@ -56,7 +56,7 @@ impl<'s> JSParseState<'s> {
                 }
                 c if (c as u32) < 0x20 => {
                     // handle ASCII control characters
-                    if self.cur_func.is_null() {
+                    if self.cur_func_ptr.is_null() {
                         if do_throw {
                             self.throw_syntax_error(c"invalid character in a JSON string");
                         }
@@ -109,7 +109,7 @@ impl<'s> JSParseState<'s> {
                             continue;
                         }
                         c1 @ ('0'..='9') => {
-                            if self.cur_func.is_null() {
+                            if self.cur_func_ptr.is_null() {
                                 if do_throw {
                                     self.throw_syntax_error(
                                         c"malformed escape sequence in string literal",

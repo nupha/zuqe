@@ -197,7 +197,7 @@ pub unsafe fn js_parse_class(
                     }
                 }
 
-                (*s).cur_func = (*cf).fields_init_fd;
+                (*s).cur_func_ptr = (*cf).fields_init_fd;
 
                 // XXX: could try to avoid creating a new function and
                 // reuse 'fields_init_fd' with a specific 'var'
@@ -231,7 +231,7 @@ pub unsafe fn js_parse_class(
                 emit_op(s, OpCode::DROP);
                 // stack is now: <empty>
                 (*s).pop_scope();
-                (*s).cur_func = (*s).cur_func().parent;
+                (*s).cur_func_ptr = (*s).cur_func().parent;
                 continue;
             }
             // allow "static" field name
@@ -434,7 +434,7 @@ pub unsafe fn js_parse_class(
                 emit_atom_dup(s, field_var_name);
                 emit_u16(s, (*s).cur_func().scope_level as _);
             }
-            (*s).cur_func = (*cf).fields_init_fd;
+            (*s).cur_func_ptr = (*cf).fields_init_fd;
             emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
             emit_atom_dup(s, JS_ATOM_this);
             emit_u16(s, 0);
@@ -473,7 +473,7 @@ pub unsafe fn js_parse_class(
                 emit_op(s, OpCode::DEFINE_FIELD);
                 emit_atom_dup(s, name);
             }
-            (*s).cur_func = (*s).cur_func().parent;
+            (*s).cur_func_ptr = (*s).cur_func().parent;
             if (*s).parse_expect_semi().is_err() {
                 fail!();
             }
@@ -931,7 +931,7 @@ pub unsafe fn emit_class_init_start(
 
     (*cf).fields_init_fd = Box::into_raw(js_parse_function_class_fields_init(s)?);
 
-    (*s).cur_func = (*cf).fields_init_fd;
+    (*s).cur_func_ptr = (*cf).fields_init_fd;
 
     if !(*cf).is_static {
         // add the brand to the newly created instance
@@ -953,15 +953,15 @@ pub unsafe fn emit_class_init_start(
 
         emit_label(s, label_add_brand);
     }
-    (*s).cur_func = (*s).cur_func().parent;
+    (*s).cur_func_ptr = (*s).cur_func().parent;
 
     Ok(())
 }
 
 pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {
-    (*s).cur_func = (*cf).fields_init_fd;
+    (*s).cur_func_ptr = (*cf).fields_init_fd;
     emit_op(s, OpCode::RETURN_UNDEF);
-    (*s).cur_func = (*s).cur_func().parent;
+    (*s).cur_func_ptr = (*s).cur_func().parent;
 
     let cpool_idx = (*s)
         .cur_func_mut()

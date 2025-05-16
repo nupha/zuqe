@@ -12,7 +12,7 @@ impl JSParseState<'_> {
     /// old exception will be freed.
     pub fn throw(&mut self, exc_obj: JSValue) {
         let backtrace_flags =
-            if !self.cur_func.is_null() && unsafe { self.cur_func().backtrace_barrier } {
+            if !self.cur_func_ptr.is_null() && unsafe { self.cur_func().backtrace_barrier } {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
             } else {
                 0
@@ -33,7 +33,7 @@ impl JSParseState<'_> {
         self.ctx.throw_error_ex(JSErrorEnum::Syntax, message, false);
 
         let backtrace_flags =
-            if !self.cur_func.is_null() && unsafe { self.cur_func().backtrace_barrier } {
+            if !self.cur_func_ptr.is_null() && unsafe { self.cur_func().backtrace_barrier } {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
             } else {
                 0

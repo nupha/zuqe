@@ -70,7 +70,7 @@ pub unsafe fn js_parse_destructuring_element(
                 if js_define_var(s, var_name, tok) != 0 {
                     var_error!();
                 }
-                scope = (*(*s).cur_func).scope_level as _;
+                scope = (*s).cur_func().scope_level as _;
             }
 
             if (*s).token.val == '=' as i32 {

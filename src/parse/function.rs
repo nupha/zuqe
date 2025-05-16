@@ -66,7 +66,7 @@ impl<'s> JSParseState<'s> {
         is_expr: bool,
     ) -> Result<Box<JSFunctionDef>, i32> {
         // save original cur_func
-        let fd0 = self.cur_func;
+        let fd0 = self.cur_func_ptr;
 
         let mut sub_fd = JSFunctionDef::new(
             self.ctx.deref_mut(),
@@ -135,11 +135,11 @@ impl<'s> JSParseState<'s> {
 
         // make sub_fd to be the cur_func
         let fd1 = sub_fd.deref_mut();
-        self.cur_func = fd1;
+        self.cur_func_ptr = fd1;
 
         macro_rules! fail {
             () => {
-                self.cur_func = fd0; // restore previous cur_func
+                self.cur_func_ptr = fd0; // restore original cur_func
                 sub_fd.free(self.ctx.deref_mut()); // clean up and drop new fd
                 return Err(-1);
             };
@@ -461,7 +461,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 // function declareation done, returns new fd.
-                self.cur_func = fd0; // restore cur_func to previoud fd
+                self.cur_func_ptr = fd0; // restore cur_func to previoud fd
                 return Ok(sub_fd);
             }
         }
@@ -507,7 +507,7 @@ impl<'s> JSParseState<'s> {
             emit_return(self, false);
         }
 
-        self.cur_func = fd0; // restore cur_func to previoud fd
+        self.cur_func_ptr = fd0; // restore cur_func to previoud fd
         Ok(sub_fd)
     }
 
@@ -533,7 +533,7 @@ impl<'s> JSParseState<'s> {
         );
 
         // save original cur_func
-        let fd0 = self.cur_func.as_mut().unwrap();
+        let fd0 = self.cur_func_ptr.as_mut().unwrap();
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
