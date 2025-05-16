@@ -400,7 +400,13 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             set_object_name(s, JS_ATOM_default);
 
             local_name = JS_ATOM__default_;
-            if define_var(s, (*s).cur_func(), local_name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
+            if define_var(
+                s,
+                (*s).cur_func_mut(),
+                local_name,
+                JSVarDefEnum::JS_VAR_DEF_LET,
+            ) < 0
+            {
                 return -1;
             }
             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
@@ -520,7 +526,7 @@ pub unsafe fn add_import(
 
     let mut ctx = (*s).ctx;
     let is_local = import_name == JS_ATOM__star_;
-    let var_idx = if let Ok(vi) = (*s).cur_func().add_closure_var(
+    let var_idx = if let Ok(vi) = (*s).cur_func_mut().add_closure_var(
         ctx.deref_mut(),
         is_local,
         false,

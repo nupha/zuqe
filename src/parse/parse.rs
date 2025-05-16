@@ -52,7 +52,7 @@ impl JSParseState<'_> {
         self.parse_directives()?;
 
         {
-            let fd = self.cur_func();
+            let fd = self.cur_func_mut();
             fd.is_global_var = matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
                 || fd.js_mode & JS_MODE_STRICT as u8 == 0;
         }
@@ -60,7 +60,7 @@ impl JSParseState<'_> {
         if !self.is_module {
             // hidden variable <ret> for the return value
             let mut ctx = self.ctx;
-            let fd = self.cur_func();
+            let fd = self.cur_func_mut();
             fd.eval_ret_idx = Some(fd.add_var(ctx.deref_mut(), JS_ATOM__ret_)?);
         }
 
@@ -128,11 +128,11 @@ impl JSParseState<'_> {
 
             match text.as_str() {
                 "use strict" => {
-                    self.cur_func().has_use_strict = true;
-                    self.cur_func().js_mode |= JS_MODE_STRICT as u8;
+                    self.cur_func_mut().has_use_strict = true;
+                    self.cur_func_mut().js_mode |= JS_MODE_STRICT as u8;
                 }
                 "use strip" => {
-                    self.cur_func().js_mode |= JS_MODE_STRIP as u8;
+                    self.cur_func_mut().js_mode |= JS_MODE_STRIP as u8;
                 }
                 _ => {}
             }
@@ -549,13 +549,12 @@ pub unsafe fn js_parse_var(
 }
 
 pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32 {
-    let fd = (*s).cur_func();
-
-    if name == JS_ATOM_yield && fd.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+    if name == JS_ATOM_yield && (*s).cur_func().func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
         (*s).throw_syntax_error(c"yield is a reserved identifier");
         return -1;
     }
-    if (name == JS_ATOM_arguments || name == JS_ATOM_eval) && fd.js_mode & JS_MODE_STRICT as u8 != 0
+    if (name == JS_ATOM_arguments || name == JS_ATOM_eval)
+        && (*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
     {
         (*s).throw_syntax_error(c"invalid variable name in strict mode");
         return -1;
@@ -575,7 +574,7 @@ pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32
         }
     };
 
-    if define_var(s, fd, name, var_def_type) < 0 {
+    if define_var(s, (*s).cur_func_mut(), name, var_def_type) < 0 {
         -1
     } else {
         0
@@ -810,7 +809,7 @@ pub unsafe fn parse_ident(
 }
 
 pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
-    let fd = (*s).cur_func();
+    let fd = (*s).cur_func_mut();
     let name: JSAtom;
 
     if (*s).next_token().is_err() {
@@ -819,6 +818,12 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
     if (*s).parse_unary(PF_POW_FORBIDDEN).is_err() {
         return -1;
     }
+
+    debug_assert_eq!(
+        fd as *mut JSFunctionDef,
+        (*s).cur_func_mut() as *mut JSFunctionDef,
+        "cur_func must not change"
+    );
 
     match get_prev_opcode(fd) {
         opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {

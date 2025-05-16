@@ -1,12 +1,9 @@
-use std::ops::DerefMut;
-
 use crate::{
     atom::{consts::*, JSAtom, JSAtomTypeHint, JS_DupAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
-    mem::js_resize_array,
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
-    value::{JSValue, JSValueConst, JS_FreeValue, JS_TAG_STRING, JS_VALUE_GET_TAG},
+    value::{JSValueConst, JS_TAG_STRING, JS_VALUE_GET_TAG},
 };
 
 use super::state::JSParseState;
@@ -400,66 +397,67 @@ impl JSFunctionDef {
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u8(s: *mut JSParseState, val: u8) {
-    (*s).cur_func().emit_u8(val)
+    (*s).cur_func_mut().emit_u8(val)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u16(s: *mut JSParseState, val: u16) {
-    (*s).cur_func().emit_u16(val)
+    (*s).cur_func_mut().emit_u16(val)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u32(s: *mut JSParseState, val: u32) {
-    (*s).cur_func().emit_u32(val)
+    (*s).cur_func_mut().emit_u32(val)
 }
 
 /// emit an atom, increase ref_count
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_atom_dup(s: *mut JSParseState, name: JSAtom) {
-    (*s).cur_func().emit_atom_dup(name)
+    (*s).cur_func_mut().emit_atom_dup(name)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 unsafe fn emit_op_u8(s: *mut JSParseState, op: u8) {
-    (*s).cur_func().emit_op_u8(op, (*s).last_line_num)
+    (*s).cur_func_mut().emit_op_u8(op, (*s).last_line_num)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
-    (*s).cur_func().emit_op(op, (*s).last_line_num)
+    (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
-    (*s).cur_func().emit_op_temp(op, (*s).last_line_num)
+    (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
-    (*s).cur_func().emit_return(hasval, (*s).last_line_num)
+    (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
 }
 
 /* don't update the last opcode and don't emit line number info */
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label_raw(s: *mut JSParseState, label: i32) {
-    (*s).cur_func().emit_label_raw(label)
+    (*s).cur_func_mut().emit_label_raw(label)
 }
 
 /* return the label ID offset */
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_label(s: *mut JSParseState, label: i32) -> i32 {
-    (*s).cur_func().emit_label(label, (*s).last_line_num)
+    (*s).cur_func_mut().emit_label(label, (*s).last_line_num)
 }
 
 /* return label or -1 if dead code */
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_goto(s: *mut JSParseState, opcode: OpCode, label: i32) -> i32 {
-    (*s).cur_func().emit_goto(opcode, label, (*s).last_line_num)
+    (*s).cur_func_mut()
+        .emit_goto(opcode, label, (*s).last_line_num)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValueConst, as_atom: bool) -> i32 {
-    (*s).cur_func()
+    (*s).cur_func_mut()
         .emit_push_const(val, as_atom, (*s).last_line_num)
 }
 
@@ -468,11 +466,12 @@ super() can be called in an arrow function, so <this> and
 <class_fields_init> can be variable references */
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
-    (*s).cur_func().emit_class_field_init((*s).last_line_num)
+    (*s).cur_func_mut()
+        .emit_class_field_init((*s).last_line_num)
 }
 
 #[inline(always)]
-pub unsafe fn get_prev_opcode(fd: *mut JSFunctionDef) -> u8 {
+pub unsafe fn get_prev_opcode(fd: *const JSFunctionDef) -> u8 {
     if (*fd).last_opcode_pos < 0 {
         OpCode::INVALID as _
     } else {
@@ -509,7 +508,7 @@ pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
     emit_op(s, OpCode::PUSH_I32);
     emit_u32(s, 0);
 
-    let label_rest_next = (*s).cur_func().add_label().map_or(-1, |x| x as i32);
+    let label_rest_next = (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32);
     emit_label(s, label_rest_next);
     emit_op(s, OpCode::FOR_OF_NEXT);
     emit_u8(s, (2 + depth) as u8); // C2RS: explicit cast from i32 to u8

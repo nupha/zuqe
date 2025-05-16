@@ -10,7 +10,7 @@ use super::{
 };
 
 pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
-    let fd = (*s).cur_func();
+    let fd = (*s).cur_func_mut();
 
     match get_prev_opcode(fd) {
         opcodes::OP_set_name => {
@@ -51,7 +51,7 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
 }
 
 pub unsafe fn set_object_name_computed(s: *mut JSParseState) {
-    let fd = (*s).cur_func();
+    let fd = (*s).cur_func_mut();
     let opcode = get_prev_opcode(fd);
 
     if opcode == opcodes::OP_set_name {

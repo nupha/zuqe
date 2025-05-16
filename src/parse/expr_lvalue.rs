@@ -131,20 +131,23 @@ impl<'s> JSParseState<'s> {
         // remove the last opcode
         let last_opcode_pos = self.cur_func().last_opcode_pos;
         debug_assert!(last_opcode_pos > 0);
-        self.cur_func().byte_code.truncate(last_opcode_pos as _);
-        self.cur_func().last_opcode_pos = -1;
+        self.cur_func_mut().byte_code.truncate(last_opcode_pos as _);
+        self.cur_func_mut().last_opcode_pos = -1;
 
         if keep {
             // get the value but keep the object/fields on the stack
             match opcode {
                 opcodes::op_scope_get_var => {
-                    label = self.cur_func().add_label().expect("add_label() can't fail") as i32;
+                    label = self
+                        .cur_func_mut()
+                        .add_label()
+                        .expect("add_label() can't fail") as i32;
 
                     emit_op_temp(self, OpCodeTemp::SCOPE_MAKE_REF);
                     emit_atom_dup(self, name);
                     emit_u32(self, label as _);
                     emit_u16(self, scope);
-                    self.cur_func().update_label_ref_count(label as _, 1);
+                    self.cur_func_mut().update_label_ref_count(label as _, 1);
                     emit_op(self, OpCode::GET_REF_VALUE);
 
                     opcode = OpCode::GET_REF_VALUE as _;
@@ -176,13 +179,16 @@ impl<'s> JSParseState<'s> {
         } else {
             match opcode {
                 opcodes::op_scope_get_var => {
-                    label = self.cur_func().add_label().expect("add_label() can't fail") as i32;
+                    label = self
+                        .cur_func_mut()
+                        .add_label()
+                        .expect("add_label() can't fail") as i32;
 
                     emit_op_temp(self, OpCodeTemp::SCOPE_MAKE_REF);
                     emit_atom_dup(self, name);
                     emit_u32(self, label as _);
                     emit_u16(self, scope);
-                    self.cur_func().update_label_ref_count(label as _, 1);
+                    self.cur_func_mut().update_label_ref_count(label as _, 1);
 
                     opcode = OpCode::GET_REF_VALUE as _;
                 }

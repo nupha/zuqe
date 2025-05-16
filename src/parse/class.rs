@@ -51,7 +51,7 @@ pub unsafe fn js_parse_class(
     export_flag: JSParseExportEnum,
 ) -> i32 {
     let ctx = (*s).ctx;
-    let fd = (*s).cur_func();
+    let fd = (*s).cur_func_mut();
     let saved_js_mode = fd.js_mode;
 
     let mut name = JS_ATOM_NULL;
@@ -898,7 +898,7 @@ pub unsafe fn js_parse_function_class_fields_init(
 ) -> Result<Box<JSFunctionDef>, i32> {
     let mut fd = JSFunctionDef::new(
         (*s).ctx.deref_mut(),
-        (*s).cur_func(),
+        (*s).cur_func_mut(),
         false,
         false,
         (*s).filename,
@@ -964,7 +964,7 @@ pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDe
     (*s).cur_func = (*s).cur_func().parent;
 
     let cpool_idx = (*s)
-        .cur_func()
+        .cur_func_mut()
         .cpool_add((*s).ctx, JSValue::NULL)
         .map_or(-1, |x| x as i32);
 

@@ -54,8 +54,13 @@ impl<'s> JSParseState<'s> {
         }
 
         if is_star {
-            let label_loop = self.cur_func().add_label()?;
-            let label_yield = self.cur_func().add_label()?;
+            let (label_loop, label_yield) = {
+                let fd = self.cur_func_mut();
+                (
+                    self.cur_func_mut().add_label()?,
+                    self.cur_func_mut().add_label()?,
+                )
+            };
 
             emit_op(
                 self,

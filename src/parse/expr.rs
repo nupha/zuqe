@@ -199,7 +199,7 @@ impl<'s> JSParseState<'s> {
                 // as an lvalue. This also prevents the conversion of
                 // of get_var to get_ref for method lookup in function
                 // call inside `with` statement.
-                self.cur_func().last_opcode_pos = -1;
+                self.cur_func_mut().last_opcode_pos = -1;
             }
 
             if self.token.val != CHAR_COMMA {
@@ -670,7 +670,7 @@ impl<'s> JSParseState<'s> {
             match get_prev_opcode(self.cur_func()) {
                 op @ (opcodes::OP_get_field | opcodes::OP_get_array_el) => {
                     let last_opcode_pos = self.cur_func().last_opcode_pos;
-                    self.cur_func().byte_code[last_opcode_pos as usize] =
+                    self.cur_func_mut().byte_code[last_opcode_pos as usize] =
                         if op == opcodes::OP_get_field {
                             OpCodeTemp::GET_FIELD_OPT_CHAIN
                         } else {
@@ -678,7 +678,7 @@ impl<'s> JSParseState<'s> {
                         } as u8;
                 }
                 _ => {
-                    self.cur_func().last_opcode_pos = -1;
+                    self.cur_func_mut().last_opcode_pos = -1;
                 }
             }
         }
@@ -692,7 +692,7 @@ impl<'s> JSParseState<'s> {
         drop_count: i32,
     ) {
         if *poptional_chaining_label < 0 {
-            *poptional_chaining_label = self.cur_func().add_label().map_or(-1, |x| x as i32);
+            *poptional_chaining_label = self.cur_func_mut().add_label().map_or(-1, |x| x as i32);
         }
 
         // XXX: could be more efficient with a specific opcode

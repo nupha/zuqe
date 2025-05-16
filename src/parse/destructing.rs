@@ -174,8 +174,8 @@ pub unsafe fn js_parse_destructuring_element(
         has_ellipsis = skip_bits & SKIP_HAS_ELLIPSIS;
     }
 
-    label_parse = (*s).cur_func().add_label().map_or(-1, |l| l as i32);
-    label_assign = (*s).cur_func().add_label().map_or(-1, |l| l as i32);
+    label_parse = (*s).cur_func_mut().add_label().map_or(-1, |l| l as i32);
+    label_assign = (*s).cur_func_mut().add_label().map_or(-1, |l| l as i32);
 
     start_addr = (*s).cur_func().byte_code.len() as i32;
     if hasval {
@@ -453,7 +453,7 @@ pub unsafe fn js_parse_destructuring_element(
 
         /* the block environment is only needed in generators in case
         'yield' triggers a 'return' */
-        push_break_entry((*s).cur_func(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
+        push_break_entry((*s).cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
         block_env.has_iterator = true;
         emit_op(s, OpCode::FOR_OF_START);
         has_spread = false;
@@ -592,7 +592,7 @@ pub unsafe fn js_parse_destructuring_element(
         /* close iterator object:
         if completed, enum_obj has been replaced by undefined */
         emit_op(s, OpCode::ITERATOR_CLOSE);
-        pop_break_entry((*s).cur_func());
+        pop_break_entry((*s).cur_func_mut());
         if (*s).next_token().is_err() {
             return -1;
         }
@@ -625,10 +625,10 @@ pub unsafe fn js_parse_destructuring_element(
             return -1;
         }
 
-        (*s).cur_func().byte_code[start_addr as usize..assign_addr as usize]
+        (*s).cur_func_mut().byte_code[start_addr as usize..assign_addr as usize]
             .fill(OpCode::NOP as u8);
 
-        (*s).cur_func().labels[label_parse as usize].ref_count -= 1;
+        (*s).cur_func_mut().labels[label_parse as usize].ref_count -= 1;
         has_initializer = false;
     }
 

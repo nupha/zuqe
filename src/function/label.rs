@@ -74,20 +74,6 @@ impl JSFunctionDef {
     }
 }
 
-#[deprecated(note = "use JSFunctionDef::add_label() instead")]
-pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
-    if label < 0 {
-        (*fd).add_label().map_or(-1, |x| x as i32)
-    } else {
-        label
-    }
-}
-
-#[deprecated(note = "use JSFunctionDef::add_label() instead")]
-pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
-    (*s).cur_func().add_label().map_or(-1, |x| x as i32)
-}
-
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum ResolveLabelsState {
     NoChange,

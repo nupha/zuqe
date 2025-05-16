@@ -1141,7 +1141,7 @@ pub unsafe fn add_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom)
 // return the constant pool index. 'val' is not duplicated.
 #[deprecated(note = "use JSParseState::cpool_add() instead")]
 pub unsafe fn cpool_add(s: *mut JSParseState, ctx: *mut JSContext, val: JSValue) -> i32 {
-    let fd = (*s).cur_func();
+    let fd = (*s).cur_func_mut();
     fd.cpool_add(ctx.into(), val).map_or(-1, |x| x as i32)
 }
 
@@ -1153,4 +1153,18 @@ pub unsafe fn add_reloc(
     size: i32,
 ) -> *mut RelocEntry {
     unreachable!("use LabelInfo::add_reloc() instead");
+}
+
+#[deprecated(note = "use JSFunctionDef::add_label() instead")]
+pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
+    if label < 0 {
+        (*fd).add_label().map_or(-1, |x| x as i32)
+    } else {
+        label
+    }
+}
+
+#[deprecated(note = "use JSFunctionDef::add_label() instead")]
+pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
+    (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32)
 }

@@ -187,7 +187,7 @@ impl JSContext {
 
         // now s.cur_func should be restored to `fd`
         debug_assert_eq!(
-            s.cur_func() as *mut JSFunctionDef,
+            s.cur_func_mut() as *mut JSFunctionDef,
             fd.deref_mut() as *mut JSFunctionDef
         );
 

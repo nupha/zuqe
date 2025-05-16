@@ -674,7 +674,7 @@ impl<'s> JSParseState<'s> {
         )?;
         debug_assert_eq!(fd1.parent, fd0 as *mut JSFunctionDef);
         debug_assert_eq!(
-            self.cur_func() as *mut JSFunctionDef,
+            self.cur_func_mut() as *mut JSFunctionDef,
             fd0 as *mut JSFunctionDef
         );
 
@@ -686,7 +686,7 @@ impl<'s> JSParseState<'s> {
 
             // the real object will be set at the end of the compilation
             let cp_idx = self
-                .cur_func()
+                .cur_func_mut()
                 .cpool_add(ctx, JSValue::NULL)
                 .map_or(-1, |x| x as i32);
 
@@ -716,7 +716,9 @@ impl<'s> JSParseState<'s> {
                     if self.cur_func().is_global_var {
                         // the global variable must be defined at the start of the function
                         let js_mode = self.cur_func().js_mode;
-                        let hf = self.cur_func().add_global_var(ctx.deref_mut(), func_name)?;
+                        let hf = self
+                            .cur_func_mut()
+                            .add_global_var(ctx.deref_mut(), func_name)?;
 
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
@@ -732,7 +734,7 @@ impl<'s> JSParseState<'s> {
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(func_name).is_none() {
-                            self.cur_func().add_var(ctx.deref_mut(), func_name)?;
+                            self.cur_func_mut().add_var(ctx.deref_mut(), func_name)?;
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
@@ -745,7 +747,7 @@ impl<'s> JSParseState<'s> {
 
                 if lexical_func_idx >= 0 {
                     /* lexical variable will be initialized upon entering scope */
-                    self.cur_func()
+                    self.cur_func_mut()
                         .vars
                         .get_mut(lexical_func_idx as usize)
                         .unwrap()
@@ -762,7 +764,7 @@ impl<'s> JSParseState<'s> {
                 if !self.cur_func().is_global_var {
                     let var_idx = define_var(
                         self,
-                        self.cur_func(),
+                        self.cur_func_mut(),
                         func_name,
                         JSVarDefEnum::JS_VAR_DEF_VAR,
                     );
@@ -772,10 +774,10 @@ impl<'s> JSParseState<'s> {
 
                     // the variable will be assigned at the top of the function
                     if var_idx & ARGUMENT_VAR_OFFSET != 0 {
-                        self.cur_func().args[(var_idx - ARGUMENT_VAR_OFFSET) as usize]
+                        self.cur_func_mut().args[(var_idx - ARGUMENT_VAR_OFFSET) as usize]
                             .func_pool_idx = cp_idx;
                     } else {
-                        self.cur_func().vars[var_idx as usize].func_pool_idx = cp_idx;
+                        self.cur_func_mut().vars[var_idx as usize].func_pool_idx = cp_idx;
                     }
                 } else {
                     let func_var_name = if func_name == JS_ATOM_NULL {
@@ -786,7 +788,7 @@ impl<'s> JSParseState<'s> {
 
                     /* the variable will be assigned at the top of the function */
                     let hf = self
-                        .cur_func()
+                        .cur_func_mut()
                         .add_global_var(ctx.deref_mut(), func_var_name)?;
                     hf.cpool_idx = cp_idx;
 

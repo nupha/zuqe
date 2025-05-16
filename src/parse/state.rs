@@ -119,7 +119,7 @@ impl<'s> JSParseState<'s> {
     /// * `Err(-1)` - If scope creation fails
     pub unsafe fn push_scope(&mut self) -> Result<i32, i32> {
         if !self.cur_func.is_null() {
-            let fd = self.cur_func();
+            let fd = self.cur_func_mut();
 
             let scope = fd.scopes.len(); // new scope id
 
@@ -146,7 +146,14 @@ impl<'s> JSParseState<'s> {
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub unsafe fn cur_func(&mut self) -> &mut JSFunctionDef {
+    pub unsafe fn cur_func(&self) -> &JSFunctionDef {
+        self.cur_func.as_ref().unwrap()
+    }
+
+    /// Get current function def being parsed.
+    /// Will panic if cur_func is null.
+    #[inline(always)]
+    pub unsafe fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
         self.cur_func.as_mut().unwrap()
     }
 
@@ -160,7 +167,7 @@ impl<'s> JSParseState<'s> {
     pub unsafe fn pop_scope(&mut self) {
         if !self.cur_func.is_null() {
             // disable scoped variables
-            let fd = self.cur_func();
+            let fd = self.cur_func_mut();
             let scope = fd.scope_level;
 
             fd.scope_level = fd.scopes[scope as usize].parent;

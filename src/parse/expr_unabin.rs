@@ -214,7 +214,7 @@ impl<'s> JSParseState<'s> {
                 // reference access should not return an exception, so we patch the get_var
                 if get_prev_opcode(self.cur_func()) == OpCodeTemp::SCOPE_GET_VAR as u8 {
                     let last_opcode_pos = self.cur_func().last_opcode_pos;
-                    self.cur_func().byte_code[last_opcode_pos as usize] =
+                    self.cur_func_mut().byte_code[last_opcode_pos as usize] =
                         OpCodeTemp::SCOPE_GET_VAR_UNDEF as u8;
                 }
                 emit_op(self, OpCode::TYPEOF);
@@ -242,7 +242,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
-                self.cur_func().has_await = true;
+                self.cur_func_mut().has_await = true;
                 emit_op(self, OpCode::AWAIT);
                 parse_flags = 0;
             }
