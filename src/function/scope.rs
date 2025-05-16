@@ -4,8 +4,8 @@ use crate::{
     context::JSContext,
     error::JS_THROW_VAR_RO,
     function::{
-        add_arguments_var, add_func_var, resolve_pseudo_var, var_object_test, JSFunctionDef,
-        JSVarKindEnum, LabelInfo, ARGUMENT_VAR_OFFSET, ARG_SCOPE_END,
+        add_func_var, resolve_pseudo_var, var_object_test, JSFunctionDef, JSVarKindEnum, LabelInfo,
+        ARGUMENT_VAR_OFFSET, ARG_SCOPE_END,
     },
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
 };
@@ -117,26 +117,34 @@ impl JSFunctionDef {
         Ok(idx)
     }
 
-    // find a 'var' declaration in same or descendant scope of `scope_level`
-    pub fn find_var_in_child_scope(&self, name: JSAtom, scope_level: i32) -> Option<u16> {
+    /// find a variable declaration in specified scope
+    pub fn find_var_in_scope(&mut self, name: JSAtom, scope: u16) -> Option<u16> {
+        let mut vidx = self.scopes[scope as usize].first;
+
+        while vidx >= 0 {
+            let vd = self.vars.get(vidx as usize).unwrap();
+            if vd.scope_level != scope as i32 {
+                break;
+            } else if vd.var_name == name {
+                return Some(vidx as u16);
+            }
+
+            vidx = vd.scope_next;
+        }
+
+        None
+    }
+
+    /// find a variable declaration in same or descendant scope of `scope`
+    pub fn find_var_in_child_scope(&self, name: JSAtom, scope: i32) -> Option<u16> {
         self.vars
             .iter()
             .position(|vd| {
                 vd.var_name == name
                     && vd.scope_level == 0
-                    && is_child_scope(self, vd.scope_next, scope_level)
+                    && is_child_scope(self, vd.scope_next, scope)
             })
             .map(|x| x as u16)
-
-        // for i in 0..self.var_count {
-        //     let vd = self.vars.add(i as usize).as_mut().unwrap();
-        //     if vd.var_name == name && vd.scope_level == 0 {
-        //         if is_child_scope(self, vd.scope_next, scope_level) {
-        //             return Some(i);
-        //         }
-        //     }
-        // }
-        // None
     }
 }
 
@@ -465,7 +473,7 @@ pub unsafe fn resolve_scope_var(
             }
         }
         if var_name == JS_ATOM_arguments && (*fd).has_arguments_binding {
-            var_idx = add_arguments_var(ctx, fd);
+            var_idx = (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32);
             break;
         }
         if (*fd).is_func_expr && (*fd).func_name == var_name {

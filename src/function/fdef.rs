@@ -1055,22 +1055,6 @@ pub unsafe fn add_eval_variables(ctx: &mut JSContext, s: &mut JSFunctionDef) {
 #[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
 pub unsafe fn add_func_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
     (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
-
-    // let idx = if (*fd).func_var_idx < 0 {
-    //     (*fd).add_var(ctx, name).unwrap_or(-1)
-    // } else {
-    //     (*fd).func_var_idx
-    // };
-
-    // if idx >= 0 {
-    //     (*fd).func_var_idx = idx;
-    //     (*(*fd).vars.add(idx as usize)).set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
-    //     if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
-    //         (*(*fd).vars.add(idx as usize)).set_is_const(true);
-    //     }
-    // }
-
-    // idx
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
@@ -1078,7 +1062,7 @@ pub unsafe fn add_var_this(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
     (*fd).add_var_this(ctx).map_or(-1, |x| x as i32)
 }
 
-#[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
+#[deprecated(note = "use JSFunctionDef::add_arguments(ctx, false) instead")]
 pub unsafe fn add_arguments_var(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
     (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32)
 }

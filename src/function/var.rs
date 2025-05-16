@@ -30,11 +30,13 @@ pub enum JSVarDefEnum {
 pub enum JSVarKindEnum {
     /* XXX: add more variable kinds here instead of using bit fields */
     JS_VAR_NORMAL = 0,
-    JS_VAR_FUNCTION_DECL, /* lexical var with function declaration */
-    JS_VAR_NEW_FUNCTION_DECL, /* lexical var with async/generator
-                          function declaration */
+    /// lexical var with function declaration
+    JS_VAR_FUNCTION_DECL,
+    /// lexical var with async/generator function declaration  
+    JS_VAR_NEW_FUNCTION_DECL,
     JS_VAR_CATCH,
-    JS_VAR_FUNCTION_NAME, /* function expression name */
+    /// function expression name
+    JS_VAR_FUNCTION_NAME,
     JS_VAR_PRIVATE_FIELD,
     JS_VAR_PRIVATE_METHOD,
     JS_VAR_PRIVATE_GETTER,
@@ -272,9 +274,8 @@ impl JSFunctionDef {
         Ok(self.args.len() as u16 - 1)
     }
 
-    /// return the new variable index or error
+    /// add variable defination. return the new variable index or error
     pub fn add_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
-        // the local variable indexes are currently stored on 16 bits
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.JS_ThrowInternalError(c"too many local variables");
             return Err(-1);
@@ -348,6 +349,8 @@ impl JSFunctionDef {
         }
     }
 
+    /// get or create const variable used as function/expr name.
+    /// returns the variable id.
     pub unsafe fn add_func_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
         if let Some(i) = self.func_var_idx {
             Ok(i)
@@ -396,24 +399,6 @@ impl JSFunctionDef {
                 }
             })
             .or(self.find_arg(name))
-    }
-
-    /// find a variable declaration in specified scope
-    pub fn find_var_in_scope(&mut self, name: JSAtom, scope: u16) -> Option<u16> {
-        let mut vidx = self.scopes[scope as usize].first;
-
-        while vidx >= 0 {
-            let vd = self.vars.get(vidx as usize).unwrap();
-            if vd.scope_level != scope as i32 {
-                break;
-            } else if vd.var_name == name {
-                return Some(vidx as u16);
-            }
-
-            vidx = vd.scope_next;
-        }
-
-        None
     }
 
     /// will check global lexcical only when `scope` is minus
