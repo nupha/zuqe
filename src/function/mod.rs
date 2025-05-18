@@ -10,14 +10,16 @@ mod fun;
 mod label;
 mod native;
 mod optimize;
+mod resolve_labels;
+mod resolve_scoped_var;
+mod resolve_vars;
 mod scope;
 mod stack;
 mod var;
 mod var_ref;
-mod var_resolve;
-mod var_resolve_scoped;
 
 pub use {
     afun::*, argument::*, bound::*, bytecode::*, call::*, clousure::*, fdef::*, fun::*, label::*,
-    native::*, optimize::*, scope::*, stack::*, var::*, var_ref::*, var_resolve::*,
+    native::*, optimize::*, resolve_labels::*, resolve_vars::*, scope::*, stack::*, var::*,
+    var_ref::*,
 };
