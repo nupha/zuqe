@@ -519,128 +519,9 @@ impl<'c> CodeContext<'c> {
 #[deprecated(note = "use CodeContext::code_match() instead")]
 pub unsafe fn code_match(s: *mut CodeContext, pos: usize, op_list: &[i32]) -> bool {
     (*s).code_match(pos, op_list)
-
-    // let tab = (*s).bc_buf;
-    // let bc_len = (*s).bc_len;
-    // let num_ops = op_list.len();
-
-    // let mut line_num = -1_i32;
-    // let mut pos_next: usize;
-
-    // for (nth, &op_arg) in op_list.iter().enumerate() {
-    //     if op_arg == -1 {
-    //         (*s).pos = pos;
-    //         (*s).line_num = line_num;
-    //         return true;
-    //     }
-
-    //     let mut op: u8;
-
-    //     loop {
-    //         if pos >= bc_len {
-    //             return false;
-    //         }
-
-    //         op = *tab.add(pos as usize);
-    //         pos_next = pos + opcode_info_intermediate(op).size as usize;
-    //         if pos_next > bc_len {
-    //             return false;
-    //         }
-    //         if op == opcodes::op_line_num {
-    //             line_num = get_u32(tab.add(pos as usize + 1)) as i32;
-    //             pos = pos_next;
-    //         } else {
-    //             break;
-    //         }
-    //     }
-
-    //     if op_arg != op as i32 {
-    //         if op_arg == (op_arg as u8) as i32 || op == 0 {
-    //             break;
-    //         }
-    //         if op != (op_arg as u8)
-    //             && op != ((op_arg >> 8) as u8)
-    //             && op != ((op_arg >> 16) as u8)
-    //             && op != ((op_arg >> 24) as u8)
-    //         {
-    //             break;
-    //         }
-    //         (*s).op = op as i32;
-    //     }
-
-    //     pos += 1;
-
-    //     match opcode_info_intermediate(op).fmt {
-    //         "loc8" | "u8" => {
-    //             let idx = tab.add(pos as usize) as i32;
-    //             if nth == num_ops - 1 {
-    //                 // no more args in op list
-    //                 (*s).idx = idx;
-    //                 (*s).pos = pos;
-    //                 (*s).line_num = line_num;
-    //                 return true;
-    //             } else {
-    //                 let next_arg = op_list[nth + 1];
-    //                 if next_arg == -1 {
-    //                     (*s).idx = idx;
-    //                     (*s).pos = pos;
-    //                     (*s).line_num = line_num;
-    //                     return true;
-    //                 } else if next_arg != idx {
-    //                     return false;
-    //                 }
-    //             }
-    //         }
-    //         "u16" | "npop" | "loc" | "arg" | "var_ref" => {
-    //             let idx = get_u16(tab.add(pos as usize)) as i32;
-    //             if nth == num_ops - 1 {
-    //                 // no more args in op list
-    //                 (*s).idx = idx;
-    //             } else {
-    //                 let next_arg = op_list[nth + 1];
-    //                 if next_arg == -1 {
-    //                     (*s).idx = idx;
-    //                     (*s).pos = pos;
-    //                     (*s).line_num = line_num;
-    //                     return true;
-    //                 } else if next_arg != idx {
-    //                     return false;
-    //                 }
-    //             }
-    //         }
-    //         "i32" | "u32" | "label" | "const" => {
-    //             (*s).label = get_u32(tab.add(pos as usize)) as _;
-    //         }
-    //         "label_u16" => {
-    //             (*s).label = get_u32(tab.add(pos as usize)) as _;
-    //             (*s).val = get_u16(tab.add(pos as usize + 4)) as _;
-    //         }
-    //         "atom" => {
-    //             (*s).atom = get_u32(tab.add(pos as usize));
-    //         }
-    //         "atom_u8" => {
-    //             (*s).atom = get_u32(tab.add(pos as usize));
-    //             (*s).val = get_u16(tab.add(pos as usize + 4)) as i32;
-    //         }
-    //         "atom_u16" => {
-    //             (*s).atom = get_u32(tab.add(pos as usize));
-    //             (*s).val = get_u16(tab.add(pos as usize + 4)) as i32;
-    //         }
-    //         "atom_label_u8" => {
-    //             (*s).atom = get_u32(tab.add(pos as usize));
-    //             (*s).label = get_u32(tab.add(pos as usize + 4)) as i32;
-    //             (*s).val = get_u16(tab.add(pos as usize + 8)) as i32;
-    //         }
-    //         _ => {}
-    //     } // match fmt
-
-    //     pos = pos_next;
-    // } // for op_list
-
-    // false
 }
 
-pub unsafe fn can_opt_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+pub unsafe fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
         && matches!(
             *bc_buf.offset(pos as isize),
@@ -648,7 +529,7 @@ pub unsafe fn can_opt_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
         )
 }
 
-pub unsafe fn can_opt_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+pub unsafe fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
         && matches!(
             *bc_buf.offset(pos as isize),
@@ -657,8 +538,6 @@ pub unsafe fn can_opt_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool 
 }
 
 pub unsafe fn optimize_scope_make_ref(
-    ctx: *const JSContext,
-    s: *const JSFunctionDef,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
     label: &LabelInfo,
