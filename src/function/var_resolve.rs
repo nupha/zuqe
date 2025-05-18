@@ -19,7 +19,9 @@ use super::{
 };
 
 impl JSFunctionDef {
-    /// first pass for runtime checks (must be done before the variables are created)
+    /// Performs initial runtime checks for global variables
+    /// This must be executed before creating any variables
+    /// Checks for potential conflicts between global and closure variables
     unsafe fn resolve_variables_check_global_vars(
         &self,
         ctx: &mut JSContext,
@@ -66,8 +68,10 @@ impl JSFunctionDef {
     }
 }
 
-/// convert global variable accesses to local variables or closure variables when necessary.
-/// this is pass2 of the bytecode generation.
+/// Resolves variable references in the function definition
+/// Converts global variable accesses to local/closure variables when needed
+/// This is the second pass of bytecode generation
+/// Handles scope resolution and variable binding
 pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Result<(), i32> {
     let bc_buf = (*s).byte_code.as_mut_ptr();
     let bc_len = (*s).byte_code.len();
@@ -464,7 +468,9 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
     Ok(())
 }
 
-/// returns variable def index
+/// Resolves special pseudo variables (this, new.target, etc.)
+/// Returns the variable definition index if found
+/// Returns None if the variable is not a pseudo variable
 pub unsafe fn resolve_pseudo_var(
     ctx: *mut JSContext,
     s: *mut JSFunctionDef,

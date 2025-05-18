@@ -456,43 +456,6 @@ impl JSFunctionDef {
     }
 }
 
-// test if 'var_name' is in the variable object on the stack. If is it
-// the case, handle it and jump to 'label_done'.
-// If argument `label_done` is None, new label will be created.
-pub unsafe fn var_object_test(
-    ctx: *mut JSContext,
-    s: *mut JSFunctionDef,
-    var_name: JSAtom,
-    op: u8,
-    bc: &mut Vec<u8>,
-    label_done: &mut Option<u32>,
-    is_with: bool,
-) {
-    push_vec_u8(bc, get_with_scope_opcode(op));
-    push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
-    let label = if let Some(l) = label_done {
-        *l
-    } else {
-        // create label
-        let l = (*s).add_label().expect("TODO: unhandled add_label() error");
-        label_done.replace(l);
-        l
-    };
-    push_vec_u32(bc, label);
-    push_vec_u8(bc, is_with as u8);
-
-    (*s).update_label_ref_count(label as _, 1);
-    (*s).jump_size += 1;
-}
-
-pub unsafe fn get_with_scope_opcode(op: u8) -> u8 {
-    if op == opcodes::op_scope_get_var_undef {
-        opcodes::OP_with_get_var as u8
-    } else {
-        opcodes::OP_with_get_var + (op as u8 - opcodes::op_scope_get_var)
-    }
-}
-
 pub unsafe fn mark_eval_captured_variables(
     ctx: *const JSContext,
     s: *mut JSFunctionDef,
