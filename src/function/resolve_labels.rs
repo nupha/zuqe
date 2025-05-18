@@ -5,8 +5,8 @@ use crate::{
     function::{find_jump_target, skip_dead_code, JSFunctionDef, LineNumberSlot},
     mem::{js_free, js_mallocz},
     utils::{
-        get_u16, push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16,
-        push_vec_u32, push_vec_u8, put_u16, put_u32, put_u8, read_from_ptr, M2, M3, M4,
+        push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16, push_vec_u32,
+        push_vec_u8, put_u16, put_u32, put_u8, read_from_ptr, M2, M3, M4,
     },
 };
 
@@ -193,7 +193,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
             opcodes::OP_call | opcodes::OP_call_method => {
                 /* detect and transform tail calls */
-                let argc = get_u16(bc_buf.add(pos as usize + 1));
+                let argc = read_from_ptr::<u16>(bc_buf.add(pos + 1));
                 if cc.code_match(pos_next, &[OpCode::RETURN as i32]) {
                     if cc.line_num >= 0 {
                         line_num = cc.line_num as _;

@@ -8,7 +8,7 @@ use crate::{
         get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
         skip_dead_code, JSFunctionDef, JSVarKindEnum,
     },
-    utils::{get_u16, push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, read_from_ptr, M2},
+    utils::{push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, read_from_ptr, M2},
 };
 
 use super::{
@@ -350,7 +350,7 @@ impl JSFunctionDef {
                     no_change!(pos, op_len);
                 }
                 opcodes::op_enter_scope => {
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos as usize + 1) }) as i32;
+                    let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) } as i32;
                     if scope == self.body_scope {
                         unsafe {
                             instantiate_hoisted_definitions(ctx, self, &mut bc_out);
@@ -385,7 +385,7 @@ impl JSFunctionDef {
                     }
                 }
                 opcodes::op_leave_scope => {
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 1) }) as i32;
+                    let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) } as i32;
                     let mut scope_idx = self.scopes[scope as usize].first;
                     while scope_idx >= 0 {
                         let vd = self.vars.get(scope_idx as usize).unwrap();

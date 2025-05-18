@@ -6,8 +6,8 @@ use crate::{
     context::{JSContext, JS_MODE_STRICT},
     function::{code_has_label, find_jump_target, JSFunctionDef, LabelInfo},
     utils::{
-        get_u16, push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8,
-        put_u16, put_u32, read_from_ptr, M2, M3,
+        push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8, put_u16,
+        put_u32, read_from_ptr, M2, M3,
     },
 };
 
@@ -188,7 +188,7 @@ impl<'c> CodeContext<'c> {
         // get_loc(n) dec dup put_loc(n) drop -> dec_loc(n)
         // get_loc(n) inc dup put_loc(n) drop -> inc_loc(n)
 
-        let idx = get_u16(self.bc_buf.offset(pos as isize + 1));
+        let idx = read_from_ptr::<u16>(self.bc_buf.add(pos + 1));
         if idx >= 256 {
             false
         } else {
@@ -336,7 +336,7 @@ impl<'c> CodeContext<'c> {
         ));
 
         // transformation: put_x(n) get_x(n) -> set_x(n)
-        let idx = get_u16(self.bc_buf.add(pos + 1));
+        let idx = read_from_ptr::<u16>(self.bc_buf.add(pos + 1));
         if self.code_match(*pos_next, &[op as i32 - 1, idx as _]) {
             if self.line_num >= 0 {
                 *line_num = self.line_num as u32;

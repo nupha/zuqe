@@ -2,7 +2,7 @@ use crate::{
     atom::{consts::*, JSAtom},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{FuncCallType, JSFunctionDef},
-    utils::{get_u16, read_from_ptr},
+    utils::read_from_ptr,
 };
 
 use super::{
@@ -255,7 +255,7 @@ impl<'s> JSParseState<'s> {
                         .as_ptr()
                         .offset((*fd).last_opcode_pos as isize + 1),
                 ));
-                let scope = get_u16(
+                let scope = read_from_ptr::<u16>(
                     (*fd)
                         .byte_code
                         .as_ptr()

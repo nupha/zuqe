@@ -43,7 +43,7 @@ use crate::{
     module::{js_dynamic_import, js_import_meta},
     regexp::js_regexp_constructor_internal,
     stack_frame::JSStackFrame,
-    utils::{get_u16, read_from_ptr},
+    utils::read_from_ptr,
     value::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
@@ -328,7 +328,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::REST => {
-                    let first = get_u16(pc);
+                    let first = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
                     SP![0] = js_build_rest(ctx, first as _, args);
@@ -558,7 +558,7 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::CALL | OpCode::TAIL_CALL => {
-                    let call_argc = get_u16(pc);
+                    let call_argc = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
                     let call_argv = sp.offset(-(call_argc as isize));
@@ -586,7 +586,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::CALL_CONSTRUCTOR => {
-                    let call_argc = get_u16(pc) as i32;
+                    let call_argc = read_from_ptr::<u16>(pc) as i32;
                     pc = pc.add(2);
                     let call_argv = sp.offset(-call_argc as isize);
                     sf.cur_pc_offset = pc.offset_from(pc_base) as _;
@@ -610,7 +610,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
-                    let call_argc = get_u16(pc) as i32;
+                    let call_argc = read_from_ptr::<u16>(pc) as i32;
                     PC_GO!(2);
 
                     let call_argv = sp.offset(-call_argc as isize);
@@ -641,7 +641,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::ARRAY_FROM => {
                     // el1, el2 ... elN ^ -> array ^
-                    let call_argc = get_u16(pc) as i32;
+                    let call_argc = read_from_ptr::<u16>(pc) as i32;
                     PC_GO!(2);
 
                     // create array
@@ -671,7 +671,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::APPLY => {
-                    let magic = get_u16(pc) as i32;
+                    let magic = read_from_ptr::<u16>(pc) as i32;
                     pc = pc.add(2);
 
                     // let ret_val = js_function_apply(ctx, SP![-3], 2, sp.offset(-2), magic);
@@ -789,9 +789,9 @@ pub unsafe fn run_bytecodes(
                     break State::Exception;
                 }
                 OpCode::EVAL => {
-                    let call_argc = get_u16(pc) as i32;
+                    let call_argc = read_from_ptr::<u16>(pc) as i32;
                     // scope_idx will be -1 for top of scope chain
-                    let scope_idx = get_u16(pc.offset(2)) as i32 - 1;
+                    let scope_idx = read_from_ptr::<u16>(pc.add(2)) as i32 - 1;
                     PC_GO!(4);
 
                     let call_argv = sp.offset(-call_argc as isize);
@@ -845,7 +845,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::APPLY_EVAL => {
-                    let scope_idx = get_u16(pc) as i32 - 1; // could be minus
+                    let scope_idx = read_from_ptr::<u16>(pc) as i32 - 1; // could be minus
                     PC_GO!(2);
 
                     if let Ok(mut tab) = build_arg_list(ctx, SP![-1]) {
@@ -1016,29 +1016,29 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(-1);
                 }
                 OpCode::SET_LOC => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, VAR_PTR![idx], SP![-1].dup());
                 }
                 OpCode::SET_LOC_UNINITIALIZED => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, VAR_PTR![idx], JSValue::UNINITIALIZED);
                 }
                 OpCode::GET_ARG => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     SP![0] = ARG![idx].dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_ARG => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, ARG_REF![idx], SP![-1]);
                     SP_GO!(-1);
                 }
                 OpCode::SET_ARG => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, ARG_REF![idx], SP![-1].dup());
                 }
@@ -1049,25 +1049,25 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::GET_VAR_REF => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     let val = var_refs[idx as usize].as_ref().pvalue;
                     SP![0] = (*val).dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_VAR_REF => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1]);
                     SP_GO!(-1);
                 }
                 OpCode::SET_VAR_REF => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1].dup());
                 }
                 OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
                     let pval = var_refs[idx as usize].as_ref().pvalue;
@@ -1087,7 +1087,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::PUT_VAR_REF_CHECK_INIT => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
                     let pval = var_refs[idx as usize].as_ref().pvalue;
@@ -1101,7 +1101,7 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::GET_LOC_CHECK | OpCode::GET_LOC_CHECKTHIS => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
                     let val = VAR![idx];
@@ -1123,7 +1123,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::PUT_LOC_CHECK | OpCode::PUT_LOC_CHECK_INIT => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
                     let pval = VAR_PTR![idx];
@@ -1140,13 +1140,13 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::CLOSE_LOC => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     (*sf).close_lexical_var(ctx, idx, false);
                 }
                 OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                     let atom = JSAtom(read_from_ptr::<u32>(pc));
-                    let idx = get_u16(pc.add(4));
+                    let idx = read_from_ptr::<u16>(pc.add(4));
                     PC_GO!(6);
 
                     SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
@@ -1208,7 +1208,7 @@ pub unsafe fn run_bytecodes(
                     pc = pc.add(if opcode == OpCode::GOTO8 {
                         get_u8(pc)
                     } else {
-                        get_u16(pc)
+                        read_from_ptr::<u16>(pc)
                     } as usize);
 
                     if js_poll_interrupts(ctx) != 0 {

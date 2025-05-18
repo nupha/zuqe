@@ -4,7 +4,7 @@ use crate::{
     bytecode::{opcode_info_final, opcodes, OpCode, OP_COUNT_FINAL},
     context::JSContext,
     runtime::JS_STACK_SIZE_MAX,
-    utils::{get_u16, read_from_ptr},
+    utils::read_from_ptr,
 };
 
 use super::JSFunctionDef;
@@ -153,7 +153,7 @@ impl JSFunctionDef {
             let mut n_pop = (*oi).n_pop as u16;
             match (*oi).fmt {
                 "npop" | "npop_u16" => {
-                    n_pop += get_u16(bc_buf.add(pos + 1));
+                    n_pop += read_from_ptr::<u16>(bc_buf.add(pos + 1));
                 }
                 #[cfg(feature = "short_opcode")]
                 "npopx" => {
@@ -202,7 +202,7 @@ impl JSFunctionDef {
 
                 #[cfg(feature = "short_opcode")]
                 opcodes::OP_goto16 => {
-                    diff = (get_u16(bc_buf.offset(pos as isize + 1)) as i16) as i32;
+                    diff = (read_from_ptr::<u16>(bc_buf.offset(pos as isize + 1)) as i16) as i32;
                     pos_next = pos + 1 + diff as usize;
                 }
                 #[cfg(feature = "short_opcode")]
