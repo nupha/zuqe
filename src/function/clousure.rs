@@ -138,6 +138,25 @@ impl JSFunctionDef {
         )
     }
 
+    #[inline(always)]
+    pub fn get_closure_var(
+        &mut self,
+        ctx: &mut JSContext,
+        up_fd: *const JSFunctionDef,
+        is_arg: bool,
+        var_idx: u16,
+        var_name: JSAtom,
+        is_const: bool,
+        is_lexical: bool,
+        var_kind: JSVarKindEnum,
+    ) -> Result<u16, i32> {
+        unsafe {
+            self.get_closure_var2(
+                ctx, up_fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+            )
+        }
+    }
+
     /// returns added closure var index, or Err for error.
     pub unsafe fn add_closure_var(
         &mut self,

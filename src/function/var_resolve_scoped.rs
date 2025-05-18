@@ -51,90 +51,97 @@ impl JSFunctionDef {
         );
 
         let mut label_done: Option<u32> = None;
-        let mut var_id: i32 = -1;
+        let mut found_var: i32 = -1;
 
-        // retrive chain of variable defs for `var_name`
-        let mut idx = self.scopes[scope as usize].first;
-        while idx >= 0 {
-            let (cur_var_name, is_const, scope_next) = {
-                let vd = self.vars.get(idx as usize).unwrap();
-                (vd.var_name, vd.is_const(), vd.scope_next)
-            };
+        // search chain-of-variable-defs for `var_name` node
+        // resolve local scoped variables
+        let is_arg_scope = {
+            let mut cov = self.scopes[scope as usize].first;
+            while cov >= 0 {
+                let (cur_var_name, is_const, scope_next) = {
+                    let vd = self.vars.get(cov as usize).unwrap();
+                    (vd.var_name, vd.is_const(), vd.scope_next)
+                };
 
-            if cur_var_name == var_name {
-                if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
-                    if is_const {
-                        push_vec_u8(bc, opcodes::OP_throw_error);
-                        push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
-                        push_vec_u8(bc, JS_THROW_VAR_RO);
-                        done!(label_done);
+                if cur_var_name == var_name {
+                    if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
+                        if is_const {
+                            push_vec_u8(bc, opcodes::OP_throw_error);
+                            push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
+                            push_vec_u8(bc, JS_THROW_VAR_RO);
+                            done!(label_done);
+                        }
                     }
+                    found_var = cov;
+                    break;
+                } else if cur_var_name == JS_ATOM__with_ && !is_pseudo_var {
+                    push_vec_u8(bc, opcodes::OP_get_loc);
+                    push_vec_u16(bc, cov as _);
+                    label_done
+                        .replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
                 }
-                var_id = idx;
-                break;
+
+                cov = scope_next;
             }
 
-            if cur_var_name == JS_ATOM__with_ && !is_pseudo_var {
-                push_vec_u8(bc, opcodes::OP_get_loc);
-                push_vec_u16(bc, idx as _);
-                label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
-            }
+            cov == ARG_SCOPE_END
+        };
 
-            idx = scope_next;
-        }
-
-        let mut is_arg_scope = idx == ARG_SCOPE_END;
-
-        if var_id < 0 {
-            // argument scope: variables are not visible but pseudo
-            // variables are visible
+        if found_var < 0 {
             if !is_arg_scope {
-                var_id = self.find_var(var_name).map_or(-1, |x| x as i32);
+                // argument scope: variables are not visible but pseudo variables are visible
+                found_var = self.find_var(var_name).map_or(-1, |x| x as i32);
             }
-            if var_id < 0 && is_pseudo_var {
-                var_id = resolve_pseudo_var(ctx, self, var_name).map_or(-1, |x| x as i32);
+            if found_var < 0 && is_pseudo_var {
+                found_var = resolve_pseudo_var(ctx, self, var_name).map_or(-1, |x| x as i32);
             }
-            if var_id < 0 && var_name == JS_ATOM_arguments && self.has_arguments_binding {
+            if found_var < 0 && var_name == JS_ATOM_arguments && self.has_arguments_binding {
                 // 'arguments' pseudo variable
-                var_id = self.add_arguments(ctx, false).map_or(-1, |x| x as i32);
+                found_var = self.add_arguments(ctx, false).map_or(-1, |x| x as i32);
             }
-            if var_id < 0 && self.is_func_expr && var_name == self.func_name {
+            if found_var < 0 && self.is_func_expr && var_name == self.func_name {
                 // add a new variable with the function name
-                var_id = self.add_func_var(ctx, var_name).map_or(-1, |x| x as i32)
+                found_var = self.add_func_var(ctx, var_name).map_or(-1, |x| x as i32)
             }
         }
 
-        if var_id >= 0 {
-            // got var or arg
+        if found_var >= 0 {
+            // var or arg found
             return self.resolve_scope_var_vardef(
-                ctx, var_name, op, bc, bc_buf, label, label_done, pos_next, var_id,
+                ctx, var_name, op, bc, bc_buf, label, label_done, pos_next, found_var,
             );
         }
 
-        if !is_arg_scope && self.var_object_idx.is_some() && !is_pseudo_var {
-            // check eval object
-            push_vec_u8(bc, opcodes::OP_get_loc);
-            push_vec_u16(bc, self.var_object_idx.unwrap());
-            label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+        if !is_pseudo_var {
+            if !is_arg_scope && self.var_object_idx.is_some() {
+                // check eval object:
+                // test `var_name` defined on `<val>` object
+                push_vec_u8(bc, opcodes::OP_get_loc);
+                push_vec_u16(bc, self.var_object_idx.unwrap());
+                label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+            }
+
+            if let Some(av) = self.arg_var_object_idx {
+                // check eval object in argument scope:
+                // test `var_name` defined on `<arg_val>` object
+                push_vec_u8(bc, opcodes::OP_get_loc);
+                push_vec_u16(bc, av);
+                label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+            }
         }
 
-        if self.arg_var_object_idx.is_some() && !is_pseudo_var {
-            // check eval object in argument scope
-            push_vec_u8(bc, opcodes::OP_get_loc);
-            push_vec_u16(bc, self.arg_var_object_idx.unwrap());
-            label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
-        }
+        debug_assert_eq!(found_var, -1);
 
-        // check parent scopes upward to root
+        // check parent scopes: walk scopes upward till root
         let mut fd: *mut JSFunctionDef = self;
-        while !(*fd).parent.is_null() {
+
+        'walk_scopes: while !(*fd).parent.is_null() {
             let scope_level = (*fd).parent_scope_level;
-
             fd = (*fd).parent;
-            idx = (*fd).scopes[scope_level as usize].first;
 
-            while idx >= 0 {
-                let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+            let mut cov = (*fd).scopes[scope_level as usize].first;
+            while cov >= 0 {
+                let vd = (*fd).vars.get_mut(cov as usize).unwrap();
                 if vd.var_name == var_name {
                     if matches!(
                         op as u8,
@@ -147,8 +154,9 @@ impl JSFunctionDef {
                             done!(label_done);
                         }
                     }
-                    var_id = idx;
-                    break;
+
+                    found_var = cov;
+                    break 'walk_scopes;
                 }
 
                 if vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
@@ -158,53 +166,51 @@ impl JSFunctionDef {
                         fd,
                         true,
                         false,
-                        idx as u16,
+                        cov as u16,
                         vd.var_name,
                         false,
                         false,
                         JSVarKindEnum::JS_VAR_NORMAL,
                     ) {
                         Ok(vi) => {
-                            idx = vi as i32;
                             push_vec_u8(bc, opcodes::OP_get_var_ref);
-                            push_vec_u16(bc, idx as _);
+                            push_vec_u16(bc, vi);
                             label_done.replace(
                                 self.var_object_test(ctx, var_name, op, bc, label_done, true),
                             );
                         }
                         Err(_) => {
-                            idx = -1;
+                            todo!()
                         }
                     }
                 }
-                idx = vd.scope_next;
+
+                cov = vd.scope_next;
             }
 
-            is_arg_scope = idx == ARG_SCOPE_END;
-            if var_id >= 0 {
-                break;
-            }
+            debug_assert_eq!(found_var, -1);
 
+            let is_arg_scope = cov == ARG_SCOPE_END;
             if !is_arg_scope {
-                var_id = (*fd).find_var(var_name).map_or(-1, |x| x as i32);
-                if var_id >= 0 {
+                found_var = (*fd).find_var(var_name).map_or(-1, |x| x as i32);
+                if found_var >= 0 {
                     break;
                 }
             }
             if is_pseudo_var {
                 if resolve_pseudo_var(ctx, fd, var_name).is_some() {
                     break;
-                } else {
-                    var_id = -1;
                 }
             }
             if var_name == JS_ATOM_arguments && (*fd).has_arguments_binding {
-                var_id = (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32);
+                if let Ok(i) = (*fd).add_arguments(ctx, false) {
+                    found_var = i as i32;
+                }
                 break;
             }
             if (*fd).is_func_expr && (*fd).func_name == var_name {
                 // add a new variable with the function name
-                var_id = (*fd).add_func_var(ctx, var_name).map_or(-1, |x| x as i32);
+                found_var = (*fd).add_func_var(ctx, var_name).map_or(-1, |x| x as i32);
                 break;
             }
 
@@ -215,7 +221,7 @@ impl JSFunctionDef {
                     .get_mut((*fd).var_object_idx.unwrap() as usize)
                     .unwrap();
                 vd1.set_is_captured(true);
-                idx = self
+                let cv_id = self
                     .get_closure_var2(
                         ctx,
                         fd,
@@ -227,57 +233,58 @@ impl JSFunctionDef {
                         false,
                         JSVarKindEnum::JS_VAR_NORMAL,
                     )
-                    .unwrap() as i32;
+                    .unwrap();
 
                 push_vec_u8(bc, opcodes::OP_get_var_ref);
-                push_vec_u16(bc, idx as _);
+                push_vec_u16(bc, cv_id);
                 label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
             }
 
             // check eval object in argument scope
             if !is_pseudo_var && (*fd).arg_var_object_idx.is_some() {
-                let vd2 = (*fd)
+                let vd = (*fd)
                     .vars
                     .get_mut((*fd).arg_var_object_idx.unwrap() as usize)
                     .unwrap();
-                vd2.set_is_captured(true);
-                idx = self
+                vd.set_is_captured(true);
+                let cv_id = self
                     .get_closure_var2(
                         ctx,
                         fd,
                         true,
                         false,
                         (*fd).arg_var_object_idx.unwrap(),
-                        vd2.var_name,
+                        vd.var_name,
                         false,
                         false,
                         JSVarKindEnum::JS_VAR_NORMAL,
                     )
-                    .unwrap() as i32;
+                    .unwrap();
 
                 push_vec_u8(bc, opcodes::OP_get_var_ref);
-                push_vec_u16(bc, idx as _);
+                push_vec_u16(bc, cv_id);
                 label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
             }
 
             if (*fd).is_eval {
                 break; // it is necessarily the top level function
             }
-        } // walk scope upward
+        } // while: walk scope upward
 
-        // check direct eval scope (in the closure of the eval function
-        // which is necessarily at the top level)
+        // check direct eval scope
+        // (in the closure of the eval function which is necessarily at the top level)
         if fd.is_null() {
             fd = self;
         }
 
         // find closure variable
-        let mut is_closure = false;
-        if var_id < 0 && (*fd).is_eval {
+        let mut found_closure: Option<u16> = None;
+
+        if found_var < 0 && (*fd).is_eval {
             if let Some(cvars) = (*fd).closure_vars.as_ref() {
                 for (i, cv) in cvars.iter().enumerate() {
                     if var_name == cv.var_name {
-                        idx = if fd != self {
+                        found_closure.replace(if fd != self {
                             self.get_closure_var2(
                                 ctx,
                                 fd,
@@ -289,21 +296,18 @@ impl JSFunctionDef {
                                 cv.is_lexical(),
                                 cv.var_kind(),
                             )
-                            .unwrap() as i32 // can't fail
+                            .unwrap() // can't fail
                         } else {
-                            i as i32
-                        };
-
-                        is_closure = true;
+                            i as u16
+                        });
                         break;
                     } else if !is_pseudo_var
                         && matches!(
-                            (*cv).var_name,
+                            cv.var_name,
                             JS_ATOM__var_ | JS_ATOM__arg_var_ | JS_ATOM__with_
                         )
                     {
-                        let is_with = cv.var_name == JS_ATOM__with_;
-                        idx = if fd != self {
+                        let cv_id = if fd != self {
                             self.get_closure_var2(
                                 ctx,
                                 fd,
@@ -315,71 +319,68 @@ impl JSFunctionDef {
                                 false,
                                 JSVarKindEnum::JS_VAR_NORMAL,
                             )
-                            .expect("can't fail") as i32
+                            .unwrap()
                         } else {
-                            i as i32
+                            i as u16
                         };
 
                         push_vec_u8(bc, opcodes::OP_get_var_ref);
-                        push_vec_u16(bc, idx as _);
-                        label_done.replace(
-                            self.var_object_test(ctx, var_name, op, bc, label_done, is_with),
-                        );
+                        push_vec_u16(bc, cv_id);
+                        label_done.replace(self.var_object_test(
+                            ctx,
+                            var_name,
+                            op,
+                            bc,
+                            label_done,
+                            cv.var_name == JS_ATOM__with_,
+                        ));
                     }
                 }
             }
         }
 
-        if var_id >= 0 {
+        if found_var >= 0 && found_closure.is_none() {
             // find the corresponding closure variable
-            idx = if var_id & ARGUMENT_VAR_OFFSET != 0 {
-                (*fd)
-                    .args
-                    .get_mut((var_id - ARGUMENT_VAR_OFFSET) as usize)
-                    .unwrap()
-                    .set_is_captured(true);
-
-                self.get_closure_var2(
+            found_closure = if found_var & ARGUMENT_VAR_OFFSET != 0 {
+                (*fd).args[(found_var - ARGUMENT_VAR_OFFSET) as usize].set_is_captured(true);
+                self.get_closure_var(
                     ctx,
                     fd,
                     true,
-                    true,
-                    (var_id - ARGUMENT_VAR_OFFSET) as u16,
+                    (found_var - ARGUMENT_VAR_OFFSET) as u16,
                     var_name,
                     false,
                     false,
                     JSVarKindEnum::JS_VAR_NORMAL,
                 )
             } else {
-                let vd3 = (*fd).vars.get_mut(var_id as usize).unwrap();
-                vd3.set_is_captured(true);
-                self.get_closure_var2(
+                let (is_const, is_lexical, var_kind) = {
+                    let vd = (*fd).vars.get_mut(found_var as usize).unwrap();
+                    vd.set_is_captured(true);
+                    (vd.is_const(), vd.is_lexical(), vd.var_kind())
+                };
+
+                self.get_closure_var(
                     ctx,
                     fd,
-                    true,
                     false,
-                    var_id as u16,
+                    found_var as u16,
                     var_name,
-                    vd3.is_const(),
-                    vd3.is_lexical(),
-                    vd3.var_kind(),
+                    is_const,
+                    is_lexical,
+                    var_kind,
                 )
             }
-            .map_or(-1, |x| x as i32);
-
-            if idx >= 0 {
-                is_closure = true;
-            }
+            .ok();
         }
 
-        if is_closure {
-            // closure var access
-            debug_assert!(idx >= 0);
+        if let Some(cv) = found_closure {
+            // access closure
             self.resolve_scope_var_closure(
-                ctx, var_name, op, bc, bc_buf, label, label_done, idx as _, pos_next,
+                ctx, var_name, op, bc, bc_buf, label, label_done, pos_next, cv,
             )
         } else {
-            // global var access
+            // access global
             self.resolve_scope_var_global(
                 ctx, var_name, op, bc, bc_buf, label, label_done, pos_next,
             )
@@ -560,8 +561,8 @@ impl JSFunctionDef {
         bc_buf: *mut u8,
         label: Option<&LabelInfo>,
         label_done: Option<u32>,
-        idx: u32,
         mut pos_next: usize,
+        idx: u16,
     ) -> usize {
         let cv = self
             .closure_vars
