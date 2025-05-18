@@ -208,21 +208,21 @@ fn JS_ATOM_COUNT_RESIZE(n: i32) -> i32 {
 }
 
 #[inline(always)]
-unsafe fn atom_get_free(p: *const JSAtomStruct) -> usize {
+fn atom_get_free(p: *const JSAtomStruct) -> usize {
     p as usize >> 1
 }
 
 #[inline(always)]
-pub unsafe fn atom_set_free(v: usize) -> *mut JSAtomStruct {
+pub fn atom_set_free(v: usize) -> *mut JSAtomStruct {
     ((v << 1) | 1) as *mut JSAtomStruct
 }
 
-pub unsafe fn atom_is_free(p: *const JSAtomStruct) -> bool {
+pub fn atom_is_free(p: *const JSAtomStruct) -> bool {
     (p as usize & 1) != 0
 }
 
 #[inline(always)]
-pub unsafe fn __JS_AtomIsConst(v: JSAtom) -> bool {
+pub fn __JS_AtomIsConst(v: JSAtom) -> bool {
     // NOTE: for u32 atoms, `v as i32` should be minus.
 
     #[cfg(feature = "dump_leaks")]
@@ -436,15 +436,19 @@ unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
     }
 }
 
-pub unsafe fn JS_FreeAtom(ctx: *mut JSContext, v: JSAtom) {
+pub fn JS_FreeAtom(ctx: *mut JSContext, v: JSAtom) {
     if !__JS_AtomIsConst(v) {
-        __JS_FreeAtom((*ctx).rt.as_mut(), v);
+        unsafe {
+            __JS_FreeAtom((*ctx).rt.as_mut(), v);
+        }
     }
 }
 
-pub unsafe fn JS_FreeAtomRT(rt: *mut JSRuntime, v: JSAtom) {
+pub fn JS_FreeAtomRT(rt: *mut JSRuntime, v: JSAtom) {
     if !__JS_AtomIsConst(v) {
-        __JS_FreeAtom(rt, v);
+        unsafe {
+            __JS_FreeAtom(rt, v);
+        }
     }
 }
 
@@ -559,8 +563,8 @@ pub unsafe fn js_symbol_to_atom(ctx: *const JSContext, val: JSValue) -> JSAtom {
 // This test must be fast if atom is not a numeric index (e.g. a
 // method name). Return JS_UNDEFINED if not a numeric
 // index. JS_EXCEPTION can also be returned.
-pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
-    let rt = (*ctx).rt();
+pub fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
+    let rt = unsafe { (*ctx).rt() };
 
     if atom.is_int_type() {
         return JSValue::from_i32(__JS_AtomToUInt32(atom) as _);
@@ -618,7 +622,7 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
         let num = if let Ok(n) = p1
             .clone()
             .into_value()
-            .coerce_to_number_free(ctx.as_mut().unwrap())
+            .coerce_to_number_free(unsafe { ctx.as_mut().unwrap() })
         {
             n
         } else {
@@ -626,7 +630,7 @@ pub unsafe fn JS_AtomIsNumericIndex1(ctx: *mut JSContext, atom: JSAtom) -> JSVal
         };
 
         // test num as string is same to original value
-        if let Ok(str) = num.coerce_to_string_value(ctx.as_mut().unwrap()) {
+        if let Ok(str) = num.coerce_to_string_value(unsafe { ctx.as_mut().unwrap() }) {
             let same = p.content().eq(str.string().content());
             JS_FreeValue(ctx, str);
 

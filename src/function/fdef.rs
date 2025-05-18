@@ -7,9 +7,9 @@ use crate::{
     error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_INDIRECT},
     function::{
-        free_bytecode_atoms, is_var_in_arg_scope, resolve_labels, resolve_variables, JSClosureVar,
-        JSFunctionBytecode, JSFunctionKindEnum, JSGlobalVar, JSVarDef, JSVarKindEnum, JSVarScope,
-        ARG_SCOPE_END, ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
+        free_bytecode_atoms, is_var_in_arg_scope, resolve_labels, JSClosureVar, JSFunctionBytecode,
+        JSFunctionKindEnum, JSGlobalVar, JSVarDef, JSVarKindEnum, JSVarScope, ARG_SCOPE_END,
+        ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
     },
     gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
@@ -472,7 +472,7 @@ impl JSFunctionDef {
         self.dump_bytecode(ctx, 1);
 
         // pass 2
-        if resolve_variables(ctx, self.deref_mut()).is_err() {
+        if self.resolve_variables(ctx).is_err() {
             fail!();
         }
         #[cfg(feature = "dump_bytecode")]
@@ -1123,7 +1123,7 @@ pub unsafe fn get_closure_var(
     )
 }
 
-pub unsafe fn get_label_pos(s: *mut JSFunctionDef, mut label: i32) -> i32 {
+pub unsafe fn get_label_pos(s: *const JSFunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
@@ -1150,7 +1150,7 @@ pub unsafe fn get_label_pos(s: *mut JSFunctionDef, mut label: i32) -> i32 {
     pos
 }
 
-pub unsafe fn skip_dead_code(
+pub fn skip_dead_code(
     s: *mut JSFunctionDef,
     bc_buf: *const u8,
     bc_len: usize,
@@ -1160,16 +1160,22 @@ pub unsafe fn skip_dead_code(
     let mut current_pos = pos;
 
     while current_pos < bc_len {
-        let op = *bc_buf.add(current_pos as usize);
+        let op = unsafe { *bc_buf.add(current_pos as usize) };
         let oi = opcode_info_intermediate(op);
         let len = oi.size;
 
         if op == opcodes::op_line_num {
-            *linep = get_u32(bc_buf.add(current_pos as usize + 1)) as i32;
+            unsafe {
+                *linep = get_u32(bc_buf.add(current_pos as usize + 1)) as i32;
+            }
         } else if op == opcodes::op_label {
-            let label = get_u32(bc_buf.add(current_pos as usize + 1));
-            if (*s).update_label_ref_count(label, 0) > 0 {
-                break;
+            unsafe {
+                let label = get_u32(bc_buf.add(current_pos as usize + 1));
+                if (*s).update_label_ref_count(label, 0) > 0 {
+                    break;
+                }
+
+                debug_assert!((*s).labels[label as usize].pending_relocs.is_empty());
             }
 
             // if false {
@@ -1187,16 +1193,14 @@ pub unsafe fn skip_dead_code(
             //         );
             //     }
             // }
-
-            debug_assert!((*s).labels[label as usize].pending_relocs.is_empty());
         } else {
             // XXX: output a warning for unreachable code?
             match oi.fmt {
-                "label" | "label_u16" => {
+                "label" | "label_u16" => unsafe {
                     let label = get_u32(bc_buf.add(current_pos as usize + 1));
                     (*s).update_label_ref_count(label, -1);
-                }
-                f @ ("atom_label_u8" | "atom_label_u16" | "atom" | "atom_u8" | "atom_u16") => {
+                },
+                f @ ("atom_label_u8" | "atom_label_u16" | "atom" | "atom_u8" | "atom_u16") => unsafe {
                     if matches!(f, "atom_label_u8" | "atom_label_u16") {
                         let label = get_u32(bc_buf.add(current_pos as usize + 5));
                         (*s).update_label_ref_count(label, -1);
@@ -1204,7 +1208,7 @@ pub unsafe fn skip_dead_code(
 
                     let atom = JSAtom(get_u32(bc_buf.add(current_pos as usize + 1)));
                     JS_FreeAtom((*s).ctx.as_ptr(), atom);
-                }
+                },
                 _ => {}
             }
         }
@@ -1215,7 +1219,7 @@ pub unsafe fn skip_dead_code(
     current_pos
 }
 
-pub unsafe fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
+pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
     // if the field is not initialized, the error is catched when accessing it
     push_vec_u8(
         bc,
@@ -1229,7 +1233,7 @@ pub unsafe fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
 }
 
 // return 0 if OK or -1 if the private field could not be resolved
-pub unsafe fn resolve_scope_private_field(
+pub fn resolve_scope_private_field(
     ctx: &mut JSContext,
     s: *mut JSFunctionDef,
     var_name: JSAtom,
@@ -1240,8 +1244,9 @@ pub unsafe fn resolve_scope_private_field(
     let mut is_ref = false;
     let mut var_kind = JSVarKindEnum::JS_VAR_NORMAL;
 
-    let idx =
-        resolve_scope_private_field1(ctx, &mut is_ref, &mut var_kind, s, var_name, scope_level);
+    let idx = unsafe {
+        resolve_scope_private_field1(ctx, &mut is_ref, &mut var_kind, s, var_name, scope_level)
+    };
     if idx < 0 {
         return -1;
     }
@@ -1278,7 +1283,7 @@ pub unsafe fn resolve_scope_private_field(
                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
                     // XXX: add clearer error message
                     bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(JS_DupAtom(ctx, var_name).0.to_ne_bytes().as_slice());
+                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
                     bc.push(JS_THROW_VAR_RO);
                 }
                 _ => {
@@ -1295,7 +1300,7 @@ pub unsafe fn resolve_scope_private_field(
                 JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
                     // XXX: add clearer error message
                     bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(JS_DupAtom(ctx, var_name).0.to_ne_bytes().as_slice());
+                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
                     bc.push(JS_THROW_VAR_RO);
                 }
                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER
@@ -1349,26 +1354,21 @@ pub unsafe fn resolve_scope_private_field(
 }
 
 // search in all scopes
-pub unsafe fn find_private_class_field_all(
-    ctx: &JSContext,
-    fd: *mut JSFunctionDef,
-    name: JSAtom,
-    scope_level: i32,
-) -> i32 {
+pub fn find_private_class_field_all(fd: *mut JSFunctionDef, name: JSAtom, scope_level: i32) -> i32 {
     debug_assert!(scope_level >= 0);
 
-    let mut idx = (*fd).scopes[scope_level as usize].first;
+    let mut idx = unsafe { (*fd).scopes[scope_level as usize].first };
     while idx >= 0 {
-        if (*fd).vars.get(idx as usize).unwrap().var_name == name {
+        if unsafe { (*fd).vars.get(idx as usize).unwrap().var_name } == name {
             return idx;
         }
-        idx = (*fd).vars.get(idx as usize).unwrap().scope_next;
+        idx = unsafe { (*fd).vars.get(idx as usize).unwrap().scope_next };
     }
 
     return -1;
 }
 
-pub unsafe fn resolve_scope_private_field1(
+pub fn resolve_scope_private_field1(
     ctx: &mut JSContext,
     pis_ref: *mut bool,
     pvar_kind: *mut JSVarKindEnum,
@@ -1382,21 +1382,23 @@ pub unsafe fn resolve_scope_private_field1(
     let var_kind: JSVarKindEnum;
 
     'outer: loop {
-        idx = find_private_class_field_all(ctx, fd, var_name, scope_level);
+        idx = find_private_class_field_all(fd, var_name, scope_level);
         if idx >= 0 {
-            var_kind = (*fd).vars.get(idx as usize).unwrap().var_kind();
+            var_kind = unsafe { (*fd).vars.get(idx as usize).unwrap().var_kind() };
             if is_ref {
-                idx = if let Ok(vi) = (*s).get_closure_var2(
-                    ctx,
-                    fd,
-                    true,
-                    false,
-                    idx as u16,
-                    var_name,
-                    true,
-                    true,
-                    JSVarKindEnum::JS_VAR_NORMAL,
-                ) {
+                idx = if let Ok(vi) = unsafe {
+                    (*s).get_closure_var2(
+                        ctx,
+                        fd,
+                        true,
+                        false,
+                        idx as u16,
+                        var_name,
+                        true,
+                        true,
+                        JSVarKindEnum::JS_VAR_NORMAL,
+                    )
+                } {
                     vi as i32
                 } else {
                     return -1;
@@ -1405,28 +1407,30 @@ pub unsafe fn resolve_scope_private_field1(
             break 'outer;
         }
 
-        scope_level = (*fd).parent_scope_level;
-        if (*fd).parent.is_null() {
-            if (*fd).is_eval {
+        scope_level = unsafe { (*fd).parent_scope_level };
+        if unsafe { (*fd).parent.is_null() } {
+            if unsafe { (*fd).is_eval } {
                 // closure of the eval function (top level)
-                if let Some(cvars) = (*fd).closure_vars.as_ref() {
+                if let Some(cvars) = unsafe { (*fd).closure_vars.as_ref() } {
                     for (i, cv) in cvars.iter().enumerate() {
                         if cv.var_name == var_name {
                             var_kind = cv.var_kind();
                             is_ref = true;
 
                             if fd != s {
-                                idx = if let Ok(vi) = (*s).get_closure_var2(
-                                    ctx,
-                                    fd,
-                                    false,
-                                    (*cv).is_arg(),
-                                    i as _,
-                                    cv.var_name,
-                                    cv.is_const(),
-                                    cv.is_lexical(),
-                                    cv.var_kind(),
-                                ) {
+                                idx = if let Ok(vi) = unsafe {
+                                    (*s).get_closure_var2(
+                                        ctx,
+                                        fd,
+                                        false,
+                                        (*cv).is_arg(),
+                                        i as _,
+                                        cv.var_name,
+                                        cv.is_const(),
+                                        cv.is_lexical(),
+                                        cv.var_kind(),
+                                    )
+                                } {
                                     vi as i32
                                 } else {
                                     return -1;
@@ -1443,21 +1447,24 @@ pub unsafe fn resolve_scope_private_field1(
             JS_ThrowSyntaxErrorAtom(ctx, c"undefined private field '%s'", var_name);
             return -1;
         } else {
-            fd = (*fd).parent;
+            fd = unsafe { (*fd).parent };
         }
 
         is_ref = true;
     }
 
     // done:
-    *pis_ref = is_ref;
-    *pvar_kind = var_kind;
+    unsafe {
+        *pis_ref = is_ref;
+        *pvar_kind = var_kind;
+    }
+
     idx
 }
 
 /* build a private setter function name from the private getter name */
-pub unsafe fn get_private_setter_name(ctx: *mut JSContext, name: JSAtom) -> JSAtom {
-    js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast())
+pub fn get_private_setter_name(ctx: *mut JSContext, name: JSAtom) -> JSAtom {
+    unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }
 
 pub unsafe fn instantiate_hoisted_definitions(

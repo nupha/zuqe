@@ -1312,14 +1312,14 @@ pub unsafe fn resolve_scope_var(
     label: Option<&LabelInfo>,
     pos_next: usize,
 ) -> usize {
-    (*s).resolve_scope_var(
-        ctx.as_mut().unwrap(),
-        var_name,
-        scope_level,
-        op,
-        bc,
-        bc_buf,
-        label,
-        pos_next,
-    )
+    unreachable!("use JSFUnctionDef::resolve_scope_var() instead");
+}
+
+/// Resolves variable references in the function definition
+/// Converts global variable accesses to local/closure variables when needed
+/// This is the second pass of bytecode generation
+/// Handles scope resolution and variable binding
+#[deprecated(note = "use JSFunctionDef::resolve_variables() instead")]
+pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Result<(), i32> {
+    (*s).resolve_variables(ctx.as_mut().unwrap())
 }

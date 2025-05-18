@@ -455,16 +455,3 @@ impl JSFunctionDef {
         None
     }
 }
-
-pub unsafe fn mark_eval_captured_variables(
-    ctx: *const JSContext,
-    s: *mut JSFunctionDef,
-    scope_level: i32,
-) {
-    let mut idx = (*s).scopes[scope_level as usize].first;
-    while idx >= 0 {
-        let vd = (*s).vars.get_mut(idx as usize).unwrap();
-        vd.set_is_captured(true);
-        idx = vd.scope_next;
-    }
-}

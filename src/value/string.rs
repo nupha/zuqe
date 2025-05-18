@@ -498,14 +498,14 @@ impl JSValue {
     /// get a reference to value's string description. won't effect value's ref_count.
     /// will panic if value is not string type.
     #[inline(always)]
-    pub unsafe fn string<'a>(self) -> &'a JSString {
+    pub fn string<'a>(self) -> &'a JSString {
         debug_assert!(matches!(
             JS_VALUE_GET_TAG(self),
             JS_TAG_STRING | JS_TAG_SYMBOL
         ));
         debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
 
-        JS_VALUE_GET_PTR(self).cast::<JSString>().as_ref().unwrap()
+        unsafe { JS_VALUE_GET_PTR(self).cast::<JSString>().as_ref().unwrap() }
     }
 
     /// take string description out from value.

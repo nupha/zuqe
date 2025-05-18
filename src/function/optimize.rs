@@ -34,6 +34,23 @@ pub struct CodeContext<'c> {
     _mark: PhantomData<&'c ()>,
 }
 
+impl CodeContext<'_> {
+    pub fn from_raw(ptr: *mut u8, len: usize) -> Self {
+        Self {
+            bc_buf: ptr,
+            bc_len: len,
+            pos: 0,
+            line_num: 0,
+            op: 0,
+            idx: 0,
+            label: 0,
+            val: 0,
+            atom: JS_ATOM_NULL,
+            _mark: PhantomData,
+        }
+    }
+}
+
 impl<'c> CodeContext<'c> {
     pub fn new(bc: &'c [u8]) -> Self {
         Self {
@@ -50,7 +67,7 @@ impl<'c> CodeContext<'c> {
         }
     }
 
-    pub unsafe fn code_match(&mut self, mut pos: usize, pattern: &[i32]) -> bool {
+    pub fn code_match(&mut self, mut pos: usize, pattern: &[i32]) -> bool {
         let tab = self.bc_buf;
         let bc_len = self.bc_len;
 
@@ -73,13 +90,13 @@ impl<'c> CodeContext<'c> {
                     return false;
                 }
 
-                let op = *tab.add(pos as usize);
+                let op = unsafe { *tab.add(pos as usize) };
                 pos_next = pos + opcode_info_intermediate(op).size as usize;
                 if pos_next > bc_len {
                     return false;
                 }
                 if op == opcodes::op_line_num {
-                    line_num = get_u32(tab.add(pos as usize + 1)) as i32;
+                    line_num = get_u32(unsafe { tab.add(pos as usize + 1) }) as i32;
                     pos = pos_next;
                 } else {
                     break op;
@@ -104,16 +121,16 @@ impl<'c> CodeContext<'c> {
 
             match opcode_info_intermediate(op).fmt {
                 "loc8" | "u8" => {
-                    let idx = tab.add(pos) as i32;
+                    let idx = unsafe { *tab.add(pos) };
                     let arg = it.next().copied().unwrap_or(-1);
                     if arg == -1 {
-                        self.idx = idx;
-                    } else if arg != idx {
+                        self.idx = idx as i32;
+                    } else if arg != idx as i32 {
                         return false;
                     }
                 }
                 "u16" | "npop" | "loc" | "arg" | "var_ref" => {
-                    let idx = get_u16(tab.add(pos as usize)) as i32;
+                    let idx = get_u16(unsafe { tab.add(pos as usize) }) as i32;
                     let arg = it.next().copied().unwrap_or(-1);
                     if arg == -1 {
                         self.idx = idx;
@@ -122,27 +139,27 @@ impl<'c> CodeContext<'c> {
                     }
                 }
                 "i32" | "u32" | "label" | "const" => {
-                    self.label = get_u32(tab.add(pos as usize)) as _;
+                    self.label = get_u32(unsafe { tab.add(pos as usize) }) as _;
                 }
                 "label_u16" => {
-                    self.label = get_u32(tab.add(pos as usize)) as _;
-                    self.val = get_u16(tab.add(pos as usize + 4)) as _;
+                    self.label = get_u32(unsafe { tab.add(pos as usize) }) as _;
+                    self.val = get_u16(unsafe { tab.add(pos as usize + 4) }) as _;
                 }
                 "atom" => {
-                    self.atom = JSAtom(get_u32(tab.add(pos as usize)));
+                    self.atom = JSAtom(get_u32(unsafe { tab.add(pos as usize) }));
                 }
                 "atom_u8" => {
-                    self.atom = JSAtom(get_u32(tab.add(pos as usize)));
-                    self.val = get_u16(tab.add(pos as usize + 4)) as i32;
+                    self.atom = JSAtom(get_u32(unsafe { tab.add(pos as usize) }));
+                    self.val = get_u16(unsafe { tab.add(pos as usize + 4) }) as i32;
                 }
                 "atom_u16" => {
-                    self.atom = JSAtom(get_u32(tab.add(pos as usize)));
-                    self.val = get_u16(tab.add(pos as usize + 4)) as i32;
+                    self.atom = JSAtom(unsafe { get_u32(tab.add(pos as usize)) });
+                    self.val = get_u16(unsafe { tab.add(pos as usize + 4) }) as i32;
                 }
                 "atom_label_u8" => {
-                    self.atom = JSAtom(get_u32(tab.add(pos as usize)));
-                    self.label = get_u32(tab.add(pos as usize + 4)) as i32;
-                    self.val = get_u16(tab.add(pos as usize + 8)) as i32;
+                    self.atom = JSAtom(get_u32(unsafe { tab.add(pos as usize) }));
+                    self.label = get_u32(unsafe { tab.add(pos as usize + 4) }) as i32;
+                    self.val = get_u16(unsafe { tab.add(pos as usize + 8) }) as i32;
                 }
                 _ => {}
             } // match fmt
@@ -521,23 +538,27 @@ pub unsafe fn code_match(s: *mut CodeContext, pos: usize, op_list: &[i32]) -> bo
     (*s).code_match(pos, op_list)
 }
 
-pub unsafe fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
-    *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
-        && matches!(
-            *bc_buf.offset(pos as isize),
-            opcodes::OP_insert3 | opcodes::OP_perm4 | opcodes::OP_nop | opcodes::OP_rot3l
-        )
+pub fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+    unsafe {
+        *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
+            && matches!(
+                *bc_buf.offset(pos as isize),
+                opcodes::OP_insert3 | opcodes::OP_perm4 | opcodes::OP_nop | opcodes::OP_rot3l
+            )
+    }
 }
 
-pub unsafe fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
-    *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
-        && matches!(
-            *bc_buf.offset(pos as isize),
-            opcodes::OP_insert3 | opcodes::OP_perm4 | opcodes::OP_nop | opcodes::OP_rot3l
-        )
+pub fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+    unsafe {
+        *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
+            && matches!(
+                *bc_buf.offset(pos as isize),
+                opcodes::OP_insert3 | opcodes::OP_perm4 | opcodes::OP_nop | opcodes::OP_rot3l
+            )
+    }
 }
 
-pub unsafe fn optimize_scope_make_ref(
+pub fn optimize_scope_make_ref(
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
     label: &LabelInfo,
@@ -554,7 +575,7 @@ pub unsafe fn optimize_scope_make_ref(
       OP_scope_make_ref(a), function calls, jumps and gosub.
     */
     /* replace the reference get/put with normal variable accesses */
-    if *bc_buf.add(pos_next) == opcodes::OP_get_ref_value {
+    if unsafe { *bc_buf.add(pos_next) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, get_op as u8);
         push_vec_u16(bc, var_idx as u16);
         pos_next += 1;
@@ -562,7 +583,7 @@ pub unsafe fn optimize_scope_make_ref(
 
     let label_pos = label.pos as usize;
     let mut pos = label_pos - 5;
-    debug_assert_eq!(*bc_buf.add(pos), opcodes::op_label);
+    debug_assert_eq!(unsafe { *bc_buf.add(pos) }, opcodes::op_label);
 
     /* label points to an instruction pair:
       - insert3 / put_ref_value
@@ -572,79 +593,93 @@ pub unsafe fn optimize_scope_make_ref(
     */
     let end_pos = label_pos + 2;
 
-    if *bc_buf.add(label_pos) == opcodes::OP_insert3 {
-        *bc_buf.add(pos) = opcodes::OP_dup;
+    if unsafe { *bc_buf.add(label_pos) } == opcodes::OP_insert3 {
+        unsafe {
+            *bc_buf.add(pos) = opcodes::OP_dup;
+        }
         pos += 1;
     }
-    *bc_buf.add(pos) = get_op as u8 + 1;
-    put_u16(bc_buf.add(pos + 1), var_idx as u16);
+    unsafe {
+        *bc_buf.add(pos) = get_op as u8 + 1;
+        put_u16(bc_buf.add(pos + 1), var_idx as u16);
+    }
 
     pos += 3;
     // pad with OP_nop
     while pos < end_pos {
-        *bc_buf.add(pos) = opcodes::OP_nop;
+        unsafe {
+            *bc_buf.add(pos) = opcodes::OP_nop;
+        }
         pos += 1;
     }
 
     pos_next
 }
 
-pub unsafe fn optimize_scope_make_global_ref(
-    ctx: *mut JSContext,
-    s: *mut JSFunctionDef,
+pub fn optimize_scope_make_global_ref(
+    ctx: &mut JSContext,
+    js_mode: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
     label: &LabelInfo,
     pos_next: u32,
     var_name: JSAtom,
 ) -> u32 {
-    let is_strict = ((*s).js_mode & JS_MODE_STRICT as u8) != 0;
+    let is_strict = js_mode & JS_MODE_STRICT as u8 != 0;
     if is_strict {
         push_vec_u8(bc, opcodes::OP_check_var);
-        push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
+        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
     } else {
         // XXX: need 2 extra OP_true if destructuring an array
     }
 
-    if *bc_buf.add(pos_next as usize) == opcodes::OP_get_ref_value {
+    if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, opcodes::OP_get_var);
-        push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
+        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
     }
 
     let label_pos = label.pos as usize;
     let end_pos = label_pos + 2;
     let mut pos = label_pos - 5;
-    debug_assert_eq!(*bc_buf.add(pos), opcodes::op_label);
+    debug_assert_eq!(unsafe { *bc_buf.add(pos) }, opcodes::op_label);
 
-    let op = *bc_buf.add(label_pos);
+    let op = unsafe { *bc_buf.add(label_pos) };
     if is_strict {
         if op != opcodes::OP_nop {
-            *bc_buf.add(pos) = match op {
-                opcodes::OP_insert3 => opcodes::OP_insert2,
-                opcodes::OP_perm4 => opcodes::OP_perm3,
-                opcodes::OP_rot3l => opcodes::OP_swap,
-                _ => unreachable!(),
-            };
+            unsafe {
+                *bc_buf.add(pos) = match op {
+                    opcodes::OP_insert3 => opcodes::OP_insert2,
+                    opcodes::OP_perm4 => opcodes::OP_perm3,
+                    opcodes::OP_rot3l => opcodes::OP_swap,
+                    _ => unreachable!(),
+                };
+            }
             pos += 1;
         }
     } else {
         if op == opcodes::OP_insert3 {
-            *bc_buf.add(pos) = opcodes::OP_dup;
+            unsafe {
+                *bc_buf.add(pos) = opcodes::OP_dup;
+            }
             pos += 1;
         }
     }
 
-    *bc_buf.add(pos) = if is_strict {
-        opcodes::OP_put_var_strict
-    } else {
-        opcodes::OP_put_var
-    };
-    put_u32(bc_buf.add(pos + 1), JS_DupAtom(ctx, var_name).0);
+    unsafe {
+        *bc_buf.add(pos) = if is_strict {
+            opcodes::OP_put_var_strict
+        } else {
+            opcodes::OP_put_var
+        };
+        put_u32(bc_buf.add(pos + 1), JS_DupAtom(ctx, var_name).0);
+    }
 
     pos += 5;
     while pos < end_pos {
         // fill with nop as placeholder
-        *bc_buf.add(pos) = opcodes::OP_nop;
+        unsafe {
+            *bc_buf.add(pos) = opcodes::OP_nop;
+        }
         pos += 1;
     }
 

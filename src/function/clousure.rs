@@ -100,7 +100,7 @@ impl JSClosureVar {
 impl JSFunctionDef {
     /// 'up_fd' must be an ancestor of 'self'. Create in 'self' a closure referencing a
     /// local variable (is_local = TRUE) or a closure (is_local = FALSE) in 'up_fd'
-    pub unsafe fn get_closure_var2(
+    pub fn get_closure_var2(
         &mut self,
         ctx: &mut JSContext,
         up_fd: *const JSFunctionDef,
@@ -114,9 +114,11 @@ impl JSFunctionDef {
     ) -> Result<u16, i32> {
         let vi = if up_fd != self.parent {
             // search var_idx along ancestor path
-            let i = (*self.parent).get_closure_var2(
-                ctx, up_fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
-            )?;
+            let i = unsafe {
+                (*self.parent).get_closure_var2(
+                    ctx, up_fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+                )?
+            };
             is_local = false;
             i
         } else {
@@ -150,15 +152,13 @@ impl JSFunctionDef {
         is_lexical: bool,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
-        unsafe {
-            self.get_closure_var2(
-                ctx, up_fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
-            )
-        }
+        self.get_closure_var2(
+            ctx, up_fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+        )
     }
 
     /// returns added closure var index, or Err for error.
-    pub unsafe fn add_closure_var(
+    pub fn add_closure_var(
         &mut self,
         ctx: &mut JSContext,
         is_local: bool,

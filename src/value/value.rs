@@ -494,11 +494,11 @@ pub fn JS_VALUE_GET_BOOL(v: JSValue) -> bool {
 }
 
 #[inline(always)]
-pub unsafe fn JS_FreeValue(ctx: *mut JSContext, v: JSValue) {
-    JS_FreeValueRT((*ctx).rt_mut(), v)
+pub fn JS_FreeValue(ctx: *mut JSContext, v: JSValue) {
+    unsafe { JS_FreeValueRT((*ctx).rt_mut(), v) }
 }
 
-#[inline(always)]
+#[inline]
 pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     if JS_VALUE_HAS_REF_COUNT(v) {
         match JS_VALUE_GET_TAG(v) {
