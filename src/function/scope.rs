@@ -11,7 +11,7 @@ pub struct JSVarScope {
     /// id of parent scope. -1 for none.
     pub parent: i32,
 
-    /// index in `vars` of the last variable in this scope.
+    /// index of the last variable defined in `vars` list up to this scope.
     /// -1 for none.
     pub first: i32,
 }

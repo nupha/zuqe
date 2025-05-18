@@ -58,42 +58,42 @@ pub struct JSFunctionDef {
     /// 仅当is_eval=true时有效
     pub eval_type: u32,
 
-    // 变量是否未在本地定义
+    /// 变量是否未在本地定义
     pub is_global_var: bool,
-    // 是否是函数表达式
+    /// 是否是函数表达式
     pub is_func_expr: bool,
-    // 是否拥有home object
+    /// 是否拥有home object
     pub has_home_object: bool,
-    // 是否需要prototype字段
+    /// 是否需要prototype字段
     pub has_prototype: bool,
-    // 是否有简单参数列表
+    /// 是否有简单参数列表
     pub has_simple_parameter_list: bool,
-    // 是否需要创建参数作用域
+    /// 是否需要创建参数作用域
     pub has_parameter_expressions: bool,
-    // 严格模式指令
+    /// 严格模式指令
     pub has_use_strict: bool,
-    // 是否包含eval调用
+    /// 是否包含eval调用
     pub has_eval_call: bool,
-    // 是否可访问arguments绑定
+    /// 是否可访问arguments绑定
     pub has_arguments_binding: bool,
-    // 是否可访问this绑定
+    /// 是否可访问this绑定
     pub has_this_binding: bool,
-    // 是否允许new.target
+    /// 是否允许new.target
     pub new_target_allowed: bool,
-    // 是否允许super()
+    /// 是否允许super()
     pub super_call_allowed: bool,
-    // 是否允许super.或super[]
+    /// 是否允许super.或super[]
     pub super_allowed: bool,
-    // 是否允许arguments标识符
+    /// 是否允许arguments标识符
     pub arguments_allowed: bool,
-    // 是否是派生类构造函数
+    /// 是否是派生类构造函数
     pub is_derived_class_constructor: bool,
-    // 是否在函数体内
+    /// 是否在函数体内
     pub in_function_body: bool,
-    // 回溯屏障
+    /// 回溯屏障
     pub backtrace_barrier: bool,
 
-    // 函数类型枚举（原C使用位域）
+    /// 函数类型枚举
     pub func_kind: JSFunctionKindEnum,
     pub func_type: JSParseFunctionEnum,
     pub func_name: JSAtom,
@@ -141,14 +141,14 @@ pub struct JSFunctionDef {
 
     pub need_home_object: bool,
 
-    /// current scope id
-    pub scope_level: i32,
-    /// 第一个词法作用域变量索引
-    pub scope_first: i32,
-    /// list of all scopes
+    /// scopes stack
     pub scopes: Vec<JSVarScope>,
+    /// current scope level
+    pub scope_level: i32,
+    /// denotes the starting index to retrive chain of variable defs since this scope.
+    pub scope_first: i32,
 
-    // 函数体或eval的作用域
+    /// scope for function body, should be 1 after setup.
     pub body_scope: i32,
 
     // 字节码缓冲区
@@ -269,6 +269,7 @@ impl JSFunctionDef {
             scope_level: 0,
             scope_first: -1,
             scopes: {
+                // scope stack: initialized with one default scope 0
                 let mut arr = Vec::<JSVarScope>::new();
                 arr.try_reserve_exact(4).map_err(|_| -1)?;
                 arr.push(JSVarScope {

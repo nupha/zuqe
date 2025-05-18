@@ -47,11 +47,11 @@ pub enum JSVarKindEnum {
 pub const GLOBAL_VAR_OFFSET: i32 = 0x40000000;
 pub const ARGUMENT_VAR_OFFSET: i32 = 0x20000000;
 
-pub enum JSVarDefIndex {
-    Variable(u16),
-    Argument(u16),
-    Global,
-}
+// pub enum JSVarDefIndex {
+//     Variable(u16),
+//     Argument(u16),
+//     Global(u16),
+// }
 
 #[repr(C)]
 pub struct JSVarBinding {

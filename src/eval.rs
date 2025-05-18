@@ -155,13 +155,16 @@ impl JSContext {
                 fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
             }
 
-            // init fd body scope #0.
+            // add fd body scope.
+            // initially there are scope level 0 {-1, -1},
+            // so body scope will be level 1.
             fd.body_scope = if let Ok(scope) = fd.push_scope(0) {
                 scope as i32
             } else {
                 fd.free(self);
                 fail1!(m);
             };
+            debug_assert_eq!(fd.body_scope, 1);
 
             fd
         } else {

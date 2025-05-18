@@ -21,7 +21,12 @@ use crate::{
 
 use super::{CallArgs, JSFunctionBytecode};
 
+/// Special index for argument scope.
+/// This is same to `JSFunctionDef::body_scope`, which was automatically pushed
+/// when creating root function def in `eval_internal()`.
 pub const ARG_SCOPE_INDEX: i32 = 1;
+
+/// to mark end of arugment vars chain.
 pub const ARG_SCOPE_END: i32 = -2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
