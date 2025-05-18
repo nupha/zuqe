@@ -3,10 +3,7 @@ use crate::{
     bytecode::{opcodes, OpCode},
     context::JSContext,
     error::JS_THROW_VAR_RO,
-    function::{
-        resolve_pseudo_var, JSFunctionDef, JSVarKindEnum, LabelInfo, ARGUMENT_VAR_OFFSET,
-        ARG_SCOPE_END,
-    },
+    function::{JSFunctionDef, JSVarKindEnum, LabelInfo, ARGUMENT_VAR_OFFSET, ARG_SCOPE_END},
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
 };
 
@@ -93,7 +90,9 @@ impl JSFunctionDef {
                 found_var = self.find_var(var_name).map_or(-1, |x| x as i32);
             }
             if found_var < 0 && is_pseudo_var {
-                found_var = resolve_pseudo_var(ctx, self, var_name).map_or(-1, |x| x as i32);
+                found_var = self
+                    .resolve_pseudo_var(ctx, var_name)
+                    .map_or(-1, |x| x as i32);
             }
             if found_var < 0 && var_name == JS_ATOM_arguments && self.has_arguments_binding {
                 // 'arguments' pseudo variable
@@ -198,7 +197,8 @@ impl JSFunctionDef {
                 }
             }
             if is_pseudo_var {
-                if resolve_pseudo_var(ctx, fd, var_name).is_some() {
+                if let Some(i) = (*fd).resolve_pseudo_var(ctx, var_name) {
+                    found_var = i as i32;
                     break;
                 }
             }
@@ -210,17 +210,19 @@ impl JSFunctionDef {
             }
             if (*fd).is_func_expr && (*fd).func_name == var_name {
                 // add a new variable with the function name
-                found_var = (*fd).add_func_var(ctx, var_name).map_or(-1, |x| x as i32);
+                if let Ok(i) = (*fd).add_func_var(ctx, var_name) {
+                    found_var = i as i32;
+                }
                 break;
             }
 
             // check eval object
             if !is_arg_scope && (*fd).var_object_idx.is_some() && !is_pseudo_var {
-                let vd1 = (*fd)
+                let vd = (*fd)
                     .vars
                     .get_mut((*fd).var_object_idx.unwrap() as usize)
                     .unwrap();
-                vd1.set_is_captured(true);
+                vd.set_is_captured(true);
                 let cv_id = self
                     .get_closure_var2(
                         ctx,
@@ -228,7 +230,7 @@ impl JSFunctionDef {
                         true,
                         false,
                         (*fd).var_object_idx.unwrap(),
-                        vd1.var_name,
+                        vd.var_name,
                         false,
                         false,
                         JSVarKindEnum::JS_VAR_NORMAL,
@@ -745,6 +747,48 @@ impl JSFunctionDef {
         pos_next
     }
 
+    /// Resolves special pseudo variables (this, new.target, etc.)
+    /// Returns the variable definition index if found.
+    /// Returns None if the variable is not a pseudo variable
+    fn resolve_pseudo_var(&mut self, ctx: &mut JSContext, var_name: JSAtom) -> Option<u16> {
+        if !self.has_this_binding {
+            return None;
+        }
+
+        match var_name {
+            JS_ATOM__home_object_ => {
+                // 'home_object' pseudo variable
+                if self.home_object_var_idx.is_none() {
+                    self.home_object_var_idx = Some(self.add_var(ctx, var_name).expect("TODO"));
+                }
+                self.home_object_var_idx
+            }
+            JS_ATOM_this_active_func => {
+                // 'this.active_func' pseudo variable
+                if self.this_active_func_var_idx.is_none() {
+                    self.this_active_func_var_idx =
+                        Some(self.add_var(ctx, var_name).expect("TODO"));
+                }
+                self.this_active_func_var_idx
+            }
+            JS_ATOM_new_target => {
+                // 'new.target' pseudo variable
+                if self.new_target_var_idx.is_none() {
+                    self.new_target_var_idx = Some(self.add_var(ctx, var_name).expect("TODO"));
+                }
+                self.new_target_var_idx
+            }
+            JS_ATOM_this => {
+                // 'this' pseudo variable
+                if self.this_var_idx.is_none() {
+                    self.this_var_idx = Some(self.add_var_this(ctx).unwrap());
+                }
+                self.this_var_idx
+            }
+            _ => None,
+        }
+    }
+
     /// test if 'var_name' is in the variable object on the stack. If is it
     /// the case, handle it and jump to 'label_done'.
     /// If argument `label_done` is None, new label will be created.
@@ -779,6 +823,18 @@ impl JSFunctionDef {
     }
 }
 
+/// Resolves special pseudo variables (this, new.target, etc.)
+/// Returns the variable definition index if found
+/// Returns None if the variable is not a pseudo variable
+#[deprecated(note = "use JSFunctionDef::resolve_pseudo_var() instead")]
+pub unsafe fn resolve_pseudo_var(
+    ctx: *mut JSContext,
+    s: *mut JSFunctionDef,
+    var_name: JSAtom,
+) -> Option<u16> {
+    (*s).resolve_pseudo_var(ctx.as_mut().unwrap(), var_name)
+}
+
 // pub fn get_with_scope_opcode(op: u8) -> u8 {
 //     if op == opcodes::op_scope_get_var_undef {
 //         opcodes::OP_with_get_var as u8
@@ -808,20 +864,4 @@ pub unsafe fn var_object_test(
         *label_done,
         is_with,
     ));
-
-    // push_vec_u8(bc, get_with_scope_opcode(op));
-    // push_vec_u32(bc, JS_DupAtom(ctx, var_name).0);
-    // let label = if let Some(l) = label_done {
-    //     *l
-    // } else {
-    //     // create label
-    //     let l = (*s).add_label().expect("TODO: unhandled add_label() error");
-    //     label_done.replace(l);
-    //     l
-    // };
-    // push_vec_u32(bc, label);
-    // push_vec_u8(bc, is_with as u8);
-
-    // (*s).update_label_ref_count(label as _, 1);
-    // (*s).jump_size += 1;
 }

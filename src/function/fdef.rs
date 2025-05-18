@@ -76,7 +76,7 @@ pub struct JSFunctionDef {
     pub has_eval_call: bool,
     /// 是否可访问arguments绑定
     pub has_arguments_binding: bool,
-    /// 是否可访问this绑定
+    /// can access `this` binding?
     pub has_this_binding: bool,
     /// 是否允许new.target
     pub new_target_allowed: bool,
