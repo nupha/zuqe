@@ -50,42 +50,64 @@ impl JSFunctionDef {
         let mut label_done: Option<u32> = None;
         let mut found_var: i32 = -1;
 
-        // search chain-of-variable-defs for `var_name` node
-        // resolve local scoped variables
-        let is_arg_scope = {
-            let mut cov = self.scopes[scope as usize].first;
-            while cov >= 0 {
-                let (cur_var_name, is_const, scope_next) = {
-                    let vd = self.vars.get(cov as usize).unwrap();
-                    (vd.var_name, vd.is_const(), vd.scope_next)
-                };
+        // resolve local scoped variables: iterate over scoped vars
+        let mut at_arg_scope_end = false;
+        for item in self.scoped_vars_iter_mut(scope as _) {
+            at_arg_scope_end = item.arg_scope_end;
 
-                if cur_var_name == var_name {
-                    if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
-                        if is_const {
-                            push_vec_u8(bc, opcodes::OP_throw_error);
-                            push_vec_u32(bc, var_name.dup(ctx.rt()).0);
-                            push_vec_u8(bc, JS_THROW_VAR_RO);
-                            done!(label_done);
-                        }
+            if item.vd.var_name == var_name {
+                if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
+                    if item.vd.is_const() {
+                        push_vec_u8(bc, opcodes::OP_throw_error);
+                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u8(bc, JS_THROW_VAR_RO);
+                        done!(label_done);
                     }
-                    found_var = cov;
-                    break;
-                } else if cur_var_name == JS_ATOM__with_ && !is_pseudo_var {
-                    push_vec_u8(bc, opcodes::OP_get_loc);
-                    push_vec_u16(bc, cov as _);
-                    label_done
-                        .replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
                 }
-
-                cov = scope_next;
+                found_var = item.idx;
+                break;
+            } else if item.vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
+                push_vec_u8(bc, opcodes::OP_get_loc);
+                push_vec_u16(bc, item.idx as _);
+                label_done.replace(
+                    item.fd
+                        .var_object_test(ctx, var_name, op, bc, label_done, true),
+                );
             }
+        }
 
-            cov == ARG_SCOPE_END
-        };
+        // let mut cov = self.scopes[scope as usize].first;
+        // while cov >= 0 {
+        //     let (cur_var_name, is_const, scope_next) = {
+        //         let vd = self.vars.get(cov as usize).unwrap();
+        //         (vd.var_name, vd.is_const(), vd.scope_next)
+        //     };
+
+        //     if cur_var_name == var_name {
+        //         if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
+        //             if is_const {
+        //                 push_vec_u8(bc, opcodes::OP_throw_error);
+        //                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+        //                 push_vec_u8(bc, JS_THROW_VAR_RO);
+        //                 done!(label_done);
+        //             }
+        //         }
+        //         found_var = cov;
+        //         break;
+        //     } else if cur_var_name == JS_ATOM__with_ && !is_pseudo_var {
+        //         push_vec_u8(bc, opcodes::OP_get_loc);
+        //         push_vec_u16(bc, cov as _);
+        //         label_done
+        //             .replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
+        //     }
+
+        //     cov = scope_next;
+        // }
+
+        // cov == ARG_SCOPE_END
 
         if found_var < 0 {
-            if !is_arg_scope {
+            if !at_arg_scope_end {
                 // argument scope: variables are not visible but pseudo variables are visible
                 found_var = self.find_var(var_name).map_or(-1, |x| x as i32);
             }
@@ -112,7 +134,7 @@ impl JSFunctionDef {
         }
 
         if !is_pseudo_var {
-            if !is_arg_scope && self.var_object_idx.is_some() {
+            if !at_arg_scope_end && self.var_object_idx.is_some() {
                 // check eval object:
                 // test `var_name` defined on `<val>` object
                 push_vec_u8(bc, opcodes::OP_get_loc);
@@ -136,17 +158,22 @@ impl JSFunctionDef {
 
         'walk_scopes: while unsafe { !(*fd).parent.is_null() } {
             let scope_level = unsafe { (*fd).parent_scope_level };
+            debug_assert!(scope_level >= 0);
+
             fd = unsafe { (*fd).parent };
 
-            let mut cov = unsafe { (*fd).scopes[scope_level as usize].first };
-            while cov >= 0 {
-                let vd = unsafe { (*fd).vars.get_mut(cov as usize).unwrap() };
-                if vd.var_name == var_name {
+            let mut is_arg_scope = false;
+
+            // iterate over scoped vars
+            for item in unsafe { (*fd).scoped_vars_iter_mut(scope_level as _) } {
+                is_arg_scope = item.arg_scope_end;
+
+                if item.vd.var_name == var_name {
                     if matches!(
                         op as u8,
                         opcodes::op_scope_put_var | opcodes::op_scope_make_ref
                     ) {
-                        if vd.is_const() {
+                        if item.vd.is_const() {
                             push_vec_u8(bc, opcodes::OP_throw_error);
                             push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                             push_vec_u8(bc, JS_THROW_VAR_RO);
@@ -154,19 +181,19 @@ impl JSFunctionDef {
                         }
                     }
 
-                    found_var = cov;
+                    found_var = item.idx;
                     break 'walk_scopes;
                 }
 
-                if vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
-                    vd.set_is_captured(true);
-                    match self.get_closure_var2(
+                if item.vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
+                    item.vd.set_is_captured(true);
+                    match item.fd.get_closure_var2(
                         ctx,
                         fd,
                         true,
                         false,
-                        cov as u16,
-                        vd.var_name,
+                        item.idx as u16,
+                        item.vd.var_name,
                         false,
                         false,
                         JSVarKindEnum::JS_VAR_NORMAL,
@@ -183,13 +210,60 @@ impl JSFunctionDef {
                         }
                     }
                 }
-
-                cov = vd.scope_next;
             }
+
+            // let mut cov = unsafe { (*fd).scopes[scope_level as usize].first };
+            // while cov >= 0 {
+            //     let vd = unsafe { (*fd).vars.get_mut(cov as usize).unwrap() };
+            //     if vd.var_name == var_name {
+            //         if matches!(
+            //             op as u8,
+            //             opcodes::op_scope_put_var | opcodes::op_scope_make_ref
+            //         ) {
+            //             if vd.is_const() {
+            //                 push_vec_u8(bc, opcodes::OP_throw_error);
+            //                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+            //                 push_vec_u8(bc, JS_THROW_VAR_RO);
+            //                 done!(label_done);
+            //             }
+            //         }
+
+            //         found_var = cov;
+            //         break 'walk_scopes;
+            //     }
+
+            //     if vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
+            //         vd.set_is_captured(true);
+            //         match self.get_closure_var2(
+            //             ctx,
+            //             fd,
+            //             true,
+            //             false,
+            //             cov as u16,
+            //             vd.var_name,
+            //             false,
+            //             false,
+            //             JSVarKindEnum::JS_VAR_NORMAL,
+            //         ) {
+            //             Ok(vi) => {
+            //                 push_vec_u8(bc, opcodes::OP_get_var_ref);
+            //                 push_vec_u16(bc, vi);
+            //                 label_done.replace(
+            //                     self.var_object_test(ctx, var_name, op, bc, label_done, true),
+            //                 );
+            //             }
+            //             Err(_) => {
+            //                 todo!()
+            //             }
+            //         }
+            //     }
+
+            //     cov = vd.scope_next;
+            // }
+            // let is_arg_scope = cov == ARG_SCOPE_END;
 
             debug_assert_eq!(found_var, -1);
 
-            let is_arg_scope = cov == ARG_SCOPE_END;
             if !is_arg_scope {
                 found_var = unsafe { (*fd).find_var(var_name).map_or(-1, |x| x as i32) };
                 if found_var >= 0 {

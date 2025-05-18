@@ -62,8 +62,7 @@ pub struct JSVarBinding {
     pub is_var: bool,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JSVarDef {
     pub var_name: JSAtom,
 
