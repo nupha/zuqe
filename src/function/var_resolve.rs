@@ -8,8 +8,7 @@ use crate::{
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
         get_label_pos, instantiate_hoisted_definitions, mark_eval_captured_variables,
-        resolve_scope_private_field, resolve_scope_var, skip_dead_code, JSFunctionDef,
-        JSVarKindEnum,
+        resolve_scope_private_field, skip_dead_code, JSFunctionDef, JSVarKindEnum,
     },
     utils::{get_u16, get_u32, push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, M2},
 };
@@ -135,9 +134,8 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 let var_name = JSAtom(get_u32(bc_buf.add(pos + 1))).into_rc((*ctx).rt());
                 let scope = get_u16(bc_buf.add(pos + 5));
 
-                pos_next = resolve_scope_var(
-                    ctx,
-                    s,
+                pos_next = (*s).resolve_scope_var(
+                    ctx.as_mut().unwrap(),
                     *var_name,
                     scope as _,
                     op,
@@ -159,9 +157,8 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
                 #[cfg(debug_assertions)]
                 let _name_refcnt = var_name.ref_count((*ctx).rt());
 
-                pos_next = resolve_scope_var(
-                    ctx,
-                    s,
+                pos_next = (*s).resolve_scope_var(
+                    ctx.as_mut().unwrap(),
                     var_name,
                     scope as _,
                     op,

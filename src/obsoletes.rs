@@ -1298,3 +1298,28 @@ pub unsafe fn js_parse_expect(s: *mut JSParseState, tok: i32) -> i32 {
 pub unsafe fn is_child_scope(fd: *const JSFunctionDef, scope: i32, parent_scope: i32) -> bool {
     (*fd).is_child_scope(scope, parent_scope)
 }
+
+/// return the position of the next opcode
+#[deprecated(note = "use JSFUnctionDef::resolve_scope_var() instead")]
+pub unsafe fn resolve_scope_var(
+    ctx: *mut JSContext,
+    s: *mut JSFunctionDef,
+    var_name: JSAtom,
+    scope_level: i32,
+    op: u8,
+    bc: &mut Vec<u8>,
+    bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
+    label: Option<&LabelInfo>,
+    pos_next: usize,
+) -> usize {
+    (*s).resolve_scope_var(
+        ctx.as_mut().unwrap(),
+        var_name,
+        scope_level,
+        op,
+        bc,
+        bc_buf,
+        label,
+        pos_next,
+    )
+}
