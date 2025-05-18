@@ -616,7 +616,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-            let func_idx = fd0.find_var(func_name).unwrap_or(-1);
+            let func_idx = fd0.find_var(func_name).map_or(-1, |x| x as i32);
             if fd0.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                 && fd0

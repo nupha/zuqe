@@ -467,6 +467,7 @@ pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> R
     Ok(())
 }
 
+/// returns variable def index
 pub unsafe fn resolve_pseudo_var(
     ctx: *mut JSContext,
     s: *mut JSFunctionDef,

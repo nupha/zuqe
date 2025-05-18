@@ -31,11 +31,11 @@ pub unsafe fn define_var(
     }
 
     let mut ctx = (*s).ctx;
-    let mut idx: i32;
+    let mut vid: i32;
 
     match var_def_type {
         JSVarDefEnum::JS_VAR_DEF_WITH => {
-            idx = (*fd)
+            vid = (*fd)
                 .add_scope_var(ctx.deref_mut(), name, JSVarKindEnum::JS_VAR_NORMAL)
                 .map_or(-1, |x| x as i32);
         }
@@ -44,10 +44,10 @@ pub unsafe fn define_var(
         | JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
         | JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL => {
             if let Some(id) = (*fd).find_lexical_decl(name, (*fd).scope_first, true) {
-                idx = id as i32;
+                vid = id as i32;
 
-                if idx < GLOBAL_VAR_OFFSET {
-                    let vd = (*fd).vars.get(idx as usize).unwrap();
+                if vid < GLOBAL_VAR_OFFSET {
+                    let vd = (*fd).vars.get(vid as usize).unwrap();
                     if vd.scope_level == (*fd).scope_level {
                         // same scope: in non strict mode, functions can be redefined (annex B.3.3.4).
                         if !((*fd).js_mode & JS_MODE_STRICT as u8 == 0
@@ -102,7 +102,7 @@ pub unsafe fn define_var(
                 if let Ok(hf) = (*fd).add_global_var(ctx.deref_mut(), name) {
                     hf.set_is_lexical(true);
                     hf.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
-                    idx = GLOBAL_VAR_OFFSET;
+                    vid = GLOBAL_VAR_OFFSET;
                 } else {
                     return -1;
                 }
@@ -114,18 +114,18 @@ pub unsafe fn define_var(
                 } else {
                     JSVarKindEnum::JS_VAR_NORMAL
                 };
-                idx = (*fd)
+                vid = (*fd)
                     .add_scope_var(ctx.deref_mut(), name, var_kind)
                     .map_or(-1, |x| x as i32);
-                if idx >= 0 {
-                    let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+                if vid >= 0 {
+                    let vd = (*fd).vars.get_mut(vid as usize).unwrap();
                     vd.set_is_lexical(true);
                     vd.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                 }
             }
         }
         JSVarDefEnum::JS_VAR_DEF_CATCH => {
-            idx = (*fd)
+            vid = (*fd)
                 .add_scope_var(ctx.deref_mut(), name, JSVarKindEnum::JS_VAR_CATCH)
                 .map_or(-1, |x| x as i32);
         }
@@ -148,7 +148,7 @@ pub unsafe fn define_var(
                 }
 
                 if let Ok(_) = (*fd).add_global_var(ctx.deref_mut(), name) {
-                    idx = GLOBAL_VAR_OFFSET;
+                    vid = GLOBAL_VAR_OFFSET;
                 } else {
                     return -1;
                 }
@@ -156,9 +156,9 @@ pub unsafe fn define_var(
                 #[cfg(debug_assertions)]
                 let _name_refcnt = name.ref_count(ctx.rt());
 
-                idx = if let Some(id) = (*fd).find_var(name) {
+                vid = if let Some(id) = (*fd).find_var(name) {
                     // the variable already exists, don't add it again
-                    id
+                    id as i32
                 } else if let Ok(id) = (*fd).add_var(ctx.deref_mut(), name) {
                     if name == JS_ATOM_arguments && (*fd).has_arguments_binding {
                         (*fd).arguments_var_idx.replace(id);
@@ -173,5 +173,5 @@ pub unsafe fn define_var(
         }
     }
 
-    idx
+    vid
 }

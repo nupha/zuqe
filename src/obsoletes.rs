@@ -1126,12 +1126,12 @@ pub unsafe fn add_arg(ctx: *mut JSContext, fd: *mut JSFunctionDef, name: JSAtom)
 /* return the variable index or -1 if not found,
 add ARGUMENT_VAR_OFFSET for argument variables */
 pub unsafe fn find_arg(ctx: *const JSContext, fd: *const JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd).find_arg(name).unwrap_or(-1)
+    (*fd).find_arg(name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::find_var_or_arg() instead")]
 pub unsafe fn find_var(ctx: *const JSContext, fd: *const JSFunctionDef, name: JSAtom) -> i32 {
-    (*fd).find_var(name).unwrap_or(-1)
+    (*fd).find_var(name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var() instead")]

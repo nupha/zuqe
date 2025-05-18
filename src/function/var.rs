@@ -47,6 +47,12 @@ pub enum JSVarKindEnum {
 pub const GLOBAL_VAR_OFFSET: i32 = 0x40000000;
 pub const ARGUMENT_VAR_OFFSET: i32 = 0x20000000;
 
+pub enum JSVarDefIndex {
+    Variable(u16),
+    Argument(u16),
+    Global,
+}
+
 #[repr(C)]
 pub struct JSVarBinding {
     pub name: JSAtom,
@@ -248,7 +254,7 @@ impl JSFunctionDef {
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
     }
 
-    /// add new argument to the function, returns arg id or error
+    /// add new argument to the function, returns arg index or error
     pub fn add_arg(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
@@ -368,37 +374,40 @@ impl JSFunctionDef {
         }
     }
 
-    /// find arg by name.
-    /// returns the variable index (add ARGUMENT_VAR_OFFSET for argument variables)
-    /// or None if not found.
-    pub fn find_arg(&self, name: JSAtom) -> Option<i32> {
+    /// find argument var by `name`.
+    ///
+    /// returns
+    /// * the variable index or'ed with ARGUMENT_VAR_OFFSET as var id
+    /// * None if not found.
+    pub fn find_arg(&self, name: JSAtom) -> Option<u32> {
         self.args
             .iter()
             .enumerate()
             .rev() // search in reveresed order
             .find_map(|(i, vd)| {
                 if vd.var_name == name {
-                    Some(i as i32 | ARGUMENT_VAR_OFFSET)
+                    Some(i as u32 | (ARGUMENT_VAR_OFFSET as u32))
                 } else {
                     None
                 }
             })
     }
 
-    /// find variable by name. if not found in vars, find it in args.
-    pub fn find_var(&self, name: JSAtom) -> Option<i32> {
+    /// find variable by `name`. if `name` is not found in vars, find it in arguments.
+    /// for argument var, returned id is or'ed with ARGUMENT_VAR_OFFSET.
+    pub fn find_var(&self, name: JSAtom) -> Option<u32> {
         self.vars
             .iter()
             .enumerate()
             .rev() // search in reveresed order
             .find_map(|(i, vd)| {
                 if vd.var_name == name && vd.scope_level == 0 {
-                    Some(i as i32)
+                    Some(i as u32)
                 } else {
                     None
                 }
             })
-            .or(self.find_arg(name))
+            .or(self.find_arg(name)) // not found is vars, then search in args
     }
 
     /// will check global lexcical only when `scope` is minus
@@ -407,7 +416,7 @@ impl JSFunctionDef {
         name: JSAtom,
         scope: i32,
         check_catch_var: bool,
-    ) -> Option<u16> {
+    ) -> Option<u32> {
         let mut scope_idx = scope;
         while scope_idx >= 0 {
             let vd = self.vars.get(scope_idx as usize).unwrap();
@@ -415,7 +424,7 @@ impl JSFunctionDef {
                 && (vd.is_lexical()
                     || (vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH && check_catch_var))
             {
-                return Some(scope_idx as u16);
+                return Some(scope_idx as u32);
             }
 
             scope_idx = vd.scope_next;
@@ -423,7 +432,7 @@ impl JSFunctionDef {
 
         if self.is_eval && self.eval_type == JS_EVAL_TYPE_GLOBAL {
             if self.find_lexical_global_var(name).is_some() {
-                return Some(GLOBAL_VAR_OFFSET as u16);
+                return Some(GLOBAL_VAR_OFFSET as u32);
             }
         }
 
