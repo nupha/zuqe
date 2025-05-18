@@ -1293,3 +1293,8 @@ pub unsafe fn js_parse_expect_semi(s: *mut JSParseState) -> i32 {
 pub unsafe fn js_parse_expect(s: *mut JSParseState, tok: i32) -> i32 {
     (*s).parse_expect(tok).map_or(-1, |_| 0)
 }
+
+/* return true if scope == parent_scope or if scope is a child of parent_scope */
+pub unsafe fn is_child_scope(fd: *const JSFunctionDef, scope: i32, parent_scope: i32) -> bool {
+    (*fd).is_child_scope(scope, parent_scope)
+}

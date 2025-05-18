@@ -4,7 +4,7 @@ use crate::{
     atom::{consts::JS_ATOM_arguments, JSAtom},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{is_child_scope, JSFunctionDef, JSVarDefEnum, JSVarKindEnum, GLOBAL_VAR_OFFSET},
+    function::{JSFunctionDef, JSVarDefEnum, JSVarKindEnum, GLOBAL_VAR_OFFSET},
 };
 
 use super::state::JSParseState;
@@ -88,7 +88,7 @@ pub unsafe fn define_var(
 
             if (*fd).is_global_var {
                 if let Some(hf) = (*fd).find_global_var(name) {
-                    if is_child_scope(fd, hf.scope_level, (*fd).scope_level) {
+                    if (*fd).is_child_scope(hf.scope_level, (*fd).scope_level) {
                         (*s).throw_syntax_error(c"invalid redefinition of global identifier");
                         return -1;
                     }
