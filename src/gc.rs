@@ -356,14 +356,11 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
 
 pub fn JS_RunGC(rt: &mut JSRuntime) {
     unsafe {
-        /* decrement the reference of the children of each object. mark =
-        1 after this pass. */
+        // decrement the reference of the children of each object. mark = 1 after this pass.
         gc_decref(rt);
-
-        /* keep the GC objects with a non zero refcount and their childs */
+        // keep the GC objects with a non zero refcount and their childs
         gc_scan(rt);
-
-        /* free the GC objects in a cycle */
+        // free the GC objects in a cycle
         gc_free_cycles(rt);
     }
 }
