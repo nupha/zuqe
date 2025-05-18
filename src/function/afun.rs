@@ -1,7 +1,3 @@
-use std::borrow::Cow;
-
-use fallible_collections::FallibleVec;
-
 use crate::{
     class::JSClassID,
     context::{JSContext, JS_MODE_ASYNC},

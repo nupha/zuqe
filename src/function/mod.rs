@@ -11,7 +11,7 @@ mod label;
 mod native;
 mod optimize;
 mod resolve_labels;
-mod resolve_scoped_var;
+mod resolve_var_scoped;
 mod resolve_vars;
 mod scope;
 mod stack;
