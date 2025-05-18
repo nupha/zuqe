@@ -216,7 +216,7 @@ pub unsafe fn gc_decref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
     }
 }
 
-pub unsafe fn gc_decref(rt: *mut JSRuntime) {
+pub unsafe fn gc_decref(rt: &mut JSRuntime) {
     init_list_head(&mut (*rt).tmp_obj_list);
 
     print!(
@@ -354,7 +354,7 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
     init_list_head(&mut (*rt).gc_zero_ref_count_list);
 }
 
-pub fn JS_RunGC(rt: *mut JSRuntime) {
+pub fn JS_RunGC(rt: &mut JSRuntime) {
     unsafe {
         /* decrement the reference of the children of each object. mark =
         1 after this pass. */

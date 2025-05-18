@@ -36,11 +36,13 @@ impl Default for list_head {
 }
 
 #[inline(always)]
-pub unsafe fn init_list_head(head: *mut list_head) {
+pub fn init_list_head(head: *mut list_head) {
     debug_assert!(head.is_aligned());
 
-    (*head).prev = head;
-    (*head).next = head;
+    unsafe {
+        (*head).prev = head;
+        (*head).next = head;
+    }
 }
 
 #[inline(always)]
@@ -91,12 +93,14 @@ pub unsafe fn list_find(el: *mut list_head, head: *mut list_head) -> bool {
     false
 }
 
-pub unsafe fn list_count(head: *const list_head) -> usize {
-    let mut e = (*head).next;
+pub fn list_count(head: *const list_head) -> usize {
     let mut cnt = 0;
-    while e as usize != head as usize {
-        cnt += 1;
-        e = (*e).next;
+    unsafe {
+        let mut e = (*head).next;
+        while e as usize != head as usize {
+            cnt += 1;
+            e = (*e).next;
+        }
     }
     cnt
 }
@@ -114,29 +118,32 @@ pub unsafe fn list_foreach(head: *mut list_head, mut f: impl FnMut(*mut list_hea
     }
 }
 
-pub unsafe fn list_foreach_safe(head: *mut list_head, mut f: impl FnMut(*mut list_head)) {
-    let mut el = (*head).next;
-    let mut el1 = (*el).next;
-    while el != head {
-        f(el);
+pub fn list_foreach_safe(head: *mut list_head, mut f: impl FnMut(*mut list_head)) {
+    unsafe {
+        let mut el = (*head).next;
+        let mut el1 = (*el).next;
+        while el != head {
+            f(el);
 
-        el = el1;
-        el1 = (*el).next;
+            el = el1;
+            el1 = (*el).next;
+        }
     }
 }
 
-pub unsafe fn list_foreach_with_ret<R>(
+pub fn list_foreach_with_ret<R>(
     head: *mut list_head,
     mut f: impl FnMut(*mut list_head) -> Option<R>,
 ) -> Option<R> {
-    let mut el = (*head).next;
-    while el != head {
-        if let Some(r) = f(el) {
-            return Some(r);
-        };
-        el = (*el).next;
+    unsafe {
+        let mut el = (*head).next;
+        while el != head {
+            if let Some(r) = f(el) {
+                return Some(r);
+            };
+            el = (*el).next;
+        }
     }
-
     None
 }
 
