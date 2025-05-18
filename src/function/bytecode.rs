@@ -13,7 +13,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     types::{init_list_head, list_add_tail, list_head},
-    utils::{get_leb128, get_sleb128, get_u32},
+    utils::{get_leb128, get_sleb128, read_from_ptr},
     value::{
         object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
         JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
@@ -680,7 +680,7 @@ pub fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcodes: bool
             "atom" | "atom_u8" | "atom_u16" | "atom_label_u8" | "atom_label_u16"
         ) {
             unsafe {
-                let atom = JSAtom(get_u32(bc.as_ptr().add(pos as usize + 1)));
+                let atom = JSAtom(read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)));
                 JS_FreeAtomRT(rt, atom);
             }
         }

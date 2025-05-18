@@ -2,7 +2,7 @@ use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
-    utils::{get_u16, get_u32},
+    utils::{get_u16, read_from_ptr},
 };
 
 use super::{
@@ -59,7 +59,7 @@ impl<'s> JSParseState<'s> {
 
         match opcode {
             opcodes::op_scope_get_var => {
-                name = JSAtom(get_u32(
+                name = JSAtom(read_from_ptr::<u32>(
                     self.cur_func()
                         .byte_code
                         .as_ptr()
@@ -92,7 +92,7 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::OP_get_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                name = JSAtom(get_u32(
+                name = JSAtom(read_from_ptr::<u32>(
                     self.cur_func()
                         .byte_code
                         .as_ptr()
@@ -102,7 +102,7 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_private_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                name = JSAtom(get_u32(
+                name = JSAtom(read_from_ptr::<u32>(
                     self.cur_func()
                         .byte_code
                         .as_ptr()

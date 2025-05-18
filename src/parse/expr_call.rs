@@ -2,7 +2,7 @@ use crate::{
     atom::{consts::*, JSAtom},
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{FuncCallType, JSFunctionDef},
-    utils::{get_u16, get_u32},
+    utils::{get_u16, read_from_ptr},
 };
 
 use super::{
@@ -196,7 +196,7 @@ impl<'s> JSParseState<'s> {
                 drop_count = 2;
             }
             opcodes::op_get_field_opt_chain => {
-                let opt_chain_label = get_u32(
+                let opt_chain_label = read_from_ptr::<u32>(
                     (*fd)
                         .byte_code
                         .as_ptr()
@@ -229,7 +229,7 @@ impl<'s> JSParseState<'s> {
                 drop_count = 2;
             }
             opcodes::op_get_array_el_opt_chain => {
-                let opt_chain_label = get_u32(
+                let opt_chain_label = read_from_ptr::<u32>(
                     (*fd)
                         .byte_code
                         .as_ptr()
@@ -249,7 +249,7 @@ impl<'s> JSParseState<'s> {
                 opcode = opcodes::OP_get_array_el;
             }
             opcodes::op_scope_get_var => {
-                let name = JSAtom(get_u32(
+                let name = JSAtom(read_from_ptr::<u32>(
                     (*fd)
                         .byte_code
                         .as_ptr()

@@ -6,7 +6,7 @@ use crate::{
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
-    utils::{get_u16, get_u32},
+    utils::get_u16,
     value::JSValue,
 };
 
@@ -20,6 +20,8 @@ pub unsafe fn debug_dump_opcode_one(
     b: &JSFunctionBytecode,
     pc: usize,
 ) -> usize {
+    use crate::utils::read_from_ptr;
+
     let mut pos = pc;
     let tab = b.bytecode_slice();
     let op = tab[pos];
@@ -57,23 +59,26 @@ pub unsafe fn debug_dump_opcode_one(
             print!(" {}", tab[pos] as i8);
         }
         "u16" | "npop" => {
-            print!(" {}", get_u16(tab.as_ptr().offset(pos as isize)));
+            print!(
+                " {}",
+                read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize))
+            );
         }
         "npop_u16" => {
             print!(
                 " {},{}",
-                get_u16(tab.as_ptr().offset(pos as _)),
-                get_u16(tab.as_ptr().offset(pos as isize + 2)),
+                read_from_ptr::<u16>(tab.as_ptr().offset(pos as _)),
+                read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize + 2)),
             );
         }
         "i16" => {
-            print!(" {}", get_u16(tab.as_ptr().offset(pos as _)) as i16);
+            print!(" {}", read_from_ptr::<i16>(tab.as_ptr().offset(pos as _)));
         }
         "i32" => {
-            print!(" {}", get_u32(tab.as_ptr().offset(pos as _)) as i32);
+            print!(" {}", read_from_ptr::<i32>(tab.as_ptr().offset(pos as _)));
         }
         "u32" => {
-            print!(" {}", get_u32(tab.as_ptr().offset(pos as _)));
+            print!(" {}", read_from_ptr::<u32>(tab.as_ptr().offset(pos as _)));
         }
 
         #[cfg(feature = "short_opcode")]
@@ -92,7 +97,7 @@ pub unsafe fn debug_dump_opcode_one(
             // has_addr1!();
 
             if f == "label_u16" {
-                print!(", {}", get_u16(tab.as_ptr().add(pos + 4)));
+                print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)));
             }
         }
 
@@ -107,18 +112,18 @@ pub unsafe fn debug_dump_opcode_one(
         }
 
         "const" => {
-            let idx = get_u32(tab.as_ptr().offset(pos as _)) as usize;
+            let idx = read_from_ptr::<u32>(tab.as_ptr().offset(pos as _));
             print!(" {idx}:");
-            b.get_cpool(idx).unwrap().dump(ctx.rt());
+            b.get_cpool(idx as usize).unwrap().dump(ctx.rt());
         }
         "atom" => {
-            let a = get_u32(tab.as_ptr().add(pos as _));
+            let a = read_from_ptr::<u32>(tab.as_ptr().add(pos as _));
             print!(" {a}:{}", JSAtom(a).to_str((*ctx).rt()));
         }
         f @ ("atom_u8" | "atom_u16") => {
             print!(
                 " {}, {}",
-                JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt()),
+                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str(ctx.rt()),
                 if f == "atom_u8" {
                     tab[pos as usize + 4] as usize
                 } else {
@@ -129,7 +134,7 @@ pub unsafe fn debug_dump_opcode_one(
         f @ ("atom_label_u8" | "atom_label_u16") => {
             print!(
                 " {}",
-                JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
+                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
             );
 
             // addr = get_u32(tab.as_ptr().offset(pos as isize + 4)) as _;
@@ -232,6 +237,8 @@ pub unsafe fn dump_byte_code(
     labels: &[LabelInfo], // for pass 1, 2 only
     b: *const JSFunctionBytecode,
 ) {
+    use crate::utils::read_from_ptr;
+
     let len = tab.len() as i32;
 
     let use_short_opcodes = !b.is_null();
@@ -295,7 +302,7 @@ pub unsafe fn dump_byte_code(
                         pos += 4;
                     }
                     pos += 1;
-                    let addr = get_u32(tab.as_ptr().add(pos as _));
+                    let addr = read_from_ptr::<u32>(tab.as_ptr().add(pos as _));
 
                     let pc = match pass {
                         1 => labels[addr as usize].pos,
@@ -349,7 +356,7 @@ pub unsafe fn dump_byte_code(
                 if !b.is_null() {
                     line1 = (*b).find_line_num(pos as _).unwrap() as i32 - line_num + 1;
                 } else if op == opcodes::op_line_num {
-                    line1 = get_u32(tab.as_ptr().add(pos as usize + 1)) as i32 - line_num + 1;
+                    line1 = read_from_ptr::<i32>(tab.as_ptr().add(pos as usize + 1)) - line_num + 1;
                 };
 
                 if line1 > line {
@@ -440,13 +447,13 @@ pub unsafe fn dump_byte_code(
                 );
             }
             "i16" => {
-                print!(" {}", get_u16(tab.as_ptr().offset(pos as _)) as i16);
+                print!(" {}", read_from_ptr::<i16>(tab.as_ptr().offset(pos as _)));
             }
             "i32" => {
-                print!(" {}", get_u32(tab.as_ptr().offset(pos as _)) as i32);
+                print!(" {}", read_from_ptr::<i32>(tab.as_ptr().offset(pos as _)));
             }
             "u32" => {
-                print!(" {}", get_u32(tab.as_ptr().offset(pos as _)));
+                print!(" {}", read_from_ptr::<u32>(tab.as_ptr().offset(pos as _)));
             }
 
             #[cfg(feature = "short_opcode")]
@@ -461,7 +468,7 @@ pub unsafe fn dump_byte_code(
             }
 
             f @ ("label" | "label_u16") => {
-                let addr = get_u32(tab.as_ptr().offset(pos as _));
+                let addr = read_from_ptr::<u32>(tab.as_ptr().offset(pos as _));
                 has_addr1!(addr);
 
                 if f == "label_u16" {
@@ -480,7 +487,7 @@ pub unsafe fn dump_byte_code(
             }
 
             "const" => {
-                let idx = get_u32(tab.as_ptr().offset(pos as _)) as usize;
+                let idx = read_from_ptr::<u32>(tab.as_ptr().offset(pos as _)) as usize;
                 print!(" {idx}:");
                 if let Some(v) = cpools.get(idx) {
                     (*v).dump((*ctx).rt());
@@ -490,13 +497,13 @@ pub unsafe fn dump_byte_code(
                 }
             }
             "atom" => {
-                let a = get_u32(tab.as_ptr().add(pos as _));
+                let a = read_from_ptr::<u32>(tab.as_ptr().add(pos as _));
                 print!(" {a}:{}", JSAtom(a).to_str((*ctx).rt()));
             }
             f @ ("atom_u8" | "atom_u16") => {
                 print!(
                     " {}, {}",
-                    JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt()),
+                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str((*ctx).rt()),
                     if f == "atom_u8" {
                         tab[pos as usize + 4] as usize
                     } else {
@@ -507,10 +514,10 @@ pub unsafe fn dump_byte_code(
             f @ ("atom_label_u8" | "atom_label_u16") => {
                 print!(
                     " {}",
-                    JSAtom(get_u32(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
+                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
                 );
 
-                let addr = get_u32(tab.as_ptr().offset(pos as isize + 4));
+                let addr = read_from_ptr::<u32>(tab.as_ptr().offset(pos as isize + 4));
                 if pass == 1 {
                     print!(", {}:{}", addr, labels[addr as usize].pos);
                 } else if pass == 2 {

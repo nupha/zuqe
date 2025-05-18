@@ -43,7 +43,7 @@ use crate::{
     module::{js_dynamic_import, js_import_meta},
     regexp::js_regexp_constructor_internal,
     stack_frame::JSStackFrame,
-    utils::{get_u16, get_u32},
+    utils::{get_u16, read_from_ptr},
     value::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
@@ -184,12 +184,12 @@ pub unsafe fn run_bytecodes(
 
             match opcode {
                 OpCode::PUSH_I32 => {
-                    SP![0] = JSValue::from_i32(get_u32(pc) as i32);
+                    SP![0] = JSValue::from(read_from_ptr::<i32>(pc));
                     sp = sp.offset(1);
                     PC_GO!(4);
                 }
                 OpCode::PUSH_CONST => {
-                    let id = get_u32(pc);
+                    let id = read_from_ptr::<u32>(pc);
                     PC_GO!(4);
                     SP![0] = CPOOL![id].dup();
                     SP_GO!(1);
@@ -225,7 +225,7 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::PUSH_ATOM_VALUE => {
-                    let a = get_u32(pc);
+                    let a = read_from_ptr::<u32>(pc);
                     PC_GO!(4);
                     SP![0] = JSAtom(a).to_value(ctx, false);
                     SP_GO!(1);
@@ -541,7 +541,7 @@ pub unsafe fn run_bytecodes(
                     // SP![-1] = tmp2;
                 }
                 OpCode::FCLOSURE => {
-                    let id = get_u32(pc);
+                    let id = read_from_ptr::<u32>(pc);
                     PC_GO!(4);
 
                     let bfunc = CPOOL![id].dup();
@@ -760,7 +760,7 @@ pub unsafe fn run_bytecodes(
                     break State::Exception;
                 }
                 OpCode::THROW_ERROR => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     let type_ = *pc.offset(4);
                     PC_GO!(5);
 
@@ -924,7 +924,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::CHECK_VAR => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
                     let ret = JS_CheckGlobalVar(ctx, atom);
                     if ret < 0 {
@@ -935,7 +935,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
 
                     let val = JS_GetGlobalVar(ctx, atom, opcode == OpCode::GET_VAR);
@@ -947,7 +947,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
                     let ret = JS_SetGlobalVar(
                         ctx,
@@ -961,7 +961,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::PUT_VAR_STRICT => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
 
                     // sp[-2] is TRUE or FALSE
@@ -977,7 +977,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::CHECK_DEFINE_VAR => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_CheckDefineGlobalVar(ctx, atom, flags as _) != 0 {
@@ -985,7 +985,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::DEFINE_VAR => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_DefineGlobalVar(ctx, atom, flags as _) != 0 {
@@ -993,7 +993,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::DEFINE_FUNC => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     let flags = *pc.offset(4);
                     PC_GO!(5);
                     if JS_DefineGlobalFunction(ctx, atom, SP![-1], flags as _) != 0 {
@@ -1004,13 +1004,13 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::GET_LOC => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     SP![0] = VAR![idx].dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_LOC => {
-                    let idx = get_u16(pc);
+                    let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
                     set_value(ctx, VAR_PTR![idx], SP![-1]);
                     SP_GO!(-1);
@@ -1145,7 +1145,7 @@ pub unsafe fn run_bytecodes(
                     (*sf).close_lexical_var(ctx, idx, false);
                 }
                 OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     let idx = get_u16(pc.add(4));
                     PC_GO!(6);
 
@@ -1187,7 +1187,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::MAKE_VAR_REF => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
                     if JS_GetGlobalVarRef(ctx, atom, sp) != 0 {
                         break State::Exception;
@@ -1196,7 +1196,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::GOTO => {
-                    let n = get_u32(pc) as i32; // plus or minus
+                    let n = read_from_ptr::<i32>(pc); // could be minus
                     PC_GO!(n);
                     if js_poll_interrupts(ctx) != 0 {
                         break State::Exception;
@@ -1230,7 +1230,7 @@ pub unsafe fn run_bytecodes(
                     };
 
                     if b == res {
-                        pc = pc.offset(get_u32(pc.offset(-4)) as isize - 4);
+                        pc = pc.offset((read_from_ptr::<i32>(pc.offset(-4)) - 4) as isize);
                     }
 
                     if js_poll_interrupts(ctx) != 0 {
@@ -1244,13 +1244,13 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::CATCH => {
-                    let diff = get_u32(pc) as i32;
+                    let diff = read_from_ptr::<i32>(pc);
                     SP![0] = JS_NewCatchOffset(pc.offset_from(pc_base) as i32 + diff);
                     SP_GO!(1);
                     PC_GO!(4);
                 }
                 OpCode::GOSUB => {
-                    let diff = get_u32(pc) as i32;
+                    let diff = read_from_ptr::<i32>(pc);
                     /* XXX: should have a different tag to avoid security flaw */
                     SP![0] = JSValue::from_i32(pc.offset_from(pc_base) as i32 + 4);
                     SP_GO!(1);
@@ -1409,7 +1409,7 @@ pub unsafe fn run_bytecodes(
                     SP![-1] = (!res).into();
                 }
                 OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
                     let val = SP![-1].get_property(ctx, atom);
                     if val.is_exception() {
@@ -1425,7 +1425,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::PUT_FIELD => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
 
                     let ret = SP![-2].set_property_internal(
@@ -1442,7 +1442,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::PRIVATE_SYMBOL => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
 
                     let val = JS_NewSymbolFromAtom(ctx, atom, JSAtomTypeHint::Private);
@@ -1481,7 +1481,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::DEFINE_FIELD => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
 
                     let ret = SP![-2].define_property_value(
@@ -1496,7 +1496,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::SET_NAME => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
                     let ret = JS_DefineObjectName(ctx, SP![-1], atom, JS_PROP_CONFIGURABLE);
                     if ret < 0 {
@@ -1528,7 +1528,7 @@ pub unsafe fn run_bytecodes(
                     let atom = if is_computed {
                         JS_ValueToAtom(ctx, SP![-2])
                     } else {
-                        let a = JSAtom(get_u32(pc));
+                        let a = JSAtom(read_from_ptr::<u32>(pc));
                         PC_GO!(4);
                         a
                     };
@@ -1585,7 +1585,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::DEFINE_CLASS | OpCode::DEFINE_CLASS_COMPUTED => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     let class_flags = *pc.add(4) as u32;
                     PC_GO!(5);
 
@@ -1959,7 +1959,7 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::DELETE_VAR => {
-                    let atom = JSAtom(get_u32(pc));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
                     match ctx.global_obj.delete_property(ctx, atom, 0) {
                         Ok(ret) => {
@@ -2008,8 +2008,8 @@ pub unsafe fn run_bytecodes(
                 | OpCode::WITH_MAKE_REF
                 | OpCode::WITH_GET_REF
                 | OpCode::WITH_GET_REF_UNDEF => {
-                    let atom = JSAtom(get_u32(pc));
-                    let diff = get_u32(pc.offset(4));
+                    let atom = JSAtom(read_from_ptr::<u32>(pc));
+                    let diff = read_from_ptr::<i32>(pc.offset(4));
                     let is_with = *pc.offset(8);
                     PC_GO!(9);
 
@@ -2023,7 +2023,7 @@ pub unsafe fn run_bytecodes(
                                 }
 
                                 if r != 0 {
-                                    false // no with
+                                    false // not with
                                 } else {
                                     true
                                 }
@@ -2031,7 +2031,7 @@ pub unsafe fn run_bytecodes(
                                 true
                             }
                         } else {
-                            false // no with
+                            false // not with
                         };
 
                         if has_with {

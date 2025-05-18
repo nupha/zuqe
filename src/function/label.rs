@@ -2,7 +2,7 @@ use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
     context::{JSContext, JS_MODE_STRIP},
     function::{JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE},
-    utils::{get_u32, push_vec_leb128, push_vec_sleb128, push_vec_u8},
+    utils::{push_vec_leb128, push_vec_sleb128, push_vec_u8, read_from_ptr},
 };
 
 use super::optimize::CodeContext;
@@ -78,7 +78,7 @@ pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) ->
             continue;
         }
         if op == opcodes::op_label {
-            let lab = get_u32((*s).bc_buf.offset((pos + 1) as isize));
+            let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
             if lab == label {
                 return true;
             }
@@ -86,7 +86,7 @@ pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) ->
             continue;
         }
         if op == opcodes::OP_goto {
-            let lab = get_u32((*s).bc_buf.offset((pos + 1) as isize));
+            let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
             if lab == label {
                 return true;
             }
@@ -164,15 +164,17 @@ pub unsafe fn find_jump_target(
                 opcodes::op_line_num | opcodes::op_label => {
                     if op == opcodes::op_line_num {
                         if !pline.is_null() {
-                            *pline =
-                                get_u32((*s).byte_code.as_ptr().offset(pos as isize + 1)) as i32;
+                            *pline = read_from_ptr::<i32>(
+                                (*s).byte_code.as_ptr().offset(pos as isize + 1),
+                            );
                         }
                     }
                     pos += opcode_info_intermediate(op).size as i32;
                     continue;
                 }
                 opcodes::OP_goto => {
-                    label = get_u32((*s).byte_code.as_ptr().offset((pos + 1) as isize));
+                    label =
+                        read_from_ptr::<u32>((*s).byte_code.as_ptr().offset((pos + 1) as isize));
                 }
                 opcodes::OP_drop => {
                     // ignore drop opcodes if followed by OP_return_undef

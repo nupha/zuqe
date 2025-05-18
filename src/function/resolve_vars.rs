@@ -8,7 +8,7 @@ use crate::{
         get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
         skip_dead_code, JSFunctionDef, JSVarKindEnum,
     },
-    utils::{get_u16, get_u32, push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, M2},
+    utils::{get_u16, push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, read_from_ptr, M2},
 };
 
 use super::{
@@ -92,6 +92,8 @@ impl JSFunctionDef {
             };
         }
 
+        let mut cc = CodeContext::from_raw(bc_buf_ptr, bc_buf_len);
+
         let mut line_num = 0_i32;
         let mut pos = 0_usize;
         let mut pos_next: usize;
@@ -105,14 +107,19 @@ impl JSFunctionDef {
 
             match op {
                 opcodes::op_line_num => {
-                    line_num = get_u32(unsafe { bc_buf_ptr.add(pos + 1) }) as i32;
+                    line_num = unsafe { read_from_ptr::<i32>(bc_buf_ptr.add(pos + 1)) };
                     self.line_number_size += 1;
                     no_change!(pos, op_len);
                 }
                 opcodes::OP_eval => {
                     // convert scope index to adjusted variable index
-                    let call_argc = get_u16(unsafe { bc_buf_ptr.add(pos + 1) });
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 1 + 2) });
+                    let (call_argc, scope) = unsafe {
+                        (
+                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)),
+                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 3)),
+                        )
+                    };
+
                     unsafe {
                         mark_eval_captured_variables(ctx, self, scope as _);
                     }
@@ -122,7 +129,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_apply_eval => {
                     // convert scope index to adjusted variable index
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 1) });
+                    let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) };
                     unsafe {
                         mark_eval_captured_variables(ctx, self, scope as _);
                     }
@@ -136,25 +143,32 @@ impl JSFunctionDef {
                 | opcodes::op_scope_delete_var
                 | opcodes::op_scope_get_ref
                 | opcodes::op_scope_put_var_init => {
-                    let var_name =
-                        JSAtom(get_u32(unsafe { bc_buf_ptr.add(pos + 1) })).into_rc((*ctx).rt());
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 5) });
-
+                    let (var_name, scope) = unsafe {
+                        (
+                            JSAtom(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
+                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
+                        )
+                    };
                     pos_next = self.resolve_scope_var(
                         ctx,
-                        *var_name,
+                        var_name,
                         scope as _,
                         op,
                         &mut bc_out,
                         std::ptr::null_mut(),
                         None,
                         pos_next,
-                    ) as usize;
+                    );
+                    JS_FreeAtom(ctx, var_name);
                 }
                 opcodes::op_scope_make_ref => {
-                    let var_name = JSAtom(get_u32(unsafe { bc_buf_ptr.add(pos + 1) }));
-                    let label_id = get_u32(unsafe { bc_buf_ptr.add(pos + 5) });
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 9) });
+                    let (var_name, label_id, scope) = unsafe {
+                        (
+                            JSAtom(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
+                            read_from_ptr::<u32>(bc_buf_ptr.add(pos + 5)),
+                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 9)),
+                        )
+                    };
 
                     // always remove label reference
                     self.labels[label_id as usize].ref_count -= 1;
@@ -188,8 +202,14 @@ impl JSFunctionDef {
                 | opcodes::op_scope_get_private_field2
                 | opcodes::op_scope_put_private_field
                 | opcodes::op_scope_in_private_field => {
-                    let var_name = JSAtom(get_u32(unsafe { bc_buf_ptr.add(pos + 1) }));
-                    let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 5) });
+                    let (var_name, scope) = unsafe {
+                        (
+                            JSAtom(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
+                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
+                        )
+                    };
+                    // let var_name = JSAtom(get_u32(unsafe { bc_buf_ptr.add(pos + 1) }));
+                    // let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 5) });
                     if resolve_scope_private_field(
                         ctx,
                         self,
@@ -203,8 +223,7 @@ impl JSFunctionDef {
                         // XXX: find a better solution ? */
                         while pos < bc_buf_len {
                             let op_len1 =
-                                opcode_info_intermediate(unsafe { *bc_buf_ptr.add(pos as usize) })
-                                    .size as usize;
+                                opcode_info_intermediate(self.byte_code[pos]).size as usize;
                             pos_next = pos + op_len1;
                             if push_vec_slice(
                                 &mut bc_out,
@@ -218,6 +237,7 @@ impl JSFunctionDef {
                             }
                             pos = pos_next;
                         }
+
                         bc_out.shrink_to_fit();
                         self.byte_code = bc_out;
                         return Err(-1);
@@ -229,10 +249,10 @@ impl JSFunctionDef {
                     self.jump_size += 1;
                     if OPTIMIZE {
                         // remove calls to empty finalizers
-                        let label_id = get_u32(unsafe { bc_buf_ptr.add(pos + 1) });
+                        let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
                         debug_assert!(label_id < self.labels.len() as u32);
+
                         let lb = self.labels.get_mut(label_id as usize).unwrap();
-                        let mut cc = CodeContext::new(&self.byte_code.as_slice());
                         if cc.code_match(lb.pos as _, &[OpCode::RET as i32]) {
                             lb.ref_count -= 1;
                         } else {
@@ -269,7 +289,6 @@ impl JSFunctionDef {
                 opcodes::OP_insert3 => {
                     // Optimize transformation:
                     // insert3 put_array_el|put_ref_value drop -> put_array_el|put_ref_value
-                    let mut cc = CodeContext::new(&self.byte_code.as_slice());
                     if OPTIMIZE
                         && cc.code_match(
                             pos_next,
@@ -322,8 +341,9 @@ impl JSFunctionDef {
                     }
                 }
                 opcodes::op_label => {
-                    let label_id = get_u32(unsafe { bc_buf_ptr.add(pos + 1) });
+                    let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
                     debug_assert!(label_id < self.labels.len() as u32);
+
                     let lb = self.labels.get_mut(label_id as usize).unwrap();
                     debug_assert_eq!(lb.pos2, -1);
                     lb.pos2 = bc_out.len() as i32 + oi.size as i32;
@@ -382,7 +402,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_set_name => {
                     /* remove dummy set_name opcodes */
-                    let name = JSAtom(get_u32(unsafe { bc_buf_ptr.add(pos as usize + 1) }));
+                    let name = JSAtom(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
                     if name != JS_ATOM_NULL {
                         no_change!(pos, op_len);
                     }
@@ -395,7 +415,6 @@ impl JSFunctionDef {
                     // Optimize:
                     // Transformation: dup if_false(l1) drop, l1: if_false(l2) -> if_false(l2)
                     // Transformation: dup if_true(l1) drop, l1: if_true(l2) -> if_true(l2)
-                    let mut cc = CodeContext::from_raw(bc_buf_ptr, bc_buf_len);
                     if OPTIMIZE
                         && cc.code_match(
                             pos_next,
@@ -450,7 +469,7 @@ impl JSFunctionDef {
                 opcodes::OP_nop => { /* remove erased code */ }
                 opcodes::op_set_class_name => { /* only used during parsing */ }
                 opcodes::op_get_field_opt_chain => {
-                    let name = get_u32(unsafe { bc_buf_ptr.add(pos as usize + 1) });
+                    let name = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
                     bc_out.push(opcodes::OP_get_field);
                     bc_out.extend_from_slice(name.to_ne_bytes().as_slice());
                 }

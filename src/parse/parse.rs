@@ -12,7 +12,7 @@ use crate::{
     module::JSExportTypeEnum,
     parse::expr_lvalue::PutLValueEnum,
     unicode::{unicode_from_utf8, unicode_to_utf8, UTF8_CHAR_LEN_MAX},
-    utils::get_u32,
+    utils::read_from_ptr,
     value::JS_FreeValue,
 };
 
@@ -740,16 +740,16 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
     match get_prev_opcode(fd) {
         opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
             let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
-                get_u32(
+                read_from_ptr::<i32>(
                     fd.byte_code
                         .as_ptr()
                         .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
-                ) as i32
+                )
             } else {
                 -1
             };
 
-            name = JSAtom(get_u32(
+            name = JSAtom(read_from_ptr::<u32>(
                 fd.byte_code
                     .as_ptr()
                     .offset(fd.last_opcode_pos as isize + 1),
@@ -791,10 +791,8 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             emit_op(s, OpCode::DELETE);
         }
         opcodes::op_get_array_el_opt_chain => {
-            let opt_chain_label: i32;
             let next_label: i32;
-
-            let opt_chain_label = get_u32(
+            let opt_chain_label = read_from_ptr::<u32>(
                 fd.byte_code
                     .as_ptr()
                     .offset(fd.last_opcode_pos as isize + 1 + 1),
@@ -813,7 +811,7 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
         }
         opcodes::op_scope_get_var => {
             // 'delete this': this is not a reference
-            name = JSAtom(get_u32(
+            name = JSAtom(read_from_ptr::<u32>(
                 fd.byte_code
                     .as_ptr()
                     .offset(fd.last_opcode_pos as isize + 1),

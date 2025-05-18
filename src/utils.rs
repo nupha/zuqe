@@ -80,18 +80,13 @@ pub fn M4(op1: i32, op2: i32, op3: i32, op4: i32) -> i32 {
 }
 
 #[inline(always)]
-pub fn get_u32(tab: *const u8) -> u32 {
-    unsafe { tab.cast::<u32>().read_unaligned() }
+pub unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
+    ptr.cast::<T>().read_unaligned()
 }
 
 #[inline(always)]
 pub fn get_u16(tab: *const u8) -> u16 {
     unsafe { tab.cast::<u16>().read_unaligned() }
-    // #[repr(packed)]
-    // struct packed_u16 {
-    //     v: u16,
-    // }
-    // unsafe { (*tab.cast::<packed_u16>()).v }
 }
 
 #[inline(always)]

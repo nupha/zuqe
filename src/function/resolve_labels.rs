@@ -5,8 +5,8 @@ use crate::{
     function::{find_jump_target, skip_dead_code, JSFunctionDef, LineNumberSlot},
     mem::{js_free, js_mallocz},
     utils::{
-        get_u16, get_u32, push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16,
-        push_vec_u32, push_vec_u8, put_u16, put_u32, put_u8, M2, M3, M4,
+        get_u16, push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16,
+        push_vec_u32, push_vec_u8, put_u16, put_u32, put_u8, read_from_ptr, M2, M3, M4,
     },
 };
 
@@ -159,11 +159,11 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 /* line number info (for debug). We put it in a separate
                 compressed table to reduce memory usage and get better
                 performance */
-                line_num = get_u32(bc_buf.add(pos as usize + 1));
+                line_num = read_from_ptr::<u32>(bc_buf.add(pos + 1));
                 None
             }
             opcodes::op_label => {
-                label = get_u32(bc_buf.add(pos as usize + 1));
+                label = read_from_ptr::<u32>(bc_buf.add(pos + 1));
                 debug_assert!(label < (*s).labels.len() as u32);
 
                 let lb = (*s).labels.get_mut(label as usize).unwrap();
@@ -216,11 +216,11 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 Some(ResolveLabelsState::NoChange)
             }
             opcodes::OP_goto => Some(ResolveLabelsState::HasGoto {
-                label: get_u32(bc_buf.add(pos + 1)),
+                label: read_from_ptr::<u32>(bc_buf.add(pos + 1)),
                 op: opcodes::OP_goto,
             }),
             opcodes::OP_gosub => {
-                label = get_u32(bc_buf.add(pos as usize + 1));
+                label = read_from_ptr::<u32>(bc_buf.add(pos + 1));
                 // if (0 && OPTIMIZE) {
                 //     label = find_jump_target(s, label, &op1, NULL);
                 //     if (op1 == OP_ret) {
@@ -232,7 +232,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 Some(ResolveLabelsState::HasGoto { label, op })
             }
             opcodes::OP_catch => Some(ResolveLabelsState::HasLabel {
-                label: get_u32(bc_buf.add(pos + 1)),
+                label: read_from_ptr::<u32>(bc_buf.add(pos + 1)),
                 op,
             }),
             opcodes::OP_if_true | opcodes::OP_if_false => {
@@ -243,7 +243,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                             ResolveLabelsState::HasLabel { label, op: op1 }
                         })
                 } else {
-                    let label = get_u32(bc_buf.add(pos + 1));
+                    let label = read_from_ptr::<u32>(bc_buf.add(pos + 1));
                     Some(ResolveLabelsState::HasLabel { label, op })
                 }
             }
@@ -255,8 +255,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             | opcodes::OP_with_get_ref
             | opcodes::OP_with_get_ref_undef => {
                 let mut goto = None;
-                let atom = get_u32(bc_buf.add(pos + 1));
-                label = get_u32(bc_buf.add(pos + 5));
+                let atom = read_from_ptr::<u32>(bc_buf.add(pos + 1));
+                label = read_from_ptr::<u32>(bc_buf.add(pos + 5));
                 let is_with = *bc_buf.add(pos + 9);
                 if OPTIMIZE {
                     label = find_jump_target(s, label, &mut op1, std::ptr::null_mut());
@@ -360,7 +360,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 let mut goto = Some(ResolveLabelsState::NoChange);
 
                 if OPTIMIZE {
-                    let val = get_u32(bc_buf.add(pos + 1)) as i32;
+                    let val = read_from_ptr::<i32>(bc_buf.add(pos + 1));
                     if val != i32::MIN && val != 0 && cc.code_match(pos_next, &[OpCode::NEG as i32])
                     {
                         // transform i32(val) neg -> i32(-val)
@@ -403,7 +403,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             opcodes::OP_push_const | opcodes::OP_fclosure => {
                 let mut goto = Some(ResolveLabelsState::NoChange);
                 if (OPTIMIZE) {
-                    let idx = get_u32(bc_buf + pos + 1);
+                    let idx = read_from_ptr::<u32>(bc_buf + pos + 1);
                     if (idx < 256) {
                         (*s).add_pc2line_info(bc_out.len() as _, line_num);
                         dbuf_putc(&bc_out, OP_push_const8 + op - OP_push_const);
@@ -417,7 +417,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             opcodes::OP_get_field => {
                 let mut goto = Some(ResolveLabelsState::NoChange);
                 if (OPTIMIZE) {
-                    let atom = get_u32(bc_buf + pos + 1);
+                    let atom = read_from_ptr::<u32>(bc_buf + pos + 1);
                     if (atom == JS_ATOM_length) {
                         JS_FreeAtom(ctx, atom);
                         (*s).add_pc2line_info(bc_out.len() as _, line_num);
@@ -431,7 +431,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             opcodes::OP_push_atom_value => {
                 let mut goto = Some(ResolveLabelsState::NoChange);
                 if OPTIMIZE {
-                    let atom = JSAtom(get_u32(bc_buf.add(pos as usize + 1)));
+                    let atom = JSAtom(read_from_ptr::<u32>(bc_buf.add(pos + 1)));
                     // remove push/drop pairs generated by the parser
                     if cc.code_match(pos_next, &[opcodes::OP_drop as i32]) {
                         JS_FreeAtom(ctx, atom);

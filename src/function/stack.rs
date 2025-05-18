@@ -4,7 +4,7 @@ use crate::{
     bytecode::{opcode_info_final, opcodes, OpCode, OP_COUNT_FINAL},
     context::JSContext,
     runtime::JS_STACK_SIZE_MAX,
-    utils::{get_u16, get_u32},
+    utils::{get_u16, read_from_ptr},
 };
 
 use super::JSFunctionDef;
@@ -196,7 +196,7 @@ impl JSFunctionDef {
                     continue;
                 }
                 opcodes::OP_goto => {
-                    let diff = get_u32(bc_buf.add(pos + 1)) as i32; // could be minus
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1)); // could be minus
                     pos_next = (pos as i32 + 1 + diff) as usize;
                 }
 
@@ -220,7 +220,7 @@ impl JSFunctionDef {
                 }
 
                 opcodes::OP_if_true | opcodes::OP_if_false => {
-                    let diff = get_u32(bc_buf.add(pos + 1)) as i32; // could be minus
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1)); // could be minus
                     ss_check(
                         ctx,
                         s,
@@ -231,7 +231,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_gosub => {
-                    let diff = get_u32(bc_buf.add(pos + 1)) as i32;
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1));
                     ss_check(
                         ctx,
                         s,
@@ -242,7 +242,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_with_get_var | opcodes::OP_with_delete_var => {
-                    let diff = get_u32(bc_buf.add(pos + 5)) as i32;
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 5));
                     ss_check(
                         ctx,
                         s,
@@ -255,7 +255,7 @@ impl JSFunctionDef {
                 opcodes::OP_with_make_ref
                 | opcodes::OP_with_get_ref
                 | opcodes::OP_with_get_ref_undef => {
-                    let diff = get_u32(bc_buf.add(pos + 5)) as i32;
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 5));
                     ss_check(
                         ctx,
                         s,
@@ -266,7 +266,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_with_put_var => {
-                    let diff = get_u32(bc_buf.add(pos + 5)) as i32;
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 5));
                     ss_check(
                         ctx,
                         s,
@@ -277,7 +277,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_catch => {
-                    let diff = get_u32(bc_buf.add(pos + 1)) as i32;
+                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1));
                     ss_check(
                         ctx,
                         s,
@@ -290,8 +290,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_for_of_start | opcodes::OP_for_await_of_start => {
                     catch_pos = pos as _;
-                    /* we assume the catch offset entry is only removed with
-                    some op codes */
+                    /* we assume the catch offset entry is only removed with some op codes */
                 }
                 opcodes::OP_drop
                 | opcodes::OP_nip

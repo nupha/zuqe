@@ -20,7 +20,7 @@ use crate::{
         init_list_head, list_add_tail, list_del, list_foreach_safe, list_foreach_safe_with_ret,
         list_head,
     },
-    utils::{get_u32, push_vec_u16, push_vec_u32, push_vec_u8},
+    utils::{push_vec_u16, push_vec_u32, push_vec_u8, read_from_ptr},
     value::{
         object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
         JSTag, JSValue, JS_FreeValue, JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG,
@@ -1136,7 +1136,7 @@ pub unsafe fn get_label_pos(s: *const JSFunctionDef, mut label: i32) -> i32 {
                     continue;
                 }
                 opcodes::OP_goto => {
-                    label = get_u32((*s).byte_code.as_ptr().add(pos as usize + 1)) as i32;
+                    label = read_from_ptr::<i32>((*s).byte_code.as_ptr().add(pos as usize + 1));
                 }
                 _ => {
                     return pos;
@@ -1166,11 +1166,11 @@ pub fn skip_dead_code(
 
         if op == opcodes::op_line_num {
             unsafe {
-                *linep = get_u32(bc_buf.add(current_pos as usize + 1)) as i32;
+                *linep = read_from_ptr::<i32>(bc_buf.add(current_pos as usize + 1));
             }
         } else if op == opcodes::op_label {
             unsafe {
-                let label = get_u32(bc_buf.add(current_pos as usize + 1));
+                let label = read_from_ptr::<u32>(bc_buf.add(current_pos as usize + 1));
                 if (*s).update_label_ref_count(label, 0) > 0 {
                     break;
                 }
@@ -1197,16 +1197,16 @@ pub fn skip_dead_code(
             // XXX: output a warning for unreachable code?
             match oi.fmt {
                 "label" | "label_u16" => unsafe {
-                    let label = get_u32(bc_buf.add(current_pos as usize + 1));
+                    let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 1));
                     (*s).update_label_ref_count(label, -1);
                 },
                 f @ ("atom_label_u8" | "atom_label_u16" | "atom" | "atom_u8" | "atom_u16") => unsafe {
                     if matches!(f, "atom_label_u8" | "atom_label_u16") {
-                        let label = get_u32(bc_buf.add(current_pos as usize + 5));
+                        let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 5));
                         (*s).update_label_ref_count(label, -1);
                     }
 
-                    let atom = JSAtom(get_u32(bc_buf.add(current_pos as usize + 1)));
+                    let atom = JSAtom(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
                     JS_FreeAtom((*s).ctx.as_ptr(), atom);
                 },
                 _ => {}
@@ -1232,6 +1232,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
     push_vec_u16(bc, idx as u16);
 }
 
+/// var_name is not consumed.
 // return 0 if OK or -1 if the private field could not be resolved
 pub fn resolve_scope_private_field(
     ctx: &mut JSContext,
@@ -1244,9 +1245,8 @@ pub fn resolve_scope_private_field(
     let mut is_ref = false;
     let mut var_kind = JSVarKindEnum::JS_VAR_NORMAL;
 
-    let idx = unsafe {
-        resolve_scope_private_field1(ctx, &mut is_ref, &mut var_kind, s, var_name, scope_level)
-    };
+    let idx =
+        resolve_scope_private_field1(ctx, &mut is_ref, &mut var_kind, s, var_name, scope_level);
     if idx < 0 {
         return -1;
     }
@@ -1368,6 +1368,7 @@ pub fn find_private_class_field_all(fd: *mut JSFunctionDef, name: JSAtom, scope_
     return -1;
 }
 
+/// var_name is not consumed
 pub fn resolve_scope_private_field1(
     ctx: &mut JSContext,
     pis_ref: *mut bool,

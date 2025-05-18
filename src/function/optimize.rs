@@ -6,8 +6,8 @@ use crate::{
     context::{JSContext, JS_MODE_STRICT},
     function::{code_has_label, find_jump_target, JSFunctionDef, LabelInfo},
     utils::{
-        get_u16, get_u32, push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32,
-        push_vec_u8, put_u16, put_u32, M2, M3,
+        get_u16, push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8,
+        put_u16, put_u32, read_from_ptr, M2, M3,
     },
 };
 
@@ -96,7 +96,7 @@ impl<'c> CodeContext<'c> {
                     return false;
                 }
                 if op == opcodes::op_line_num {
-                    line_num = get_u32(unsafe { tab.add(pos as usize + 1) }) as i32;
+                    line_num = unsafe { read_from_ptr::<i32>(tab.add(pos + 1)) };
                     pos = pos_next;
                 } else {
                     break op;
@@ -119,50 +119,52 @@ impl<'c> CodeContext<'c> {
 
             pos += 1;
 
-            match opcode_info_intermediate(op).fmt {
-                "loc8" | "u8" => {
-                    let idx = unsafe { *tab.add(pos) };
-                    let arg = it.next().copied().unwrap_or(-1);
-                    if arg == -1 {
-                        self.idx = idx as i32;
-                    } else if arg != idx as i32 {
-                        return false;
+            unsafe {
+                match opcode_info_intermediate(op).fmt {
+                    "loc8" | "u8" => {
+                        let idx = *tab.add(pos);
+                        let arg = it.next().copied().unwrap_or(-1);
+                        if arg == -1 {
+                            self.idx = idx as i32;
+                        } else if arg != idx as i32 {
+                            return false;
+                        }
                     }
-                }
-                "u16" | "npop" | "loc" | "arg" | "var_ref" => {
-                    let idx = get_u16(unsafe { tab.add(pos as usize) }) as i32;
-                    let arg = it.next().copied().unwrap_or(-1);
-                    if arg == -1 {
-                        self.idx = idx;
-                    } else if arg != idx {
-                        return false;
+                    "u16" | "npop" | "loc" | "arg" | "var_ref" => {
+                        let idx = read_from_ptr::<u16>(tab.add(pos)) as i32;
+                        let arg = it.next().copied().unwrap_or(-1);
+                        if arg == -1 {
+                            self.idx = idx;
+                        } else if arg != idx {
+                            return false;
+                        }
                     }
-                }
-                "i32" | "u32" | "label" | "const" => {
-                    self.label = get_u32(unsafe { tab.add(pos as usize) }) as _;
-                }
-                "label_u16" => {
-                    self.label = get_u32(unsafe { tab.add(pos as usize) }) as _;
-                    self.val = get_u16(unsafe { tab.add(pos as usize + 4) }) as _;
-                }
-                "atom" => {
-                    self.atom = JSAtom(get_u32(unsafe { tab.add(pos as usize) }));
-                }
-                "atom_u8" => {
-                    self.atom = JSAtom(get_u32(unsafe { tab.add(pos as usize) }));
-                    self.val = get_u16(unsafe { tab.add(pos as usize + 4) }) as i32;
-                }
-                "atom_u16" => {
-                    self.atom = JSAtom(unsafe { get_u32(tab.add(pos as usize)) });
-                    self.val = get_u16(unsafe { tab.add(pos as usize + 4) }) as i32;
-                }
-                "atom_label_u8" => {
-                    self.atom = JSAtom(get_u32(unsafe { tab.add(pos as usize) }));
-                    self.label = get_u32(unsafe { tab.add(pos as usize + 4) }) as i32;
-                    self.val = get_u16(unsafe { tab.add(pos as usize + 8) }) as i32;
-                }
-                _ => {}
-            } // match fmt
+                    "i32" | "u32" | "label" | "const" => {
+                        self.label = read_from_ptr::<u32>(tab.add(pos)) as _;
+                    }
+                    "label_u16" => {
+                        self.label = read_from_ptr::<u32>(tab.add(pos)) as _;
+                        self.val = read_from_ptr::<u16>(tab.add(pos + 4)) as _;
+                    }
+                    "atom" => {
+                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
+                    }
+                    "atom_u8" => {
+                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
+                        self.val = *tab.add(pos + 4) as _;
+                    }
+                    "atom_u16" => {
+                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
+                        self.val = read_from_ptr::<u16>(tab.add(pos + 4)) as _;
+                    }
+                    "atom_label_u8" => {
+                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
+                        self.label = read_from_ptr::<u32>(tab.add(pos + 4)) as _;
+                        self.val = read_from_ptr::<u8>(tab.add(pos + 8)) as _;
+                    }
+                    _ => {}
+                } // match fmt
+            }
 
             pos = pos_next;
         } // iter op_list
@@ -449,7 +451,7 @@ impl<'c> CodeContext<'c> {
     ) -> Option<(u8, u32)> {
         debug_assert!(matches!(op, opcodes::OP_if_true | opcodes::OP_if_false));
 
-        let mut label = get_u32(self.bc_buf.add(pos + 1));
+        let mut label = read_from_ptr::<u32>(self.bc_buf.add(pos + 1));
 
         let mut _op1: u8 = 0;
         label = find_jump_target(s, label, &mut _op1, std::ptr::null_mut());
