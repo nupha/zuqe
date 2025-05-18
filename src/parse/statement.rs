@@ -6,7 +6,7 @@ use crate::{
     context::JS_MODE_STRICT,
     function::{pop_break_entry, BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
     parse::emit::emit_return,
-    utils::put_u32,
+    utils::write_to_ptr,
 };
 
 use super::{
@@ -21,7 +21,7 @@ use super::{
     expr_lvalue::PutLValueEnum,
     function::{push_break_entry, JSParseFunctionEnum},
     parse::{js_define_var, js_parse_skip_parens_token},
-    state::{js_parse_get_pos, JSParsePos, JSParseState, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
+    state::{JSParseState, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     token::{
         peek_token, token_is_pseudo_keyword, CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COLON,
         CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SEMI, CHAR_SQUARE_L, TOK_AWAIT, TOK_BREAK,
@@ -917,9 +917,9 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
     if default_label_pos >= 0 {
         // Ugly patch for the the `default` label, shameful and risky
         let fd = s.cur_func_mut();
-        put_u32(
-            fd.byte_code.as_mut_ptr().offset(default_label_pos as isize),
-            label_case as _,
+        write_to_ptr::<u32>(
+            fd.byte_code.as_mut_ptr().add(default_label_pos as usize),
+            label_case as u32,
         );
         fd.labels[label_case as usize].pos = default_label_pos + 4;
     } else {

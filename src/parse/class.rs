@@ -20,7 +20,7 @@ use crate::{
         token::CHAR_SQUARE_L,
         var::define_var,
     },
-    utils::put_u32,
+    utils::write_to_ptr,
     value::{
         object::{
             PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT,
@@ -572,8 +572,8 @@ pub unsafe fn js_parse_class(
         }
     }
     // patch the constant pool index for the constructor
-    put_u32(
-        (*fd).byte_code.as_mut_ptr().offset(ctor_cpool_offset as _),
+    write_to_ptr::<u32>(
+        (*fd).byte_code.as_mut_ptr().add(ctor_cpool_offset),
         (*ctor_fd).parent_cpool_idx as u32,
     );
 

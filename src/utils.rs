@@ -85,27 +85,8 @@ pub unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
 }
 
 #[inline(always)]
-pub fn put_u32(tab: *mut u8, val: u32) {
-    unsafe {
-        *tab.cast::<u32>().as_mut().unwrap() = val;
-    }
-}
-
-#[inline(always)]
-pub fn put_u16(tab: *mut u8, val: u16) {
-    #[repr(packed)]
-    struct packed_u16(u16);
-
-    unsafe {
-        tab.cast::<packed_u16>().as_mut().unwrap().0 = val;
-    }
-}
-
-#[inline(always)]
-pub fn put_u8(tab: *mut u8, val: u8) {
-    unsafe {
-        *tab = val;
-    }
+pub unsafe fn write_to_ptr<T>(ptr: *mut u8, val: T) {
+    ptr.cast::<T>().write_unaligned(val)
 }
 
 #[inline(always)]

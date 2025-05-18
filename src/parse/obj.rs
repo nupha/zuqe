@@ -1,7 +1,7 @@
 use crate::{
-    atom::{JSAtom, JS_DupAtom, JS_FreeAtom},
+    atom::{JSAtom, JS_FreeAtom},
     bytecode::{opcodes, OpCode},
-    utils::{put_u32, read_from_ptr},
+    utils::{read_from_ptr, write_to_ptr},
 };
 
 use super::{
@@ -38,11 +38,11 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
                 fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
             ));
             JS_FreeAtom((*s).ctx.as_ptr(), atom);
-            put_u32(
+            write_to_ptr::<u32>(
                 fd.byte_code
                     .as_mut_ptr()
                     .offset(define_class_pos as isize + 1),
-                JS_DupAtom((*s).ctx.as_ptr(), name).0,
+                name.dup((*s).ctx.rt()).0,
             );
             fd.last_opcode_pos = -1;
         }

@@ -178,9 +178,7 @@ impl JSShape {
         });
         sh2.header.ref_count = 1;
         if !sh2.proto.is_null() {
-            unsafe {
-                JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, sh2.proto.cast()));
-            }
+            JS_MKPTR!(JSTag::Object, sh2.proto.cast()).dup();
         }
 
         Ok(sh2)

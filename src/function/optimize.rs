@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
 use crate::{
-    atom::{JSAtom, JS_DupAtom, JS_ATOM_NULL},
+    atom::{JSAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode},
     context::{JSContext, JS_MODE_STRICT},
     function::{code_has_label, find_jump_target, JSFunctionDef, LabelInfo},
     utils::{
-        push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8, put_u16,
-        put_u32, read_from_ptr, M2, M3,
+        push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8,
+        read_from_ptr, write_to_ptr, M2, M3,
     },
 };
 
@@ -595,15 +595,14 @@ pub fn optimize_scope_make_ref(
     */
     let end_pos = label_pos + 2;
 
-    if unsafe { *bc_buf.add(label_pos) } == opcodes::OP_insert3 {
-        unsafe {
-            *bc_buf.add(pos) = opcodes::OP_dup;
-        }
-        pos += 1;
-    }
     unsafe {
+        if *bc_buf.add(label_pos) == opcodes::OP_insert3 {
+            *bc_buf.add(pos) = opcodes::OP_dup;
+            pos += 1;
+        }
+
         *bc_buf.add(pos) = get_op as u8 + 1;
-        put_u16(bc_buf.add(pos + 1), var_idx as u16);
+        write_to_ptr::<u16>(bc_buf.add(pos + 1), var_idx as u16);
     }
 
     pos += 3;
@@ -673,7 +672,7 @@ pub fn optimize_scope_make_global_ref(
         } else {
             opcodes::OP_put_var
         };
-        put_u32(bc_buf.add(pos + 1), JS_DupAtom(ctx, var_name).0);
+        write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.dup(ctx.rt()).0);
     }
 
     pos += 5;

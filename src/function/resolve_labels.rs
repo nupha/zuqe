@@ -6,7 +6,7 @@ use crate::{
     mem::{js_free, js_mallocz},
     utils::{
         push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16, push_vec_u32,
-        push_vec_u8, put_u16, put_u32, put_u8, read_from_ptr, M2, M3, M4,
+        push_vec_u8, read_from_ptr, write_to_ptr, M2, M3, M4,
     },
 };
 
@@ -174,14 +174,16 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 while let Some(re) = lb.pending_relocs.pop() {
                     let delta = lb.addr as usize - re.addr;
                     match re.size {
-                        4 => put_u32(bc_out.as_mut_ptr().add(re.addr as usize), delta as u32),
+                        4 => {
+                            write_to_ptr::<u32>(bc_out.as_mut_ptr().add(re.addr), delta as u32);
+                        }
                         2 => {
                             debug_assert_eq!(delta, (delta as i16) as usize);
-                            put_u16(bc_out.as_mut_ptr().add(re.addr as usize), delta as u16);
+                            write_to_ptr::<u16>(bc_out.as_mut_ptr().add(re.addr), delta as u16);
                         }
                         1 => {
                             assert_eq!(delta, (delta as i8) as usize);
-                            put_u8(bc_out.as_mut_ptr().add(re.addr as usize), delta as u8);
+                            *bc_out.as_mut_ptr().add(re.addr) = delta as u8;
                         }
                         _ => {
                             unreachable!()
@@ -901,9 +903,15 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     let jp1 = (*s).jump_slots.offset(i as isize);
                     let diff1 = (*(*s).label_slots.offset((*jp1).label as isize)).addr - (*jp1).pos;
                     match (*jp1).size {
-                        1 => put_u8(bc_out.buf.offset((*jp1).pos as isize), diff1),
-                        2 => put_u16(bc_out.buf.offset((*jp1).pos as isize), diff1 as i16),
-                        4 => put_u32(bc_out.buf.offset((*jp1).pos as isize), diff1),
+                        1 => *bc_out.buf.offset((*jp1).pos as isize) = diff1 as u8,
+                        2 => write_to_ptr::<u16>(
+                            bc_out.buf.offset((*jp1).pos as isize),
+                            diff1 as u16,
+                        ),
+                        4 => write_to_ptr::<u32>(
+                            bc_out.buf.offset((*jp1).pos as isize),
+                            diff1 as u32,
+                        ),
                         _ => {}
                     }
                 }
