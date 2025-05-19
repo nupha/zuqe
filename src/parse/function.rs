@@ -6,7 +6,6 @@ use crate::{
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{BlockEnv, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, ARGUMENT_VAR_OFFSET},
-    mem::js_strndup,
     module::JSExportTypeEnum,
     parse::token::{CHAR_EQUAL, CHAR_STAR},
     value::JSValue,

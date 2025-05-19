@@ -12,7 +12,6 @@ use crate::{
     },
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    mem::{js_free, js_strndup},
     module::JSExportTypeEnum,
     parse::{
         esm::add_export_entry,

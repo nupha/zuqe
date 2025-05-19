@@ -317,15 +317,14 @@ pub unsafe fn js_malloc_typed<T>(
     ptr
 }
 
-pub unsafe fn js_strndup(ctx: *mut JSContext, s: *const c_char, n: usize) -> *mut c_char {
-    let ptr = js_malloc(ctx, n + 1) as *mut c_char;
-    if !ptr.is_null() {
-        std::ptr::copy_nonoverlapping(s, ptr, n);
-        *ptr.add(n) = 0;
-    }
-    ptr
-}
-
+// pub unsafe fn js_strndup(ctx: *mut JSContext, s: *const c_char, n: usize) -> *mut c_char {
+//     let ptr = js_malloc(ctx, n + 1) as *mut c_char;
+//     if !ptr.is_null() {
+//         std::ptr::copy_nonoverlapping(s, ptr, n);
+//         *ptr.add(n) = 0;
+//     }
+//     ptr
+// }
 // pub unsafe fn js_strdup(ctx: *mut JSContext, str: *const c_char) -> *mut c_char {
 //     let len = libc::strlen(str);
 //     js_strndup(ctx, str, len)
