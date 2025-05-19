@@ -11,9 +11,8 @@ use crate::{
         list_foreach_with_ret, list_head,
     },
     value::{
-        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_FLOAT64_NAN,
-        JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64,
+        JS_VALUE_GET_TAG,
     },
 };
 
@@ -25,6 +24,7 @@ pub struct JSMapRecord {
     pub next_weak_ref: *mut JSMapRecord,
     pub link: list_head,
     pub hash_link: list_head,
+
     pub key: JSValue,
     pub value: JSValue,
 }
@@ -130,6 +130,7 @@ impl JSMapState {
                     }
                     JS_FreeValueRT(rt, (*mr).value);
                 }
+
                 drop(Box::from_raw(mr));
             });
 
