@@ -628,7 +628,7 @@ pub unsafe fn js_parse_destructuring_element(
         (*s).cur_func_mut().byte_code[start_addr as usize..assign_addr as usize]
             .fill(OpCode::NOP as u8);
 
-        (*s).cur_func_mut().labels[label_parse as usize].ref_count -= 1;
+        (*s).cur_func_mut().label_slots[label_parse as usize].ref_count -= 1;
         has_initializer = false;
     }
 

@@ -9,7 +9,7 @@ use crate::{
     context::JSContext,
     function::{
         JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
-        JSNativeCallback, JSVarKindEnum, JSVarRef, LabelInfo, RelocEntry,
+        JSNativeCallback, JSVarKindEnum, JSVarRef, LabelSlot, RelocEntry,
     },
     generator::JSAsyncGeneratorData,
     module::JSModuleDef,
@@ -1150,7 +1150,7 @@ pub unsafe fn cpool_add(s: *mut JSParseState, ctx: *mut JSContext, val: JSValue)
 #[deprecated(note = "use LabelInfo::add_reloc() instead")]
 pub unsafe fn add_reloc(
     ctx: *mut JSContext,
-    ls: *mut LabelInfo,
+    ls: *mut LabelSlot,
     addr: usize,
     size: i32,
 ) -> *mut RelocEntry {
@@ -1309,7 +1309,7 @@ pub unsafe fn resolve_scope_var(
     op: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
-    label: Option<&LabelInfo>,
+    label: Option<&LabelSlot>,
     pos_next: usize,
 ) -> usize {
     unreachable!("use JSFUnctionDef::resolve_scope_var() instead");

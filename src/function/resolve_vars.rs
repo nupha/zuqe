@@ -171,7 +171,7 @@ impl JSFunctionDef {
                     };
 
                     // always remove label reference
-                    self.labels[label_id as usize].ref_count -= 1;
+                    self.label_slots[label_id as usize].ref_count -= 1;
 
                     // debug: get atom refcount before resolve_scope_var()
                     #[cfg(debug_assertions)]
@@ -254,9 +254,9 @@ impl JSFunctionDef {
                     if OPTIMIZE {
                         // remove calls to empty finalizers
                         let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
-                        debug_assert!(label_id < self.labels.len() as u32);
+                        debug_assert!(label_id < self.label_slots.len() as u32);
 
-                        let lb = self.labels.get_mut(label_id as usize).unwrap();
+                        let lb = self.label_slots.get_mut(label_id as usize).unwrap();
                         if cc.code_match(lb.pos as _, &[OpCode::RET as i32]) {
                             lb.ref_count -= 1;
                         } else {
@@ -347,9 +347,9 @@ impl JSFunctionDef {
                 }
                 opcodes::op_label => {
                     let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
-                    debug_assert!(label_id < self.labels.len() as u32);
+                    debug_assert!(label_id < self.label_slots.len() as u32);
 
-                    let lb = self.labels.get_mut(label_id as usize).unwrap();
+                    let lb = self.label_slots.get_mut(label_id as usize).unwrap();
                     debug_assert_eq!(lb.pos2, -1);
                     lb.pos2 = bc_out.len() as i32 + oi.size as i32;
                     no_change!(pos, op_len);
@@ -435,7 +435,7 @@ impl JSFunctionDef {
                     {
                         let lab0 = cc.label;
                         let mut lab1 = lab0;
-                        debug_assert!(lab1 >= 0 && lab1 < self.labels.len() as i32);
+                        debug_assert!(lab1 >= 0 && lab1 < self.label_slots.len() as i32);
 
                         let op1 = cc.op;
                         let pos1 = cc.pos;

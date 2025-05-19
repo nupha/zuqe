@@ -2,7 +2,7 @@ use crate::{
     atom::{JSAtom, JS_ATOM_NULL},
     context::{JSContext, JS_MODE_ASYNC, JS_MODE_STRICT},
     function::{
-        JSClosureVar, JSFunctionBytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelInfo,
+        JSClosureVar, JSFunctionBytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
@@ -232,7 +232,7 @@ pub unsafe fn dump_byte_code(
     cpools: &[JSValue],
     source: Option<&str>,
     line_num: i32,
-    labels: &[LabelInfo], // for pass 1, 2 only
+    labels: &[LabelSlot], // for pass 1, 2 only
     b: *const JSFunctionBytecode,
 ) {
     use crate::utils::read_from_ptr;

@@ -168,9 +168,9 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             }
             opcodes::op_label => {
                 label = read_from_ptr::<u32>(bc_buf.add(pos + 1));
-                debug_assert!(label < (*s).labels.len() as u32);
+                debug_assert!(label < (*s).label_slots.len() as u32);
 
-                let lb = (*s).labels.get_mut(label as usize).unwrap();
+                let lb = (*s).label_slots.get_mut(label as usize).unwrap();
                 debug_assert_eq!(lb.addr, -1);
                 lb.addr = bc_out.len() as _;
 
@@ -267,8 +267,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 if OPTIMIZE {
                     label = find_jump_target(s, label, &mut op1, std::ptr::null_mut());
                 }
-                debug_assert!(label < (*s).labels.len() as u32);
-                let lb = (*s).labels.get_mut(label as usize).unwrap();
+                debug_assert!(label < (*s).label_slots.len() as u32);
+                let lb = (*s).label_slots.get_mut(label as usize).unwrap();
                 (*s).add_pc2line_info(bc_out.len() as _, line_num);
 
                 #[cfg(feature = "short_opcode")]
@@ -684,14 +684,14 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     label,
                     op: label_op,
                 } => {
-                    debug_assert!(label < (*s).labels.len() as u32);
+                    debug_assert!(label < (*s).label_slots.len() as u32);
 
                     (*s).add_pc2line_info(bc_out.len() as _, line_num);
                     if label_op == opcodes::OP_goto {
                         pos_next =
                             skip_dead_code(s, bc_buf, bc_len, pos_next, &mut (line_num as i32));
                     }
-                    let lb = (*s).labels.get_mut(label as usize).unwrap();
+                    let lb = (*s).label_slots.get_mut(label as usize).unwrap();
 
                     #[cfg(feature = "short_opcode")]
                     {
@@ -809,7 +809,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
     // check that there were no missing labels
     #[cfg(debug_assertions)]
-    for lb in (*s).labels.iter() {
+    for lb in (*s).label_slots.iter() {
         debug_assert!(lb.pending_relocs.is_empty());
     }
 
@@ -924,7 +924,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
     // XXX: should delay until copying to runtime bytecode function /
     compute_pc2line_info(s);
 
-    (*s).labels.clear();
+    (*s).label_slots.clear();
     (*s).line_number_slots.clear();
 
     // set the new byte code

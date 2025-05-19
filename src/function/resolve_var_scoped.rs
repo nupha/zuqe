@@ -34,7 +34,7 @@ impl JSFunctionDef {
                 if let Some(l) = $label {
                     push_vec_u8(bc, opcodes::op_label);
                     push_vec_u32(bc, l);
-                    self.labels[l as usize].pos2 = bc.len() as i32;
+                    self.label_slots[l as usize].pos2 = bc.len() as i32;
                 }
                 return pos_next;
             };
@@ -505,7 +505,9 @@ impl JSFunctionDef {
             // can be used with a closure (module global variable case).
             match op as u8 {
                 opcodes::op_scope_make_ref => {
-                    let label = label.and_then(|l| self.labels.get(l as usize)).unwrap();
+                    let label = label
+                        .and_then(|l| self.label_slots.get(l as usize))
+                        .unwrap();
 
                     if var_id & ARGUMENT_VAR_OFFSET == 0
                         && self.vars[var_id as usize].var_kind()
@@ -623,7 +625,7 @@ impl JSFunctionDef {
         if let Some(l) = label_done {
             push_vec_u8(bc, opcodes::op_label);
             push_vec_u32(bc, l);
-            self.labels[l as usize].pos2 = bc.len() as i32;
+            self.label_slots[l as usize].pos2 = bc.len() as i32;
         }
         pos_next
     }
@@ -662,7 +664,9 @@ impl JSFunctionDef {
         } else {
             match op as u8 {
                 opcodes::op_scope_make_ref => {
-                    let label = label.and_then(|l| self.labels.get(l as usize)).unwrap();
+                    let label = label
+                        .and_then(|l| self.label_slots.get(l as usize))
+                        .unwrap();
 
                     if cv.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_NAME {
                         // Create a dummy object reference for the func_var
@@ -748,7 +752,7 @@ impl JSFunctionDef {
         if let Some(l) = label_done {
             push_vec_u8(bc, opcodes::op_label);
             push_vec_u32(bc, l);
-            self.labels[l as usize].pos2 = bc.len() as i32;
+            self.label_slots[l as usize].pos2 = bc.len() as i32;
         }
         pos_next
     }
@@ -770,7 +774,9 @@ impl JSFunctionDef {
     ) -> usize {
         match op as u8 {
             opcodes::op_scope_make_ref => {
-                let label = label.and_then(|l| self.labels.get_mut(l as usize)).unwrap();
+                let label = label
+                    .and_then(|l| self.label_slots.get_mut(l as usize))
+                    .unwrap();
 
                 if label_done.is_none() && can_optimize_put_global_ref_value(bc_buf, label.pos) {
                     pos_next = optimize_scope_make_global_ref(
@@ -817,7 +823,7 @@ impl JSFunctionDef {
         if let Some(l) = label_done {
             push_vec_u8(bc, opcodes::op_label);
             push_vec_u32(bc, l);
-            self.labels[l as usize].pos2 = bc.len() as i32;
+            self.label_slots[l as usize].pos2 = bc.len() as i32;
         }
         pos_next
     }

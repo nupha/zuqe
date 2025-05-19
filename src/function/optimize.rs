@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, JS_ATOM_NULL},
     bytecode::{opcode_info_intermediate, opcodes, OpCode},
     context::{JSContext, JS_MODE_STRICT},
-    function::{code_has_label, find_jump_target, JSFunctionDef, LabelInfo},
+    function::{code_has_label, find_jump_target, JSFunctionDef, LabelSlot},
     utils::{
         push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8,
         read_from_ptr, write_to_ptr, M2, M3,
@@ -563,7 +563,7 @@ pub fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
 pub fn optimize_scope_make_ref(
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
-    label: &LabelInfo,
+    label: &LabelSlot,
     mut pos_next: usize,
     get_op: OpCode,
     var_idx: i32,
@@ -622,7 +622,7 @@ pub fn optimize_scope_make_global_ref(
     js_mode: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
-    label: &LabelInfo,
+    label: &LabelSlot,
     pos_next: u32,
     var_name: JSAtom,
 ) -> u32 {

@@ -13,7 +13,7 @@ use crate::{
     },
     gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
-    mem::{js_free, js_malloc_typed},
+    mem::js_malloc_typed,
     module::{add_module_variables, JSModuleDef},
     parse::JSParseFunctionEnum,
     types::{
@@ -28,7 +28,7 @@ use crate::{
     JS_MKPTR,
 };
 
-use super::LabelInfo;
+use super::LabelSlot;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -160,10 +160,9 @@ pub struct JSFunctionDef {
     /// 是否使用短操作码
     pub use_short_opcodes: bool,
 
-    /// 标签槽数组
-    pub labels: Vec<LabelInfo>,
+    pub label_slots: Vec<LabelSlot>,
 
-    // break/continue label stack
+    /// break/continue label stack
     pub top_break: *mut BlockEnv,
 
     /// 跳转槽数组. TODO: use Vec<JumpSlot>
@@ -281,7 +280,7 @@ impl JSFunctionDef {
             last_opcode_line_num: line_num,
             use_short_opcodes: false,
 
-            labels: Vec::new(),
+            label_slots: Vec::new(),
 
             top_break: std::ptr::null_mut(),
             closure_vars: None,
@@ -350,12 +349,12 @@ impl JSFunctionDef {
     /// update label ref count by delta. returns updated ref count.
     pub fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
         debug_assert!(
-            label < self.labels.len() as u32,
+            label < self.label_slots.len() as u32,
             "label={label}, count={}",
-            self.labels.len()
+            self.label_slots.len()
         );
 
-        let lb = self.labels.get_mut(label as usize).unwrap();
+        let lb = self.label_slots.get_mut(label as usize).unwrap();
         lb.ref_count += delta;
         debug_assert!(lb.ref_count >= 0);
 
@@ -698,7 +697,7 @@ impl JSFunctionDef {
                     self.cpool.as_slice(),
                     self.source.as_deref(),
                     self.line_num as _,
-                    self.labels.as_slice(),
+                    self.label_slots.as_slice(),
                     std::ptr::null_mut(),
                 );
             }
@@ -1105,7 +1104,7 @@ pub unsafe fn get_label_pos(s: *const JSFunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
-        pos = (*s).labels[label as usize].pos;
+        pos = (*s).label_slots[label as usize].pos;
 
         loop {
             match (*s).byte_code[pos as usize] {
@@ -1153,7 +1152,7 @@ pub fn skip_dead_code(
                     break;
                 }
 
-                debug_assert!((*s).labels[label as usize].pending_relocs.is_empty());
+                debug_assert!((*s).label_slots[label as usize].pending_relocs.is_empty());
             }
 
             // if false {
@@ -1590,7 +1589,7 @@ pub unsafe fn instantiate_hoisted_definitions(
         push_vec_u8(bc, OpCode::RETURN_UNDEF as u8);
         push_vec_u8(bc, OpCodeTemp::LABEL as u8);
         push_vec_u32(bc, l);
-        (*s).labels[l as usize].pos2 = bc.len() as i32;
+        (*s).label_slots[l as usize].pos2 = bc.len() as i32;
     }
 
     (*s).global_vars.clear();

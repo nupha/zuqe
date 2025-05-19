@@ -14,7 +14,7 @@ pub struct RelocEntry {
 }
 
 #[derive(Debug)]
-pub struct LabelInfo {
+pub struct LabelSlot {
     pub ref_count: i32,
 
     /// phase 1 address, -1 means not resolved yet
@@ -28,7 +28,7 @@ pub struct LabelInfo {
     pub pending_relocs: Vec<RelocEntry>,
 }
 
-impl LabelInfo {
+impl LabelSlot {
     pub fn add_reloc(&mut self, ctx: &mut JSContext, addr: usize, size: i32) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity() {
             if self.pending_relocs.try_reserve_exact(4).is_err() {
@@ -45,14 +45,14 @@ impl LabelInfo {
 impl JSFunctionDef {
     /// Create new label in JSFunctionDef, returns new label id.
     pub fn add_label(&mut self) -> Result<u32, i32> {
-        if self.labels.len() == self.labels.capacity() {
-            if self.labels.try_reserve_exact(4).is_err() {
+        if self.label_slots.len() == self.label_slots.capacity() {
+            if self.label_slots.try_reserve_exact(4).is_err() {
                 self.ctx.JS_ThrowOutOfMemory();
                 return Err(-1);
             }
         }
 
-        self.labels.push(LabelInfo {
+        self.label_slots.push(LabelSlot {
             ref_count: 0,
             pos: -1,
             pos2: -1,
@@ -60,7 +60,7 @@ impl JSFunctionDef {
             pending_relocs: Vec::new(),
         });
 
-        Ok(self.labels.len() as u32 - 1)
+        Ok(self.label_slots.len() as u32 - 1)
     }
 }
 
@@ -149,8 +149,8 @@ pub unsafe fn find_jump_target(
     let mut op: u8 = 0;
 
     for _ in 0..10 {
-        debug_assert!(label < (*s).labels.len() as u32);
-        let mut pos = (*s).labels[label as usize].pos2;
+        debug_assert!(label < (*s).label_slots.len() as u32);
+        let mut pos = (*s).label_slots[label as usize].pos2;
 
         loop {
             op = (*s).byte_code[pos as usize];
