@@ -30,14 +30,9 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
     let mut bc_out = Vec::<u8>::with_capacity(bc_len);
 
     #[cfg(feature = "short_opcode")]
-    let mut jp: *mut JumpSlot = std::ptr::null_mut();
-    #[cfg(feature = "short_opcode")]
     if (*s).jump_size != 0 {
-        (*s).jump_slots = js_mallocz(
-            (*s).ctx,
-            std::mem::size_of::<*mut JumpSlot>() * (*s).jump_size,
-        );
-        if (*s).jump_slots.is_null() {
+        if (*s).jump_slots.try_reserve_exact((*s).jump_size).is_err() {
+            (*s).ctx.JS_ThrowOutOfMemory();
             return -1;
         }
     }
@@ -277,14 +272,12 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 (*s).add_pc2line_info(bc_out.len() as _, line_num);
 
                 #[cfg(feature = "short_opcode")]
-                {
-                    jp = &mut (*(*s).jump_slots.offset((*s).jump_count as isize));
-                    (*jp).op = op;
-                    (*jp).size = 4;
-                    (*jp).pos = bc_out.size + 1;
-                    (*jp).label = label;
-                    (*s).jump_count += 1;
-                }
+                (*s).jump_slots.push(super::JumpSlot {
+                    op,
+                    size: 4,
+                    pos: bc_out.size + 1,
+                    label,
+                });
 
                 push_vec_u8(&mut bc_out, op);
                 push_vec_u32(&mut bc_out, atom);
@@ -702,15 +695,12 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
 
                     #[cfg(feature = "short_opcode")]
                     {
-                        let jp = (*s).jump_slots.add({
-                            let n = (*s).jump_count;
-                            (*s).jump_count += 1;
-                            n
-                        });
-                        (*jp).op = label_op;
-                        (*jp).size = 4;
-                        (*jp).pos = bc_out.len() + 1;
-                        (*jp).label = label;
+                        let mut jp = super::JumpSlot {
+                            op: label_op,
+                            size: 4,
+                            pos: bc_out.len() + 1,
+                            label,
+                        };
 
                         if (*ls).addr == -1 {
                             let diff = (*ls).pos2 - pos as i32 - 1;
@@ -720,9 +710,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                                     opcodes::OP_if_false | opcodes::OP_if_true | opcodes::OP_goto
                                 )
                             {
-                                (*jp).size = 1;
-                                (*jp).op =
-                                    opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false);
+                                jp.size = 1;
+                                jp.op = opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false);
                                 push_vec_u8(
                                     &mut bc_out,
                                     opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false),
@@ -732,8 +721,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                                     state = Some(ResolveLabelsState::Fail);
                                 }
                             } else if (diff < 32768 && label_op == OP_goto) {
-                                (*jp).size = 2;
-                                (*jp).op = OP_goto16;
+                                jp.size = 2;
+                                jp.op = OP_goto16;
                                 push_vec_u8(&mut bc_out, opcodes::OP_goto16);
                                 push_vec_u16(&mut bc_out, 0);
                                 if ls.add_reloc(ctx, bc_out.len() - 2, 2).is_err() {
@@ -748,20 +737,22 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                                     opcodes::OP_if_false | opcodes::OP_if_true | opcodes::OP_goto
                                 )
                             {
-                                (*jp).size = 1;
-                                (*jp).op = OP_if_false8 + (label_op - OP_if_false);
+                                jp.size = 1;
+                                jp.op = OP_if_false8 + (label_op - OP_if_false);
                                 push_vec_u8(
                                     &mut bc_out,
                                     opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false),
                                 );
                                 push_vec_u8(&mut bc_out, diff as u8);
                             } else if diff == diff as u16 as i32 && label_op == opcodes::OP_goto {
-                                (*jp).size = 2;
-                                (*jp).op = OP_goto16;
+                                jp.size = 2;
+                                jp.op = OP_goto16;
                                 push_vec_u8(&mut bc_out, opcodes::OP_goto16);
                                 push_vec_u16(&mut bc_out, diff as u16);
                             }
                         }
+
+                        (*s).jump_slots.push(jp);
                     }
 
                     push_vec_u8(&mut bc_out, label_op);
@@ -826,20 +817,19 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
     {
         if OPTIMIZE {
             let mut patch_offsets = 0;
-            for i in 0..(*s).jump_count {
-                let jp = (*s).jump_slots.offset(i as isize);
+            for jp in (*s).jump_slots.iter_mut() {
                 let mut delta = 3;
-                let mut op = (*jp).op;
+                let mut op = jp.op;
                 match op {
                     OP_goto16 => {
                         delta = 1;
                         // fall thru
                     }
                     OP_if_false | OP_if_true | OP_goto => {
-                        let pos = (*jp).pos;
-                        let diff = (*(*s).label_slots.offset((*jp).label as isize)).addr - pos;
+                        let pos = jp.pos;
+                        let diff = (*(*s).label_slots.offset(jp.label as isize)).addr - pos;
                         if diff >= -128 && diff <= 127 + delta {
-                            (*jp).size = 1;
+                            jp.size = 1;
                             if op == OP_goto16 {
                                 *bc_out.buf.offset(pos - 1) = OP_goto8;
                             } else {
@@ -849,7 +839,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                             std::ptr::copy(
                                 bc_out.buf.offset(pos + (*jp).size as isize),
                                 bc_out.buf.offset(pos + (*jp).size as isize + delta),
-                                (bc_out.size - pos - (*jp).size - delta) as usize,
+                                (bc_out.size - pos - jp.size - delta) as usize,
                             );
                             bc_out.size -= delta;
                             patch_offsets += 1;
@@ -859,6 +849,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                                     (*ls).addr -= delta;
                                 }
                             }
+
                             for j in i + 1..(*s).jump_count {
                                 let jp1 = (*s).jump_slots.offset(j as isize);
                                 if (*jp1).pos > pos {
@@ -871,15 +862,15 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                                 }
                             }
                             continue;
-                        } else if diff == (diff as i16) as i32 && op == OP_goto {
-                            (*jp).size = 2;
+                        } else if diff == diff as i32 && op == OP_goto {
+                            jp.size = 2;
                             delta = 2;
                             *bc_out.buf.offset(pos - 1) = OP_goto16;
                             // C2RS: memmove translated to copy_within
                             std::ptr::copy(
-                                bc_out.buf.offset(pos + (*jp).size as isize),
-                                bc_out.buf.offset(pos + (*jp).size as isize + delta),
-                                (bc_out.size - pos - (*jp).size - delta) as usize,
+                                bc_out.buf.offset(pos + jp.size as isize),
+                                bc_out.buf.offset(pos + jp.size as isize + delta),
+                                (bc_out.size - pos - jp.size - delta) as usize,
                             );
                             bc_out.size -= delta;
                             patch_offsets += 1;
@@ -926,8 +917,8 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 }
             }
         }
-        js_free(ctx, (*s).jump_slots as *mut std::ffi::c_void);
-        (*s).jump_slots = std::ptr::null_mut();
+
+        (*s).jump_slots.clear();
     }
 
     // XXX: should delay until copying to runtime bytecode function /

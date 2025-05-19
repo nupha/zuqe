@@ -166,12 +166,12 @@ pub struct JSFunctionDef {
     // break/continue label stack
     pub top_break: *mut BlockEnv,
 
-    // 跳转槽数组. TODO: use Vec<JumpSlot>
-    pub jump_slots: *mut JumpSlot,
-    // 跳转槽分配大小
+    /// 跳转槽数组. TODO: use Vec<JumpSlot>
+    #[cfg(feature = "short_opcode")]
+    pub jump_slots: Vec<JumpSlot>,
+    /// 跳转槽分配大小
+    #[cfg(feature = "short_opcode")]
     pub jump_size: u32,
-    // 跳转计数
-    pub jump_count: u32,
 
     /// line number capacity
     pub line_number_slots_cap: usize,
@@ -275,6 +275,7 @@ impl JSFunctionDef {
                 arr
             },
             body_scope: -1,
+
             byte_code: Vec::with_capacity(128),
             last_opcode_pos: -1,
             last_opcode_line_num: line_num,
@@ -284,13 +285,17 @@ impl JSFunctionDef {
 
             top_break: std::ptr::null_mut(),
             closure_vars: None,
-            jump_slots: std::ptr::null_mut(),
+
+            #[cfg(feature = "short_opcode")]
+            jump_slots: Vec::new(),
+            #[cfg(feature = "short_opcode")]
             jump_size: 0,
-            jump_count: 0,
+
             line_number_slots: Vec::new(),
             line_number_slots_cap: 0,
             line_number_last: 0,
             line_number_last_pc: 0,
+
             filename: ctx.create_atom(filename)?,
             line_num,
             pc2line: None,
@@ -717,10 +722,9 @@ impl JSFunctionDef {
         );
         self.byte_code.clear();
 
-        if !self.jump_slots.is_null() {
-            js_free(ctx, self.jump_slots.cast());
-            self.jump_slots = std::ptr::null_mut();
-        }
+        // #[cfg(feature = "short_opcode")]
+        // self.jump_slots.clear();
+
         // self.label_slots.clear();
         // self.line_number_slots.clear();
 
@@ -767,31 +771,29 @@ impl JSFunctionDef {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
 pub struct LineNumberSlot {
     pub pc: u32,
     pub line_num: i32,
 }
 
-#[repr(C)]
 pub struct BlockEnv {
     pub prev: *mut BlockEnv,
-    // JS_ATOM_NULL if none
+    /// JS_ATOM_NULL if none
     pub label_name: JSAtom,
-    // -1 if none
+    /// -1 if none
     pub label_break: i32,
-    // -1 if none
+    /// -1 if none
     pub label_cont: i32,
-    // number of stack elements to drop
+    /// number of stack elements to drop
     pub drop_count: i32,
-    // -1 if none
+    /// -1 if none
     pub label_finally: i32,
     pub scope_level: i32,
     pub has_iterator: bool,
 }
 
+#[cfg(feature = "short_opcode")]
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
 pub struct JumpSlot {
     pub op: i32,
     pub size: i32,
@@ -1487,7 +1489,11 @@ pub unsafe fn instantiate_hoisted_definitions(
         push_vec_u32(bc, l);
 
         (*s).update_label_ref_count(l, 1);
-        (*s).jump_size += 1;
+
+        #[cfg(feature = "short_opcode")]
+        {
+            (*s).jump_size += 1;
+        }
     }
 
     // add the global variables (only happens if JSFunctionDef::is_global_var is true)

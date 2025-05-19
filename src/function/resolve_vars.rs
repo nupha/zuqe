@@ -246,7 +246,11 @@ impl JSFunctionDef {
                     JS_FreeAtom(ctx, var_name);
                 }
                 opcodes::OP_gosub => {
-                    self.jump_size += 1;
+                    #[cfg(feature = "short_opcode")]
+                    {
+                        self.jump_size += 1;
+                    }
+
                     if OPTIMIZE {
                         // remove calls to empty finalizers
                         let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
@@ -318,6 +322,7 @@ impl JSFunctionDef {
                 | opcodes::OP_throw
                 | opcodes::OP_throw_error
                 | opcodes::OP_ret => {
+                    #[cfg(feature = "short_opcode")]
                     if op == opcodes::OP_goto {
                         self.jump_size += 1;
                     }
@@ -408,7 +413,11 @@ impl JSFunctionDef {
                     }
                 }
                 opcodes::OP_if_false | opcodes::OP_if_true | opcodes::OP_catch => {
-                    self.jump_size += 1;
+                    #[cfg(feature = "short_opcode")]
+                    {
+                        self.jump_size += 1;
+                    }
+
                     no_change!(pos, op_len);
                 }
                 opcodes::OP_dup => {
@@ -443,7 +452,10 @@ impl JSFunctionDef {
                         }
 
                         if cc.code_match(pos2, &[op1]) {
-                            self.jump_size += 1;
+                            #[cfg(feature = "short_opcode")]
+                            {
+                                self.jump_size += 1;
+                            }
 
                             self.update_label_ref_count(lab0 as _, -1);
                             self.update_label_ref_count(cc.label as _, 1);

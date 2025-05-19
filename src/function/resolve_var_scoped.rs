@@ -892,7 +892,11 @@ impl JSFunctionDef {
         push_vec_u8(bc, is_with as u8);
 
         self.update_label_ref_count(label as _, 1);
-        self.jump_size += 1;
+
+        #[cfg(feature = "short_opcode")]
+        {
+            self.jump_size += 1;
+        }
 
         label
     }
