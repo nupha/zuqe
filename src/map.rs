@@ -2,17 +2,18 @@ use std::ptr::NonNull;
 
 use crate::{
     context::JSContext,
-    gc::JS_MarkFunc,
+    gc::{JS_MarkFunc, JS_MarkValue},
     list_entry,
-    mem::{js_malloc_typed, js_realloc2},
+    mem::{js_free_rt, js_malloc_typed, js_realloc2},
     runtime::JSRuntime,
     types::{
-        init_list_head, list_add_tail, list_empty, list_foreach, list_foreach_with_ret, list_head,
+        init_list_head, list_add_tail, list_empty, list_foreach, list_foreach_safe,
+        list_foreach_with_ret, list_head,
     },
     value::{
-        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_FLOAT64_NAN, JS_TAG_IS_FLOAT64,
-        JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JSFloat64Union, JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_FLOAT64_NAN,
+        JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
 };
 
@@ -43,12 +44,17 @@ impl Drop for JSMapRecord {
 
 #[repr(C)]
 pub struct JSMapState {
-    pub is_weak: bool,      // TRUE if WeakSet/WeakMap
-    pub records: list_head, // list of JSMapRecord.link
+    /// is WeakSet/WeakMap?
+    pub is_weak: bool,
+    /// list of JSMapRecord.link
+    pub records: list_head,
     pub record_count: u32,
+
     pub hash_table: *mut list_head,
-    pub hash_size: u32,              // must be a power of two
-    pub record_count_threshold: u32, // count at which a hash table resize is needed
+    pub hash_size: u32, // must be a power of two
+
+    // count at which a hash table resize is needed
+    pub record_count_threshold: u32,
 }
 
 impl Drop for JSMapState {
@@ -108,6 +114,41 @@ impl JSMapState {
 
         Ok(unsafe { NonNull::new_unchecked(Box::into_raw(rec)) })
     }
+
+    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
+        let s = val.object_unchecked().u.map_state;
+        if !s.is_null() {
+            // if the object is deleted we are sure that no iterator is using it
+            list_foreach_safe(&mut (*s).records, |el| {
+                let mr = list_entry!(el, JSMapRecord, link);
+                if !(*mr).empty {
+                    if (*s).is_weak {
+                        delete_weak_ref(mr);
+                    } else {
+                        JS_FreeValueRT(rt, (*mr).key);
+                    }
+                    JS_FreeValueRT(rt, (*mr).value);
+                }
+                drop(Box::from_raw(mr));
+            });
+
+            js_free_rt(rt, (*s).hash_table.cast());
+            drop(Box::from_raw(s));
+        }
+    }
+
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+        let s = val.object_unchecked().u.map_state;
+        if !s.is_null() {
+            list_foreach(&mut (*s).records, |el| {
+                let mr = list_entry!(el, JSMapRecord, link);
+                if !(*s).is_weak {
+                    JS_MarkValue(rt, (*mr).key, mark_func);
+                }
+                JS_MarkValue(rt, (*mr).value, mark_func);
+            });
+        }
+    }
 }
 
 // XXX: could normalize strings to speed up comparison
@@ -165,14 +206,6 @@ pub unsafe fn map_find_record(
     key: JSValueConst,
 ) -> *mut JSMapRecord {
     let h = map_hash_key(ctx, key) & ((*s).hash_size - 1);
-
-    // list_for_each(el, &(*s).hash_table[h as usize]) {
-    //     mr = list_entry(el, JSMapRecord, hash_link);
-    //     if js_same_value_zero(ctx, (*mr).key, key) {
-    //         return mr;
-    //     }
-    // }
-    // std::ptr::null_mut()
 
     list_foreach_with_ret((*s).hash_table.add(h as usize), |el| {
         let mr = list_entry!(el, JSMapRecord, hash_link);
@@ -235,12 +268,34 @@ pub unsafe fn map_hash_resize(ctx: *mut JSContext, s: *mut JSMapState) {
     (*s).record_count_threshold = new_hash_size * 2;
 }
 
-pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    unimplemented!();
+/// Remove the weak reference from the object weak reference list.
+/// we don't use a doubly linked list to save space,
+/// assuming a given object has few weak references to it
+pub unsafe fn delete_weak_ref(mr: *mut JSMapRecord) {
+    let mut pmr = std::ptr::addr_of_mut!((*mr).key.object_unchecked().first_weak_ref);
+    let mut mr1: *mut JSMapRecord;
+
+    loop {
+        mr1 = *pmr;
+        debug_assert!(!mr1.is_null());
+
+        if mr1 == mr {
+            break;
+        }
+        pmr = std::ptr::addr_of_mut!((*mr1).next_weak_ref);
+    }
+
+    *pmr = (*mr1).next_weak_ref;
 }
 
+#[deprecated(note = "use JSMapState::hook_finalizer() instead")]
+pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    JSMapState::hook_finalizer(rt, val);
+}
+
+#[deprecated(note = "use JSMapState::hook_mark() instead")]
 pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    unimplemented!();
+    JSMapState::hook_mark(rt, val, mark_func);
 }
 
 pub unsafe fn js_map_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {

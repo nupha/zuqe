@@ -174,8 +174,8 @@ impl JSObjectFlags {
 
 /// Type-specific object payload storage
 /// The active union member depends on the object's class ID
-#[repr(C)]
 pub union JSObjectUnion {
+    /// generic pointer
     pub opaque: *mut c_void,
 
     /// JS_CLASS_BOUND_FUNCTION
@@ -186,9 +186,12 @@ pub union JSObjectUnion {
     pub for_in_iterator: *mut JSForInIterator,
     /// JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER
     pub array_buffer: *mut JSArrayBuffer,
-    pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW */
-    pub map_state: *mut JSMapState,     /* JS_CLASS_MAP..JS_CLASS_WEAKSET */
-    pub map_iterator_data: *mut JSMapIteratorData, /* JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR */
+    /// JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW
+    pub typed_array: *mut JSTypedArray,
+    /// JS_CLASS_MAP..JS_CLASS_WEAKSET
+    pub map_state: *mut JSMapState,
+    /// JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR
+    pub map_iterator_data: *mut JSMapIteratorData,
     /// JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR
     pub array_iterator_data: *mut JSArrayIteratorData,
     pub regexp_string_iterator_data: *mut JSRegExpStringIteratorData, /* JS_CLASS_REGEXP_STRING_ITERATOR */

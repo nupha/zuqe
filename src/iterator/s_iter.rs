@@ -1,25 +1,21 @@
 use crate::{
-    array::{js_create_array, JS_NewArray},
+    array::JS_NewArray,
     atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
-    error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
     gc::{JS_MarkFunc, JS_MarkValue},
     map::JSMapRecord,
-    mem::{js_malloc, js_malloc_typed},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
-    typed_array::TypedArrayValue,
     value::{
         object::{
-            js_get_length32, JS_GetPrototypeFree, JS_NewObject, JS_ToObject, JS_ToObjectFree,
-            PropertyEnum, JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JS_GetPrototypeFree, JS_NewObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
+            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
-        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_ToStringCheckObject,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_TAG_NULL,
+        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_C_FUNCTION, JS_CLASS_FOR_IN_ITERATOR,
-    JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_C_FUNCTION, JS_CLASS_FOR_IN_ITERATOR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

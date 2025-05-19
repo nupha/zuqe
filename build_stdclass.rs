@@ -203,26 +203,26 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "Map",
             "MAP",
-            Some("crate::map::js_map_finalizer"),
-            Some("crate::map::js_map_mark")
+            Some("crate::map::JSMapState::hook_finalizer"),
+            Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "Set",
             "SET",
-            Some("crate::map::js_map_finalizer"),
-            Some("crate::map::js_map_mark")
+            Some("crate::map::JSMapState::hook_finalizer"),
+            Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "WeakMap",
             "WEAKMAP",
-            Some("crate::map::js_map_finalizer"),
-            Some("crate::map::js_map_mark")
+            Some("crate::map::JSMapState::hook_finalizer"),
+            Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "WeakSet",
             "WEAKSET",
-            Some("crate::map::js_map_finalizer"),
-            Some("crate::map::js_map_mark")
+            Some("crate::map::JSMapState::hook_finalizer"),
+            Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "Map_Iterator",
