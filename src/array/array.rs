@@ -6,20 +6,18 @@ use crate::{
     context::JSContext,
     error::{JSErrorEnum, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
-    mem::js_free_rt,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::unlikely,
     value::{
         object::{
-            js_dup_shape, js_get_length64, JSObject, JSProperty, JSPropertyUnion,
-            JS_NewObjectFromShape, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
+            js_dup_shape, JSObject, JSProperty, JSPropertyUnion, JS_NewObjectFromShape,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToUint32,
         JS_TAG_INT, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY,
     JS_CLASS_UINT8C_ARRAY,
@@ -765,26 +763,5 @@ pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS
         for v in lst {
             JS_MarkValue(rt, *v, mark_func);
         }
-    }
-}
-
-pub unsafe fn js_array_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p = JS_VALUE_GET_OBJ(val);
-    let it = (*p).u.array_iterator_data;
-    if !it.is_null() {
-        JS_FreeValueRT(rt, (*it).obj);
-        js_free_rt(rt, it.cast());
-    }
-}
-
-pub unsafe fn js_array_iterator_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
-    let p = JS_VALUE_GET_OBJ(val);
-    let it = (*p).u.array_iterator_data;
-    if !it.is_null() {
-        JS_MarkValue(rt, (*it).obj, mark_func);
     }
 }

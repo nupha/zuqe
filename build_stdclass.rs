@@ -239,14 +239,14 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "Array_Iterator",
             "ARRAY_ITERATOR",
-            Some("crate::array::js_array_iterator_finalizer"),
-            Some("crate::array::js_array_iterator_mark")
+            Some("crate::iterator::JSArrayIteratorData::hook_finalizer"),
+            Some("crate::iterator::JSArrayIteratorData::hook_mark")
         ),
         class_def!(
             "String_Iterator",
             "STRING_ITERATOR",
-            Some("crate::array::js_array_iterator_finalizer"),
-            Some("crate::array::js_array_iterator_mark")
+            Some("crate::iterator::JSArrayIteratorData::hook_finalizer"),
+            Some("crate::iterator::JSArrayIteratorData::hook_mark")
         ),
         class_def!(
             "RegExp_String_Iterator",

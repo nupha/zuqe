@@ -189,7 +189,8 @@ pub union JSObjectUnion {
     pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_DATAVIEW */
     pub map_state: *mut JSMapState,     /* JS_CLASS_MAP..JS_CLASS_WEAKSET */
     pub map_iterator_data: *mut JSMapIteratorData, /* JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR */
-    pub array_iterator_data: *mut JSArrayIteratorData, /* JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR */
+    /// JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR
+    pub array_iterator_data: *mut JSArrayIteratorData,
     pub regexp_string_iterator_data: *mut JSRegExpStringIteratorData, /* JS_CLASS_REGEXP_STRING_ITERATOR */
     pub generator_data: *mut JSGeneratorData,                         /* JS_CLASS_GENERATOR */
     pub proxy_data: *mut JSProxyData,                                 /* JS_CLASS_PROXY */

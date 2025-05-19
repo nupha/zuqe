@@ -307,10 +307,9 @@ impl JSFunctionDef {
 
         let fd = unsafe {
             let mut p = js_malloc_typed::<JSFunctionDef>(ctx.as_ptr(), 1, true).ok_or(-1)?;
-            p.as_ptr().write(o);
+            p.write(o);
 
             init_list_head(&mut p.as_mut().child_list);
-
             Box::from_raw(p.as_ptr())
         };
 
