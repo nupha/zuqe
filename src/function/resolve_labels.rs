@@ -2,8 +2,7 @@ use crate::{
     atom::{JSAtom, JS_FreeAtom},
     bytecode::{opcode_info_intermediate, opcodes, OPSpecialObjectEnum, OpCode},
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
-    function::{find_jump_target, skip_dead_code, JSFunctionDef, LineNumberSlot},
-    mem::{js_free, js_mallocz},
+    function::{find_jump_target, skip_dead_code, JSFunctionDef},
     utils::{
         push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16, push_vec_u32,
         push_vec_u8, read_from_ptr, write_to_ptr, M2, M3, M4,
@@ -43,15 +42,25 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         }
     }
 
-    if (*s).line_number_size != 0 && (*s).js_mode & JS_MODE_STRIP as u8 == 0 {
-        (*s).line_number_slots = js_mallocz(
-            (*s).ctx.as_ptr(),
-            std::mem::size_of::<LineNumberSlot>() * (*s).line_number_size as usize,
-        )
-        .cast();
-        if (*s).line_number_slots.is_null() {
+    if (*s).line_number_slots_cap != 0 && (*s).js_mode & JS_MODE_STRIP as u8 == 0 {
+        if (*s)
+            .line_number_slots
+            .try_reserve_exact((*s).line_number_slots_cap)
+            .is_err()
+        {
+            (*ctx).JS_ThrowOutOfMemory();
             return Err(-1);
         }
+
+        // (*s).line_number_slots = js_mallocz(
+        //     (*s).ctx.as_ptr(),
+        //     std::mem::size_of::<LineNumberSlot>() * (*s).line_number_size as usize,
+        // )
+        // .cast();
+        // if (*s).line_number_slots.is_null() {
+        //     return Err(-1);
+        // }
+
         (*s).line_number_last = (*s).line_num;
         (*s).line_number_last_pc = 0;
     }
@@ -159,7 +168,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 /* line number info (for debug). We put it in a separate
                 compressed table to reduce memory usage and get better
                 performance */
-                line_num = read_from_ptr::<u32>(bc_buf.add(pos + 1));
+                line_num = read_from_ptr::<i32>(bc_buf.add(pos + 1));
                 None
             }
             opcodes::op_label => {
@@ -300,7 +309,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     /* remove useless drops before return */
                     if cc.code_match(pos_next, &[opcodes::OP_return_undef as i32]) {
                         if cc.line_num >= 0 {
-                            line_num = cc.line_num as u32;
+                            line_num = cc.line_num;
                             goto.take();
                         }
                     }
@@ -438,7 +447,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     if cc.code_match(pos_next, &[opcodes::OP_drop as i32]) {
                         JS_FreeAtom(ctx, atom);
                         if cc.line_num >= 0 {
-                            line_num = cc.line_num as u32;
+                            line_num = cc.line_num;
                         }
                         pos_next = cc.pos;
                         goto.take(); // cancel goto no_change
@@ -921,14 +930,11 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
         (*s).jump_slots = std::ptr::null_mut();
     }
 
-    (*s).labels.clear();
-
     // XXX: should delay until copying to runtime bytecode function /
     compute_pc2line_info(s);
-    if !(*s).line_number_slots.is_null() {
-        js_free(ctx, (*s).line_number_slots.cast());
-        (*s).line_number_slots = std::ptr::null_mut();
-    }
+
+    (*s).labels.clear();
+    (*s).line_number_slots.clear();
 
     // set the new byte code
     bc_out.shrink_to_fit();

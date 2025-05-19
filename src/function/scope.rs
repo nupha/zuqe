@@ -29,7 +29,7 @@ impl JSFunctionDef {
     ///
     ///  * The new scope id.
     /// * Err(-1) when alloc fail, in this case, current_exception has the exception.
-    pub fn push_scope(&mut self, last_line_num: u32) -> Result<u16, i32> {
+    pub fn push_scope(&mut self, last_line_num: i32) -> Result<u16, i32> {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
@@ -59,7 +59,7 @@ impl JSFunctionDef {
     ///
     /// Restores the parent scope and updates variable accessibility.
     /// Emits bytecode for scope cleanup.
-    pub fn pop_scope(&mut self, last_line_num: u32) {
+    pub fn pop_scope(&mut self, last_line_num: i32) {
         // disable scoped variables
         let scope = self.scope_level;
         self.scope_level = self.scopes[scope as usize].parent;
@@ -79,7 +79,7 @@ impl JSFunctionDef {
     /// # Arguments
     /// * `scope_from` - Starting scope ID to close from
     /// * `scope_stop` - Stop closing scopes at this ID
-    pub fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: u32) {
+    pub fn close_scopes(&mut self, scope_from: u16, scope_stop: u16, last_line_num: i32) {
         let mut scope = scope_from as i32;
 
         while scope > scope_stop as i32 {

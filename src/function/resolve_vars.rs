@@ -108,7 +108,7 @@ impl JSFunctionDef {
             match op {
                 opcodes::op_line_num => {
                     line_num = unsafe { read_from_ptr::<i32>(bc_buf_ptr.add(pos + 1)) };
-                    self.line_number_size += 1;
+                    self.line_number_slots_cap += 1;
                     no_change!(pos, op_len);
                 }
                 opcodes::OP_eval => {
@@ -302,7 +302,7 @@ impl JSFunctionDef {
                         pos_next = cc.pos;
                         if cc.line_num != -1 && cc.line_num != line_num {
                             line_num = cc.line_num;
-                            self.line_number_size += 1;
+                            self.line_number_slots_cap += 1;
                             push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                             push_vec_u32(&mut bc_out, line_num as u32);
                         }
@@ -332,7 +332,7 @@ impl JSFunctionDef {
                         pos_next = pos;
                         if pos < bc_buf_len && line >= 0 && line_num != line {
                             line_num = line;
-                            self.line_number_size += 1;
+                            self.line_number_slots_cap += 1;
                             push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
                             push_vec_u32(&mut bc_out, line_num as u32);
                         }
@@ -454,7 +454,7 @@ impl JSFunctionDef {
                             pos_next = pos1;
                             if line1 != -1 && line1 != line_num {
                                 line_num = line1;
-                                self.line_number_size += 1;
+                                self.line_number_slots_cap += 1;
 
                                 push_vec_u8(&mut bc_out, opcodes::op_line_num);
                                 push_vec_u32(&mut bc_out, line_num as u32);

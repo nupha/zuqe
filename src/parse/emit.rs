@@ -37,28 +37,33 @@ impl JSFunctionDef {
         self.emit_u32(name.dup(self.ctx.rt()).0);
     }
 
-    fn emit_op_u8(&mut self, op: u8, last_line_num: u32) {
+    fn emit_op_u8(&mut self, op: u8, last_line_num: i32) {
+        debug_assert!(last_line_num >= 0);
+
         let bc = &mut self.byte_code;
 
         // Use the line number of the last token used, not the next token,
         // nor the current offset in the source file.
         if self.last_opcode_line_num != last_line_num {
             push_vec_u8(bc, OpCodeTemp::LINE_NUM as u8);
-            push_vec_u32(bc, last_line_num);
+            push_vec_u32(bc, last_line_num as _);
             self.last_opcode_line_num = last_line_num;
         }
 
         self.last_opcode_pos = bc.len() as i32;
         bc.push(op);
     }
-    pub fn emit_op(&mut self, op: OpCode, last_line_num: u32) {
+
+    #[inline(always)]
+    pub fn emit_op(&mut self, op: OpCode, last_line_num: i32) {
         self.emit_op_u8(op as u8, last_line_num);
     }
-    pub fn emit_op_temp(&mut self, op: OpCodeTemp, last_line_num: u32) {
+    #[inline(always)]
+    pub fn emit_op_temp(&mut self, op: OpCodeTemp, last_line_num: i32) {
         self.emit_op_u8(op as u8, last_line_num);
     }
 
-    pub fn emit_return(&mut self, mut hasval: bool, last_line_num: u32) {
+    pub fn emit_return(&mut self, mut hasval: bool, last_line_num: i32) {
         // execute the finally blocks before return
         if self.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
             if !hasval {
@@ -169,7 +174,7 @@ impl JSFunctionDef {
     }
 
     /// return the label ID offset
-    pub fn emit_label(&mut self, label: i32, last_line_num: u32) -> i32 {
+    pub fn emit_label(&mut self, label: i32, last_line_num: i32) -> i32 {
         if label >= 0 {
             self.emit_op_temp(OpCodeTemp::LABEL, last_line_num);
             self.emit_u32(label as _);
@@ -181,7 +186,7 @@ impl JSFunctionDef {
     }
 
     /// return label or -1 if dead code
-    pub fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: u32) -> i32 {
+    pub fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: i32) -> i32 {
         if self.is_live_code() {
             if label < 0 {
                 label = self.add_label().map_or(-1, |x| x as i32);
@@ -199,7 +204,7 @@ impl JSFunctionDef {
     }
 
     /// Note: `val` keep ref_count unchanged after calling this function
-    pub fn emit_push_const(&mut self, val: JSValueConst, as_atom: bool, last_line_num: u32) -> i32 {
+    pub fn emit_push_const(&mut self, val: JSValueConst, as_atom: bool, last_line_num: i32) -> i32 {
         if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
             // Note: converting to atom will consume the string,
             // so clone the string description to keep val's refcount
@@ -228,7 +233,7 @@ impl JSFunctionDef {
     /* initialize the class fields, called by the constructor. Note:
     super() can be called in an arrow function, so <this> and
     <class_fields_init> can be variable references */
-    pub unsafe fn emit_class_field_init(&mut self, last_line_num: u32) {
+    pub unsafe fn emit_class_field_init(&mut self, last_line_num: i32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
         self.emit_atom_dup(JS_ATOM_class_fields_init);
         self.emit_u16(self.scope_level as _);
@@ -250,7 +255,7 @@ impl JSFunctionDef {
         self.emit_op(OpCode::DROP, last_line_num);
     }
 
-    pub unsafe fn emit_spread_code(&mut self, depth: i32, last_line_num: u32) {
+    pub unsafe fn emit_spread_code(&mut self, depth: i32, last_line_num: i32) {
         // XXX: could check if enum object is an actual array and optimize
         //       slice extraction. enumeration record and target array are in a
         //       different order from OP_append case.

@@ -9,7 +9,6 @@ use crate::{
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{func_kind_to_class_id, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
-    mem::js_free_rt,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     types::{init_list_head, list_add_tail, list_head},
@@ -25,7 +24,7 @@ use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
 
 pub struct JSFunctionBytecodeDebug {
     pub filename: JSAtom,
-    pub line_num: u32,
+    pub line_num: i32,
     pub source: Option<String>,
     pub pc2line_buf: Option<Vec<u8>>,
 }
@@ -325,7 +324,7 @@ impl JSFunctionBytecode {
         }
     }
 
-    pub unsafe fn find_line_num(&self, pc_value: u32) -> Option<u32> {
+    pub unsafe fn find_line_num(&self, pc_value: u32) -> Option<i32> {
         if !self.has_debug || self.debug.pc2line_buf.is_none() {
             // function was stripped
             return None;
@@ -335,16 +334,16 @@ impl JSFunctionBytecode {
         let p_end = p.offset(self.debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap() as isize);
 
         let mut pc = 0;
-        let mut line_num = self.debug.line_num as u32;
+        let mut line_num = self.debug.line_num;
 
         while p < p_end {
             let mut op = *p as i32;
             p = p.offset(1);
 
-            let new_line_num: u32;
+            let new_line_num: i32;
 
             if op == 0 {
-                let mut val: u32 = 0;
+                let mut val = 0;
                 // FIXME: hard coded len 5
                 let ret = if let Ok(n) = get_leb128(&mut val, std::slice::from_raw_parts(p, 5)) {
                     n
@@ -362,12 +361,11 @@ impl JSFunctionBytecode {
                     return Some(self.debug.line_num);
                 };
                 p = p.offset(ret as isize);
-                new_line_num = line_num + v as u32;
+                new_line_num = line_num + v;
             } else {
                 op -= PC2LINE_OP_FIRST;
                 pc += op / PC2LINE_RANGE;
-                new_line_num =
-                    (line_num as i32 + (op as i32 % PC2LINE_RANGE) + PC2LINE_BASE) as u32;
+                new_line_num = line_num + (op as i32 % PC2LINE_RANGE) + PC2LINE_BASE;
             }
 
             if pc_value < pc as u32 {

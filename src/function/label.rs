@@ -64,12 +64,6 @@ impl JSFunctionDef {
     }
 }
 
-/// the pc2line table gives a line number for each PC value
-#[deprecated(note = "use JSFunctionDef::add_pc2line_info() instead")]
-pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: u32) {
-    (*s).add_pc2line_info(pc, line_num);
-}
-
 pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) -> bool {
     while pos < (*s).bc_len {
         let op = *(*s).bc_buf.offset(pos as isize);
@@ -98,8 +92,8 @@ pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) ->
 }
 
 pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
-    if !((*s).js_mode & JS_MODE_STRIP as u8 != 0) && !((*s).line_number_slots.is_null()) {
-        let mut last_line_num = (*s).line_num as i32;
+    if (*s).js_mode & JS_MODE_STRIP as u8 == 0 && !(*s).line_number_slots.is_empty() {
+        let mut last_line_num = (*s).line_num;
         let mut last_pc: u32 = 0;
 
         //js_dbuf_init((*s).ctx, &mut (*s).pc2line);
@@ -108,9 +102,9 @@ pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
         }
         let lst = (*s).pc2line.as_mut().unwrap();
 
-        for i in 0..(*s).line_number_count {
-            let pc = (*(*s).line_number_slots.offset(i as isize)).pc;
-            let line_num = (*(*s).line_number_slots.offset(i as isize)).line_num as i32;
+        for ln in (*s).line_number_slots.iter() {
+            let pc = ln.pc;
+            let line_num = ln.line_num;
             if line_num < 0 {
                 continue;
             }

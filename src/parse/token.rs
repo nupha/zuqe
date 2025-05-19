@@ -48,7 +48,7 @@ pub const CHAR_BACKTICK: i32 = '`' as i32;
 #[derive(Clone, Copy)]
 pub struct JSToken {
     pub val: i32,
-    pub line_num: u32, // line number of token start
+    pub line_num: i32, // line number of token start
     pub ptr: *const u8,
     pub u: JSTokenUnion,
 }

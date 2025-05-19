@@ -8,12 +8,12 @@ use crate::{
     class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{
-        JSCFunction, JSFunctionBytecode, JSFunctionDef, JSGlobalVar, JSNativeCallback,
-        JSVarKindEnum, JSVarRef, LabelInfo, RelocEntry,
+        JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
+        JSNativeCallback, JSVarKindEnum, JSVarRef, LabelInfo, RelocEntry,
     },
     generator::JSAsyncGeneratorData,
     module::JSModuleDef,
-    parse::JSParseState,
+    parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
@@ -1052,7 +1052,7 @@ pub unsafe fn js_get_module_ns(ctx: *mut JSContext, m: *mut JSModuleDef) -> JSVa
 pub unsafe fn build_backtrace(
     ctx: *mut JSContext,
     error_obj: JSValueConst,
-    file_line: Option<(&str, u32)>, // filename and line number
+    file_line: Option<(&str, i32)>, // filename and line number
     backtrace_flags: i32,
 ) {
     (*ctx).build_backtrace_to(error_obj, file_line, backtrace_flags);
@@ -1322,4 +1322,39 @@ pub unsafe fn resolve_scope_var(
 #[deprecated(note = "use JSFunctionDef::resolve_variables() instead")]
 pub unsafe fn resolve_variables(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Result<(), i32> {
     (*s).resolve_variables(ctx.as_mut().unwrap())
+}
+
+#[deprecated(note = "use JSParseState::parse_function_decl() instead")]
+pub unsafe fn js_parse_function_decl(
+    s: *mut JSParseState,
+    func_type: JSParseFunctionEnum,
+    func_kind: JSFunctionKindEnum,
+    func_name: JSAtom,
+    ptr: *const u8,
+    function_line_num: i32,
+) -> i32 {
+    unreachable!("use JSParseState::parse_function_decl() instead")
+}
+
+/// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
+/// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
+/// Returns -1 for ERROR, 0 for OK
+#[deprecated(note = "use JSParseState::parse_function_decl2() instead")]
+pub unsafe fn js_parse_function_decl2(
+    s: *mut JSParseState,
+    func_type: JSParseFunctionEnum,
+    func_kind: JSFunctionKindEnum,
+    func_name: JSAtom,
+    ptr: *const u8,
+    function_line_num: i32,
+    export_flag: JSParseExportEnum,
+    pfd: *mut *mut JSFunctionDef,
+) -> i32 {
+    unreachable!("use JSParseState::parse_function_decl2() instead")
+}
+
+/// the pc2line table gives a line number for each PC value
+#[deprecated(note = "use JSFunctionDef::add_pc2line_info() instead")]
+pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: i32) {
+    (*s).add_pc2line_info(pc, line_num);
 }

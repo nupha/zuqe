@@ -23,4 +23,9 @@ mod template;
 mod token;
 mod var;
 
-pub use {esm::JS_DetectModule, function::JSParseFunctionEnum, parse::*, state::JSParseState};
+pub use {
+    esm::{JSParseExportEnum, JS_DetectModule},
+    function::JSParseFunctionEnum,
+    parse::*,
+    state::JSParseState,
+};

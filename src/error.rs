@@ -206,7 +206,7 @@ impl JSContext {
     fn inner_build_backtrace(
         &mut self,
         error_obj: JSValueConst,
-        file_line: Option<(&str, u32)>, // filename and line number
+        file_line: Option<(&str, i32)>, // filename and line number
         mut backtrace_flags: i32,
     ) -> Result<String, i32> {
         let mut buf = Vec::<u8>::with_capacity(128);
@@ -307,7 +307,7 @@ impl JSContext {
     pub fn build_backtrace_to(
         &mut self,
         error_obj: JSValueConst,
-        file_line: Option<(&str, u32)>,
+        file_line: Option<(&str, i32)>,
         backtrace_flags: i32,
     ) {
         let tb = self.inner_build_backtrace(error_obj, file_line, backtrace_flags);

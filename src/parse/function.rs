@@ -58,7 +58,7 @@ impl<'s> JSParseState<'s> {
         func_kind: JSFunctionKindEnum,
         func_name: JSAtom,
         ptr: *const u8,
-        function_line_num: u32,
+        function_line_num: i32,
         is_expr: bool,
     ) -> Result<Box<JSFunctionDef>, i32> {
         // save original cur_func
@@ -533,7 +533,7 @@ impl<'s> JSParseState<'s> {
         mut func_kind: JSFunctionKindEnum,
         mut func_name: JSAtom,
         ptr: *const u8,
-        function_line_num: u32,
+        function_line_num: i32,
         export_flag: JSParseExportEnum,
         pfd: *mut *mut JSFunctionDef,
     ) -> Result<(), i32> {
@@ -842,7 +842,7 @@ impl<'s> JSParseState<'s> {
         func_kind: JSFunctionKindEnum,
         func_name: JSAtom,
         ptr: *const u8,
-        function_line_num: u32,
+        function_line_num: i32,
     ) -> Result<(), i32> {
         self.parse_function_decl2(
             func_type,
@@ -853,57 +853,6 @@ impl<'s> JSParseState<'s> {
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
             std::ptr::null_mut(),
         )
-    }
-}
-
-#[deprecated(note = "use JSParseState::parse_function_decl() instead")]
-pub unsafe fn js_parse_function_decl(
-    s: *mut JSParseState,
-    func_type: JSParseFunctionEnum,
-    func_kind: JSFunctionKindEnum,
-    func_name: JSAtom,
-    ptr: *const u8,
-    function_line_num: u32,
-) -> i32 {
-    if (*s)
-        .parse_function_decl(func_type, func_kind, func_name, ptr, function_line_num)
-        .is_err()
-    {
-        -1
-    } else {
-        0
-    }
-}
-
-/// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
-/// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
-/// Returns -1 for ERROR, 0 for OK
-#[deprecated(note = "use JSParseState::parse_function_decl2() instead")]
-pub unsafe fn js_parse_function_decl2(
-    s: *mut JSParseState,
-    func_type: JSParseFunctionEnum,
-    func_kind: JSFunctionKindEnum,
-    func_name: JSAtom,
-    ptr: *const u8,
-    function_line_num: u32,
-    export_flag: JSParseExportEnum,
-    pfd: *mut *mut JSFunctionDef,
-) -> i32 {
-    if (*s)
-        .parse_function_decl2(
-            func_type,
-            func_kind,
-            func_name,
-            ptr,
-            function_line_num,
-            export_flag,
-            pfd,
-        )
-        .is_ok()
-    {
-        0
-    } else {
-        -1
     }
 }
 

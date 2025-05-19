@@ -179,7 +179,7 @@ impl<'c> CodeContext<'c> {
         s: *mut JSFunctionDef,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut u32,
+        line_num: &mut i32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // transformation:
@@ -211,7 +211,7 @@ impl<'c> CodeContext<'c> {
                 ],
             ) {
                 if self.line_num >= 0 {
-                    *line_num = self.line_num as u32;
+                    *line_num = self.line_num;
                 }
                 (*s).add_pc2line_info(bc_out.len() as _, *line_num);
                 push_vec_u8(
@@ -327,7 +327,7 @@ impl<'c> CodeContext<'c> {
         op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut u32,
+        line_num: &mut i32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         debug_assert!(matches!(
@@ -339,7 +339,7 @@ impl<'c> CodeContext<'c> {
         let idx = read_from_ptr::<u16>(self.bc_buf.add(pos + 1));
         if self.code_match(*pos_next, &[op as i32 - 1, idx as _]) {
             if self.line_num >= 0 {
-                *line_num = self.line_num as u32;
+                *line_num = self.line_num;
             }
             (*s).add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_short_code(bc_out, op + 1, idx);
@@ -358,7 +358,7 @@ impl<'c> CodeContext<'c> {
         op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut u32,
+        line_num: &mut i32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         debug_assert!(matches!(op, opcodes::OP_post_dec | opcodes::OP_post_inc,));
@@ -446,7 +446,7 @@ impl<'c> CodeContext<'c> {
         mut op: u8,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut u32,
+        line_num: &mut i32,
         bc_out: &mut Vec<u8>,
     ) -> Option<(u8, u32)> {
         debug_assert!(matches!(op, opcodes::OP_if_true | opcodes::OP_if_false));
@@ -487,7 +487,7 @@ impl<'c> CodeContext<'c> {
         s: *mut JSFunctionDef,
         pos: usize,
         pos_next: &mut usize,
-        line_num: &mut u32,
+        line_num: &mut i32,
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // Transformation: dup put_x(n) drop -> put_x(n)
@@ -504,14 +504,14 @@ impl<'c> CodeContext<'c> {
             )],
         ) {
             if self.line_num >= 0 {
-                *line_num = self.line_num as u32;
+                *line_num = self.line_num;
             }
             op1 = self.op + 1; // put_x -> set_x
             *pos_next = self.pos;
 
             if self.code_match(self.pos, &[OpCode::DROP as i32]) {
                 if self.line_num >= 0 {
-                    *line_num = self.line_num as u32;
+                    *line_num = self.line_num;
                 }
                 op1 -= 1; // set_x drop -> put_x
                 *pos_next = self.pos;
@@ -526,7 +526,7 @@ impl<'c> CodeContext<'c> {
             (*s).add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_short_code(bc_out, op1 as u8, self.idx as _);
             if line2 >= 0 {
-                *line_num = line2 as u32;
+                *line_num = line2;
             }
             return true;
         }

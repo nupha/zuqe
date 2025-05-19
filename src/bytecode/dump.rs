@@ -577,7 +577,6 @@ pub unsafe fn dump_byte_code(
             #[cfg(feature = "short_opcode")]
             "none_var_ref" => {
                 idx = (op - opcodes::OP_get_var_ref0) % 4;
-                // C2RS: goto has_var_ref replaced with inline logic
                 printf(" {}: ", idx);
                 if idx < closure_var_count {
                     print_atom(ctx, (*closure_var.offset(idx as isize)).var_name);

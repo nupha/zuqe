@@ -1,8 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::{
-    bytecode::OpCodeTemp, context::JSContextHandle, function::JSFunctionDef, value::JSValue,
-};
+use crate::{context::JSContextHandle, function::JSFunctionDef, value::JSValue};
 
 use super::token::{JSToken, JSTokenNum, JSTokenUnion};
 
@@ -31,9 +29,9 @@ pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
     pub ctx: JSContextHandle,
     /// Line number of the previously processed token
-    pub last_line_num: u32,
+    pub last_line_num: i32,
     /// Current line number being processed
-    pub line_num: u32,
+    pub line_num: i32,
     /// Source file name being parsed
     pub filename: &'s str,
     /// Current token being processed
@@ -186,9 +184,9 @@ impl<'s> JSParseState<'s> {
 #[derive(Debug)]
 pub struct JSParsePos {
     /// Line number of the last processed token
-    pub last_line_num: u32,
+    pub last_line_num: i32,
     /// Current line number
-    pub line_num: u32,
+    pub line_num: i32,
     /// Indicates if a line feed was encountered
     pub got_lf: bool,
     /// Pointer to position in source buffer

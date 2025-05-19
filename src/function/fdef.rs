@@ -151,13 +151,13 @@ pub struct JSFunctionDef {
     /// scope for function body, should be 1 after setup.
     pub body_scope: i32,
 
-    // 字节码缓冲区
+    /// 字节码缓冲区
     pub byte_code: Vec<u8>,
-    // 最后操作码位置
+    /// 最后操作码位置. -1 if no last opcode
     pub last_opcode_pos: i32,
-    // 最后操作码行号
-    pub last_opcode_line_num: u32,
-    // 是否使用短操作码
+    /// 最后操作码行号
+    pub last_opcode_line_num: i32,
+    /// 是否使用短操作码
     pub use_short_opcodes: bool,
 
     /// 标签槽数组
@@ -173,15 +173,14 @@ pub struct JSFunctionDef {
     // 跳转计数
     pub jump_count: u32,
 
-    /// 行号槽数组. TODO: use Vec<LineNumberSlot>
-    pub line_number_slots: *mut LineNumberSlot,
-    // 行号槽分配大小
-    pub line_number_size: u32,
-    // 行号计数
-    pub line_number_count: u32,
-    // 最后记录的行号
-    pub line_number_last: u32,
-    // 最后记录行号的PC
+    /// line number capacity
+    pub line_number_slots_cap: usize,
+    /// line number slots
+    pub line_number_slots: Vec<LineNumberSlot>,
+
+    /// last line number
+    pub line_number_last: i32,
+    /// the PC associated to last line number
     pub line_number_last_pc: u32,
 
     /// file name
@@ -189,7 +188,7 @@ pub struct JSFunctionDef {
     /// source code (utf-8 encoded)
     pub source: Option<String>,
     /// current line number
-    pub line_num: u32,
+    pub line_num: i32,
     /// pc到行号的映射表
     pub pc2line: Option<Vec<u8>>,
 
@@ -213,7 +212,7 @@ impl JSFunctionDef {
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
-        line_num: u32,
+        line_num: i32,
     ) -> Result<Box<Self>, i32> {
         let o = JSFunctionDef {
             ctx,
@@ -288,9 +287,8 @@ impl JSFunctionDef {
             jump_slots: std::ptr::null_mut(),
             jump_size: 0,
             jump_count: 0,
-            line_number_slots: std::ptr::null_mut(),
-            line_number_size: 0,
-            line_number_count: 0,
+            line_number_slots: Vec::new(),
+            line_number_slots_cap: 0,
             line_number_last: 0,
             line_number_last_pc: 0,
             filename: ctx.create_atom(filename)?,
@@ -319,8 +317,10 @@ impl JSFunctionDef {
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
-        line_num: u32,
+        line_num: i32,
     ) -> Result<Box<Self>, i32> {
+        debug_assert!(line_num >= 0);
+
         Self::new0(ctx.into(), is_eval, is_func_expr, filename, line_num).map(|mut fd| {
             if !parent.is_null() {
                 fd.set_parent(parent);
@@ -358,23 +358,12 @@ impl JSFunctionDef {
     }
 
     /// the pc2line table gives a line number for each PC value
-    pub unsafe fn add_pc2line_info(&mut self, pc: u32, line_num: u32) {
-        if !self.line_number_slots.is_null()
-            && self.line_number_count < self.line_number_size
+    pub unsafe fn add_pc2line_info(&mut self, pc: u32, line_num: i32) {
+        if self.line_number_slots.len() < self.line_number_slots_cap as usize
             && pc >= self.line_number_last_pc
             && line_num != self.line_number_last
         {
-            (*self
-                .line_number_slots
-                .offset(self.line_number_count as isize))
-            .pc = pc as u32;
-
-            (*self
-                .line_number_slots
-                .offset(self.line_number_count as isize))
-            .line_num = line_num;
-
-            self.line_number_count += 1;
+            self.line_number_slots.push(LineNumberSlot { pc, line_num });
             self.line_number_last_pc = pc;
             self.line_number_last = line_num;
         }
@@ -733,10 +722,7 @@ impl JSFunctionDef {
             self.jump_slots = std::ptr::null_mut();
         }
         // self.label_slots.clear();
-        if !self.line_number_slots.is_null() {
-            js_free(ctx, self.line_number_slots.cast());
-            self.line_number_slots = std::ptr::null_mut();
-        }
+        // self.line_number_slots.clear();
 
         for v in self.cpool.drain(..) {
             JS_FreeValue(ctx, v);
@@ -784,7 +770,7 @@ impl JSFunctionDef {
 #[repr(C)]
 pub struct LineNumberSlot {
     pub pc: u32,
-    pub line_num: u32,
+    pub line_num: i32,
 }
 
 #[repr(C)]
@@ -820,7 +806,7 @@ pub unsafe fn js_new_function_def(
     is_eval: bool,
     is_func_expr: bool,
     filename: &str,
-    line_num: u32,
+    line_num: i32,
 ) -> *mut JSFunctionDef {
     if let Ok(d) = JSFunctionDef::new(
         ctx.as_mut().unwrap(),
