@@ -190,8 +190,8 @@ pub struct JSFunctionDef {
     /// pc到行号的映射表
     pub pc2line: Option<Vec<u8>>,
 
-    /// 原始源码（UTF-8编码）
-    /// TODO: use String
+    /// source code (utf-8 encoded)
+    /// TODO: use Option<Rc<String>>
     pub source: *mut u8,
     // 源码长度
     pub source_len: u32,

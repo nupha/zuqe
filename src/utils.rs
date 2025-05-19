@@ -631,3 +631,26 @@ macro_rules! JS_ALIAS_BASE_DEF {
         }
     };
 }
+
+#[macro_export]
+macro_rules! defer {
+    ($($code:tt)*) => {
+        let _deferred = {
+            struct Deferred<F: FnOnce()> {
+                cleanup: Option<F>,
+            }
+            impl<F: FnOnce()> Drop for Deferred<F> {
+                fn drop(&mut self) {
+                    if let Some(cleanup) = self.cleanup.take() {
+                        cleanup();
+                    }
+                }
+            }
+            Deferred {
+                cleanup: Some(|| {
+                    $($code)*
+                }),
+            }
+        };
+    };
+}

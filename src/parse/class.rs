@@ -53,9 +53,56 @@ pub unsafe fn js_parse_class(
     let fd = (*s).cur_func_mut();
     let saved_js_mode = fd.js_mode;
 
-    let mut name = JS_ATOM_NULL;
+    // classes are parsed and executed in strict mode
+    fd.js_mode |= JS_MODE_STRICT as u8;
+
+    if (*s).next_token().is_err() {
+        fd.js_mode = saved_js_mode;
+        return -1;
+    }
+
+    macro_rules! private_field_already_defined {
+        () => {
+            (*s).throw_syntax_error(c"private class field is already defined");
+            fail!();
+        };
+    }
+
     let mut class_name = JS_ATOM_NULL;
-    let mut class_var_name: JSAtom = JS_ATOM_NULL;
+
+    if (*s).token.val == TOK_IDENT {
+        if (*s).token.u.ident.is_reserved {
+            js_parse_error_reserved_identifier(s);
+            fd.js_mode = saved_js_mode;
+            return -1;
+        }
+        class_name = (*s).token.u.ident.atom.dup(ctx.rt());
+        if (*s).next_token().is_err() {
+            JS_FreeAtom(ctx.as_ptr(), class_name);
+            fd.js_mode = saved_js_mode;
+            return -1;
+        }
+    } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
+        (*s).throw_syntax_error(c"class statement requires a name");
+        JS_FreeAtom(ctx.as_ptr(), class_name);
+        fd.js_mode = saved_js_mode;
+        return -1;
+    }
+
+    let class_var_name = if !is_class_expr {
+        if class_name == JS_ATOM_NULL {
+            JS_ATOM__default_ // export default
+        } else {
+            class_name
+        }
+        .dup(ctx.rt())
+    } else {
+        JS_ATOM_NULL
+    };
+
+    (*s).push_scope();
+
+    let mut name = JS_ATOM_NULL;
 
     macro_rules! fail {
         () => {
@@ -66,43 +113,6 @@ pub unsafe fn js_parse_class(
             return -1;
         };
     }
-    macro_rules! private_field_already_defined {
-        () => {
-            (*s).throw_syntax_error(c"private class field is already defined");
-            fail!();
-        };
-    }
-
-    // classes are parsed and executed in strict mode
-    fd.js_mode |= JS_MODE_STRICT as u8;
-
-    if (*s).next_token().is_err() {
-        fail!();
-    }
-
-    if (*s).token.val == TOK_IDENT {
-        if (*s).token.u.ident.is_reserved {
-            js_parse_error_reserved_identifier(s);
-            fail!();
-        }
-        class_name = (*s).token.u.ident.atom.dup(ctx.rt());
-        if (*s).next_token().is_err() {
-            fail!();
-        }
-    } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
-        (*s).throw_syntax_error(c"class statement requires a name");
-        fail!();
-    }
-    if !is_class_expr {
-        if class_name == JS_ATOM_NULL {
-            class_var_name = JS_ATOM__default_; // export default
-        } else {
-            class_var_name = class_name;
-        }
-        class_var_name = class_var_name.dup(ctx.rt());
-    }
-
-    (*s).push_scope();
 
     let mut class_flags: i32 = 0;
 
@@ -131,7 +141,6 @@ pub unsafe fn js_parse_class(
     }
 
     let mut method_fd = std::ptr::null_mut::<JSFunctionDef>();
-    let mut ctor_fd: *mut JSFunctionDef;
     let mut prop_type: i32;
 
     let define_class_offset: i32;
@@ -172,7 +181,7 @@ pub unsafe fn js_parse_class(
         (*cf).is_static = i != 0;
     }
 
-    ctor_fd = std::ptr::null_mut();
+    let mut ctor_fd: *mut JSFunctionDef = std::ptr::null_mut();
     while (*s).token.val != '}' as i32 {
         if (*s).token.val == ';' as i32 {
             if (*s).next_token().is_err() {
