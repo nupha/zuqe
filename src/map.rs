@@ -13,7 +13,7 @@ use crate::{
     value::{
         JSFloat64Union, JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_FLOAT64_NAN,
         JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
 };
 
@@ -57,6 +57,7 @@ pub struct JSMapState {
     pub record_count_threshold: u32,
 }
 
+#[cfg(debug_assertions)]
 impl Drop for JSMapState {
     fn drop(&mut self) {
         debug_assert!(list_empty(&mut self.records));
@@ -101,7 +102,7 @@ impl JSMapState {
 
         unsafe {
             // insert to state hash table
-            let h = map_hash_key(ctx, key) & (self.hash_size - 1);
+            let h = key.hash() & (self.hash_size - 1);
             list_add_tail(&mut (*rec).hash_link, self.hash_table.offset(h as isize));
             list_add_tail(&mut (*rec).link, &mut self.records);
 
@@ -162,42 +163,9 @@ pub unsafe fn map_normalize_key(ctx: *mut JSContext, key: JSValueConst) -> JSVal
 }
 
 // XXX: better hash ?
+#[deprecated(note = "use JSValue::hash() instead")]
 pub unsafe fn map_hash_key(ctx: *const JSContext, key: JSValueConst) -> u32 {
-    let tag = JS_VALUE_GET_NORM_TAG(key);
-    let h: u32;
-
-    match tag {
-        JSTag::Bool => {
-            h = JS_VALUE_GET_INT(key) as u32;
-        }
-        JSTag::String => {
-            h = (*JS_VALUE_GET_STRING(key))
-                .content()
-                .calc_hash(crate::atom::JSAtomTypeHint::String);
-        }
-        JSTag::Object | JSTag::Symbol => {
-            h = (JS_VALUE_GET_PTR(key) as usize * 3163) as u32;
-        }
-        JSTag::Int => {
-            let d = (JS_VALUE_GET_INT(key) as f64) * 3163.0;
-            let u = JSFloat64Union { d };
-            h = (u.u32[0] ^ u.u32[1]) * 3163;
-        }
-        JSTag::Float64 => {
-            let mut d = JS_VALUE_GET_FLOAT64(key);
-            // normalize the NaN
-            if d.is_nan() {
-                d = JS_FLOAT64_NAN;
-            }
-            let u = JSFloat64Union { d };
-            h = (u.u32[0] ^ u.u32[1]) * 3163;
-        }
-        _ => {
-            h = 0; // XXX: bignum support
-        }
-    }
-
-    h ^ (tag as u32) // XOR
+    key.hash()
 }
 
 pub unsafe fn map_find_record(
@@ -205,7 +173,7 @@ pub unsafe fn map_find_record(
     s: *mut JSMapState,
     key: JSValueConst,
 ) -> *mut JSMapRecord {
-    let h = map_hash_key(ctx, key) & ((*s).hash_size - 1);
+    let h = key.hash() & ((*s).hash_size - 1);
 
     list_foreach_with_ret((*s).hash_table.add(h as usize), |el| {
         let mr = list_entry!(el, JSMapRecord, hash_link);
@@ -258,7 +226,7 @@ pub unsafe fn map_hash_resize(ctx: *mut JSContext, s: *mut JSMapState) {
     list_foreach(&mut (*s).records, |el| {
         let mr = list_entry!(el, JSMapRecord, link);
         if !(*mr).empty {
-            let h = map_hash_key(ctx, (*mr).key) & (new_hash_size - 1);
+            let h = (*mr).key.hash() & (new_hash_size - 1);
             list_add_tail(&mut (*mr).hash_link, new_hash_table.offset(h as isize));
         }
     });

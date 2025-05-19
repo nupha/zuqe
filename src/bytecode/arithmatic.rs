@@ -551,14 +551,10 @@ impl JSValue {
                 JS_VALUE_GET_INT(self) == JS_VALUE_GET_INT(other)
             }
             (JSTag::Null, JSTag::Null) | (JSTag::Undefined, JSTag::Undefined) => true,
-            (JSTag::String, JSTag::String) => unsafe {
-                self.string().content() == other.string().content()
-            },
-            (JSTag::Symbol, JSTag::Symbol) => JS_VALUE_GET_PTR(self) == JS_VALUE_GET_PTR(other),
-            (JSTag::Object, JSTag::Object) => unsafe {
-                self.object_unchecked() as *mut JSObject
-                    == other.object_unchecked() as *mut JSObject
-            },
+            (JSTag::String, JSTag::String) => self.string().content() == other.string().content(),
+            (JSTag::Symbol, JSTag::Symbol) | (JSTag::Object, JSTag::Object) => {
+                JS_VALUE_GET_PTR(self) == JS_VALUE_GET_PTR(other)
+            }
             (JSTag::Int, JSTag::Float64)
             | (JSTag::Float64, JSTag::Int)
             | (JSTag::Float64, JSTag::Float64) => {
@@ -577,11 +573,13 @@ impl JSValue {
                     if d1.is_nan() || d2.is_nan() {
                         d1.is_nan() == d2.is_nan()
                     } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-                        d1 == d2 // +0 == -0
+                        // +0 == -0
+                        d1 == d2
                     } else {
+                        // +0 != -0
                         let u1 = JSFloat64Union { d: d1 };
                         let u2 = JSFloat64Union { d: d2 };
-                        unsafe { u1.u64 == u2.u64 } // +0 != -0
+                        unsafe { u1.u64 == u2.u64 }
                     }
                 } else {
                     d1 == d2 // if NaN return false and +0 == -0

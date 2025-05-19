@@ -10,7 +10,7 @@ use crate::{
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_PROXY, JS_MKVAL,
 };
 
-use super::{object::JSObject, string::JSString, JS_ToInt64Sat, MAX_SAFE_INTEGER};
+use super::{object::JSObject, string::JSString, JSFloat64Union, JS_ToInt64Sat, MAX_SAFE_INTEGER};
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {
@@ -431,6 +431,38 @@ impl JSValue {
         } else {
             Ok(self)
         }
+    }
+
+    /// calc hash for jsvalue
+    pub fn hash(self) -> u32 {
+        let tag = JS_VALUE_GET_NORM_TAG(self);
+        let h: u32 = match tag {
+            JSTag::Bool => JS_VALUE_GET_INT(self) as u32,
+            JSTag::String => unsafe {
+                self.string()
+                    .content()
+                    .calc_hash(crate::atom::JSAtomTypeHint::String)
+            },
+            JSTag::Object | JSTag::Symbol => (JS_VALUE_GET_PTR(self) as usize * 3163) as u32,
+            JSTag::Int => {
+                let d = (JS_VALUE_GET_INT(self) as f64) * 3163.0;
+                let u = JSFloat64Union { d };
+                unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
+            }
+            JSTag::Float64 => {
+                let mut d = JS_VALUE_GET_FLOAT64(self);
+                if d.is_nan() {
+                    d = f64::NAN;
+                }
+                let u = JSFloat64Union { d };
+                unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
+            }
+            _ => {
+                0 // bignum is not support
+            }
+        };
+
+        h ^ (tag as u32) // XOR
     }
 }
 
