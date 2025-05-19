@@ -156,16 +156,22 @@ pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let func_kind = if js_class_has_bytecode(p.class_id()) {
         unsafe {
             let b = p.u.func.function_bytecode;
-            if (*b).has_debug && !(*b).debug.source.is_null() {
-                let rv = ctx.create_string(
-                    std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                        (*b).debug.source,
-                        (*b).debug.source_len as _,
-                    ))
-                    .as_ref(),
-                );
-                return if rv.is_exception() { Err(-1) } else { Ok(rv) };
+            if (*b).has_debug {
+                if let Some(s) = (*b).debug.source.as_deref() {
+                    return ctx.create_string(s).check_exception();
+                }
             }
+            // if (*b).has_debug && !(*b).debug.source.is_null() {
+            //     let rv = ctx.create_string(
+            //         std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            //             (*b).debug.source,
+            //             (*b).debug.source_len as _,
+            //         ))
+            //         .as_ref(),
+            //     );
+            //     return if rv.is_exception() { Err(-1) } else { Ok(rv) };
+            // }
+
             (*b).func_kind
         }
     } else {

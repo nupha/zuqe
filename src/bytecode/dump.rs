@@ -230,7 +230,7 @@ pub unsafe fn dump_byte_code(
     vars: &[JSVarDef],
     closure_vars: &[JSClosureVar],
     cpools: &[JSValue],
-    source: *const i8,
+    source: Option<&str>,
     line_num: i32,
     labels: &[LabelInfo], // for pass 1, 2 only
     b: *const JSFunctionBytecode,
@@ -334,9 +334,9 @@ pub unsafe fn dump_byte_code(
     }
 
     let mut in_source = false;
-    if !source.is_null() {
+    if let Some(s) = source {
         // Always print first line: needed if single line
-        print_lines(source.cast(), 0, 1);
+        print_lines(s, 0, 1);
         in_source = true;
     }
 
@@ -350,7 +350,7 @@ pub unsafe fn dump_byte_code(
 
         // print source code
         {
-            if !source.is_null() {
+            if let Some(s) = source {
                 if !b.is_null() {
                     line1 = (*b).find_line_num(pos as _).unwrap() as i32 - line_num + 1;
                 } else if op == opcodes::op_line_num {
@@ -362,7 +362,9 @@ pub unsafe fn dump_byte_code(
                         println!();
                     }
                     in_source = true;
-                    print_lines(source.cast(), line, line1);
+
+                    print_lines(s, line as usize, line1 as usize);
+
                     line = line1;
 
                     // bits[pos as usize] |= 2;
@@ -597,11 +599,11 @@ pub unsafe fn dump_byte_code(
         pos += op_len - 1;
     }
 
-    if !source.is_null() {
+    if let Some(s) = source {
         if !in_source {
             println!();
         }
-        print_lines(source.cast(), line, i32::MAX);
+        print_lines(s, line as _, usize::MAX);
     }
 }
 
@@ -710,9 +712,9 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
         (*b).closure_vars_slice_mut().unwrap_or([].as_mut_slice()),
         (*b).cpools_slice().unwrap_or([].as_slice()),
         if (*b).has_debug {
-            (*b).debug.source.cast()
+            (*b).debug.source.as_deref()
         } else {
-            std::ptr::null()
+            None
         },
         if (*b).has_debug {
             (*b).debug.line_num as _
@@ -796,43 +798,37 @@ pub unsafe fn dump_pc2line(ctx: *const JSContext, buf: *const u8, len: i32, mut 
     }
 }
 
-/// print source code in ranges from_line..to_line
-unsafe fn print_lines(source: *const u8, from_line: i32, to_line: i32) {
-    let mut s = source;
-    let mut p = skip_lines(s, from_line);
-    if *p != 0 {
-        for _ in from_line..to_line {
-            s = p; // this line
-            p = skip_lines(s, 1); // next line
-            let length = p.offset_from(s) as usize; // len of this line
+/// print source code in index ranges from_line..to_line, line index is 0-based.
+unsafe fn print_lines(source: &str, from_line: usize, to_line: usize) {
+    debug_assert!(from_line < to_line);
 
-            print!(
-                ";; {:.*}",
-                length,
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(s, length))
-            );
-            if *p == 0 {
-                if *p.offset(-1) != b'\n' {
-                    println!();
-                }
-                break;
-            }
-        }
+    for ln in source.lines().skip(from_line).take(to_line - from_line) {
+        println!(";; {ln}");
     }
 }
 
-unsafe fn skip_lines(p: *const u8, n: i32) -> *const u8 {
-    let mut p = p;
-    let mut n = n;
+// unsafe fn skip_lines(p: &str, n: usize) -> Option<&str> {
+//     if let Some(s) = p.splitn(n + 1, '\n').last() {
+//         if s.starts_with('\r') {
+//             Some(&s[1..])
+//         } else {
+//             None
+//         }
+//     } else {
+//         None
+//     }
 
-    while n > 0 && *p != 0 {
-        n -= 1;
-        while *p != 0 && *p != b'\n' {
-            p = p.offset(1);
-        }
-        if *p == b'\n' {
-            p = p.offset(1); // Move past the '\n'
-        }
-    }
-    p
-}
+//     // let mut p = p;
+//     // let mut n = n;
+
+//     // while n > 0 && *p != 0 {
+//     //     n -= 1;
+//     //     while *p != 0 && *p != b'\n' {
+//     //         p = p.offset(1);
+//     //     }
+//     //     if *p == b'\n' {
+//     //         p = p.offset(1); // Move past the '\n'
+//     //     }
+//     // }
+//     // p
+// }

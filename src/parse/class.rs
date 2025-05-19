@@ -49,7 +49,7 @@ pub unsafe fn js_parse_class(
     is_class_expr: bool,
     export_flag: JSParseExportEnum,
 ) -> i32 {
-    let ctx = (*s).ctx;
+    let mut ctx = (*s).ctx;
     let fd = (*s).cur_func_mut();
     let saved_js_mode = fd.js_mode;
 
@@ -588,17 +588,19 @@ pub unsafe fn js_parse_class(
 
     // store the class source code in the constructor.
     if (*fd).js_mode & JS_MODE_STRIP as u8 == 0 {
-        js_free(ctx.as_ptr(), (*ctor_fd).source.cast());
         debug_assert!((*s).buf_ptr >= class_start_ptr);
-        (*ctor_fd).source_len = ((*s).buf_ptr as usize - class_start_ptr as usize) as u32;
-        (*ctor_fd).source = js_strndup(
-            ctx.as_ptr(),
-            class_start_ptr.cast(),
-            (*ctor_fd).source_len as _,
-        )
-        .cast();
-        if (*ctor_fd).source.is_null() {
-            fail!();
+
+        let src_len = (*s).buf_ptr.offset_from(class_start_ptr) as usize;
+        if src_len > 0 {
+            let mut src = Vec::<u8>::new();
+            if src.try_reserve_exact(src_len).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                fail!();
+            }
+            src.extend_from_slice(std::slice::from_raw_parts(class_start_ptr, src_len));
+            (*ctor_fd).source.replace(String::from_utf8_unchecked(src));
+        } else {
+            (*ctor_fd).source.take();
         }
     }
 

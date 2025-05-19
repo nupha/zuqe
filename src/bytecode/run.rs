@@ -171,13 +171,13 @@ pub unsafe fn run_bytecodes(
     'restart: loop {
         // loop running bytecodes
         let state: State = 'opcodes: loop {
-            #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-            {
-                let pos = pc.offset_from(pc_base) as usize;
-                print!("[O.o] RUN {:5}: ", pos);
-                crate::bytecode::dump::debug_dump_opcode_one(ctx, b, pos);
-                println!();
-            }
+            // #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
+            // {
+            //     let pos = pc.offset_from(pc_base) as usize;
+            //     print!("[O.o] RUN {:5}: ", pos);
+            //     crate::bytecode::dump::debug_dump_opcode_one(ctx, b, pos);
+            //     println!();
+            // }
 
             let opcode = std::mem::transmute::<u8, OpCode>(*pc);
             PC_GO!(1);

@@ -26,8 +26,7 @@ use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
 pub struct JSFunctionBytecodeDebug {
     pub filename: JSAtom,
     pub line_num: u32,
-    pub source: *mut u8,
-    pub source_len: u32,
+    pub source: Option<String>,
     pub pc2line_buf: Option<Vec<u8>>,
 }
 
@@ -60,7 +59,7 @@ pub struct JSFunctionBytecode {
     pub defined_arg_count: u16,
     pub closure_var_count: u16,
 
-    // TODO: use Option<JSFunctionBytecode>>
+    // TODO: use Option<JSFunctionBytecodeDebug>>
     pub debug: JSFunctionBytecodeDebug,
     pub has_debug: bool,
 
@@ -642,16 +641,12 @@ pub unsafe fn free_function_bytecode(rt: *mut JSRuntime, b: *mut JSFunctionBytec
 
     if (*b).has_debug {
         (*b).debug.pc2line_buf.take();
+
         JS_FreeAtomRT(rt, (*b).debug.filename);
-
-        if !(*b).debug.source.is_null() {
-            js_free_rt(rt, (*b).debug.source.cast());
-            (*b).debug.source = std::ptr::null_mut();
-        }
-
-        // safe guard
         (*b).debug.filename = JS_ATOM_NULL;
-        (*b).debug.source = std::ptr::null_mut();
+
+        // drop source code
+        drop((*b).debug.source.take());
     }
 
     remove_gc_object(&mut (*b).header);

@@ -184,17 +184,14 @@ pub struct JSFunctionDef {
     // 最后记录行号的PC
     pub line_number_last_pc: u32,
 
+    /// file name
     pub filename: JSAtom,
-    /// 当前行号
+    /// source code (utf-8 encoded)
+    pub source: Option<String>,
+    /// current line number
     pub line_num: u32,
     /// pc到行号的映射表
     pub pc2line: Option<Vec<u8>>,
-
-    /// source code (utf-8 encoded)
-    /// TODO: use Option<Rc<String>>
-    pub source: *mut u8,
-    // 源码长度
-    pub source_len: u32,
 
     // 模块定义（解析模块时非空）
     pub module: *mut JSModuleDef,
@@ -299,8 +296,7 @@ impl JSFunctionDef {
             filename: ctx.create_atom(filename)?,
             line_num,
             pc2line: None,
-            source: std::ptr::null_mut(),
-            source_len: 0,
+            source: None,
             module: std::ptr::null_mut(),
             has_await: false,
         };
@@ -651,7 +647,7 @@ impl JSFunctionDef {
             bin.as_mut_ptr().add(bf.bytecode_start as usize),
             self.byte_code.len(),
         );
-        // SAFEGUARD: clear bytecode in advance, so that js_free_function_def() will not free atoms in it.
+        // SAFEGUARD: clear bytecode, so that js_free_function_def() will not free atoms in it.
         self.byte_code.clear();
 
         debug_assert_eq!(bin.len(), bin_size);
@@ -661,14 +657,12 @@ impl JSFunctionDef {
             bf.has_debug = true;
             bf.debug.line_num = self.line_num;
             bf.debug.filename = self.filename;
+
             // SAFEGUARD: to prevent free in js_free_function_def()
             self.filename = JS_ATOM_NULL;
 
-            bf.debug.source_len = self.source_len;
-            bf.debug.source = self.source;
-            // SAFEGUARD: to prevent free in js_free_function_def()
-            self.source = std::ptr::null_mut();
-
+            // move source to func object.
+            bf.debug.source = self.source.take();
             // move pc2line to func object.
             if let Some(mut lst) = self.pc2line.take() {
                 lst.shrink_to_fit();
@@ -708,7 +702,7 @@ impl JSFunctionDef {
                     self.vars.as_slice(),
                     self.closure_vars.as_deref().unwrap_or(&[]),
                     self.cpool.as_slice(),
-                    self.source.cast(),
+                    self.source.as_deref(),
                     self.line_num as _,
                     self.labels.as_slice(),
                     std::ptr::null_mut(),
@@ -777,10 +771,7 @@ impl JSFunctionDef {
         JS_FreeAtom(ctx, self.func_name);
         JS_FreeAtom(ctx, self.filename);
 
-        if !self.source.is_null() {
-            js_free(ctx, self.source.cast());
-            self.source = std::ptr::null_mut();
-        }
+        // drop(self.source.take());
 
         if !self.parent.is_null() {
             // remove from parent's list

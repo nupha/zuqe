@@ -449,11 +449,17 @@ impl<'s> JSParseState<'s> {
                     // the end of the function source code is after the last
                     // token of the function source stored into s->last_ptr
                     debug_assert!(self.last_ptr >= ptr);
-                    fd1.source_len = self.last_ptr.offset_from(ptr) as u32;
-                    fd1.source =
-                        js_strndup(self.ctx.as_ptr(), ptr.cast(), fd1.source_len as _).cast();
-                    if fd1.source.is_null() {
-                        fail!();
+                    debug_assert!(fd1.source.is_none());
+
+                    let src_len = self.last_ptr.offset_from(ptr) as usize;
+                    if src_len > 0 {
+                        let mut src = Vec::<u8>::new();
+                        if src.try_reserve_exact(src_len).is_err() {
+                            self.ctx.JS_ThrowOutOfMemory();
+                            fail!();
+                        }
+                        src.extend_from_slice(std::slice::from_raw_parts(ptr, src_len));
+                        fd1.source.replace(String::from_utf8_unchecked(src));
                     }
                 }
 
@@ -487,10 +493,19 @@ impl<'s> JSParseState<'s> {
         if fd1.js_mode & JS_MODE_STRIP as u8 == 0 {
             // save the function source code
             debug_assert!(self.buf_ptr >= ptr);
-            fd1.source_len = self.buf_ptr.offset_from(ptr) as u32;
-            fd1.source = js_strndup(self.ctx.as_ptr(), ptr.cast(), fd1.source_len as _).cast();
-            if fd1.source.is_null() {
-                fail!();
+            debug_assert!(fd1.source.is_none());
+
+            let src_len = self.buf_ptr.offset_from(ptr) as usize;
+            if src_len > 0 {
+                let mut src = Vec::<u8>::new();
+                if src.try_reserve_exact(src_len).is_err() {
+                    self.ctx.JS_ThrowOutOfMemory();
+                    fail!();
+                }
+                src.extend_from_slice(std::slice::from_raw_parts(ptr, src_len));
+                let s = String::from_utf8_unchecked(src);
+                println!("{s}");
+                fd1.source.replace(s);
             }
         }
 
