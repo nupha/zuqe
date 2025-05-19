@@ -1,9 +1,11 @@
 use crate::{
     context::JSContext,
     error::JS_NATIVE_ERROR_COUNT,
-    function::{JSVarRef, __async_func_free, free_function_bytecode, JSFunctionBytecode},
+    function::{
+        JSVarRef, __async_func_free, free_function_bytecode, JSAsyncFunctionState,
+        JSFunctionBytecode,
+    },
     list_entry,
-    mem::js_free_rt,
     module::{JSExportTypeEnum, JSModuleDef},
     runtime::JSRuntime,
     types::{
@@ -340,10 +342,10 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
                 drop(Box::from_raw(p.cast::<JSObject>()));
             }
             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE => {
-                js_free_rt(rt, p.cast());
+                drop(Box::from_raw(p.cast::<JSFunctionBytecode>()));
             }
             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_ASYNC_FUNCTION => {
-                js_free_rt(rt, p.cast());
+                drop(Box::from_raw(p.cast::<JSAsyncFunctionState>()));
             }
             _ => {
                 unreachable!()

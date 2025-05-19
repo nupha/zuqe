@@ -18,7 +18,6 @@ use crate::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
     },
     map::{JSMapRecord, JSMapState},
-    mem::js_free_rt,
     promise::{JSPromiseData, JSPromiseFunctionData},
     proxy::{
         js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf, JSProxyData,
@@ -735,7 +734,6 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     // first pass to remove the records from the WeakMap/WeakSet lists
     let mut mr = (*p).first_weak_ref;
     debug_assert!(mr.is_aligned(), "{mr:p}");
-
     while !mr.is_null() {
         let s = (*mr).map;
         debug_assert!((*s).is_weak);
@@ -747,11 +745,13 @@ pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     }
 
     // second pass to free the values
-    mr = (*p).first_weak_ref;
+    let mut mr = (*p).first_weak_ref;
     while !mr.is_null() {
         let mr_next = (*mr).next_weak_ref;
+
         JS_FreeValueRT(rt, (*mr).value);
-        js_free_rt(rt, mr.cast());
+        drop(Box::from_raw(mr));
+
         mr = mr_next;
     }
 
