@@ -6,7 +6,7 @@ use crate::{
         add_gc_object, free_zero_refcount, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum,
         JSGCPhaseEnum, JS_MarkFunc,
     },
-    mem::{js_free_rt, js_malloc_typed},
+    mem::js_malloc_typed,
     promise::{js_promise_resolve, PromiseValue},
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
@@ -27,8 +27,10 @@ use super::{
 pub struct JSAsyncFunctionState {
     pub header: JSGCObjectHeader,
 
-    pub this_val: JSValue, /* 'this' argument */
-    pub argc: i32,         /* number of function arguments */
+    /// 'this' argument
+    pub this_val: JSValue,
+    /// number of function arguments
+    pub argc: i32,
 
     /// used to throw an exception in JS_CallInternal()
     pub throw_flag: bool,
@@ -39,31 +41,45 @@ pub struct JSAsyncFunctionState {
     /// only used in JS async functions
     pub resolving_funcs: [JSValue; 2],
 
-    /// the stack frame to run async function
+    /// stack frame to run async function
     pub frame: JSStackFrame,
 }
 
-pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
-    /* cannot close the closure variables here because it would
-    potentially modify the object graph */
-    if !(*s).is_completed {
-        async_func_free_frame(rt, s);
-    }
+impl JSAsyncFunctionState {
+    /// free and drop
+    pub fn free(mut self: Box<Self>, rt: *mut JSRuntime) {
+        // cannot close the closure variables here because it would
+        // potentially modify the object graph
+        if !self.is_completed {
+            unsafe {
+                async_func_free_frame(rt, self.as_mut());
+            }
+        }
 
-    JS_FreeValueRT(rt, (*s).resolving_funcs[0]);
-    JS_FreeValueRT(rt, (*s).resolving_funcs[1]);
+        unsafe {
+            JS_FreeValueRT(rt, self.resolving_funcs[0]);
+            JS_FreeValueRT(rt, self.resolving_funcs[1]);
 
-    remove_gc_object(&mut (*s).header);
+            remove_gc_object(&mut self.header);
 
-    if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*s).header.ref_count != 0 {
-        list_add_tail(&mut (*s).header.link, &mut (*rt).gc_zero_ref_count_list);
-    } else {
-        js_free_rt(rt, s.cast());
+            if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES
+                && self.header.ref_count != 0
+            {
+                list_add_tail(&mut self.header.link, &mut (*rt).gc_zero_ref_count_list);
+            }
+        }
     }
 }
 
+#[deprecated(note = "use JSAsyncFunctionState::free() instead")]
+pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+    Box::from_raw(s).free(rt);
+}
+
 pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+    debug_assert!((*s).header.ref_count > 0);
     (*s).header.ref_count -= 1;
+
     if (*s).header.ref_count == 0 {
         if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
             list_del(&mut (*s).header.link);
@@ -83,27 +99,39 @@ pub unsafe fn async_func_init(
     argc: i32,
     argv: *const JSValueConst,
 ) -> *mut JSAsyncFunctionState {
-    let mut s = if let Some(p) = js_malloc_typed::<JSAsyncFunctionState>(ctx, 1, true) {
-        Box::from_raw(p.as_ptr())
+    let p = func_obj.object_unchecked();
+    let b = p.u.func.function_bytecode.as_mut().unwrap();
+
+    let mut s = if let Some(p) = js_malloc_typed::<JSAsyncFunctionState>(ctx, 1, false) {
+        let o = JSAsyncFunctionState {
+            header: JSGCObjectHeader::new(1),
+
+            argc,
+            this_val: this_obj.dup(),
+            resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
+            throw_flag: false,
+            is_completed: false,
+            frame: JSStackFrame {
+                js_mode: b.js_mode as i32 | JS_MODE_ASYNC,
+                cur_func: func_obj.dup(),
+                ..Default::default()
+            },
+        };
+        p.write(o);
+
+        let mut s = Box::from_raw(p.as_ptr());
+        init_list_head(&mut s.frame.var_ref_list);
+
+        s
     } else {
         return std::ptr::null_mut();
     };
 
-    s.header.ref_count = 1;
     add_gc_object(
         (*ctx).rt_mut(),
         &mut s.header,
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_ASYNC_FUNCTION,
     );
-
-    let sf = &mut s.frame;
-    init_list_head(&mut sf.var_ref_list);
-
-    let p = func_obj.object_unchecked();
-    let b = p.u.func.function_bytecode.as_mut().unwrap();
-
-    sf.js_mode = b.js_mode as i32 | JS_MODE_ASYNC;
-    sf.cur_pc_offset = 0; // initialized to start of bytecode
 
     // make local buf, set up argument, variable, stack pointer
     let arg_count = std::cmp::max(b.arg_count as usize, argc as usize);
@@ -123,21 +151,12 @@ pub unsafe fn async_func_init(
     ));
     debug_assert_eq!(local_buf.len(), buf_len);
 
+    let sf = &mut s.frame;
     sf.arg_base_ptr = local_buf.as_mut_ptr();
     sf.arg_count = arg_count as _;
     sf.var_base_ptr = sf.arg_base_ptr.add(sf.arg_count as usize);
     sf.var_count = b.var_count as _;
     sf.local_buf = local_buf;
-
-    sf.cur_func = func_obj.dup();
-    sf.cur_sp_offset = 0;
-
-    // setup async state
-    s.argc = argc;
-    s.this_val = this_obj.dup();
-    s.resolving_funcs[0] = JSValue::UNDEFINED;
-    s.resolving_funcs[1] = JSValue::UNDEFINED;
-    s.is_completed = false;
 
     Box::into_raw(s)
 }

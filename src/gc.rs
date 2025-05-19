@@ -1,10 +1,7 @@
 use crate::{
     context::JSContext,
     error::JS_NATIVE_ERROR_COUNT,
-    function::{
-        JSVarRef, __async_func_free, free_function_bytecode, JSAsyncFunctionState,
-        JSFunctionBytecode,
-    },
+    function::{free_function_bytecode, JSAsyncFunctionState, JSFunctionBytecode, JSVarRef},
     list_entry,
     module::{JSExportTypeEnum, JSModuleDef},
     runtime::JSRuntime,
@@ -60,6 +57,16 @@ pub struct JSGCObjectHeader {
 }
 
 impl JSGCObjectHeader {
+    pub fn new(ref_count: i32) -> Self {
+        Self {
+            ref_count,
+            bitfields: 0,
+            dummy1: 0,
+            dummy2: 0,
+            link: list_head::default(),
+        }
+    }
+
     pub fn gc_obj_type(&self) -> JSGCObjectTypeEnum {
         unsafe { std::mem::transmute(self.bitfields >> 4) }
     }
@@ -393,7 +400,7 @@ pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
             free_function_bytecode(rt, gp.cast());
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_ASYNC_FUNCTION => {
-            __async_func_free(rt, gp.cast());
+            Box::from_raw(gp.cast::<JSAsyncFunctionState>()).free(rt);
         }
         _ => {
             unreachable!()

@@ -43,6 +43,24 @@ pub struct JSStackFrame {
     pub js_mode: i32,
 }
 
+impl Default for JSStackFrame {
+    fn default() -> Self {
+        Self {
+            prev_frame: std::ptr::null_mut(),
+            cur_func: JSValue::UNDEFINED,
+            local_buf: Vec::new(),
+            arg_base_ptr: std::ptr::null_mut(),
+            arg_count: 0,
+            var_base_ptr: std::ptr::null_mut(),
+            var_count: 0,
+            cur_pc_offset: 0,
+            cur_sp_offset: 0,
+            var_ref_list: list_head::default(),
+            js_mode: 0,
+        }
+    }
+}
+
 impl JSStackFrame {
     /// get argument values slice
     #[inline(always)]
