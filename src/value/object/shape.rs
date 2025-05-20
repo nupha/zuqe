@@ -1,19 +1,19 @@
-use std::mem::ManuallyDrop;
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use indexmap::IndexMap;
 
 use crate::{
-    atom::{consts::JS_ATOM_length, JSAtom, JS_DupAtomRT, JS_FreeAtomRT, JS_ATOM_NULL},
+    atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
     class::JSClassID,
     context::JSContext,
     error::JSResult,
-    gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
-    mem::{js_free_rt, js_malloc_typed, js_mallocz_rt, js_trigger_gc},
+    gc::{add_gc_object, js_trigger_gc, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
+    mem::{js_free_rt, js_malloc_typed, js_mallocz_rt},
     runtime::JSRuntime,
     types::list_find,
     value::{
         object::{JSObjectFlags, JSObjectUnion},
-        JSTag, JSValue, JS_DupValue, JS_FreeValueRT,
+        JSTag, JSValue, JS_FreeValueRT,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
@@ -79,9 +79,6 @@ pub struct JSShape {
 
     /// shape property definations
     pub props: IndexMap<JSAtom, JSShapeProperty>,
-
-    #[cfg(debug_assertions)]
-    pub debug_msg: Option<String>,
 }
 
 #[cfg(debug_assertions)]
@@ -133,7 +130,7 @@ impl JSShape {
 
         let mut pr = JSShapeProperty {
             bitfield: 0,
-            atom: JS_DupAtomRT(rt, atom),
+            atom: atom.dup(rt),
         };
         pr.set_flags(prop_flags);
         self.props.insert(atom, pr);
@@ -169,19 +166,16 @@ impl JSShape {
             );
         }
 
-        let mut sh2 = Box::new(Self {
-            header: JSGCObjectHeader::default(),
+        let sh2 = Box::new(Self {
+            header: JSGCObjectHeader::new(1),
             is_hashed: false,
             has_small_array_index: self.has_small_array_index,
             hash: self.hash,
             shape_hash_next: self.shape_hash_next,
             proto: self.proto,
             props,
-
-            #[cfg(debug_assertions)]
-            debug_msg: None,
         });
-        sh2.header.ref_count = 1;
+
         if !sh2.proto.is_null() {
             JS_MKPTR!(JSTag::Object, sh2.proto.cast()).dup();
         }
@@ -191,6 +185,119 @@ impl JSShape {
 }
 
 impl JSContext {
+    /// create a new empty shape with prototype 'proto'.
+    /// Note: `proto` is not consumed.
+    #[inline(never)]
+    pub fn create_shape2(
+        &mut self,
+        proto: Option<&mut JSObject>,
+        hash_size: usize,
+        prop_size: i32,
+    ) -> Result<JSShapeHandle, i32> {
+        let rt = self.rt_mut();
+
+        /* resize the shape hash table if necessary */
+        if 2 * (rt.shape_hash_count + 1) > rt.shape_hash_size {
+            unsafe {
+                resize_shape_hash(rt, rt.shape_hash_bits + 1);
+            }
+        }
+
+        // alloc for prop defination
+        let mut props = IndexMap::<JSAtom, JSShapeProperty>::new();
+        if props.try_reserve_exact(prop_size as _).is_err() {
+            self.JS_ThrowOutOfMemory();
+            return Err(-1);
+        }
+
+        let proto_ptr = proto.map_or(std::ptr::null_mut(), |p| p as *mut JSObject);
+
+        if !proto_ptr.is_null() {
+            JS_MKPTR!(JSTag::Object, proto_ptr.cast()).dup();
+        }
+
+        let mut shape = Box::new(JSShape {
+            header: JSGCObjectHeader::new(1),
+            is_hashed: false,
+            has_small_array_index: false,
+            hash: 0,
+            shape_hash_next: std::ptr::null_mut(),
+            proto: proto_ptr,
+            props,
+        });
+
+        debug_assert_eq!(
+            shape.as_ref() as *const JSShape as usize,
+            std::ptr::addr_of!((*shape).header) as usize
+        );
+
+        unsafe {
+            add_gc_object(
+                rt,
+                &mut shape.header,
+                JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE,
+            );
+        }
+
+        // /* resize the shape hash table if necessary */
+        // if 2 * (rt.shape_hash_count + 1) > rt.shape_hash_size {
+        //     resize_shape_hash(rt, rt.shape_hash_bits + 1);
+        // }
+
+        // let sh_alloc = js_malloc(ctx, get_shape_size(hash_size as usize, prop_size as usize));
+        // if sh_alloc.is_null() {
+        //     return std::ptr::null_mut();
+        // }
+        // let sh = get_shape_from_alloc(sh_alloc.cast(), hash_size)
+        //     .as_mut()
+        //     .unwrap();
+
+        // sh.header.ref_count = 1;
+
+        // add_gc_object(rt, &mut sh.header, JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE);
+        // if !proto.is_null() {
+        //     JS_DupValue(ctx, JS_MKPTR!(JS_TAG_OBJECT, proto.cast()));
+        // }
+        // sh.proto = proto;
+
+        // std::ptr::write_bytes(
+        //     prop_hash_end(sh).sub(hash_size),
+        //     0,
+        //     hash_size, // * std::mem::size_of::<u32>(),
+        // );
+
+        // sh.prop_hash_mask = hash_size as u32 - 1;
+        // sh.prop_size = prop_size;
+        // sh.prop_count = 0;
+        // sh.deleted_prop_count = 0;
+
+        // insert in the hash table
+        shape.hash = shape_initial_hash(proto_ptr);
+        shape.is_hashed = true;
+
+        let res = unsafe {
+            let mut sh_ptr = NonNull::new_unchecked(Box::into_raw(shape));
+            js_shape_hash_link(rt, sh_ptr.as_ptr());
+
+            // ensure new shape if in gc_obj_list
+            debug_assert!(list_find(
+                &mut sh_ptr.as_mut().header.link,
+                &mut rt.gc_obj_list
+            ));
+
+            sh_ptr
+        };
+
+        Ok(res.as_ptr().into())
+    }
+
+    /// create a new empty shape with prototype 'proto'.
+    /// Note: `proto` is not consumed.
+    #[inline(always)]
+    pub fn create_shape(&mut self, proto: Option<&mut JSObject>) -> Result<JSShapeHandle, i32> {
+        self.create_shape2(proto, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE as _)
+    }
+
     /// create object based on specified shape and class_id.
     /// Note: `shape` is consumed.
     pub fn create_object_from_shape(
@@ -356,122 +463,6 @@ impl JSContext {
 
         Ok(JS_MKPTR!(JSTag::Object, p.cast()))
     }
-}
-
-#[deprecated(note = "use JSContext::create_object_from_shape() instead")]
-pub unsafe fn JS_NewObjectFromShape(
-    ctx: *mut JSContext,
-    sh: *mut JSShape,
-    class_id: JSClassID,
-) -> JSValue {
-    (*ctx)
-        .create_object_from_shape(sh.into(), class_id)
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-/* create a new empty shape with prototype 'proto' */
-#[inline(never)]
-pub unsafe fn js_new_shape2(
-    ctx: *mut JSContext,
-    proto: *mut JSObject,
-    hash_size: usize,
-    prop_size: i32,
-) -> *mut JSShape {
-    let rt = (*ctx).rt_mut();
-
-    /* resize the shape hash table if necessary */
-    if 2 * (rt.shape_hash_count + 1) > rt.shape_hash_size {
-        resize_shape_hash(rt, rt.shape_hash_bits + 1);
-    }
-
-    // alloc for prop defination
-    let mut props = IndexMap::<JSAtom, JSShapeProperty>::new();
-    if let Err(e) = props.try_reserve(prop_size as _) {
-        log::error!("js_new_shape2: {e}");
-        return std::ptr::null_mut();
-    }
-
-    if !proto.is_null() {
-        JS_DupValue(ctx, JS_MKPTR!(JSTag::Object, proto.cast()));
-    }
-
-    let mut shape = Box::new(JSShape {
-        header: JSGCObjectHeader::default(),
-        is_hashed: false,
-        has_small_array_index: false,
-        hash: 0,
-        shape_hash_next: std::ptr::null_mut(),
-        proto,
-        props,
-
-        #[cfg(debug_assertions)]
-        debug_msg: None,
-    });
-    shape.header.ref_count = 1;
-
-    // into raw pointer
-    let sh = Box::into_raw(shape);
-
-    debug_assert_eq!(
-        sh as *const JSShape as usize,
-        std::ptr::addr_of!((*sh).header) as usize
-    );
-    add_gc_object(
-        rt,
-        &mut (*sh).header,
-        JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE,
-    );
-
-    // /* resize the shape hash table if necessary */
-    // if 2 * (rt.shape_hash_count + 1) > rt.shape_hash_size {
-    //     resize_shape_hash(rt, rt.shape_hash_bits + 1);
-    // }
-
-    // let sh_alloc = js_malloc(ctx, get_shape_size(hash_size as usize, prop_size as usize));
-    // if sh_alloc.is_null() {
-    //     return std::ptr::null_mut();
-    // }
-    // let sh = get_shape_from_alloc(sh_alloc.cast(), hash_size)
-    //     .as_mut()
-    //     .unwrap();
-
-    // sh.header.ref_count = 1;
-
-    // add_gc_object(rt, &mut sh.header, JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE);
-    // if !proto.is_null() {
-    //     JS_DupValue(ctx, JS_MKPTR!(JS_TAG_OBJECT, proto.cast()));
-    // }
-    // sh.proto = proto;
-
-    // std::ptr::write_bytes(
-    //     prop_hash_end(sh).sub(hash_size),
-    //     0,
-    //     hash_size, // * std::mem::size_of::<u32>(),
-    // );
-
-    // sh.prop_hash_mask = hash_size as u32 - 1;
-    // sh.prop_size = prop_size;
-    // sh.prop_count = 0;
-    // sh.deleted_prop_count = 0;
-
-    /* insert in the hash table */
-    (*sh).hash = shape_initial_hash(proto);
-    (*sh).is_hashed = true;
-    js_shape_hash_link(rt, sh);
-
-    // ensure new shape if in gc list
-    debug_assert!(list_find(&mut (*sh).header.link, &mut rt.gc_obj_list));
-
-    sh
-}
-
-pub unsafe fn js_new_shape(ctx: *mut JSContext, proto: *mut JSObject) -> *mut JSShape {
-    js_new_shape2(
-        ctx,
-        proto,
-        JS_PROP_INITIAL_HASH_SIZE,
-        JS_PROP_INITIAL_SIZE as _,
-    )
 }
 
 pub fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {

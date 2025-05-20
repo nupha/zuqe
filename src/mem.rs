@@ -170,29 +170,6 @@ pub struct JSMemoryUsage {
     pub binary_object_size: i64,
 }
 
-pub fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
-    let force_gc: bool;
-
-    #[cfg(feature = "FORCE_GC_AT_MALLOC")]
-    {
-        force_gc = true;
-    }
-    #[cfg(not(feature = "FORCE_GC_AT_MALLOC"))]
-    {
-        force_gc = ((*rt).malloc_state.malloc_size + size) > (*rt).malloc_gc_threshold;
-    }
-
-    if force_gc {
-        #[cfg(feature = "DUMP_GC")]
-        {
-            println!("GC: size={}", (*rt).malloc_state.malloc_size);
-        }
-
-        rt.gc();
-        rt.malloc_gc_threshold = rt.malloc_state.malloc_size + (rt.malloc_state.malloc_size >> 1);
-    }
-}
-
 pub unsafe fn js_malloc_rt(rt: *mut JSRuntime, nbytes: usize) -> *mut c_void {
     ((*rt).mf.js_malloc)(&mut (*rt).malloc_state, nbytes)
 }

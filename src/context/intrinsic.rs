@@ -44,10 +44,9 @@ use crate::{
     value::{
         js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
-            get_proto_obj, js_new_shape2, js_object_seal, JS_NewObject, JS_NewObjectProto,
-            JS_SetObjectData, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH,
-            JS_PROP_WRITABLE,
+            get_proto_obj, js_object_seal, JS_NewObject, JS_NewObjectProto, JS_SetObjectData,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
+            JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_FreeValue,
     },
@@ -132,12 +131,14 @@ impl JSContext {
                 .unwrap();
             self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
 
-            self.array_shape = js_new_shape2(
-                self,
-                get_proto_obj(array_proto),
-                JS_PROP_INITIAL_HASH_SIZE,
-                1,
-            );
+            self.array_shape = self
+                .create_shape2(
+                    get_proto_obj(array_proto).as_mut(),
+                    JS_PROP_INITIAL_HASH_SIZE,
+                    1,
+                )
+                .unwrap()
+                .as_ptr();
 
             // add length property as #0
             self.array_shape.as_mut().unwrap().add_shape_property(

@@ -19,7 +19,7 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
     value::{
-        object::{JSAutoInitIDEnum, JSObject},
+        object::{JSAutoInitIDEnum, JSObject, JSShape},
         JSString, JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG,
     },
@@ -1362,4 +1362,35 @@ pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: i32) {
 #[deprecated(note = "use JSContext::create_array() instead")]
 pub unsafe fn JS_NewArray(ctx: *mut JSContext) -> JSValue {
     (*ctx).create_array().unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSContext::create_object_from_shape() instead")]
+pub unsafe fn JS_NewObjectFromShape(
+    ctx: *mut JSContext,
+    sh: *mut JSShape,
+    class_id: JSClassID,
+) -> JSValue {
+    (*ctx)
+        .create_object_from_shape(sh.into(), class_id)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+/* create a new empty shape with prototype 'proto' */
+#[deprecated(note = "use JSContext::create_shape2() instead")]
+pub unsafe fn js_new_shape2(
+    ctx: *mut JSContext,
+    proto: *mut JSObject,
+    hash_size: usize,
+    prop_size: i32,
+) -> *mut JSShape {
+    (*ctx)
+        .create_shape2(proto.as_mut(), hash_size, prop_size)
+        .map_or(std::ptr::null_mut(), |p| p.as_ptr())
+}
+
+#[deprecated(note = "use JSContext::create_shape() instead")]
+pub unsafe fn js_new_shape(ctx: *mut JSContext, proto: *mut JSObject) -> *mut JSShape {
+    (*ctx)
+        .create_shape(proto.as_mut())
+        .map_or(std::ptr::null_mut(), |p| p.as_ptr())
 }

@@ -439,6 +439,29 @@ impl JSRuntime {
     }
 }
 
+pub fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
+    let force_gc: bool;
+
+    #[cfg(feature = "FORCE_GC_AT_MALLOC")]
+    {
+        force_gc = true;
+    }
+    #[cfg(not(feature = "FORCE_GC_AT_MALLOC"))]
+    {
+        force_gc = ((*rt).malloc_state.malloc_size + size) > (*rt).malloc_gc_threshold;
+    }
+
+    if force_gc {
+        #[cfg(feature = "DUMP_GC")]
+        {
+            println!("GC: size={}", (*rt).malloc_state.malloc_size);
+        }
+
+        rt.gc();
+        rt.malloc_gc_threshold = rt.malloc_state.malloc_size + (rt.malloc_state.malloc_size >> 1);
+    }
+}
+
 #[deprecated(note = "use JSRuntime::gc() instead")]
 pub fn JS_RunGC(rt: &mut JSRuntime) {
     rt.gc();
@@ -487,16 +510,6 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
         let m = list_entry!(el, JSModuleDef, link);
         js_mark_module_def(rt, m.as_mut().unwrap(), mark_func);
     });
-
-    // let mut el = ctx.loaded_modules.next;
-    // while el != &mut ctx.loaded_modules {
-    //     debug_assert!(el.is_aligned());
-
-    //     let m = list_entry!(el, JSModuleDef, link);
-    //     js_mark_module_def(rt, m.as_mut().unwrap(), mark_func);
-
-    //     el = (*el).next;
-    // }
 
     JS_MarkValue(rt, ctx.global_obj, mark_func);
     JS_MarkValue(rt, ctx.global_var_obj, mark_func);

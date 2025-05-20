@@ -37,10 +37,10 @@ use super::{
         JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT,
         JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    find_hashed_shape_proto, js_dup_shape, js_free_desc, js_new_shape, JSProperty,
-    JSPropertyDescriptor, JSShape, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible,
-    JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    find_hashed_shape_proto, js_dup_shape, js_free_desc, JSProperty, JSPropertyDescriptor, JSShape,
+    JSShapeHandle, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
+    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
+    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -457,28 +457,21 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 impl JSContext {
     /// create new instance with specified prototype value and class id.
     /// `proto` is Prototype object (can be JSValue::NULL).
-    /// `proto` is not consumed.
+    /// Note: `proto` is not consumed.
     pub fn create_object_with_proto_and_classid(
         &mut self,
         proto: JSValue,
         class_id: JSClassID,
     ) -> JSResult {
-        let shape: *mut JSShape = unsafe {
+        let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
             match find_hashed_shape_proto(self.rt_mut(), proto_ob) {
-                Some(sh) => js_dup_shape(sh),
-                None => {
-                    let new_sh = js_new_shape(self, proto_ob);
-                    if new_sh.is_null() {
-                        return Err(-1);
-                    } else {
-                        new_sh
-                    }
-                }
+                Some(sh) => js_dup_shape(sh).into(),
+                None => self.create_shape(proto_ob.as_mut())?,
             }
         };
 
-        self.create_object_from_shape(shape.into(), class_id)
+        self.create_object_from_shape(shape, class_id)
     }
 
     /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
@@ -663,7 +656,7 @@ pub unsafe fn JS_SetPrototypeInternal(
     Ok(true)
 }
 
-pub unsafe fn get_proto_obj(proto_val: JSValueConst) -> *mut JSObject {
+pub unsafe fn get_proto_obj(proto_val: JSValue) -> *mut JSObject {
     if JS_VALUE_GET_TAG(proto_val) != JS_TAG_OBJECT {
         std::ptr::null_mut()
     } else {
