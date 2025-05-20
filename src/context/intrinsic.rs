@@ -124,7 +124,7 @@ impl JSContext {
         }
 
         // Array
-        unsafe {
+        {
             // the array prototype is an array
             let array_proto = self
                 .create_object_with_proto_and_classid(object_proto, JS_CLASS_ARRAY)
@@ -133,7 +133,7 @@ impl JSContext {
 
             self.array_shape = self
                 .create_shape2(
-                    get_proto_obj(array_proto).as_mut(),
+                    unsafe { get_proto_obj(array_proto).as_mut() },
                     JS_PROP_INITIAL_HASH_SIZE,
                     1,
                 )
@@ -141,12 +141,14 @@ impl JSContext {
                 .as_ptr();
 
             // add length property as #0
-            self.array_shape.as_mut().unwrap().add_shape_property(
-                self,
-                None,
-                JS_ATOM_length,
-                JS_PROP_WRITABLE | JS_PROP_LENGTH,
-            );
+            unsafe {
+                self.array_shape.as_mut().unwrap().add_shape_property(
+                    self,
+                    None,
+                    JS_ATOM_length,
+                    JS_PROP_WRITABLE | JS_PROP_LENGTH,
+                );
+            }
         }
 
         /* XXX: could test it on first context creation to ensure that no

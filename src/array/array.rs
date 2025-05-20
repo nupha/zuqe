@@ -11,7 +11,7 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_dup_shape, JSObject, JSProperty, JSPropertyUnion, JS_PROP_CONFIGURABLE,
+            JSObject, JSProperty, JSPropertyUnion, JSShapeHandle, JS_PROP_CONFIGURABLE,
             JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToUint32,
@@ -75,8 +75,8 @@ impl JSContext {
     /// create an array value.
     #[inline(always)]
     pub fn create_array(&mut self) -> JSResult {
-        // debug_assert!(!self.array_shape.is_null());
-        self.create_object_from_shape(js_dup_shape(self.array_shape).into(), JS_CLASS_ARRAY)
+        let arr_sh: JSShapeHandle = unsafe { (*self.array_shape).dup().into() };
+        self.create_object_from_shape(arr_sh, JS_CLASS_ARRAY)
     }
 
     /// create a fast array value. `capacity` indicates reserved space.

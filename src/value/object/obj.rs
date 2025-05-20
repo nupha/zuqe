@@ -37,7 +37,7 @@ use super::{
         JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT,
         JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    find_hashed_shape_proto, js_dup_shape, js_free_desc, JSProperty, JSPropertyDescriptor, JSShape,
+    find_hashed_shape_proto, js_free_desc, JSProperty, JSPropertyDescriptor, JSShape,
     JSShapeHandle, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
     JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
     JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -225,7 +225,8 @@ pub struct JSObject {
     /// property value slots
     pub prop_values: Vec<JSProperty>,
 
-    pub first_weak_ref: *mut JSMapRecord, /* XXX: use a bit and an external hash table? */
+    /* XXX: use a bit and an external hash table? */
+    pub first_weak_ref: *mut JSMapRecord,
 
     /// object payload
     pub u: JSObjectUnion,
@@ -466,7 +467,7 @@ impl JSContext {
         let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
             match find_hashed_shape_proto(self.rt_mut(), proto_ob) {
-                Some(sh) => js_dup_shape(sh).into(),
+                Some(sh) => JSShapeHandle::from(sh).dup(),
                 None => self.create_shape(proto_ob.as_mut())?,
             }
         };

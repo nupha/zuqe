@@ -84,7 +84,6 @@ pub struct JSShape {
 #[cfg(debug_assertions)]
 impl Drop for JSShape {
     fn drop(&mut self) {
-        //println!("JSShape::drop({self:p})");
         debug_assert_eq!(self.header.ref_count, 0);
         debug_assert!(!self.is_hashed);
         debug_assert!(self.proto.is_null());
@@ -93,9 +92,16 @@ impl Drop for JSShape {
 }
 
 impl JSShape {
+    /// increase shape ref_count
+    #[inline(always)]
+    pub fn dup(&mut self) -> &mut Self {
+        self.header.ref_count += 1;
+        self
+    }
+
     /// Append property defination to shape.
     /// `atom` keeps ref count unchanged after calling.
-    pub unsafe fn add_shape_property(
+    pub fn add_shape_property(
         &mut self,
         ctx: &mut JSContext,
         mut obj: Option<&mut JSObject>,
@@ -109,7 +115,9 @@ impl JSShape {
 
         if self.is_hashed {
             // Update the shape hash
-            js_shape_hash_unlink(rt, self);
+            unsafe {
+                js_shape_hash_unlink(rt, self);
+            }
             new_shape_hash = shape_hash(shape_hash(self.hash, atom.0), prop_flags);
         }
 
@@ -117,7 +125,9 @@ impl JSShape {
             // enlarge object prop values slot
             if o.grow_prop_value_slots(self.props.len() + 1).is_err() {
                 if self.is_hashed {
-                    js_shape_hash_link(rt, self);
+                    unsafe {
+                        js_shape_hash_link(rt, self);
+                    }
                     return -1;
                 }
             }
@@ -125,7 +135,9 @@ impl JSShape {
 
         if self.is_hashed {
             self.hash = new_shape_hash;
-            js_shape_hash_link(rt, self);
+            unsafe {
+                js_shape_hash_link(rt, self);
+            }
         }
 
         let mut pr = JSShapeProperty {
@@ -145,13 +157,13 @@ impl JSShape {
         0
     }
 
-    /// To clone out a new shape from this.
-    /// The new shape is not inserted in the shape hash table, not added to gc object list.
-    fn clone(&self, ctx: &mut JSContext) -> Result<Box<Self>, i32> {
+    /// Clone to a new shape from this coping property definations.
+    /// The new shape is not inserted in the shape hash table, and not added to gc object list.
+    fn clone_to_new(&self, ctx: &mut JSContext) -> Result<Box<Self>, i32> {
         // clone properties
         let mut props = IndexMap::<JSAtom, JSShapeProperty>::new();
         if props.try_reserve(self.props.len()).is_err() {
-            log::error!("fail to clone shape");
+            ctx.JS_ThrowOutOfMemory();
             return Err(-1);
         }
 
@@ -181,6 +193,28 @@ impl JSShape {
         }
 
         Ok(sh2)
+    }
+
+    /// Clone to a new shape. The new shape is not inserted in the shape hash table
+    pub fn clone(&mut self, ctx: &mut JSContext) -> Result<JSShapeHandle, i32> {
+        let sh = self.clone_to_new(ctx)?;
+
+        // take ownership of JSShape
+        let raw_sh = Box::into_raw(sh);
+
+        unsafe {
+            debug_assert_eq!(
+                raw_sh as usize,
+                std::ptr::addr_of!((*raw_sh).header) as usize
+            );
+            add_gc_object(
+                (*ctx).rt_mut(),
+                &mut (*raw_sh).header,
+                JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE,
+            );
+        }
+
+        Ok(raw_sh.into())
     }
 }
 
@@ -465,33 +499,6 @@ impl JSContext {
     }
 }
 
-pub fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {
-    unsafe {
-        sh.as_mut().unwrap().header.ref_count += 1;
-    }
-    sh
-}
-
-/* The shape is cloned. The new shape is not inserted in the shape hash table */
-pub unsafe fn js_clone_shape(ctx: *mut JSContext, sh1: *mut JSShape) -> Result<*mut JSShape, i32> {
-    let sh = sh1.as_mut().unwrap().clone(ctx.as_mut().unwrap())?;
-
-    // take ownership of JSShape
-    let raw_sh = Box::into_raw(sh);
-
-    debug_assert_eq!(
-        raw_sh as usize,
-        std::ptr::addr_of!((*raw_sh).header) as usize
-    );
-    add_gc_object(
-        (*ctx).rt_mut(),
-        &mut (*raw_sh).header,
-        JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE,
-    );
-
-    Ok(raw_sh)
-}
-
 unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
     debug_assert_eq!((*sh).header.ref_count, 0);
 
@@ -682,7 +689,7 @@ pub unsafe fn find_hashed_shape_prop(
 }
 
 impl JSObject {
-    /* ensure that the shape can be safely modified */
+    /// ensure that the shape can be safely modified
     pub unsafe fn js_shape_prepare_update(
         &mut self,
         ctx: *mut JSContext,
@@ -698,14 +705,14 @@ impl JSObject {
                     JS_ATOM_NULL
                 };
 
-                /* clone the shape (the resulting one is no longer hashed) */
-                match js_clone_shape(ctx, sh) {
-                    Ok(sh1) => {
+                // clone the shape (the resulting one is no longer hashed)
+                match sh.clone(ctx.as_mut().unwrap()) {
+                    Ok(mut sh1) => {
                         // free old shape, and use new one
                         js_free_shape((*ctx).rt_mut(), sh);
-                        self.shape = sh1;
+                        self.shape = sh1.into();
                         if !pprs.is_null() {
-                            *pprs = (*sh1).props.get_mut(&atom).unwrap();
+                            *pprs = sh1.props.get_mut(&atom).unwrap();
                         }
                     }
                     Err(e) => {

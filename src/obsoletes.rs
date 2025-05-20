@@ -1394,3 +1394,14 @@ pub unsafe fn js_new_shape(ctx: *mut JSContext, proto: *mut JSObject) -> *mut JS
         .create_shape(proto.as_mut())
         .map_or(std::ptr::null_mut(), |p| p.as_ptr())
 }
+
+#[deprecated(note = "use JSShape::dup() instead")]
+pub unsafe fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {
+    (*sh).dup()
+}
+
+/* The shape is cloned. The new shape is not inserted in the shape hash table */
+#[deprecated(note = "use JSShape::clone() instead")]
+pub unsafe fn js_clone_shape(ctx: *mut JSContext, sh1: *mut JSShape) -> Result<*mut JSShape, i32> {
+    (*sh1).clone(ctx.as_mut().unwrap()).map(|s| s.into())
+}

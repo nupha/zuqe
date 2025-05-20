@@ -7,10 +7,10 @@ use crate::{
 
 use super::{
     super::{set_value, JSTag, JSValue, JS_ToUint32, JS_VALUE_GET_OBJ},
-    find_hashed_shape_prop, get_prop_flags, js_clone_shape, js_dup_shape, js_free_shape,
-    js_shape_hash_link, JSObject, JSProperty, JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-    JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+    find_hashed_shape_prop, get_prop_flags, js_free_shape, js_shape_hash_link, JSObject,
+    JSProperty, JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+    JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
+    JS_PROP_WRITABLE,
 };
 
 impl JSObject {
@@ -36,7 +36,7 @@ impl JSObject {
                     }
 
                     unsafe {
-                        self.shape = js_dup_shape(new_sh);
+                        self.shape = (*new_sh).dup();
                         js_free_shape(ctx.rt_mut(), cur_sh);
                     }
 
@@ -44,14 +44,14 @@ impl JSObject {
                 }
                 None => unsafe {
                     // no matching found, clone current for update
-                    let new_sh = js_clone_shape(ctx, cur_sh)?;
+                    let mut new_sh = cur_sh.clone(ctx)?;
 
                     // hash the new shape
-                    (*new_sh).is_hashed = true;
-                    js_shape_hash_link(ctx.rt_mut(), new_sh);
+                    new_sh.is_hashed = true;
+                    js_shape_hash_link(ctx.rt_mut(), new_sh.into());
 
                     js_free_shape(ctx.rt_mut(), cur_sh);
-                    self.shape = new_sh;
+                    self.shape = new_sh.into();
                 },
             };
         }
