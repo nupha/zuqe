@@ -251,6 +251,19 @@ impl JSShape {
 
         drop(self);
     }
+
+    /// decrease ref count of `shape`.
+    /// if ref count reaches 0, dispose it.
+    pub fn free(rt: &mut JSRuntime, sh: *mut JSShape) {
+        unsafe {
+            debug_assert!((*sh).header.ref_count > 0);
+
+            (*sh).header.ref_count -= 1;
+            if (*sh).header.ref_count == 0 {
+                Box::from_raw(sh).dispose(rt);
+            }
+        }
+    }
 }
 
 impl JSContext {
@@ -385,9 +398,7 @@ impl JSContext {
             .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
             .is_err()
         {
-            unsafe {
-                js_free_shape(self.rt_mut(), shape.into());
-            }
+            JSShape::free(self.rt_mut(), shape.into());
             self.JS_ThrowOutOfMemory();
             return Err(-1);
         }
@@ -431,9 +442,7 @@ impl JSContext {
                 Box::from_raw(p.as_ptr())
             }
         } else {
-            unsafe {
-                js_free_shape(self.rt_mut(), shape.into());
-            }
+            JSShape::free(self.rt_mut(), shape.into());
             return Err(-1);
         };
 
@@ -531,51 +540,6 @@ impl JSContext {
         }
 
         Ok(JS_MKPTR!(JSTag::Object, p.cast()))
-    }
-}
-
-#[deprecated(note = "use JSShape::dispose() instead")]
-unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
-    debug_assert_eq!((*sh).header.ref_count, 0);
-    Box::from_raw(sh).dispose(rt.as_mut().unwrap());
-
-    // let sh = sh.as_mut().unwrap();
-
-    // if sh.is_hashed {
-    //     js_shape_hash_unlink(rt.as_mut().unwrap(), sh);
-    //     sh.is_hashed = false;
-    // }
-
-    // if !sh.proto.is_null() {
-    //     JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, sh.proto.cast()));
-    //     sh.proto = std::ptr::null_mut();
-    // }
-
-    // // clear prop definations and free key atoms
-    // for (_, prs) in sh.props.drain(..) {
-    //     JS_FreeAtomRT(rt, prs.atom);
-    // }
-
-    // if !sh.header.link.next.is_null() && !sh.header.link.prev.is_null() {
-    //     remove_gc_object(&mut sh.header);
-    // }
-
-    // // take ownershape of *JSShape and drop
-    // drop(Box::from_raw(sh));
-}
-
-pub unsafe fn js_free_shape(rt: *mut JSRuntime, sh: *mut JSShape) {
-    debug_assert!((*sh).header.ref_count > 0);
-
-    (*sh).header.ref_count -= 1;
-    if (*sh).header.ref_count == 0 {
-        js_free_shape0(rt, sh);
-    }
-}
-
-pub unsafe fn js_free_shape_null(rt: *mut JSRuntime, sh: *mut JSShape) {
-    if !sh.is_null() {
-        js_free_shape(rt, sh.as_mut().unwrap());
     }
 }
 
@@ -747,13 +711,13 @@ impl JSObject {
                 match sh.clone(ctx.as_mut().unwrap()) {
                     Ok(mut sh1) => {
                         // free old shape, and use new one
-                        js_free_shape((*ctx).rt_mut(), sh);
+                        JSShape::free((*ctx).rt_mut(), sh);
                         self.shape = sh1.into();
                         if !pprs.is_null() {
                             *pprs = sh1.props.get_mut(&atom).unwrap();
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         return -1;
                     }
                 }

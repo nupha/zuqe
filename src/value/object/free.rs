@@ -9,7 +9,7 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
-use super::{free_property, js_free_shape, JSObject};
+use super::{free_property, JSObject, JSShape};
 
 impl JSObject {
     /// Safely frees a GC object, releasing all associated resources.
@@ -21,7 +21,7 @@ impl JSObject {
     /// - Calling the class finalizer if defined
     /// - Handling object memory cleanup based on GC phase
     /// The object must be in either tmp_obj_list or gc_zero_ref_count_list chain.
-    pub unsafe fn free(rt: *mut JSRuntime, p: *mut Self) {
+    pub unsafe fn free(rt: &mut JSRuntime, p: *mut Self) {
         // used to tell the object is invalid when freeing cycles
         (*p).detailed.set_free_mark(true);
 
@@ -34,7 +34,7 @@ impl JSObject {
         }
 
         // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list
-        js_free_shape(rt, sh);
+        JSShape::free(rt, sh);
 
         // set shape to null means object is freed
         (*p).shape = std::ptr::null_mut();
@@ -83,11 +83,6 @@ impl JSObject {
             drop(Box::from_raw(p));
         }
     }
-}
-
-#[deprecated(note = "use JSObject::free() instead")]
-pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
-    JSObject::free(rt, p);
 }
 
 pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {

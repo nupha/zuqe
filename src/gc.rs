@@ -489,7 +489,7 @@ pub unsafe fn remove_gc_object(h: *mut JSGCObjectHeader) {
 pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
     match (*gp).gc_obj_type() {
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
-            JSObject::free(rt, gp.cast());
+            JSObject::free(rt.as_mut().unwrap(), gp.cast());
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE => {
             free_function_bytecode(rt, gp.cast());

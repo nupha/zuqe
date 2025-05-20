@@ -2,15 +2,15 @@ use crate::{
     array::{add_fast_array_element, convert_fast_array_to_array},
     atom::{JSAtom, JS_AtomIsArrayIndex, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
     context::JSContext,
+    value::object::JSShape,
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
     super::{set_value, JSTag, JSValue, JS_ToUint32, JS_VALUE_GET_OBJ},
-    find_hashed_shape_prop, get_prop_flags, js_free_shape, js_shape_hash_link, JSObject,
-    JSProperty, JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-    JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
-    JS_PROP_WRITABLE,
+    find_hashed_shape_prop, get_prop_flags, js_shape_hash_link, JSObject, JSProperty,
+    JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
+    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
 };
 
 impl JSObject {
@@ -40,8 +40,8 @@ impl JSObject {
 
                     unsafe {
                         self.shape = (*found).dup();
-                        js_free_shape(ctx.rt_mut(), use_sh);
                     }
+                    JSShape::free(ctx.rt_mut(), use_sh);
 
                     return Ok(self.prop_values.get_mut(new_len - 1).unwrap());
                 }
@@ -53,8 +53,9 @@ impl JSObject {
                     new_sh.is_hashed = true;
                     unsafe {
                         js_shape_hash_link(ctx.rt_mut(), new_sh.into());
-                        js_free_shape(ctx.rt_mut(), use_sh);
                     }
+
+                    JSShape::free(ctx.rt_mut(), use_sh);
 
                     self.shape = new_sh.into();
                 }

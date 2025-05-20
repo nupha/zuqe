@@ -14,10 +14,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     types::{init_list_head, list_head},
-    value::{
-        object::{js_free_shape_null, JSShape},
-        JSValue, JS_FreeValue,
-    },
+    value::{object::JSShape, JSValue, JS_FreeValue},
 };
 
 use super::JSContextHandle;
@@ -334,7 +331,10 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
     JS_FreeValue(ctx.as_mut(), ctx.function_ctor);
     JS_FreeValue(ctx.as_mut(), ctx.function_proto);
 
-    js_free_shape_null(ctx.rt_mut(), ctx.array_shape);
+    if !ctx.array_shape.is_null() {
+        let sh = ctx.array_shape;
+        JSShape::free(ctx.rt_mut(), sh);
+    }
 
     remove_gc_object(&mut ctx.header);
 

@@ -1405,3 +1405,26 @@ pub unsafe fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {
 pub unsafe fn js_clone_shape(ctx: *mut JSContext, sh1: *mut JSShape) -> Result<*mut JSShape, i32> {
     (*sh1).clone(ctx.as_mut().unwrap()).map(|s| s.into())
 }
+
+#[deprecated(note = "use JSShape::dispose() instead")]
+pub unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
+    debug_assert_eq!((*sh).header.ref_count, 0);
+    Box::from_raw(sh).dispose(rt.as_mut().unwrap());
+}
+
+#[deprecated(note = "use JSShape::free() instead")]
+pub unsafe fn js_free_shape(rt: *mut JSRuntime, sh: *mut JSShape) {
+    JSShape::free(rt.as_mut().unwrap(), sh);
+}
+
+#[deprecated(note = "use is_null() check plus JSShape::free()")]
+pub unsafe fn js_free_shape_null(rt: *mut JSRuntime, sh: *mut JSShape) {
+    if !sh.is_null() {
+        JSShape::free(rt.as_mut().unwrap(), sh);
+    }
+}
+
+#[deprecated(note = "use JSObject::free() instead")]
+pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
+    JSObject::free(rt.as_mut().unwrap(), p);
+}
