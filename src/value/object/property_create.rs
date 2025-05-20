@@ -16,48 +16,50 @@ use super::{
 impl JSObject {
     /// Note: the property value is initialized to undefined. Returns Err if memory error.
     /// `prop` keeps ref count unchanged after calling.
-    pub unsafe fn add_property(
+    pub fn add_property(
         &mut self,
         ctx: &mut JSContext,
         prop: JSAtom,
         prop_flags: u32,
     ) -> Result<*mut JSProperty, i32> {
-        let curr_sh = self.shape.as_mut().unwrap();
+        let cur_sh = unsafe { self.shape.as_mut().unwrap() };
 
-        if curr_sh.is_hashed {
+        if cur_sh.is_hashed {
             /* try to find an existing shape */
-            match find_hashed_shape_prop(ctx.rt_mut(), curr_sh, prop, prop_flags) {
+            match unsafe { find_hashed_shape_prop(ctx.rt_mut(), cur_sh, prop, prop_flags) } {
                 Some(new_sh) => {
                     /* matching shape found: use it */
-                    let new_len = (*new_sh).props.len();
-                    if new_len != curr_sh.props.len() {
-                        debug_assert!(new_len > curr_sh.props.len());
+                    let new_len = unsafe { (*new_sh).props.len() };
+                    if new_len != cur_sh.props.len() {
+                        debug_assert!(new_len > cur_sh.props.len());
                         self.grow_prop_value_slots(new_len)?;
                     }
 
-                    self.shape = js_dup_shape(new_sh);
-                    js_free_shape(ctx.rt_mut(), curr_sh);
+                    unsafe {
+                        self.shape = js_dup_shape(new_sh);
+                        js_free_shape(ctx.rt_mut(), cur_sh);
+                    }
 
                     return Ok(self.prop_values.get_mut(new_len - 1).unwrap());
                 }
-                None => {
-                    /* no matching found, clone current for update */
-                    let new_sh = js_clone_shape(ctx, curr_sh)?;
+                None => unsafe {
+                    // no matching found, clone current for update
+                    let new_sh = js_clone_shape(ctx, cur_sh)?;
 
                     // hash the new shape
                     (*new_sh).is_hashed = true;
                     js_shape_hash_link(ctx.rt_mut(), new_sh);
 
-                    js_free_shape(ctx.rt_mut(), curr_sh);
+                    js_free_shape(ctx.rt_mut(), cur_sh);
                     self.shape = new_sh;
-                }
+                },
             };
         }
 
         // for unhashed or cloned shape: add shape prop
         debug_assert_eq!(self.shape().unwrap().header.ref_count, 1);
 
-        if (*self.shape).add_shape_property(ctx, Some(self), prop, prop_flags) != 0 {
+        if unsafe { (*self.shape).add_shape_property(ctx, Some(self), prop, prop_flags) } != 0 {
             return Err(-1);
         }
 

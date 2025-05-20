@@ -192,7 +192,7 @@ impl JSShape {
 impl JSContext {
     /// create object based on specified shape and class_id.
     /// Note: `shape` is consumed.
-    pub unsafe fn create_object_from_shape(
+    pub fn create_object_from_shape(
         &mut self,
         shape: &mut JSShape,
         class_id: JSClassID,
@@ -204,10 +204,13 @@ impl JSContext {
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
         let prop_count = shape.props.len();
-        if let Err(e) =
-            prop_values.try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+        if prop_values
+            .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+            .is_err()
         {
-            js_free_shape(self.rt_mut(), shape);
+            unsafe {
+                js_free_shape(self.rt_mut(), shape);
+            }
             self.JS_ThrowOutOfMemory();
             return Err(-1);
         }
@@ -222,7 +225,7 @@ impl JSContext {
         ));
 
         // alloc JSObject
-        let mut obj = if let Some(p) = js_malloc_typed::<JSObject>(self, 1, false) {
+        let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
             let o = JSObject {
                 header: JSGCObjectHeader::new(1),
                 detailed: {
@@ -245,10 +248,15 @@ impl JSContext {
                     opaque: std::ptr::null_mut(),
                 },
             };
-            p.write(o);
-            Box::from_raw(p.as_ptr())
+
+            unsafe {
+                p.write(o);
+                Box::from_raw(p.as_ptr())
+            }
         } else {
-            js_free_shape(self.rt_mut(), shape);
+            unsafe {
+                js_free_shape(self.rt_mut(), shape);
+            }
             return Err(-1);
         };
 
@@ -257,8 +265,10 @@ impl JSContext {
             JS_CLASS_ARRAY => {
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
-                (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
-                (*obj.u.array).u1.size = 0;
+                unsafe {
+                    (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
+                    (*obj.u.array).u1.size = 0;
+                }
 
                 // Array: the length property is always the first one
                 let pr0: *mut JSProperty = if shape as *mut JSShape == self.array_shape {
@@ -268,24 +278,30 @@ impl JSContext {
                     obj.add_property(self, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)
                         .unwrap()
                 };
-                (*pr0).u.value = JSValue::ZERO;
+                unsafe {
+                    (*pr0).u.value = JSValue::ZERO;
+                }
             }
             JS_CLASS_ARGUMENTS => {
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
-                (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
+                unsafe {
+                    (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
+                }
             }
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
-                (*obj.u.array).data.ptr = std::ptr::null_mut();
-                (*obj.u.array).typed_array_count = 0;
+                unsafe {
+                    (*obj.u.array).data.ptr = std::ptr::null_mut();
+                    (*obj.u.array).typed_array_count = 0;
+                }
             }
 
-            JS_CLASS_DATAVIEW => {
+            JS_CLASS_DATAVIEW => unsafe {
                 (*obj.u.array).data.ptr = std::ptr::null_mut();
                 (*obj.u.array).typed_array_count = 0;
-            }
+            },
 
             JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT => {
@@ -324,13 +340,18 @@ impl JSContext {
 
         // take ownership of object
         let p = Box::into_raw(obj);
-        debug_assert_eq!(p as usize, std::ptr::addr_of!((*p).header) as usize);
 
-        add_gc_object(
-            self.rt_mut(),
-            &mut (*p).header,
-            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT,
-        );
+        debug_assert_eq!(p as usize, unsafe {
+            std::ptr::addr_of!((*p).header) as usize
+        });
+
+        unsafe {
+            add_gc_object(
+                self.rt_mut(),
+                &mut (*p).header,
+                JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT,
+            );
+        }
 
         Ok(JS_MKPTR!(JSTag::Object, p.cast()))
     }

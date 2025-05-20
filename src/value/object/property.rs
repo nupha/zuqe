@@ -143,7 +143,7 @@ impl JSObject {
     /// Grows the property values array to accommodate more properties.
     /// Takes a new length and extends the array with undefined values if needed.
     /// Returns error if memory allocation fails.
-    pub(super) unsafe fn grow_prop_value_slots(&mut self, new_length: usize) -> Result<(), i32> {
+    pub(super) fn grow_prop_value_slots(&mut self, new_length: usize) -> Result<(), i32> {
         if new_length > self.prop_values.len() {
             let grow = new_length - self.prop_values.len();
             if self.prop_values.try_reserve_exact(grow).is_err() {

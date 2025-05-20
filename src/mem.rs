@@ -170,7 +170,7 @@ pub struct JSMemoryUsage {
     pub binary_object_size: i64,
 }
 
-pub unsafe fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
+pub fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
     let force_gc: bool;
 
     #[cfg(feature = "FORCE_GC_AT_MALLOC")]
