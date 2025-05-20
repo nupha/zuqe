@@ -136,7 +136,7 @@ impl<'s> JSParseState<'s> {
         macro_rules! fail {
             () => {
                 self.cur_func_ptr = fd0; // restore original cur_func
-                sub_fd.free(self.ctx.deref_mut()); // clean up and drop new fd
+                sub_fd.dispose(self.ctx.deref_mut()); // clean up and drop new fd
                 return Err(-1);
             };
         }

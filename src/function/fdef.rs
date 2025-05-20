@@ -374,11 +374,11 @@ impl JSFunctionDef {
 
     /// Create a bytecode function from function definition.
     /// All the child functions are also created. It must be done this way to resolve all the variables.
-    /// The function definition is consumed.
+    /// The `self` function def is consumed.
     pub unsafe fn make_function(mut self: Box<Self>, ctx: &mut JSContext) -> JSValue {
         macro_rules! fail {
             () => {
-                self.free(ctx);
+                self.dispose(ctx);
                 return JSValue::EXCEPTION;
             };
         }
@@ -674,7 +674,7 @@ impl JSFunctionDef {
         }
 
         // drop function defination
-        self.free(ctx);
+        self.dispose(ctx);
 
         // return bytecode function value
         JS_MKPTR!(JSTag::FunctionBytecode, Box::into_raw(bf).cast())
@@ -705,12 +705,12 @@ impl JSFunctionDef {
         }
     }
 
-    /// to free a JSFunctionDef and all its children
-    pub unsafe fn free(mut self: Box<Self>, ctx: &mut JSContext) {
+    /// drop Box<Self> and all its subs.
+    pub unsafe fn dispose(mut self: Box<Self>, ctx: &mut JSContext) {
         // free child function defs
         list_foreach_safe(&mut self.child_list, |el| {
             let fd1 = list_entry!(el, JSFunctionDef, link);
-            Self::free(Box::from_raw(fd1), ctx);
+            Self::dispose(Box::from_raw(fd1), ctx);
         });
 
         free_bytecode_atoms(

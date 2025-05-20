@@ -134,7 +134,7 @@ impl JSVarRef {
     }
 }
 
-#[deprecated(note = "use JSVarRef::free() instead")]
+#[deprecated(note = "use JSVarRef::dispose() instead")]
 pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
     if !var_ref.is_null() {
         if let Some(vr) = Box::from_raw(var_ref).free(rt) {

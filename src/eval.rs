@@ -68,7 +68,7 @@ impl JSContext {
         macro_rules! fail {
             ($s:expr, $fd:expr, $m:expr) => {
                 $s.free_token();
-                $fd.free(self);
+                $fd.dispose(self);
                 fail1!($m);
             };
         }
@@ -144,7 +144,7 @@ impl JSContext {
 
             if !b.is_null() {
                 if add_closure_variables(self, fd.deref_mut(), b, scope_idx).is_err() {
-                    fd.free(self);
+                    fd.dispose(self);
                     fail1!(m);
                 }
             }
@@ -161,7 +161,7 @@ impl JSContext {
             fd.body_scope = if let Ok(scope) = fd.push_scope(0) {
                 scope as i32
             } else {
-                fd.free(self);
+                fd.dispose(self);
                 fail1!(m);
             };
             debug_assert_eq!(fd.body_scope, 1);

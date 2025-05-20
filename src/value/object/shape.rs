@@ -219,6 +219,38 @@ impl JSShape {
 
         Ok(raw_sh.into())
     }
+
+    /// drop Box<Self>
+    pub fn dispose(mut self: Box<Self>, rt: &mut JSRuntime) {
+        debug_assert_eq!(self.header.ref_count, 0);
+
+        if self.is_hashed {
+            unsafe {
+                js_shape_hash_unlink(rt, self.as_mut());
+            }
+            self.is_hashed = false;
+        }
+
+        if !self.proto.is_null() {
+            unsafe {
+                JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.proto.cast()));
+            }
+            self.proto = std::ptr::null_mut();
+        }
+
+        // clear prop definations and free key atoms
+        for (_, prs) in self.props.drain(..) {
+            JS_FreeAtomRT(rt, prs.atom);
+        }
+
+        if !self.header.link.next.is_null() && !self.header.link.prev.is_null() {
+            unsafe {
+                remove_gc_object(&mut self.header);
+            }
+        }
+
+        drop(self);
+    }
 }
 
 impl JSContext {
@@ -442,7 +474,6 @@ impl JSContext {
                     (*obj.u.array).typed_array_count = 0;
                 }
             }
-
             JS_CLASS_DATAVIEW => unsafe {
                 (*obj.u.array).data.ptr = std::ptr::null_mut();
                 (*obj.u.array).typed_array_count = 0;
@@ -451,13 +482,14 @@ impl JSContext {
             JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT => {
                 obj.u.object_data = JSValue::UNDEFINED;
-                if !(*self).rt().class_array[class_id as usize].exotic.is_null() {
+                if !self.rt().class_array[class_id as usize].exotic.is_null() {
                     obj.detailed.set_exotic(true);
                 }
             }
 
             JS_CLASS_C_FUNCTION => {
-                // obj.prop_values[0].u.value = JS_UNDEFINED;
+                // FIXME: prop_values is not initialized, panic!
+                // obj.prop_values[0].u.value = JSValue::UNDEFINED;
             }
 
             JS_CLASS_REGEXP => {
@@ -477,7 +509,7 @@ impl JSContext {
             }
 
             _ => {
-                if !(*self).rt().class_array[class_id as usize].exotic.is_null() {
+                if !self.rt().class_array[class_id as usize].exotic.is_null() {
                     obj.detailed.set_exotic(true);
                 }
             }
@@ -502,32 +534,34 @@ impl JSContext {
     }
 }
 
+#[deprecated(note = "use JSShape::dispose() instead")]
 unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
     debug_assert_eq!((*sh).header.ref_count, 0);
+    Box::from_raw(sh).dispose(rt.as_mut().unwrap());
 
-    let sh = sh.as_mut().unwrap();
+    // let sh = sh.as_mut().unwrap();
 
-    if sh.is_hashed {
-        js_shape_hash_unlink(rt.as_mut().unwrap(), sh);
-        sh.is_hashed = false;
-    }
+    // if sh.is_hashed {
+    //     js_shape_hash_unlink(rt.as_mut().unwrap(), sh);
+    //     sh.is_hashed = false;
+    // }
 
-    if !sh.proto.is_null() {
-        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, sh.proto.cast()));
-        sh.proto = std::ptr::null_mut();
-    }
+    // if !sh.proto.is_null() {
+    //     JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, sh.proto.cast()));
+    //     sh.proto = std::ptr::null_mut();
+    // }
 
-    // clear prop definations and free key atoms
-    for (_, prs) in sh.props.drain(..) {
-        JS_FreeAtomRT(rt, prs.atom);
-    }
+    // // clear prop definations and free key atoms
+    // for (_, prs) in sh.props.drain(..) {
+    //     JS_FreeAtomRT(rt, prs.atom);
+    // }
 
-    if !sh.header.link.next.is_null() && !sh.header.link.prev.is_null() {
-        remove_gc_object(&mut sh.header);
-    }
+    // if !sh.header.link.next.is_null() && !sh.header.link.prev.is_null() {
+    //     remove_gc_object(&mut sh.header);
+    // }
 
-    // take ownershape of *JSShape and drop
-    drop(Box::from_raw(sh));
+    // // take ownershape of *JSShape and drop
+    // drop(Box::from_raw(sh));
 }
 
 pub unsafe fn js_free_shape(rt: *mut JSRuntime, sh: *mut JSShape) {

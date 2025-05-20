@@ -371,9 +371,9 @@ pub unsafe fn get_var_ref(
     unreachable!("use JSStackFrame::get_var_ref() instead")
 }
 
-#[deprecated(note = "use JSAsyncGeneratorData::free() instead")]
+#[deprecated(note = "use JSAsyncGeneratorData::dispose() instead")]
 pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut JSAsyncGeneratorData) {
-    unreachable!("use JSAsyncGeneratorData::free() instead");
+    unreachable!("use JSAsyncGeneratorData::dispose() instead");
 }
 
 #[deprecated(note = "use AsyncGeneratorValue::function_call() instead")]
@@ -393,12 +393,12 @@ unsafe fn js_promise_executor_new(ctx: *mut JSContext) -> JSValue {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSPromiseReactionData::free() instead")]
+#[deprecated(note = "use JSPromiseReactionData::dispose() instead")]
 pub(super) unsafe fn promise_reaction_data_free(
     rt: *mut JSRuntime,
     rd: *mut JSPromiseReactionData,
 ) {
-    unreachable!("use JSPromiseReactionData::free() instead");
+    unreachable!("use JSPromiseReactionData::dispose() instead");
 }
 
 #[deprecated(note = "use JSContext::create_promise() instead")]
@@ -447,7 +447,7 @@ pub unsafe fn js_alloc_string(
     // }
 }
 
-#[deprecated(note = "use JSString::free() instead")]
+#[deprecated(note = "use JSString::dispose() instead")]
 pub unsafe fn js_free_string(rt: &mut JSRuntime, str: *mut JSString) {
     unreachable!("unused");
 }
@@ -654,9 +654,9 @@ pub unsafe fn JS_PromiseState(
 }
 
 /// to free `fd` and all its children
-#[deprecated(note = "use JSFunctionDef::free() instead")]
+#[deprecated(note = "use JSFunctionDef::dispose() instead")]
 pub unsafe fn js_free_function_def(ctx: *mut JSContext, fd: *mut JSFunctionDef) {
-    Box::from_raw(fd).free(ctx.as_mut().unwrap());
+    Box::from_raw(fd).dispose(ctx.as_mut().unwrap());
 }
 
 /// create a function object from a function definition.

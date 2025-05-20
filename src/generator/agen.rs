@@ -67,7 +67,7 @@ pub struct JSAsyncGeneratorRequest {
 }
 
 impl JSAsyncGeneratorData {
-    pub fn free(mut self: Box<Self>, rt: &mut JSRuntime) {
+    pub fn dispose(mut self: Box<Self>, rt: &mut JSRuntime) {
         unsafe {
             list_foreach_safe(&mut self.queue, |el| {
                 let req = list_entry!(el, JSAsyncGeneratorRequest, link);
@@ -128,21 +128,21 @@ impl AsyncGeneratorValue {
         init_list_head(&mut s.queue);
         s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
         if s.func_state.is_null() {
-            s.free(ctx.rt_mut());
+            s.dispose(ctx.rt_mut());
             return JSValue::EXCEPTION;
         }
 
         // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
         let func_ret = async_func_resume(ctx, s.func_state);
         if func_ret.is_exception() {
-            s.free(ctx.rt_mut());
+            s.dispose(ctx.rt_mut());
             return JSValue::EXCEPTION;
         }
         JS_FreeValue(ctx, func_ret);
 
         let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
         if obj.is_exception() {
-            s.free(ctx.rt_mut());
+            s.dispose(ctx.rt_mut());
             return JSValue::EXCEPTION;
         }
 
@@ -158,7 +158,7 @@ impl AsyncGeneratorValue {
             .object()
             .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
         {
-            Box::from_raw(p.as_ptr()).free(rt.as_mut().unwrap());
+            Box::from_raw(p.as_ptr()).dispose(rt.as_mut().unwrap());
         }
     }
 

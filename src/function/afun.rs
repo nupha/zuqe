@@ -46,8 +46,8 @@ pub struct JSAsyncFunctionState {
 }
 
 impl JSAsyncFunctionState {
-    /// free and drop
-    pub fn free(mut self: Box<Self>, rt: *mut JSRuntime) {
+    /// drop Box<Self>
+    pub fn dispose(mut self: Box<Self>, rt: *mut JSRuntime) {
         // cannot close the closure variables here because it would
         // potentially modify the object graph
         if !self.is_completed {
@@ -71,9 +71,9 @@ impl JSAsyncFunctionState {
     }
 }
 
-#[deprecated(note = "use JSAsyncFunctionState::free() instead")]
+#[deprecated(note = "use JSAsyncFunctionState::dispose() instead")]
 pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
-    Box::from_raw(s).free(rt);
+    Box::from_raw(s).dispose(rt);
 }
 
 pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {

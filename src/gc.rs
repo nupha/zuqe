@@ -495,7 +495,7 @@ pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
             free_function_bytecode(rt, gp.cast());
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_ASYNC_FUNCTION => {
-            Box::from_raw(gp.cast::<JSAsyncFunctionState>()).free(rt);
+            Box::from_raw(gp.cast::<JSAsyncFunctionState>()).dispose(rt);
         }
         _ => {
             unreachable!()
