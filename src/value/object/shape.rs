@@ -118,7 +118,7 @@ impl JSShape {
             unsafe {
                 js_shape_hash_unlink(ctx.rt_mut(), self);
             }
-            shape_hasher(shape_hasher(self.hash, atom.0), prop_flags)
+            shape_hasher_u32(shape_hasher_u32(self.hash, atom.0), prop_flags)
         } else {
             0
         };
@@ -267,10 +267,10 @@ impl JSShape {
 }
 
 impl JSContext {
-    /// create a new empty shape with prototype 'proto'.
+    /// create a new empty shape with prototype 'proto' and given capacity.
     /// Note: `proto` is not consumed.
     #[inline(never)]
-    pub fn create_shape2(
+    pub fn create_shape_with_capacity(
         &mut self,
         proto: Option<&mut JSObject>,
         hash_size: usize,
@@ -377,7 +377,7 @@ impl JSContext {
     /// Note: `proto` is not consumed.
     #[inline(always)]
     pub fn create_shape(&mut self, proto: Option<&mut JSObject>) -> Result<JSShapeHandle, i32> {
-        self.create_shape2(proto, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE as _)
+        self.create_shape_with_capacity(proto, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE as _)
     }
 
     /// create object based on specified shape and class_id.
@@ -558,9 +558,9 @@ pub unsafe fn init_shape_hash(rt: &mut JSRuntime) -> i32 {
     0
 }
 
-/// calc hash for u32
-pub const fn shape_hasher(h: u32, val: u32) -> u32 {
-    // Same magic hash multiplier as the Linux kernel
+/// calc hash for u32.
+/// Same magic hash multiplier as the Linux kernel
+pub const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
@@ -570,9 +570,9 @@ pub const fn shape_hash_trim(h: u32, hash_bits: i32) -> u32 {
 }
 
 pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
-    let mut h = shape_hasher(1, proto as u32);
+    let mut h = shape_hasher_u32(1, proto as u32);
     if std::mem::size_of::<*mut JSObject>() > 4 {
-        h = shape_hasher(h, ((proto as u64) >> 32) as u32);
+        h = shape_hasher_u32(h, ((proto as u64) >> 32) as u32);
     }
     h
 }
@@ -653,8 +653,8 @@ pub unsafe fn find_hashed_shape_prop(
     prop_flags: u32,
 ) -> Option<*mut JSShape> {
     let mut h = sh.hash;
-    h = shape_hasher(h, atom.0);
-    h = shape_hasher(h, prop_flags);
+    h = shape_hasher_u32(h, atom.0);
+    h = shape_hasher_u32(h, prop_flags);
     let h1 = shape_hash_trim(h, rt.shape_hash_bits);
     let mut sh1 = *rt.shape_hash.offset(h1 as _);
     while !sh1.is_null() {

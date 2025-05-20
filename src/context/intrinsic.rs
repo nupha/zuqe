@@ -132,7 +132,7 @@ impl JSContext {
             self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
 
             self.array_shape = self
-                .create_shape2(
+                .create_shape_with_capacity(
                     unsafe { get_proto_obj(array_proto).as_mut() },
                     JS_PROP_INITIAL_HASH_SIZE,
                     1,

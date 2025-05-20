@@ -1384,7 +1384,7 @@ pub unsafe fn js_new_shape2(
     prop_size: i32,
 ) -> *mut JSShape {
     (*ctx)
-        .create_shape2(proto.as_mut(), hash_size, prop_size)
+        .create_shape_with_capacity(proto.as_mut(), hash_size, prop_size)
         .map_or(std::ptr::null_mut(), |p| p.as_ptr())
 }
 
