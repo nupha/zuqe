@@ -1,7 +1,6 @@
 use std::ops::DerefMut;
 
 use crate::{
-    array::JS_NewArray,
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,
     parse::emit::{emit_atom_dup, emit_op, emit_push_const, emit_u16},
@@ -100,7 +99,7 @@ impl<'s> JSParseState<'s> {
         if call {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
-            template_object = JS_NewArray(ctx.as_ptr()).check_exception()?;
+            template_object = ctx.create_array()?;
 
             let ret = emit_push_const(self, template_object, false);
             JS_FreeValue(ctx.as_ptr(), template_object);
@@ -108,7 +107,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            raw_array = JS_NewArray(ctx.as_ptr()).check_exception()?;
+            raw_array = ctx.create_array()?;
 
             template_object.define_property_value(
                 ctx.deref_mut(),

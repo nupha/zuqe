@@ -1,7 +1,6 @@
 use {fallible_collections::FallibleVec, widestring::U16Str};
 
 use crate::{
-    array::JS_NewArray,
     atom::{consts::*, JSAtom, JSAtomStruct},
     class::js_create_from_ctor,
     context::JSContext,
@@ -623,10 +622,12 @@ pub unsafe fn js_string_split(
     } else {
         exception!();
     };
-    A = JS_NewArray(ctx);
-    if A.is_exception() {
+    A = if let Ok(a) = (*ctx).create_array() {
+        a
+    } else {
         exception!();
-    }
+    };
+
     lengthA = 0;
 
     let lim = if limit.is_undefined() {

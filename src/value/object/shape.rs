@@ -474,8 +474,10 @@ pub unsafe fn js_new_shape(ctx: *mut JSContext, proto: *mut JSObject) -> *mut JS
     )
 }
 
-pub unsafe fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {
-    sh.as_mut().unwrap().header.ref_count += 1;
+pub fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {
+    unsafe {
+        sh.as_mut().unwrap().header.ref_count += 1;
+    }
     sh
 }
 

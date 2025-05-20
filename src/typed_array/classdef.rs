@@ -5,7 +5,7 @@ use crate::{
         js_array_every, js_array_reduce, special_TA, special_every, special_filter, special_find,
         special_findIndex, special_findLast, special_findLastIndex, special_forEach,
         special_includes, special_indexOf, special_lastIndexOf, special_map, special_reduce,
-        special_reduceRight, special_some, JS_NewArray,
+        special_reduceRight, special_some,
     },
     atom::consts::JS_ATOM_Symbol_iterator,
     bytecode::js_for_of_start,
@@ -290,7 +290,7 @@ pub fn js_typed_array_from(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let arr: JSValueRc;
 
     if !iter.is_undefined() {
-        arr = unsafe { JS_NewArray(ctx).check_exception()?.into_rc(ctx.rt()) };
+        arr = ctx.create_array()?.into_rc(ctx.rt());
 
         // call iterator() of `items` to get enum object and next() method.
         let mut stack = [items.dup(), JSValue::UNDEFINED]; // [enum_obj, next]

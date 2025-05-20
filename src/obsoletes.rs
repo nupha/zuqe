@@ -1358,3 +1358,8 @@ pub unsafe fn js_parse_function_decl2(
 pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: i32) {
     (*s).add_pc2line_info(pc, line_num);
 }
+
+#[deprecated(note = "use JSContext::create_array() instead")]
+pub unsafe fn JS_NewArray(ctx: *mut JSContext) -> JSValue {
+    (*ctx).create_array().unwrap_or(JSValue::EXCEPTION)
+}

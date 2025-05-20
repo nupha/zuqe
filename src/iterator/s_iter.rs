@@ -1,5 +1,4 @@
 use crate::{
-    array::JS_NewArray,
     atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
@@ -482,50 +481,49 @@ pub unsafe fn iterator_to_array(ctx: *mut JSContext, items: JSValueConst) -> JSV
         return JSValue::EXCEPTION;
     }
 
-    let r = JS_NewArray(ctx);
-    if r.is_exception() {
+    if let Ok(r) = (*ctx).create_array() {
+        let mut k = 0;
+        loop {
+            let mut done = false;
+            let v = JS_IteratorNext(ctx, iter, next_method, 0, std::ptr::null_mut(), &mut done);
+            if v.is_exception() {
+                JS_IteratorClose(ctx, iter, true);
+                JS_FreeValue(ctx, next_method);
+                JS_FreeValue(ctx, iter);
+                JS_FreeValue(ctx, r);
+                return JSValue::EXCEPTION;
+            }
+
+            if done {
+                break;
+            }
+
+            if r.define_property_value(
+                ctx.as_mut().unwrap(),
+                JSAtom(k),
+                v,
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )
+            .is_err()
+            {
+                JS_IteratorClose(ctx, iter, true);
+                JS_FreeValue(ctx, next_method);
+                JS_FreeValue(ctx, iter);
+                JS_FreeValue(ctx, r);
+                return JSValue::EXCEPTION;
+            }
+
+            k += 1;
+        }
+
         JS_FreeValue(ctx, next_method);
         JS_FreeValue(ctx, iter);
-        return JSValue::EXCEPTION;
+        r
+    } else {
+        JS_FreeValue(ctx, next_method);
+        JS_FreeValue(ctx, iter);
+        JSValue::EXCEPTION
     }
-
-    let mut k = 0;
-    loop {
-        let mut done = false;
-        let v = JS_IteratorNext(ctx, iter, next_method, 0, std::ptr::null_mut(), &mut done);
-        if v.is_exception() {
-            JS_IteratorClose(ctx, iter, true);
-            JS_FreeValue(ctx, next_method);
-            JS_FreeValue(ctx, iter);
-            JS_FreeValue(ctx, r);
-            return JSValue::EXCEPTION;
-        }
-
-        if done {
-            break;
-        }
-
-        if r.define_property_value(
-            ctx.as_mut().unwrap(),
-            JSAtom(k),
-            v,
-            JS_PROP_C_W_E | JS_PROP_THROW,
-        )
-        .is_err()
-        {
-            JS_IteratorClose(ctx, iter, true);
-            JS_FreeValue(ctx, next_method);
-            JS_FreeValue(ctx, iter);
-            JS_FreeValue(ctx, r);
-            return JSValue::EXCEPTION;
-        }
-
-        k += 1;
-    }
-
-    JS_FreeValue(ctx, next_method);
-    JS_FreeValue(ctx, iter);
-    r
 }
 
 pub unsafe fn js_array_from_iterator(
@@ -536,10 +534,11 @@ pub unsafe fn js_array_from_iterator(
 ) -> JSValue {
     *plen = 0;
 
-    let arr = JS_NewArray(ctx);
-    if arr.is_exception() {
-        return arr;
-    }
+    let arr = if let Ok(a) = (*ctx).create_array() {
+        a
+    } else {
+        return JSValue::EXCEPTION;
+    };
 
     let iter = JS_GetIterator2(ctx, obj, method);
     if iter.is_exception() {

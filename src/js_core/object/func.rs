@@ -1,5 +1,5 @@
 use crate::{
-    array::{js_array_push, JS_NewArray},
+    array::js_array_push,
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     class::js_create_from_ctor,
     context::{JSContext, JS_GetActiveFunction},
@@ -400,38 +400,38 @@ pub unsafe fn js_object_groupBy(
 
         if prop.is_undefined() {
             // entry is missing, create the entry
-            prop = JS_NewArray(ctx);
-            if prop.is_exception() {
+            if let Ok(prop) = (*ctx).create_array() {
+                if is_map != 0 {
+                    let res = js_map_set(ctx, groups, 2, [key, prop].as_ptr(), 0);
+                    if res.is_exception() {
+                        JS_FreeValue(ctx, iter);
+                        JS_FreeValue(ctx, next);
+                        JS_FreeValue(ctx, groups);
+                        return JSValue::EXCEPTION;
+                    } else {
+                        JS_FreeValue(ctx, res);
+                    }
+                } else {
+                    if groups
+                        .define_property_value(
+                            ctx.as_mut().unwrap(),
+                            key_atom,
+                            prop.dup(),
+                            JS_PROP_C_W_E,
+                        )
+                        .is_err()
+                    {
+                        JS_FreeValue(ctx, iter);
+                        JS_FreeValue(ctx, next);
+                        JS_FreeValue(ctx, groups);
+                        return JSValue::EXCEPTION;
+                    }
+                }
+            } else {
                 JS_FreeValue(ctx, iter);
                 JS_FreeValue(ctx, next);
                 JS_FreeValue(ctx, groups);
                 return JSValue::EXCEPTION;
-            }
-            if is_map != 0 {
-                let res = js_map_set(ctx, groups, 2, [key, prop].as_ptr(), 0);
-                if res.is_exception() {
-                    JS_FreeValue(ctx, iter);
-                    JS_FreeValue(ctx, next);
-                    JS_FreeValue(ctx, groups);
-                    return JSValue::EXCEPTION;
-                } else {
-                    JS_FreeValue(ctx, res);
-                }
-            } else {
-                if groups
-                    .define_property_value(
-                        ctx.as_mut().unwrap(),
-                        key_atom,
-                        prop.dup(),
-                        JS_PROP_C_W_E,
-                    )
-                    .is_err()
-                {
-                    JS_FreeValue(ctx, iter);
-                    JS_FreeValue(ctx, next);
-                    JS_FreeValue(ctx, groups);
-                    return JSValue::EXCEPTION;
-                }
             }
         }
 

@@ -1,7 +1,6 @@
 use std::{ffi::c_void, ops::DerefMut};
 
 use crate::{
-    array::JS_NewArray,
     atom::consts::*,
     context::JSContext,
     error::JSResult,
@@ -258,15 +257,19 @@ pub unsafe fn js_promise_all(
         return fail_reject(promise_resolve);
     };
 
-    let mut values = JS_NewArray(ctx).into_rc((*ctx).rt());
-    if values.is_exception() {
+    let mut values = if let Ok(a) = (*ctx).create_array() {
+        a.into_rc((*ctx).rt())
+    } else {
         return fail_reject(promise_resolve);
-    }
+    };
 
-    let resolve_element_env = JS_NewArray(ctx).into_rc((*ctx).rt());
-    if resolve_element_env.is_exception() {
+    let resolve_element_env = if let Ok(a) = (*ctx).create_array() {
+        a.into_rc((*ctx).rt())
+    } else {
         return fail_reject(promise_resolve);
-    } else if resolve_element_env
+    };
+
+    if resolve_element_env
         .define_property_value_u32(ctx.as_mut().unwrap(), 0, JSValue::from_i32(1), 0x7)
         .is_err()
     {

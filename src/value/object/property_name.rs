@@ -1,12 +1,9 @@
 use crate::{
-    array::JS_NewArray,
     atom::{JSAtom, JSAtomKindEnum, JS_AtomIsArrayIndex, JS_FreeAtom},
     context::JSContext,
     iterator::JSIteratorKindEnum,
     mem::js_free,
-    value::{
-        js_string_obj_get_length, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_VALUE_GET_OBJ,
-    },
+    value::{js_string_obj_get_length, JSTag, JSValue, JSValueConst, JS_FreeValue},
     JS_CLASS_STRING, JS_MKPTR,
 };
 
@@ -270,10 +267,11 @@ impl JSObject {
         kind: JSIteratorKindEnum,
     ) -> JSValue {
         // make result array
-        let ret_array = unsafe { JS_NewArray(ctx).into_rc(ctx.rt()) };
-        if ret_array.is_exception() {
+        let ret_array = if let Ok(a) = ctx.create_array() {
+            a.into_rc(ctx.rt())
+        } else {
             return JSValue::EXCEPTION;
-        }
+        };
 
         if let Ok(lst) =
             unsafe { self.get_own_property_names_internal(ctx, flags & !JS_GPN_ENUM_ONLY) }
@@ -322,10 +320,12 @@ impl JSObject {
                                 }
                             }
                             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                                val = JS_NewArray(ctx);
-                                if val.is_exception() {
+                                val = if let Ok(a) = ctx.create_array() {
+                                    a
+                                } else {
                                     break 'outer true;
-                                }
+                                };
+
                                 let key = name.atom.to_value(ctx, false);
                                 if key.is_exception() {
                                     JS_FreeValue(ctx, val);
@@ -410,7 +410,10 @@ impl JSValue {
         if obj.is_exception() {
             JSValue::EXCEPTION
         } else {
-            unsafe { obj.object_unchecked().get_own_property_names2(ctx, flags, kind) }
+            unsafe {
+                obj.object_unchecked()
+                    .get_own_property_names2(ctx, flags, kind)
+            }
         }
     }
 }

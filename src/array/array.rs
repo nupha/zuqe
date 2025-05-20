@@ -3,7 +3,7 @@ use std::{ffi::c_void, mem::ManuallyDrop};
 use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_NULL},
     context::JSContext,
-    error::{JSErrorEnum, JS_ThrowRangeError},
+    error::{JSErrorEnum, JSResult, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
@@ -72,23 +72,28 @@ pub union JSObjectArrayData {
 }
 
 impl JSContext {
+    /// create an array value.
+    #[inline(always)]
+    pub fn create_array(&mut self) -> JSResult {
+        // debug_assert!(!self.array_shape.is_null());
+        self.create_object_from_shape(js_dup_shape(self.array_shape).into(), JS_CLASS_ARRAY)
+    }
+
     /// create a fast array value. `capacity` indicates reserved space.
     /// returns EXCEPTION value when fail, otherwise returns Array value
-    pub fn create_array(&mut self, capacity: usize) -> JSValue {
+    pub fn create_fast_array(&mut self, capacity: usize) -> JSValue {
         if capacity > i32::MAX as usize {
             return self.JS_ThrowError(JSErrorEnum::Range, c"invalid array length");
         }
 
-        let arr = if let Ok(v) = self.create_object_from_shape(
-            unsafe { js_dup_shape(self.array_shape).into() },
-            JS_CLASS_ARRAY,
-        ) {
+        let arr = if let Ok(v) = self.create_array() {
             v
         } else {
             return JSValue::EXCEPTION;
         };
 
         unsafe {
+            // ensure is a fast array
             debug_assert!(arr.object_unchecked().detailed.fast_array());
         }
 
@@ -336,13 +341,6 @@ impl JSValue {
             None
         }
     }
-}
-
-pub unsafe fn JS_NewArray(ctx: *mut JSContext) -> JSValue {
-    debug_assert!(!(*ctx).array_shape.is_null());
-    (*ctx)
-        .create_object_from_shape(js_dup_shape((*ctx).array_shape).into(), JS_CLASS_ARRAY)
-        .unwrap_or(JSValue::EXCEPTION)
 }
 
 // return Err if exception (proxy case) or TRUE/FALSE
@@ -696,27 +694,26 @@ pub unsafe fn JS_CopySubArray(
 }
 
 pub unsafe fn js_create_array(ctx: *mut JSContext, len: i32, tab: *const JSValueConst) -> JSValue {
-    let obj = JS_NewArray(ctx);
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    for i in 0..len {
-        if obj
-            .create_data_property_u32(
-                ctx.as_mut().unwrap(),
-                i as _,
-                (*tab.offset(i as isize)).dup(),
-                0,
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+    if let Ok(obj) = (*ctx).create_array() {
+        for i in 0..len {
+            if obj
+                .create_data_property_u32(
+                    ctx.as_mut().unwrap(),
+                    i as _,
+                    (*tab.offset(i as isize)).dup(),
+                    0,
+                )
+                .is_err()
+            {
+                JS_FreeValue(ctx, obj);
+                return JSValue::EXCEPTION;
+            }
         }
-    }
 
-    obj
+        obj
+    } else {
+        JSValue::EXCEPTION
+    }
 }
 
 /// Access an Array's internal JSValue array if available

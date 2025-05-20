@@ -1,5 +1,5 @@
 use crate::{
-    array::{js_get_fast_array, JS_CopySubArray, JS_IsArray, JS_NewArray, JS_ToArrayLengthFree},
+    array::{js_get_fast_array, JS_CopySubArray, JS_IsArray, JS_ToArrayLengthFree},
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
@@ -252,7 +252,7 @@ pub unsafe fn js_array_with(
         return JSValue::EXCEPTION;
     }
 
-    let arr = (*ctx).create_array(std::cmp::max(len, 0) as usize);
+    let arr = (*ctx).create_fast_array(std::cmp::max(len, 0) as usize);
     if JS_IsException(arr) {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -597,12 +597,12 @@ pub unsafe fn js_array_every(
             }
         }
         s if s == special_filter | special_TA => {
-            ret = JS_NewArray(ctx);
-            if JS_IsException(ret) {
-                JS_FreeValue(ctx, ret);
+            ret = if let Ok(a) = (*ctx).create_array() {
+                a
+            } else {
                 JS_FreeValue(ctx, obj);
                 return JSValue::EXCEPTION;
-            }
+            };
         }
         _ => {
             ret = JSValue::UNDEFINED;
@@ -1697,7 +1697,7 @@ pub unsafe fn js_array_toReversed(
         return JSValue::EXCEPTION;
     };
 
-    let res_arr = (*ctx).create_array(std::cmp::max(new_len, 0) as _);
+    let res_arr = (*ctx).create_fast_array(std::cmp::max(new_len, 0) as _);
     if JS_IsException(res_arr) {
         JS_FreeValue(ctx, res_arr);
         JS_FreeValue(ctx, obj);
@@ -2029,7 +2029,7 @@ pub unsafe fn js_array_toSpliced(
     }
 
     // create result array
-    let res_arr = (*ctx).create_array(std::cmp::max(new_len, 0) as _);
+    let res_arr = (*ctx).create_fast_array(std::cmp::max(new_len, 0) as _);
     if res_arr.is_exception() {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -2478,10 +2478,11 @@ pub unsafe fn js_array_from(
 
     if !iter.is_undefined() {
         JS_FreeValue(ctx, iter);
+
         r = if this_val.is_constructor() {
             JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 0, std::ptr::null_mut())
         } else {
-            JS_NewArray(ctx)
+            (*ctx).create_array().unwrap_or(JSValue::EXCEPTION)
         }
         .into_rc((*ctx).rt());
 
@@ -2629,7 +2630,7 @@ pub unsafe fn js_array_of(
             [JSValue::from_i32(argc)].as_mut_ptr(),
         )
     } else {
-        JS_NewArray(ctx)
+        (*ctx).create_array().unwrap_or(JSValue::EXCEPTION)
     };
     if obj.is_exception() {
         return JSValue::EXCEPTION;

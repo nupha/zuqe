@@ -1,7 +1,6 @@
 use std::{ffi::CStr, ptr::NonNull};
 
 use crate::{
-    array::JS_NewArray,
     atom::{
         consts::{JS_ATOM_return, JS_ATOM_throw},
         JSAtom, JSAtomTypeHint, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL,
@@ -644,11 +643,7 @@ pub unsafe fn run_bytecodes(
                     let call_argc = read_from_ptr::<u16>(pc) as i32;
                     PC_GO!(2);
 
-                    // create array
-                    let arr = JS_NewArray(ctx);
-                    if arr.is_exception() {
-                        break State::Exception;
-                    } else {
+                    if let Ok(arr) = ctx.create_array() {
                         // push elements to array
                         let call_argv = sp.offset(-call_argc as isize);
                         for i in 0..call_argc {
@@ -668,6 +663,8 @@ pub unsafe fn run_bytecodes(
                         SP_GO!(-call_argc);
                         SP![0] = arr;
                         SP_GO!(1);
+                    } else {
+                        break State::Exception;
                     }
                 }
                 OpCode::APPLY => {

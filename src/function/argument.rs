@@ -1,5 +1,4 @@
 use crate::{
-    array::JS_NewArray,
     atom::{consts::*, JSAtom},
     context::JSContext,
     runtime::JS_MAX_LOCAL_VARS,
@@ -141,23 +140,21 @@ pub unsafe fn js_build_mapped_arguments(
     val
 }
 
-pub unsafe fn js_build_rest(ctx: &mut JSContext, first: usize, args: &[JSValue]) -> JSValue {
-    let val = JS_NewArray(ctx);
-    if val.is_exception() {
-        return val;
-    }
-
-    for (i, v) in args[first..].iter().enumerate() {
-        if val
-            .define_property_value_u32(ctx, (i - first) as _, v.dup(), JS_PROP_C_W_E)
-            .is_err()
-        {
-            JS_FreeValue(ctx, val);
-            return JSValue::EXCEPTION;
+pub fn js_build_rest(ctx: &mut JSContext, first: usize, args: &[JSValue]) -> JSValue {
+    if let Ok(val) = ctx.create_array() {
+        for (i, v) in args[first..].iter().enumerate() {
+            if val
+                .define_property_value_u32(ctx, (i - first) as _, v.dup(), JS_PROP_C_W_E)
+                .is_err()
+            {
+                JS_FreeValue(ctx, val);
+                return JSValue::EXCEPTION;
+            }
         }
+        val
+    } else {
+        JSValue::EXCEPTION
     }
-
-    val
 }
 
 // XXX: should use ValueArray
