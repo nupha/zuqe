@@ -12,8 +12,8 @@ use crate::{
     utils::JS_DumpObjectHeader,
     value::{
         object::{
-            free_object, js_autoinit_get_realm, JSObject, JSProperty, JSShape, JS_PROP_AUTOINIT,
-            JS_PROP_GETSET, JS_PROP_TMASK, JS_PROP_VARREF,
+            js_autoinit_get_realm, JSObject, JSProperty, JSShape, JS_PROP_AUTOINIT, JS_PROP_GETSET,
+            JS_PROP_TMASK, JS_PROP_VARREF,
         },
         JSTag, JSValueConst, JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG, JS_VALUE_HAS_REF_COUNT,
@@ -430,7 +430,7 @@ pub unsafe fn remove_gc_object(h: *mut JSGCObjectHeader) {
 pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
     match (*gp).gc_obj_type() {
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
-            free_object(rt, gp.cast());
+            JSObject::free(rt, gp.cast());
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE => {
             free_function_bytecode(rt, gp.cast());

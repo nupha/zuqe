@@ -297,31 +297,14 @@ impl JSObject {
     }
 }
 
+#[cfg(debug_assertions)]
 impl Drop for JSObject {
     fn drop(&mut self) {
-        // println!("JSObject::drop({self:p})");
-
-        debug_assert_ne!(self.class_id(), 0);
+        debug_assert_eq!(self.class_id(), 0);
         debug_assert_eq!(self.header.ref_count, 0);
         debug_assert!(self.shape.is_null());
         debug_assert!(self.prop_values.is_empty());
         debug_assert!(self.first_weak_ref.is_null());
-
-        // ManuallyDrop union
-        unsafe {
-            match self.class_id() {
-                JS_CLASS_BYTECODE_FUNCTION => {
-                    ManuallyDrop::drop(&mut self.u.func);
-                }
-                cid @ (JS_CLASS_ARRAY
-                | JS_CLASS_ARGUMENTS
-                | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
-                    (*self.u.array).drop_data(cid);
-                    ManuallyDrop::drop(&mut self.u.array);
-                }
-                _ => {}
-            }
-        }
     }
 }
 

@@ -72,17 +72,6 @@ pub union JSObjectArrayData {
     pub double_ptr: *mut f64, /* JS_CLASS_FLOAT64_ARRAY */
 }
 
-impl JSObjectArray {
-    /// drop payload data, use in JSObject::drop() only
-    #[inline(always)]
-    pub unsafe fn drop_data(&mut self, class_id: JSClassID) {
-        match class_id {
-            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => ManuallyDrop::drop(&mut self.data.values),
-            _ => {}
-        }
-    }
-}
-
 impl JSContext {
     /// create a fast array value. `capacity` indicates reserved space.
     /// returns EXCEPTION value when fail, otherwise returns Array value

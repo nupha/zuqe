@@ -1,49 +1,80 @@
+use std::mem::ManuallyDrop;
+
 use crate::{
     gc::{remove_gc_object, JSGCPhaseEnum},
     runtime::JSRuntime,
     types::{list_add_tail, list_del},
     value::{JSTag, JS_FreeValueRT},
-    JS_MKPTR,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_FLOAT64_ARRAY,
+    JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{free_property, js_free_shape, JSObject};
 
+impl JSObject {
+    pub unsafe fn free(rt: *mut JSRuntime, p: *mut Self) {
+        // used to tell the object is invalid when freeing cycles
+        (*p).detailed.set_free_mark(true);
+
+        // shape can't be null
+        let sh = (*p).shape_mut().unwrap();
+
+        // free all prop values
+        for (prs, mut v) in sh.props.values().zip((*p).prop_values.drain(..)) {
+            free_property(rt, &mut v, prs.flags());
+        }
+
+        // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list
+        js_free_shape(rt, sh);
+
+        // set shape to null means object is freed
+        (*p).shape = std::ptr::null_mut();
+
+        if !(*p).first_weak_ref.is_null() {
+            reset_weak_ref(rt, p);
+        }
+
+        // call class finalizer
+        if let Some(cb) = (*rt).class_array[(*p).class_id() as usize].finalizer {
+            cb(rt, JS_MKPTR!(JSTag::Object, p.cast()));
+        }
+
+        // ManuallyDrop union
+        match (*p).class_id() {
+            JS_CLASS_BYTECODE_FUNCTION => {
+                (*(*p).u.func).home_object = std::ptr::null_mut();
+                (*(*p).u.func).var_refs.clear();
+                ManuallyDrop::drop(&mut (*p).u.func);
+            }
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                ManuallyDrop::drop(&mut (*(*p).u.array).data.values);
+                ManuallyDrop::drop(&mut (*p).u.array);
+            }
+            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                ManuallyDrop::drop(&mut (*p).u.array);
+            }
+            _ => {
+                (*p).u.opaque = std::ptr::null_mut();
+            }
+        }
+
+        // fail safe
+        (*p).detailed.set_class_id(0);
+
+        remove_gc_object(&mut (*p).header);
+
+        if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*p).header.ref_count != 0
+        {
+            list_add_tail(&mut (*p).header.link, &mut (*rt).gc_zero_ref_count_list);
+        } else {
+            drop(Box::from_raw(p));
+        }
+    }
+}
+
+#[deprecated(note = "use JSObject::free() instead")]
 pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
-    /* used to tell the object is invalid when freeing cycles */
-    (*p).detailed.set_free_mark(true);
-
-    let sh = (*p).shape_mut().unwrap(); // shape can't be null now
-
-    // free all prop values
-    for (prs, mut v) in sh.props.values().zip((*p).prop_values.drain(..)) {
-        free_property(rt, &mut v, prs.flags());
-    }
-
-    // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list
-    js_free_shape(rt, sh);
-
-    // set shape to null means object is freed
-    (*p).shape = std::ptr::null_mut();
-
-    if !(*p).first_weak_ref.is_null() {
-        reset_weak_ref(rt, p);
-    }
-
-    // call class finalizer
-    if let Some(cb) = (*rt).class_array[(*p).class_id() as usize].finalizer {
-        cb(rt, JS_MKPTR!(JSTag::Object, p.cast()));
-    }
-
-    (*(*p).u.func).home_object = std::ptr::null_mut();
-    (*p).u.opaque = std::ptr::null_mut();
-
-    remove_gc_object(&mut (*p).header);
-
-    if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*p).header.ref_count != 0 {
-        list_add_tail(&mut (*p).header.link, &mut (*rt).gc_zero_ref_count_list);
-    } else {
-        drop(Box::from_raw(p));
-    }
+    JSObject::free(rt, p);
 }
 
 pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
