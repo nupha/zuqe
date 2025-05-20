@@ -23,6 +23,7 @@ use crate::{
 use super::{
     obj::{JSObject, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE},
     property::{JSProperty, JSPropertyUnion, JS_PROP_LENGTH, JS_PROP_WRITABLE},
+    JSShapeHandle,
 };
 
 #[derive(Debug)]
@@ -194,7 +195,7 @@ impl JSContext {
     /// Note: `shape` is consumed.
     pub fn create_object_from_shape(
         &mut self,
-        shape: &mut JSShape,
+        shape: JSShapeHandle,
         class_id: JSClassID,
     ) -> JSResult {
         debug_assert!(class_id > 0);
@@ -209,7 +210,7 @@ impl JSContext {
             .is_err()
         {
             unsafe {
-                js_free_shape(self.rt_mut(), shape);
+                js_free_shape(self.rt_mut(), shape.into());
             }
             self.JS_ThrowOutOfMemory();
             return Err(-1);
@@ -241,7 +242,7 @@ impl JSContext {
                     flags.set_htmldda(false);
                     flags
                 },
-                shape,
+                shape: shape.as_ptr(),
                 prop_values,
                 first_weak_ref: std::ptr::null_mut(),
                 u: JSObjectUnion {
@@ -255,7 +256,7 @@ impl JSContext {
             }
         } else {
             unsafe {
-                js_free_shape(self.rt_mut(), shape);
+                js_free_shape(self.rt_mut(), shape.into());
             }
             return Err(-1);
         };
@@ -271,7 +272,7 @@ impl JSContext {
                 }
 
                 // Array: the length property is always the first one
-                let pr0: *mut JSProperty = if shape as *mut JSShape == self.array_shape {
+                let pr0: *mut JSProperty = if shape.as_ptr() == self.array_shape {
                     obj.prop_values.first_mut().unwrap()
                 } else {
                     // only used for the first array, cannot fail
@@ -364,7 +365,7 @@ pub unsafe fn JS_NewObjectFromShape(
     class_id: JSClassID,
 ) -> JSValue {
     (*ctx)
-        .create_object_from_shape(sh.as_mut().unwrap(), class_id)
+        .create_object_from_shape(sh.into(), class_id)
         .unwrap_or(JSValue::EXCEPTION)
 }
 

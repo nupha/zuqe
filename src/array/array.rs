@@ -80,7 +80,7 @@ impl JSContext {
         }
 
         let arr = if let Ok(v) = self.create_object_from_shape(
-            unsafe { js_dup_shape(self.array_shape).as_mut().unwrap() },
+            unsafe { js_dup_shape(self.array_shape).into() },
             JS_CLASS_ARRAY,
         ) {
             v
@@ -339,11 +339,9 @@ impl JSValue {
 }
 
 pub unsafe fn JS_NewArray(ctx: *mut JSContext) -> JSValue {
+    debug_assert!(!(*ctx).array_shape.is_null());
     (*ctx)
-        .create_object_from_shape(
-            js_dup_shape((*ctx).array_shape).as_mut().unwrap(),
-            JS_CLASS_ARRAY,
-        )
+        .create_object_from_shape(js_dup_shape((*ctx).array_shape).into(), JS_CLASS_ARRAY)
         .unwrap_or(JSValue::EXCEPTION)
 }
 

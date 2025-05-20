@@ -478,7 +478,7 @@ impl JSContext {
             }
         };
 
-        self.create_object_from_shape(unsafe { shape.as_mut().unwrap() }, class_id)
+        self.create_object_from_shape(shape.into(), class_id)
     }
 
     /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
