@@ -1,16 +1,18 @@
+use std::ops::DerefMut;
+
 use crate::{
     array::{add_fast_array_element, convert_fast_array_to_array},
     atom::{JSAtom, JS_AtomIsArrayIndex, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
     context::JSContext,
-    value::object::JSShape,
+    value::object::{JSShape, JSShapeHandle},
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
     super::{set_value, JSTag, JSValue, JS_ToUint32, JS_VALUE_GET_OBJ},
-    find_hashed_shape_prop, get_prop_flags, js_shape_hash_link, JSObject, JSProperty,
-    JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
-    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+    get_prop_flags, JSObject, JSProperty, JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+    JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
 };
 
 impl JSObject {
@@ -22,14 +24,14 @@ impl JSObject {
         prop: JSAtom,
         prop_flags: u32,
     ) -> Result<*mut JSProperty, i32> {
-        let use_sh = unsafe { self.shape.as_mut().unwrap() };
+        let mut use_sh = JSShapeHandle::from(self.shape);
 
         if use_sh.is_hashed {
             // try to find an existing shape
-            match unsafe { find_hashed_shape_prop(ctx.rt_mut(), use_sh, prop, prop_flags) } {
+            match ctx.rt().find_shape_with_prop(use_sh, prop, prop_flags) {
                 Some(found) => {
                     // matching shape found: use it
-                    let new_len = unsafe { (*found).props.len() };
+                    let new_len = found.props.len();
                     if new_len != use_sh.props.len() {
                         debug_assert!(new_len > use_sh.props.len());
                         self.grow_prop_value_slots(new_len).map_err(|e| {
@@ -38,22 +40,17 @@ impl JSObject {
                         })?;
                     }
 
-                    unsafe {
-                        self.shape = (*found).dup();
-                    }
+                    self.shape = found.dup().into();
                     JSShape::free(ctx.rt_mut(), use_sh);
 
                     return Ok(self.prop_values.get_mut(new_len - 1).unwrap());
                 }
                 None => {
                     // no matching found, clone current for update
-                    let mut new_sh = use_sh.clone(ctx)?;
-
-                    // hash the new shape
+                    let mut new_sh = use_sh.deref_mut().clone(ctx)?;
+                    // register the new shape
                     new_sh.is_hashed = true;
-                    unsafe {
-                        js_shape_hash_link(ctx.rt_mut(), new_sh.into());
-                    }
+                    ctx.rt_mut().register_shape(new_sh);
 
                     JSShape::free(ctx.rt_mut(), use_sh);
 

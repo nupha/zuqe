@@ -1,4 +1,4 @@
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::{mem::ManuallyDrop, ops::DerefMut, ptr::NonNull};
 
 use indexmap::IndexMap;
 
@@ -8,7 +8,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     gc::{add_gc_object, js_trigger_gc, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
-    mem::{js_free_rt, js_malloc_typed, js_mallocz_rt},
+    mem::js_malloc_typed,
     runtime::JSRuntime,
     types::list_find,
     value::{
@@ -48,14 +48,6 @@ impl JSShapeProperty {
     pub fn set_flags(&mut self, f: u32) {
         self.bitfield = (self.bitfield & !Self::FLAGS_MASK) | ((f & 0x3f) << 26);
     }
-
-    // pub fn hash_next(&self) -> u32 {
-    //     self.bitfield & Self::NEXT_HASH_MASK
-    // }
-
-    // pub fn set_hash_next(&mut self, h: u32) {
-    //     self.bitfield = (self.bitfield & !Self::NEXT_HASH_MASK) | (h & Self::NEXT_HASH_MASK);
-    // }
 }
 
 #[repr(C)]
@@ -114,10 +106,8 @@ impl JSShape {
         debug_assert_eq!(self.header.ref_count, 1);
 
         let new_shape_hash = if self.is_hashed {
-            // Update shape hash
-            unsafe {
-                js_shape_hash_unlink(ctx.rt_mut(), self);
-            }
+            // Recalc shape hash
+            ctx.rt_mut().unregister_shape(self.into());
             shape_hasher_u32(shape_hasher_u32(self.hash, atom.0), prop_flags)
         } else {
             0
@@ -126,10 +116,10 @@ impl JSShape {
         if let Some(o) = obj.as_deref_mut() {
             // ensure object's prop values slot capacity
             if o.grow_prop_value_slots(self.props.len() + 1).is_err() {
+                // in case of error, restore the shape into registration.
+                // shape is still valid if resize failed
                 if self.is_hashed {
-                    unsafe {
-                        js_shape_hash_link(ctx.rt_mut(), self);
-                    }
+                    ctx.rt_mut().register_shape(self.into());
                 }
                 ctx.JS_ThrowOutOfMemory();
                 return Err(-1);
@@ -138,9 +128,7 @@ impl JSShape {
 
         if self.is_hashed {
             self.hash = new_shape_hash;
-            unsafe {
-                js_shape_hash_link(ctx.rt_mut(), self);
-            }
+            ctx.rt_mut().register_shape(self.into());
         }
 
         let mut pr = JSShapeProperty {
@@ -225,9 +213,7 @@ impl JSShape {
         debug_assert_eq!(self.header.ref_count, 0);
 
         if self.is_hashed {
-            unsafe {
-                js_shape_hash_unlink(rt, self.as_mut());
-            }
+            rt.unregister_shape(self.as_mut().into());
             self.is_hashed = false;
         }
 
@@ -254,13 +240,13 @@ impl JSShape {
 
     /// decrease ref count of `shape`.
     /// if ref count reaches 0, dispose it.
-    pub fn free(rt: &mut JSRuntime, sh: *mut JSShape) {
-        unsafe {
-            debug_assert!((*sh).header.ref_count > 0);
+    pub fn free(rt: &mut JSRuntime, mut sh: JSShapeHandle) {
+        debug_assert!(sh.header.ref_count > 0);
 
-            (*sh).header.ref_count -= 1;
-            if (*sh).header.ref_count == 0 {
-                Box::from_raw(sh).dispose(rt);
+        sh.header.ref_count -= 1;
+        if sh.header.ref_count == 0 {
+            unsafe {
+                Box::from_raw(sh.as_ptr()).dispose(rt);
             }
         }
     }
@@ -278,10 +264,11 @@ impl JSContext {
     ) -> Result<JSShapeHandle, i32> {
         let rt = self.rt_mut();
 
-        /* resize the shape hash table if necessary */
-        if 2 * (rt.shape_hash_count + 1) > rt.shape_hash_size {
-            unsafe {
-                resize_shape_hash(rt, rt.shape_hash_bits + 1);
+        // resize the shape hash table if necessary
+        if rt.shape_registry.len() == rt.shape_registry.capacity() {
+            if rt.shape_registry.try_reserve(hash_size).is_err() {
+                self.JS_ThrowOutOfMemory();
+                return Err(-1);
             }
         }
 
@@ -307,7 +294,6 @@ impl JSContext {
             proto: proto_ptr,
             props,
         });
-
         debug_assert_eq!(
             shape.as_ref() as *const JSShape as usize,
             std::ptr::addr_of!((*shape).header) as usize
@@ -321,56 +307,19 @@ impl JSContext {
             );
         }
 
-        // /* resize the shape hash table if necessary */
-        // if 2 * (rt.shape_hash_count + 1) > rt.shape_hash_size {
-        //     resize_shape_hash(rt, rt.shape_hash_bits + 1);
-        // }
-
-        // let sh_alloc = js_malloc(ctx, get_shape_size(hash_size as usize, prop_size as usize));
-        // if sh_alloc.is_null() {
-        //     return std::ptr::null_mut();
-        // }
-        // let sh = get_shape_from_alloc(sh_alloc.cast(), hash_size)
-        //     .as_mut()
-        //     .unwrap();
-
-        // sh.header.ref_count = 1;
-
-        // add_gc_object(rt, &mut sh.header, JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE);
-        // if !proto.is_null() {
-        //     JS_DupValue(ctx, JS_MKPTR!(JS_TAG_OBJECT, proto.cast()));
-        // }
-        // sh.proto = proto;
-
-        // std::ptr::write_bytes(
-        //     prop_hash_end(sh).sub(hash_size),
-        //     0,
-        //     hash_size, // * std::mem::size_of::<u32>(),
-        // );
-
-        // sh.prop_hash_mask = hash_size as u32 - 1;
-        // sh.prop_size = prop_size;
-        // sh.prop_count = 0;
-        // sh.deleted_prop_count = 0;
-
         // insert in the hash table
         shape.hash = shape_initial_hash(proto_ptr);
         shape.is_hashed = true;
 
-        let res = unsafe {
-            let mut sh_ptr = NonNull::new_unchecked(Box::into_raw(shape));
-            js_shape_hash_link(rt, sh_ptr.as_ptr());
+        let mut sh_ptr =
+            JSShapeHandle::from(unsafe { NonNull::new_unchecked(Box::into_raw(shape)).as_ptr() });
 
-            // ensure new shape if in gc_obj_list
-            debug_assert!(list_find(
-                &mut sh_ptr.as_mut().header.link,
-                &mut rt.gc_obj_list
-            ));
+        rt.register_shape(sh_ptr);
 
-            sh_ptr
-        };
+        // ensure new shape is in gc_obj_list
+        debug_assert!(unsafe { list_find(&mut sh_ptr.header.link, &mut rt.gc_obj_list) });
 
-        Ok(res.as_ptr().into())
+        Ok(sh_ptr)
     }
 
     /// create a new empty shape with prototype 'proto'.
@@ -543,24 +492,98 @@ impl JSContext {
     }
 }
 
-pub unsafe fn init_shape_hash(rt: &mut JSRuntime) -> i32 {
-    rt.shape_hash_bits = 4; // 16 shapes
-    rt.shape_hash_size = 1 << rt.shape_hash_bits;
-    rt.shape_hash_count = 0;
-    rt.shape_hash = js_mallocz_rt(
-        rt,
-        std::mem::size_of::<*mut JSShape>() * rt.shape_hash_size as usize,
-    )
-    .cast();
-    if rt.shape_hash.is_null() {
-        return -1;
+impl JSRuntime {
+    /// register a shape
+    pub fn register_shape(&mut self, sh: JSShapeHandle) {
+        debug_assert!(sh.is_hashed);
+
+        self.shape_registry
+            .entry(sh.hash)
+            .and_modify(|lst| {
+                debug_assert!(!lst.contains(&sh));
+                lst.push(sh);
+            })
+            .or_insert_with(|| vec![sh]);
     }
-    0
+
+    /// unregister a shape
+    pub fn unregister_shape(&mut self, sh: JSShapeHandle) {
+        debug_assert!(sh.is_hashed);
+
+        let h = sh.hash;
+
+        if let Some(lst) = self.shape_registry.get_mut(&h) {
+            lst.retain(|s| !sh.eq(s));
+
+            if lst.is_empty() {
+                self.shape_registry.remove(&h);
+            }
+        }
+    }
+
+    /// find a registered empty shape matching given prototype.
+    /// Return None if not found.
+    pub fn find_shape_by_proto(&self, proto: *mut JSObject) -> Option<JSShapeHandle> {
+        let h = shape_initial_hash(proto);
+
+        self.shape_registry.get(&h).and_then(|lst| {
+            lst.iter()
+                .find(|s| {
+                    debug_assert_eq!(s.hash, h);
+                    s.proto == proto && s.props.is_empty()
+                })
+                .copied()
+        })
+    }
+
+    /// find a registered shape matching base_shape + (prop, prop_flags).
+    /// Return None if not found
+    pub fn find_shape_with_prop(
+        &self,
+        base_shape: JSShapeHandle,
+        atom: JSAtom,
+        prop_flags: u32,
+    ) -> Option<JSShapeHandle> {
+        // calc hash for base_shape + (atom, prop_flags)
+        let mut h = base_shape.hash;
+        h = shape_hasher_u32(h, atom.0);
+        h = shape_hasher_u32(h, prop_flags);
+
+        if let Some(found) = self.shape_registry.get(&h).and_then(|lst| {
+            lst.iter()
+                .find(|s| {
+                    debug_assert_eq!(s.hash, h);
+                    s.proto == base_shape.proto && s.props.len() == base_shape.props.len() + 1
+                })
+                .copied()
+        }) {
+            if base_shape
+                .props
+                .iter()
+                .zip(found.props.iter())
+                .all(|(a, b)| a.0 == b.0 && a.1.atom == b.1.atom && a.1.flags() == b.1.flags())
+            {
+                // all prop defs are match
+                if found
+                    .props
+                    .last()
+                    .map(|(k, pr)| *k == atom && pr.flags() == prop_flags)
+                    .unwrap_or(false)
+                {
+                    // last prop (atom, prop_flags) is match too
+                    return Some(found);
+                }
+            }
+        }
+
+        None
+    }
 }
 
 /// calc hash for u32.
 /// Same magic hash multiplier as the Linux kernel
-pub const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
+#[inline(always)]
+const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
@@ -577,119 +600,6 @@ pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
     h
 }
 
-pub unsafe fn resize_shape_hash(rt: &mut JSRuntime, new_shape_hash_bits: i32) -> i32 {
-    let new_shape_hash_size = 1 << new_shape_hash_bits;
-    let new_shape_hash = js_mallocz_rt(
-        rt,
-        std::mem::size_of::<*mut JSShape>() * new_shape_hash_size,
-    )
-    .cast::<*mut JSShape>();
-    if new_shape_hash.is_null() {
-        return -1;
-    }
-
-    for i in 0..rt.shape_hash_size {
-        let mut sh: *mut JSShape = *rt.shape_hash.offset(i as isize);
-        while !sh.is_null() {
-            let sh_next = (*sh).shape_hash_next;
-            let h = shape_hash_trim((*sh).hash, new_shape_hash_bits);
-            (*sh).shape_hash_next = *new_shape_hash.add(h as usize);
-            *new_shape_hash.add(h as usize) = sh;
-
-            sh = sh_next;
-        }
-    }
-
-    js_free_rt(rt, rt.shape_hash.cast());
-
-    rt.shape_hash_bits = new_shape_hash_bits;
-    rt.shape_hash_size = new_shape_hash_size as i32;
-    rt.shape_hash = new_shape_hash;
-
-    0
-}
-
-pub unsafe fn js_shape_hash_link(rt: &mut JSRuntime, sh: *mut JSShape) {
-    let h = shape_hash_trim((*sh).hash, rt.shape_hash_bits);
-    (*sh).shape_hash_next = *rt.shape_hash.offset(h as isize);
-    *rt.shape_hash.offset(h as isize) = sh;
-    rt.shape_hash_count += 1;
-}
-
-pub unsafe fn js_shape_hash_unlink(rt: &mut JSRuntime, sh: *mut JSShape) {
-    let h = shape_hash_trim((*sh).hash, rt.shape_hash_bits);
-    let psh = rt.shape_hash.offset(h as isize);
-    while !(*psh).is_null() && *psh != sh {
-        *psh = (**psh).shape_hash_next;
-    }
-    if !(*psh).is_null() {
-        *psh = (*sh).shape_hash_next;
-        rt.shape_hash_count -= 1;
-    }
-}
-
-// find a hashed empty shape matching the prototype. Return None if not found
-pub unsafe fn find_hashed_shape_proto(
-    rt: &mut JSRuntime,
-    proto: *mut JSObject,
-) -> Option<*mut JSShape> {
-    let h = shape_initial_hash(proto);
-    let h1 = shape_hash_trim(h, rt.shape_hash_bits);
-    let mut sh1: *mut JSShape = *rt.shape_hash.offset(h1 as _);
-    while !sh1.is_null() {
-        if (*sh1).hash == h && (*sh1).proto == proto && (*sh1).props.is_empty() {
-            return Some(sh1);
-        }
-        sh1 = (*sh1).shape_hash_next;
-    }
-    None
-}
-
-// find a hashed shape matching sh + (prop, prop_flags). Return None if not found
-pub unsafe fn find_hashed_shape_prop(
-    rt: &mut JSRuntime,
-    sh: &mut JSShape,
-    atom: JSAtom,
-    prop_flags: u32,
-) -> Option<*mut JSShape> {
-    let mut h = sh.hash;
-    h = shape_hasher_u32(h, atom.0);
-    h = shape_hasher_u32(h, prop_flags);
-    let h1 = shape_hash_trim(h, rt.shape_hash_bits);
-    let mut sh1 = *rt.shape_hash.offset(h1 as _);
-    while !sh1.is_null() {
-        if (*sh1).hash == h
-            && (*sh1).proto == sh.proto
-            && (*sh1).props.len() == (sh.props.len() + 1)
-        {
-            if sh
-                .props
-                .iter()
-                .zip((*sh1).props.iter())
-                .any(|(a, b)| a.0 != b.0 || a.1.atom != b.1.atom || a.1.flags() != b.1.flags())
-            {
-                continue; // not same
-            }
-
-            if (*sh1)
-                .props
-                .last()
-                .map(|(k, pr)| *k != atom || pr.flags() != prop_flags)
-                .unwrap()
-            {
-                // last prop not match (atom, prop_flags)
-                continue;
-            }
-
-            return Some(sh1);
-        }
-
-        sh1 = (*sh1).shape_hash_next;
-    }
-
-    None
-}
-
 impl JSObject {
     /// ensure that the shape can be safely modified
     pub unsafe fn js_shape_prepare_update(
@@ -697,7 +607,7 @@ impl JSObject {
         ctx: *mut JSContext,
         pprs: *mut *mut JSShapeProperty,
     ) -> i32 {
-        let sh = self.shape.as_mut().unwrap();
+        let mut sh = JSShapeHandle::from(self.shape);
 
         if sh.is_hashed {
             if sh.header.ref_count != 1 {
@@ -708,7 +618,7 @@ impl JSObject {
                 };
 
                 // clone the shape (the resulting one is no longer hashed)
-                match sh.clone(ctx.as_mut().unwrap()) {
+                match sh.deref_mut().clone(ctx.as_mut().unwrap()) {
                     Ok(mut sh1) => {
                         // free old shape, and use new one
                         JSShape::free((*ctx).rt_mut(), sh);
@@ -722,7 +632,7 @@ impl JSObject {
                     }
                 }
             } else {
-                js_shape_hash_unlink((*ctx).rt_mut(), sh);
+                (*ctx).rt_mut().unregister_shape(sh);
                 sh.is_hashed = false;
             }
         }

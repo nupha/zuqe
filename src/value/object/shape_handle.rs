@@ -42,6 +42,12 @@ impl DerefMut for JSShapeHandle {
     }
 }
 
+impl PartialEq for JSShapeHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
 impl From<*mut JSShape> for JSShapeHandle {
     #[inline(always)]
     fn from(value: *mut JSShape) -> Self {

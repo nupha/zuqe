@@ -50,14 +50,21 @@ pub unsafe fn JS_DumpShapes(rt: *mut JSRuntime) {
     );
 
     // dump hashed shapes
-    for i in 0..(*rt).shape_hash_size {
-        let mut sh = *(*rt).shape_hash.offset(i as isize);
-        while !sh.is_null() {
-            (*sh).dump(rt.as_ref().unwrap(), i);
-            debug_assert!((*sh).is_hashed);
-            sh = (*sh).shape_hash_next;
+    for (key, lst) in (*rt).shape_registry.iter() {
+        for sh in lst {
+            sh.dump(rt.as_ref().unwrap(), *key as _);
+            debug_assert!(sh.is_hashed);
         }
     }
+
+    // for i in 0..(*rt).shape_hash_size {
+    //     let mut sh = *(*rt).shape_hash.offset(i as isize);
+    //     while !sh.is_null() {
+    //         (*sh).dump(rt.as_ref().unwrap(), i);
+    //         debug_assert!((*sh).is_hashed);
+    //         sh = (*sh).shape_hash_next;
+    //     }
+    // }
 
     // dump non-hashed shapes
     list_foreach(&mut (*rt).gc_obj_list, |el| {

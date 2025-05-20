@@ -34,7 +34,7 @@ impl JSObject {
         }
 
         // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list
-        JSShape::free(rt, sh);
+        JSShape::free(rt, sh.into());
 
         // set shape to null means object is freed
         (*p).shape = std::ptr::null_mut();

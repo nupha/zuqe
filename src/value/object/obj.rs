@@ -37,10 +37,10 @@ use super::{
         JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT,
         JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    find_hashed_shape_proto, js_free_desc, JSProperty, JSPropertyDescriptor, JSShape,
-    JSShapeHandle, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
-    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
-    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    js_free_desc, JSProperty, JSPropertyDescriptor, JSShape, JSShapeHandle, JSShapeProperty,
+    JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK,
+    JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL,
+    JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -466,7 +466,7 @@ impl JSContext {
     ) -> JSResult {
         let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
-            match find_hashed_shape_proto(self.rt_mut(), proto_ob) {
+            match self.rt().find_shape_by_proto(proto_ob) {
                 Some(sh) => JSShapeHandle::from(sh).dup(),
                 None => self.create_shape(proto_ob.as_mut())?,
             }

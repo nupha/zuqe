@@ -333,7 +333,7 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
 
     if !ctx.array_shape.is_null() {
         let sh = ctx.array_shape;
-        JSShape::free(ctx.rt_mut(), sh);
+        JSShape::free(ctx.rt_mut(), sh.into());
     }
 
     remove_gc_object(&mut ctx.header);

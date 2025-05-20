@@ -19,7 +19,7 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
     value::{
-        object::{JSAutoInitIDEnum, JSObject, JSShape},
+        object::{JSAutoInitIDEnum, JSObject, JSShape, JSShapeHandle},
         JSString, JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG,
     },
@@ -1414,17 +1414,56 @@ pub unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
 
 #[deprecated(note = "use JSShape::free() instead")]
 pub unsafe fn js_free_shape(rt: *mut JSRuntime, sh: *mut JSShape) {
-    JSShape::free(rt.as_mut().unwrap(), sh);
+    JSShape::free(rt.as_mut().unwrap(), sh.into());
 }
 
 #[deprecated(note = "use is_null() check plus JSShape::free()")]
 pub unsafe fn js_free_shape_null(rt: *mut JSRuntime, sh: *mut JSShape) {
     if !sh.is_null() {
-        JSShape::free(rt.as_mut().unwrap(), sh);
+        JSShape::free(rt.as_mut().unwrap(), sh.into());
     }
 }
 
 #[deprecated(note = "use JSObject::free() instead")]
 pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
     JSObject::free(rt.as_mut().unwrap(), p);
+}
+
+#[deprecated(note = "not used")]
+pub unsafe fn init_shape_hash(rt: &mut JSRuntime) -> i32 {
+    unreachable!();
+}
+#[deprecated(note = "not used")]
+pub unsafe fn resize_shape_hash(rt: &mut JSRuntime, new_shape_hash_bits: i32) -> i32 {
+    unreachable!("not used");
+}
+
+#[deprecated(note = "use JSRuntime::register_shape() instead")]
+pub fn js_shape_hash_link(rt: &mut JSRuntime, sh: JSShapeHandle) {
+    rt.register_shape(sh);
+}
+
+#[deprecated(note = "use JSRuntime::unregister_shape() instead")]
+pub fn js_shape_hash_unlink(rt: &mut JSRuntime, sh: JSShapeHandle) {
+    rt.unregister_shape(sh);
+}
+
+/// find a hashed empty shape matching the prototype. Return None if not found
+#[deprecated(note = "use JSRuntime::find_shape_by_proto() instead")]
+pub unsafe fn find_hashed_shape_proto(
+    rt: &mut JSRuntime,
+    proto: *mut JSObject,
+) -> Option<JSShapeHandle> {
+    rt.find_shape_by_proto(proto)
+}
+
+/// find a hashed shape matching sh + (prop, prop_flags). Return None if not found
+#[deprecated(note = "use JSRuntime::find_shape_with_prop() instead")]
+pub unsafe fn find_hashed_shape_prop(
+    rt: &mut JSRuntime,
+    sh: *mut JSShape,
+    atom: JSAtom,
+    prop_flags: u32,
+) -> Option<JSShapeHandle> {
+    rt.find_shape_with_prop(sh.into(), atom, prop_flags)
 }

@@ -24,11 +24,7 @@ use crate::{
     stack_frame::JSStackFrame,
     types::{init_list_head, list_empty, list_foreach, list_foreach_safe, list_head},
     utils::js_get_stack_pointer,
-    value::{
-        js_string_exotic_methods,
-        object::{init_shape_hash, JSShape},
-        JSValue, JS_FreeValueRT,
-    },
+    value::{js_string_exotic_methods, object::JSShapeHandle, JSValue, JS_FreeValueRT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
@@ -109,14 +105,8 @@ pub struct JSRuntime {
     /// callbacks to allocate, free and clone SharedArrayBuffers
     pub sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
-    //
-    // Shapes hash table
-    //
-    pub shape_hash_bits: i32,
-    pub shape_hash_size: i32,
-    pub shape_hash_count: i32, /* number of hashed shapes */
-    /// shape hash table. use HashMap<u32, Box<JSShape>>
-    pub shape_hash: *mut *mut JSShape,
+    /// shapes hash table, use Vec<> to hold conflicted key values.
+    pub shape_registry: HashMap<u32, Vec<JSShapeHandle>>,
 
     pub user_opaque: *mut c_void,
 }
@@ -151,7 +141,7 @@ impl JSRuntime {
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             module_loader_opaque: std::ptr::null_mut(),
             sab_funcs: None,
-            shape_hash: std::ptr::null_mut(),
+
             context_list: Vec::with_capacity(1),
             gc_obj_list: list_head::default(),
             gc_zero_ref_count_list: list_head::default(),
@@ -169,9 +159,8 @@ impl JSRuntime {
             module_loader_func: None,
             module_async_evaluation_next_timestamp: 0,
             can_block: false,
-            shape_hash_bits: 0,
-            shape_hash_size: 0,
-            shape_hash_count: 0,
+
+            shape_registry: HashMap::new(),
 
             #[cfg(feature = "dump_leaks")]
             debug_string_list: list_head::default(),
@@ -233,7 +222,7 @@ impl JSRuntime {
                     Some(AsyncGeneratorValue::hook_call);
             }
 
-            if init_shape_hash(&mut rt) == -1 {
+            if rt.shape_registry.try_reserve(16).is_err() {
                 return Err(-1);
             }
 
