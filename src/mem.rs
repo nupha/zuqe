@@ -175,7 +175,7 @@ pub unsafe fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
 
     #[cfg(feature = "FORCE_GC_AT_MALLOC")]
     {
-        force_gc = TRUE;
+        force_gc = true;
     }
     #[cfg(not(feature = "FORCE_GC_AT_MALLOC"))]
     {
