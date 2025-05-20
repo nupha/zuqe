@@ -581,9 +581,8 @@ impl StringContent {
         }
 
         let mut window = Vec::<char>::with_capacity(needle_len);
-        let mut haystack = self.chars().enumerate().skip(from);
-
-        while let Some((i, c)) = haystack.next() {
+        let haystack = self.chars().enumerate().skip(from);
+        for (i, c) in haystack {
             window.push(c);
             if window.len() == needle_len {
                 if window.as_slice() == needle_chars.as_slice() {

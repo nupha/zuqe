@@ -539,39 +539,43 @@ impl JSValue {
                     // fast path: is fast array
                     if p.detailed.fast_array() && p.detailed.extensible() {
                         let lst = unsafe { p.fast_array_values_mut_unchecked() };
-                        if idx < lst.len() as i32 {
-                            // update array element
-                            unsafe {
-                                set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
-                            }
-                            return Ok(true);
-                        } else if idx == lst.len() as i32 {
-                            // 检查原型链是否有数字属性
-                            let mut has_int_prop = false;
-                            let mut p1 = p.shape().unwrap().proto;
 
-                            unsafe {
-                                while !p1.is_null() && !has_int_prop {
-                                    let sh1 = (*p1).shape().unwrap();
-                                    if (*p1).class_id() == JS_CLASS_ARRAY {
-                                        if !(*p1).detailed.fast_array() {
+                        match idx.cmp(&(lst.len() as i32)) {
+                            std::cmp::Ordering::Less => {
+                                // update array element
+                                unsafe {
+                                    set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
+                                }
+                                return Ok(true);
+                            }
+                            std::cmp::Ordering::Equal => {
+                                // 检查原型链是否有数字属性
+                                let mut has_int_prop = false;
+                                let mut p1 = p.shape().unwrap().proto;
+                                unsafe {
+                                    while !p1.is_null() && !has_int_prop {
+                                        let sh1 = (*p1).shape().unwrap();
+                                        if (*p1).class_id() == JS_CLASS_ARRAY {
+                                            if !(*p1).detailed.fast_array() {
+                                                has_int_prop = true;
+                                            }
+                                        } else if (*p1).class_id() == JS_CLASS_OBJECT {
+                                            if sh1.has_small_array_index {
+                                                has_int_prop = true;
+                                            }
+                                        } else {
                                             has_int_prop = true;
                                         }
-                                    } else if (*p1).class_id() == JS_CLASS_OBJECT {
-                                        if sh1.has_small_array_index {
-                                            has_int_prop = true;
-                                        }
-                                    } else {
-                                        has_int_prop = true;
+                                        p1 = sh1.proto;
                                     }
-                                    p1 = sh1.proto;
-                                }
 
-                                if !has_int_prop {
-                                    // append array element
-                                    return add_fast_array_element(ctx, p, val, flags);
+                                    if !has_int_prop {
+                                        // append array element
+                                        return add_fast_array_element(ctx, p, val, flags);
+                                    }
                                 }
                             }
+                            std::cmp::Ordering::Greater => {}
                         }
                     }
                 }

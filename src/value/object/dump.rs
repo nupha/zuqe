@@ -45,8 +45,8 @@ impl JSShape {
 pub unsafe fn JS_DumpShapes(rt: *mut JSRuntime) {
     println!("JSShapes: {{");
     println!(
-        "{:5} {:4} {:2} {:14} {:14} {:5} {:5} {}",
-        "SLOT", "REFS", "GC", "ADDR", "PROTO", "SIZE", "COUNT", "PROPS"
+        "{:5} {:4} {:2} {:14} {:14} {:5} {:5} PROPS",
+        "SLOT", "REFS", "GC", "ADDR", "PROTO", "SIZE", "COUNT"
     );
 
     // dump hashed shapes
@@ -101,7 +101,7 @@ impl JSObject {
         // print class name
         print!(
             "{:10} ",
-            (*rt).class_array[self.class_id() as usize]
+            rt.class_array[self.class_id() as usize]
                 .class_name
                 .to_str(rt),
         );
@@ -154,25 +154,21 @@ impl JSObject {
                 if let Some(pr) = self.prop_values.get(idx) {
                     match prs.flags() & JS_PROP_TMASK {
                         JS_PROP_GETSET => {
-                            print!(
-                                "[getset {:p} {:p}]",
-                                (*pr).u.getset.getter,
-                                (*pr).u.getset.setter
-                            );
+                            print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
                         }
                         JS_PROP_VARREF => {
-                            print!("[varref {:p}]", (*pr).u.var_ref);
+                            print!("[varref {:p}]", pr.u.var_ref);
                         }
                         JS_PROP_AUTOINIT => {
                             print!(
                                 "[autoinit {:p} {} {:p}]",
                                 js_autoinit_get_realm(pr),
                                 js_autoinit_get_id(pr),
-                                (*pr).u.init.opaque
+                                pr.u.init.opaque
                             );
                         }
                         _ => {
-                            (*pr).u.value.dump(rt);
+                            pr.u.value.dump(rt);
                         }
                     }
                 } else {

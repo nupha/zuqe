@@ -180,7 +180,8 @@ impl JSObject {
             }
             (*(*pprs)).set_flags(flags);
         }
-        return 0;
+
+        0
     }
 
     /// Finds shape property of the object by its atom name.
@@ -345,10 +346,14 @@ impl JSValue {
             if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
                 // test if the property is enumerable
                 let ret = JS_GetOwnPropertyInternal(cx, &mut desc, src_obj, name.atom);
-                if ret < 0 {
-                    return Err(-1);
-                } else if ret == 0 {
-                    return Ok(()); // prop not exist, skip
+                match ret.cmp(&0) {
+                    std::cmp::Ordering::Less => {
+                        return Err(-1);
+                    }
+                    std::cmp::Ordering::Equal => {
+                        return Ok(()); // prop not exist, skip
+                    }
+                    std::cmp::Ordering::Greater => {}
                 }
 
                 let is_enumerable = desc.flags & JS_PROP_ENUMERABLE != 0;
@@ -402,7 +407,7 @@ pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags:
 /// Computes the effective property flags by combining input flags with default flags
 /// If a flag is specified in JS_PROP_HAS_x, it takes precedence over def_flags
 #[inline(always)]
-pub fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
+pub const fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
     let mask = (flags >> JS_PROP_HAS_SHIFT) & JS_PROP_C_W_E;
     (flags & mask) | (def_flags & !mask)
 }
@@ -434,7 +439,7 @@ pub unsafe fn find_own_property(
 
 /// Checks if property flags are valid for property definition
 /// Returns false if the flags are invalid
-pub unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
+pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
     let has_accessor;
     let is_getset;
 
@@ -549,7 +554,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                             }
                         }
                         JS_PROP_VARREF => {
-                            let val = *(*(*pr).u.var_ref).pvalue;
+                            let val = *(*pr.u.var_ref).pvalue;
                             if unlikely(JS_IsUninitialized(val)) {
                                 JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                                 return -1;
@@ -624,9 +629,10 @@ pub unsafe fn JS_GetOwnProperty(
 ) -> i32 {
     if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
         (*ctx).JS_ThrowTypeErrorNotAnObject();
-        return -1;
+        -1
+    } else {
+        JS_GetOwnPropertyInternal(ctx, desc, JS_VALUE_GET_OBJ(obj), prop)
     }
-    return JS_GetOwnPropertyInternal(ctx, desc, JS_VALUE_GET_OBJ(obj), prop);
 }
 
 #[deprecated(note = "use JSValue::copy_properties_from() instead")]

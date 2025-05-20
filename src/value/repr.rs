@@ -202,7 +202,7 @@ impl JSValue {
             }
             JSTag::Object => {
                 let p = JS_VALUE_GET_OBJ(self);
-                let atom = (*rt).class_array[(*p).class_id() as usize].class_name;
+                let atom = rt.class_array[(*p).class_id() as usize].class_name;
                 format!("[{} {p:p}]", atom.to_str(rt)).into()
             }
             JSTag::Symbol => {
@@ -227,10 +227,10 @@ pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: &Rc<JSString>) {
     // }
 
     let ref_cnt = Rc::strong_count(p);
-    print!("{}", ref_cnt);
+    print!("{ref_cnt}");
 
     let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
-    print!("{}", sep as char);
+    print!("{sep}");
 
     for c in p.content().chars() {
         match c {
@@ -244,7 +244,7 @@ pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: &Rc<JSString>) {
         }
     }
 
-    print!("{}", sep as char);
+    print!("{sep}");
 }
 
 #[deprecated(note = "use JSValue::dump() instead")]

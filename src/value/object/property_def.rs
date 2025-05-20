@@ -104,12 +104,11 @@ impl JSValue {
 
                             // convert to getset
                             if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
-                                if let Some(vr) = Box::from_raw((*pr).u.var_ref).free(ctx.rt_mut())
-                                {
+                                if let Some(vr) = Box::from_raw(pr.u.var_ref).free(ctx.rt_mut()) {
                                     Box::leak(vr);
                                 }
                             } else {
-                                JS_FreeValue(ctx, (*pr).u.value);
+                                JS_FreeValue(ctx, pr.u.value);
                             }
 
                             prs.set_flags(
@@ -305,8 +304,7 @@ impl JSValue {
                                 if (*p).js_update_property_flags(
                                     ctx,
                                     &mut (prs as *mut JSShapeProperty),
-                                    (prs.flags() & !JS_PROP_WRITABLE)
-                                        | (flags as u32 & JS_PROP_WRITABLE),
+                                    (prs.flags() & !JS_PROP_WRITABLE) | (flags & JS_PROP_WRITABLE),
                                 ) != 0
                                 {
                                     return Err(-1);
@@ -620,7 +618,7 @@ impl JSValue {
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let ret = unsafe {
+        unsafe {
             let ret = self.define_property(
                 ctx,
                 prop,
@@ -636,8 +634,7 @@ impl JSValue {
             JS_FreeValue(ctx, getter);
             JS_FreeValue(ctx, setter);
             ret
-        };
-        ret
+        }
     }
 
     pub fn define_auto_init_property(
@@ -670,8 +667,8 @@ impl JSValue {
         debug_assert_eq!(unsafe { pr.u.init.realm_and_id & 3 }, 0);
 
         unsafe {
-            pr.u.init.realm_and_id |= id as usize; // id: 0,1,2
-            debug_assert!(matches!(pr.u.init.realm_and_id & 3, 0 | 1 | 2));
+            pr.u.init.realm_and_id |= id as usize;
+            debug_assert!(matches!(pr.u.init.realm_and_id & 3, 0..=2));
         }
 
         pr.u.init.opaque = opaque;
@@ -846,9 +843,10 @@ pub unsafe fn JS_DefineObjectName(
             )
             .is_err()
     {
-        return -1;
+        -1
+    } else {
+        0
     }
-    return 0;
 }
 
 pub unsafe fn JS_DefineObjectNameComputed(

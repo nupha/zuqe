@@ -196,7 +196,7 @@ mod nnb_value {
 
     #[inline(always)]
     pub const fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
-        tag == super::JS_TAG_FLOAT64 as i32
+        tag == super::JS_TAG_FLOAT64
     }
 
     #[inline(always)]
@@ -364,37 +364,37 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn is_exception(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_EXCEPTION
+    pub const fn is_exception(self) -> bool {
+        JS_VALUE_GET_TAG(self) == JS_TAG_EXCEPTION
     }
 
     #[inline(always)]
-    pub fn is_null(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_NULL
+    pub const fn is_null(self) -> bool {
+        JS_VALUE_GET_TAG(self) == JS_TAG_NULL
     }
 
     #[inline(always)]
-    pub fn is_undefined(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_UNDEFINED
+    pub const fn is_undefined(self) -> bool {
+        JS_VALUE_GET_TAG(self) == JS_TAG_UNDEFINED
     }
 
     #[inline(always)]
-    pub fn is_undefined_or_null(&self) -> bool {
+    pub const fn is_undefined_or_null(&self) -> bool {
         matches!(JS_VALUE_GET_TAG(*self), JS_TAG_UNDEFINED | JS_TAG_NULL)
     }
 
     #[inline(always)]
-    pub fn is_object(&self) -> bool {
+    pub const fn is_object(&self) -> bool {
         JS_VALUE_GET_TAG(*self) == JS_TAG_OBJECT
     }
 
     #[inline(always)]
-    pub fn is_string(&self) -> bool {
+    pub const fn is_string(&self) -> bool {
         JS_VALUE_GET_TAG(*self) == JS_TAG_STRING
     }
 
     #[inline(always)]
-    pub fn is_int(&self) -> bool {
+    pub const fn is_int(&self) -> bool {
         JS_VALUE_GET_TAG(*self) == JS_TAG_INT
     }
 
@@ -425,7 +425,7 @@ impl JSValue {
 
     /// check if self is an exception. returns Err if yes, otherwise returns Ok(value)
     #[inline(always)]
-    pub fn check_exception(self) -> Result<Self, i32> {
+    pub const fn check_exception(self) -> Result<Self, i32> {
         if self.is_exception() {
             Err(-1)
         } else {
@@ -482,12 +482,12 @@ pub fn JS_VALUE_GET_NORM_TAG(v: JSValue) -> JSTag {
 }
 
 #[inline(always)]
-pub fn JS_VALUE_HAS_REF_COUNT(v: JSValue) -> bool {
+pub const fn JS_VALUE_HAS_REF_COUNT(v: JSValue) -> bool {
     (JS_VALUE_GET_TAG(v) as u32) >= JS_TAG_FIRST as u32
     // JS_VALUE_GET_TAG(v) < 0
 }
 
-pub unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
+pub const unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
     if JS_VALUE_HAS_REF_COUNT(v) {
         let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
         Some((*p).ref_count)
@@ -510,18 +510,18 @@ pub unsafe fn JS_VALUE_GET_OBJ(v: JSValue) -> *mut JSObject {
 
 #[cfg(feature = "nan_boxing")]
 #[inline(always)]
-pub fn JS_VALUE_GET_INT(v: JSValue) -> i32 {
+pub const fn JS_VALUE_GET_INT(v: JSValue) -> i32 {
     v as i32
 }
 
 #[cfg(not(feature = "nan_boxing"))]
 #[inline(always)]
-pub fn JS_VALUE_GET_INT(v: JSValue) -> i32 {
+pub const fn JS_VALUE_GET_INT(v: JSValue) -> i32 {
     unsafe { v.u.int32 }
 }
 
 #[inline(always)]
-pub fn JS_VALUE_GET_BOOL(v: JSValue) -> bool {
+pub const fn JS_VALUE_GET_BOOL(v: JSValue) -> bool {
     JS_VALUE_GET_INT(v) != 0
 }
 
@@ -687,7 +687,7 @@ pub fn JS_DupValueRT(rt: *mut JSRuntime, v: JSValueConst) -> JSValue {
 }
 
 #[deprecated(note = "use JSValue::dup() instead")]
-pub unsafe fn JS_DupValue(ctx: *mut JSContext, v: JSValueConst) -> JSValue {
+pub unsafe fn JS_DupValue(_ctx: *mut JSContext, v: JSValueConst) -> JSValue {
     v.dup()
 }
 

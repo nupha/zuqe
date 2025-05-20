@@ -157,7 +157,7 @@ unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
 
     loop {
         let digit = (n as u64) % (base as u64);
-        n = (n as i64) / (base as i64);
+        n = n / (base as i64);
 
         if digit < 10 {
             *q.offset(-1) = digit as u8 + b'0';
@@ -203,8 +203,8 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
     } else if flags == JS_DTOA_VAR_FORMAT {
         let mut buf1: [u8; 70] = [0; 70];
         let ptr: *mut u8;
-        let i64 = d as i64;
-        if d != i64 as f64 || i64 > MAX_SAFE_INTEGER || i64 < -MAX_SAFE_INTEGER {
+        let int64 = d as i64;
+        if d != int64 as f64 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&int64) {
             let is_fixed = flags & 3 == JS_DTOA_FIXED_FORMAT;
             let n_max = if is_fixed { n_digits } else { 21 };
             let mut decpt: i32 = 0;
@@ -242,7 +242,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
                     *q = b'+';
                     q = q.offset(1);
                 }
-                libc::sprintf(q.cast(), b"%d\0".as_ptr().cast(), p);
+                libc::sprintf(q.cast(), c"%d".as_ptr(), p);
             } else if n >= 1 && n <= n_max {
                 if k <= n {
                     std::ptr::copy_nonoverlapping(buf1.as_ptr(), q, k as usize);
@@ -263,7 +263,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
                     }
                     *q = 0;
                 }
-            } else if n >= -5 && n <= 0 {
+            } else if (-5..=0).contains(&n) {
                 *q = b'0';
                 q = q.offset(1);
                 *q = b'.';
@@ -294,14 +294,10 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
                     *q = b'+';
                     q = q.offset(1);
                 }
-                libc::sprintf(
-                    q as *mut libc::c_char,
-                    b"%d\0".as_ptr() as *const libc::c_char,
-                    p,
-                );
+                libc::sprintf(q as *mut libc::c_char, c"%d".as_ptr(), p);
             }
         } else {
-            ptr = i64toa(buf1.as_mut_ptr().offset(69), i64, radix as u32);
+            ptr = i64toa(buf1.as_mut_ptr().offset(69), int64, radix as u32);
             // C2RS: strcpy replaced with manual copy
             let mut src = ptr;
             let mut dest = buf;
@@ -360,11 +356,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
                     *q = b'+';
                     q = q.offset(1);
                 }
-                libc::sprintf(
-                    q as *mut libc::c_char,
-                    b"%d\0".as_ptr() as *const libc::c_char,
-                    p,
-                );
+                libc::sprintf(q as *mut libc::c_char, c"%d".as_ptr(), p);
             } else if n >= 1 && n <= n_max {
                 if k <= n {
                     std::ptr::copy_nonoverlapping(buf1.as_ptr(), q, k as usize);
@@ -385,7 +377,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
                     }
                     *q = 0;
                 }
-            } else if n >= -5 && n <= 0 {
+            } else if (-5..=0).contains(&n) {
                 *q = b'0';
                 q = q.offset(1);
                 *q = b'.';
@@ -602,7 +594,7 @@ unsafe fn js_ecvt(
         buf_tmp.as_mut_ptr(),
         std::mem::size_of::<[u8; JS_DTOA_BUF_SIZE]>(),
     );
-    return n_digits;
+    n_digits
 }
 
 unsafe fn js_fcvt(buf: *mut u8, buf_size: usize, d: f64, n_digits: i32) {
@@ -672,5 +664,5 @@ unsafe fn js_fcvt1(
 
     let n = CStr::from_ptr(buf.cast()).count_bytes();
     assert!(n < buf_size, "Buffer overflow detected");
-    return n;
+    n
 }

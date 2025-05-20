@@ -10,8 +10,7 @@ use crate::{
         object::{js_get_length32, JS_ToObject},
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToStringCheckObject,
     },
-    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_C_FUNCTION, JS_CLASS_FOR_IN_ITERATOR,
-    JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
 };
 
 use super::JSIteratorKindEnum;

@@ -483,7 +483,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
         return Ok(JSValue::UNDEFINED);
     }
 
-    args.replace_data(0, JSValue::TRUE);
+    let _ = args.replace_data(0, JSValue::TRUE);
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled as i32 {
         unsafe {

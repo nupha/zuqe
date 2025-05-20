@@ -81,12 +81,12 @@ impl From<f64> for JSValue {
 
 impl JSValue {
     #[inline(always)]
-    pub fn from_i32(val: i32) -> Self {
+    pub const fn from_i32(val: i32) -> Self {
         JS_MKVAL!(JSTag::Int, val)
     }
 
     #[inline(always)]
-    pub fn from_u32(val: u32) -> JSValue {
+    pub const fn from_u32(val: u32) -> JSValue {
         if val <= 0x7fffffff {
             JSValue::from_i32(val as _)
         } else {
@@ -95,7 +95,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn from_i64(val: i64) -> JSValue {
+    pub const fn from_i64(val: i64) -> JSValue {
         if val == val as i32 as i64 {
             JSValue::from_i32(val as i32)
         } else {
@@ -106,7 +106,7 @@ impl JSValue {
     /// to create f64 value as-is
     #[cfg(not(feature = "nan_boxing"))]
     #[inline(always)]
-    pub fn from_f64_as_is(d: f64) -> JSValue {
+    pub const fn from_f64_as_is(d: f64) -> JSValue {
         JSValue {
             tag: JSTag::Float64,
             u: JSValueUnion { float64: d },
@@ -116,7 +116,7 @@ impl JSValue {
     /// to create f64 value as-is
     #[cfg(feature = "nan_boxing")]
     #[inline(always)]
-    pub(crate) fn from_f64_as_is(d: f64) -> JSValue {
+    pub(crate) const fn from_f64_as_is(d: f64) -> JSValue {
         union Float64Union {
             d: f64,
             u64: u64,
@@ -133,7 +133,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn from_f64(d: f64) -> JSValue {
+    pub const fn from_f64(d: f64) -> JSValue {
         union _U {
             d: f64,
             u: u64,
@@ -153,7 +153,7 @@ impl JSValue {
         }
     }
 
-    ///  test if the value is an intergral number.
+    /// test if the value is an intergral number.
     /// returns Err if test has exception.
     pub fn is_integer(self, ctx: &mut JSContext) -> Result<bool, i32> {
         if !JS_IsNumber(self) {
@@ -199,7 +199,7 @@ impl JSValue {
                         (str.as_ptr(), len)
                     };
 
-                    let mut p = str_ptr0.offset(skip_spaces(str_ptr0) as isize);
+                    let mut p = str_ptr0.add(skip_spaces(str_ptr0));
 
                     let res = if p.offset_from(str_ptr0) as usize == len {
                         // is empty or white space string
@@ -214,7 +214,7 @@ impl JSValue {
                         )
                         .check_exception()?;
 
-                        p = p.offset(skip_spaces(p.cast()) as isize);
+                        p = p.add(skip_spaces(p.cast()));
                         if p.offset_from(str_ptr0) as usize != len {
                             JS_FreeValue(ctx, r);
                             r = JSValue::NAN;
@@ -296,7 +296,8 @@ impl JSValue {
                     } else if e <= (1023 + 30 + 53) {
                         /* remainder modulo 2^32 */
                         let mut v = unsafe { (u.u64 & ((1u64 << 52) - 1)) | (1u64 << 52) };
-                        v = v << ((e - 1023 - 52 + 32) as u32);
+                        v <<= (e - 1023 - 52 + 32) as u32;
+
                         let mut ret = (v >> 32) as i32;
                         // take the sign into account
                         if unsafe { u.u64 >> 63 } != 0 {
@@ -405,7 +406,7 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
     'redo: loop {
         match JS_VALUE_GET_NORM_TAG(val) {
             JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                res = std::cmp::max(0, std::cmp::min(255, JS_VALUE_GET_INT(val)));
+                res = JS_VALUE_GET_INT(val).clamp(0, 255);
             }
             JSTag::Float64 => {
                 let d = JS_VALUE_GET_FLOAT64(val);
@@ -465,12 +466,12 @@ pub unsafe fn JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue
     let tag = JS_VALUE_GET_TAG(val);
     if tag <= JS_TAG_NULL {
         *pres = JS_VALUE_GET_INT(val) as f64;
-        return 0;
+        0
     } else if JS_TAG_IS_FLOAT64(tag) {
         *pres = JS_VALUE_GET_FLOAT64(val);
-        return 0;
+        0
     } else {
-        return __JS_ToFloat64Free(ctx, pres, val);
+        __JS_ToFloat64Free(ctx, pres, val)
     }
 }
 

@@ -41,7 +41,7 @@ impl JSShapeProperty {
     const FLAGS_MASK: u32 = 0xFC00_0000; // upper 6-bits
 
     #[inline(always)]
-    pub fn flags(&self) -> u32 {
+    pub const fn flags(&self) -> u32 {
         (self.bitfield & Self::FLAGS_MASK) >> 26
     }
 
@@ -460,7 +460,7 @@ pub unsafe fn js_new_shape2(
     js_shape_hash_link(rt, sh);
 
     // ensure new shape if in gc list
-    debug_assert!(list_find(&mut (*sh).header.link, &mut (*rt).gc_obj_list));
+    debug_assert!(list_find(&mut (*sh).header.link, &mut rt.gc_obj_list));
 
     sh
 }
@@ -508,12 +508,12 @@ unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
 
     if sh.is_hashed {
         js_shape_hash_unlink(rt.as_mut().unwrap(), sh);
-        (*sh).is_hashed = false;
+        sh.is_hashed = false;
     }
 
     if !sh.proto.is_null() {
         JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, sh.proto.cast()));
-        (*sh).proto = std::ptr::null_mut();
+        sh.proto = std::ptr::null_mut();
     }
 
     // clear prop definations and free key atoms
@@ -560,13 +560,12 @@ pub unsafe fn init_shape_hash(rt: &mut JSRuntime) -> i32 {
 }
 
 // Same magic hash multiplier as the Linux kernel
-pub fn shape_hash(h: u32, val: u32) -> u32 {
+pub const fn shape_hash(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
-    //(h + val).wrapping_mul(0x9e370001)
 }
 
 // Truncate the shape hash to 'hash_bits' bits
-pub fn get_shape_hash(h: u32, hash_bits: i32) -> u32 {
+pub const fn get_shape_hash(h: u32, hash_bits: i32) -> u32 {
     h >> (32 - hash_bits)
 }
 
@@ -724,7 +723,7 @@ impl JSObject {
                 }
             } else {
                 js_shape_hash_unlink((*ctx).rt_mut(), sh);
-                (*sh).is_hashed = false;
+                sh.is_hashed = false;
             }
         }
 

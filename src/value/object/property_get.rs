@@ -50,8 +50,7 @@ impl JSObject {
                         return if pr.u.getset.getter.is_null() {
                             JSValue::UNDEFINED
                         } else {
-                            let func: JSValue =
-                                JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast());
+                            let func: JSValue = JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast());
                             // Note: the field could be removed in the getter
                             JS_CallFree(ctx, func.dup(), this_obj, 0, std::ptr::null_mut())
                         };

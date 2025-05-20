@@ -12,7 +12,7 @@ pub struct JSShapeHandle(NonNull<JSShape>);
 
 impl JSShapeHandle {
     #[inline(always)]
-    pub fn as_ptr(self) -> *mut JSShape {
+    pub const fn as_ptr(self) -> *mut JSShape {
         self.0.as_ptr()
     }
 }

@@ -60,7 +60,7 @@ pub unsafe fn JS_CheckBrand(
             .is_some())
     } else {
         (*ctx).JS_ThrowTypeError(c"expecting <brand> private field");
-        return Err(-1);
+        Err(-1)
     }
 }
 
@@ -99,7 +99,7 @@ pub unsafe fn JS_AddBrand(ctx: *mut JSContext, obj: JSValueConst, home_obj: JSVa
         if (*p1).find_own_property1(brand_atom).is_some() {
             JS_FreeAtom(ctx, brand_atom);
             (*ctx).JS_ThrowTypeError(c"private method is already present");
-            return -1;
+            -1
         } else {
             if let Ok(pr) = (*p1).add_property(ctx.as_mut().unwrap(), brand_atom, JS_PROP_C_W_E) {
                 JS_FreeAtom(ctx, brand_atom);
@@ -179,7 +179,7 @@ pub unsafe fn JS_GetPrivateField(
         pr.u.value.dup()
     } else {
         JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
     }
 }
 

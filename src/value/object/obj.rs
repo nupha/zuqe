@@ -71,7 +71,7 @@ impl JSObjectFlags {
     const MASK_TMP_MARK: u32 = 0x0200_0000;
     const MASK_IS_HTMLDDA: u32 = 0x0100_0000;
 
-    pub fn extensible(&self) -> bool {
+    pub const fn extensible(&self) -> bool {
         self.bitfield & Self::MASK_EXTENSIBLE != 0
     }
     pub fn set_extensible(&mut self, b: bool) {
@@ -82,7 +82,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn free_mark(&self) -> bool {
+    pub const fn free_mark(&self) -> bool {
         self.bitfield & Self::MASK_FREE_MARK != 0
     }
     pub fn set_free_mark(&mut self, b: bool) {
@@ -93,7 +93,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn is_exotic(&self) -> bool {
+    pub const fn is_exotic(&self) -> bool {
         self.bitfield & Self::MASK_IS_EXOTIC != 0
     }
     pub fn set_exotic(&mut self, b: bool) {
@@ -104,7 +104,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn fast_array(&self) -> bool {
+    pub const fn fast_array(&self) -> bool {
         self.bitfield & Self::MASK_FAST_ARRAY != 0
     }
     pub fn set_fast_array(&mut self, b: bool) {
@@ -115,7 +115,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn is_constructor(&self) -> bool {
+    pub const fn is_constructor(&self) -> bool {
         self.bitfield & Self::MASK_IS_CONSTRUCTOR != 0
     }
     pub fn set_constructor(&mut self, b: bool) {
@@ -126,7 +126,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn is_uncatchable_error(&self) -> bool {
+    pub const fn is_uncatchable_error(&self) -> bool {
         self.bitfield & Self::MASK_IS_UNCATCHABLE_ERROR != 0
     }
     pub fn set_uncatchable_error(&mut self, b: bool) {
@@ -137,7 +137,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn tmp_mark(&self) -> bool {
+    pub const fn tmp_mark(&self) -> bool {
         self.bitfield & Self::MASK_TMP_MARK != 0
     }
     pub fn set_tmp_mark(&mut self, b: bool) {
@@ -148,7 +148,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn is_htmldda(&self) -> bool {
+    pub const fn is_htmldda(&self) -> bool {
         self.bitfield & Self::MASK_IS_HTMLDDA != 0
     }
     pub fn set_htmldda(&mut self, b: bool) {
@@ -159,7 +159,7 @@ impl JSObjectFlags {
         }
     }
 
-    pub fn class_id(&self) -> JSClassID {
+    pub const fn class_id(&self) -> JSClassID {
         self.bitfield & 0x0000_FFFF
     }
     pub fn set_class_id(&mut self, id: JSClassID) {
@@ -234,14 +234,14 @@ pub struct JSObject {
 impl JSObject {
     /// Get object's class_id
     #[inline(always)]
-    pub fn class_id(&self) -> JSClassID {
+    pub const fn class_id(&self) -> JSClassID {
         self.detailed.class_id()
     }
 
     /// Get object's property layout descriptor
     /// Returns None if object is being destroyed
     #[inline(always)]
-    pub fn shape(&self) -> Option<&JSShape> {
+    pub const fn shape(&self) -> Option<&JSShape> {
         unsafe { self.shape.as_ref() }
     }
 
@@ -746,7 +746,7 @@ pub unsafe fn JS_IsInstanceOf(
         return Err(-1);
     }
 
-    return JS_OrdinaryIsInstanceOf(ctx, val, obj);
+    JS_OrdinaryIsInstanceOf(ctx, val, obj)
 }
 
 pub unsafe fn JS_OrdinaryIsInstanceOf(
@@ -834,15 +834,9 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
     }
 
     match JS_VALUE_GET_NORM_TAG(val) {
-        JSTag::Null | JSTag::Undefined => {
-            return (*ctx).JS_ThrowTypeError(c"cannot convert to object");
-        }
-        JSTag::Object => {
-            return val.dup();
-        }
-        JSTag::Exception => {
-            return val;
-        }
+        JSTag::Null | JSTag::Undefined => (*ctx).JS_ThrowTypeError(c"cannot convert to object"),
+        JSTag::Object => val.dup(),
+        JSTag::Exception => JSValue::EXCEPTION,
         JSTag::BigInt => {
             // Create BigInt object wrapper
             // let obj = JS_NewObjectClass(ctx, JS_CLASS_BIG_INT);
@@ -870,16 +864,14 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
                 .unwrap_or(JSValue::EXCEPTION);
             set_value!(obj);
         }
-        _ => {
-            return (*ctx).JS_ThrowTypeError(c"cannot convert to object");
-        }
+        _ => (*ctx).JS_ThrowTypeError(c"cannot convert to object"),
     }
 }
 
 pub unsafe fn JS_ToObjectFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
     let obj = JS_ToObject(ctx, val);
     JS_FreeValue(ctx, val);
-    return obj;
+    obj
 }
 
 /// Store primitive value in object wrapper
@@ -934,7 +926,7 @@ pub unsafe fn JS_GetPrototype(ctx: *mut JSContext, obj: JSValueConst) -> JSValue
 pub unsafe fn JS_GetPrototypeFree(ctx: *mut JSContext, obj: JSValue) -> JSValue {
     let ret = JS_GetPrototype(ctx, obj);
     JS_FreeValue(ctx, obj);
-    return ret;
+    ret
 }
 
 /// Check if object has a valid 'name' property
@@ -964,7 +956,7 @@ pub unsafe fn js_get_function_name(ctx: *mut JSContext, name: JSAtom) -> JSValue
     if JS_AtomSymbolHasDescription(ctx, name) {
         name_str = JS_ConcatString3(ctx, c"[", name_str, c"]");
     }
-    return name_str;
+    name_str
 }
 
 // Note: all the fields are already sealed except length
@@ -986,7 +978,7 @@ pub unsafe fn seal_template_obj(ctx: *mut JSContext, obj: JSValueConst) -> i32 {
     }
     (*p).detailed.set_extensible(false);
 
-    return 0;
+    0
 }
 
 // return Err(-1) if exception (Proxy object only) or TRUE/FALSE
@@ -999,7 +991,7 @@ pub unsafe fn JS_PreventExtensions(ctx: *mut JSContext, obj: JSValueConst) -> Re
         return js_proxy_preventExtensions(ctx, obj);
     }
     (*p).detailed.set_extensible(false);
-    return Ok(true);
+    Ok(true)
 }
 
 pub unsafe fn js_object_seal(
