@@ -5,7 +5,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{BlockEnv, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, ARGUMENT_VAR_OFFSET},
+    function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, ARGUMENT_VAR_OFFSET},
     module::JSExportTypeEnum,
     parse::token::{CHAR_EQUAL, CHAR_STAR},
     value::JSValue,
@@ -876,8 +876,6 @@ pub unsafe fn js_parse_function_check_names(
     fd: *mut JSFunctionDef,
     func_name: JSAtom,
 ) -> i32 {
-    let mut name: JSAtom;
-
     if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
         if !(*fd).has_simple_parameter_list && (*fd).has_use_strict {
             (*s).throw_syntax_error(
@@ -898,13 +896,6 @@ pub unsafe fn js_parse_function_check_names(
             (*s).throw_syntax_error(c"invalid argument name in strict code");
             return -1;
         }
-        // for idx in 0..(*fd).arg_count {
-        //     name = (*(*fd).args.offset(idx as isize)).var_name;
-        //     if name == JS_ATOM_eval || name == JS_ATOM_arguments {
-        //         (*s).throw_syntax_error(c"invalid argument name in strict code");
-        //         return -1;
-        //     }
-        // }
     }
 
     // check async_generator case

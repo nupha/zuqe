@@ -574,7 +574,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
 
     match tag {
         JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE => {
-            let p = JS_VALUE_GET_OBJ(v).cast::<JSGCObjectHeader>();
+            let p = JS_VALUE_GET_PTR(v).cast::<JSGCObjectHeader>();
             if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
                 list_del(&mut (*p).link);
                 list_add(&mut (*p).link, &mut (*rt).gc_zero_ref_count_list);
@@ -585,7 +585,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
             }
         }
         JS_TAG_STRING | JS_TAG_SYMBOL => {
-            unreachable!("won't freed here");
+            unreachable!("never freed here");
         }
         JS_TAG_MODULE => {
             unreachable!("never freed here");

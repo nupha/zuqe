@@ -21,6 +21,10 @@ use crate::{
     JS_CLASS_OBJECT, JS_MKPTR,
 };
 
+/// Function type for marking objects during garbage collection
+/// Parameters:
+/// - rt: Pointer to the JavaScript runtime
+/// - gp: Pointer to the garbage collected object header
 pub type JS_MarkFunc = unsafe fn(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +41,9 @@ pub enum JSGCObjectTypeEnum {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JSGCPhaseEnum {
     JS_GC_PHASE_NONE,
+    /// Phase where objects with zero reference count are freed
     JS_GC_PHASE_DECREF,
+    /// Phase where cyclic references are detected and freed
     JS_GC_PHASE_REMOVE_CYCLES,
 }
 
@@ -85,22 +91,32 @@ impl JSGCObjectHeader {
     }
 }
 
+/// Frees objects with zero reference count
 pub unsafe fn free_zero_refcount(rt: *mut JSRuntime) {
+    // Set GC phase to decrement reference count
     (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_DECREF;
+
+    // Process each object in the zero refcount list
     loop {
         let el = (*rt).gc_zero_ref_count_list.next;
+        // Stop when we've processed all objects
         if el == &mut (*rt).gc_zero_ref_count_list {
             break;
         }
 
+        // Get the object header from the list entry
         let p = list_entry!(el, JSGCObjectHeader, link);
         debug_assert_eq!((*p).ref_count, 0);
 
+        // Free the GC object
         free_gc_object(rt, p);
     }
+    // Reset GC phase
     (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
 }
 
+/// Marks a JavaScript value during garbage collection
+/// Only marks values that have reference counts (objects and function bytecode)
 pub unsafe fn JS_MarkValue(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
     if JS_VALUE_HAS_REF_COUNT(val) {
         match JS_VALUE_GET_TAG(val) {
@@ -112,10 +128,15 @@ pub unsafe fn JS_MarkValue(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_
     }
 }
 
+/// Marks the realm associated with an auto-initialized property
+/// This ensures the realm is preserved during garbage collection
 pub unsafe fn js_autoinit_mark(rt: *mut JSRuntime, pr: *mut JSProperty, mark_func: JS_MarkFunc) {
+    // Get the realm from the property and mark its header
     mark_func(rt, &mut (*js_autoinit_get_realm(pr)).header);
 }
 
+/// Recursively marks all child objects of a GC object
+/// This ensures all referenced objects are preserved during garbage collection
 unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_func: JS_MarkFunc) {
     match (*gp).gc_obj_type() {
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
@@ -216,20 +237,26 @@ unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_func
     }
 }
 
+/// Decrements the reference count of a child GC object
+/// Moves the object to the temporary list if its refcount reaches zero
 pub unsafe fn gc_decref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+    // Safety checks
     debug_assert!(!p.is_null());
     debug_assert!(p.is_aligned());
     debug_assert!((*p).ref_count > 0);
 
+    // Decrement the reference count
     (*p).ref_count -= 1;
+
+    // If refcount reaches zero and object is marked, move to temporary list
     if (*p).ref_count == 0 && (*p).gc_mark() == 1 {
         list_del(&mut (*p).link);
         list_add_tail(&mut (*p).link, &mut (*rt).tmp_obj_list);
     }
 }
 
-/// decrease the refcount of all the children of GC objects in the `gc_obj_list` chain,
-/// and move those GC objects with zero refcount to `tmp_obj_list`
+/// Decreases reference counts for all child objects in the GC object list.
+/// Moves objects with zero reference count to a temporary list for cleanup.
 pub unsafe fn gc_decref(rt: &mut JSRuntime) {
     init_list_head(&mut (*rt).tmp_obj_list);
 
@@ -259,24 +286,23 @@ pub unsafe fn gc_decref(rt: &mut JSRuntime) {
     );
 }
 
-unsafe fn gc_scan_incref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
-    (*p).ref_count += 1;
-    if (*p).ref_count == 1 {
-        /* ref_count was 0: remove from tmp_obj_list and add at the
-        end of gc_obj_list */
-        list_del(&mut (*p).link);
-        list_add_tail(&mut (*p).link, &mut (*rt).gc_obj_list);
-        p.as_mut().unwrap().set_gc_mark(0); /* reset the mark for the next GC call */
-    }
-}
-unsafe fn gc_scan_incref_child2(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
-    (*p).ref_count += 1;
-}
+// unsafe fn gc_scan_incref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+//     (*p).ref_count += 1;
+//     if (*p).ref_count == 1 {
+//         /* ref_count was 0: remove from tmp_obj_list and add at the
+//         end of gc_obj_list */
+//         list_del(&mut (*p).link);
+//         list_add_tail(&mut (*p).link, &mut (*rt).gc_obj_list);
+//         p.as_mut().unwrap().set_gc_mark(0); /* reset the mark for the next GC call */
+//     }
+// }
+// unsafe fn gc_scan_incref_child2(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+//     (*p).ref_count += 1;
+// }
 
-/// keep the objects with refcount > 0 and their children.
-///
-/// check objects in `gc_obj_list`, find those having zero refcount,
-/// then migrate them from `gc_obj_list` to `gc_tmp_list`.
+/// Preserves objects with positive reference counts and their child objects.
+/// Identifies objects with zero reference count in the GC object list
+/// and moves them to a temporary list for removal.
 pub unsafe fn gc_scan(rt: &mut JSRuntime) {
     print!(
         "[O.o][gc_scan] gc_obj_list={}, tmp_obj_list={}",
@@ -327,19 +353,20 @@ pub unsafe fn gc_scan(rt: &mut JSRuntime) {
     );
 }
 
-/// To free object in tmp_obj_list
-pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
+/// Frees objects in the temporary list, handling cyclic references
+pub unsafe fn gc_free_cycles(rt: &mut JSRuntime) {
     #[cfg(feature = "dump_gc_free")]
     let mut header_done = false;
 
-    (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES;
+    rt.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES;
 
     loop {
-        let el = (*rt).tmp_obj_list.next;
-        if el == &mut (*rt).tmp_obj_list {
+        let el = rt.tmp_obj_list.next;
+        if el == &mut rt.tmp_obj_list {
             break;
         }
 
+        // Note: object in tmp_obj_list not always have ref_count==0.
         let p = list_entry!(el, JSGCObjectHeader, link);
 
         // Only need to free the GC object associated with JS values or async functions.
@@ -359,18 +386,21 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
                 }
 
                 free_gc_object(rt, p);
+
+                // `el` is removed from tmp_obj_list
+                debug_assert!(!list_find(el, &mut rt.tmp_obj_list));
             }
             _ => {
                 list_del(&mut (*p).link);
-                list_add_tail(&mut (*p).link, &mut (*rt).gc_zero_ref_count_list);
+                list_add_tail(&mut (*p).link, &mut rt.gc_zero_ref_count_list);
             }
         }
     }
 
-    (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
+    rt.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
 
-    // drop memory allocated for gc obj
-    list_foreach_safe(&mut (*rt).gc_zero_ref_count_list, |el| {
+    // drop gc obj payload data
+    list_foreach_safe(&mut rt.gc_zero_ref_count_list, |el| {
         let p = list_entry!(el, JSGCObjectHeader, link);
         match (*p).gc_obj_type() {
             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
@@ -388,11 +418,15 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
         }
     });
 
+    // clear gc_zero_ref_count_list
     init_list_head(&mut (*rt).gc_zero_ref_count_list);
 }
 
 impl JSRuntime {
-    /// Run GC
+    /// Executes the garbage collection process in three phases:
+    /// 1. Decrement reference counts
+    /// 2. Scan and preserve live objects
+    /// 3. Free cyclic references
     pub fn gc(&mut self) {
         unsafe {
             // decrement the reference of the children of each object. mark = 1 after this pass.
@@ -410,23 +444,25 @@ pub fn JS_RunGC(rt: &mut JSRuntime) {
     rt.gc();
 }
 
+/// Adds a new GC object to the garbage collector's tracking list
+/// Initializes the object's mark and type, then adds it to the GC object list
 pub unsafe fn add_gc_object(rt: *mut JSRuntime, h: *mut JSGCObjectHeader, tp: JSGCObjectTypeEnum) {
-    // println!(
-    //     "[add_gc_object] gc_head={h:p}, el={:p}, type={tp:?}",
-    //     &(*h).link
-    // );
-
+    // Initialize the object's mark and type
     (*h).set_gc_mark(0);
     (*h).set_gc_obj_type(tp);
+
+    // Add the object to the end of the GC object list
     list_add_tail(&mut (*h).link, &mut (*rt).gc_obj_list);
 }
 
-/// remove the node from gc_obj_list
+/// Removes an object from either the main GC object list or temporary list
 #[inline(always)]
 pub unsafe fn remove_gc_object(h: *mut JSGCObjectHeader) {
     list_del(&mut (*h).link);
 }
 
+/// Frees a GC object based on its type
+/// Handles different types of GC objects with their specific cleanup logic
 pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
     match (*gp).gc_obj_type() {
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
@@ -477,9 +513,6 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
     for cproto in ctx.class_proto.iter() {
         JS_MarkValue(rt, *cproto, mark_func);
     }
-    // for i in 0..rt.class_count {
-    //     JS_MarkValue(rt, ctx.class_proto[i as usize], mark_func);
-    // }
 
     JS_MarkValue(rt, ctx.iterator_proto, mark_func);
     JS_MarkValue(rt, ctx.async_iterator_proto, mark_func);
@@ -511,7 +544,7 @@ pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut JSModuleDef, mark_f
     JS_MarkValue(rt, m.resolving_funcs[1], mark_func);
 }
 
-/* indicate that the object may be part of a function prototype cycle */
+/* Marks an object as potentially part of a function prototype cycle */
 pub unsafe fn set_cycle_flag(ctx: *mut JSContext, obj: JSValueConst) {
     // to nothing
 }

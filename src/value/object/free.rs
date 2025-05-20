@@ -12,6 +12,7 @@ use crate::{
 use super::{free_property, js_free_shape, JSObject};
 
 impl JSObject {
+    /// object `p` is now in tmp_obj_list or gc_zero_ref_count_list chain.
     pub unsafe fn free(rt: *mut JSRuntime, p: *mut Self) {
         // used to tell the object is invalid when freeing cycles
         (*p).detailed.set_free_mark(true);
@@ -65,6 +66,10 @@ impl JSObject {
 
         if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*p).header.ref_count != 0
         {
+            // this means we are in free cycles process,
+            // where tmp_obj_list object not always have ref_count==0, it could be 1 sometimes.
+            // in this case, we put this object in `gc_zero_ref_count_list` to free object attached payload.
+            // see `gc_free_cycles()` bottom half for detail.
             list_add_tail(&mut (*p).header.link, &mut (*rt).gc_zero_ref_count_list);
         } else {
             drop(Box::from_raw(p));
