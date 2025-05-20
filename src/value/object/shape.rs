@@ -26,6 +26,7 @@ use super::{
     JSShapeHandle,
 };
 
+/// Property defination in shape
 #[derive(Debug)]
 pub struct JSShapeProperty {
     // flags:   6 bits: JS_PROP_XXX
@@ -587,11 +588,6 @@ const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
-// Truncate the shape hash to 'hash_bits' bits
-pub const fn shape_hash_trim(h: u32, hash_bits: i32) -> u32 {
-    h >> (32 - hash_bits)
-}
-
 pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
     let mut h = shape_hasher_u32(1, proto as u32);
     if std::mem::size_of::<*mut JSObject>() > 4 {
@@ -599,6 +595,11 @@ pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
     }
     h
 }
+
+// // Truncate the shape hash to 'hash_bits' bits
+// pub const fn shape_hash_trim(h: u32, hash_bits: i32) -> u32 {
+//     h >> (32 - hash_bits)
+// }
 
 impl JSObject {
     /// ensure that the shape can be safely modified

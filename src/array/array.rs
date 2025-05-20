@@ -196,7 +196,7 @@ impl JSObject {
         if self
             .shape()
             .and_then(|sh| {
-                // #0 is length
+                //prop `length` is #0
                 debug_assert!(
                     sh.props[0].flags() & JS_PROP_LENGTH != 0,
                     "Object don't have length property"
@@ -220,9 +220,7 @@ impl JSObject {
             let old_len = lst.len();
             if len < old_len {
                 for el in lst.drain(len..old_len) {
-                    unsafe {
-                        JS_FreeValue(ctx, el);
-                    }
+                    JS_FreeValue(ctx, el);
                 }
             }
             self.prop_values[0] = JSProperty {
@@ -249,9 +247,9 @@ impl JSObject {
                     while cur_len > len {
                         let atom = ctx.rt_mut().add_atom_u32(cur_len as u32 - 1);
                         let ret = self.delete_property(ctx, atom);
-                        unsafe {
-                            JS_FreeAtom(ctx, atom);
-                        }
+
+                        JS_FreeAtom(ctx, atom);
+
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
