@@ -1,9 +1,6 @@
-use std::{
-    ffi::{c_char, c_void},
-    ptr::NonNull,
-};
+use std::{ffi::c_void, ptr::NonNull};
 
-use crate::{context::JSContext, gc::JS_RunGC, runtime::JSRuntime, types::unlikely};
+use crate::{context::JSContext, runtime::JSRuntime, types::unlikely};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub const MALLOC_OVERHEAD: usize = 0;
@@ -190,9 +187,9 @@ pub unsafe fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
         {
             println!("GC: size={}", (*rt).malloc_state.malloc_size);
         }
-        JS_RunGC(rt);
-        (*rt).malloc_gc_threshold =
-            (*rt).malloc_state.malloc_size + ((*rt).malloc_state.malloc_size >> 1);
+
+        rt.gc();
+        rt.malloc_gc_threshold = rt.malloc_state.malloc_size + (rt.malloc_state.malloc_size >> 1);
     }
 }
 

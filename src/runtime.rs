@@ -15,7 +15,7 @@ use crate::{
         js_async_function_call, js_async_function_resolve_call, BoundFunctionValue,
         NativeFunctionValue,
     },
-    gc::{JSGCObjectHeader, JSGCPhaseEnum, JS_RunGC},
+    gc::{JSGCObjectHeader, JSGCPhaseEnum},
     generator::{js_generator_function_call, AsyncGeneratorValue},
     list_entry,
     mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
@@ -64,12 +64,14 @@ pub struct JSRuntime {
     /// context list
     pub context_list: Vec<Box<JSContext>>,
 
-    /* list of JSGCObjectHeader.link. List of allocated GC objects (used by garbage collector) */
+    /// list of JSGCObjectHeader.link. List of allocated GC objects (used by garbage collector)
     pub gc_obj_list: list_head,
-    /* list of JSGCObjectHeader.link. Used during JS_FreeValueRT() */
+    /// list of JSGCObjectHeader.link. Used during JS_FreeValueRT()
     pub gc_zero_ref_count_list: list_head,
-    pub tmp_obj_list: list_head, /* used during GC */
+    /// used during GC
+    pub tmp_obj_list: list_head,
     pub gc_phase: JSGCPhaseEnum,
+
     pub malloc_gc_threshold: usize,
 
     #[cfg(feature = "dump_leaks")]
@@ -293,7 +295,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
         init_list_head(&mut rt.job_list);
     }
 
-    JS_RunGC(rt);
+    rt.gc();
 
     #[cfg(feature = "dump_leaks")]
     {
@@ -303,7 +305,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
         referenced externally */
         list_foreach(&mut rt.gc_obj_list, |el| {
             let p = list_entry!(el, JSGCObjectHeader, link);
-            (*p).set_mark(0);
+            (*p).set_gc_mark(0);
         });
 
         crate::gc::gc_decref(rt);

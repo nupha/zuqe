@@ -6,8 +6,8 @@ use crate::{
     module::{JSExportTypeEnum, JSModuleDef},
     runtime::JSRuntime,
     types::{
-        init_list_head, list_add_tail, list_count, list_del, list_foreach, list_foreach_safe,
-        list_head,
+        init_list_head, list_add_tail, list_count, list_del, list_find, list_foreach,
+        list_foreach_safe, list_head,
     },
     utils::JS_DumpObjectHeader,
     value::{
@@ -74,10 +74,13 @@ impl JSGCObjectHeader {
         self.bitfields = (self.bitfields & 0x0f) | ((t as u8) << 4);
     }
 
-    pub fn mark(&self) -> u8 {
+    #[inline(always)]
+    pub fn gc_mark(&self) -> u8 {
         self.bitfields & 0x0f
     }
-    pub fn set_mark(&mut self, m: u8) {
+
+    #[inline(always)]
+    pub fn set_gc_mark(&mut self, m: u8) {
         self.bitfields = (self.bitfields & 0xf0) | (m & 0x0f)
     }
 }
@@ -113,10 +116,10 @@ pub unsafe fn js_autoinit_mark(rt: *mut JSRuntime, pr: *mut JSProperty, mark_fun
     mark_func(rt, &mut (*js_autoinit_get_realm(pr)).header);
 }
 
-pub unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_func: JS_MarkFunc) {
+unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_func: JS_MarkFunc) {
     match (*gp).gc_obj_type() {
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
-            let p = gp as *mut JSObject;
+            let p = gp.cast::<JSObject>();
 
             mark_func(rt, &mut (*p).shape_mut().unwrap().header);
 
@@ -156,7 +159,7 @@ pub unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE => {
             // The template objects can be part of a cycle
-            let b = gp as *mut JSFunctionBytecode;
+            let b = gp.cast::<JSFunctionBytecode>();
             if let Some(cpool) = (*b).cpools_slice() {
                 cpool.iter().for_each(|v| JS_MarkValue(rt, *v, mark_func));
             }
@@ -165,7 +168,7 @@ pub unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_
             }
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF => {
-            let var_ref = gp as *mut JSVarRef;
+            let var_ref = gp.cast::<JSVarRef>();
             if (*var_ref).is_detached() {
                 JS_MarkValue(rt, *(*var_ref).pvalue, mark_func);
             } else if !(*var_ref).value_or_links.links.async_func.is_null() {
@@ -219,12 +222,14 @@ pub unsafe fn gc_decref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
     debug_assert!((*p).ref_count > 0);
 
     (*p).ref_count -= 1;
-    if (*p).ref_count == 0 && (*p).mark() == 1 {
+    if (*p).ref_count == 0 && (*p).gc_mark() == 1 {
         list_del(&mut (*p).link);
         list_add_tail(&mut (*p).link, &mut (*rt).tmp_obj_list);
     }
 }
 
+/// decrease the refcount of all the children of GC objects in the `gc_obj_list` chain,
+/// and move those GC objects with zero refcount to `tmp_obj_list`
 pub unsafe fn gc_decref(rt: &mut JSRuntime) {
     init_list_head(&mut (*rt).tmp_obj_list);
 
@@ -234,68 +239,89 @@ pub unsafe fn gc_decref(rt: &mut JSRuntime) {
         list_count(&mut (*rt).tmp_obj_list)
     );
 
-    /* decrement the refcount of all the children of all the GC
-    objects and move the GC objects with zero refcount to
-    tmp_obj_list */
-
-    list_foreach_safe(&mut (*rt).gc_obj_list, |el| {
+    list_foreach_safe(&mut rt.gc_obj_list, |el| {
         let p = list_entry!(el, JSGCObjectHeader, link);
-        debug_assert_eq!((*p).mark(), 0);
+        debug_assert_eq!((*p).gc_mark(), 0);
 
         mark_children(rt, p, gc_decref_child);
-        (*p).set_mark(1);
+        (*p).set_gc_mark(1);
 
         if (*p).ref_count == 0 {
             list_del(&mut (*p).link);
-            list_add_tail(&mut (*p).link, &mut (*rt).tmp_obj_list);
+            list_add_tail(&mut (*p).link, &mut rt.tmp_obj_list);
         }
     });
 
     println!(
-        " -> gc_obj_list={}, tmp_obj_list={}",
+        " -> gc_obj_list={}, tmp_obj_list={} [/O.o]",
         list_count(&mut (*rt).gc_obj_list),
         list_count(&mut (*rt).tmp_obj_list)
     );
 }
 
-pub unsafe fn gc_scan_incref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+unsafe fn gc_scan_incref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
     (*p).ref_count += 1;
     if (*p).ref_count == 1 {
         /* ref_count was 0: remove from tmp_obj_list and add at the
         end of gc_obj_list */
         list_del(&mut (*p).link);
         list_add_tail(&mut (*p).link, &mut (*rt).gc_obj_list);
-        p.as_mut().unwrap().set_mark(0); /* reset the mark for the next GC call */
+        p.as_mut().unwrap().set_gc_mark(0); /* reset the mark for the next GC call */
     }
 }
-
-pub unsafe fn gc_scan_incref_child2(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+unsafe fn gc_scan_incref_child2(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
     (*p).ref_count += 1;
 }
 
-pub unsafe fn gc_scan(rt: *mut JSRuntime) {
+/// keep the objects with refcount > 0 and their children.
+///
+/// check objects in `gc_obj_list`, find those having zero refcount,
+/// then migrate them from `gc_obj_list` to `gc_tmp_list`.
+pub unsafe fn gc_scan(rt: &mut JSRuntime) {
     print!(
-        "[gc_scan] gc_obj_list={}, tmp_obj_list={}",
-        list_count(&mut (*rt).gc_obj_list),
-        list_count(&mut (*rt).tmp_obj_list),
+        "[O.o][gc_scan] gc_obj_list={}, tmp_obj_list={}",
+        list_count(&mut rt.gc_obj_list),
+        list_count(&mut rt.tmp_obj_list),
     );
 
-    // keep the objects with a refcount > 0 and their children.
-    list_foreach(&mut (*rt).gc_obj_list, |el| {
+    list_foreach(&mut rt.gc_obj_list, |el| {
         let p = list_entry!(el, JSGCObjectHeader, link);
         debug_assert!((*p).ref_count > 0);
-        (*p).set_mark(0); /* reset the mark for the next GC call */
-        mark_children(rt, p, gc_scan_incref_child);
+
+        // reset the mark for the next GC call
+        (*p).set_gc_mark(0);
+
+        mark_children(rt, p, |rt: *mut JSRuntime, p: *mut JSGCObjectHeader| {
+            (*p).ref_count += 1;
+
+            if (*p).ref_count == 1 {
+                // ref_count was 0, `p` is now in `tmp_obj_list`,
+                // restore it from `tmp_obj_list` to `gc_obj_list`
+                debug_assert!(
+                    list_find(&mut (*p).link, &mut (*rt).tmp_obj_list),
+                    "zeroed refcount object must in tmp_obj_list"
+                );
+
+                list_del(&mut (*p).link);
+                list_add_tail(&mut (*p).link, &mut (*rt).gc_obj_list);
+
+                // reset the mark for the next GC call
+                (*p).set_gc_mark(0);
+            }
+        });
     });
 
     // restore the refcount of the objects to be deleted.
-    list_foreach(&mut (*rt).tmp_obj_list, |el| {
+    list_foreach(&mut rt.tmp_obj_list, |el| {
         let p = list_entry!(el, JSGCObjectHeader, link);
-        mark_children(rt, p, gc_scan_incref_child2);
+        mark_children(rt, p, |_, p: *mut JSGCObjectHeader| {
+            // debug_assert_eq!((*p).ref_count, 0); not nessesarily 0?
+            (*p).ref_count += 1;
+        });
     });
 
     println!(
-        " -> gc_obj_list={}, tmp_obj_list={}",
+        " -> gc_obj_list={}, tmp_obj_list={} [/O.o]",
         list_count(&mut (*rt).gc_obj_list),
         list_count(&mut (*rt).tmp_obj_list),
     );
@@ -307,6 +333,7 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
     let mut header_done = false;
 
     (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES;
+
     loop {
         let el = (*rt).tmp_obj_list.next;
         if el == &mut (*rt).tmp_obj_list {
@@ -339,6 +366,7 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
             }
         }
     }
+
     (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
 
     // drop memory allocated for gc obj
@@ -363,15 +391,23 @@ pub unsafe fn gc_free_cycles(rt: *mut JSRuntime) {
     init_list_head(&mut (*rt).gc_zero_ref_count_list);
 }
 
-pub fn JS_RunGC(rt: &mut JSRuntime) {
-    unsafe {
-        // decrement the reference of the children of each object. mark = 1 after this pass.
-        gc_decref(rt);
-        // keep the GC objects with a non zero refcount and their childs
-        gc_scan(rt);
-        // free the GC objects in a cycle
-        gc_free_cycles(rt);
+impl JSRuntime {
+    /// Run GC
+    pub fn gc(&mut self) {
+        unsafe {
+            // decrement the reference of the children of each object. mark = 1 after this pass.
+            gc_decref(self);
+            // keep the GC objects with a non zero refcount and their childs
+            gc_scan(self);
+            // free the GC objects in a cycle
+            gc_free_cycles(self);
+        }
     }
+}
+
+#[deprecated(note = "use JSRuntime::gc() instead")]
+pub fn JS_RunGC(rt: &mut JSRuntime) {
+    rt.gc();
 }
 
 pub unsafe fn add_gc_object(rt: *mut JSRuntime, h: *mut JSGCObjectHeader, tp: JSGCObjectTypeEnum) {
@@ -380,7 +416,7 @@ pub unsafe fn add_gc_object(rt: *mut JSRuntime, h: *mut JSGCObjectHeader, tp: JS
     //     &(*h).link
     // );
 
-    (*h).set_mark(0);
+    (*h).set_gc_mark(0);
     (*h).set_gc_obj_type(tp);
     list_add_tail(&mut (*h).link, &mut (*rt).gc_obj_list);
 }
