@@ -239,15 +239,15 @@ impl JSObject {
         self.detailed.class_id()
     }
 
-    /// Get object's property layout descriptor
+    /// Get object using shape.
     /// Returns None if object is being destroyed
     #[inline(always)]
     pub const fn shape(&self) -> Option<&JSShape> {
         unsafe { self.shape.as_ref() }
     }
 
-    /// Get mutable access to property layout
-    /// Returns None during garbage collection
+    /// Get object using shape.
+    /// Returns None if object is being destroyed
     #[inline(always)]
     pub fn shape_mut(&mut self) -> Option<&mut JSShape> {
         unsafe { self.shape.as_mut() }

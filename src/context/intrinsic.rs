@@ -142,12 +142,14 @@ impl JSContext {
 
             // add length property as #0
             unsafe {
-                self.array_shape.as_mut().unwrap().add_shape_property(
-                    self,
-                    None,
-                    JS_ATOM_length,
-                    JS_PROP_WRITABLE | JS_PROP_LENGTH,
-                );
+                (*self.array_shape)
+                    .add_shape_property(
+                        self,
+                        None,
+                        JS_ATOM_length,
+                        JS_PROP_WRITABLE | JS_PROP_LENGTH,
+                    )
+                    .unwrap();
             }
         }
 

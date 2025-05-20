@@ -147,7 +147,6 @@ impl JSObject {
         if new_length > self.prop_values.len() {
             let grow = new_length - self.prop_values.len();
             if self.prop_values.try_reserve_exact(grow).is_err() {
-                log::error!("enlarge object prop values slot failed");
                 return Err(-1);
             }
 

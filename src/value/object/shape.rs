@@ -100,49 +100,52 @@ impl JSShape {
     }
 
     /// Append property defination to shape.
-    /// `atom` keeps ref count unchanged after calling.
+    /// `obj` is an JSObject that uses the shape,
+    /// if provided, should ensure this object has enough property value slots capacity.
+    ///
+    /// Note: `atom`, `obj` are not consumed.
     pub fn add_shape_property(
         &mut self,
         ctx: &mut JSContext,
         mut obj: Option<&mut JSObject>,
         atom: JSAtom,
         prop_flags: u32,
-    ) -> i32 {
+    ) -> Result<(), i32> {
         debug_assert_eq!(self.header.ref_count, 1);
 
-        let rt = ctx.rt_mut();
-        let mut new_shape_hash = 0;
-
-        if self.is_hashed {
-            // Update the shape hash
+        let new_shape_hash = if self.is_hashed {
+            // Update shape hash
             unsafe {
-                js_shape_hash_unlink(rt, self);
+                js_shape_hash_unlink(ctx.rt_mut(), self);
             }
-            new_shape_hash = shape_hash(shape_hash(self.hash, atom.0), prop_flags);
-        }
+            shape_hasher(shape_hasher(self.hash, atom.0), prop_flags)
+        } else {
+            0
+        };
 
         if let Some(o) = obj.as_deref_mut() {
-            // enlarge object prop values slot
+            // ensure object's prop values slot capacity
             if o.grow_prop_value_slots(self.props.len() + 1).is_err() {
                 if self.is_hashed {
                     unsafe {
-                        js_shape_hash_link(rt, self);
+                        js_shape_hash_link(ctx.rt_mut(), self);
                     }
-                    return -1;
                 }
+                ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
             }
         }
 
         if self.is_hashed {
             self.hash = new_shape_hash;
             unsafe {
-                js_shape_hash_link(rt, self);
+                js_shape_hash_link(ctx.rt_mut(), self);
             }
         }
 
         let mut pr = JSShapeProperty {
             bitfield: 0,
-            atom: atom.dup(rt),
+            atom: atom.dup(ctx.rt_mut()),
         };
         pr.set_flags(prop_flags);
         self.props.insert(atom, pr);
@@ -154,7 +157,7 @@ impl JSShape {
             debug_assert_eq!(self.props.len(), o.prop_values.len())
         }
 
-        0
+        Ok(())
     }
 
     /// Clone to a new shape from this coping property definations.
@@ -557,20 +560,21 @@ pub unsafe fn init_shape_hash(rt: &mut JSRuntime) -> i32 {
     0
 }
 
-// Same magic hash multiplier as the Linux kernel
-pub const fn shape_hash(h: u32, val: u32) -> u32 {
+/// calc hash for u32
+pub const fn shape_hasher(h: u32, val: u32) -> u32 {
+    // Same magic hash multiplier as the Linux kernel
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
 // Truncate the shape hash to 'hash_bits' bits
-pub const fn get_shape_hash(h: u32, hash_bits: i32) -> u32 {
+pub const fn shape_hash_trim(h: u32, hash_bits: i32) -> u32 {
     h >> (32 - hash_bits)
 }
 
 pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
-    let mut h = shape_hash(1, proto as u32);
+    let mut h = shape_hasher(1, proto as u32);
     if std::mem::size_of::<*mut JSObject>() > 4 {
-        h = shape_hash(h, ((proto as u64) >> 32) as u32);
+        h = shape_hasher(h, ((proto as u64) >> 32) as u32);
     }
     h
 }
@@ -590,7 +594,7 @@ pub unsafe fn resize_shape_hash(rt: &mut JSRuntime, new_shape_hash_bits: i32) ->
         let mut sh: *mut JSShape = *rt.shape_hash.offset(i as isize);
         while !sh.is_null() {
             let sh_next = (*sh).shape_hash_next;
-            let h = get_shape_hash((*sh).hash, new_shape_hash_bits);
+            let h = shape_hash_trim((*sh).hash, new_shape_hash_bits);
             (*sh).shape_hash_next = *new_shape_hash.add(h as usize);
             *new_shape_hash.add(h as usize) = sh;
 
@@ -608,14 +612,14 @@ pub unsafe fn resize_shape_hash(rt: &mut JSRuntime, new_shape_hash_bits: i32) ->
 }
 
 pub unsafe fn js_shape_hash_link(rt: &mut JSRuntime, sh: *mut JSShape) {
-    let h = get_shape_hash((*sh).hash, rt.shape_hash_bits);
+    let h = shape_hash_trim((*sh).hash, rt.shape_hash_bits);
     (*sh).shape_hash_next = *rt.shape_hash.offset(h as isize);
     *rt.shape_hash.offset(h as isize) = sh;
     rt.shape_hash_count += 1;
 }
 
 pub unsafe fn js_shape_hash_unlink(rt: &mut JSRuntime, sh: *mut JSShape) {
-    let h = get_shape_hash((*sh).hash, rt.shape_hash_bits);
+    let h = shape_hash_trim((*sh).hash, rt.shape_hash_bits);
     let psh = rt.shape_hash.offset(h as isize);
     while !(*psh).is_null() && *psh != sh {
         *psh = (**psh).shape_hash_next;
@@ -632,7 +636,7 @@ pub unsafe fn find_hashed_shape_proto(
     proto: *mut JSObject,
 ) -> Option<*mut JSShape> {
     let h = shape_initial_hash(proto);
-    let h1 = get_shape_hash(h, rt.shape_hash_bits);
+    let h1 = shape_hash_trim(h, rt.shape_hash_bits);
     let mut sh1: *mut JSShape = *rt.shape_hash.offset(h1 as _);
     while !sh1.is_null() {
         if (*sh1).hash == h && (*sh1).proto == proto && (*sh1).props.is_empty() {
@@ -651,9 +655,9 @@ pub unsafe fn find_hashed_shape_prop(
     prop_flags: u32,
 ) -> Option<*mut JSShape> {
     let mut h = sh.hash;
-    h = shape_hash(h, atom.0);
-    h = shape_hash(h, prop_flags);
-    let h1 = get_shape_hash(h, rt.shape_hash_bits);
+    h = shape_hasher(h, atom.0);
+    h = shape_hasher(h, prop_flags);
+    let h1 = shape_hash_trim(h, rt.shape_hash_bits);
     let mut sh1 = *rt.shape_hash.offset(h1 as _);
     while !sh1.is_null() {
         if (*sh1).hash == h

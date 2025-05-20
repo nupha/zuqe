@@ -109,7 +109,9 @@ pub struct JSRuntime {
     /// callbacks to allocate, free and clone SharedArrayBuffers
     pub sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
-    /* Shape hash table */
+    //
+    // Shapes hash table
+    //
     pub shape_hash_bits: i32,
     pub shape_hash_size: i32,
     pub shape_hash_count: i32, /* number of hashed shapes */
