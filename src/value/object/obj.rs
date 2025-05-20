@@ -12,7 +12,7 @@ use crate::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
         JSObjectFunc, JS_CallFree,
     },
-    gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
+    gc::JSGCObjectHeader,
     generator::{JSAsyncGeneratorData, JSGeneratorData},
     iterator::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
@@ -23,28 +23,24 @@ use crate::{
         js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf, JSProxyData,
     },
     regexp::{JSRegExp, JSRegExpStringIteratorData},
-    runtime::JSRuntime,
     typed_array::JSTypedArray,
-    types::{list_add_tail, list_del, unlikely},
+    types::unlikely,
     value::{JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_PTR},
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN,
-    JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_DATE,
-    JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY,
-    JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
+    JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BOUND_FUNCTION, JS_CLASS_C_FUNCTION,
+    JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_MKPTR,
 };
 
 use super::{
     super::{
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
-        JS_FreeValueRT, JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT,
+        JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    find_hashed_shape_proto, free_property, js_dup_shape, js_free_desc, js_free_shape,
-    js_new_shape, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
-    JS_GetOwnPropertyInternal, JS_IsExtensible, JS_NewObjectFromShape, JS_GPN_STRING_MASK,
-    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
-    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    find_hashed_shape_proto, js_dup_shape, js_free_desc, js_new_shape, JSProperty,
+    JSPropertyDescriptor, JSShape, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible,
+    JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
+    JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -467,9 +463,9 @@ impl JSContext {
         proto: JSValue,
         class_id: JSClassID,
     ) -> JSResult {
-        unsafe {
+        let shape: *mut JSShape = unsafe {
             let proto_ob = get_proto_obj(proto);
-            let sh: *mut JSShape = match find_hashed_shape_proto(self.rt_mut(), proto_ob) {
+            match find_hashed_shape_proto(self.rt_mut(), proto_ob) {
                 Some(sh) => js_dup_shape(sh),
                 None => {
                     let new_sh = js_new_shape(self, proto_ob);
@@ -479,10 +475,10 @@ impl JSContext {
                         new_sh
                     }
                 }
-            };
+            }
+        };
 
-            JS_NewObjectFromShape(self, sh, class_id).check_exception()
-        }
+        self.create_object_from_shape(unsafe { shape.as_mut().unwrap() }, class_id)
     }
 
     /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.

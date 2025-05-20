@@ -2,7 +2,6 @@ use std::{ffi::c_void, mem::ManuallyDrop};
 
 use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_NULL},
-    class::JSClassID,
     context::JSContext,
     error::{JSErrorEnum, JS_ThrowRangeError},
     gc::{JS_MarkFunc, JS_MarkValue},
@@ -12,8 +11,8 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_dup_shape, JSObject, JSProperty, JSPropertyUnion, JS_NewObjectFromShape,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
+            js_dup_shape, JSObject, JSProperty, JSPropertyUnion, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToUint32,
         JS_TAG_INT, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
@@ -80,12 +79,14 @@ impl JSContext {
             return self.JS_ThrowError(JSErrorEnum::Range, c"invalid array length");
         }
 
-        let arr =
-            unsafe { JS_NewObjectFromShape(self, js_dup_shape(self.array_shape), JS_CLASS_ARRAY) };
-
-        if arr.is_exception() {
+        let arr = if let Ok(v) = self.create_object_from_shape(
+            unsafe { js_dup_shape(self.array_shape).as_mut().unwrap() },
+            JS_CLASS_ARRAY,
+        ) {
+            v
+        } else {
             return JSValue::EXCEPTION;
-        }
+        };
 
         unsafe {
             debug_assert!(arr.object_unchecked().detailed.fast_array());
@@ -338,7 +339,12 @@ impl JSValue {
 }
 
 pub unsafe fn JS_NewArray(ctx: *mut JSContext) -> JSValue {
-    JS_NewObjectFromShape(ctx, js_dup_shape((*ctx).array_shape), JS_CLASS_ARRAY)
+    (*ctx)
+        .create_object_from_shape(
+            js_dup_shape((*ctx).array_shape).as_mut().unwrap(),
+            JS_CLASS_ARRAY,
+        )
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 // return Err if exception (proxy case) or TRUE/FALSE
