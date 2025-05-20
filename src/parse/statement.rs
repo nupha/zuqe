@@ -4,7 +4,9 @@ use crate::{
     atom::{consts::*, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
-    function::{pop_break_entry, BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
+    function::{
+        pop_break_entry, push_break_entry, BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE,
+    },
     parse::emit::emit_return,
     utils::write_to_ptr,
 };
@@ -19,7 +21,7 @@ use super::{
     error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
-    function::{push_break_entry, JSParseFunctionEnum},
+    function::JSParseFunctionEnum,
     parse::{js_define_var, js_parse_skip_parens_token},
     state::{JSParseState, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     token::{
@@ -93,6 +95,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 fail!();
             }
             emit_label(s, label_break);
+
             pop_break_entry(s.cur_func_mut());
 
             // done

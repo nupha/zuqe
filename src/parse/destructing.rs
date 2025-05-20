@@ -7,7 +7,7 @@ use crate::{
     },
     bytecode::{opcodes, OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
-    function::{pop_break_entry, BlockEnv},
+    function::{pop_break_entry, push_break_entry, BlockEnv},
     parse::token::{CHAR_COMMA, CHAR_CURLY_R},
     value::object::PROP_TYPE_IDENT,
 };
@@ -19,7 +19,7 @@ use super::{
         js_emit_spread_code,
     },
     expr_lvalue::PutLValueEnum,
-    function::{js_parse_check_duplicate_parameter, push_break_entry},
+    function::js_parse_check_duplicate_parameter,
     obj::set_object_name,
     parse::{js_define_var, js_parse_skip_parens_token},
     state::{JSParseState, SKIP_HAS_ELLIPSIS},

@@ -871,25 +871,6 @@ pub unsafe fn js_parse_check_duplicate_parameter(s: *mut JSParseState, name: JSA
     return 0;
 }
 
-pub unsafe fn push_break_entry(
-    fd: *mut JSFunctionDef,
-    be: *mut BlockEnv,
-    label_name: JSAtom,
-    label_break: i32,
-    label_cont: i32,
-    drop_count: i32,
-) {
-    (*be).prev = (*fd).top_break;
-    (*fd).top_break = be;
-    (*be).label_name = label_name;
-    (*be).label_break = label_break;
-    (*be).label_cont = label_cont;
-    (*be).drop_count = drop_count;
-    (*be).label_finally = -1;
-    (*be).scope_level = (*fd).scope_level;
-    (*be).has_iterator = false;
-}
-
 pub unsafe fn js_parse_function_check_names(
     s: *mut JSParseState,
     fd: *mut JSFunctionDef,
