@@ -48,14 +48,14 @@ pub fn f64_stringify<'a>(
     flags: i32,
 ) -> Cow<'a, str> {
     if !num.is_finite() {
-        return if num.is_nan() {
+        if num.is_nan() {
             "NaN"
         } else if num.is_sign_negative() {
             "-Infinity"
         } else {
             "Infinity"
         }
-        .into();
+        .into()
     } else {
         let mut num = num;
 
@@ -117,7 +117,7 @@ pub fn f64_stringify<'a>(
         } else {
             let int64 = num as i64;
 
-            if num != int64 as f64 || int64 > MAX_SAFE_INTEGER || int64 < -MAX_SAFE_INTEGER {
+            if num != int64 as f64 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&int64) {
                 // if a float or is an integer beyond safe range
                 if let Some(p) = round {
                     format!("{:.1$}", num, p as usize)
@@ -157,7 +157,7 @@ unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
 
     loop {
         let digit = (n as u64) % (base as u64);
-        n = n / (base as i64);
+        n /= base as i64;
 
         if digit < 10 {
             *q.offset(-1) = digit as u8 + b'0';
@@ -176,7 +176,7 @@ unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
         q = q.offset(-1);
     }
 
-    return q;
+    q
 }
 
 /* XXX: slow and maybe not fully correct. Use libbf when it is fast enough.
@@ -408,11 +408,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
                     *q = b'+';
                     q = q.offset(1);
                 }
-                libc::sprintf(
-                    q as *mut libc::c_char,
-                    b"%d\0".as_ptr() as *const libc::c_char,
-                    p,
-                );
+                libc::sprintf(q as *mut libc::c_char, c"%d".as_ptr(), p);
             }
         }
     }
@@ -449,7 +445,7 @@ unsafe fn js_ecvt1(
         write!(write, "{:+.*e}\0", n_digits as usize - 1, rounded_d).unwrap();
     }
 
-    *sign = if *buf1 == '-' as u8 { 1 } else { 0 };
+    *sign = if *buf1 == b'-' { 1 } else { 0 };
 
     // if rounding_mode != FE_TONEAREST {
     //     fesetround(rounding_mode);

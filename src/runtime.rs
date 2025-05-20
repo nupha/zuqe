@@ -247,7 +247,7 @@ impl Drop for JSRuntime {
 #[inline(always)]
 pub unsafe fn js_check_stack_overflow(rt: *const JSRuntime, alloca_size: usize) -> bool {
     let sp = js_get_stack_pointer() - alloca_size;
-    return sp < (*rt).stack_limit;
+    sp < (*rt).stack_limit
 }
 
 pub unsafe fn update_stack_limit(rt: *mut JSRuntime) {
@@ -328,7 +328,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
         }
     }
 
-    debug_assert!(list_empty(&mut rt.gc_obj_list));
+    debug_assert!(list_empty(&rt.gc_obj_list));
 
     // free the classes
     while let Some(cls) = rt.class_array.pop() {

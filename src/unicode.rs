@@ -52,7 +52,7 @@ pub unsafe fn unicode_from_utf8(
     for _ in 0..l {
         let b = *p;
         p = p.offset(1);
-        if b < 0x80 || b >= 0xc0 {
+        if !(0x80..0xc0).contains(&b) {
             return Err(-1); // 无效的UTF-8后续字节
         }
         c = (c << 6) | ((b & 0x3f) as u32);
@@ -123,7 +123,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                             let code_point = ((b1 as u32 & 0x0F) << 12)
                                 | ((b2 as u32 & 0x3F) << 6)
                                 | (b3 as u32 & 0x3F);
-                            if (code_point >= 0x800 && code_point <= 0xFFFF)
+                            if (0x800..=0xFFFF).contains(&code_point)
                                 || (0xD800..=0xDFFF).contains(&code_point)
                             {
                                 Some(code_point as u16)
@@ -152,7 +152,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                                 | ((b2 as u32 & 0x3F) << 12)
                                 | ((b3 as u32 & 0x3F) << 6)
                                 | (b4 as u32 & 0x3F);
-                            if code_point >= 0x10000 && code_point <= 0x10FFFF {
+                            if (0x10000..=0x10FFFF).contains(&code_point) {
                                 let high_surrogate = ((code_point - 0x10000) >> 10) + 0xD800;
                                 let low_surrogate = ((code_point - 0x10000) & 0x3FF) + 0xDC00;
                                 self.next_unichar.replace(low_surrogate as u16);

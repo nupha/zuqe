@@ -34,9 +34,8 @@ impl JSObject {
                     let new_len = found.props.len();
                     if new_len != use_sh.props.len() {
                         debug_assert!(new_len > use_sh.props.len());
-                        self.grow_prop_value_slots(new_len).map_err(|e| {
+                        self.grow_prop_value_slots(new_len).inspect_err(|_| {
                             ctx.JS_ThrowOutOfMemory();
-                            e
                         })?;
                     }
 

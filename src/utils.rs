@@ -55,8 +55,8 @@ pub unsafe fn js_get_stack_pointer() -> usize {
 
 pub fn JS_DumpObjectHeader() {
     println!(
-        "{:14} {:4} {:4} {:14} {:14} {:10} {}",
-        "ADDRESS", "REFS", "SHRF", "SHAPE@", "PROTO", "CLASS", "PROPS"
+        "{:14} {:4} {:4} {:14} {:14} {:10} PROPS",
+        "ADDRESS", "REFS", "SHRF", "SHAPE@", "PROTO", "CLASS",
     );
 }
 
@@ -65,27 +65,27 @@ pub fn JS_DumpObjectHeader() {
 //
 
 #[inline(always)]
-pub fn M2(op1: i32, op2: i32) -> i32 {
+pub const fn M2(op1: i32, op2: i32) -> i32 {
     op1 | (op2 << 8)
 }
 
 #[inline(always)]
-pub fn M3(op1: i32, op2: i32, op3: i32) -> i32 {
+pub const fn M3(op1: i32, op2: i32, op3: i32) -> i32 {
     op1 | (op2 << 8) | (op3 << 16)
 }
 
 #[inline(always)]
-pub fn M4(op1: i32, op2: i32, op3: i32, op4: i32) -> i32 {
+pub const fn M4(op1: i32, op2: i32, op3: i32, op4: i32) -> i32 {
     op1 | (op2 << 8) | (op3 << 16) | (op4 << 24)
 }
 
 #[inline(always)]
-pub unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
+pub const unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
     ptr.cast::<T>().read_unaligned()
 }
 
 #[inline(always)]
-pub unsafe fn write_to_ptr<T>(ptr: *mut u8, val: T) {
+pub const unsafe fn write_to_ptr<T>(ptr: *mut u8, val: T) {
     ptr.cast::<T>().write_unaligned(val)
 }
 
@@ -214,7 +214,7 @@ pub unsafe fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
     let mut v = val;
     loop {
         let a = (v & 0x7f) as u8;
-        v = v >> 7;
+        v >>= 7;
 
         if v != 0 {
             s.push(a | 0x80);

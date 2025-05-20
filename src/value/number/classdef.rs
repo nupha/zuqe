@@ -37,7 +37,7 @@ pub fn js_thisNumberValue(ctx: &mut JSContext, this_val: JSValue) -> JSResult {
 pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let radix: i32 = unsafe { JS_ToInt32(ctx, args.get_raw(1))? };
 
-    let ret = if radix != 0 && (radix < 2 || radix > 36) {
+    let ret = if radix != 0 && !(2..=36).contains(&radix) {
         JSValue::NAN
     } else {
         let str = args.get_raw(0).coerce_to_utf8(ctx.handle())?;
@@ -201,8 +201,8 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
             FMT_TO_FIXED => {
                 let f = a.unwrap_or(0);
-                if f < 0 || f > 20 {
-                    unsafe { JS_ThrowRangeError(ctx, c"invalid number of digits") };
+                if !(0..=20).contains(&f) {
+                    JS_ThrowRangeError(ctx, c"invalid number of digits");
                     return Err(-1);
                 }
                 let scale = 10_f64.powf(f as f64);

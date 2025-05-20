@@ -88,18 +88,18 @@ pub unsafe fn lre_js_is_ident_first(c: char) -> bool {
     JSParseState::is_ident_first(c)
 }
 
-pub fn from_hex(c: u8) -> Result<u8, i32> {
+pub const fn from_hex(c: u8) -> Result<u8, i32> {
     match c {
-        b'0'..=b'9' => Ok(c - b'0' as u8),
-        b'A'..=b'F' => Ok(c - b'A' as u8 + 10),
-        b'a'..=b'f' => Ok(c - 'a' as u8 + 10),
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
         _ => Err(-1),
     }
 }
 
 #[inline(always)]
-pub fn is_digit(c: u8) -> bool {
-    (b'0'..=b'9').contains(&c)
+pub const fn is_digit(c: u8) -> bool {
+    c.is_ascii_digit()
 }
 
 /* create a RegExp object from a string containing the RegExp bytecode

@@ -308,7 +308,7 @@ impl JSValue {
 
     /// set new value and returns the old value.
     #[inline(always)]
-    pub fn replace(&mut self, new_val: JSValue) -> JSValue {
+    pub const fn replace(&mut self, new_val: JSValue) -> JSValue {
         std::mem::replace(self, new_val)
     }
 
@@ -605,32 +605,32 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
 // }
 
 #[inline]
-pub fn JS_IsNumber(v: JSValueConst) -> bool {
+pub const fn JS_IsNumber(v: JSValueConst) -> bool {
     let tag = JS_VALUE_GET_TAG(v);
     (tag == JS_TAG_INT || JS_TAG_IS_FLOAT64(tag)) as _
 }
 
 #[inline]
-#[allow(unused_variables)] // C2RS: Suppress unused parameter warning for ctx
-pub fn JS_IsBigInt(ctx: *mut JSContext, v: JSValueConst) -> bool {
+#[allow(unused_variables)]
+pub const fn JS_IsBigInt(ctx: *mut JSContext, v: JSValueConst) -> bool {
     let tag = JS_VALUE_GET_TAG(v);
     tag == JS_TAG_BIG_INT
 }
 
 #[inline]
-pub fn JS_IsBigFloat(v: JSValueConst) -> bool {
+pub const fn JS_IsBigFloat(v: JSValueConst) -> bool {
     let tag = JS_VALUE_GET_TAG(v);
     tag == JS_TAG_BIG_FLOAT
 }
 
 #[inline]
-pub fn JS_IsBigDecimal(v: JSValueConst) -> bool {
+pub const fn JS_IsBigDecimal(v: JSValueConst) -> bool {
     let tag = JS_VALUE_GET_TAG(v);
     tag == JS_TAG_BIG_DECIMAL
 }
 
 #[inline]
-pub fn JS_IsBool(v: JSValueConst) -> bool {
+pub const fn JS_IsBool(v: JSValueConst) -> bool {
     JS_VALUE_GET_TAG(v) == JS_TAG_BOOL
 }
 
@@ -650,24 +650,24 @@ pub fn JS_IsException(v: JSValueConst) -> bool {
 }
 
 #[inline]
-pub fn JS_IsUninitialized(v: JSValueConst) -> bool {
-    unlikely(JS_VALUE_GET_TAG(v) == JS_TAG_UNINITIALIZED)
+pub const fn JS_IsUninitialized(v: JSValueConst) -> bool {
+    JS_VALUE_GET_TAG(v) == JS_TAG_UNINITIALIZED
 }
 
 #[deprecated(note = "use JSValue::is_string() instead")]
 #[inline]
-pub fn JS_IsString(v: JSValueConst) -> bool {
+pub const fn JS_IsString(v: JSValueConst) -> bool {
     v.is_string()
 }
 
 #[inline]
-pub fn JS_IsSymbol(v: JSValueConst) -> bool {
+pub const fn JS_IsSymbol(v: JSValueConst) -> bool {
     JS_VALUE_GET_TAG(v) == JS_TAG_SYMBOL
 }
 
 #[deprecated(note = "use JSValue::is_object() instead")]
 #[inline]
-pub fn JS_IsObject(v: JSValueConst) -> bool {
+pub const fn JS_IsObject(v: JSValueConst) -> bool {
     v.is_object()
 }
 

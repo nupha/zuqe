@@ -62,10 +62,7 @@ pub union JSTokenUnion {
 
 impl Clone for JSTokenUnion {
     fn clone(&self) -> Self {
-        unsafe {
-            // 由于是 union，直接复制内存是安全的
-            std::mem::transmute_copy(self)
-        }
+        *self
     }
 }
 impl Copy for JSTokenUnion {}
@@ -271,7 +268,7 @@ impl<'s> JSParseState<'s> {
                     if *p.add(1) == b'.' && *p.add(2) == b'.' {
                         p = p.add(3);
                         self.token.val = TOK_ELLIPSIS;
-                    } else if (b'0'..=b'9').contains(&*p.add(1)) {
+                    } else if (*p.add(1)).is_ascii_digit() {
                         isa = Some(ISA::ParseNumber);
                     } else {
                         isa = Some(ISA::DefaultToken('.'))
@@ -683,7 +680,7 @@ pub unsafe fn free_token(s: *mut JSParseState, token: *mut JSToken) {
 
 pub unsafe fn token_is_ident(tok: i32) -> bool {
     /* Accept keywords and reserved words as property names */
-    tok == TOK_IDENT || (tok >= TOK_FIRST_KEYWORD && tok <= TOK_LAST_KEYWORD)
+    tok == TOK_IDENT || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&tok)
 }
 
 #[inline(always)]
@@ -743,7 +740,7 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
             b'=' => {
                 if *p == b'>' {
                     p = p.add(1);
-                    return TOK_ARROW as i32;
+                    return TOK_ARROW;
                 }
                 return c as i32;
             }
@@ -752,7 +749,7 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
                     if c == b'i' {
                         if *p == b'n' && !JSParseState::is_ident_next(*p.add(1) as char) {
                             p = p.add(1);
-                            return TOK_IN as i32;
+                            return TOK_IN;
                         }
                         if *p == b'm'
                             && *p.add(1) == b'p'
@@ -762,14 +759,14 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
                             && !JSParseState::is_ident_next(*p.add(5) as char)
                         {
                             *pp = p.add(5);
-                            return TOK_IMPORT as i32;
+                            return TOK_IMPORT;
                         }
                     } else if c == b'o'
                         && *p == b'f'
                         && !JSParseState::is_ident_next(*p.add(1) as char)
                     {
                         p = p.add(1);
-                        return TOK_OF as i32;
+                        return TOK_OF;
                     } else if c == b'e'
                         && *p == b'x'
                         && *p.add(1) == b'p'
@@ -779,7 +776,7 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
                         && !JSParseState::is_ident_next(*p.add(5) as char)
                     {
                         *pp = p.add(5);
-                        return TOK_EXPORT as i32;
+                        return TOK_EXPORT;
                     } else if c == b'f'
                         && *p == b'u'
                         && *p.add(1) == b'n'
@@ -791,9 +788,9 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
                         && !JSParseState::is_ident_next(*p.add(7) as char)
                     {
                         p = p.add(7);
-                        return TOK_FUNCTION as i32;
+                        return TOK_FUNCTION;
                     }
-                    return TOK_IDENT as i32;
+                    return TOK_IDENT;
                 }
                 return c as i32;
             }
@@ -866,7 +863,7 @@ pub unsafe fn update_token_ident(s: &mut JSParseState) {
 
 /// return TRUE if a regexp literal is allowed after token `tok`
 #[inline(always)]
-pub fn is_regexp_allowed(tok: i32) -> bool {
+pub const fn is_regexp_allowed(tok: i32) -> bool {
     // regexp may occur after
     matches!(
         tok,

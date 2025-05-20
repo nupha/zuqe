@@ -362,7 +362,7 @@ impl StringContent {
         Ok(())
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Empty => &[],
             Self::Utf8(s) => s.as_slice(),
@@ -382,7 +382,7 @@ impl StringContent {
     }
 
     /// string length
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
             Self::Utf8(s) => s.len(),
@@ -391,7 +391,7 @@ impl StringContent {
     }
 
     /// capacity
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         match self {
             Self::Empty => 0,
             Self::Utf8(s) => s.capacity(),

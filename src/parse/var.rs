@@ -147,7 +147,7 @@ pub unsafe fn define_var(
                     }
                 }
 
-                if let Ok(_) = (*fd).add_global_var(ctx.deref_mut(), name) {
+                if (*fd).add_global_var(ctx.deref_mut(), name).is_ok() {
                     vid = GLOBAL_VAR_OFFSET;
                 } else {
                     return -1;

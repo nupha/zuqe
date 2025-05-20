@@ -44,7 +44,7 @@ impl JSObject {
         }
 
         // call class finalizer
-        if let Some(cb) = (*rt).class_array[(*p).class_id() as usize].finalizer {
+        if let Some(cb) = rt.class_array[(*p).class_id() as usize].finalizer {
             cb(rt, JS_MKPTR!(JSTag::Object, p.cast()));
         }
 
@@ -72,13 +72,12 @@ impl JSObject {
 
         remove_gc_object(&mut (*p).header);
 
-        if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*p).header.ref_count != 0
-        {
+        if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*p).header.ref_count != 0 {
             // this means we are in free cycles process,
             // where tmp_obj_list object not always have ref_count==0, it could be 1 sometimes.
             // in this case, we put this object in `gc_zero_ref_count_list` to free object attached payload.
             // see `gc_free_cycles()` bottom half for detail.
-            list_add_tail(&mut (*p).header.link, &mut (*rt).gc_zero_ref_count_list);
+            list_add_tail(&mut (*p).header.link, &mut rt.gc_zero_ref_count_list);
         } else {
             drop(Box::from_raw(p));
         }

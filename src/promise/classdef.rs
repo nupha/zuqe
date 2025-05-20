@@ -205,7 +205,7 @@ pub unsafe fn js_promise_all(
     if !this_val.is_object() {
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
-    let is_promise_any = magic == PROMISE_MAGIC_any as i32;
+    let is_promise_any = magic == PROMISE_MAGIC_any;
 
     let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(this_val) {
         (
@@ -226,11 +226,12 @@ pub unsafe fn js_promise_all(
             error.deref_mut(),
         )
         .into_rc((*ctx).rt());
-        return if ret.is_exception() {
+
+        if ret.is_exception() {
             JSValue::EXCEPTION
         } else {
             promise.into()
-        };
+        }
     };
 
     let promise_resolve = this_val
@@ -386,7 +387,7 @@ pub unsafe fn js_promise_all(
 
     match remainingElementsCount_add(ctx.as_mut().unwrap(), *resolve_element_env, -1) {
         Ok(1) => {
-            if magic == PROMISE_MAGIC_any as i32 {
+            if magic == PROMISE_MAGIC_any {
                 let error = js_aggregate_error_constructor(ctx.as_mut().unwrap(), *values)
                     .into_rc((*ctx).rt());
                 if error.is_exception() {
@@ -449,11 +450,12 @@ pub unsafe fn js_promise_race(
             error.deref_mut(),
         )
         .into_rc((*ctx).rt());
-        return if ret.is_exception() {
+
+        if ret.is_exception() {
             JSValue::EXCEPTION
         } else {
             promise.into()
-        };
+        }
     };
 
     let promise_resolve = this_val

@@ -76,7 +76,7 @@ impl<'s> JSParseState<'s> {
         // TODO: create root function def
         // let mut fd = JSFunctionDef::new(ctx, std::ptr::null_mut(), false, false, filename, 1)?;
 
-        let s = Self {
+        Self {
             ctx,
             last_line_num: 0,
             line_num: 1,
@@ -98,22 +98,20 @@ impl<'s> JSParseState<'s> {
             allow_html_comments: false,
             ext_json: false,
             got_lf: false,
-        };
-
-        s
+        }
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub unsafe fn cur_func(&self) -> &JSFunctionDef {
+    pub const unsafe fn cur_func(&self) -> &JSFunctionDef {
         self.cur_func_ptr.as_ref().unwrap()
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub unsafe fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
+    pub const unsafe fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
         self.cur_func_ptr.as_mut().unwrap()
     }
 
@@ -168,7 +166,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// get parse pos
-    pub fn get_pos(&self) -> JSParsePos {
+    pub const fn get_pos(&self) -> JSParsePos {
         JSParsePos {
             last_line_num: self.last_line_num,
             line_num: self.token.line_num,
@@ -199,7 +197,7 @@ pub unsafe fn js_parse_get_pos(s: *mut JSParseState, sp: *mut JSParsePos) -> i32
     (*sp).line_num = (*s).token.line_num;
     (*sp).ptr = (*s).token.ptr;
     (*sp).got_lf = (*s).got_lf;
-    return 0;
+    0
 }
 
 #[deprecated(note = "use JSParseState::seek_token() instead")]

@@ -18,7 +18,7 @@ pub struct JSPromiseReactionData {
 }
 
 impl JSPromiseReactionData {
-    pub(super) fn free(self: Box<Self>, rt: *mut JSRuntime) {
+    pub(super) fn dispose(self, rt: &mut JSRuntime) {
         unsafe {
             JS_FreeValueRT(rt, self.resolving_funcs[0]);
             JS_FreeValueRT(rt, self.resolving_funcs[1]);
@@ -45,7 +45,7 @@ impl PromiseValue {
                 Box::from_raw(p.as_ptr())
             } else {
                 if i == 1 {
-                    Box::from_raw(rd_array[0]).free(ctx.rt_mut());
+                    Box::from_raw(rd_array[0]).dispose(ctx.rt_mut());
                 }
                 return Err(-1);
             };
@@ -87,7 +87,7 @@ impl PromiseValue {
                 }
             }
 
-            let i = if (*p).promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
+            let i = if p.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
                 0 // resolve
             } else {
                 1 // reject
@@ -106,8 +106,8 @@ impl PromiseValue {
             ];
             ctx.enqueue_job(promise_reaction_job, &args).unwrap();
 
-            Box::from_raw(rd_array[0]).free(ctx.rt_mut());
-            Box::from_raw(rd_array[1]).free(ctx.rt_mut());
+            Box::from_raw(rd_array[0]).dispose(ctx.rt_mut());
+            Box::from_raw(rd_array[1]).dispose(ctx.rt_mut());
         }
 
         p.is_handled = true;

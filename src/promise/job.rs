@@ -158,9 +158,9 @@ impl JSRuntime {
                 0,
                 None,
             );
-            let res = ((*job).callback)(ctx.deref_mut(), cc);
-            for i in 0..(*job).argc {
-                JS_FreeValue(ctx.deref_mut(), (*job).args[i as usize]);
+            let res = (job.callback)(ctx.deref_mut(), cc);
+            for i in 0..job.argc {
+                JS_FreeValue(ctx.deref_mut(), job.args[i as usize]);
             }
             if let Ok(r) = res {
                 JS_FreeValue(ctx.deref_mut(), r);

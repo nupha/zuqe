@@ -410,9 +410,7 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
             }
             JSTag::Float64 => {
                 let d = JS_VALUE_GET_FLOAT64(val);
-                res = if d.is_nan() {
-                    0
-                } else if d < 0.0 {
+                res = if d.is_nan() || d < 0.0 {
                     0
                 } else if d > 255.0 {
                     255

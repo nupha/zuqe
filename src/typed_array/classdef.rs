@@ -377,15 +377,18 @@ pub fn js_typed_array_of(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     for i in 0..args.length() {
-        if obj
-            .set_property_u32(ctx, i as u32, args.get_raw(i as usize).dup())
-            .is_err()
-        {
-            unsafe {
+        obj.set_property_u32(ctx, i as u32, args.get_raw(i).dup())
+            .inspect_err(|_| {
                 JS_FreeValue(ctx, obj);
-            }
-            return Err(-1);
-        }
+            })?;
+
+        // if obj
+        //     .set_property_u32(ctx, i as u32, args.get_raw(i).dup())
+        //     .is_err()
+        // {
+        //     JS_FreeValue(ctx, obj);
+        //     return Err(-1);
+        // }
     }
 
     Ok(obj)
@@ -472,7 +475,7 @@ pub unsafe fn js_typed_array_at(
 
         let len = p.length() as i64;
         if idx < 0 {
-            idx = len + idx;
+            idx += len;
         }
         if idx < 0 || idx >= len {
             return JSValue::UNDEFINED;
@@ -498,7 +501,7 @@ pub unsafe fn js_typed_array_with(
 
         let len = p.length() as i64;
         if idx < 0 {
-            idx = len + idx;
+            idx += len;
         }
         if idx < 0 || idx >= len {
             return JS_ThrowRangeError(ctx, c"out of bound");
@@ -1042,28 +1045,28 @@ pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
         match p.class_id() {
             JS_CLASS_INT8_ARRAY => {
-                sort!(i8, 0, |v| JSValue::from_i32(v as i32));
+                sort!(i8, 0, |v| JSValue::from(v as i32));
             }
             JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                sort!(u8, 0, |v| JSValue::from_i32(v as i32));
+                sort!(u8, 0, |v| JSValue::from(v as i32));
             }
             JS_CLASS_INT16_ARRAY => {
-                sort!(i16, 1, |v| JSValue::from_i32(v as i32));
+                sort!(i16, 1, |v| JSValue::from(v as i32));
             }
             JS_CLASS_UINT16_ARRAY => {
-                sort!(u16, 1, |v| JSValue::from_i32(v as i32));
+                sort!(u16, 1, |v| JSValue::from(v as i32));
             }
             JS_CLASS_INT32_ARRAY => {
-                sort!(i32, 2, |v| JSValue::from_i32(v as i32));
+                sort!(i32, 2, JSValue::from);
             }
             JS_CLASS_UINT32_ARRAY => {
-                sort!(u32, 2, |v| JSValue::from_u32(v as u32));
+                sort!(u32, 2, JSValue::from);
             }
             JS_CLASS_FLOAT32_ARRAY => {
-                sort!(f32, 2, |v| JSValue::from_f64(v as f64));
+                sort!(f32, 2, |v| JSValue::from(v as f64));
             }
             JS_CLASS_FLOAT64_ARRAY => {
-                sort!(f64, 3, |v| JSValue::from_f64(v as f64));
+                sort!(f64, 3, JSValue::from);
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
                 ctx.JS_ThrowTypeError(c"BigInt64 is not supported");

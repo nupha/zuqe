@@ -66,13 +66,13 @@ impl JSTypedArray {
 
     /// get underlaying array buffer.
     #[inline(always)]
-    pub fn array_buffer(&self) -> &JSArrayBuffer {
+    pub const fn array_buffer(&self) -> &JSArrayBuffer {
         unsafe { self.buffer.as_ref().u.array_buffer.as_ref().unwrap() }
     }
 
     /// get underlaying array buffer.
     #[inline(always)]
-    pub fn array_buffer_mut(&mut self) -> &mut JSArrayBuffer {
+    pub const fn array_buffer_mut(&mut self) -> &mut JSArrayBuffer {
         unsafe { self.buffer.as_ref().u.array_buffer.as_mut().unwrap() }
     }
 
@@ -155,10 +155,10 @@ impl TypedArrayValue {
         let pbuffer = buffer.object_unchecked();
         let abuf = pbuffer.u.array_buffer;
         debug_assert!(
-            (*abuf).byte_length() >= offset as usize + (count << size_log2),
+            (*abuf).byte_length() >= offset + (count << size_log2),
             "len1={}, len2={}",
             (*abuf).byte_length(),
-            offset as usize + (count << size_log2)
+            offset + (count << size_log2)
         );
 
         let mut ta = unsafe {
@@ -181,7 +181,7 @@ impl TypedArrayValue {
         (*ob.u.array).typed_array_count = count as u32;
 
         // TODO: remove this.
-        (*ob.u.array).data.ptr = (*abuf).content.as_mut_ptr().offset(offset as isize).cast();
+        (*ob.u.array).data.ptr = (*abuf).content.as_mut_ptr().add(offset).cast();
 
         Ok(())
     }
@@ -218,12 +218,12 @@ impl TypedArrayValue {
         is_dataview: bool,
     ) -> Result<usize, i32> {
         if self.is_detached() {
-            return if is_dataview {
+            if is_dataview {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 Err(-1)
             } else {
                 Ok(0)
-            };
+            }
         } else {
             Ok(self.typed_array().offset as usize)
         }
@@ -409,7 +409,7 @@ macro_rules! typed_array_obj_of {
             fn try_from(value: JSValue) -> Result<Self, Self::Error> {
                 if let Some(ob) = value.object() {
                     if matches!(ob.class_id(), $class_id) {
-                        Ok(unsafe { std::mem::transmute(value) })
+                        Ok(unsafe { std::mem::transmute::<JSValue, $name>(value) })
                     } else {
                         Err(-1)
                     }
@@ -424,7 +424,7 @@ macro_rules! typed_array_obj_of {
 
             fn try_from(value: TypedArrayValue) -> Result<Self, Self::Error> {
                 if matches!(value.class_id(), $class_id) {
-                    Ok(unsafe { std::mem::transmute(value) })
+                    Ok(unsafe { std::mem::transmute::<TypedArrayValue, $name>(value) })
                 } else {
                     Err(-1)
                 }
@@ -516,7 +516,7 @@ impl TryFrom<JSValue> for TypedArrayValue {
                 ob.class_id(),
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW
             ) {
-                Ok(unsafe { std::mem::transmute(value) })
+                Ok(unsafe { std::mem::transmute::<JSValue, TypedArrayValue>(value) })
             } else {
                 Err(-1)
             }
@@ -581,9 +581,7 @@ impl JSContext {
         let size_log2 = typed_array_size_log2(classid);
 
         match JS_VALUE_GET_TAG(source) {
-            JS_TAG_UNDEFINED => {
-                return self.create_typed_array(new_target, length, classid);
-            }
+            JS_TAG_UNDEFINED => self.create_typed_array(new_target, length, classid),
             JS_TAG_OBJECT => {
                 let p = source.object_unchecked();
                 match p.class_id() {
@@ -633,8 +631,8 @@ impl JSContext {
                         Ok(obj.into())
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        return UncheckedInto::<TypedArrayValue>::unchecked_into(source)
-                            .create_to_new(self, new_target, classid);
+                        UncheckedInto::<TypedArrayValue>::unchecked_into(source)
+                            .create_to_new(self, new_target, classid)
                     }
                     _ => {
                         // source is an enumetable object.
@@ -698,13 +696,11 @@ impl JSContext {
                         }
 
                         JS_FreeValue(self, enum_obj);
-                        return Ok(new_arr.into());
+                        Ok(new_arr.into())
                     }
                 }
             }
-            _ => {
-                return Err(-1);
-            }
+            _ => Err(-1),
         }
     }
 }
@@ -796,7 +792,7 @@ pub unsafe fn js_typed_array_set_internal(
     if (*src_p).class_id() >= JS_CLASS_UINT8C_ARRAY && (*src_p).class_id() <= JS_CLASS_FLOAT64_ARRAY
     {
         let dest_ta = p.typed_array();
-        let dest_abuf = (*dest_ta).buffer.as_mut().u.array_buffer;
+        let dest_abuf = dest_ta.buffer.as_mut().u.array_buffer;
         let src_ta = (*src_p).u.typed_array;
         let src_abuf = (*src_ta).buffer.as_ref().u.array_buffer;
         let shift = typed_array_size_log2(p.class_id());

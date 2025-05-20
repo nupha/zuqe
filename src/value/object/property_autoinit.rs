@@ -24,12 +24,12 @@ pub enum JSAutoInitIDEnum {
 }
 
 #[inline(always)]
-pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
+pub const unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
     ((*pr).u.init.realm_and_id & 0b11) as _
 }
 
 #[inline(always)]
-pub unsafe fn js_autoinit_get_realm(pr: *const JSProperty) -> *mut JSContext {
+pub const unsafe fn js_autoinit_get_realm(pr: *const JSProperty) -> *mut JSContext {
     ((*pr).u.init.realm_and_id & !0b11) as *mut JSContext
 }
 

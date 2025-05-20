@@ -21,12 +21,12 @@ pub const ATOD_TYPE_BIG_INT: i32 = 1 << 7;
 pub const ATOD_ACCEPT_PREFIX_AFTER_SIGN: i32 = 1 << 10;
 
 #[inline(always)]
-pub fn to_digit(c: u8) -> i32 {
-    if (b'0'..=b'9').contains(&c) {
+pub const fn to_digit(c: u8) -> i32 {
+    if c.is_ascii_digit() {
         (c - b'0') as _
-    } else if (b'A'..=b'Z').contains(&c) {
+    } else if c.is_ascii_uppercase() {
         (c - b'A' + 10) as _
-    } else if (b'a'..=b'z').contains(&c) {
+    } else if c.is_ascii_lowercase() {
         (c - b'a' + 10) as _
     } else {
         36 // '$'
@@ -143,7 +143,7 @@ pub unsafe fn js_atof(
             GotoLabel::NoRadixPrefix(is_neg) => {
                 if flags & ATOD_INT_ONLY == 0
                     && atod_type == ATOD_TYPE_FLOAT64
-                    && strstart(p, b"Infinity\0".as_ptr(), std::ptr::addr_of_mut!(p))
+                    && strstart(p, c"Infinity".as_ptr().cast(), std::ptr::addr_of_mut!(p))
                 {
                     let mut d = 1.0 / 0.0;
                     if is_neg {
@@ -173,7 +173,7 @@ pub unsafe fn js_atof(
         p = p.add(1);
     }
 
-    if !(flags & ATOD_INT_ONLY != 0) {
+    if flags & ATOD_INT_ONLY == 0 {
         if *p == b'.' && (p > p_start || to_digit(*p.offset(1)) < radix) {
             is_float = true;
             p = p.offset(1);
@@ -190,9 +190,7 @@ pub unsafe fn js_atof(
         {
             let mut p1 = p.offset(1);
             is_float = true;
-            if *p1 == b'+' {
-                p1 = p1.offset(1);
-            } else if *p1 == b'-' {
+            if matches!(*p1, b'+' | b'-') {
                 p1 = p1.offset(1);
             }
             if (*p1 as char).is_digit(radix as _) {
@@ -281,7 +279,7 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            return val;
+            val
         }
         ATOD_TYPE_BIG_INT => {
             // fail!();

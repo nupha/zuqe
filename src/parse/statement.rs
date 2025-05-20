@@ -67,7 +67,8 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
 
         if s.next_token().is_err() {
             fail!();
-        } else if s.parse_expect(CHAR_COLON).is_err() {
+        }
+        if s.parse_expect(CHAR_COLON).is_err() {
             fail!();
         }
 
@@ -124,7 +125,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             if s.next_token().is_err() {
                 fail!();
             }
-            if !matches!(s.token.val as u8, b';' | b'}') && !(*s).got_lf {
+            if !matches!(s.token.val as u8, b';' | b'}') && !s.got_lf {
                 if s.parse_expr().is_err() {
                     fail!();
                 }
@@ -566,13 +567,17 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         let chunk_size = pos_body - pos_cont;
         let offset = bc.len() - pos_cont;
 
-        bc.extend(std::iter::repeat(OpCode::NOP as u8).take(chunk_size));
+        bc.extend(std::iter::repeat_n(OpCode::NOP as u8, chunk_size));
         for i in (pos_cont..pos_body).rev() {
             bc[i + offset] = bc[i];
         }
-        for i in pos_cont..pos_body {
-            bc[i] = OpCode::NOP as u8;
+        for item in bc.iter_mut().take(pos_body).skip(pos_cont) {
+            *item = OpCode::NOP as u8;
         }
+        // original code
+        // for i in pos_cont..pos_body {
+        //     bc[i] = OpCode::NOP as u8;
+        // }
 
         // increment part ends with a goto
         s.cur_func_mut().last_opcode_pos = bc.len() as i32 - 5;
@@ -714,7 +719,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         } else {
             s.parse_expect(CHAR_BRACKET_L)?;
 
-            if !(s.token.val == TOK_IDENT && !s.token.u.ident.is_reserved) {
+            if s.token.val != TOK_IDENT || s.token.u.ident.is_reserved {
                 if matches!(s.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) {
                     // XXX: TOK_LET is not completely correct
                     if js_parse_destructuring_element(s, TOK_LET, false, true, -1, true) < 0 {
@@ -942,14 +947,12 @@ unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
         s.throw_syntax_error(c"invalid keyword: with");
         Err(-1)
     } else {
-        let with_idx: i32;
-
         s.next_token()?;
         s.parse_expr_parens()?;
 
         s.push_scope()?;
 
-        with_idx = define_var(
+        let with_idx = define_var(
             s,
             s.cur_func_mut(),
             JS_ATOM__with_,
@@ -1101,7 +1104,7 @@ pub unsafe fn js_parse_for_in_of(
     if matches!(tok, TOK_VAR | TOK_LET | TOK_CONST) {
         (*s).next_token()?;
 
-        if !(s.token.val == TOK_IDENT && !s.token.u.ident.is_reserved) {
+        if s.token.val != TOK_IDENT || s.token.u.ident.is_reserved {
             if s.token.val == '[' as i32 || s.token.val == '{' as i32 {
                 if js_parse_destructuring_element(s, tok, false, true, -1, false) < 0 {
                     return Err(-1);
@@ -1290,13 +1293,16 @@ pub unsafe fn js_parse_for_in_of(
         let chunk_size = pos_expr - pos_next;
         let offset = bc.len() - pos_next;
 
-        bc.extend(std::iter::repeat(OpCode::NOP as u8).take(chunk_size));
+        bc.extend(std::iter::repeat_n(OpCode::NOP as u8, chunk_size));
         for i in (pos_expr..pos_next).rev() {
             bc[i + offset] = bc[i];
         }
-        for i in pos_expr..pos_next {
-            bc[i] = OpCode::NOP as u8;
+        for item in bc.iter_mut().take(pos_next).skip(pos_expr) {
+            *item = OpCode::NOP as u8;
         }
+        // for i in pos_expr..pos_next {
+        //     bc[i] = OpCode::NOP as u8;
+        // }
 
         // `next` part ends with a goto
         s.cur_func_mut().last_opcode_pos = bc.len() as i32 - 5;

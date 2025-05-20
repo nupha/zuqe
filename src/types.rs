@@ -1,15 +1,13 @@
-use std::os::raw::c_void;
-
 #[cfg(target_pointer_width = "64")]
 pub const JS_PTR64: () = ();
 
 #[inline(always)]
-pub fn likely(x: bool) -> bool {
+pub const fn likely(x: bool) -> bool {
     x
 }
 
 #[inline(always)]
-pub fn unlikely(x: bool) -> bool {
+pub const fn unlikely(x: bool) -> bool {
     x
 }
 
@@ -97,7 +95,7 @@ pub fn list_count(head: *const list_head) -> usize {
     let mut cnt = 0;
     unsafe {
         let mut e = (*head).next;
-        while e as usize != head as usize {
+        while !std::ptr::eq(e, head) {
             cnt += 1;
             e = (*e).next;
         }
@@ -107,7 +105,7 @@ pub fn list_count(head: *const list_head) -> usize {
 
 #[inline(always)]
 pub fn list_empty(el: *const list_head) -> bool {
-    unsafe { (*el).next as *const list_head == el }
+    unsafe { std::ptr::eq((*el).next, el) }
 }
 
 pub unsafe fn list_foreach(head: *mut list_head, mut f: impl FnMut(*mut list_head)) {

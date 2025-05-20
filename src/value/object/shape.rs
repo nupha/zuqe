@@ -46,7 +46,8 @@ impl JSShapeProperty {
         (self.bitfield & Self::FLAGS_MASK) >> 26
     }
 
-    pub fn set_flags(&mut self, f: u32) {
+    #[inline]
+    pub const fn set_flags(&mut self, f: u32) {
         self.bitfield = (self.bitfield & !Self::FLAGS_MASK) | ((f & 0x3f) << 26);
     }
 }
@@ -87,7 +88,7 @@ impl Drop for JSShape {
 impl JSShape {
     /// increase shape ref_count
     #[inline(always)]
-    pub fn dup(&mut self) -> &mut Self {
+    pub const fn dup(&mut self) -> &mut Self {
         self.header.ref_count += 1;
         self
     }
@@ -297,7 +298,7 @@ impl JSContext {
         });
         debug_assert_eq!(
             shape.as_ref() as *const JSShape as usize,
-            std::ptr::addr_of!((*shape).header) as usize
+            std::ptr::addr_of!(shape.header) as usize
         );
 
         unsafe {
@@ -348,7 +349,7 @@ impl JSContext {
             .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
             .is_err()
         {
-            JSShape::free(self.rt_mut(), shape.into());
+            JSShape::free(self.rt_mut(), shape);
             self.JS_ThrowOutOfMemory();
             return Err(-1);
         }
@@ -392,7 +393,7 @@ impl JSContext {
                 Box::from_raw(p.as_ptr())
             }
         } else {
-            JSShape::free(self.rt_mut(), shape.into());
+            JSShape::free(self.rt_mut(), shape);
             return Err(-1);
         };
 

@@ -151,14 +151,14 @@ impl JSObject {
             }
 
             // init extended elements to `undefined` jsvalue
-            self.prop_values.extend(
-                std::iter::repeat(JSProperty {
+            self.prop_values.extend(std::iter::repeat_n(
+                JSProperty {
                     u: JSPropertyUnion {
                         value: JSValue::UNDEFINED,
                     },
-                })
-                .take(grow),
-            );
+                },
+                grow,
+            ));
         }
 
         Ok(())

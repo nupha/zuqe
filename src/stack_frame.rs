@@ -64,7 +64,7 @@ impl Default for JSStackFrame {
 impl JSStackFrame {
     /// get argument values slice
     #[inline(always)]
-    pub fn args_slice(&self) -> &[JSValue] {
+    pub const fn args_slice(&self) -> &[JSValue] {
         if self.arg_count == 0 {
             &[]
         } else {
@@ -74,13 +74,13 @@ impl JSStackFrame {
 
     /// get stack base pointer
     #[inline(always)]
-    pub fn stack_base_ptr(&self) -> NonNull<JSValue> {
+    pub const fn stack_base_ptr(&self) -> NonNull<JSValue> {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
     /// get stack current pointer
     #[inline(always)]
-    pub fn stack_current_ptr(&self) -> NonNull<JSValue> {
+    pub const fn stack_current_ptr(&self) -> NonNull<JSValue> {
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset) }
     }
 
@@ -162,7 +162,7 @@ impl JSStackFrame {
             self.cur_sp_offset = sp;
         } else {
             // is normal function
-            if !list_empty(&mut self.var_ref_list) {
+            if !list_empty(&self.var_ref_list) {
                 // variable references reference the stack: must close them
                 self.close_var_refs(ctx);
             }

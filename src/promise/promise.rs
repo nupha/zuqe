@@ -68,7 +68,7 @@ impl TryFrom<JSValue> for PromiseValue {
     /// interpret value as PromiseValue.
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
         if value.is_object() && unsafe { value.object_unchecked().class_id() } == JS_CLASS_PROMISE {
-            Ok(unsafe { std::mem::transmute(value) })
+            Ok(unsafe { std::mem::transmute::<JSValue, PromiseValue>(value) })
         } else {
             Err(-1)
         }
@@ -126,9 +126,8 @@ impl PromiseValue {
 
         let promise = Self(pr_obj);
 
-        let mut args = promise.create_resolving_functions(ctx).map_err(|e| {
+        let mut args = promise.create_resolving_functions(ctx).inspect_err(|_| {
             JS_FreeValue(ctx, promise.0);
-            e
         })?;
 
         let ret = JS_Call(ctx, executor, JSValue::UNDEFINED, 2, args.as_mut_ptr());
@@ -188,13 +187,20 @@ impl PromiseValue {
         let data = s.as_ref().data();
         debug_assert!(!data.is_empty());
 
-        for i in 0..2 {
-            if data[i].ensure_callable(ctx).is_err() {
+        for item in data.iter().take(2) {
+            if item.ensure_callable(ctx).is_err() {
                 JS_FreeValue(ctx, executor);
                 JS_FreeValue(ctx, result_promise);
                 return Err(-1);
             }
         }
+        // for i in 0..2 {
+        //     if data[i].ensure_callable(ctx).is_err() {
+        //         JS_FreeValue(ctx, executor);
+        //         JS_FreeValue(ctx, result_promise);
+        //         return Err(-1);
+        //     }
+        // }
 
         let resolving_funcs = [data[0].dup(), data[1].dup()];
         JS_FreeValue(ctx, executor);
@@ -203,8 +209,8 @@ impl PromiseValue {
     }
 
     #[inline(always)]
-    pub fn as_value(self) -> JSValue {
-        unsafe { std::mem::transmute(self.0) }
+    pub const fn as_value(self) -> JSValue {
+        self.0
     }
 
     #[inline(always)]
@@ -363,7 +369,7 @@ impl PromiseValue {
                 .unwrap();
 
                 list_del(&mut (*rd).link);
-                Box::from_raw(rd).free(ctx.rt_mut());
+                Box::from_raw(rd).dispose(ctx.rt_mut());
             });
         }
     }
@@ -421,7 +427,7 @@ impl PromiseValue {
             for i in 0..2 {
                 list_foreach_safe(&mut s.as_mut().promise_reactions[i], |el| {
                     let rd = list_entry!(el, JSPromiseReactionData, link);
-                    Box::from_raw(rd).free(rt);
+                    Box::from_raw(rd).dispose(rt.as_mut().unwrap());
                 });
             }
             JS_FreeValueRT(rt, s.as_mut().promise_result);
@@ -485,7 +491,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
 
     let _ = args.replace_data(0, JSValue::TRUE);
 
-    let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled as i32 {
+    let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         unsafe {
             let ob = JS_NewObject(ctx).check_exception()?.into_rc(ctx.rt());
 
@@ -521,7 +527,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
 
     match unsafe { remainingElementsCount_add(ctx, resolve_element_env, -1)? } {
         1 => {
-            if resolve_type == PROMISE_MAGIC_any as i32 {
+            if resolve_type == PROMISE_MAGIC_any {
                 let mut error = js_aggregate_error_constructor(ctx, values)
                     .check_exception()?
                     .into_rc(ctx.rt());
@@ -529,13 +535,13 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
                 unsafe {
                     JS_Call(ctx, resolve, JSValue::UNDEFINED, 1, error.deref_mut())
                         .check_exception()?
-                        .into_rc((*ctx).rt())
+                        .into_rc(ctx.rt())
                 }
             } else {
                 unsafe {
                     JS_Call(ctx, resolve, JSValue::UNDEFINED, 1, &mut values)
                         .check_exception()?
-                        .into_rc((*ctx).rt())
+                        .into_rc(ctx.rt())
                 }
             };
         }

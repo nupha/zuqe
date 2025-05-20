@@ -74,7 +74,7 @@ impl JSObjectFlags {
     pub const fn extensible(&self) -> bool {
         self.bitfield & Self::MASK_EXTENSIBLE != 0
     }
-    pub fn set_extensible(&mut self, b: bool) {
+    pub const fn set_extensible(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_EXTENSIBLE;
         } else {
@@ -85,7 +85,7 @@ impl JSObjectFlags {
     pub const fn free_mark(&self) -> bool {
         self.bitfield & Self::MASK_FREE_MARK != 0
     }
-    pub fn set_free_mark(&mut self, b: bool) {
+    pub const fn set_free_mark(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_FREE_MARK;
         } else {
@@ -96,7 +96,7 @@ impl JSObjectFlags {
     pub const fn is_exotic(&self) -> bool {
         self.bitfield & Self::MASK_IS_EXOTIC != 0
     }
-    pub fn set_exotic(&mut self, b: bool) {
+    pub const fn set_exotic(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_EXOTIC;
         } else {
@@ -107,7 +107,7 @@ impl JSObjectFlags {
     pub const fn fast_array(&self) -> bool {
         self.bitfield & Self::MASK_FAST_ARRAY != 0
     }
-    pub fn set_fast_array(&mut self, b: bool) {
+    pub const fn set_fast_array(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_FAST_ARRAY
         } else {
@@ -118,7 +118,7 @@ impl JSObjectFlags {
     pub const fn is_constructor(&self) -> bool {
         self.bitfield & Self::MASK_IS_CONSTRUCTOR != 0
     }
-    pub fn set_constructor(&mut self, b: bool) {
+    pub const fn set_constructor(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_CONSTRUCTOR;
         } else {
@@ -129,7 +129,7 @@ impl JSObjectFlags {
     pub const fn is_uncatchable_error(&self) -> bool {
         self.bitfield & Self::MASK_IS_UNCATCHABLE_ERROR != 0
     }
-    pub fn set_uncatchable_error(&mut self, b: bool) {
+    pub const fn set_uncatchable_error(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_UNCATCHABLE_ERROR;
         } else {
@@ -140,7 +140,7 @@ impl JSObjectFlags {
     pub const fn tmp_mark(&self) -> bool {
         self.bitfield & Self::MASK_TMP_MARK != 0
     }
-    pub fn set_tmp_mark(&mut self, b: bool) {
+    pub const fn set_tmp_mark(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_TMP_MARK;
         } else {
@@ -151,7 +151,7 @@ impl JSObjectFlags {
     pub const fn is_htmldda(&self) -> bool {
         self.bitfield & Self::MASK_IS_HTMLDDA != 0
     }
-    pub fn set_htmldda(&mut self, b: bool) {
+    pub const fn set_htmldda(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_HTMLDDA;
         } else {
@@ -162,7 +162,7 @@ impl JSObjectFlags {
     pub const fn class_id(&self) -> JSClassID {
         self.bitfield & 0x0000_FFFF
     }
-    pub fn set_class_id(&mut self, id: JSClassID) {
+    pub const fn set_class_id(&mut self, id: JSClassID) {
         self.bitfield = (self.bitfield & 0xFFFF_0000) | (id & 0x0000_FFFF);
     }
 }
@@ -249,7 +249,7 @@ impl JSObject {
     /// Get object using shape.
     /// Returns None if object is being destroyed
     #[inline(always)]
-    pub fn shape_mut(&mut self) -> Option<&mut JSShape> {
+    pub const fn shape_mut(&mut self) -> Option<&mut JSShape> {
         unsafe { self.shape.as_mut() }
     }
 
@@ -257,7 +257,7 @@ impl JSObject {
     /// If object is not instance of `class_id`, returns None.
     /// If payload pointer is null, returns None.
     #[inline]
-    pub fn opaque<T>(&self, class_id: JSClassID) -> Option<NonNull<T>> {
+    pub const fn opaque<T>(&self, class_id: JSClassID) -> Option<NonNull<T>> {
         // debug_assert!(
         //     unsafe { !self.u.opaque.is_null() },
         //     "JSObject must have opaque payload"
@@ -289,7 +289,7 @@ impl JSObject {
     ///
     /// Safety: Caller maintains `opaque` pointer validity
     #[inline(always)]
-    pub fn set_opaque(&mut self, opaque: *mut c_void) {
+    pub const fn set_opaque(&mut self, opaque: *mut c_void) {
         self.u.opaque = opaque;
     }
 }
@@ -467,7 +467,7 @@ impl JSContext {
         let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
             match self.rt().find_shape_by_proto(proto_ob) {
-                Some(sh) => JSShapeHandle::from(sh).dup(),
+                Some(sh) => sh.dup(),
                 None => self.create_shape(proto_ob.as_mut())?,
             }
         };
@@ -525,10 +525,12 @@ pub unsafe fn JS_NewObjectProtoClass(
 }
 
 /// Instantiate object of specific class
-/// Args:
+///
+///  Args:
 /// - ctx: Runtime context
 /// - class_id: JS_CLASS_* identifier
-/// Returns: New object or Exception
+///
+/// Returns New object or Exception
 #[deprecated(note = "use JSContext::create_object_with_classid() instead")]
 pub unsafe fn JS_NewObjectClass(ctx: *mut JSContext, class_id: JSClassID) -> JSValue {
     (*ctx)

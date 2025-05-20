@@ -87,7 +87,7 @@ impl JSContext {
             ta.buffer = NonNull::from(buffer.dup().object_unchecked()); // buffer is duplicated
             ta.offset = offset as u32;
             ta.byte_length = len as _;
-            list_add_tail(&mut (*ta).link, &mut abuf.array_list);
+            list_add_tail(&mut ta.link, &mut abuf.array_list);
 
             (*p).u.typed_array = Box::into_raw(ta); // same as JS_SetOpaque(obj, ...)
         }
@@ -158,7 +158,7 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             return Err(-1);
         }
 
-        if (pos + size as u64) > (*ta).byte_length as u64 {
+        if (pos + size as u64) > ta.byte_length as u64 {
             JS_ThrowRangeError(ctx, c"out of bound");
             return Err(-1);
         }
