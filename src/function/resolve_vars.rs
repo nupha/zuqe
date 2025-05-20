@@ -248,7 +248,7 @@ impl JSFunctionDef {
                 opcodes::OP_gosub => {
                     #[cfg(feature = "short_opcode")]
                     {
-                        self.jump_size += 1;
+                        self.jump_slots_cap += 1;
                     }
 
                     if OPTIMIZE {
@@ -324,7 +324,7 @@ impl JSFunctionDef {
                 | opcodes::OP_ret => {
                     #[cfg(feature = "short_opcode")]
                     if op == opcodes::OP_goto {
-                        self.jump_size += 1;
+                        self.jump_slots_cap += 1;
                     }
 
                     if OPTIMIZE {
@@ -415,7 +415,7 @@ impl JSFunctionDef {
                 opcodes::OP_if_false | opcodes::OP_if_true | opcodes::OP_catch => {
                     #[cfg(feature = "short_opcode")]
                     {
-                        self.jump_size += 1;
+                        self.jump_slots_cap += 1;
                     }
 
                     no_change!(pos, op_len);
@@ -454,7 +454,7 @@ impl JSFunctionDef {
                         if cc.code_match(pos2, &[op1]) {
                             #[cfg(feature = "short_opcode")]
                             {
-                                self.jump_size += 1;
+                                self.jump_slots_cap += 1;
                             }
 
                             self.update_label_ref_count(lab0 as _, -1);

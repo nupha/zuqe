@@ -30,8 +30,12 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
     let mut bc_out = Vec::<u8>::with_capacity(bc_len);
 
     #[cfg(feature = "short_opcode")]
-    if (*s).jump_size != 0 {
-        if (*s).jump_slots.try_reserve_exact((*s).jump_size).is_err() {
+    if (*s).jump_slots_cap != 0 {
+        if (*s)
+            .jump_slots
+            .try_reserve_exact((*s).jump_slots_cap)
+            .is_err()
+        {
             (*s).ctx.JS_ThrowOutOfMemory();
             return -1;
         }

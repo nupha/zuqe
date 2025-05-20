@@ -165,12 +165,11 @@ pub struct JSFunctionDef {
     /// break/continue label stack
     pub top_break: *mut BlockEnv,
 
-    /// 跳转槽数组. TODO: use Vec<JumpSlot>
+    /// jump slots capacity
+    #[cfg(feature = "short_opcode")]
+    pub jump_slots_cap: u32,
     #[cfg(feature = "short_opcode")]
     pub jump_slots: Vec<JumpSlot>,
-    /// 跳转槽分配大小
-    #[cfg(feature = "short_opcode")]
-    pub jump_size: u32,
 
     /// line number capacity
     pub line_number_slots_cap: usize,
@@ -288,7 +287,7 @@ impl JSFunctionDef {
             #[cfg(feature = "short_opcode")]
             jump_slots: Vec::new(),
             #[cfg(feature = "short_opcode")]
-            jump_size: 0,
+            jump_slots_cap: 0,
 
             line_number_slots: Vec::new(),
             line_number_slots_cap: 0,
@@ -1510,7 +1509,7 @@ pub unsafe fn instantiate_hoisted_definitions(
 
         #[cfg(feature = "short_opcode")]
         {
-            (*s).jump_size += 1;
+            (*s).jump_slots_cap += 1;
         }
     }
 

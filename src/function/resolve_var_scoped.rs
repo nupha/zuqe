@@ -901,7 +901,7 @@ impl JSFunctionDef {
 
         #[cfg(feature = "short_opcode")]
         {
-            self.jump_size += 1;
+            self.jump_slots_cap += 1;
         }
 
         label
