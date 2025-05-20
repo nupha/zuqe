@@ -19,8 +19,7 @@ use crate::{
     utils::UncheckedInto,
     value::{
         object::{
-            js_get_length64, JSObject, JS_SpeciesConstructor, JS_ToObject, JS_PROP_C_W_E,
-            JS_PROP_THROW,
+            js_get_length64, JS_SpeciesConstructor, JS_ToObject, JS_PROP_C_W_E, JS_PROP_THROW,
         },
         JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_ToBoolFree, JS_ToFloat64,
         JS_ToIndex, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree, JS_ToUint32,

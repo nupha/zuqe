@@ -7,10 +7,13 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
-    mem::{js_free_rt, js_mallocz_rt, js_trigger_gc},
+    mem::{js_free_rt, js_malloc_typed, js_mallocz_rt, js_trigger_gc},
     runtime::JSRuntime,
     types::{likely, list_find},
-    value::{JSTag, JSValue, JS_DupValue, JS_FreeValueRT, JS_UNDEFINED},
+    value::{
+        object::{JSObjectFlags, JSObjectUnion},
+        JSTag, JSValue, JS_DupValue, JS_FreeValueRT, JS_UNDEFINED,
+    },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
     JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
@@ -195,7 +198,7 @@ pub unsafe fn JS_NewObjectFromShape(
 
     js_trigger_gc((*ctx).rt_mut(), std::mem::size_of::<JSObject>());
 
-    // alloc prop values list
+    // alloc prop value slots, initializing with default value
     let mut prop_values = Vec::<JSProperty>::new();
     let prop_count = (*sh).props.len();
     if let Err(e) =
@@ -206,37 +209,66 @@ pub unsafe fn JS_NewObjectFromShape(
         return JSValue::EXCEPTION;
     }
 
-    // set prop values default to UNDEFINED
-    for _ in 0..prop_count {
-        prop_values.push(JSProperty {
+    prop_values.extend(std::iter::repeat_n(
+        JSProperty {
             u: JSPropertyUnion {
-                value: JS_UNDEFINED,
+                value: JSValue::UNDEFINED,
             },
-        });
-    }
+        },
+        prop_count,
+    ));
 
     // alloc JSObject
-    let ly = std::alloc::Layout::new::<JSObject>();
-    let ptr = std::alloc::alloc_zeroed(ly);
-    if ptr.is_null() {
+    let mut obj = if let Some(p) = js_malloc_typed::<JSObject>(ctx, 1, false) {
+        let o = JSObject {
+            header: JSGCObjectHeader::new(1),
+            detailed: {
+                let mut flags = JSObjectFlags::default();
+                flags.set_class_id(class_id);
+                flags.set_extensible(true);
+                flags.set_free_mark(false);
+                flags.set_exotic(false);
+                flags.set_fast_array(false);
+                flags.set_constructor(false);
+                flags.set_uncatchable_error(false);
+                flags.set_tmp_mark(false);
+                flags.set_htmldda(false);
+                flags
+            },
+            shape: sh,
+            prop_values,
+            first_weak_ref: std::ptr::null_mut(),
+            u: JSObjectUnion {
+                opaque: std::ptr::null_mut(),
+            },
+        };
+        p.write(o);
+        Box::from_raw(p.as_ptr())
+    } else {
         js_free_shape((*ctx).rt_mut(), sh);
         return JSValue::EXCEPTION;
-    }
+    };
 
+    // let ly = std::alloc::Layout::new::<JSObject>();
+    // let ptr = std::alloc::alloc_zeroed(ly);
+    // if ptr.is_null() {
+    //     js_free_shape((*ctx).rt_mut(), sh);
+    //     return JSValue::EXCEPTION;
+    // }
     // initialize JSObject
-    let mut obj = Box::from_raw(ptr.cast::<JSObject>());
-    obj.shape = sh;
-    obj.header.ref_count = 1;
-    obj.prop_values = prop_values;
-    obj.detailed.set_class_id(class_id);
-    obj.detailed.set_extensible(true);
-    obj.detailed.set_free_mark(false);
-    obj.detailed.set_exotic(false);
-    obj.detailed.set_fast_array(false);
-    obj.detailed.set_constructor(false);
-    obj.detailed.set_uncatchable_error(false);
-    obj.detailed.set_tmp_mark(false);
-    obj.detailed.set_htmldda(false);
+    // let mut obj = Box::from_raw(ptr.cast::<JSObject>());
+    // obj.shape = sh;
+    // obj.header.ref_count = 1;
+    // obj.prop_values = prop_values;
+    // obj.detailed.set_class_id(class_id);
+    // obj.detailed.set_extensible(true);
+    // obj.detailed.set_free_mark(false);
+    // obj.detailed.set_exotic(false);
+    // obj.detailed.set_fast_array(false);
+    // obj.detailed.set_constructor(false);
+    // obj.detailed.set_uncatchable_error(false);
+    // obj.detailed.set_tmp_mark(false);
+    // obj.detailed.set_htmldda(false);
 
     match class_id {
         JS_CLASS_OBJECT => {}
@@ -281,7 +313,7 @@ pub unsafe fn JS_NewObjectFromShape(
 
         JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL | JS_CLASS_DATE
         | JS_CLASS_BIG_INT => {
-            obj.u.object_data = JS_UNDEFINED;
+            obj.u.object_data = JSValue::UNDEFINED;
             if !(*ctx).rt().class_array[class_id as usize].exotic.is_null() {
                 obj.detailed.set_exotic(true);
             }

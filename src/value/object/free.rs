@@ -12,7 +12,15 @@ use crate::{
 use super::{free_property, js_free_shape, JSObject};
 
 impl JSObject {
-    /// object `p` is now in tmp_obj_list or gc_zero_ref_count_list chain.
+    /// Safely frees a GC object, releasing all associated resources.
+    /// This includes:
+    /// - Marking the object as invalid to prevent use during freeing cycles
+    /// - Freeing all property values
+    /// - Destroying the object's shape immediately
+    /// - Resetting weak references
+    /// - Calling the class finalizer if defined
+    /// - Handling object memory cleanup based on GC phase
+    /// The object must be in either tmp_obj_list or gc_zero_ref_count_list chain.
     pub unsafe fn free(rt: *mut JSRuntime, p: *mut Self) {
         // used to tell the object is invalid when freeing cycles
         (*p).detailed.set_free_mark(true);

@@ -286,15 +286,18 @@ pub unsafe fn js_malloc_rt_typed<T>(
         std::mem::size_of::<T>() * count,
         std::mem::align_of::<T>(),
     );
+
     let ptr = if zeroed {
-        std::alloc::alloc_zeroed(ly).cast::<T>()
+        std::alloc::alloc_zeroed(ly)
     } else {
-        std::alloc::alloc(ly).cast::<T>()
-    };
+        std::alloc::alloc(ly)
+    }
+    .cast::<T>();
+
     if !ptr.is_null() {
         let s = &mut (*rt).malloc_state;
         (*s).malloc_count += 1;
-        (*s).malloc_size += js_def_malloc_usable_size(ptr.cast()); //+ MALLOC_OVERHEAD;
+        (*s).malloc_size += ly.size();
         Some(NonNull::new_unchecked(ptr))
     } else {
         None
@@ -302,6 +305,7 @@ pub unsafe fn js_malloc_rt_typed<T>(
 }
 
 /// Throw out of memory in case of error
+#[inline(always)]
 pub unsafe fn js_malloc_typed<T>(
     ctx: *mut JSContext,
     count: usize,
@@ -313,19 +317,6 @@ pub unsafe fn js_malloc_typed<T>(
     }
     ptr
 }
-
-// pub unsafe fn js_strndup(ctx: *mut JSContext, s: *const c_char, n: usize) -> *mut c_char {
-//     let ptr = js_malloc(ctx, n + 1) as *mut c_char;
-//     if !ptr.is_null() {
-//         std::ptr::copy_nonoverlapping(s, ptr, n);
-//         *ptr.add(n) = 0;
-//     }
-//     ptr
-// }
-// pub unsafe fn js_strdup(ctx: *mut JSContext, str: *const c_char) -> *mut c_char {
-//     let len = libc::strlen(str);
-//     js_strndup(ctx, str, len)
-// }
 
 pub unsafe fn js_realloc_array(
     ctx: *mut JSContext,
