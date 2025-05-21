@@ -54,8 +54,8 @@ use crate::{
             JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewCatchOffset,
-        JS_NewSymbolFromAtom, JS_ToBoolFree, HINT_NONE, JS_TAG_CATCH_OFFSET, JS_TAG_INT,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
+        JS_NewSymbolFromAtom, JS_ToBoolFree, HINT_NONE, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET,
+        JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
         JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
@@ -1398,10 +1398,16 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::LNOT => {
                     let op1 = SP![-1];
-                    let res = if JS_VALUE_GET_TAG(op1) <= JS_TAG_UNDEFINED {
-                        JS_VALUE_GET_INT(op1) != 0
-                    } else {
-                        JS_ToBoolFree(ctx, op1).unwrap_or(true)
+                    let res = match JS_VALUE_GET_TAG(op1) {
+                        JS_TAG_INT | JS_TAG_BOOL => JS_VALUE_GET_INT(op1) != 0,
+                        JS_TAG_NULL | JS_TAG_UNDEFINED => false,
+                        _ => {
+                            if let Ok(b) = JS_ToBoolFree(ctx, op1) {
+                                b
+                            } else {
+                                break State::Exception;
+                            }
+                        }
                     };
                     SP![-1] = (!res).into();
                 }

@@ -391,28 +391,7 @@ fn dump_error(ctx: &mut JSContext, err: JSValue, msg: &str, outf: &mut dyn Write
     }
 }
 
-fn run_test_file(filename: &Path, outf: &mut dyn Write) {
-    let harness_path = filename
-        .ancestors()
-        .find(|p| p.ends_with("test"))
-        .and_then(|p| p.parent().map(|parent| parent.to_path_buf()))
-        .unwrap()
-        .join("harness");
-
-    let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
-    unsafe {
-        JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
-    }
-
-    let mut ctx = rt.create_context().unwrap();
-
-    let obj262 = setup_ctx_helpers(ctx).unwrap();
-    unsafe {
-        JS_FreeValue(ctx.as_ptr(), obj262);
-    }
-
-    let mut harness_files = vec![harness_path.join("assert.js"), harness_path.join("sta.js")];
-
+fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     // read source
     let content = std::fs::read_to_string(filename).unwrap();
 
@@ -427,21 +406,50 @@ fn run_test_file(filename: &Path, outf: &mut dyn Write) {
         Config::default()
     };
 
-    if let Some(includes) = config.includes {
-        for include in includes {
-            harness_files.push(harness_path.join(include));
+    let mut harness_files = Vec::<PathBuf>::new();
+
+    if include_harness {
+        let harness_path = filename
+            .ancestors()
+            .find(|p| p.ends_with("test"))
+            .and_then(|p| p.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or("".into())
+            .join("harness");
+
+        harness_files = vec![harness_path.join("assert.js"), harness_path.join("sta.js")];
+
+        if let Some(includes) = config.includes {
+            for include in includes {
+                harness_files.push(harness_path.join(include));
+            }
         }
     }
 
-    if let Err(exc) = run_harness(ctx.deref_mut(), &harness_files) {
-        let msg = exc.coerce_to_utf8(ctx).unwrap();
-        writeln!(outf, "fail: '{}', can't eval harness", filename.display()).unwrap();
-        dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
-        unsafe {
+    // make runtime & context
+    let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    unsafe {
+        JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
+    }
+    let mut ctx = rt.create_context().unwrap();
+    let obj262 = setup_ctx_helpers(ctx).unwrap();
+    JS_FreeValue(ctx.as_ptr(), obj262);
+
+    let mut has_err = false;
+
+    if !harness_files.is_empty() {
+        // eval harness includes
+        if let Err(exc) = run_harness(ctx.deref_mut(), &harness_files) {
+            let msg = exc.coerce_to_utf8(ctx).unwrap();
+            writeln!(outf, "fail: '{}', can't eval harness", filename.display()).unwrap();
+            dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
             // exc.object_unchecked().dump(rt);
             JS_FreeValue(ctx.as_ptr(), exc);
+
+            has_err = true;
         }
-    } else {
+    }
+
+    if !has_err {
         // flags
         let mut use_strict = false;
         let mut use_nostrict = true;
@@ -511,9 +519,7 @@ fn run_test_file(filename: &Path, outf: &mut dyn Write) {
                     dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
                 }
 
-                unsafe {
-                    JS_FreeValue(ctx.as_ptr(), exc);
-                }
+                JS_FreeValue(ctx.as_ptr(), exc);
             } else {
                 if let Some(neg) = &negative {
                     writeln!(
@@ -554,11 +560,14 @@ fn main() {
         .open("test262-result.txt")
         .unwrap();
 
+    // run_test_file(&Path::new("./tests/test-harness.js"), false, &mut fp);
+    // fp.flush().unwrap();
+
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
         let fname = fname.unwrap();
 
         if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
-            run_test_file(&fname, &mut fp);
+            run_test_file(&fname, true, &mut fp);
             fp.flush().unwrap();
         }
     }
