@@ -420,6 +420,7 @@ pub unsafe fn js_parse_statement(s: &mut JSParseState) -> Result<(), i32> {
     }
 }
 
+#[inline(always)]
 unsafe fn stmt_return(s: &mut JSParseState) -> Result<(), i32> {
     s.next_token()?;
 
@@ -438,6 +439,7 @@ unsafe fn stmt_return(s: &mut JSParseState) -> Result<(), i32> {
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     let (label_cont, label_break, label1) = {
         let fd = s.cur_func_mut();
@@ -485,6 +487,7 @@ unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     s.next_token()?;
 
@@ -649,6 +652,7 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     let mut break_entry: BlockEnv = std::mem::zeroed();
 
@@ -686,6 +690,7 @@ unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.next_token()?;
 
@@ -721,6 +726,7 @@ unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
     set_eval_ret_undefined(s);
     s.next_token()?;
@@ -870,6 +876,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> Result<(), i32> {
     if matches!(tok, TOK_LET | TOK_CONST) {
         if (decl_mask & DECL_MASK_OTHER) == 0 {
@@ -884,6 +891,7 @@ unsafe fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> 
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     s.next_token()?;
 
@@ -990,6 +998,7 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
     Ok(())
 }
 
+#[inline(always)]
 unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     if s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
         s.throw_syntax_error(c"invalid keyword: with");
@@ -1024,6 +1033,7 @@ unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     }
 }
 
+#[inline(always)]
 unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<StmtState, i32> {
     if s.token.u.ident.is_reserved {
         js_parse_error_reserved_identifier(s);
@@ -1044,6 +1054,7 @@ unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<StmtState, 
     Ok(StmtState::HasExpr)
 }
 
+#[inline(always)]
 unsafe fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr()?;
 
