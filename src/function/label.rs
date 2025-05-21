@@ -96,10 +96,10 @@ pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
         let mut last_line_num = (*s).line_num;
         let mut last_pc: u32 = 0;
 
-        //js_dbuf_init((*s).ctx, &mut (*s).pc2line);
         if (*s).pc2line.is_none() {
-            (*s).pc2line = Some(Vec::with_capacity(64));
+            (*s).pc2line.replace(Vec::with_capacity(64));
         }
+
         let lst = (*s).pc2line.as_mut().unwrap();
 
         for ln in (*s).line_number_slots.iter() {

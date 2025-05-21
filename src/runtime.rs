@@ -269,8 +269,6 @@ pub unsafe fn JS_UpdateStackTop(rt: *mut JSRuntime) {
 }
 
 unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
-    log::warn!("JS_FreeRuntime({rt:p})");
-
     JS_FreeValueRT(rt, rt.current_exception);
 
     // free jobs

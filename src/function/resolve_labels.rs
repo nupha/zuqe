@@ -51,15 +51,6 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             return Err(-1);
         }
 
-        // (*s).line_number_slots = js_mallocz(
-        //     (*s).ctx.as_ptr(),
-        //     std::mem::size_of::<LineNumberSlot>() * (*s).line_number_size as usize,
-        // )
-        // .cast();
-        // if (*s).line_number_slots.is_null() {
-        //     return Err(-1);
-        // }
-
         (*s).line_number_last = (*s).line_num;
         (*s).line_number_last_pc = 0;
     }
@@ -641,7 +632,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             _ => Some(ResolveLabelsState::NoChange),
         }; // match op
 
-        // dispatch post process
+        // dispatch state
         while let Some(p) = state.take() {
             match p {
                 ResolveLabelsState::NoChange => {

@@ -221,6 +221,7 @@ pub unsafe fn debug_dump_opcode_one(
     size
 }
 
+/// dump bytecode in pass 1,2,3
 #[cfg(feature = "dump_bytecode")]
 pub unsafe fn dump_byte_code(
     ctx: *mut JSContext,
@@ -352,7 +353,7 @@ pub unsafe fn dump_byte_code(
         {
             if let Some(s) = source {
                 if !b.is_null() {
-                    line1 = (*b).find_line_num(pos as _).unwrap() as i32 - line_num + 1;
+                    line1 = (*b).find_line_num(pos as _).unwrap_or(-1) - line_num + 1;
                 } else if op == opcodes::op_line_num {
                     line1 = read_from_ptr::<i32>(tab.as_ptr().add(pos as usize + 1)) - line_num + 1;
                 };

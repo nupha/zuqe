@@ -23,7 +23,7 @@ use zhuque::{
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
     value::{
-        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, StringContent,
+        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_DumpValue, JS_FreeValue, StringContent,
         JS_TAG_EXCEPTION, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG,
     },
@@ -348,9 +348,7 @@ fn run_test_content(
                             }
                         };
 
-                        unsafe {
-                            JS_FreeValue(ctx, promise.into());
-                        }
+                        JS_FreeValue(ctx, promise.into());
                     }
                     break;
                 }
@@ -371,22 +369,20 @@ fn run_test_content(
         rt.current_exception = JSValue::NULL;
         Err(exc)
     } else {
-        unsafe {
-            JS_FreeValue(ctx, ret_val);
-        }
+        JS_FreeValue(ctx, ret_val);
         Ok(())
     }
 }
 
-fn dump_error(ctx: &mut JSContext, err: JSValue, msg: &str, outf: &mut dyn Write) {
+fn dump_error(ctx: &mut JSContext, err_val: JSValue, msg: &str, outf: &mut dyn Write) {
     writeln!(outf, "{msg}",).unwrap();
 
-    let s = err.get_property(ctx, JS_ATOM_stack);
+    let s = err_val.get_property(ctx, JS_ATOM_stack);
     match JS_VALUE_GET_TAG(s) {
         JS_TAG_EXCEPTION | JS_TAG_NULL | JS_TAG_UNDEFINED => {}
         _ => {
-            let err = s.coerce_to_utf8(ctx.handle()).unwrap();
-            writeln!(outf, "{}", err).unwrap();
+            let ss = s.coerce_to_utf8(ctx.handle()).unwrap();
+            writeln!(outf, "[STACK] {}", ss).unwrap();
         }
     }
 }
@@ -524,7 +520,7 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 if let Some(neg) = &negative {
                     writeln!(
                         outf,
-                        "fail: '{}', expects error {}",
+                        "fail: [NEGATIVE] '{}', expects error {}",
                         filename.display(),
                         neg.type_.as_ref().map_or("", |s| s.as_str())
                     )
@@ -560,7 +556,11 @@ fn main() {
         .open("test262-result.txt")
         .unwrap();
 
-    // run_test_file(&Path::new("./tests/test-harness.js"), false, &mut fp);
+    // run_test_file(
+    //     &Path::new("/Users/johnray/devel/test262/test/harness/compare-array-symbol.js"),
+    //     true,
+    //     &mut fp,
+    // );
     // fp.flush().unwrap();
 
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {

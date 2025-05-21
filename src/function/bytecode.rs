@@ -22,11 +22,23 @@ use crate::{
 
 use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
 
+#[derive(Debug)]
 pub struct JSFunctionBytecodeDebug {
     pub filename: JSAtom,
     pub line_num: i32,
     pub source: Option<String>,
     pub pc2line_buf: Option<Vec<u8>>,
+}
+
+impl Default for JSFunctionBytecodeDebug {
+    fn default() -> Self {
+        Self {
+            filename: JS_ATOM_NULL,
+            line_num: 0,
+            source: None,
+            pc2line_buf: None,
+        }
+    }
 }
 
 #[repr(C)]
@@ -114,8 +126,8 @@ impl JSFunctionBytecode {
 
     /// get closure var starting pointer
     pub unsafe fn closure_var_ptr(&mut self) -> Option<NonNull<JSClosureVar>> {
-        if self.closure_var_start >= 0 {
-            debug_assert!(self.closure_var_count > 0);
+        if self.closure_var_count > 0 {
+            debug_assert!(self.closure_var_start >= 0);
             NonNull::new(
                 self.binary
                     .as_mut_ptr()
@@ -123,6 +135,7 @@ impl JSFunctionBytecode {
                     .cast(),
             )
         } else {
+            debug_assert_eq!(self.closure_var_start, -1);
             None
         }
     }

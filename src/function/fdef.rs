@@ -8,10 +8,10 @@ use crate::{
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_INDIRECT},
     function::{
         free_bytecode_atoms, is_var_in_arg_scope, resolve_labels, JSClosureVar, JSFunctionBytecode,
-        JSFunctionKindEnum, JSGlobalVar, JSVarDef, JSVarKindEnum, JSVarScope, ARG_SCOPE_END,
-        ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
+        JSFunctionBytecodeDebug, JSFunctionKindEnum, JSGlobalVar, JSVarDef, JSVarKindEnum,
+        JSVarScope, ARG_SCOPE_END, ARG_SCOPE_INDEX, DEFINE_GLOBAL_LEX_VAR,
     },
-    gc::{add_gc_object, JSGCObjectTypeEnum},
+    gc::{add_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     list_entry,
     mem::js_malloc_typed,
     module::{add_module_variables, JSModuleDef},
@@ -478,41 +478,52 @@ impl JSFunctionDef {
 
         // alloc bytecode function
         let mut bf = if let Some(p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
+            let o = JSFunctionBytecode {
+                header: JSGCObjectHeader::new(1),
+                func_name: self.func_name,
+                js_mode: self.js_mode,
+                has_prototype: self.has_prototype,
+                has_simple_parameter_list: self.has_simple_parameter_list,
+                is_derived_class_constructor: self.is_derived_class_constructor,
+                func_kind: self.func_kind,
+                new_target_allowed: self.new_target_allowed,
+                super_call_allowed: self.super_call_allowed,
+                super_allowed: self.super_allowed,
+                arguments_allowed: self.arguments_allowed,
+                backtrace_barrier: self.backtrace_barrier,
+                defined_arg_count: self.defined_arg_count,
+                need_home_object: self.home_object_var_idx.is_some() || self.need_home_object,
+                is_direct_or_indirect_eval: matches!(
+                    self.eval_type,
+                    JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT
+                ),
+
+                realm: ctx.dup(),
+                read_only_bytecode: false,
+                stack_size,
+
+                has_debug: false,
+                debug: JSFunctionBytecodeDebug::default(),
+
+                cpool_count: self.cpool.len() as _,
+                arg_count: self.args.len() as _,
+                var_count: self.vars.len() as _,
+                closure_var_count: 0,
+
+                binary: Vec::new().into_boxed_slice(), // empty
+                cpool_start: -1,
+                vardefs_start: -1,
+                closure_var_start: -1,
+                bytecode_start: 0,
+            };
+            p.write(o);
+
             Box::from_raw(p.as_ptr())
         } else {
             fail!();
         };
 
-        bf.func_name = self.func_name;
-        self.func_name = JS_ATOM_NULL; // avoid to free func_name in js_free_function_def()
-
-        bf.header.ref_count = 1;
-        bf.stack_size = stack_size;
-        bf.has_prototype = self.has_prototype;
-        bf.has_simple_parameter_list = self.has_simple_parameter_list;
-        bf.js_mode = self.js_mode;
-        bf.is_derived_class_constructor = self.is_derived_class_constructor;
-        bf.func_kind = self.func_kind;
-        bf.need_home_object = self.home_object_var_idx.is_some() || self.need_home_object;
-        bf.new_target_allowed = self.new_target_allowed;
-        bf.super_call_allowed = self.super_call_allowed;
-        bf.super_allowed = self.super_allowed;
-        bf.arguments_allowed = self.arguments_allowed;
-        bf.backtrace_barrier = self.backtrace_barrier;
-        bf.is_direct_or_indirect_eval =
-            matches!(self.eval_type, JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT);
-        bf.realm = ctx.dup();
-
-        bf.cpool_count = self.cpool.len() as _;
-        bf.var_count = self.vars.len() as _;
-        bf.arg_count = self.args.len() as _;
-        bf.defined_arg_count = self.defined_arg_count;
-
-        // initialize offsets to invalid
-        bf.cpool_start = -1;
-        bf.vardefs_start = -1;
-        bf.closure_var_start = -1;
-
+        // binary total length in bytes
         let mut bin_size = if bf.cpool_count != 0 {
             bf.cpool_start = 0;
             bf.cpool_count as usize * std::mem::size_of::<JSValue>()
@@ -527,8 +538,9 @@ impl JSFunctionDef {
                 let mut i = bin_size;
                 let m = i % ly.align();
                 if m != 0 {
-                    i += ly.align() - m;
-                    bin_size += ly.align() - m
+                    let gap = ly.align() - m;
+                    i += gap;
+                    bin_size += gap;
                 }
                 bf.vardefs_start = i as i32;
                 bin_size += n * ly.size();
@@ -541,8 +553,9 @@ impl JSFunctionDef {
             let mut i = bin_size;
             let m = i % ly.align();
             if m != 0 {
-                i += ly.align() - m;
-                bin_size += ly.align() - m
+                let gap = ly.align() - m;
+                i += gap;
+                bin_size += gap;
             }
             bin_size += num_closures * ly.size();
             bf.closure_var_start = i as i32;
@@ -553,13 +566,14 @@ impl JSFunctionDef {
 
         debug_assert!(bin_size > 0);
 
-        // alloc binary content
+        // alloc binary buffer
         let mut bin = Vec::<u8>::new();
         if bin.try_reserve_exact(bin_size).is_err() {
             ctx.JS_ThrowOutOfMemory();
             fail!();
         }
         bin.set_len(bin_size);
+        bin.fill(0);
 
         // 1. cpool section
         if bf.cpool_start >= 0 {
@@ -581,19 +595,23 @@ impl JSFunctionDef {
         if bf.vardefs_start >= 0 {
             if bf.arg_count != 0 {
                 std::ptr::copy_nonoverlapping(
-                    self.args.as_ptr().cast::<u8>(),
-                    bin.as_mut_ptr().add(bf.vardefs_start as usize),
-                    bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                    self.args.as_ptr(),
+                    bin.as_mut_ptr()
+                        .add(bf.vardefs_start as usize)
+                        .cast::<JSVarDef>(),
+                    bf.arg_count as usize,
                 );
             }
             if bf.var_count != 0 {
                 std::ptr::copy_nonoverlapping(
-                    self.vars.as_ptr().cast::<u8>(),
-                    bin.as_mut_ptr().add(
-                        bf.vardefs_start as usize
-                            + bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
-                    ),
-                    bf.var_count as usize * std::mem::size_of::<JSVarDef>(),
+                    self.vars.as_ptr(),
+                    bin.as_mut_ptr()
+                        .add(
+                            bf.vardefs_start as usize
+                                + bf.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                        )
+                        .cast::<JSVarDef>(),
+                    bf.var_count as usize,
                 );
             }
 
@@ -616,7 +634,7 @@ impl JSFunctionDef {
             }
         }
 
-        // 3. closure vars section
+        // 3. closures section
         if bf.closure_var_start >= 0 {
             let cvars = self.closure_vars.take().unwrap();
             bf.closure_var_count = cvars.len() as _;
@@ -642,10 +660,11 @@ impl JSFunctionDef {
         // SAFEGUARD: clear bytecode, so that js_free_function_def() will not free atoms in it.
         self.byte_code.clear();
 
-        debug_assert_eq!(bin.len(), bin_size);
-
-        // FIXME: following will panic occasionally saying 'requires that align is a power of 2'
+        // save binary
         bf.binary = bin.into_boxed_slice();
+
+        // SAFEGUARD: to prevent free atom in js_free_function_def()
+        self.func_name = JS_ATOM_NULL;
 
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
             bf.has_debug = true;
@@ -655,9 +674,8 @@ impl JSFunctionDef {
             // SAFEGUARD: to prevent free in js_free_function_def()
             self.filename = JS_ATOM_NULL;
 
-            // move source to func object.
+            // move source and pc2line to func object.
             bf.debug.source = self.source.take();
-            // move pc2line to func object.
             if let Some(mut lst) = self.pc2line.take() {
                 lst.shrink_to_fit();
                 bf.debug.pc2line_buf.replace(lst);

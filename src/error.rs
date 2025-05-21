@@ -215,7 +215,7 @@ impl JSContext {
         if let Some((filename, line_num)) = file_line {
             // filename and line no
             dbuf.write_fmt(format_args!("    at {filename}:{line_num}\n"))
-                .map_err(|e| -1)?;
+                .map_err(|_| -1)?;
 
             let str = (*self).create_string(filename);
             error_obj.define_property_value(
@@ -303,19 +303,19 @@ impl JSContext {
 
     /// build traceback, set it as property of `error_obj`.
     /// if filename/line number is provided, they are defined as property of `error_obj` too.
-    /// `error_obj` ref count is unchanged.
+    /// `error_obj` is not consumed.
     pub fn build_backtrace_to(
         &mut self,
         error_obj: JSValueConst,
         file_line: Option<(&str, i32)>,
         backtrace_flags: i32,
     ) {
-        let tb = self.inner_build_backtrace(error_obj, file_line, backtrace_flags);
-        let tb_val = if let Ok(s) = tb {
-            self.create_string_from_utf8(s.into_bytes())
-        } else {
-            JSValue::NULL
-        };
+        let tb_val =
+            if let Ok(s) = self.inner_build_backtrace(error_obj, file_line, backtrace_flags) {
+                self.create_string_from_utf8(s.into_bytes())
+            } else {
+                JSValue::NULL
+            };
 
         let _ = error_obj.define_property_value(
             self,
