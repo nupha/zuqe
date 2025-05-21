@@ -8,6 +8,7 @@ mod cpool;
 mod fdef;
 mod fun;
 mod label;
+mod mkfunc;
 mod native;
 mod optimize;
 mod resolve_labels;
