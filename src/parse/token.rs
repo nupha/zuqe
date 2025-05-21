@@ -826,21 +826,14 @@ pub unsafe fn update_token_ident(s: &mut JSParseState) {
             let fd = s.cur_func();
 
             is_module
-                || matches!(
-                    fd.func_kind,
-                    JSFunctionKindEnum::JS_FUNC_GENERATOR
-                        | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-                )
+                || matches!(fd.func_kind, JSFunctionKindEnum::JS_FUNC_ASYNC)
                 || fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
                 || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
                     && !fd.in_function_body
                     && !fd.parent.is_null()
-                    && (matches!(
-                        (*fd.parent).func_kind,
-                        JSFunctionKindEnum::JS_FUNC_ASYNC
-                            | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR,
-                    ) || (*fd.parent).func_type
-                        == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
+                    && (matches!((*fd.parent).func_kind, JSFunctionKindEnum::JS_FUNC_ASYNC)
+                        || (*fd.parent).func_type
+                            == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
         }
 
         a if (1..=JS_ATOM_LAST_KEYWORD.0).contains(&a.0) => true,

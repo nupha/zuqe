@@ -503,7 +503,6 @@ impl<'s> JSParseState<'s> {
                 }
                 src.extend_from_slice(std::slice::from_raw_parts(ptr, src_len));
                 let s = String::from_utf8_unchecked(src);
-                println!("{s}");
                 fd1.source.replace(s);
             }
         }
@@ -524,7 +523,8 @@ impl<'s> JSParseState<'s> {
 
     /// Parse function declaration for function statements, expressions, arrow functions and var declarations.
     /// Returns new created FunctionDef raw pointer on success, or Err on failure. You don't need to free it manually.
-    /// func_name must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
+    ///
+    /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
     /// `func_name` is **NOT CONSUMED** inside.
     pub(super) unsafe fn parse_function_decl2(
@@ -836,7 +836,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub(super) unsafe fn parse_function_decl(
+    pub(super) fn parse_function_decl(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
@@ -844,15 +844,17 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
-        self.parse_function_decl2(
-            func_type,
-            func_kind,
-            func_name,
-            ptr,
-            function_line_num,
-            JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-            std::ptr::null_mut(),
-        )
+        unsafe {
+            self.parse_function_decl2(
+                func_type,
+                func_kind,
+                func_name,
+                ptr,
+                function_line_num,
+                JSParseExportEnum::JS_PARSE_EXPORT_NONE,
+                std::ptr::null_mut(),
+            )
+        }
     }
 }
 

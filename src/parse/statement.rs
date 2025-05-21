@@ -7,7 +7,7 @@ use crate::{
     function::{
         pop_break_entry, push_break_entry, BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE,
     },
-    parse::emit::emit_return,
+    parse::{emit::emit_return, token::CHAR_COMMA},
     utils::write_to_ptr,
 };
 
@@ -40,6 +40,13 @@ pub const DECL_MASK_FUNC: i32 = 1 << 0; /* allow normal function declaration */
 pub const DECL_MASK_FUNC_WITH_LABEL: i32 = 1 << 1;
 pub const DECL_MASK_OTHER: i32 = 1 << 2; /* all other declarations */
 pub const DECL_MASK_ALL: i32 = DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL | DECL_MASK_OTHER;
+
+enum StmtState {
+    HasLet(i32),
+    HasExpr,
+    ParseFuncVar,
+    FuncDeclError,
+}
 
 pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -> i32 {
     let mut label_name: JSAtom = JS_ATOM_NULL;
@@ -105,9 +112,11 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
         }
     }
 
+    let mut state: Option<StmtState> = None;
+
     match s.token.val {
         // '{'
-        0x7b => {
+        CHAR_CURLY_L => {
             if js_parse_block(s).is_err() {
                 fail!();
             }
@@ -125,7 +134,8 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             if s.next_token().is_err() {
                 fail!();
             }
-            if !matches!(s.token.val as u8, b';' | b'}') && !s.got_lf {
+
+            if !matches!(s.token.val, CHAR_SEMI | CHAR_CURLY_R) && !s.got_lf {
                 if s.parse_expr().is_err() {
                     fail!();
                 }
@@ -154,9 +164,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             }
         }
         tok @ (TOK_LET | TOK_CONST | TOK_VAR) => {
-            if stmt_let_const_var(s, tok, decl_mask).is_err() {
-                fail!();
-            }
+            state.replace(StmtState::HasLet(tok));
         }
         TOK_IF => {
             if stmt_if(s).is_err() {
@@ -210,7 +218,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             }
         }
         // ';'
-        0x3b => {
+        CHAR_SEMI => {
             // empty statement
             if s.next_token().is_err() {
                 fail!();
@@ -222,12 +230,22 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             }
         }
         TOK_FUNCTION => {
-            if stmt_function(s, decl_mask).is_err() {
-                fail!();
+            // if stmt_function(s, decl_mask).is_err() {
+            //     fail!();
+            // }
+            // ES6 Annex B.3.2 and B.3.3 semantics
+            if (decl_mask & DECL_MASK_FUNC) == 0 {
+                state.replace(StmtState::FuncDeclError);
+            } else if decl_mask & DECL_MASK_OTHER == 0 && peek_token(s, false) == '*' as i32 {
+                state.replace(StmtState::FuncDeclError);
+            } else {
+                state.replace(StmtState::ParseFuncVar);
             }
         }
         TOK_IDENT => {
-            if stmt_ident(s, decl_mask).is_err() {
+            if let Ok(st) = stmt_ident(s, decl_mask) {
+                state.replace(st);
+            } else {
                 fail!();
             }
         }
@@ -255,9 +273,40 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             js_unsupported_keyword(s, s.token.u.ident.atom);
             fail!();
         }
-
         _ => {
-            if hasexpr(s).is_err() {
+            state.replace(StmtState::HasExpr);
+        }
+    }
+
+    while let Some(st) = state.take() {
+        match st {
+            StmtState::HasLet(t) => {
+                if stmt_let_const_var(s, t, decl_mask).is_err() {
+                    fail!();
+                }
+            }
+            StmtState::HasExpr => {
+                if hasexpr(s).is_err() {
+                    fail!();
+                }
+            }
+            StmtState::ParseFuncVar => {
+                if s.parse_function_decl(
+                    JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
+                    JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    JS_ATOM_NULL,
+                    s.token.ptr,
+                    s.token.line_num,
+                )
+                .is_err()
+                {
+                    fail!();
+                }
+            }
+            StmtState::FuncDeclError => {
+                s.throw_syntax_error(
+                    c"function declarations can't appear in single-statement context",
+                );
                 fail!();
             }
         }
@@ -832,7 +881,6 @@ unsafe fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> 
     s.next_token()?;
     s.parse_var(1, tok, false)?;
     s.parse_expect_semi()?;
-
     Ok(())
 }
 
@@ -976,56 +1024,24 @@ unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     }
 }
 
-unsafe fn stmt_function(s: &mut JSParseState, decl_mask: i32) -> Result<(), i32> {
-    // ES6 Annex B.3.2 and B.3.3 semantics
-    if (decl_mask & DECL_MASK_FUNC) == 0 {
-        s.throw_syntax_error(c"function declarations can't appear in single-statement context");
-        return Err(-1);
-    }
-    if decl_mask & DECL_MASK_OTHER == 0 && peek_token(s, false) == '*' as i32 {
-        s.throw_syntax_error(c"function declarations can't appear in single-statement context");
-        return Err(-1);
-    }
-
-    s.parse_function_decl(
-        JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
-        JSFunctionKindEnum::JS_FUNC_NORMAL,
-        JS_ATOM_NULL,
-        s.token.ptr,
-        s.token.line_num,
-    )?;
-
-    Ok(())
-}
-
-unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<(), i32> {
+unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<StmtState, i32> {
     if s.token.u.ident.is_reserved {
         js_parse_error_reserved_identifier(s);
         return Err(-1);
     }
     // Determine if `let` introduces a Declaration or an ExpressionStatement
     if is_let(s, decl_mask)? {
-        return stmt_let_const_var(s, TOK_LET, decl_mask);
+        return Ok(StmtState::HasLet(TOK_LET));
     }
-
     if token_is_pseudo_keyword(s, JS_ATOM_async) && peek_token(s, true) == TOK_FUNCTION {
-        if (decl_mask & DECL_MASK_OTHER) == 0 {
+        if decl_mask & DECL_MASK_OTHER == 0 {
             s.throw_syntax_error(c"function declarations can't appear in single-statement context");
             return Err(-1);
         }
-
-        // label parse_func_var:
-        s.parse_function_decl(
-            JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
-            JSFunctionKindEnum::JS_FUNC_NORMAL,
-            JS_ATOM_NULL,
-            s.token.ptr,
-            s.token.line_num,
-        )?;
-        return Ok(());
+        return Ok(StmtState::ParseFuncVar);
     }
 
-    hasexpr(s)
+    Ok(StmtState::HasExpr)
 }
 
 unsafe fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {

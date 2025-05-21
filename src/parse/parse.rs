@@ -217,7 +217,7 @@ impl JSParseState<'_> {
                 };
                 p1 = p_temp;
                 has_escape = true;
-            } else if c.is_ascii() {
+            } else if !c.is_ascii() {
                 let mut p_temp = p;
                 c = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p_temp)?;
                 p1 = p_temp;
@@ -465,7 +465,7 @@ impl JSParseState<'_> {
     }
 
     pub unsafe fn parse_expect_semi(&mut self) -> Result<(), i32> {
-        if self.token.val != ';' as i32 {
+        if self.token.val != CHAR_SEMI {
             if matches!(self.token.val, TOK_EOF | CHAR_CURLY_R) || self.got_lf {
                 // automatic insertion of ';'
                 Ok(())

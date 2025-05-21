@@ -269,6 +269,7 @@ pub unsafe fn JS_AtomGetKind(ctx: *mut JSContext, v: JSAtom) -> JSAtomKindEnum {
 pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 /// debug helper: print atom, don't use in production code
+#[deprecated(note = "use JSAtom::to_str() instead")]
 pub unsafe fn print_atom(rt: *const JSRuntime, atom: JSAtom) {
     print!("{}", atom.to_str(rt.as_ref().unwrap()));
 }

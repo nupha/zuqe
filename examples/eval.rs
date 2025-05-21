@@ -9,8 +9,8 @@ use zhuque::{
     context::{JSContext, JS_FreeContext},
     error::JS_ThrowReferenceError,
     eval::{
-        JS_EvalFunction, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
-        JS_EVAL_TYPE_MODULE,
+        JS_EvalFunction, JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL,
+        JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
     },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_SetModuleLoaderFunc},
@@ -53,14 +53,14 @@ fn main() {
 
             let r = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
                 // for the modules, we compile then run to be able to set import.meta
-                let mfun = ctx.deref_mut().eval(
+                let esm_func = ctx.deref_mut().eval(
                     src.as_c_str(),
                     &filename,
                     eval_flags | JS_EVAL_FLAG_COMPILE_ONLY,
                 );
-                if !mfun.is_exception() {
-                    js_module_set_import_meta(ctx.as_raw().as_ptr(), mfun, 1, true);
-                    JS_EvalFunction(ctx.as_raw().as_mut(), mfun)
+                if !esm_func.is_exception() {
+                    js_module_set_import_meta(ctx.as_raw().as_ptr(), esm_func, 1, true);
+                    JS_EvalFunction(ctx.as_raw().as_mut(), esm_func)
                 } else {
                     JSValue::EXCEPTION
                 }
