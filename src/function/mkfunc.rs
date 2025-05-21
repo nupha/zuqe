@@ -20,7 +20,7 @@ use crate::{
 use super::JSFunctionDef;
 
 impl JSFunctionDef {
-    /// Create a bytecode function from `self` function definition.
+    /// Create bytecode function value from `self` function definition.
     /// All the child functions are also created. It must be done this way to resolve all the variables.
     /// The `self` function def is consumed.
     pub unsafe fn make_function(mut self: Box<Self>, ctx: &mut JSContext) -> JSValue {

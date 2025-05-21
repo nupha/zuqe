@@ -390,18 +390,14 @@ impl JSFunctionDef {
     }
 
     /// drop Box<Self> and all its subs.
-    pub unsafe fn dispose(mut self: Box<Self>, ctx: &mut JSContext) {
+    pub fn dispose(mut self: Box<Self>, ctx: &mut JSContext) {
         // free child function defs
-        list_foreach_safe(&mut self.child_list, |el| {
+        list_foreach_safe(&mut self.child_list, |el| unsafe {
             let fd1 = list_entry!(el, JSFunctionDef, link);
             Self::dispose(Box::from_raw(fd1), ctx);
         });
 
-        free_bytecode_atoms(
-            ctx.rt_mut(),
-            std::slice::from_raw_parts(self.byte_code.as_ptr(), self.byte_code.len() as usize),
-            self.use_short_opcodes,
-        );
+        free_bytecode_atoms(ctx.rt_mut(), &self.byte_code, self.use_short_opcodes);
         self.byte_code.clear();
 
         // #[cfg(feature = "short_opcode")]
@@ -447,7 +443,9 @@ impl JSFunctionDef {
 
         if !self.parent.is_null() {
             // remove from parent's list
-            list_del(&mut self.link);
+            unsafe {
+                list_del(&mut self.link);
+            }
         }
     }
 }
