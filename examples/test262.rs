@@ -567,6 +567,8 @@ fn main() {
         let fname = fname.unwrap();
 
         if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
+            println!("FILE: {}", fname.display());
+
             run_test_file(&fname, true, &mut fp);
             fp.flush().unwrap();
         }

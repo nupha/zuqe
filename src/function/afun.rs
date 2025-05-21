@@ -154,8 +154,8 @@ pub unsafe fn async_func_init(
     let sf = &mut s.frame;
     sf.arg_base_ptr = local_buf.as_mut_ptr();
     sf.arg_count = arg_count as _;
-    sf.var_base_ptr = sf.arg_base_ptr.add(sf.arg_count as usize);
-    sf.var_count = b.var_count as _;
+    sf.var_base_ptr = local_buf.as_mut_ptr().add(sf.arg_count as usize);
+    sf.var_count = b.var_count;
     sf.local_buf = local_buf;
 
     Box::into_raw(s)

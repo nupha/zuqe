@@ -412,10 +412,11 @@ impl BytecodeFunctionValue {
         let bf = p.u.func.function_bytecode.as_ref().unwrap();
 
         // how many args that should be copied to local buf?
-        // argc:实际调用时传入参数个数, b.arg_count:函数定义时参数个数
+        // `args.len()` is actual argument count
+        // `b.arg_count` is the length when defining the function
         let arg_copy_num =
-            if args.len() < bf.arg_count as usize || flags & JS_CALL_FLAG_COPY_ARGV != 0 {
-                bf.arg_count
+            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bf.arg_count as usize {
+                std::cmp::max(args.len(), bf.arg_count as usize)
             } else {
                 0
             };
@@ -456,19 +457,21 @@ impl BytecodeFunctionValue {
         }
 
         if arg_copy_num != 0 {
-            // copy arg values - duplicated
+            debug_assert!(arg_copy_num >= args.len());
+
+            // copy actual arg values - duplicated
             sf.local_buf.extend(args.iter().map(|x| x.dup()));
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
-                arg_copy_num as usize - args.len(),
+                arg_copy_num - args.len(),
             ));
 
-            sf.arg_count = arg_copy_num;
+            sf.arg_count = arg_copy_num as _;
             sf.arg_base_ptr = sf.local_buf.as_mut_ptr()
         } else {
             sf.arg_count = args.len() as _;
-            sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
+            sf.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
         }
 
         // initialize vars + stack section

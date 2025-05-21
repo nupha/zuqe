@@ -643,9 +643,8 @@ impl JSFunctionDef {
         self.byte_code.clear();
 
         debug_assert_eq!(bin.len(), bin_size);
-        debug_assert!(bin.as_ptr().is_aligned());
 
-        // FIXME: will panic occasionally saying 'requires that align is a power of 2'
+        // FIXME: following will panic occasionally saying 'requires that align is a power of 2'
         bf.binary = bin.into_boxed_slice();
 
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
