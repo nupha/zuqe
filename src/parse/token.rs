@@ -826,12 +826,12 @@ pub unsafe fn update_token_ident(s: &mut JSParseState) {
             let fd = s.cur_func();
 
             is_module
-                || matches!(fd.func_kind, JSFunctionKindEnum::JS_FUNC_ASYNC)
+                || fd.func_kind.is_async()
                 || fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
                 || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
                     && !fd.in_function_body
                     && !fd.parent.is_null()
-                    && (matches!((*fd.parent).func_kind, JSFunctionKindEnum::JS_FUNC_ASYNC)
+                    && ((*fd.parent).func_kind.is_async()
                         || (*fd.parent).func_type
                             == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
         }

@@ -38,6 +38,13 @@ pub enum JSFunctionKindEnum {
     JS_FUNC_ASYNC_GENERATOR = 3, // JS_FUNC_GENERATOR | JS_FUNC_ASYNC
 }
 
+impl JSFunctionKindEnum {
+    #[inline(always)]
+    pub fn is_async(self) -> bool {
+        matches!(self, Self::JS_FUNC_ASYNC | Self::JS_FUNC_ASYNC_GENERATOR)
+    }
+}
+
 /// Class id for function kind
 pub const func_kind_to_class_id: [JSClassID; 4] = [
     JS_CLASS_BYTECODE_FUNCTION, // 0 JS_FUNC_NORMAL

@@ -227,10 +227,7 @@ impl<'s> JSParseState<'s> {
                 parse_flags = 0;
             }
             TOK_AWAIT => {
-                if matches!(
-                    self.cur_func().func_kind,
-                    JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-                ) {
+                if !self.cur_func().func_kind.is_async() {
                     self.throw_syntax_error(c"unexpected 'await' keyword");
                     return Err(-1);
                 }
