@@ -375,7 +375,7 @@ fn run_test_content(
 }
 
 fn dump_error(ctx: &mut JSContext, err_val: JSValue, msg: &str, outf: &mut dyn Write) {
-    writeln!(outf, "{msg}",).unwrap();
+    writeln!(outf, "[MESSAGE] {msg}",).unwrap();
 
     let s = err_val.get_property(ctx, JS_ATOM_stack);
     match JS_VALUE_GET_TAG(s) {
@@ -566,11 +566,7 @@ fn main() {
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
         let fname = fname.unwrap();
 
-        if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
-            println!("FILE: {}", fname.display());
-
-            run_test_file(&fname, true, &mut fp);
-            fp.flush().unwrap();
-        }
+        run_test_file(&fname, true, &mut fp);
+        fp.flush().unwrap();
     }
 }
