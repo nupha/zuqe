@@ -170,13 +170,13 @@ pub unsafe fn run_bytecodes(
     'restart: loop {
         // loop running bytecodes
         let state: State = 'opcodes: loop {
-            // #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-            // {
-            //     let pos = pc.offset_from(pc_base) as usize;
-            //     print!("[O.o] RUN {:5}: ", pos);
-            //     crate::bytecode::dump::debug_dump_opcode_one(ctx, b, pos);
-            //     println!();
-            // }
+            #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
+            {
+                let pos = pc.offset_from(pc_base) as usize;
+                print!("[O.o] RUN {:5}: ", pos);
+                crate::bytecode::dump::debug_dump_opcode_one(ctx, b, pos);
+                println!();
+            }
 
             let opcode = std::mem::transmute::<u8, OpCode>(*pc);
             PC_GO!(1);
@@ -1219,11 +1219,16 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(-1);
                     PC_GO!(4);
 
-                    let res = if JS_VALUE_GET_TAG(op1) <= JS_TAG_UNDEFINED {
-                        JS_VALUE_GET_INT(op1) != 0
-                    } else {
-                        // FIXME: handle error
-                        JS_ToBoolFree(ctx, op1).unwrap_or(true)
+                    let res = match JS_VALUE_GET_TAG(op1) {
+                        JS_TAG_INT | JS_TAG_BOOL => JS_VALUE_GET_INT(op1) != 0,
+                        JS_TAG_UNDEFINED | JS_TAG_NULL => false,
+                        _ => {
+                            if let Ok(x) = JS_ToBoolFree(ctx, op1) {
+                                x
+                            } else {
+                                break State::Exception;
+                            }
+                        }
                     };
 
                     if b == res {
@@ -1414,17 +1419,18 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
                     let atom = JSAtom(read_from_ptr::<u32>(pc));
                     PC_GO!(4);
+
                     let val = SP![-1].get_property(ctx, atom);
                     if val.is_exception() {
                         break State::Exception;
+                    }
+
+                    if opcode == OpCode::GET_FIELD {
+                        JS_FreeValue(ctx, SP![-1]);
+                        SP![-1] = val;
                     } else {
-                        if opcode == OpCode::GET_FIELD {
-                            JS_FreeValue(ctx, SP![-1]);
-                            SP![-1] = val;
-                        } else {
-                            SP![0] = val;
-                            SP_GO!(1)
-                        }
+                        SP![0] = val;
+                        SP_GO!(1)
                     }
                 }
                 OpCode::PUT_FIELD => {

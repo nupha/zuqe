@@ -474,8 +474,6 @@ unsafe fn js_ecvt1(
         buf1.add(n_digits as usize + 2 + if n_digits > 1 { 1 } else { 0 })
             .cast(),
     ) + 1;
-
-    println!("[O.o] ecvt1: {:?}", CStr::from_ptr(buf.cast()));
 }
 
 // needed because ecvt usually limits the number of digits to
