@@ -20,7 +20,8 @@ use crate::{
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
         JS_ToInt32,
     },
-    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_PROMISE, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_PROMISE,
+    JS_CLASS_PROMISE_RESOLVE_FUNCTION,
 };
 
 use super::{
@@ -104,16 +105,17 @@ impl From<PromiseValue> for JSValue {
 impl PromiseValue {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
-    /// Note:  `executor` is not consumed.
+    /// Note:  `executor` is not consumed, and must be callable.
     pub(super) unsafe fn new_with_executor(
         ctx: &mut JSContext,
         executor: JSValue,
         new_target: JSValue,
     ) -> Result<Self, i32> {
-        debug_assert_eq!(
-            executor.object_unchecked().class_id(),
-            JS_CLASS_C_FUNCTION_DATA
-        );
+        // debug_assert_eq!(
+        //     executor.object_unchecked().class_id(),
+        //     JS_CLASS_C_FUNCTION_DATA | JS_CLASS_BYTECODE_FUNCTION
+        // );
+
         executor.ensure_callable(ctx)?;
 
         // make promise payload

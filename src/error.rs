@@ -52,13 +52,27 @@ pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl JSContext {
-    /// put `obj` to current_exception, free old exception value. returns Exception value.
+    /// set new obj to current_exception, returns the old exception value.
+    /// Note: returnd value should be freed by caller
+    #[inline(always)]
+    pub fn set_exception(&mut self, obj: JSValue) -> JSValue {
+        self.rt_mut().current_exception.replace(obj)
+    }
+
+    /// get current exception value, then reset current_exception to null.
+    /// Note: returnd value should be freed by caller
+    #[inline(always)]
+    pub fn take_exception(&mut self) -> JSValue {
+        self.set_exception(JSValue::NULL)
+    }
+
+    /// put `obj` to current_exception, free old exception.
+    /// returns JSValue::EXCEPTION.
     /// Note: `obj` is consumed.
     pub fn throw(&mut self, obj: JSValue) -> JSValue {
         let old = self.rt_mut().current_exception.replace(obj);
-        unsafe {
-            JS_FreeValue(self, old); // free old exception value
-        }
+        // free old exception
+        JS_FreeValue(self, old);
         JSValue::EXCEPTION
     }
 
@@ -170,12 +184,6 @@ impl JSContext {
             self.rt_mut().in_out_of_memory = false;
         }
         JSValue::EXCEPTION
-    }
-
-    /// get and return current pending exception value. replace current_exception with null.
-    /// Note: returnd value should be freed by caller
-    pub fn take_exception(&mut self) -> JSValue {
-        std::mem::replace(&mut self.rt_mut().current_exception, JSValue::NULL)
     }
 }
 

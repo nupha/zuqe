@@ -49,6 +49,7 @@ pub enum JSCFunctionEnum {
     NativeGetter,
 }
 
+// TODO: rename to CallContext
 pub struct CallArgs<'a> {
     ctx: JSContextHandle,
 
@@ -56,7 +57,7 @@ pub struct CallArgs<'a> {
     pub args: &'a [JSValue],
     pub magic: i32,
 
-    /// extra values
+    /// additional binding values
     pub data: Option<&'a mut [JSValue]>,
 }
 

@@ -28,7 +28,7 @@ pub struct JSJobEntry {
 
 impl JSContext {
     /// Append a job to queue.
-    /// Note: `args` values are not consumed (dup inside).
+    /// Note: `args` values are not consumed.
     pub unsafe fn enqueue_job(
         &mut self,
         callback: JobCallback,
@@ -91,9 +91,7 @@ pub fn promise_reaction_job(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         JSValue::UNDEFINED
     };
 
-    unsafe {
-        JS_FreeValue(ctx, res);
-    }
+    JS_FreeValue(ctx, res);
 
     res2.check_exception()
 }
@@ -124,18 +122,19 @@ pub fn js_promise_resolve_thenable_job(ctx: &mut JSContext, args: CallArgs) -> J
         }
     }
 
-    unsafe {
-        JS_FreeValue(ctx, rr[0]);
-        JS_FreeValue(ctx, rr[1]);
-    }
+    JS_FreeValue(ctx, rr[0]);
+    JS_FreeValue(ctx, rr[1]);
 
     res.check_exception()
 }
 
 impl JSRuntime {
-    /// take and execute first pending job (only one job) in queue.
-    /// return #0: the JSContext of the executed job.
-    /// return #1: true if it need more runs, false if there are no jobs left.
+    /// take and execute first pending job in queue.
+    /// this will only execute one job, keep rest jobs in queue.
+    ///
+    /// Returns:
+    /// - 0: the Context of the executed job.
+    /// - 1: false if there are no jobs left; true if it need more runs.
     pub fn execute_pending_job(
         &mut self,
     ) -> Result<(Option<JSContextHandle>, bool), (Option<JSContextHandle>, i32)> {
@@ -149,21 +148,26 @@ impl JSRuntime {
             list_del(&mut (*ent).link);
 
             let job = Box::from_raw(ent);
-
             let mut ctx = job.ctx;
-            let cc = CallArgs::new(
-                ctx,
-                JSValue::UNDEFINED,
-                &job.args[..job.argc as usize],
-                0,
-                None,
-            );
-            let res = (job.callback)(ctx.deref_mut(), cc);
+
+            let res = {
+                let cc = CallArgs::new(
+                    ctx,
+                    JSValue::UNDEFINED,
+                    &job.args[..job.argc as usize],
+                    0,
+                    None,
+                );
+                (job.callback)(ctx.deref_mut(), cc)
+            };
+
+            // free job arguments
             for i in 0..job.argc {
-                JS_FreeValue(ctx.deref_mut(), job.args[i as usize]);
+                JS_FreeValue(ctx.into(), job.args[i as usize]);
             }
+
             if let Ok(r) = res {
-                JS_FreeValue(ctx.deref_mut(), r);
+                JS_FreeValue(ctx.into(), r);
                 Ok((Some(ctx), true))
             } else {
                 Err((Some(ctx), -1))

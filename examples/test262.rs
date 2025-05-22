@@ -14,8 +14,7 @@ use zhuque::{
     context::{JSContext, JSContextHandle, JS_FreeContext},
     error::{JSResult, JS_ThrowReferenceError},
     eval::{
-        JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_GLOBAL,
-        JS_EVAL_TYPE_MODULE,
+        JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE,
     },
     function::{CallArgs, JSCFunctionEnum},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
@@ -23,7 +22,7 @@ use zhuque::{
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
     value::{
-        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_DumpValue, JS_FreeValue, StringContent,
+        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, StringContent,
         JS_TAG_EXCEPTION, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG,
     },
@@ -155,9 +154,7 @@ fn setup_ctx_helpers(mut ctx: JSContextHandle) -> Result<JSValue, i32> {
     obj262.set_property_str(ctx, "global", global.dup())?;
     global.set_property_str(ctx, "$262", obj262.dup())?;
 
-    unsafe {
-        JS_FreeValue(ctx, global);
-    }
+    JS_FreeValue(ctx, global);
     Ok(obj262)
 }
 
@@ -292,15 +289,10 @@ fn run_harness(ctx: &mut JSContext, harness_files: &[PathBuf]) -> Result<(), JSV
         );
 
         if r.is_exception() {
-            let rt = ctx.rt_mut();
-            let exc = rt.current_exception;
-            rt.current_exception = JSValue::NULL;
-            return Err(exc);
-        } else {
-            unsafe {
-                JS_FreeValue(ctx, r);
-            }
+            return Err(ctx.take_exception());
         }
+
+        JS_FreeValue(ctx, r);
     }
 
     Ok(())
@@ -313,19 +305,21 @@ fn run_test_content(
     eval_flags: u32,
     is_async: bool,
 ) -> Result<(), JSValue> {
-    let mut ret_val = ctx.eval(
-        CString::new(content).unwrap().as_c_str(),
-        filename.as_os_str().to_str().unwrap(),
-        eval_flags,
-    );
+    let mut ret_val: zhuque::value::JSValueRc = ctx
+        .eval(
+            CString::new(content).unwrap().as_c_str(),
+            filename.as_os_str().to_str().unwrap(),
+            eval_flags,
+        )
+        .into_rc(ctx.rt());
 
     let ret_promise = is_async || eval_flags & JS_EVAL_TYPE_MODULE != 0;
-    let mut async_done = 0; // counter of "Test262:AsyncTestComplete" messages
+    let async_done = 0; // counter of "Test262:AsyncTestComplete" messages
 
     if ret_promise && !ret_val.is_exception() {
-        let rt = ctx.rt_mut();
+        // ret_val is Promise
         loop {
-            match rt.execute_pending_job() {
+            match ctx.rt_mut().execute_pending_job() {
                 Ok((None, false)) => {
                     if is_async {
                         // test if the test called $DONE() once
@@ -333,27 +327,30 @@ fn run_test_content(
                             ctx.JS_ThrowTypeError(c"$DONE() not called")
                         } else {
                             JSValue::UNDEFINED
-                        };
+                        }
+                        .into_rc(ctx.rt());
                     } else {
                         // check that the returned promise is fulfilled
-                        let promise = TryInto::<PromiseValue>::try_into(ret_val).unwrap();
+                        let promise: PromiseValue =
+                            TryFrom::try_from(JSValue::from(ret_val)).unwrap();
+
                         ret_val = match promise.state() {
                             Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
                             Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
-                                let v = promise.result();
-                                ctx.throw(v)
+                                ctx.throw(promise.result())
                             }
                             Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
                                 ctx.JS_ThrowTypeError(c"promise not fulfilled")
                             }
-                        };
+                        }
+                        .into_rc(ctx.rt());
 
                         JS_FreeValue(ctx, promise.into());
                     }
                     break;
                 }
                 Err(_) => {
-                    ret_val = JSValue::EXCEPTION;
+                    ret_val = JSValue::EXCEPTION.into_rc(ctx.rt());
                     break;
                 }
                 _ => {}
@@ -364,12 +361,8 @@ fn run_test_content(
     }
 
     if ret_val.is_exception() {
-        let rt = ctx.rt_mut();
-        let exc = rt.current_exception;
-        rt.current_exception = JSValue::NULL;
-        Err(exc)
+        Err(ctx.take_exception())
     } else {
-        JS_FreeValue(ctx, ret_val);
         Ok(())
     }
 }
@@ -560,16 +553,11 @@ fn main() {
         .open("test262-result.txt")
         .unwrap();
 
-    // run_test_file(
-    //     &Path::new("/Users/johnray/devel/test262/test/harness/compare-array-symbol.js"),
-    //     true,
-    //     &mut fp,
-    // );
+    // run_test_file(&Path::new("./tests/test-harness.js"), false, &mut fp);
     // fp.flush().unwrap();
 
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
         let fname = fname.unwrap();
-
         run_test_file(&fname, true, &mut fp);
         fp.flush().unwrap();
     }

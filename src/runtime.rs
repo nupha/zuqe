@@ -113,7 +113,7 @@ pub struct JSRuntime {
 
 impl JSRuntime {
     pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
-        let mut ms = JSMallocState {
+        let ms = JSMallocState {
             opaque,
             malloc_limit: usize::MAX,
             ..Default::default()
