@@ -68,6 +68,16 @@ impl TryFrom<JSValue> for PromiseValue {
     /// interpret value as PromiseValue.
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
         if value.is_object() && unsafe { value.object_unchecked().class_id() } == JS_CLASS_PROMISE {
+            debug_assert!(
+                unsafe {
+                    value
+                        .object_unchecked()
+                        .opaque::<std::ffi::c_void>(JS_CLASS_PROMISE)
+                        .is_some()
+                },
+                "Promise object missing payload data"
+            );
+
             Ok(unsafe { std::mem::transmute::<JSValue, PromiseValue>(value) })
         } else {
             Err(-1)

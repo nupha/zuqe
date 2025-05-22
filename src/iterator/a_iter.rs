@@ -198,13 +198,15 @@ pub unsafe fn js_async_from_sync_iterator_next(
             return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
         }
 
-        let value_wrapper_promise =
-            js_promise_resolve(ctx, (*ctx).promise_ctor, 1, value.deref_mut(), 0)
-                .into_rc((*ctx).rt());
-
-        if value_wrapper_promise.is_exception() {
-            return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
-        }
+        let value_wrapper_promise: JSValueRc = {
+            let a = [*value];
+            let cc = CallArgs::new(ctx, (*ctx).promise_ctor, &a, 0, None);
+            if let Ok(r) = js_promise_resolve(ctx.as_mut().unwrap(), cc) {
+                r.into_rc((*ctx).rt())
+            } else {
+                return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
+            }
+        };
 
         let resolve_reject: [JSValueRc; 2] = [
             {

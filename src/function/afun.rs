@@ -14,13 +14,14 @@ use crate::{
     utils::UncheckedInto,
     value::{
         object::JS_PROP_CONFIGURABLE, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
+        JS_VALUE_GET_OBJ,
     },
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::{
     call::{JS_CallInternal, JS_CALL_FLAG_GENERATOR},
-    JSCFunctionListEntry, JS_Call,
+    CallArgs, JSCFunctionListEntry, JS_Call,
 };
 
 #[repr(C)]
@@ -162,14 +163,14 @@ pub unsafe fn async_func_init(
 }
 
 pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionState) -> JSValue {
-    assert!(!(*s).is_completed);
+    debug_assert!(!(*s).is_completed);
 
     let sf = &mut (*s).frame;
 
     let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx)
     } else {
-        /* the tag does not matter provided it is not an object */
+        // the tag does not matter provided it is not an object
         let func_obj = JS_MKPTR!(JSTag::Int, s.cast());
         JS_CallInternal(
             ctx,
@@ -182,16 +183,17 @@ pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionStat
         )
     };
 
-    if ret.is_undefined_or_null() {
+    if ret.is_exception() || ret.is_undefined() {
         if ret.is_undefined() {
             debug_assert!(sf.cur_sp_offset > 0);
             let sp_base = sf.stack_base_ptr();
             ret = (*sp_base.as_ptr().add(sf.cur_sp_offset - 1)).replace(JSValue::UNDEFINED);
         }
-        /* end of execution */
+
+        // end of execution
         (*s).is_completed = true;
 
-        /* close the closure variables. */
+        // close the closure variables.
         sf.close_var_refs(ctx);
 
         async_func_free_frame(ctx.rt_mut(), s);
@@ -342,13 +344,18 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
             .as_ptr()
             .add((*s).frame.cur_pc_offset);
 
-        let mut value = std::ptr::replace(cur_sp.offset(-1), JSValue::UNDEFINED);
+        let value = std::ptr::replace(cur_sp.offset(-1), JSValue::UNDEFINED);
 
         // await
         JS_FreeValue(ctx, func_ret); // not used
 
-        let promise = js_promise_resolve(ctx, (*ctx).promise_ctor, 1, &mut value, 0);
+        let promise = {
+            let a = [value];
+            let cc = CallArgs::new(ctx, (*ctx).promise_ctor, &a, 0, None);
+            js_promise_resolve(ctx.as_mut().unwrap(), cc).unwrap_or(JSValue::EXCEPTION)
+        };
         JS_FreeValue(ctx, value);
+
         if promise.is_exception() {
             let mut error = (*ctx).take_exception();
             let ret2 = JS_Call(
@@ -383,8 +390,10 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
         let res = UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
             ctx.as_mut().unwrap(),
             &resolving_funcs,
-            &[JSValue::UNDEFINED; 2], // no need to create 'thrownawayCapability' as in the spec
+            // no need to create 'thrownawayCapability' as in the spec
+            &[JSValue::UNDEFINED; 2],
         );
+
         JS_FreeValue(ctx, promise);
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -404,7 +413,11 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
 }
 
 pub unsafe fn js_async_function_resolve_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    unimplemented!();
+    let p = JS_VALUE_GET_OBJ(val);
+    let s = (*p).u.async_function_data;
+    if !s.is_null() {
+        async_func_free(rt, s);
+    }
 }
 
 pub unsafe fn js_async_function_resolve_mark(
@@ -412,7 +425,11 @@ pub unsafe fn js_async_function_resolve_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    unimplemented!();
+    let p = JS_VALUE_GET_OBJ(val);
+    let s = (*p).u.async_function_data;
+    if !s.is_null() {
+        mark_func(rt, &mut (*s).header);
+    }
 }
 
 pub const js_async_function_proto_funcs: [JSCFunctionListEntry; 1] = [JS_PROP_STRING_DEF!(

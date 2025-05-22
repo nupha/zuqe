@@ -51,16 +51,16 @@ pub fn js_promise_then_finally_func(ctx: &mut JSContext, args: CallArgs) -> JSRe
     let ctor = args.data_raw(0);
     let onFinally = args.data_raw(1);
 
-    let mut res = unsafe {
+    let res = unsafe {
         JS_Call(ctx, onFinally, JSValue::UNDEFINED, 0, std::ptr::null_mut())
             .check_exception()?
             .into_rc(ctx.rt())
     };
 
-    let promise = unsafe {
-        js_promise_resolve(ctx, ctor, 1, res.deref_mut(), 0)
-            .check_exception()?
-            .into_rc(ctx.rt())
+    let promise = {
+        let tmp = [*res];
+        let cc = CallArgs::new(ctx.handle(), ctor, &tmp, 0, None);
+        js_promise_resolve(ctx, cc)?.into_rc(ctx.rt())
     };
 
     let mut then_func = ctx
@@ -137,61 +137,49 @@ pub unsafe fn js_promise_finally(
 }
 
 /// returned value is Promise object or Exception.
-pub unsafe fn js_promise_resolve(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-    magic: i32,
-) -> JSValue {
-    if !this_val.is_object() {
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
+pub fn js_promise_resolve(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+    if !args.this_raw().is_object() {
+        ctx.JS_ThrowTypeErrorNotAnObject();
+        return Err(-1);
     }
 
-    let is_reject = magic != 0;
+    let is_reject = args.magic != 0;
+    let arg0 = args.get_raw(0);
 
-    if !is_reject
-        && (*argv.offset(0))
-            .object_unchecked()
-            .opaque::<c_void>(JS_CLASS_PROMISE)
-            .is_some()
-    {
-        // arg#0 is Promise object
-        let ctor = (*argv.offset(0)).get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
-        if ctor.is_exception() {
-            return JSValue::EXCEPTION;
-        }
+    if !is_reject && PromiseValue::try_from(arg0).is_ok() {
+        // resolve and argument #0 is a Promise
+        let ctor = arg0
+            .get_property(ctx, JS_ATOM_constructor)
+            .check_exception()?;
 
-        let is_same = ctor.is_same(this_val);
+        let is_same = ctor.is_same(args.this_raw());
         JS_FreeValue(ctx, ctor);
         if is_same {
-            return (*argv.offset(0)).dup();
+            return Ok(arg0.dup());
         }
     }
 
-    let (result_promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(this_val) {
-        (pr, rr)
-    } else {
-        return JSValue::EXCEPTION;
-    };
+    let (result_promise, resolving_funcs) = ctx.create_promise(args.this_raw())?;
 
-    let ret = JS_Call(
-        ctx.as_mut().unwrap(),
-        resolving_funcs[is_reject as usize],
-        JSValue::UNDEFINED,
-        1,
-        argv,
-    );
+    let ret = unsafe {
+        JS_Call(
+            ctx,
+            resolving_funcs[is_reject as usize],
+            JSValue::UNDEFINED,
+            1,
+            args.arguments_raw().as_ptr() as *mut _,
+        )
+    };
 
     JS_FreeValue(ctx, resolving_funcs[0]);
     JS_FreeValue(ctx, resolving_funcs[1]);
 
     if ret.is_exception() {
         JS_FreeValue(ctx, result_promise.into());
-        JSValue::EXCEPTION
+        Err(-1)
     } else {
         JS_FreeValue(ctx, ret);
-        result_promise.into()
+        Ok(result_promise.into())
     }
 }
 
@@ -575,8 +563,8 @@ pub unsafe fn js_promise_withResolvers(
 }
 
 pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
-    JS_CFUNC_MAGIC_DEF!(c"resolve", 1, js_promise_resolve, 0),
-    JS_CFUNC_MAGIC_DEF!(c"reject", 1, js_promise_resolve, 1),
+    JS_CFUNC_NATIVE_DEF!(c"resolve", 1, js_promise_resolve, 0),
+    JS_CFUNC_NATIVE_DEF!(c"reject", 1, js_promise_resolve, 1),
     JS_CFUNC_MAGIC_DEF!(c"all", 1, js_promise_all, PROMISE_MAGIC_all as _),
     JS_CFUNC_MAGIC_DEF!(
         c"allSettled",

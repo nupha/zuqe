@@ -50,14 +50,14 @@ pub unsafe fn js_poll_interrupts(ctx: &mut JSContext) -> i32 {
 }
 
 /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
-/// `this_obj` is not consumed, `argv` values are not consumed.
+/// both `this_obj` and `argv` values are not consumed.
 pub unsafe fn JS_CallInternal(
     caller_ctx: &mut JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     new_target: JSValueConst,
     argc: i32,
-    argv: *mut JSValue,
+    argv: *mut JSValue, // TODO: use *const ?
     flags: i32,
 ) -> JSValue {
     if js_poll_interrupts(caller_ctx) != 0 {
@@ -108,6 +108,7 @@ pub unsafe fn JS_CallInternal(
     let cid = p.class_id();
 
     if cid != JS_CLASS_BYTECODE_FUNCTION {
+        // not a bytecode function, use native call function defined on its class.
         return if let Some(cb) = rt.class_array[cid as usize].call {
             #[cfg(debug_assertions)]
             let argv_ref_count0 = if argc > 0 {
@@ -256,7 +257,7 @@ pub unsafe fn JS_Call(
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
-    argv: *mut JSValueConst,
+    argv: *mut JSValueConst, // TODO: use *const ?
 ) -> JSValue {
     JS_CallInternal(
         ctx,

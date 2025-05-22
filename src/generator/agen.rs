@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use crate::{
     class::js_create_from_ctor,
     context::JSContext,
@@ -21,8 +19,8 @@ use crate::{
     utils::UncheckedInto,
     value::{
         object::{JSObject, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT, JS_TAG_OBJECT,
-        JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT,
+        JS_TAG_OBJECT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_MKPTR, JS_PROP_STRING_DEF,
@@ -431,32 +429,54 @@ pub unsafe fn js_async_generator_resolve_or_reject(
 pub unsafe fn js_async_generator_completed_return(
     ctx: &mut JSContext,
     s: *mut JSAsyncGeneratorData,
-    mut value: JSValueConst,
+    value: JSValue,
 ) -> Result<(), i32> {
-    // Can fail looking up JS_ATOM_constructor when is_reject==0.
-    let mut promise = js_promise_resolve(
-        ctx,
-        ctx.promise_ctor,
-        1,
-        &mut value,
-        0, // is_reject
-    )
+    let promise: JSValueRc = match {
+        let a = [value];
+        let cc = CallArgs::new(
+            ctx.handle(),
+            ctx.promise_ctor,
+            &a,
+            0, // is_reject=0
+            None,
+        );
+        js_promise_resolve(ctx, cc)
+    } {
+        Ok(r) => r,
+        Err(_) => {
+            // Fail looking up JS_ATOM_constructor when is_reject==0.
+            // A poisoned .constructor property is observable and the resulting
+            // exception should be delivered to the catch handler.
+            let err: JSValueRc = (*ctx).take_exception().into_rc(ctx.rt());
+
+            let a = [*err];
+            let cc = CallArgs::new(
+                ctx.handle(),
+                ctx.promise_ctor,
+                &a,
+                1, // is_reject=1
+                None,
+            );
+            js_promise_resolve(ctx, cc)?
+        }
+    }
     .into_rc(ctx.rt());
 
+    //let mut promise: JSValueRc = js_promise_resolve(ctx, cc)?.into_rc(ctx.rt());
     // A poisoned .constructor property is observable and the resulting
     // exception should be delivered to the catch handler.
-    if promise.is_exception() {
-        let mut err = (*ctx).take_exception().into_rc(ctx.rt());
-        promise = js_promise_resolve(
-            ctx,
-            ctx.promise_ctor,
-            1,
-            err.deref_mut(),
-            1, // is_reject
-        )
-        .check_exception()?
-        .into_rc(ctx.rt());
-    }
+    // if promise.is_exception() {
+    //     let mut err = (*ctx).take_exception().into_rc(ctx.rt());
+    //     promise = js_promise_resolve(
+    //         ctx,
+    //         ctx.promise_ctor,
+    //         1,
+    //         err.deref_mut(),
+    //         1, // is_reject
+    //     )
+    //     .check_exception()?
+    //     .into_rc(ctx.rt());
+    // }
 
     let resolving_funcs1 = js_async_generator_resolve_function_create(
         ctx,
@@ -479,11 +499,13 @@ pub unsafe fn js_async_generator_completed_return(
 pub unsafe fn js_async_generator_await(
     ctx: &mut JSContext,
     s: *mut JSAsyncGeneratorData,
-    mut value: JSValueConst,
+    value: JSValueConst,
 ) -> Result<(), i32> {
-    let promise = js_promise_resolve(ctx, ctx.promise_ctor, 1, &mut value, 0)
-        .check_exception()?
-        .into_rc((*ctx).rt());
+    let promise: JSValueRc = {
+        let a = [value];
+        let cc = CallArgs::new(ctx.handle(), ctx.promise_ctor, &a, 0, None);
+        js_promise_resolve(ctx, cc)?.into_rc((*ctx).rt())
+    };
 
     let resolving_funcs = js_async_generator_resolve_function_create(
         ctx,
@@ -494,7 +516,8 @@ pub unsafe fn js_async_generator_await(
     let res = UncheckedInto::<PromiseValue>::unchecked_into(*promise).reaction(
         ctx,
         &resolving_funcs,
-        &[JSValue::UNDEFINED, JSValue::UNDEFINED], // no need to create 'thrownawayCapability' as in the spec
+        // no need to create 'thrownawayCapability' as in the spec
+        &[JSValue::UNDEFINED, JSValue::UNDEFINED],
     );
 
     JS_FreeValue(ctx, resolving_funcs[0]);
