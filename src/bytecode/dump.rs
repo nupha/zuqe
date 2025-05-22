@@ -112,8 +112,10 @@ pub unsafe fn debug_dump_opcode_one(
 
         "const" => {
             let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos));
-            print!(" {idx}:");
-            b.get_cpool(idx as usize).unwrap().dump(ctx.rt());
+            print!(
+                " {idx}:{}",
+                b.get_cpool(idx as usize).unwrap().repr(ctx.rt())
+            );
         }
         "atom" => {
             let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
@@ -492,7 +494,7 @@ pub unsafe fn dump_byte_code(
                 let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos)) as usize;
                 print!(" {idx}:");
                 if let Some(v) = cpools.get(idx) {
-                    (*v).dump((*ctx).rt());
+                    print!("{}", v.repr((*ctx).rt()));
                 } else {
                     #[cfg(debug_assertions)]
                     unreachable!()

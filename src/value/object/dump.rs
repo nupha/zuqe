@@ -15,7 +15,7 @@ use crate::{
 use super::{js_autoinit_get_id, js_autoinit_get_realm, JSObject, JSShape, JS_PROP_TMASK};
 
 impl JSShape {
-    /// print shape to console
+    /// print shape debug info to console
     pub unsafe fn dump(&self, rt: &JSRuntime, i: i32) {
         // XXX: should output readable class prototype
         print!(
@@ -87,7 +87,7 @@ pub unsafe fn JS_DumpShape(rt: *const JSRuntime, i: i32, sh: *const JSShape) {
 }
 
 impl JSObject {
-    /// print object to console
+    /// print object debug info to console
     pub unsafe fn dump(&self, rt: &JSRuntime) {
         // XXX: should encode atoms with special characters
         print!("{:14p} {:4} ", self, self.header.ref_count);
@@ -123,7 +123,7 @@ impl JSObject {
                         if i != 0 {
                             print!(", ");
                         }
-                        v.dump(rt);
+                        v.repr(rt);
                     }
                 }
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
@@ -175,7 +175,7 @@ impl JSObject {
                             );
                         }
                         _ => {
-                            pr.u.value.dump(rt);
+                            pr.u.value.repr(rt);
                         }
                     }
                 } else {
@@ -194,12 +194,12 @@ impl JSObject {
                 print!(" Closure:");
                 for vr in self.u.func.var_refs.iter() {
                     print!(" ");
-                    (*vr.as_ref().pvalue).dump(rt);
+                    (*vr.as_ref().pvalue).repr(rt);
                 }
 
                 if !self.u.func.home_object.is_null() {
                     print!(" HomeObject: ");
-                    JS_MKPTR!(JSTag::Object, self.u.func.home_object.cast()).dump(rt);
+                    JS_MKPTR!(JSTag::Object, self.u.func.home_object.cast()).repr(rt);
                 }
             }
         }

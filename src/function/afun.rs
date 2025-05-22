@@ -70,6 +70,22 @@ impl JSAsyncFunctionState {
             }
         }
     }
+
+    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
+        let p = JS_VALUE_GET_OBJ(val);
+        let s = (*p).u.async_function_data;
+        if !s.is_null() {
+            async_func_free(rt, s);
+        }
+    }
+
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+        let p = JS_VALUE_GET_OBJ(val);
+        let s = (*p).u.async_function_data;
+        if !s.is_null() {
+            mark_func(rt, &mut (*s).header);
+        }
+    }
 }
 
 #[deprecated(note = "use JSAsyncFunctionState::dispose() instead")]
@@ -412,25 +428,24 @@ pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunct
     }
 }
 
-pub unsafe fn js_async_function_resolve_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p = JS_VALUE_GET_OBJ(val);
-    let s = (*p).u.async_function_data;
-    if !s.is_null() {
-        async_func_free(rt, s);
-    }
-}
-
-pub unsafe fn js_async_function_resolve_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
-    let p = JS_VALUE_GET_OBJ(val);
-    let s = (*p).u.async_function_data;
-    if !s.is_null() {
-        mark_func(rt, &mut (*s).header);
-    }
-}
+// pub unsafe fn js_async_function_resolve_finalizer(rt: *mut JSRuntime, val: JSValue) {
+//     let p = JS_VALUE_GET_OBJ(val);
+//     let s = (*p).u.async_function_data;
+//     if !s.is_null() {
+//         async_func_free(rt, s);
+//     }
+// }
+// pub unsafe fn js_async_function_resolve_mark(
+//     rt: *mut JSRuntime,
+//     val: JSValueConst,
+//     mark_func: JS_MarkFunc,
+// ) {
+//     let p = JS_VALUE_GET_OBJ(val);
+//     let s = (*p).u.async_function_data;
+//     if !s.is_null() {
+//         mark_func(rt, &mut (*s).header);
+//     }
+// }
 
 pub const js_async_function_proto_funcs: [JSCFunctionListEntry; 1] = [JS_PROP_STRING_DEF!(
     c"[Symbol.toStringTag]",

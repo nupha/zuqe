@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops::DerefMut, rc::Rc};
+use std::{borrow::Cow, rc::Rc};
 
 use smallvec::SmallVec;
 
@@ -9,16 +9,15 @@ use crate::{
         },
         JSAtomStruct,
     },
-    context::{JSContext, JSContextHandle},
+    context::JSContext,
     error::JSResult,
     function::{JSFunctionBytecode, JS_InvokeFree},
     runtime::JSRuntime,
 };
 
 use super::{
-    f64_stringify, JSString, JSTag, JSValue, JSValueConst, JS_FreeValue, HINT_STRING,
-    JS_DTOA_VAR_FORMAT, JS_VALUE_GET_BOOL, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-    JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+    f64_stringify, JSString, JSTag, JSValue, JS_FreeValue, HINT_STRING, JS_VALUE_GET_BOOL,
+    JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
 };
 
 impl JSValue {
@@ -38,7 +37,7 @@ impl JSValue {
             JSTag::Uninitialized => "[uninitialized]".into(),
             JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
             JSTag::String => {
-                let p = unsafe { self.string() };
+                let p = self.string();
                 let sep = '\"';
                 let mut buf = SmallVec::<[u8; 128]>::new();
                 buf.push(sep as u8);
@@ -118,9 +117,7 @@ impl JSValue {
             JSTag::Object => {
                 let tmp = self.coerce_to_primitive(ctx, HINT_STRING)?;
                 let r = tmp.do_coerce_to_string_value(ctx, as_propkey)?;
-                unsafe {
-                    JS_FreeValue(ctx, tmp);
-                }
+                JS_FreeValue(ctx, tmp);
                 r
             }
             JSTag::FunctionBytecode => ctx.create_string("[function bytecode]"),
@@ -172,52 +169,6 @@ impl JSValue {
     pub fn coerce_to_propkey_value(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
         self.do_coerce_to_string_value(ctx, true)
     }
-
-    #[deprecated(note = "use JSValue::repr() instead")]
-    pub unsafe fn dump(self, rt: &JSRuntime) {
-        let str: Cow<'static, str> = match JS_VALUE_GET_NORM_TAG(self) {
-            JSTag::Int => format!("{}", JS_VALUE_GET_INT(self)).into(),
-            JSTag::Bool => if JS_VALUE_GET_BOOL(self) {
-                "true"
-            } else {
-                "false"
-            }
-            .into(),
-            JSTag::Null => "null".into(),
-            JSTag::Exception => "exception".into(),
-            JSTag::Uninitialized => "uninitialized".into(),
-            JSTag::Undefined => "undefined".into(),
-            JSTag::Float64 => format!("{:14}", JS_VALUE_GET_FLOAT64(self)).into(),
-            JSTag::String => {
-                let p = JS_VALUE_GET_STRING(self);
-                debug_assert!(!p.is_null());
-                let ss = Rc::from_raw(p);
-                JS_DumpString(rt, &ss);
-                let _ = Rc::into_raw(ss);
-                return;
-            }
-            JSTag::FunctionBytecode => {
-                let b = JS_VALUE_GET_PTR(self).cast::<JSFunctionBytecode>();
-                format!("[bytecode {}]", (*b).func_name.to_str(rt)).into()
-            }
-            JSTag::Object => {
-                let p = JS_VALUE_GET_OBJ(self);
-                let atom = rt.class_array[(*p).class_id() as usize].class_name;
-                format!("[{} {p:p}]", atom.to_str(rt)).into()
-            }
-            JSTag::Symbol => {
-                let p = JS_VALUE_GET_PTR(self).cast::<JSAtomStruct>();
-                format!("Symbol({})", (*p).atom_info().unwrap().atom().to_str(rt),).into()
-            }
-            JSTag::CatchOffset => "catchoffset".into(),
-            JSTag::Module => "[module]".into(),
-            JSTag::BigInt | JSTag::BigDecimal | JSTag::BigFloat => {
-                unimplemented!();
-            }
-        };
-
-        print!("{}", str);
-    }
 }
 
 pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: &Rc<JSString>) {
@@ -245,14 +196,4 @@ pub unsafe fn JS_DumpString(rt: *const JSRuntime, p: &Rc<JSString>) {
     }
 
     print!("{sep}");
-}
-
-#[deprecated(note = "use JSValue::dump() instead")]
-pub unsafe fn JS_DumpValueShort(rt: *const JSRuntime, val: JSValueConst) {
-    val.dump(rt.as_ref().unwrap());
-}
-
-#[deprecated(note = "use JSValue::dump() instead")]
-pub unsafe fn JS_DumpValue(ctx: *const JSContext, val: JSValueConst) {
-    JS_DumpValueShort((*ctx).rt(), val);
 }

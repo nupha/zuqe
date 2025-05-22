@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use crate::{
     atom::consts::*,
     context::JSContext,

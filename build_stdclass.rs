@@ -299,14 +299,14 @@ pub fn gen_std_class_defs(outfile: &Path) {
         class_def!(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
-            Some("crate::function::js_async_function_resolve_finalizer"),
-            Some("crate::function::js_async_function_resolve_mark")
+            Some("crate::function::JSAsyncFunctionState::hook_finalizer"),
+            Some("crate::function::JSAsyncFunctionState::hook_mark")
         ),
         class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
-            Some("crate::function::js_async_function_resolve_finalizer"),
-            Some("crate::function::js_async_function_resolve_mark")
+            Some("crate::function::JSAsyncFunctionState::hook_finalizer"),
+            Some("crate::function::JSAsyncFunctionState::hook_mark")
         ),
         class_def!(
             "empty_string",
