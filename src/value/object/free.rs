@@ -51,8 +51,8 @@ impl JSObject {
         // ManuallyDrop union
         match (*p).class_id() {
             JS_CLASS_BYTECODE_FUNCTION => {
-                (*(*p).u.func).home_object = std::ptr::null_mut();
-                (*(*p).u.func).var_refs.clear();
+                // (*(*p).u.func).home_object = std::ptr::null_mut();
+                // (*(*p).u.func).var_refs.clear();
                 ManuallyDrop::drop(&mut (*p).u.func);
             }
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
@@ -63,7 +63,7 @@ impl JSObject {
                 ManuallyDrop::drop(&mut (*p).u.array);
             }
             _ => {
-                (*p).u.opaque = std::ptr::null_mut();
+                // (*p).u.opaque = std::ptr::null_mut();
             }
         }
 

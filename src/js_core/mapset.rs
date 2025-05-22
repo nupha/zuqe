@@ -50,7 +50,6 @@ pub unsafe fn js_map_constructor(
         return JSValue::EXCEPTION;
     };
 
-    init_list_head(&mut s.records);
     s.is_weak = is_weak;
     s.record_count_threshold = 4;
     s.hash_size = 1;
@@ -59,6 +58,8 @@ pub unsafe fn js_map_constructor(
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     }
+
+    init_list_head(&mut s.records);
     init_list_head(s.hash_table);
 
     // leak JSMapState ownership

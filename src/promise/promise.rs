@@ -119,14 +119,13 @@ impl PromiseValue {
         executor.ensure_callable(ctx)?;
 
         // make promise payload
-        let mut s = Box::from_raw(
-            js_malloc_typed::<JSPromiseData>(ctx, 1, true)
-                .ok_or(-1)?
-                .as_ptr(),
-        );
-        s.promise_state = JSPromiseStateEnum::JS_PROMISE_PENDING;
-        s.is_handled = false;
-        s.promise_result = JSValue::UNDEFINED;
+        let mut s = Box::new(JSPromiseData {
+            promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
+            promise_reactions: [list_head::default(); 2],
+            promise_result: JSValue::UNDEFINED,
+            is_handled: false,
+        });
+
         init_list_head(&mut s.promise_reactions[0]);
         init_list_head(&mut s.promise_reactions[1]);
 
@@ -241,7 +240,7 @@ impl PromiseValue {
             already_resolved: false, // must be shared between the two functions
         });
 
-        let mut sr_ptr = unsafe { NonNull::new_unchecked(Box::into_raw(sr)) };
+        let mut sr_ptr = NonNull::new(Box::into_raw(sr)).unwrap();
 
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
@@ -253,9 +252,7 @@ impl PromiseValue {
                 o
             } else {
                 if i != 0 {
-                    unsafe {
-                        JS_FreeValue(ctx, resolving_funcs[0]);
-                    }
+                    JS_FreeValue(ctx, resolving_funcs[0]);
                 }
 
                 // consume sr_ptr
@@ -268,14 +265,11 @@ impl PromiseValue {
 
             unsafe {
                 sr_ptr.as_mut().ref_count += 1;
-            }
+                let s = Box::new(JSPromiseFunctionData {
+                    promise: self.dup(),
+                    presolved: sr_ptr,
+                });
 
-            let s = Box::new(JSPromiseFunctionData {
-                promise: self.dup(),
-                presolved: sr_ptr,
-            });
-
-            unsafe {
                 func_obj
                     .object_unchecked()
                     .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSPromiseFunctionData>

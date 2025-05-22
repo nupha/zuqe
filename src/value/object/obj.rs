@@ -172,7 +172,6 @@ impl JSObjectFlags {
 pub union JSObjectUnion {
     /// generic pointer
     pub opaque: *mut c_void,
-
     /// JS_CLASS_BOUND_FUNCTION
     pub bound_function: *mut JSBoundFunction,
     /// JS_CLASS_C_FUNCTION_DATA
@@ -199,15 +198,22 @@ pub union JSObjectUnion {
     pub async_from_sync_iterator_data: *mut JSAsyncFromSyncIteratorData,
     /// JS_CLASS_ASYNC_GENERATOR
     pub async_generator_data: *mut JSAsyncGeneratorData,
-    ///  JS_CLASS_BYTECODE_FUNCTION: 12/24 bytes
+
+    /// JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR_FUNCTION,
+    /// JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION
     pub func: ManuallyDrop<JSObjectFunc>,
-    /// JS_CLASS_C_FUNCTION: 12/20 bytes
+
+    /// JS_CLASS_C_FUNCTION
     pub cfunc: JSObjectCFunc,
-    /// JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS, JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
+
+    /// JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS,
+    /// JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY, JS_CLASS_DATAVIEW
     pub array: ManuallyDrop<JSObjectArray>,
-    /// JS_CLASS_REGEXP: 8/16 bytes  
+
+    /// JS_CLASS_REGEXP
     pub regexp: JSRegExp,
-    /// for JS_SetObjectData(): 8/16/16 bytes  
+
+    /// for JS_SetObjectData()
     pub object_data: JSValue,
 }
 

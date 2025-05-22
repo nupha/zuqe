@@ -8,7 +8,10 @@ use crate::{
     mem::js_malloc_typed,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    types::{list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head},
+    types::{
+        init_list_head, list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret,
+        list_head,
+    },
     value::{JSValue, JS_DupValue, JS_FreeValueRT},
 };
 
@@ -184,20 +187,25 @@ impl JSStackFrame {
         ctx: &mut JSContext,
         var_idx: u16,
         is_arg: bool,
-    ) -> Result<Box<JSVarRef>, i32> {
-        let mut var_ref = if let Some(p) = js_malloc_typed::<JSVarRef>(ctx, 1, true) {
+    ) -> Result<NonNull<JSVarRef>, i32> {
+        let mut var_ref = if let Some(mut p) = js_malloc_typed::<JSVarRef>(ctx, 1, true) {
+            let o = JSVarRef {
+                u0: JSVarRefHeaderOrGCFields {
+                    header: JSGCObjectHeader::new(1),
+                },
+                pvalue: std::ptr::null_mut(),
+                value_or_links: JSVarRefValueOrLinks {
+                    value: JSValue::UNDEFINED,
+                },
+            };
+            p.write(o);
+
+            init_list_head(&mut p.as_mut().u0.header.link);
             Box::from_raw(p.as_ptr())
         } else {
             return Err(-1);
         };
 
-        var_ref.u0.header.ref_count = 1;
-
-        add_gc_object(
-            ctx.rt_mut(),
-            &mut var_ref.u0.header,
-            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
-        );
         var_ref.set_detached(false);
         var_ref.set_var_idx(var_idx);
         var_ref.set_arg(is_arg);
@@ -207,7 +215,13 @@ impl JSStackFrame {
             &mut self.var_ref_list,
         );
 
-        Ok(var_ref)
+        add_gc_object(
+            ctx.rt_mut(),
+            &mut var_ref.u0.header,
+            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
+        );
+
+        Ok(NonNull::new_unchecked(Box::into_raw(var_ref)))
     }
 
     pub unsafe fn get_var_ref(
@@ -230,9 +244,9 @@ impl JSStackFrame {
         }
 
         // create new var_ref
-        let mut var_ref = self.add_var_ref(ctx, var_idx, is_arg)?;
+        let mut vr = self.add_var_ref(ctx, var_idx, is_arg)?;
 
-        var_ref.value_or_links.links.async_func = if self.js_mode & JS_MODE_ASYNC != 0 {
+        vr.as_mut().value_or_links.links.async_func = if self.js_mode & JS_MODE_ASYNC != 0 {
             // The stack frame is detached and may be destroyed at any
             // time so its reference count must be increased. Calling
             // close_var_refs() when destroying the stack frame is not
@@ -253,14 +267,13 @@ impl JSStackFrame {
             std::ptr::null_mut()
         };
 
-        var_ref.pvalue = if is_arg {
+        vr.as_mut().pvalue = if is_arg {
             self.arg_base_ptr.offset(var_idx as isize)
         } else {
             self.var_base_ptr.offset(var_idx as isize)
         };
 
-        debug_assert!(var_ref.u0.header.ref_count > 0);
-        Ok(NonNull::new(Box::into_raw(var_ref)).unwrap())
+        Ok(vr)
     }
 
     pub unsafe fn close_var_refs(&mut self, ctx: &mut JSContext) {

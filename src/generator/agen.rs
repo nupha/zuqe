@@ -117,6 +117,7 @@ impl AsyncGeneratorValue {
         flags: i32,
     ) -> JSValue {
         let mut s = if let Some(p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
+            // FIXME: write() init value
             Box::from_raw(p.as_ptr())
         } else {
             return JSValue::EXCEPTION;
@@ -124,6 +125,7 @@ impl AsyncGeneratorValue {
 
         s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START;
         init_list_head(&mut s.queue);
+
         s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
         if s.func_state.is_null() {
             s.dispose(ctx.rt_mut());

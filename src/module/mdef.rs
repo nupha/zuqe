@@ -22,8 +22,8 @@ use crate::{
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
     types::{
-        list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head,
-        JSRefCountHeader,
+        init_list_head, list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret,
+        list_head, JSRefCountHeader,
     },
     value::{
         object::{
@@ -1221,6 +1221,7 @@ pub unsafe fn js_create_module_var(
     is_lexical: bool,
 ) -> Result<Box<JSVarRef>, i32> {
     let mut var_ref = if let Some(p) = js_malloc_typed::<JSVarRef>(ctx, 1, true) {
+        // FIXME: write() init value
         Box::from_raw(p.as_ptr())
     } else {
         return Err(-1);
@@ -1234,6 +1235,8 @@ pub unsafe fn js_create_module_var(
         JSValue::UNDEFINED
     };
     var_ref.pvalue = &mut (*var_ref).value_or_links.value;
+
+    init_list_head(&mut var_ref.u0.header.link);
     add_gc_object(
         (*ctx).rt_mut(),
         &mut var_ref.u0.header,

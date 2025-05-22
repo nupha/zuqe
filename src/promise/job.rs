@@ -28,7 +28,7 @@ pub struct JSJobEntry {
 
 impl JSContext {
     /// Append a job to queue.
-    /// Note: `args` values are not consumed.
+    /// Note: `args` values are not consumed, args count must not greater than 5.
     pub unsafe fn enqueue_job(
         &mut self,
         callback: JobCallback,

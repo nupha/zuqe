@@ -200,6 +200,7 @@ impl JSContext {
     ) -> JSResult {
         // make ArrayBuffer data
         let mut ab = unsafe {
+            // FIXME: write() init value
             Box::from_raw(
                 js_malloc_typed::<JSArrayBuffer>(self, 1, false)
                     .ok_or(-1)?
@@ -209,9 +210,7 @@ impl JSContext {
 
         ab.content = content;
 
-        unsafe {
-            init_list_head(&mut ab.array_list);
-        }
+        init_list_head(&mut ab.array_list);
 
         ab.detached = false;
         ab.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;

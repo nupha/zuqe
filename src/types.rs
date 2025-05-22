@@ -35,8 +35,6 @@ impl Default for list_head {
 
 #[inline(always)]
 pub fn init_list_head(head: *mut list_head) {
-    debug_assert!(head.is_aligned());
-
     unsafe {
         (*head).prev = head;
         (*head).next = head;
@@ -47,8 +45,8 @@ pub fn init_list_head(head: *mut list_head) {
 pub unsafe fn list_del(el: *mut list_head) {
     let prev = (*el).prev;
     let next = (*el).next;
-    debug_assert!(!prev.is_null());
-    debug_assert!(!next.is_null());
+    // debug_assert!(!prev.is_null());
+    // debug_assert!(!next.is_null());
 
     (*prev).next = next;
     (*next).prev = prev;

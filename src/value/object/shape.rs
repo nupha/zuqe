@@ -3,21 +3,25 @@ use std::{mem::ManuallyDrop, ops::DerefMut, ptr::NonNull};
 use indexmap::IndexMap;
 
 use crate::{
+    array::{JSObjectArray, JSObjectArrayDataUnion, JSObjectArrayU1},
     atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
-    class::JSClassID,
+    class::{self, JSClassID},
     context::JSContext,
     error::JSResult,
+    function::{JSCFunctionType, JSObjectCFunc, JSObjectFunc},
     gc::{add_gc_object, js_trigger_gc, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    types::list_find,
+    types::{init_list_head, list_find},
     value::{
         object::{JSObjectFlags, JSObjectUnion},
         JSTag, JSValue, JS_FreeValueRT,
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_C_FUNCTION,
-    JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
+    JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
+    JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
@@ -66,7 +70,9 @@ pub struct JSShape {
 
     /// current hash value
     pub hash: u32,
+
     /// in JSRuntime.shape_hash[h] list
+    #[deprecated]
     pub shape_hash_next: *mut JSShape,
 
     pub proto: *mut JSObject,
@@ -200,6 +206,8 @@ impl JSShape {
                 raw_sh as usize,
                 std::ptr::addr_of!((*raw_sh).header) as usize
             );
+
+            init_list_head(&mut (*raw_sh).header.link);
             add_gc_object(
                 (*ctx).rt_mut(),
                 &mut (*raw_sh).header,
@@ -289,37 +297,35 @@ impl JSContext {
 
         let mut shape = Box::new(JSShape {
             header: JSGCObjectHeader::new(1),
-            is_hashed: false,
             has_small_array_index: false,
-            hash: 0,
+            hash: shape_initial_hash(proto_ptr),
+            is_hashed: true,
             shape_hash_next: std::ptr::null_mut(),
             proto: proto_ptr,
             props,
         });
+
         debug_assert_eq!(
             shape.as_ref() as *const JSShape as usize,
             std::ptr::addr_of!(shape.header) as usize
         );
 
+        let mut sh_ptr =
+            JSShapeHandle::from(unsafe { NonNull::new_unchecked(Box::into_raw(shape)).as_ptr() });
+
         unsafe {
+            init_list_head(&mut sh_ptr.deref_mut().header.link);
             add_gc_object(
                 rt,
-                &mut shape.header,
+                sh_ptr.as_ptr().cast(),
                 JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_SHAPE,
             );
         }
 
-        // insert in the hash table
-        shape.hash = shape_initial_hash(proto_ptr);
-        shape.is_hashed = true;
-
-        let mut sh_ptr =
-            JSShapeHandle::from(unsafe { NonNull::new_unchecked(Box::into_raw(shape)).as_ptr() });
+        // ensure new shape is in gc_obj_list
+        // debug_assert!(unsafe { list_find(&mut sh_ptr.header.link, &mut rt.gc_obj_list) });
 
         rt.register_shape(sh_ptr);
-
-        // ensure new shape is in gc_obj_list
-        debug_assert!(unsafe { list_find(&mut sh_ptr.header.link, &mut rt.gc_obj_list) });
 
         Ok(sh_ptr)
     }
@@ -345,14 +351,21 @@ impl JSContext {
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
         let prop_count = shape.props.len();
-        if prop_values
-            .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
-            .is_err()
-        {
-            JSShape::free(self.rt_mut(), shape);
-            self.JS_ThrowOutOfMemory();
-            return Err(-1);
+        if prop_count > 0 {
+            if prop_values.try_reserve_exact(prop_count).is_err() {
+                JSShape::free(self.rt_mut(), shape);
+                self.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
         }
+        // if prop_values
+        //     .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+        //     .is_err()
+        // {
+        //     JSShape::free(self.rt_mut(), shape);
+        //     self.JS_ThrowOutOfMemory();
+        //     return Err(-1);
+        // }
 
         prop_values.extend(std::iter::repeat_n(
             JSProperty {
@@ -364,7 +377,7 @@ impl JSContext {
         ));
 
         // alloc JSObject
-        let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
+        let mut obj = if let Some(mut p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
             let o = JSObject {
                 header: JSGCObjectHeader::new(1),
                 detailed: {
@@ -383,13 +396,13 @@ impl JSContext {
                 shape: shape.as_ptr(),
                 prop_values,
                 first_weak_ref: std::ptr::null_mut(),
-                u: JSObjectUnion {
-                    opaque: std::ptr::null_mut(),
-                },
+                u: unsafe { std::mem::zeroed() },
             };
 
             unsafe {
                 p.write(o);
+
+                init_list_head(&mut p.as_mut().header.link);
                 Box::from_raw(p.as_ptr())
             }
         } else {
@@ -397,17 +410,34 @@ impl JSContext {
             return Err(-1);
         };
 
+        // initialize payload data
         match class_id {
             JS_CLASS_OBJECT => {}
+
+            JS_CLASS_BYTECODE_FUNCTION
+            | JS_CLASS_GENERATOR_FUNCTION
+            | JS_CLASS_ASYNC_FUNCTION
+            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
+                obj.u.func = ManuallyDrop::new(JSObjectFunc {
+                    function_bytecode: std::ptr::null_mut(),
+                    var_refs: Vec::new(),
+                    home_object: std::ptr::null_mut(),
+                });
+            }
+
             JS_CLASS_ARRAY => {
+                obj.u.array = ManuallyDrop::new(JSObjectArray {
+                    u1: JSObjectArrayU1 { size: 0 },
+                    data: JSObjectArrayDataUnion {
+                        values: ManuallyDrop::new(Vec::new()),
+                    },
+                    typed_array_count: 0,
+                });
+
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
-                unsafe {
-                    (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
-                    (*obj.u.array).u1.size = 0;
-                }
 
-                // Array: the length property is always the first one
+                // for Array: the length property is always the first one
                 let pr0: *mut JSProperty = if shape.as_ptr() == self.array_shape {
                     obj.prop_values.first_mut().unwrap()
                 } else {
@@ -419,25 +449,27 @@ impl JSContext {
                     (*pr0).u.value = JSValue::ZERO;
                 }
             }
-            JS_CLASS_ARGUMENTS => {
+            JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                obj.u.array = ManuallyDrop::new(JSObjectArray {
+                    u1: JSObjectArrayU1 { size: 0 },
+                    data: JSObjectArrayDataUnion {
+                        ptr: std::ptr::null_mut(),
+                    },
+                    typed_array_count: 0,
+                });
+
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
-                unsafe {
-                    (*obj.u.array).data.values = ManuallyDrop::new(Vec::new());
-                }
             }
-            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                obj.detailed.set_exotic(true);
-                obj.detailed.set_fast_array(true);
-                unsafe {
-                    (*obj.u.array).data.ptr = std::ptr::null_mut();
-                    (*obj.u.array).typed_array_count = 0;
-                }
+            JS_CLASS_DATAVIEW => {
+                obj.u.array = ManuallyDrop::new(JSObjectArray {
+                    u1: JSObjectArrayU1 { size: 0 },
+                    data: JSObjectArrayDataUnion {
+                        ptr: std::ptr::null_mut(),
+                    },
+                    typed_array_count: 0,
+                });
             }
-            JS_CLASS_DATAVIEW => unsafe {
-                (*obj.u.array).data.ptr = std::ptr::null_mut();
-                (*obj.u.array).typed_array_count = 0;
-            },
 
             JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT => {
@@ -447,10 +479,7 @@ impl JSContext {
                 }
             }
 
-            JS_CLASS_C_FUNCTION => {
-                // FIXME: prop_values is not initialized, panic!
-                // obj.prop_values[0].u.value = JSValue::UNDEFINED;
-            }
+            JS_CLASS_C_FUNCTION => {}
 
             JS_CLASS_REGEXP => {
                 unimplemented!("JS_CLASS_REGEXP");

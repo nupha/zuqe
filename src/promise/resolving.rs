@@ -45,7 +45,7 @@ impl PromiseResolvingFuncValue {
         };
 
         s.presolved.as_mut().already_resolved = true;
-        let is_reject = (p.class_id() - JS_CLASS_PROMISE_RESOLVE_FUNCTION) != 0;
+        let is_reject = p.class_id() - JS_CLASS_PROMISE_RESOLVE_FUNCTION != 0;
         let resolution = if argc > 0 {
             *argv.offset(0)
         } else {

@@ -12,7 +12,7 @@ use crate::{
     list_entry,
     mem::js_malloc_typed,
     module::add_module_variables,
-    types::list_foreach_safe_with_ret,
+    types::{init_list_head, list_foreach_safe_with_ret},
     value::{JSTag, JSValue, JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG},
     JS_MKPTR,
 };
@@ -125,7 +125,7 @@ impl JSFunctionDef {
         };
 
         // alloc bytecode function
-        let mut bf = if let Some(p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
+        let mut bf = if let Some(mut p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
             let o = JSFunctionBytecode {
                 header: JSGCObjectHeader::new(1),
                 func_name: self.func_name,
@@ -156,7 +156,7 @@ impl JSFunctionDef {
                 cpool_count: self.cpool.len() as _,
                 arg_count: self.args.len() as _,
                 var_count: self.vars.len() as _,
-                closure_var_count: 0,
+                closure_var_count: self.closure_vars.as_ref().map_or(0, |x| x.len()) as _,
 
                 binary: Vec::new().into_boxed_slice(), // empty
                 cpool_start: -1,
@@ -166,12 +166,13 @@ impl JSFunctionDef {
             };
             p.write(o);
 
+            init_list_head(&mut p.as_mut().header.link);
             Box::from_raw(p.as_ptr())
         } else {
             fail!();
         };
 
-        // binary total length in bytes
+        // cpool start
         let mut bin_size = if bf.cpool_count != 0 {
             bf.cpool_start = 0;
             bf.cpool_count as usize * std::mem::size_of::<JSValue>()
@@ -179,6 +180,7 @@ impl JSFunctionDef {
             0
         };
 
+        // vardefs (arg+var) start
         if self.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
             let n: usize = self.args.len() + self.vars.len();
             if n != 0 {
@@ -195,8 +197,8 @@ impl JSFunctionDef {
             }
         }
 
-        let num_closures = self.closure_vars.as_ref().map_or(0, |x| x.len());
-        if num_closures != 0 {
+        // closure vars start
+        if bf.closure_var_count != 0 {
             const ly: std::alloc::Layout = std::alloc::Layout::new::<JSClosureVar>();
             let mut i = bin_size;
             let m = i % ly.align();
@@ -205,10 +207,11 @@ impl JSFunctionDef {
                 i += gap;
                 bin_size += gap;
             }
-            bin_size += num_closures * ly.size();
+            bin_size += bf.closure_var_count as usize * ly.size();
             bf.closure_var_start = i as i32;
         }
 
+        // bytecode section
         bf.bytecode_start = bin_size as u32;
         bin_size += self.byte_code.len();
 
@@ -220,8 +223,8 @@ impl JSFunctionDef {
             ctx.JS_ThrowOutOfMemory();
             fail!();
         }
-        bin.set_len(bin_size);
         bin.fill(0);
+        bin.set_len(bin_size);
 
         // 1. cpool section
         if bf.cpool_start >= 0 {
@@ -282,7 +285,7 @@ impl JSFunctionDef {
             }
         }
 
-        // 3. closures section
+        // 3. closure vars section
         if bf.closure_var_start >= 0 {
             let cvars = self.closure_vars.take().unwrap();
             bf.closure_var_count = cvars.len() as _;
@@ -300,6 +303,7 @@ impl JSFunctionDef {
         }
 
         // 4. bytecode section
+        debug_assert_eq!(bf.bytecode_start as usize + self.byte_code.len(), bin.len());
         std::ptr::copy_nonoverlapping(
             self.byte_code.as_ptr(),
             bin.as_mut_ptr().add(bf.bytecode_start as usize),
@@ -308,8 +312,8 @@ impl JSFunctionDef {
         // SAFEGUARD: clear bytecode, so that js_free_function_def() will not free atoms in it.
         self.byte_code.clear();
 
-        // save binary
         bf.binary = bin.into_boxed_slice();
+        debug_assert_eq!(bf.binary.len(), bin_size);
 
         // SAFEGUARD: to prevent free atom in js_free_function_def()
         self.func_name = JS_ATOM_NULL;

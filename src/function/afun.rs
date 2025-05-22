@@ -135,14 +135,13 @@ pub unsafe fn async_func_init(
             },
         };
         p.write(o);
-
-        let mut s = Box::from_raw(p.as_ptr());
-        init_list_head(&mut s.frame.var_ref_list);
-
-        s
+        Box::from_raw(p.as_ptr())
     } else {
         return std::ptr::null_mut();
     };
+
+    init_list_head(&mut s.frame.var_ref_list);
+    init_list_head(&mut s.header.link);
 
     add_gc_object(
         (*ctx).rt_mut(),

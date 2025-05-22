@@ -2,7 +2,7 @@ use crate::{
     context::JSContext,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    types::{list_add_tail, list_head},
+    types::{init_list_head, list_add_tail, list_head},
     value::{object::JS_SpeciesConstructor, JSValue, JS_FreeValue, JS_FreeValueRT},
     JS_CLASS_PROMISE,
 };
@@ -41,7 +41,22 @@ impl PromiseValue {
         let mut rd_array: [*mut JSPromiseReactionData; 2] = [std::ptr::null_mut(); 2];
 
         for i in 0..2 {
-            let mut rd = if let Some(p) = js_malloc_typed::<JSPromiseReactionData>(ctx, 1, true) {
+            let rd = if let Some(mut p) = js_malloc_typed::<JSPromiseReactionData>(ctx, 1, false) {
+                let o = JSPromiseReactionData {
+                    link: list_head::default(),
+                    resolving_funcs: [cap_resolving_funcs[0].dup(), cap_resolving_funcs[1].dup()],
+                    handler: {
+                        let h = resolve_reject[i];
+                        if !h.is_callable(ctx) {
+                            JSValue::UNDEFINED
+                        } else {
+                            h.dup()
+                        }
+                    },
+                };
+                p.write(o);
+
+                init_list_head(&mut p.as_mut().link);
                 Box::from_raw(p.as_ptr())
             } else {
                 if i == 1 {
@@ -49,15 +64,6 @@ impl PromiseValue {
                 }
                 return Err(-1);
             };
-
-            rd.resolving_funcs[0] = cap_resolving_funcs[0].dup();
-            rd.resolving_funcs[1] = cap_resolving_funcs[1].dup();
-
-            let mut handler = resolve_reject[i];
-            if !handler.is_callable(ctx) {
-                handler = JSValue::UNDEFINED;
-            }
-            rd.handler = handler.dup();
 
             rd_array[i] = Box::into_raw(rd);
         }

@@ -361,7 +361,7 @@ impl JSRuntime {
             .extend(std::iter::repeat_n(JSValue::NULL, self.class_array.len()));
 
         init_list_head(&mut ctx.loaded_modules);
-
+        init_list_head(&mut ctx.header.link);
         add_gc_object(
             self,
             std::ptr::addr_of_mut!(ctx.header),

@@ -160,7 +160,11 @@ impl JSRuntime {
             module_async_evaluation_next_timestamp: 0,
             can_block: false,
 
-            shape_registry: HashMap::new(),
+            shape_registry: {
+                let mut reg = HashMap::new();
+                reg.try_reserve(16).map_err(|_| -1)?;
+                reg
+            },
 
             #[cfg(feature = "dump_leaks")]
             debug_string_list: list_head::default(),
@@ -169,68 +173,56 @@ impl JSRuntime {
             interrupt_opaque: std::ptr::null_mut(),
         });
 
-        unsafe {
-            init_list_head(&mut rt.gc_obj_list);
-            init_list_head(&mut rt.gc_zero_ref_count_list);
-            rt.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
+        init_list_head(&mut rt.gc_obj_list);
+        init_list_head(&mut rt.gc_zero_ref_count_list);
+        init_list_head(&mut rt.tmp_obj_list);
+        init_list_head(&mut rt.job_list);
+        #[cfg(feature = "dump_leaks")]
+        init_list_head(&mut rt.debug_string_list);
 
-            #[cfg(feature = "dump_leaks")]
-            init_list_head(&mut rt.debug_string_list);
+        rt.init_default_atoms()?;
 
-            init_list_head(&mut rt.job_list);
-
-            rt.init_default_atoms()?;
-
-            //
-            // register intrinsic classes
-            //
-            rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
-
-            // setup common classes
-            {
-                rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
-                rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
-                rt.class_array[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
-
-                rt.class_array[JS_CLASS_C_FUNCTION as usize]
-                    .call
-                    .replace(NativeFunctionValue::hook_call);
-                rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
-                    .call
-                    .replace(CallableValue::hook_call);
-                rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
-                    .call
-                    .replace(BoundFunctionValue::hook_call);
-                rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
-                    .call
-                    .replace(js_generator_function_call);
-            }
-
-            // setup async classes
-            {
-                rt.class_array[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
-                    Some(PromiseResolvingFuncValue::hook_call);
-                rt.class_array[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
-                    Some(PromiseResolvingFuncValue::hook_call);
-                rt.class_array[JS_CLASS_ASYNC_FUNCTION as usize].call =
-                    Some(js_async_function_call);
-                rt.class_array[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
-                    Some(js_async_function_resolve_call);
-                rt.class_array[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
-                    Some(js_async_function_resolve_call);
-                rt.class_array[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
-                    Some(AsyncGeneratorValue::hook_call);
-            }
-
-            if rt.shape_registry.try_reserve(16).is_err() {
-                return Err(-1);
-            }
-
-            rt.stack_size = JS_DEFAULT_STACK_SIZE;
-            JS_UpdateStackTop(rt.as_mut());
-
-            rt.current_exception = JSValue::NULL;
+        if rt.shape_registry.try_reserve(16).is_err() {
+            return Err(-1);
         }
+
+        // register intrinsic classes
+        rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
+        // setup common classes
+        {
+            rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
+            rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
+            rt.class_array[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
+
+            rt.class_array[JS_CLASS_C_FUNCTION as usize]
+                .call
+                .replace(NativeFunctionValue::hook_call);
+            rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
+                .call
+                .replace(CallableValue::hook_call);
+            rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
+                .call
+                .replace(BoundFunctionValue::hook_call);
+            rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
+                .call
+                .replace(js_generator_function_call);
+        }
+        // setup async related classes
+        {
+            rt.class_array[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
+                Some(PromiseResolvingFuncValue::hook_call);
+            rt.class_array[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
+                Some(PromiseResolvingFuncValue::hook_call);
+            rt.class_array[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(js_async_function_call);
+            rt.class_array[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
+                Some(js_async_function_resolve_call);
+            rt.class_array[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
+                Some(js_async_function_resolve_call);
+            rt.class_array[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
+                Some(AsyncGeneratorValue::hook_call);
+        }
+
+        JS_UpdateStackTop(rt.as_mut());
 
         Ok(rt)
     }
@@ -263,26 +255,25 @@ pub unsafe fn JS_SetMaxStackSize(rt: *mut JSRuntime, stack_size: usize) {
     update_stack_limit(rt);
 }
 
-pub unsafe fn JS_UpdateStackTop(rt: *mut JSRuntime) {
-    (*rt).stack_top = js_get_stack_pointer();
-    update_stack_limit(rt);
+pub fn JS_UpdateStackTop(rt: *mut JSRuntime) {
+    unsafe {
+        (*rt).stack_top = js_get_stack_pointer();
+        update_stack_limit(rt);
+    }
 }
 
 unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     JS_FreeValueRT(rt, rt.current_exception);
 
     // free jobs
-    {
-        list_foreach_safe(&mut rt.job_list, |el| {
-            let job_ent = list_entry!(el, JSJobEntry, link);
-            for i in 0..(*job_ent).argc {
-                JS_FreeValueRT(rt, (*job_ent).args[i as usize]);
-            }
-            drop(Box::from_raw(job_ent));
-        });
-
-        init_list_head(&mut rt.job_list);
-    }
+    list_foreach_safe(&mut rt.job_list, |el| {
+        let job_ent = list_entry!(el, JSJobEntry, link);
+        for i in 0..(*job_ent).argc {
+            JS_FreeValueRT(rt, (*job_ent).args[i as usize]);
+        }
+        drop(Box::from_raw(job_ent));
+    });
+    init_list_head(&mut rt.job_list);
 
     rt.gc();
 

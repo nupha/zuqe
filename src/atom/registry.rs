@@ -226,7 +226,7 @@ impl JSRuntime {
     }
 
     /// initialize default constant atoms
-    pub unsafe fn init_default_atoms(&mut self) -> Result<(), i32> {
+    pub fn init_default_atoms(&mut self) -> Result<(), i32> {
         let mut p = JS_DEFAULT_ATOMS_TEXT.as_ptr();
         for i in 1..JS_ATOM_INIT_COUNT {
             let atom_type = if i == JS_ATOM_Private_brand.0 {
@@ -237,10 +237,10 @@ impl JSRuntime {
                 JSAtomTypeHint::String
             };
 
-            let cstr = CStr::from_ptr(p.cast());
+            let cstr = unsafe { CStr::from_ptr(p.cast()) };
             self.add_atom_str(cstr.to_str().unwrap(), atom_type)?;
 
-            p = p.add(cstr.count_bytes() + 1);
+            p = unsafe { p.add(cstr.count_bytes() + 1) };
         }
 
         Ok(())

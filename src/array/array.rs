@@ -24,7 +24,7 @@ use crate::{
 
 pub struct JSObjectArray {
     pub u1: JSObjectArrayU1,
-    pub data: JSObjectArrayData,
+    pub data: JSObjectArrayDataUnion,
 
     /// for typed array only: the array length, 0 means detached, <= 2^31-1
     pub(crate) typed_array_count: u32,
@@ -43,11 +43,13 @@ pub struct JSObjectArray {
 
 #[derive(Clone, Copy)]
 pub union JSObjectArrayU1 {
-    pub size: u32,                      /* JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS */
-    pub typed_array: *mut JSTypedArray, /* JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY */
+    /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
+    pub size: u32,
+    /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
+    pub typed_array: *mut JSTypedArray,
 }
 
-pub union JSObjectArrayData {
+pub union JSObjectArrayDataUnion {
     /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
     pub values: ManuallyDrop<Vec<JSValue>>,
 
@@ -293,7 +295,7 @@ impl JSObject {
                 set_value(
                     ctx,
                     &mut self.prop_values.first_mut().unwrap().u.value, // #0 is the `length`
-                    JSValue::from_u32(cur_len as _),
+                    JSValue::from(cur_len as u32),
                 );
             }
 
@@ -450,7 +452,7 @@ pub unsafe fn add_fast_array_element(
                     Ok(false)
                 };
             }
-            (*p).prop_values[0].u.value = JSValue::from_i32(new_len as i32);
+            (*p).prop_values[0].u.value = JSValue::from(new_len as i32);
         }
     }
 
