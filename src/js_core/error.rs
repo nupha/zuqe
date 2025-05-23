@@ -23,9 +23,7 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         .check_exception()?;
 
     if !proto.is_object() {
-        unsafe {
-            JS_FreeValue(ctx, proto);
-        }
+        JS_FreeValue(ctx, proto);
 
         let realm = unsafe { JS_GetFunctionRealm(ctx, new_target) };
         if realm.is_null() {
@@ -43,9 +41,10 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let obj = ctx
-        .create_object_with_proto_and_isa(proto, || Ok(JSObjectIsa::ERROR))
-        .inspect_err(|_| {
+        .create_object_with_proto_and_isa0(proto, JSObjectIsa::ERROR)
+        .map_err(|_| {
             JS_FreeValue(ctx, proto);
+            -1
         })?;
 
     JS_FreeValue(ctx, proto);
@@ -130,9 +129,9 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &mut JSContext, errors: JSValue) -> JSValue {
-    let obj = if let Ok(o) = ctx.create_object_with_proto_and_isa(
+    let obj = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
         ctx.native_error_proto[JSErrorEnum::Aggregate as usize],
-        || Ok(JSObjectIsa::ERROR),
+        JSObjectIsa::ERROR,
     ) {
         o
     } else {

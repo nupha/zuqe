@@ -334,18 +334,20 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
 
     let mut it = if let Some(p) = js_malloc_typed::<JSForInIterator>(ctx, 1, false) {
         // FIXME: write init value
+        let o = JSForInIterator {
+            obj,
+            idx: 0,
+            atom_count: 0,
+            in_prototype_chain: false,
+            is_array: false,
+            tab_atom: Box::new([]),
+        };
+        p.write(o);
         Box::from_raw(p.as_ptr())
     } else {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
     };
-
-    it.is_array = false;
-    it.obj = obj;
-    it.idx = 0;
-    it.atom_count = 0;
-    it.tab_atom = Box::new([]);
-    it.in_prototype_chain = false;
 
     if tag == JS_TAG_OBJECT {
         let ob = obj.object_unchecked();
@@ -379,11 +381,13 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
         }
     }
 
-    if let Ok(o) = (*ctx).create_object_with_proto_and_isa(JSValue::NULL, || {
-        Ok(JSObjectIsa::FOR_IN_ITERATOR(Box::into_raw(it)))
-    }) {
+    let it_ptr = Box::into_raw(it);
+    if let Ok(o) = (*ctx)
+        .create_object_with_proto_and_isa0(JSValue::NULL, JSObjectIsa::FOR_IN_ITERATOR(it_ptr))
+    {
         o
     } else {
+        drop(Box::from_raw(it_ptr));
         JS_FreeValue(ctx, obj);
         JSValue::EXCEPTION
     }

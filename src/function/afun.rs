@@ -16,7 +16,7 @@ use crate::{
         object::{JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_VALUE_GET_OBJ,
     },
-    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::{
@@ -279,7 +279,7 @@ pub unsafe fn js_async_function_resolve_call(
     flags: i32,
 ) -> JSValue {
     let p = func_obj.object_unchecked();
-    let is_reject = (p.class_id() - JS_CLASS_ASYNC_FUNCTION_RESOLVE) != 0;
+    let is_reject = p.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
     let s = p.isa().async_func_state_ptr();
     debug_assert!(!s.is_null());

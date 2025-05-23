@@ -762,18 +762,19 @@ pub unsafe fn JS_IsCFunction(
     // }
 }
 
-#[inline(always)]
+/// `val` is not consumed.
 pub unsafe fn JS_SetConstructorBit(
     ctx: *const JSContext,
     func_obj: JSValueConst,
     val: bool,
 ) -> bool {
     if JS_VALUE_GET_TAG(func_obj) != JS_TAG_OBJECT {
-        return false;
+        false
+    } else {
+        let p = JS_VALUE_GET_OBJ(func_obj);
+        (*p).detailed.set_constructor(val);
+        true
     }
-    let p = JS_VALUE_GET_OBJ(func_obj);
-    (*p).detailed.set_constructor(val);
-    true
 }
 
 #[inline(always)]

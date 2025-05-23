@@ -225,7 +225,7 @@ pub unsafe fn js_closure(
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
     debug_assert!(!b.is_null());
 
-    let isa = match (*b).func_kind {
+    let func_obj = match (*ctx).create_object_with_isa(match (*b).func_kind {
         JSFunctionKindEnum::JS_FUNC_NORMAL => {
             JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default())
         }
@@ -234,19 +234,16 @@ pub unsafe fn js_closure(
         JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
             JSObjectIsa::ASYNC_GENERATOR(std::ptr::null_mut())
         }
-    };
-    let func_obj = match (*ctx).create_object_with_isa(isa) {
+    }) {
         Ok(o) => o,
-        Err(isa) => {
-            drop(isa);
+        Err(_) => {
             JS_FreeValue(ctx, bfunc);
             return JSValue::EXCEPTION;
         }
     };
 
-    let func_obj = js_closure2(ctx, func_obj, b, cur_var_refs, sf);
-    if func_obj.is_exception() {
-        JS_FreeValue(ctx, func_obj);
+    let closure = js_closure2(ctx, func_obj, b, cur_var_refs, sf);
+    if closure.is_exception() {
         return JSValue::EXCEPTION;
     }
 
@@ -254,7 +251,7 @@ pub unsafe fn js_closure(
     if name_atom == JS_ATOM_NULL {
         name_atom = JS_ATOM_empty_string;
     }
-    js_function_set_properties(ctx, func_obj, name_atom, (*b).defined_arg_count as _);
+    js_function_set_properties(ctx, closure, name_atom, (*b).defined_arg_count as _);
 
     if matches!(
         (*b).func_kind,
@@ -263,11 +260,6 @@ pub unsafe fn js_closure(
         // generators have a prototype field which is used as
         // prototype for the generator object
         let proto_class_id = func_kind_to_class_id[(*b).func_kind as usize];
-        // let proto_class_id = if (*b).func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
-        //     JS_CLASS_ASYNC_GENERATOR
-        // } else {
-        //     JS_CLASS_GENERATOR
-        // };
         debug_assert!(matches!(
             proto_class_id,
             JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
@@ -278,22 +270,24 @@ pub unsafe fn js_closure(
         {
             o
         } else {
-            JS_FreeValue(ctx, func_obj);
+            JS_FreeValue(ctx, closure);
             return JSValue::EXCEPTION;
         };
 
-        let _ = func_obj.define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_prototype,
-            proto,
-            JS_PROP_WRITABLE,
-        );
+        closure
+            .define_property_value(
+                ctx.as_mut().unwrap(),
+                JS_ATOM_prototype,
+                proto,
+                JS_PROP_WRITABLE,
+            )
+            .unwrap();
     } else if (*b).has_prototype {
         // add the 'prototype' property: delay instantiation to avoid
         // creating cycles for every javascript function. The prototype
         // object is created on the fly when first accessed
-        JS_SetConstructorBit(ctx, func_obj, true);
-        func_obj
+        JS_SetConstructorBit(ctx, closure, true);
+        closure
             .define_auto_init_property(
                 ctx.as_mut().unwrap(),
                 JS_ATOM_prototype,
@@ -301,10 +295,10 @@ pub unsafe fn js_closure(
                 std::ptr::null_mut(),
                 JS_PROP_WRITABLE,
             )
-            .expect("TODO");
+            .unwrap();
     }
 
-    func_obj
+    closure
 }
 
 /// `func_obj` is consumed
@@ -319,7 +313,7 @@ pub unsafe fn js_closure2(
 
     func.function_bytecode = b;
     func.home_object = std::ptr::null_mut();
-    func.var_refs = Vec::new();
+    func.var_refs.clear();
 
     if (*b).closure_var_count != 0 {
         if func

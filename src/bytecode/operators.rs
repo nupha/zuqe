@@ -192,13 +192,10 @@ pub unsafe fn js_op_define_class(
         let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
         debug_assert_eq!((*b).func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
 
-        ctor = if let Ok(o) = ctx.create_object_with_proto_and_isa(parent_class, || {
-            Ok(JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
-                function_bytecode: std::ptr::null_mut(),
-                var_refs: Vec::new(),
-                home_object: std::ptr::null_mut(),
-            }))
-        }) {
+        ctor = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+            parent_class,
+            JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default()),
+        ) {
             o
         } else {
             break true; // fail

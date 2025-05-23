@@ -133,12 +133,10 @@ impl JSContext {
         {
             // the array prototype is an array
             let array_proto = self
-                .create_object_with_proto_and_isa(object_proto, || {
-                    Ok(JSObjectIsa::ARRAY(JSObjectArray {
-                        size: 0,
-                        values: Vec::new(),
-                    }))
-                })
+                .create_object_with_proto_and_isa0(
+                    object_proto,
+                    JSObjectIsa::ARRAY(JSObjectArray::default()),
+                )
                 .unwrap();
             self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
 
@@ -352,11 +350,11 @@ impl JSContext {
 
     unsafe fn intrinsic_number(&mut self) {
         let number_proto = self
-            .create_object_with_proto_and_isa(self.class_proto[JS_CLASS_OBJECT as usize], || {
-                Ok(JSObjectIsa::NUMBER(JSValue::ZERO))
-            })
+            .create_object_with_proto_and_isa0(
+                self.class_proto[JS_CLASS_OBJECT as usize],
+                JSObjectIsa::NUMBER(JSValue::ZERO),
+            )
             .unwrap();
-        //JS_SetObjectData(self, number_proto, JSValue::ZERO);
         self.class_proto[JS_CLASS_NUMBER as usize] = number_proto;
         JS_SetPropertyFunctionList(
             self,
@@ -377,11 +375,11 @@ impl JSContext {
 
     unsafe fn intrinsic_boolean(&mut self) {
         let bool_proto = self
-            .create_object_with_proto_and_isa(self.class_proto[JS_CLASS_OBJECT as usize], || {
-                Ok(JSObjectIsa::BOOLEAN(JSValue::FALSE))
-            })
+            .create_object_with_proto_and_isa0(
+                self.class_proto[JS_CLASS_OBJECT as usize],
+                JSObjectIsa::BOOLEAN(JSValue::FALSE),
+            )
             .unwrap();
-        // JS_SetObjectData(self, bool_proto, JSValue::FALSE);
         self.class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
         JS_SetPropertyFunctionList(
             self,
@@ -394,18 +392,22 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_string(&mut self) {
-        let empty_str = JS_ATOM_empty_string.to_value(self, true);
+        let empty_str = JS_ATOM_empty_string
+            .to_value(self, true)
+            .check_exception()
+            .unwrap();
+
         let string_proto = self
-            .create_object_with_proto_and_isa(self.class_proto[JS_CLASS_OBJECT as usize], || {
-                Ok(JSObjectIsa::STRING(empty_str))
+            .create_object_with_proto_and_isa0(
+                self.class_proto[JS_CLASS_OBJECT as usize],
+                JSObjectIsa::STRING(empty_str),
+            )
+            .map_err(|_| {
+                JS_FreeValue(self, empty_str);
             })
             .unwrap();
         self.class_proto[JS_CLASS_STRING as usize] = string_proto;
-        // JS_SetObjectData(
-        //     self,
-        //     string_proto,
-        //     JS_ATOM_empty_string.to_value(self, true),
-        // );
+
         JS_SetPropertyFunctionList(
             self,
             string_proto,

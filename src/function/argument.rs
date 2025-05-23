@@ -1,7 +1,7 @@
 use std::mem::ManuallyDrop;
 
 use crate::{
-    array::{JSObjectArray, JSObjectArrayDataUnion, JSObjectArrayU1},
+    array::JSObjectArray,
     atom::{consts::*, JSAtom},
     context::JSContext,
     runtime::JS_MAX_LOCAL_VARS,
@@ -13,17 +13,14 @@ use crate::{
         },
         JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT,
+    JS_CLASS_OBJECT,
 };
 
 pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSValue {
-    let val = if let Ok(o) =
-        ctx.create_object_with_proto_and_isa(ctx.class_proto[JS_CLASS_OBJECT as usize], || {
-            Ok(JSObjectIsa::ARGUMENTS(JSObjectArray {
-                size: 0,
-                values: Vec::new(),
-            }))
-        }) {
+    let val = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+        ctx.class_proto[JS_CLASS_OBJECT as usize],
+        JSObjectIsa::ARGUMENTS(JSObjectArray::default()),
+    ) {
         o
     } else {
         return JSValue::EXCEPTION;
@@ -75,10 +72,10 @@ pub unsafe fn js_build_mapped_arguments(
     sf: &mut JSStackFrame,
     arg_count: i32,
 ) -> JSValue {
-    let val = if let Ok(o) = ctx
-        .create_object_with_proto_and_isa(ctx.class_proto[JS_CLASS_OBJECT as usize], || {
-            Ok(JSObjectIsa::MAPPED_ARGUMENTS)
-        }) {
+    let val = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+        ctx.class_proto[JS_CLASS_OBJECT as usize],
+        JSObjectIsa::MAPPED_ARGUMENTS,
+    ) {
         o
     } else {
         return JSValue::EXCEPTION;

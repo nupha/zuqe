@@ -101,10 +101,17 @@ impl JSContext {
     ) -> JSResult {
         let mut ctx = self.handle();
 
-        let func_obj = self.create_object_with_proto_and_isa(self.function_proto, || {
-            let s = JSCFunctionDataRecord::new(ctx.deref_mut(), callback, length, magic, data)?;
-            Ok(JSObjectIsa::C_FUNCTION_DATA(Box::into_raw(s)))
-        })?;
+        let func_obj = self
+            .create_object_with_proto_and_isa0(self.function_proto, {
+                let s = JSCFunctionDataRecord::new(ctx.deref_mut(), callback, length, magic, data)?;
+                JSObjectIsa::C_FUNCTION_DATA(Box::into_raw(s))
+            })
+            .map_err(|isa| {
+                if let JSObjectIsa::C_FUNCTION_DATA(p) = isa {
+                    drop(unsafe { Box::from_raw(p) });
+                }
+                -1
+            })?;
 
         unsafe {
             js_function_set_properties(self, func_obj, JS_ATOM_empty_string, length as _);

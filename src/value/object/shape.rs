@@ -847,6 +847,7 @@ impl JSRuntime {
 
     /// find a registered empty shape matching given prototype.
     /// Return None if not found.
+    /// `proto` is not consumed.
     pub fn find_shape_by_proto(&self, proto: *mut JSObject) -> Option<JSShapeHandle> {
         let h = shape_initial_hash(proto);
 

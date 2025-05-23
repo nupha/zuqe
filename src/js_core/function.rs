@@ -69,9 +69,23 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         }
     }
 
-    let func_obj = ctx.create_object_with_proto_and_isa(ctx.function_proto, || {
-        Ok(JSObjectIsa::BOUND_FUNCTION(Box::into_raw(bf)))
-    })?;
+    let func_obj = {
+        let bf_ptr = Box::into_raw(bf);
+
+        ctx.create_object_with_proto_and_isa0(
+            ctx.function_proto,
+            JSObjectIsa::BOUND_FUNCTION(bf_ptr),
+        )
+        .map_err(|_| {
+            let bf = unsafe { Box::from_raw(bf_ptr) };
+            JS_FreeValue(ctx, bf.func_obj);
+            JS_FreeValue(ctx, bf.this_val);
+            for a in bf.bind_args {
+                JS_FreeValue(ctx, a);
+            }
+            -1
+        })?
+    };
 
     let p = unsafe { func_obj.object_unchecked() };
     p.detailed.set_constructor(args.this_value.is_constructor());

@@ -553,17 +553,25 @@ impl JSContext {
 
         let mut realm = self.handle();
 
-        let func_obj = self.create_object_with_proto_and_isa(proto_val, || {
-            Ok(JSObjectIsa::C_FUNCTION(JSObjectCFunc {
-                realm: realm.dup().into(),
-                c_function: JSCFunctionType {
-                    native_callback: callback,
-                },
-                length,
-                cproto,
-                magic,
-            }))
-        })?;
+        let func_obj = self
+            .create_object_with_proto_and_isa0(
+                proto_val,
+                JSObjectIsa::C_FUNCTION(JSObjectCFunc {
+                    realm: realm.dup().into(),
+                    c_function: JSCFunctionType {
+                        native_callback: callback,
+                    },
+                    length,
+                    cproto,
+                    magic,
+                }),
+            )
+            .map_err(|isa| unsafe {
+                if let JSObjectIsa::C_FUNCTION(cfunc) = isa {
+                    JS_FreeContext(cfunc.realm);
+                }
+                -1
+            })?;
 
         let ob = unsafe { func_obj.object_unchecked() };
 
@@ -618,37 +626,41 @@ pub unsafe fn JS_NewCFunction3(
 ) -> JSValue {
     let mut realm = JSContextHandle::from(ctx);
 
-    let func_obj = if let Ok(o) = (*ctx).create_object_with_proto_and_isa(proto_val, || {
-        Ok(JSObjectIsa::C_FUNCTION(JSObjectCFunc {
+    match (*ctx).create_object_with_proto_and_isa0(
+        proto_val,
+        JSObjectIsa::C_FUNCTION(JSObjectCFunc {
             realm: realm.dup().into(),
             c_function: JSCFunctionType { generic: func },
             length,
             cproto,
             magic,
-        }))
-    }) {
-        o
-    } else {
-        return JSValue::EXCEPTION;
-    };
+        }),
+    ) {
+        Ok(func_obj) => {
+            let p = func_obj.object_unchecked();
+            p.detailed.set_constructor(matches!(
+                cproto,
+                JSCFunctionEnum::Constructor
+                    | JSCFunctionEnum::ConstructorMagic
+                    | JSCFunctionEnum::ConstructorOrFunc
+                    | JSCFunctionEnum::ConstructorOrFuncMagic
+            ));
 
-    let p = func_obj.object_unchecked();
+            // define propperties on func_obj: length and name.
+            let name_atom = (*ctx).create_atom(name.to_string_lossy().as_ref()).unwrap();
 
-    p.detailed.set_constructor(matches!(
-        cproto,
-        JSCFunctionEnum::Constructor
-            | JSCFunctionEnum::ConstructorMagic
-            | JSCFunctionEnum::ConstructorOrFunc
-            | JSCFunctionEnum::ConstructorOrFuncMagic
-    ));
+            js_function_set_properties(ctx, func_obj, name_atom, length as i32);
+            JS_FreeAtom(ctx, name_atom);
 
-    // define propperties on func_obj: length and name.
-    let name_atom = (*ctx).create_atom(name.to_string_lossy().as_ref()).unwrap();
-
-    js_function_set_properties(ctx, func_obj, name_atom, length as i32);
-    JS_FreeAtom(ctx, name_atom);
-
-    func_obj
+            func_obj
+        }
+        Err(isa) => unsafe {
+            if let JSObjectIsa::C_FUNCTION(cfunc) = isa {
+                JS_FreeContext(cfunc.realm);
+            }
+            JSValue::EXCEPTION
+        },
+    }
 }
 
 /* Note: at least 'length' arguments will be readable in 'argv' */

@@ -249,6 +249,7 @@ impl JSObjectIsa {
             _ => None,
         }
     }
+
     pub fn async_func_state_ptr(&self) -> *mut JSAsyncFunctionState {
         match self {
             Self::ASYNC_FUNCTION_RESOLVE(a) | Self::ASYNC_FUNCTION_REJECT(a) => *a,

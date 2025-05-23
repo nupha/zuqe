@@ -87,10 +87,10 @@ impl JSContext {
         message: &CStr,
         add_backtrace: bool,
     ) -> JSValue {
-        let obj = if let Ok(o) = self
-            .create_object_with_proto_and_isa(self.native_error_proto[error_num as usize], || {
-                Ok(JSObjectIsa::ERROR)
-            }) {
+        let obj = if let Ok(o) = self.create_object_with_proto_and_isa0(
+            self.native_error_proto[error_num as usize],
+            JSObjectIsa::ERROR,
+        ) {
             o
         } else {
             // out of memory: throw NULL to avoid recursing
