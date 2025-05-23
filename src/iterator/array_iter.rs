@@ -7,7 +7,7 @@ use crate::{
     runtime::JSRuntime,
     typed_array::TypedArrayValue,
     value::{
-        object::{js_get_length32, JS_ToObject},
+        object::{js_get_length32, JSObjectIsa, JS_ToObject},
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToStringCheckObject,
     },
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
@@ -23,17 +23,27 @@ pub struct JSArrayIteratorData {
 
 impl JSArrayIteratorData {
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let it = val.object_unchecked().u.array_iterator_data;
-        if !it.is_null() {
-            JS_FreeValueRT(rt, (*it).obj);
-            drop(Box::from_raw(it));
+        if let JSObjectIsa::ARRAY_ITERATOR(it) | JSObjectIsa::STRING_ITERATOR(it) =
+            val.object_unchecked().isa_mut()
+        {
+            let it = *it;
+
+            if !it.is_null() {
+                JS_FreeValueRT(rt, (*it).obj);
+                drop(Box::from_raw(it));
+            }
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let it = val.object_unchecked().u.array_iterator_data;
-        if !it.is_null() {
-            JS_MarkValue(rt, (*it).obj, mark_func);
+        if let JSObjectIsa::ARRAY_ITERATOR(it) | JSObjectIsa::STRING_ITERATOR(it) =
+            val.object_unchecked().isa()
+        {
+            let it = *it;
+
+            if !it.is_null() {
+                JS_MarkValue(rt, (*it).obj, mark_func);
+            }
         }
     }
 }
@@ -68,24 +78,24 @@ pub unsafe fn js_create_array_iterator(
             kind,
             idx: 0,
         });
-        Box::from_raw(p.as_ptr())
+        p
     } else {
         JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
     };
 
-    let enum_obj = if let Ok(o) = (*ctx).create_object_with_classid(class_id) {
-        o
+    match (*ctx).create_object_with_isa(if class_id == JS_CLASS_STRING_ITERATOR {
+        JSObjectIsa::STRING_ITERATOR(it.as_ptr())
     } else {
-        JS_FreeValue(ctx, arr);
-        return JSValue::EXCEPTION;
-    };
-
-    enum_obj
-        .object_unchecked()
-        .set_opaque(Box::into_raw(it).cast());
-
-    enum_obj
+        JSObjectIsa::ARRAY_ITERATOR(it.as_ptr())
+    }) {
+        Ok(o) => o,
+        Err(_) => {
+            let s = Box::from_raw(it.as_ptr());
+            JS_FreeValue(ctx, s.obj);
+            JSValue::EXCEPTION
+        }
+    }
 }
 
 pub unsafe fn js_array_iterator_next(
@@ -109,11 +119,8 @@ pub unsafe fn js_array_iterator_next(
         };
     }
 
-    if let Ok(mut p) = this_val
-        .object_unchecked()
-        .opaque_must::<JSArrayIteratorData>(JS_CLASS_ARRAY_ITERATOR, ctx.as_mut().unwrap())
-    {
-        let it = p.as_mut();
+    if let JSObjectIsa::ARRAY_ITERATOR(p) = this_val.object_unchecked().isa() {
+        let it = (*p).as_mut().unwrap();
 
         if it.obj.is_undefined() {
             done!();

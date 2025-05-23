@@ -3,6 +3,7 @@ use std::ffi::CStr;
 use crate::{
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
+        JSObjectArray,
     },
     array_buffer::{
         js_array_buffer_constructor, js_array_buffer_funcs, js_array_buffer_proto_funcs,
@@ -44,9 +45,9 @@ use crate::{
     value::{
         js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
-            get_proto_obj, js_object_seal, JS_NewObject, JS_NewObjectProto, JS_SetObjectData,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
+            get_proto_obj, js_object_seal, JSObjectIsa, JS_NewObject, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+            JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_FreeValue,
     },
@@ -63,7 +64,10 @@ impl JSContext {
     /// Add minimum amount of objects to be able to compile code and display error messages.
     /// No JSAtom should be allocated by this function.
     pub(super) fn add_core_objects(&mut self) {
-        let object_proto = unsafe { JS_NewObjectProto(self, JSValue::NULL) };
+        let object_proto = self
+            .create_object_with_proto_and_isa0(JSValue::NULL, JSObjectIsa::OBJECT)
+            .unwrap_or(JSValue::EXCEPTION);
+        // let object_proto = unsafe { JS_NewObjectProto(self, JSValue::NULL) };
 
         // Object
         self.class_proto[JS_CLASS_OBJECT as usize] = object_proto;
@@ -86,7 +90,7 @@ impl JSContext {
 
         // Error
         unsafe {
-            let err_proto = JS_NewObject(self);
+            let err_proto = self.create_base_object().unwrap();
             JS_SetPropertyFunctionList(
                 self,
                 err_proto,
@@ -97,7 +101,9 @@ impl JSContext {
 
             // standard Errors
             for i in 0..JS_NATIVE_ERROR_COUNT {
-                let proto = JS_NewObjectProto(self, err_proto);
+                let proto = self
+                    .create_object_with_proto_and_isa0(err_proto, JSObjectIsa::OBJECT)
+                    .unwrap();
 
                 let name = JS_NewAtomString(self, NATIVE_ERROR_NAMES[i]);
                 proto
@@ -127,7 +133,12 @@ impl JSContext {
         {
             // the array prototype is an array
             let array_proto = self
-                .create_object_with_proto_and_classid(object_proto, JS_CLASS_ARRAY)
+                .create_object_with_proto_and_isa(object_proto, || {
+                    Ok(JSObjectIsa::ARRAY(JSObjectArray {
+                        size: 0,
+                        values: Vec::new(),
+                    }))
+                })
                 .unwrap();
             self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
 
@@ -311,7 +322,8 @@ impl JSContext {
                 "toSpliced",
                 "values",
             ];
-            let obj1 = JS_NewObjectProto(self, JSValue::NULL);
+            // let obj1 = JS_NewObjectProto(self, JSValue::NULL);
+            let obj1 = self.create_base_object_with_proto(JSValue::NULL).unwrap();
             for s in unscopables {
                 obj1.define_property_value_str(self, s, JSValue::TRUE, JS_PROP_C_W_E)
                     .unwrap();
@@ -326,8 +338,9 @@ impl JSContext {
         self.array_proto_values =
             self.class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_values);
 
-        self.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] =
-            JS_NewObjectProto(self, self.iterator_proto);
+        self.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = self
+            .create_base_object_with_proto(self.iterator_proto)
+            .unwrap();
 
         JS_SetPropertyFunctionList(
             self,
@@ -339,12 +352,11 @@ impl JSContext {
 
     unsafe fn intrinsic_number(&mut self) {
         let number_proto = self
-            .create_object_with_proto_and_classid(
-                self.class_proto[JS_CLASS_OBJECT as usize],
-                JS_CLASS_NUMBER,
-            )
+            .create_object_with_proto_and_isa(self.class_proto[JS_CLASS_OBJECT as usize], || {
+                Ok(JSObjectIsa::NUMBER(JSValue::ZERO))
+            })
             .unwrap();
-        JS_SetObjectData(self, number_proto, JSValue::ZERO);
+        //JS_SetObjectData(self, number_proto, JSValue::ZERO);
         self.class_proto[JS_CLASS_NUMBER as usize] = number_proto;
         JS_SetPropertyFunctionList(
             self,
@@ -365,13 +377,12 @@ impl JSContext {
 
     unsafe fn intrinsic_boolean(&mut self) {
         let bool_proto = self
-            .create_object_with_proto_and_classid(
-                self.class_proto[JS_CLASS_OBJECT as usize],
-                JS_CLASS_BOOLEAN,
-            )
+            .create_object_with_proto_and_isa(self.class_proto[JS_CLASS_OBJECT as usize], || {
+                Ok(JSObjectIsa::BOOLEAN(JSValue::FALSE))
+            })
             .unwrap();
+        // JS_SetObjectData(self, bool_proto, JSValue::FALSE);
         self.class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
-        JS_SetObjectData(self, bool_proto, JSValue::FALSE);
         JS_SetPropertyFunctionList(
             self,
             bool_proto,
@@ -383,18 +394,18 @@ impl JSContext {
     }
 
     unsafe fn intrinsic_string(&mut self) {
+        let empty_str = JS_ATOM_empty_string.to_value(self, true);
         let string_proto = self
-            .create_object_with_proto_and_classid(
-                self.class_proto[JS_CLASS_OBJECT as usize],
-                JS_CLASS_STRING,
-            )
+            .create_object_with_proto_and_isa(self.class_proto[JS_CLASS_OBJECT as usize], || {
+                Ok(JSObjectIsa::STRING(empty_str))
+            })
             .unwrap();
         self.class_proto[JS_CLASS_STRING as usize] = string_proto;
-        JS_SetObjectData(
-            self,
-            string_proto,
-            JS_ATOM_empty_string.to_value(self, true),
-        );
+        // JS_SetObjectData(
+        //     self,
+        //     string_proto,
+        //     JS_ATOM_empty_string.to_value(self, true),
+        // );
         JS_SetPropertyFunctionList(
             self,
             string_proto,
@@ -415,8 +426,9 @@ impl JSContext {
             js_string_funcs.len(),
         );
 
-        self.class_proto[JS_CLASS_STRING_ITERATOR as usize] =
-            JS_NewObjectProto(self, self.iterator_proto);
+        self.class_proto[JS_CLASS_STRING_ITERATOR as usize] = self
+            .create_base_object_with_proto(self.iterator_proto)
+            .unwrap();
         JS_SetPropertyFunctionList(
             self,
             self.class_proto[JS_CLASS_STRING_ITERATOR as usize],
@@ -465,8 +477,8 @@ impl JSContext {
     pub unsafe fn intrinsic_base_objects(&mut self) {
         // make global object - this must come first
         {
-            self.global_obj = JS_NewObject(self);
-            self.global_var_obj = JS_NewObjectProto(self, JSValue::NULL);
+            self.global_obj = self.create_base_object().unwrap();
+            self.global_var_obj = self.create_base_object_with_proto(JSValue::NULL).unwrap();
 
             //
             // define global properties (isNan, parseInt, undefined, NaN etc)
@@ -680,7 +692,9 @@ impl JSContext {
             for i in
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
-                self.class_proto[i as usize] = JS_NewObjectProto(self, typed_array_base_proto);
+                self.class_proto[i as usize] = self
+                    .create_base_object_with_proto(typed_array_base_proto)
+                    .unwrap();
                 self.class_proto[i as usize]
                     .define_property_value_str(
                         self,
@@ -783,8 +797,9 @@ impl JSContext {
         self.add_global_constructor("Promise", obj1, self.class_proto[JS_CLASS_PROMISE as usize]);
 
         // AsyncFunction
-        self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize] =
-            JS_NewObjectProto(self, self.function_proto);
+        self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize] = self
+            .create_base_object_with_proto(self.function_proto)
+            .unwrap();
         let obj1 = JS_NewCFunction3(
             self,
             std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
@@ -812,7 +827,7 @@ impl JSContext {
         JS_FreeValue(self, obj1);
 
         // AsyncIteratorPrototype
-        self.async_iterator_proto = JS_NewObject(self);
+        self.async_iterator_proto = self.create_base_object().unwrap();
         JS_SetPropertyFunctionList(
             self,
             self.async_iterator_proto,
@@ -821,8 +836,9 @@ impl JSContext {
         );
 
         // AsyncFromSyncIteratorPrototype
-        self.class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize] =
-            JS_NewObjectProto(self, self.async_iterator_proto);
+        self.class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize] = self
+            .create_base_object_with_proto(self.async_iterator_proto)
+            .unwrap();
         JS_SetPropertyFunctionList(
             self,
             self.class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize],
@@ -831,8 +847,9 @@ impl JSContext {
         );
 
         // AsyncGeneratorPrototype
-        self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] =
-            JS_NewObjectProto(self, self.async_iterator_proto);
+        self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] = self
+            .create_base_object_with_proto(self.async_iterator_proto)
+            .unwrap();
         JS_SetPropertyFunctionList(
             self,
             self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize],
@@ -841,8 +858,9 @@ impl JSContext {
         );
 
         // AsyncGeneratorFunction
-        self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] =
-            JS_NewObjectProto(self, self.function_proto);
+        self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = self
+            .create_base_object_with_proto(self.function_proto)
+            .unwrap();
         let obj1 = JS_NewCFunction3(
             self,
             std::mem::transmute::<JSCFunctionMagic, JSCFunction>(

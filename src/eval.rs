@@ -86,10 +86,9 @@ impl JSContext {
             debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
 
             let ob = (*sf).cur_func.object_unchecked();
-            debug_assert!(js_class_has_bytecode(ob.class_id()));
-
-            b = ob.u.func.function_bytecode;
-            var_refs = (*ob.u.func).var_refs.as_slice();
+            let func = ob.isa().func().expect("expect bytecode object");
+            b = func.function_bytecode;
+            var_refs = func.var_refs.as_slice();
             js_mode = (*b).js_mode as _;
         } else {
             if flags & JS_EVAL_FLAG_STRICT != 0 {

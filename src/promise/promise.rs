@@ -3,20 +3,18 @@ use std::{ops::DerefMut, ptr::NonNull};
 use crate::{
     atom::consts::*,
     callable::JSCFunctionDataRecord,
-    class::js_create_from_ctor,
     context::JSContext,
     error::JSResult,
     function::{js_function_set_properties, CallArgs, JS_Call, JS_CallConstructor},
     gc::{JS_MarkFunc, JS_MarkValue},
     js_core::error::js_aggregate_error_constructor,
     list_entry,
-    mem::js_malloc_typed,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     types::{init_list_head, list_del, list_foreach, list_foreach_safe, list_head},
     utils::{UncheckedFrom, UncheckedInto},
     value::{
-        object::{JS_NewObject, JS_PROP_C_W_E},
+        object::{JSObjectIsa, JS_NewObject, JS_PROP_C_W_E},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
         JS_ToInt32,
     },
@@ -69,16 +67,6 @@ impl TryFrom<JSValue> for PromiseValue {
     /// interpret value as PromiseValue.
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
         if value.is_object() && unsafe { value.object_unchecked().class_id() } == JS_CLASS_PROMISE {
-            debug_assert!(
-                unsafe {
-                    value
-                        .object_unchecked()
-                        .opaque::<std::ffi::c_void>(JS_CLASS_PROMISE)
-                        .is_some()
-                },
-                "Promise object missing payload data"
-            );
-
             Ok(unsafe { std::mem::transmute::<JSValue, PromiseValue>(value) })
         } else {
             Err(-1)
@@ -130,12 +118,16 @@ impl PromiseValue {
         init_list_head(&mut s.promise_reactions[1]);
 
         // create js object of promise class
-        let pr_obj = js_create_from_ctor(ctx, new_target, JS_CLASS_PROMISE).check_exception()?;
-        pr_obj
-            .object_unchecked()
-            .set_opaque(Box::into_raw(s).cast());
-
-        let promise = Self(pr_obj);
+        let promise = match ctx.create_instance(new_target, JSObjectIsa::PROMISE(Box::into_raw(s)))
+        {
+            Ok(o) => Self(o),
+            Err(isa) => {
+                if let JSObjectIsa::PROMISE(s) = isa {
+                    drop(Box::from_raw(s));
+                }
+                return Err(-1);
+            }
+        };
 
         let mut args = promise.create_resolving_functions(ctx).inspect_err(|_| {
             JS_FreeValue(ctx, promise.0);
@@ -190,33 +182,27 @@ impl PromiseValue {
             return Err(-1);
         }
 
-        let s = executor
-            .object_unchecked()
-            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
-            .unwrap();
+        if let JSObjectIsa::C_FUNCTION_DATA(s) = executor.object_unchecked().isa() {
+            let s = (*s).as_ref().unwrap();
 
-        let data = s.as_ref().data();
-        debug_assert!(!data.is_empty());
+            let data = s.data();
+            debug_assert!(!data.is_empty());
 
-        for item in data.iter().take(2) {
-            if item.ensure_callable(ctx).is_err() {
-                JS_FreeValue(ctx, executor);
-                JS_FreeValue(ctx, result_promise);
-                return Err(-1);
+            for item in data.iter().take(2) {
+                if item.ensure_callable(ctx).is_err() {
+                    JS_FreeValue(ctx, executor);
+                    JS_FreeValue(ctx, result_promise);
+                    return Err(-1);
+                }
             }
+
+            let resolving_funcs = [data[0].dup(), data[1].dup()];
+            JS_FreeValue(ctx, executor);
+
+            Ok((result_promise.unchecked_into(), resolving_funcs))
+        } else {
+            unreachable!()
         }
-        // for i in 0..2 {
-        //     if data[i].ensure_callable(ctx).is_err() {
-        //         JS_FreeValue(ctx, executor);
-        //         JS_FreeValue(ctx, result_promise);
-        //         return Err(-1);
-        //     }
-        // }
-
-        let resolving_funcs = [data[0].dup(), data[1].dup()];
-        JS_FreeValue(ctx, executor);
-
-        Ok((result_promise.unchecked_into(), resolving_funcs))
     }
 
     #[inline(always)]
@@ -235,49 +221,85 @@ impl PromiseValue {
         self,
         ctx: &mut JSContext,
     ) -> Result<[JSValue; 2], i32> {
-        let sr = Box::new(JSPromiseFunctionDataResolved {
-            ref_count: 1,
-            already_resolved: false, // must be shared between the two functions
-        });
-
-        let mut sr_ptr = NonNull::new(Box::into_raw(sr)).unwrap();
+        let mut sr_ptr = unsafe {
+            NonNull::new_unchecked(Box::into_raw(Box::new(JSPromiseFunctionDataResolved {
+                ref_count: 1,
+                already_resolved: false, // must be shared between the two functions
+            })))
+        };
 
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         for i in 0..2 {
-            let func_obj = if let Ok(o) = ctx.create_object_with_proto_and_classid(
+            let s = Box::new(JSPromiseFunctionData {
+                promise: self.dup(),
+                presolved: sr_ptr,
+            });
+
+            match ctx.create_object_with_proto_and_isa0(
                 ctx.function_proto,
-                JS_CLASS_PROMISE_RESOLVE_FUNCTION + i,
+                if i == 0 {
+                    JSObjectIsa::PROMISE_RESOLVE_FUNCTION(Box::into_raw(s))
+                } else {
+                    JSObjectIsa::PROMISE_REJECT_FUNCTION(Box::into_raw(s))
+                },
             ) {
-                o
-            } else {
-                if i != 0 {
-                    JS_FreeValue(ctx, resolving_funcs[0]);
+                Ok(func_obj) => unsafe {
+                    sr_ptr.as_mut().ref_count += 1;
+                    js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, 1);
+                    resolving_funcs[i as usize] = func_obj;
+                },
+                Err(isa) => {
+                    if let JSObjectIsa::PROMISE_REJECT_FUNCTION(s)
+                    | JSObjectIsa::PROMISE_RESOLVE_FUNCTION(s) = isa
+                    {
+                        let s = unsafe { Box::from_raw(s) };
+                        JS_FreeValue(ctx, s.promise.into());
+                    }
+
+                    if i != 0 {
+                        JS_FreeValue(ctx, resolving_funcs[0]);
+                    }
+
+                    // consume sr_ptr
+                    unsafe {
+                        js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
+                    }
+
+                    return Err(-1);
                 }
-
-                // consume sr_ptr
-                unsafe {
-                    js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
-                }
-
-                return Err(-1);
-            };
-
-            unsafe {
-                sr_ptr.as_mut().ref_count += 1;
-                let s = Box::new(JSPromiseFunctionData {
-                    promise: self.dup(),
-                    presolved: sr_ptr,
-                });
-
-                func_obj
-                    .object_unchecked()
-                    .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSPromiseFunctionData>
-
-                js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, 1);
             }
 
-            resolving_funcs[i as usize] = func_obj;
+            // let func_obj = if let Ok(o) ={
+            //     o
+            // } else {
+            //     if i != 0 {
+            //         JS_FreeValue(ctx, resolving_funcs[0]);
+            //     }
+
+            //     // consume sr_ptr
+            //     unsafe {
+            //         js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
+            //     }
+
+            //     return Err(-1);
+            // };
+
+            // unsafe {
+            //     sr_ptr.as_mut().ref_count += 1;
+            //     let s = Box::new(JSPromiseFunctionData {
+            //         promise: self.dup(),
+            //         presolved: sr_ptr,
+            //     });
+
+            //     func_obj
+            //         .object_unchecked()
+            //         .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSPromiseFunctionData>
+
+            //     js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, 1);
+            // }
+
+            // resolving_funcs[i as usize] = func_obj;
         }
 
         unsafe {
@@ -290,10 +312,22 @@ impl PromiseValue {
     /// get Promise meta data.
     fn meta<'a>(self) -> Option<&'a JSPromiseData> {
         unsafe {
-            self.0
-                .object_unchecked()
-                .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-                .map(|x| x.as_ref())
+            if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().isa() {
+                (*p).as_ref()
+            } else {
+                None
+            }
+        }
+    }
+
+    /// get Promise meta data.
+    fn meta_mut<'a>(self) -> Option<&'a mut JSPromiseData> {
+        unsafe {
+            if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().isa() {
+                (*p).as_mut()
+            } else {
+                None
+            }
         }
     }
 
@@ -315,13 +349,7 @@ impl PromiseValue {
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(self, ctx: &mut JSContext, value: JSValue, is_reject: bool) {
-        let s = unsafe {
-            self.0
-                .object_unchecked()
-                .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-                .unwrap()
-                .as_mut()
-        };
+        let s = self.meta_mut().unwrap();
         debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
 
         #[cfg(DUMP_PROMISE)]
@@ -426,28 +454,26 @@ impl PromiseValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        if let Some(mut s) = val
-            .object_unchecked()
-            .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-        {
+        if let JSObjectIsa::PROMISE(s) = val.object_unchecked().isa() {
+            let s = *s;
+
             for i in 0..2 {
-                list_foreach_safe(&mut s.as_mut().promise_reactions[i], |el| {
+                list_foreach_safe(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
                     let rd = list_entry!(el, JSPromiseReactionData, link);
                     Box::from_raw(rd).dispose(rt.as_mut().unwrap());
                 });
             }
-            JS_FreeValueRT(rt, s.as_mut().promise_result);
-            drop(Box::from_raw(s.as_ptr()));
+            JS_FreeValueRT(rt, s.as_mut().unwrap().promise_result);
+            drop(Box::from_raw(s));
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        if let Some(mut s) = val
-            .object_unchecked()
-            .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-        {
+        if let JSObjectIsa::PROMISE(s) = val.object_unchecked().isa() {
+            let s = *s;
+
             for i in 0..2 {
-                list_foreach(&mut s.as_mut().promise_reactions[i], |el| {
+                list_foreach(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
                     let rd = list_entry!(el, JSPromiseReactionData, link);
                     JS_MarkValue(rt, (*rd).resolving_funcs[0], mark_func);
                     JS_MarkValue(rt, (*rd).resolving_funcs[1], mark_func);
@@ -455,7 +481,7 @@ impl PromiseValue {
                 });
             }
 
-            JS_MarkValue(rt, s.as_mut().promise_result, mark_func);
+            JS_MarkValue(rt, s.as_mut().unwrap().promise_result, mark_func);
         }
     }
 }

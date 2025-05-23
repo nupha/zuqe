@@ -1,5 +1,4 @@
 use crate::{
-    class::js_create_from_ctor,
     context::JSContext,
     error::JSResult,
     function::{
@@ -18,7 +17,7 @@ use crate::{
     },
     utils::UncheckedInto,
     value::{
-        object::{JSObject, JS_PROP_CONFIGURABLE},
+        object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT,
         JS_TAG_OBJECT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
     },
@@ -140,34 +139,42 @@ impl AsyncGeneratorValue {
         }
         JS_FreeValue(ctx, func_ret);
 
-        let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
-        if obj.is_exception() {
-            s.dispose(ctx.rt_mut());
-            return JSValue::EXCEPTION;
+        match ctx.create_instance(func_obj, JSObjectIsa::ASYNC_GENERATOR(Box::into_raw(s))) {
+            Ok(obj) => {
+                let ob = obj.object_unchecked();
+                let obptr = ob as *mut JSObject;
+                if let JSObjectIsa::ASYNC_GENERATOR(s) = ob.isa_mut() {
+                    (*s).as_mut().unwrap().generator = obptr;
+                } else {
+                    #[cfg(debug_assertions)]
+                    unreachable!()
+                }
+                obj
+            }
+            Err(isa) => {
+                if let JSObjectIsa::ASYNC_GENERATOR(s) = isa {
+                    Box::from_raw(s).dispose(ctx.rt_mut());
+                }
+                JSValue::EXCEPTION
+            }
         }
 
-        let ob = obj.object_unchecked();
-        s.generator = ob;
-        ob.set_opaque(Box::into_raw(s).cast());
-
-        obj
+        // let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
+        // let ob = obj.object_unchecked();
+        // s.generator = ob;
+        // ob.set_opaque(Box::into_raw(s).cast());
+        // obj
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        if let Some(p) = val
-            .object()
-            .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
-        {
-            Box::from_raw(p.as_ptr()).dispose(rt.as_mut().unwrap());
+        if let Some(JSObjectIsa::ASYNC_GENERATOR(p)) = val.object().map(|o| o.isa_mut()) {
+            Box::from_raw(*p).dispose(rt.as_mut().unwrap());
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        if let Some(mut p) = val
-            .object()
-            .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
-        {
-            list_foreach(&mut p.as_mut().queue, |el| {
+        if let Some(JSObjectIsa::ASYNC_GENERATOR(p)) = val.object().map(|o| o.isa()) {
+            list_foreach(&mut p.as_mut().unwrap().queue, |el| {
                 let req = list_entry!(el, JSAsyncGeneratorRequest, link);
 
                 JS_MarkValue(rt, (*req).result, mark_func);
@@ -176,8 +183,8 @@ impl AsyncGeneratorValue {
                 JS_MarkValue(rt, (*req).resolving_funcs[1], mark_func);
             });
 
-            if !p.as_ref().func_state.is_null() {
-                mark_func(rt, &mut (*p.as_ref().func_state).header);
+            if !p.as_ref().unwrap().func_state.is_null() {
+                mark_func(rt, &mut (*p.as_ref().unwrap().func_state).header);
             }
         }
     }
@@ -560,10 +567,11 @@ pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) 
     let val = args.get_raw(0);
 
     let p = unsafe {
-        val.object_unchecked()
-            .opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR)
-            .unwrap()
-            .as_mut()
+        if let JSObjectIsa::ASYNC_GENERATOR(s) = val.object_unchecked().isa_mut() {
+            (*s).as_mut().unwrap()
+        } else {
+            unreachable!()
+        }
     };
 
     if args.magic >= 2 {
@@ -624,11 +632,9 @@ pub unsafe fn js_async_generator_next(
         return JSValue::EXCEPTION;
     };
 
-    if let Some(p) = this_val
-        .object()
-        .and_then(|o| o.opaque::<JSAsyncGeneratorData>(JS_CLASS_ASYNC_GENERATOR))
-        .map(|mut x| x.as_mut())
-    {
+    if let Some(JSObjectIsa::ASYNC_GENERATOR(p)) = this_val.object().map(|o| o.isa_mut()) {
+        let p = (*p).as_mut().unwrap();
+
         let mut req = Box::new(JSAsyncGeneratorRequest {
             link: list_head::default(),
             completion_type: magic,
@@ -636,14 +642,6 @@ pub unsafe fn js_async_generator_next(
             promise: promise.as_value().dup(),
             resolving_funcs,
         });
-
-        // // malloc fail
-        // if req.is_null() {
-        //     JS_FreeValue(ctx, resolving_funcs[0]);
-        //     JS_FreeValue(ctx, resolving_funcs[1]);
-        //     JS_FreeValue(ctx, promise);
-        //     return JSValue::EXCEPTION;
-        // }
 
         list_add_tail(&mut req.link, &mut (*p).queue);
         let _ = Box::into_raw(req); // leak

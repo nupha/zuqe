@@ -47,11 +47,10 @@ use crate::{
         object::{
             JSObject, JS_AddBrand, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
             JS_DefinePrivateField, JS_GetPrivateField, JS_GetPrototype, JS_NewObject,
-            JS_NewObjectProto, JS_SetPrivateField, JS_SetPrototypeInternal, JS_ToObject,
-            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_VARREF, JS_PROP_WRITABLE,
+            JS_SetPrivateField, JS_SetPrototypeInternal, JS_ToObject, JS_PROP_CONFIGURABLE,
+            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE,
+            JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JS_FreeValue, JS_IsUninitialized, JS_NewCatchOffset,
         JS_NewSymbolFromAtom, JS_ToBoolFree, HINT_NONE, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET,
@@ -311,7 +310,10 @@ pub unsafe fn run_bytecodes(
                             SP_GO!(1);
                         }
                         OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT => {
-                            SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
+                            SP![0] = ctx
+                                .create_base_object_with_proto(JSValue::NULL)
+                                .unwrap_or(JSValue::EXCEPTION);
+                            //SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
                             SP_GO!(1);
                             if SP![-1].is_exception() {
                                 break State::Exception;
@@ -1146,7 +1148,9 @@ pub unsafe fn run_bytecodes(
                     let idx = read_from_ptr::<u16>(pc.add(4));
                     PC_GO!(6);
 
-                    SP![0] = JS_NewObjectProto(ctx, JSValue::NULL);
+                    SP![0] = ctx
+                        .create_base_object_with_proto(JSValue::NULL)
+                        .unwrap_or(JSValue::EXCEPTION);
                     SP_GO!(1);
 
                     if SP![-1].is_exception() {

@@ -8,8 +8,9 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JS_GetPrototypeFree, JS_NewObject, JS_ToObjectFree, PropertyEnum, JS_GPN_ENUM_ONLY,
-            JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JSObjectIsa, JS_GetPrototypeFree, JS_NewObject, JS_ToObjectFree, PropertyEnum,
+            JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
+            JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_TAG_NULL,
         JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
@@ -151,21 +152,23 @@ pub unsafe fn JS_IteratorNext2(
     // intermediate result object)
     if method.is_object() {
         let p = method.object_unchecked();
-        if p.class_id() == JS_CLASS_C_FUNCTION && p.u.cfunc.cproto == JSCFunctionEnum::IteratorNext
-        {
-            let ret = (p.u.cfunc.c_function.iterator_next)(
-                ctx,
-                enum_obj,
-                argc,
-                if argc == 0 {
-                    [JSValue::UNDEFINED].as_mut_ptr()
-                } else {
-                    argv
-                },
-                pdone,
-                (*p).u.cfunc.magic as _,
-            );
-            return ret;
+
+        if let JSObjectIsa::C_FUNCTION(cfunc) = p.isa() {
+            if cfunc.cproto == JSCFunctionEnum::IteratorNext {
+                let ret = (cfunc.c_function.iterator_next)(
+                    ctx,
+                    enum_obj,
+                    argc,
+                    if argc == 0 {
+                        [JSValue::UNDEFINED].as_mut_ptr()
+                    } else {
+                        argv
+                    },
+                    pdone,
+                    cfunc.magic as _,
+                );
+                return ret;
+            }
         }
     }
 
@@ -294,16 +297,19 @@ pub unsafe fn JS_IteratorGetCompleteValue(
 }
 
 pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let it = val.object_unchecked().u.for_in_iterator;
+    if let JSObjectIsa::FOR_IN_ITERATOR(p) = val.object_unchecked().isa_mut() {
+        let it = *p;
 
-    JS_FreeValueRT(rt, (*it).obj);
-    if !(*it).is_array {
-        for x in (*it).tab_atom.iter() {
-            JS_FreeAtomRT(rt, x.atom);
+        JS_FreeValueRT(rt, (*it).obj);
+
+        if !(*it).is_array {
+            for x in (*it).tab_atom.iter() {
+                JS_FreeAtomRT(rt, x.atom);
+            }
         }
-    }
 
-    drop(Box::from_raw(it));
+        drop(Box::from_raw(it));
+    }
 }
 
 pub unsafe fn js_for_in_iterator_mark(
@@ -311,9 +317,12 @@ pub unsafe fn js_for_in_iterator_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    let it = val.object_unchecked().u.for_in_iterator;
-    JS_MarkValue(rt, (*it).obj, mark_func);
+    if let JSObjectIsa::FOR_IN_ITERATOR(p) = val.object_unchecked().isa() {
+        let it = *p;
+        JS_MarkValue(rt, (*it).obj, mark_func);
+    }
 }
+
 /// `obj` is consumed.
 pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValue {
     let tag = JS_VALUE_GET_TAG(obj);
@@ -324,16 +333,8 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
     };
 
     let mut it = if let Some(p) = js_malloc_typed::<JSForInIterator>(ctx, 1, false) {
+        // FIXME: write init value
         Box::from_raw(p.as_ptr())
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
-
-    let enum_obj = if let Ok(o) =
-        (*ctx).create_object_with_proto_and_classid(JSValue::NULL, JS_CLASS_FOR_IN_ITERATOR)
-    {
-        o
     } else {
         JS_FreeValue(ctx, obj);
         return JSValue::EXCEPTION;
@@ -373,16 +374,19 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
                 it.atom_count = names.len() as _;
                 it.tab_atom = names;
             } else {
-                JS_FreeValue(ctx, enum_obj);
                 return JSValue::EXCEPTION;
             }
         }
     }
 
-    // attach JSForInIterator to enum object
-    enum_obj.object_unchecked().u.for_in_iterator = Box::into_raw(it);
-
-    enum_obj
+    if let Ok(o) = (*ctx).create_object_with_proto_and_isa(JSValue::NULL, || {
+        Ok(JSObjectIsa::FOR_IN_ITERATOR(Box::into_raw(it)))
+    }) {
+        o
+    } else {
+        JS_FreeValue(ctx, obj);
+        JSValue::EXCEPTION
+    }
 }
 
 // return -1 if exception, 0 if slow case, 1 if the enumeration is finished
@@ -390,7 +394,11 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     ctx: *mut JSContext,
     enum_obj: JSValueConst,
 ) -> i32 {
-    let it = enum_obj.object_unchecked().u.for_in_iterator;
+    let it = if let JSObjectIsa::FOR_IN_ITERATOR(p) = enum_obj.object_unchecked().isa() {
+        *p
+    } else {
+        unreachable!()
+    };
 
     // check if there are enumerable properties in the prototype chain (fast path)
     let mut obj1 = (*it).obj.dup();

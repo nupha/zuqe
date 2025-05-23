@@ -1,12 +1,15 @@
+use std::mem::ManuallyDrop;
+
 use crate::{
+    array::{JSObjectArray, JSObjectArrayDataUnion, JSObjectArrayU1},
     atom::{consts::*, JSAtom},
     context::JSContext,
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
         object::{
-            js_get_length32, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_VARREF, JS_PROP_WRITABLE,
+            js_get_length32, JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET,
+            JS_PROP_HAS_SET, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -14,10 +17,13 @@ use crate::{
 };
 
 pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSValue {
-    let val = if let Ok(o) = ctx.create_object_with_proto_and_classid(
-        ctx.class_proto[JS_CLASS_OBJECT as usize],
-        JS_CLASS_ARGUMENTS,
-    ) {
+    let val = if let Ok(o) =
+        ctx.create_object_with_proto_and_isa(ctx.class_proto[JS_CLASS_OBJECT as usize], || {
+            Ok(JSObjectIsa::ARGUMENTS(JSObjectArray {
+                size: 0,
+                values: Vec::new(),
+            }))
+        }) {
         o
     } else {
         return JSValue::EXCEPTION;
@@ -69,10 +75,10 @@ pub unsafe fn js_build_mapped_arguments(
     sf: &mut JSStackFrame,
     arg_count: i32,
 ) -> JSValue {
-    let val = if let Ok(o) = ctx.create_object_with_proto_and_classid(
-        ctx.class_proto[JS_CLASS_OBJECT as usize],
-        JS_CLASS_MAPPED_ARGUMENTS,
-    ) {
+    let val = if let Ok(o) = ctx
+        .create_object_with_proto_and_isa(ctx.class_proto[JS_CLASS_OBJECT as usize], || {
+            Ok(JSObjectIsa::MAPPED_ARGUMENTS)
+        }) {
         o
     } else {
         return JSValue::EXCEPTION;

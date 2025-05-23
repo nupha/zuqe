@@ -1,16 +1,19 @@
-use std::ptr::NonNull;
+use std::{ops::DerefMut, ptr::NonNull};
 
 use smallvec::SmallVec;
 
 use crate::{
     atom::consts::JS_ATOM_empty_string,
-    context::JSContext,
+    context::{JSContext, JSContextHandle},
     error::JSResult,
     function::{js_function_set_properties, CallArgs, JSNativeCallback},
     gc::{JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
+    value::{
+        object::{JSObject, JSObjectIsa},
+        JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+    },
     JS_CLASS_C_FUNCTION_DATA,
 };
 
@@ -96,15 +99,14 @@ impl JSContext {
         magic: i32,
         data: &[JSValueConst],
     ) -> JSResult {
-        let s = JSCFunctionDataRecord::new(self, callback, length, magic, data)?;
-        let func_obj = self
-            .create_object_with_proto_and_classid(self.function_proto, JS_CLASS_C_FUNCTION_DATA)?;
+        let mut ctx = self.handle();
+
+        let func_obj = self.create_object_with_proto_and_isa(self.function_proto, || {
+            let s = JSCFunctionDataRecord::new(ctx.deref_mut(), callback, length, magic, data)?;
+            Ok(JSObjectIsa::C_FUNCTION_DATA(Box::into_raw(s)))
+        })?;
 
         unsafe {
-            func_obj
-                .object_unchecked()
-                .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSCFunctionDataRecord> as payload
-
             js_function_set_properties(self, func_obj, JS_ATOM_empty_string, length as _);
         }
 
@@ -124,37 +126,32 @@ impl CallableValue {
         argv: *const JSValueConst,
         flags: i32,
     ) -> JSValue {
-        let mut s = func_obj
-            .object_unchecked()
-            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
-            .unwrap();
+        if let Some(JSObjectIsa::C_FUNCTION_DATA(s)) = func_obj.object().map(|p| p.isa_mut()) {
+            let s = *s;
 
-        let cc = CallArgs::new(
-            ctx.handle(),
-            this_val,
-            std::slice::from_raw_parts(argv, argc as usize),
-            s.as_ref().magic as _,
-            Some(s.as_mut().data_mut()),
-        );
+            let cc = CallArgs::new(
+                ctx.handle(),
+                this_val,
+                std::slice::from_raw_parts(argv, argc as usize),
+                (*s).magic as _,
+                Some((*s).data_mut()),
+            );
 
-        (s.as_ref().func)(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+            ((*s).func)(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+        } else {
+            unreachable!()
+        }
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        if let Some(p) = val
-            .object_unchecked()
-            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
-        {
-            JSCFunctionDataRecord::free(rt, p);
+        if let JSObjectIsa::C_FUNCTION_DATA(p) = val.object_unchecked().isa_mut() {
+            JSCFunctionDataRecord::free(rt, NonNull::new_unchecked(*p));
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        if let Some(p) = val
-            .object_unchecked()
-            .opaque::<JSCFunctionDataRecord>(JS_CLASS_C_FUNCTION_DATA)
-        {
-            for d in p.as_ref().data() {
+        if let JSObjectIsa::C_FUNCTION_DATA(p) = val.object_unchecked().isa() {
+            for d in (*p).as_ref().unwrap().data() {
                 JS_MarkValue(rt, *d, mark_func);
             }
         }

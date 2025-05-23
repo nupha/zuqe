@@ -37,10 +37,10 @@ use super::{
         JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT,
         JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    js_free_desc, JSProperty, JSPropertyDescriptor, JSShape, JSShapeHandle, JSShapeProperty,
-    JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK,
-    JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL,
-    JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    js_free_desc, JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape, JSShapeHandle,
+    JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
+    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
+    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -159,9 +159,11 @@ impl JSObjectFlags {
         }
     }
 
+    #[deprecated]
     pub const fn class_id(&self) -> JSClassID {
         self.bitfield & 0x0000_FFFF
     }
+    #[deprecated]
     pub const fn set_class_id(&mut self, id: JSClassID) {
         self.bitfield = (self.bitfield & 0xFFFF_0000) | (id & 0x0000_FFFF);
     }
@@ -169,6 +171,7 @@ impl JSObjectFlags {
 
 /// Type-specific object payload storage
 /// The active union member depends on the object's class ID
+#[repr(C)]
 pub union JSObjectUnion {
     /// generic pointer
     pub opaque: *mut c_void,
@@ -235,7 +238,9 @@ pub struct JSObject {
     pub first_weak_ref: *mut JSMapRecord,
 
     /// object payload
-    pub u: JSObjectUnion,
+    pub isa: JSObjectIsa,
+    // #[deprecated]
+    // pub u: JSObjectUnion,
 }
 
 impl JSObject {
@@ -243,6 +248,17 @@ impl JSObject {
     #[inline(always)]
     pub const fn class_id(&self) -> JSClassID {
         self.detailed.class_id()
+        // self.isa.class_id()
+    }
+
+    #[inline(always)]
+    pub fn isa(&self) -> &JSObjectIsa {
+        &self.isa
+    }
+
+    #[inline(always)]
+    pub fn isa_mut(&mut self) -> &mut JSObjectIsa {
+        &mut self.isa
     }
 
     /// Get object using shape.
@@ -264,16 +280,18 @@ impl JSObject {
     /// If payload pointer is null, returns None.
     #[inline]
     pub const fn opaque<T>(&self, class_id: JSClassID) -> Option<NonNull<T>> {
+        unimplemented!()
+
         // debug_assert!(
         //     unsafe { !self.u.opaque.is_null() },
         //     "JSObject must have opaque payload"
         // );
 
-        if self.class_id() == class_id {
-            unsafe { NonNull::new(self.u.opaque.cast::<T>()) }
-        } else {
-            None
-        }
+        // if self.class_id() == class_id {
+        //     unsafe { NonNull::new(self.u.opaque.cast::<T>()) }
+        // } else {
+        //     None
+        // }
     }
 
     /// Retrieve associated payload raw pointer, cast to type T.
@@ -284,11 +302,12 @@ impl JSObject {
         class_id: JSClassID,
         ctx: &mut JSContext,
     ) -> Result<NonNull<T>, i32> {
-        self.opaque::<T>(class_id).ok_or_else(|| {
-            ctx.JS_ThrowTypeErrorInvalidClass(class_id);
+        unreachable!("unused");
+        // self.opaque::<T>(class_id).ok_or_else(|| {
+        //     ctx.JS_ThrowTypeErrorInvalidClass(class_id);
 
-            -1
-        })
+        //     -1
+        // })
     }
 
     /// Associate native payload raw pointer with `self` object.
@@ -296,7 +315,8 @@ impl JSObject {
     /// Safety: Caller maintains `opaque` pointer validity
     #[inline(always)]
     pub const fn set_opaque(&mut self, opaque: *mut c_void) {
-        self.u.opaque = opaque;
+        unimplemented!()
+        // self.u.opaque = opaque;
     }
 }
 
@@ -462,13 +482,38 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 impl JSContext {
-    /// create new instance with specified prototype value and class id.
+    /// create new instance with specified prototype value and isa.
     /// `proto` is Prototype object (can be JSValue::NULL).
     /// Note: `proto` is not consumed.
-    pub fn create_object_with_proto_and_classid(
+    pub fn create_object_with_proto_and_isa0(
         &mut self,
         proto: JSValue,
-        class_id: JSClassID,
+        isa: JSObjectIsa,
+    ) -> Result<JSValue, JSObjectIsa> {
+        let shape: JSShapeHandle = unsafe {
+            let proto_ob = get_proto_obj(proto);
+            match self.rt().find_shape_by_proto(proto_ob) {
+                Some(sh) => sh.dup(),
+                None => {
+                    if let Ok(sh) = self.create_shape(proto_ob.as_mut()) {
+                        sh
+                    } else {
+                        return Err(isa);
+                    }
+                }
+            }
+        };
+
+        self.create_object_from_shape_isa0(shape, isa)
+    }
+
+    /// create new instance with specified prototype value and isa.
+    /// `proto` is Prototype object (can be JSValue::NULL).
+    /// Note: `proto` is not consumed.
+    pub fn create_object_with_proto_and_isa(
+        &mut self,
+        proto: JSValue,
+        isa_fn: impl FnOnce() -> Result<JSObjectIsa, i32>,
     ) -> JSResult {
         let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
@@ -477,30 +522,57 @@ impl JSContext {
                 None => self.create_shape(proto_ob.as_mut())?,
             }
         };
-
-        self.create_object_from_shape(shape, class_id)
+        self.create_object_from_shape_isa(shape, isa_fn)
     }
+
+    /// create new instance with specified prototype value and class id.
+    /// `proto` is Prototype object (can be JSValue::NULL).
+    /// Note: `proto` is not consumed.
+    // #[deprecated(note = "use create_object_with_proto_and_isa() instead")]
+    // pub fn create_object_with_proto_and_classid(
+    //     &mut self,
+    //     proto: JSValue,
+    //     class_id: JSClassID,
+    // ) -> JSResult {
+    //     let shape: JSShapeHandle = unsafe {
+    //         let proto_ob = get_proto_obj(proto);
+    //         match self.rt().find_shape_by_proto(proto_ob) {
+    //             Some(sh) => sh.dup(),
+    //             None => self.create_shape(proto_ob.as_mut())?,
+    //         }
+    //     };
+    //     self.create_object_from_shape(shape, class_id)
+    // }
+
+    // /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
+    // /// returns Err if fail.
+    // #[inline(always)]
+    // pub fn create_object_with_classid(&mut self, class_id: JSClassID) -> JSResult {
+    //     self.create_object_with_proto_and_classid(self.class_proto[class_id as usize], class_id)
+    // }
 
     /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
     /// returns Err if fail.
     #[inline(always)]
-    pub fn create_object_with_classid(&mut self, class_id: JSClassID) -> JSResult {
-        self.create_object_with_proto_and_classid(self.class_proto[class_id as usize], class_id)
+    pub fn create_object_with_isa(&mut self, isa: JSObjectIsa) -> Result<JSValue, JSObjectIsa> {
+        self.create_object_with_proto_and_isa0(self.class_proto[isa.class_id() as usize], isa)
     }
 
     /// create new instance of basic object with given prototype value.
     /// returns Err if fail.
     /// `proto` is not consumed.
     #[inline(always)]
-    pub fn create_object_with_proto(&mut self, proto: JSValue) -> JSResult {
-        self.create_object_with_proto_and_classid(proto, JS_CLASS_OBJECT)
+    pub fn create_base_object_with_proto(&mut self, proto: JSValue) -> JSResult {
+        self.create_object_with_proto_and_isa0(proto, JSObjectIsa::OBJECT)
+            .map_err(|_| -1)
     }
 
     /// Create new instance of basic object using default Object prototype
     /// returns Err if fail.
     #[inline(always)]
-    pub fn create_object(&mut self) -> JSResult {
-        self.create_object_with_classid(JS_CLASS_OBJECT)
+    pub fn create_base_object(&mut self) -> JSResult {
+        self.create_object_with_isa(JSObjectIsa::OBJECT)
+            .map_err(|_| -1)
     }
 }
 
@@ -510,24 +582,11 @@ pub unsafe fn JS_NewObjectProtoClass(
     proto_val: JSValueConst,
     class_id: JSClassID,
 ) -> JSValue {
-    (*ctx)
-        .create_object_with_proto_and_classid(proto_val, class_id)
-        .unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused")
 
-    // let proto = get_proto_obj(proto_val);
-    // let sh: *mut JSShape = match find_hashed_shape_proto((*ctx).rt_mut(), proto) {
-    //     Some(sh) => js_dup_shape(sh),
-    //     None => {
-    //         let new_sh = js_new_shape(ctx, proto);
-    //         if new_sh.is_null() {
-    //             return JSValue::EXCEPTION;
-    //         } else {
-    //             new_sh
-    //         }
-    //     }
-    // };
-
-    // JS_NewObjectFromShape(ctx, sh, class_id)
+    // (*ctx)
+    //     .create_object_with_proto_and_classid(proto_val, class_id)
+    //     .unwrap_or(JSValue::EXCEPTION)
 }
 
 /// Instantiate object of specific class
@@ -539,25 +598,26 @@ pub unsafe fn JS_NewObjectProtoClass(
 /// Returns New object or Exception
 #[deprecated(note = "use JSContext::create_object_with_classid() instead")]
 pub unsafe fn JS_NewObjectClass(ctx: *mut JSContext, class_id: JSClassID) -> JSValue {
-    (*ctx)
-        .create_object_with_classid(class_id)
-        .unwrap_or(JSValue::EXCEPTION)
-    // JS_NewObjectProtoClass(ctx, (*ctx).class_proto[class_id as usize], class_id)
+    unreachable!("unused");
+
+    // (*ctx)
+    //     .create_object_with_classid(class_id)
+    //     .unwrap_or(JSValue::EXCEPTION)
 }
 
 /// Create plain object with specified prototype
 /// Parameters:
 /// - ctx: JavaScript context
 /// - proto: Prototype object (can be null)
-#[deprecated(note = "use JSContext::create_object_with_proto() instead")]
+#[deprecated(note = "use JSContext::create_base_object_with_proto() instead")]
 pub unsafe fn JS_NewObjectProto(ctx: *mut JSContext, proto: JSValueConst) -> JSValue {
     JS_NewObjectProtoClass(ctx, proto, JS_CLASS_OBJECT)
 }
 
 /// Create basic object using default Object prototype
-#[deprecated(note = "use JSContext::create_object() instead")]
+#[deprecated(note = "use JSContext::create_base_object() instead")]
 pub unsafe fn JS_NewObject(ctx: *mut JSContext) -> JSValue {
-    (*ctx).create_object().unwrap_or(JSValue::EXCEPTION)
+    (*ctx).create_base_object().unwrap_or(JSValue::EXCEPTION)
     // JS_NewObjectProtoClass(
     //     ctx,
     //     (*ctx).class_proto[JS_CLASS_OBJECT as usize],
@@ -682,16 +742,24 @@ pub unsafe fn JS_IsCFunction(
     func: JSCFunction,
     magic: i32,
 ) -> bool {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-        return false;
-    }
-    let p = JS_VALUE_GET_OBJ(val);
-    if (*p).class_id() == JS_CLASS_C_FUNCTION {
-        std::ptr::fn_addr_eq((*p).u.cfunc.c_function.generic, func)
-            && (*p).u.cfunc.magic == magic as i16
-    } else {
-        false
-    }
+    val.object().map_or(false, |o| {
+        if let JSObjectIsa::C_FUNCTION(cfunc) = o.isa() {
+            std::ptr::fn_addr_eq(cfunc.c_function.generic, func) && cfunc.magic == magic as i16
+        } else {
+            false
+        }
+    })
+
+    // if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+    //     return false;
+    // }
+    // let p = JS_VALUE_GET_OBJ(val);
+    // if (*p).class_id() == JS_CLASS_C_FUNCTION {
+    //     std::ptr::fn_addr_eq((*p).u.cfunc.c_function.generic, func)
+    //         && (*p).u.cfunc.magic == magic as i16
+    // } else {
+    //     false
+    // }
 }
 
 #[inline(always)]
@@ -761,8 +829,9 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     }
 
     let p = JS_VALUE_GET_OBJ(obj);
-    if (*p).class_id() == JS_CLASS_BOUND_FUNCTION {
-        let s = (*p).u.bound_function;
+
+    if let JSObjectIsa::BOUND_FUNCTION(bfunc) = (*p).isa() {
+        let s = *bfunc;
         return JS_IsInstanceOf(ctx, val, (*s).func_obj);
     }
 
@@ -848,24 +917,17 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
             // return obj;
             unimplemented!()
         }
-        JSTag::Int | JSTag::Float64 => {
-            let obj = (*ctx)
-                .create_object_with_classid(JS_CLASS_NUMBER)
-                .unwrap_or(JSValue::EXCEPTION);
-            set_value!(obj);
-        }
-        JSTag::String => {
-            let obj = (*ctx)
-                .create_object_with_classid(JS_CLASS_STRING)
-                .unwrap_or(JSValue::EXCEPTION);
-            set_value!(obj);
-        }
-        JSTag::Symbol => {
-            let obj = (*ctx)
-                .create_object_with_classid(JS_CLASS_SYMBOL)
-                .unwrap_or(JSValue::EXCEPTION);
-            set_value!(obj);
-        }
+        t @ (JSTag::Int | JSTag::Float64 | JSTag::String | JSTag::Symbol) => (*ctx)
+            .create_object_with_isa(match t {
+                JSTag::Int | JSTag::Float64 => JSObjectIsa::NUMBER(val.dup()),
+                JSTag::String => JSObjectIsa::STRING(val.dup()),
+                JSTag::Symbol => JSObjectIsa::STRING(val.dup()),
+                _ => unreachable!(),
+            })
+            .inspect_err(|_| {
+                JS_FreeValue(ctx, val);
+            })
+            .unwrap_or(JSValue::EXCEPTION),
         _ => (*ctx).JS_ThrowTypeError(c"cannot convert to object"),
     }
 }
@@ -879,29 +941,28 @@ pub unsafe fn JS_ToObjectFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
 /// Store primitive value in object wrapper
 /// Only works for primitive wrapper objects (Number, String, Boolean, etc.)
 /// Returns -1 on error (invalid object type)
+/// Note: `val` is consumed.
 pub unsafe fn JS_SetObjectData(ctx: *mut JSContext, obj: JSValueConst, val: JSValue) -> i32 {
-    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(obj);
-        match (*p).class_id() {
-            JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
-            | JS_CLASS_DATE | JS_CLASS_BIG_INT => {
-                JS_FreeValue(ctx, (*p).u.object_data);
-                (*p).u.object_data = val;
-                return 0;
-            }
-            _ => {}
+    if let Some(o) = obj.object() {
+        if let Ok(old) = o.isa_mut().value_replace((*ctx).rt_mut(), val) {
+            // free old value
+            JS_FreeValue(ctx.as_mut().unwrap(), old);
+            0
+        } else {
+            ctx.as_mut()
+                .unwrap()
+                .JS_ThrowTypeError(c"invalid object type");
+            -1
         }
+    } else {
+        JS_FreeValue(ctx, val);
+        if !obj.is_exception() {
+            ctx.as_mut()
+                .unwrap()
+                .JS_ThrowTypeError(c"invalid object type");
+        }
+        -1
     }
-
-    JS_FreeValue(ctx, val);
-
-    if !JS_IsException(obj) {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"invalid object type");
-    }
-
-    -1
 }
 
 /// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.

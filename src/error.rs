@@ -9,7 +9,10 @@ use crate::{
         JS_GetFunctionBytecode,
     },
     value::{
-        object::{JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE},
+        object::{
+            JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_WRITABLE,
+        },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
         JS_IsEmptyString, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -84,10 +87,10 @@ impl JSContext {
         message: &CStr,
         add_backtrace: bool,
     ) -> JSValue {
-        let obj = if let Ok(o) = self.create_object_with_proto_and_classid(
-            self.native_error_proto[error_num as usize],
-            JS_CLASS_ERROR,
-        ) {
+        let obj = if let Ok(o) = self
+            .create_object_with_proto_and_isa(self.native_error_proto[error_num as usize], || {
+                Ok(JSObjectIsa::ERROR)
+            }) {
             o
         } else {
             // out of memory: throw NULL to avoid recursing
@@ -263,14 +266,13 @@ impl JSContext {
                 },
             );
             dbuf.write_fmt(format_args!("    at {}", str1))
-                .map_err(|e| -1)?;
+                .map_err(|_| -1)?;
 
-            let p = unsafe { (*sf).cur_func.object_unchecked() };
             let mut backtrace_barrier = false;
 
-            if js_class_has_bytecode(p.class_id()) {
+            if let Some(func) = unsafe { (*sf).cur_func.object_unchecked().isa().func() } {
                 unsafe {
-                    let b = p.u.func.function_bytecode;
+                    let b = func.function_bytecode;
                     backtrace_barrier = (*b).backtrace_barrier;
 
                     if (*b).has_debug {
@@ -286,17 +288,17 @@ impl JSContext {
                             .unwrap_or(Cow::Borrowed("<null>"));
 
                         dbuf.write_fmt(format_args!(" ({}", atom_str.as_ref()))
-                            .map_err(|e| -1)?;
+                            .map_err(|_| -1)?;
                         if let Some(n) = line_num1 {
                             dbuf.write_fmt(format_args!(":{n}")).map_err(|e| -1)?;
                         }
-                        dbuf.write_all(b")").map_err(|e| -1)?;
+                        dbuf.write_all(b")").map_err(|_| -1)?;
                     }
                 }
             } else {
-                dbuf.write_all(b" (native)").map_err(|e| -1)?;
+                dbuf.write_all(b" (native)").map_err(|_| -1)?;
             }
-            dbuf.write_all(b"\n").map_err(|e| -1)?;
+            dbuf.write_all(b"\n").map_err(|_| -1)?;
 
             /* stop backtrace if JS_EVAL_FLAG_BACKTRACE_BARRIER was used */
             if backtrace_barrier {

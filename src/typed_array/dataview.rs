@@ -1,14 +1,14 @@
 use std::ptr::NonNull;
 
 use crate::{
-    class::{js_create_from_ctor, JSClassID},
+    class::JSClassID,
     context::JSContext,
     error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},
     function::{CallArgs, JSCFunctionListEntry},
     mem::js_malloc_typed,
-    types::list_add_tail,
+    types::list_head,
     value::{
-        object::{JSObject, JS_PROP_CONFIGURABLE},
+        object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSValue, JS_FreeValue, JS_ToBool, JS_ToFloat64, JS_ToIndex, JS_ToUint32,
     },
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -60,39 +60,68 @@ impl JSContext {
             }
         }
 
-        let obj =
-            unsafe { js_create_from_ctor(self, new_target, JS_CLASS_DATAVIEW).check_exception()? };
-
-        if abuf.detached {
-            // check again, could have been detached in js_create_from_ctor()
-            unsafe {
-                JS_ThrowTypeErrorDetachedArrayBuffer(self);
-                JS_FreeValue(self, obj);
-            }
-            return Err(-1);
-        }
-
         let mut ta = unsafe {
-            if let Some(p) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
-                Box::from_raw(p.as_ptr())
+            if let Some(ptr) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
+                let o = JSTypedArray {
+                    link: list_head::default(),
+                    obj: std::ptr::null_mut(), // unknown initially
+                    buffer: NonNull::from(buffer.dup().object_unchecked()), // buffer is duplicated
+                    offset: offset as u32,
+                    byte_length: len as _,
+                    count: 0,
+                };
+                ptr.write(o);
+                ptr
             } else {
-                JS_FreeValue(self, obj);
                 return Err(-1);
             }
         };
 
-        unsafe {
-            let p = obj.object_unchecked() as *mut JSObject;
-            ta.obj = p;
-            ta.buffer = NonNull::from(buffer.dup().object_unchecked()); // buffer is duplicated
-            ta.offset = offset as u32;
-            ta.byte_length = len as _;
-            list_add_tail(&mut ta.link, &mut abuf.array_list);
-
-            (*p).u.typed_array = Box::into_raw(ta); // same as JS_SetOpaque(obj, ...)
+        match self.create_instance(new_target, JSObjectIsa::DATAVIEW(ta.as_ptr())) {
+            Ok(o) => unsafe {
+                let p = o.object_unchecked();
+                ta.as_mut().obj = p as *mut JSObject; // set back pointer to the object
+                Ok(o)
+            },
+            Err(_) => {
+                drop(unsafe { Box::from_raw(ta.as_ptr()) });
+                JS_FreeValue(self, buffer); // free buffer
+                Err(-1)
+            }
         }
 
-        Ok(obj)
+        // let obj =
+        //     unsafe { js_create_from_ctor(self, new_target, JS_CLASS_DATAVIEW).check_exception()? };
+
+        // if abuf.detached {
+        //     // check again, could have been detached in create_instance()
+        //     JS_ThrowTypeErrorDetachedArrayBuffer(self);
+        //     return Err(-1);
+        // }
+
+        // let p = unsafe { obj.object_unchecked() };
+
+        /////
+        // let ta = unsafe {
+        //     if let Some(ptr) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
+        //         let o = JSTypedArray {
+        //             link: list_head::default(),
+        //             obj: p as *mut JSObject,
+        //             buffer: NonNull::from(buffer.dup().object_unchecked()), // buffer is duplicated
+        //             offset: offset as u32,
+        //             byte_length: len as _,
+        //             count: 0,
+        //         };
+        //         ptr.write(o);
+        //         Box::from_raw(ptr.as_ptr())
+        //     } else {
+        //         JS_FreeValue(self, obj);
+        //         return Err(-1);
+        //     }
+        // };
+        // p.isa_mut().typed_array_replace(Box::into_raw(ta));
+
+        // Ok(obj)
     }
 }
 
@@ -129,13 +158,12 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let this_obj = args.this_raw();
     let class_id = args.magic as JSClassID;
 
-    let ta = unsafe {
-        this_obj
-            .object_unchecked()
-            .opaque_must::<JSTypedArray>(JS_CLASS_DATAVIEW, ctx)?
-            .as_ref()
-    };
+    debug_assert_eq!(
+        unsafe { this_obj.object_unchecked().class_id() },
+        JS_CLASS_DATAVIEW
+    );
 
+    let ta = unsafe { this_obj.object_unchecked().isa().typed_array().unwrap() };
     let size = 1 << typed_array_size_log2(class_id);
 
     let mut pos: u64 = 0;
@@ -151,9 +179,9 @@ pub fn js_dataview_getValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     let res = unsafe {
-        let abuf = ta.buffer.as_ref().u.array_buffer;
+        let abuf = ta.buffer.as_ref().isa().array_buffer().unwrap();
 
-        if (*abuf).detached {
+        if abuf.detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
@@ -245,11 +273,17 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let this_obj = args.this_raw();
     let class_id = args.magic as JSClassID;
 
+    debug_assert_eq!(
+        unsafe { this_obj.object_unchecked().class_id() },
+        JS_CLASS_DATAVIEW
+    );
+
     let ta = unsafe {
         this_obj
             .object_unchecked()
-            .opaque_must::<JSTypedArray>(JS_CLASS_DATAVIEW, ctx)?
-            .as_mut()
+            .isa_mut()
+            .typed_array_mut()
+            .unwrap()
     };
 
     let size = 1 << typed_array_size_log2(class_id);
@@ -296,8 +330,8 @@ pub fn js_dataview_setValue(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     unsafe {
-        let abuf = ta.buffer.as_ref().u.array_buffer;
-        if (*abuf).detached {
+        let abuf = ta.buffer.as_ref().isa().array_buffer().unwrap();
+        if abuf.detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }

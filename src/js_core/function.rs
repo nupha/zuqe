@@ -7,7 +7,7 @@ use crate::{
         JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
     },
     value::{
-        object::{JS_GetOwnProperty, JS_OrdinaryIsInstanceOf, JS_PROP_CONFIGURABLE},
+        object::{JSObjectIsa, JS_GetOwnProperty, JS_OrdinaryIsInstanceOf, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JS_ConcatString3, JS_FreeValue, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
         JS_VALUE_GET_NORM_TAG,
     },
@@ -47,12 +47,6 @@ pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     args.this_value.ensure_callable(ctx)?;
 
-    let func_obj =
-        ctx.create_object_with_proto_and_classid(ctx.function_proto, JS_CLASS_BOUND_FUNCTION)?;
-
-    let p = unsafe { func_obj.object_unchecked() };
-    p.detailed.set_constructor(args.this_value.is_constructor());
-
     let mut bf = Box::new(JSBoundFunction {
         func_obj: args.this_value.dup(),
         this_val: args.get_raw(0).dup(), // argument #0 is for `this`
@@ -75,9 +69,14 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         }
     }
 
-    unsafe {
-        (*p).u.bound_function = Box::into_raw(bf);
+    let func_obj = ctx.create_object_with_proto_and_isa(ctx.function_proto, || {
+        Ok(JSObjectIsa::BOUND_FUNCTION(Box::into_raw(bf)))
+    })?;
 
+    let p = unsafe { func_obj.object_unchecked() };
+    p.detailed.set_constructor(args.this_value.is_constructor());
+
+    unsafe {
         /* XXX: the spec could be simpler by only using GetOwnProperty */
         let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this_value, JS_ATOM_length);
         if ret < 0 {
@@ -153,25 +152,14 @@ pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     let p = unsafe { args.this_value.object_unchecked() };
 
-    let func_kind = if js_class_has_bytecode(p.class_id()) {
+    let func_kind = if let Some(func) = p.isa().func() {
         unsafe {
-            let b = p.u.func.function_bytecode;
+            let b = func.function_bytecode;
             if (*b).has_debug {
                 if let Some(s) = (*b).debug.source.as_deref() {
                     return ctx.create_string(s).check_exception();
                 }
             }
-            // if (*b).has_debug && !(*b).debug.source.is_null() {
-            //     let rv = ctx.create_string(
-            //         std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-            //             (*b).debug.source,
-            //             (*b).debug.source_len as _,
-            //         ))
-            //         .as_ref(),
-            //     );
-            //     return if rv.is_exception() { Err(-1) } else { Ok(rv) };
-            // }
-
             (*b).func_kind
         }
     } else {

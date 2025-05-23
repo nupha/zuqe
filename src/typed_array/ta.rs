@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use crate::{
     array_buffer::{js_array_buffer_constructor1, JSArrayBuffer},
     atom::consts::JS_ATOM_Symbol_iterator,
-    class::{js_create_from_ctor, JSClassID},
+    class::JSClassID,
     context::JSContext,
     error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},
     gc::{JS_MarkFunc, JS_MarkValue},
@@ -13,7 +13,7 @@ use crate::{
     types::{list_add_tail, list_del, list_head},
     utils::{UncheckedFrom, UncheckedInto},
     value::{
-        object::{js_get_length64, JSObject, JS_ToObject},
+        object::{js_get_length64, JSObject, JSObjectIsa, JS_ToObject},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToInt64Sat, JS_TAG_OBJECT,
         JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -50,6 +50,8 @@ pub struct JSTypedArray {
     pub offset: u32,
     /// number of bytes from array buffer
     pub byte_length: u32,
+    /// number of elements in typed array
+    pub count: u32,
 }
 
 impl JSTypedArray {
@@ -59,21 +61,20 @@ impl JSTypedArray {
         unsafe {
             // XXX: could simplify test by ensuring typed_array.is_null
             // (*self.0.u.array).data.ptr.is_null()
-
-            (*self.buffer.as_ref().u.array_buffer).detached
+            self.buffer.as_ref().isa().array_buffer().unwrap().detached
         }
     }
 
     /// get underlaying array buffer.
     #[inline(always)]
-    pub const fn array_buffer(&self) -> &JSArrayBuffer {
-        unsafe { self.buffer.as_ref().u.array_buffer.as_ref().unwrap() }
+    pub fn array_buffer(&self) -> &JSArrayBuffer {
+        unsafe { self.buffer.as_ref().isa().array_buffer().unwrap() }
     }
 
     /// get underlaying array buffer.
     #[inline(always)]
-    pub const fn array_buffer_mut(&mut self) -> &mut JSArrayBuffer {
-        unsafe { self.buffer.as_ref().u.array_buffer.as_mut().unwrap() }
+    pub fn array_buffer_mut(&mut self) -> &mut JSArrayBuffer {
+        unsafe { self.buffer.as_mut().isa_mut().array_buffer_mut().unwrap() }
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -126,7 +127,7 @@ impl TypedArrayValue {
     /// get typed array data raw pointer.
     #[inline(always)]
     pub fn typed_array_ptr(&self) -> NonNull<JSTypedArray> {
-        unsafe { NonNull::new_unchecked(self.0.object_unchecked().u.typed_array) }
+        unsafe { NonNull::new_unchecked(self.0.object_unchecked().isa().typed_array_ptr()) }
     }
 
     /// get typed array data.
@@ -146,14 +147,14 @@ impl TypedArrayValue {
         count: usize,
     ) -> Result<(), i32> {
         debug_assert!(
-            self.0.object_unchecked().u.array_buffer.is_null(),
+            self.0.object_unchecked().isa().array_buffer_ptr().is_null(),
             "can't setup a TypedArray twice"
         );
 
         let size_log2 = typed_array_size_log2(self.class_id());
 
         let pbuffer = buffer.object_unchecked();
-        let abuf = pbuffer.u.array_buffer;
+        let abuf = pbuffer.isa().array_buffer_ptr();
         debug_assert!(
             (*abuf).byte_length() >= offset + (count << size_log2),
             "len1={}, len2={}",
@@ -163,25 +164,29 @@ impl TypedArrayValue {
 
         let mut ta = unsafe {
             if let Some(p) = js_malloc_typed::<JSTypedArray>(ctx, 1, false) {
+                let o = JSTypedArray {
+                    link: list_head::default(),
+                    obj: self.0.object_unchecked(),
+                    buffer: NonNull::from(pbuffer),
+                    offset: offset as u32,
+                    byte_length: (count as u32) << size_log2,
+                    count: count as u32,
+                };
+                p.write(o);
                 Box::from_raw(p.as_ptr())
             } else {
                 JS_FreeValue(ctx, buffer);
                 return Err(-1);
             }
         };
-        ta.obj = self.0.object_unchecked();
-        ta.offset = offset as u32;
-        ta.byte_length = (count as u32) << size_log2;
-        ta.buffer = NonNull::from(pbuffer);
 
         list_add_tail(&mut ta.link, &mut (*abuf).array_list);
 
-        let ob = self.0.object_unchecked();
-        ob.u.typed_array = Box::into_raw(ta);
-        (*ob.u.array).typed_array_count = count as u32;
-
-        // TODO: remove this.
-        (*ob.u.array).data.ptr = (*abuf).content.as_mut_ptr().add(offset).cast();
+        self.0
+            .object_unchecked()
+            .isa_mut()
+            .typed_array_replace(Box::into_raw(ta))
+            .unwrap();
 
         Ok(())
     }
@@ -196,7 +201,15 @@ impl TypedArrayValue {
     /// If underlaying array buffer is detached, returns 0.
     #[inline(always)]
     pub fn length(self) -> usize {
-        unsafe { self.0.object_unchecked().u.array.typed_array_count as usize }
+        unsafe {
+            let ta = self.0.object_unchecked().isa().typed_array().unwrap();
+            ta.count as usize
+            // if ta.is_detached() {
+            //     0
+            // } else {
+            //     ta.count as usize
+            // }
+        }
     }
 
     /// Get elements count of typed array. (calculated by underlying array buffer space).
@@ -276,16 +289,28 @@ impl TypedArrayValue {
 
         // Note: necessary to check detacth again, because it could have been detached
         if self.is_detached() {
-            unsafe {
-                JS_FreeValue(ctx, dst_abuf);
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            }
+            JS_FreeValue(ctx, dst_abuf);
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
         // create and setup new TypedArray value
         let mut new_ta = unsafe {
-            let ta = Self(js_create_from_ctor(ctx, new_target, class_id).check_exception()?);
+            let isa = match class_id {
+                JS_CLASS_UINT8C_ARRAY => JSObjectIsa::UINT8C_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_UINT8_ARRAY => JSObjectIsa::UINT8_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_INT8_ARRAY => JSObjectIsa::INT8_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_UINT16_ARRAY => JSObjectIsa::UINT16_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_INT16_ARRAY => JSObjectIsa::INT16_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_UINT32_ARRAY => JSObjectIsa::UINT32_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_INT32_ARRAY => JSObjectIsa::UINT32_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_FLOAT32_ARRAY => JSObjectIsa::FLOAT32_ARRAY(std::ptr::null_mut()),
+                JS_CLASS_FLOAT64_ARRAY => JSObjectIsa::FLOAT64_ARRAY(std::ptr::null_mut()),
+                _ => {
+                    unreachable!()
+                }
+            };
+            let ta = Self(ctx.create_instance(new_target, isa).map_err(|_| -1)?);
             if ta.init(ctx, dst_abuf, 0, count).is_err() {
                 JS_FreeValue(ctx, ta.0);
                 return Err(-1);
@@ -308,16 +333,12 @@ impl TypedArrayValue {
             for i in 0..count {
                 let val = self.0.get_property_u32(ctx, i as u32);
                 if val.is_exception() {
-                    unsafe {
-                        JS_FreeValue(ctx, new_ta.0);
-                    }
+                    JS_FreeValue(ctx, new_ta.0);
                     return Err(-1);
                 }
 
                 if new_ta.0.set_property_u32(ctx, i as u32, val).is_err() {
-                    unsafe {
-                        JS_FreeValue(ctx, new_ta.0);
-                    }
+                    JS_FreeValue(ctx, new_ta.0);
                     return Err(-1);
                 }
             }
@@ -536,31 +557,50 @@ impl From<TypedArrayValue> for JSValue {
 impl JSContext {
     /// create an TypedArray with empty array buffer.
     /// `count`: number of elements
-    pub unsafe fn create_typed_array(
+    pub fn create_typed_array(
         &mut self,
         new_target: JSValue,
         count: usize,
-        classid: JSClassID,
+        class_id: JSClassID,
     ) -> JSResult {
-        let size_log2 = typed_array_size_log2(classid);
+        // create typed array object
+        let ta = TypedArrayValue(
+            self.create_instance(
+                new_target,
+                match class_id {
+                    JS_CLASS_UINT8C_ARRAY => JSObjectIsa::UINT8C_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_UINT8_ARRAY => JSObjectIsa::UINT8_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_INT8_ARRAY => JSObjectIsa::INT8_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_UINT16_ARRAY => JSObjectIsa::UINT16_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_INT16_ARRAY => JSObjectIsa::INT16_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_UINT32_ARRAY => JSObjectIsa::UINT32_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_INT32_ARRAY => JSObjectIsa::UINT32_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_FLOAT32_ARRAY => JSObjectIsa::FLOAT32_ARRAY(std::ptr::null_mut()),
+                    JS_CLASS_FLOAT64_ARRAY => JSObjectIsa::FLOAT64_ARRAY(std::ptr::null_mut()),
+                    _ => {
+                        unreachable!()
+                    }
+                },
+            )
+            .map_err(|_| -1)?,
+        );
 
+        // create array buffer
+        let size_log2 = typed_array_size_log2(class_id);
         let buffer = unsafe {
             js_array_buffer_constructor1(self, JSValue::UNDEFINED, count << size_log2)
-                .check_exception()?
+                .check_exception()
+                .inspect_err(|_| {
+                    JS_FreeValue(self, ta.into());
+                })?
         };
 
-        unsafe {
-            let obj = js_create_from_ctor(self, new_target, classid).check_exception()?;
-            if UncheckedInto::<TypedArrayValue>::unchecked_into(obj)
-                .init(self, buffer, 0, count)
-                .is_err()
-            {
-                JS_FreeValue(self, buffer);
-                JS_FreeValue(self, obj);
-                return Err(-1);
-            }
-
-            Ok(obj)
+        // bind array buffer to typed array
+        if unsafe { ta.init(self, buffer, 0, count).is_err() } {
+            JS_FreeValue(self, ta.0);
+            return Err(-1);
+        } else {
+            Ok(ta.0)
         }
     }
 
@@ -576,17 +616,31 @@ impl JSContext {
         source: JSValue,
         offset: usize,
         length: usize,
-        classid: JSClassID,
+        class_id: JSClassID,
     ) -> JSResult {
-        let size_log2 = typed_array_size_log2(classid);
+        let isa = match class_id {
+            JS_CLASS_UINT8C_ARRAY => JSObjectIsa::UINT8C_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_UINT8_ARRAY => JSObjectIsa::UINT8_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_INT8_ARRAY => JSObjectIsa::INT8_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_UINT16_ARRAY => JSObjectIsa::UINT16_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_INT16_ARRAY => JSObjectIsa::INT16_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_UINT32_ARRAY => JSObjectIsa::UINT32_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_INT32_ARRAY => JSObjectIsa::UINT32_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_FLOAT32_ARRAY => JSObjectIsa::FLOAT32_ARRAY(std::ptr::null_mut()),
+            JS_CLASS_FLOAT64_ARRAY => JSObjectIsa::FLOAT64_ARRAY(std::ptr::null_mut()),
+            _ => {
+                unreachable!()
+            }
+        };
+        let size_log2 = typed_array_size_log2(class_id);
 
         match JS_VALUE_GET_TAG(source) {
-            JS_TAG_UNDEFINED => self.create_typed_array(new_target, length, classid),
+            JS_TAG_UNDEFINED => self.create_typed_array(new_target, length, class_id),
             JS_TAG_OBJECT => {
                 let p = source.object_unchecked();
                 match p.class_id() {
                     JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => {
-                        let abuf = p.u.array_buffer;
+                        let abuf = p.isa().array_buffer_ptr();
                         if (*abuf).detached {
                             JS_ThrowTypeErrorDetachedArrayBuffer(self);
                             return Err(-1);
@@ -613,26 +667,20 @@ impl JSContext {
                             length
                         };
 
-                        let buffer = source.dup();
+                        let ta =
+                            TypedArrayValue(self.create_instance(new_target, isa).map_err(|_| -1)?);
 
-                        let obj: TypedArrayValue = js_create_from_ctor(self, new_target, classid)
-                            .check_exception()?
-                            .unchecked_into();
-
-                        if UncheckedInto::<TypedArrayValue>::unchecked_into(obj)
-                            .init(self, buffer, offset, count)
-                            .is_err()
-                        {
-                            JS_FreeValue(self, buffer);
-                            JS_FreeValue(self, obj.into());
+                        if ta.init(self, source.dup(), offset, count).is_err() {
+                            JS_FreeValue(self, source);
+                            JS_FreeValue(self, ta.into());
                             return Err(-1);
                         }
 
-                        Ok(obj.into())
+                        Ok(ta.into())
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                         UncheckedInto::<TypedArrayValue>::unchecked_into(source)
-                            .create_to_new(self, new_target, classid)
+                            .create_to_new(self, new_target, class_id)
                     }
                     _ => {
                         // source is an enumetable object.
@@ -643,7 +691,6 @@ impl JSContext {
 
                         let enum_obj: JSValue;
                         let count: usize;
-
                         if !iter.is_undefined_or_null() {
                             let mut len1: u32 = 0;
                             enum_obj = js_array_from_iterator(self, &mut len1, source, iter);
@@ -667,30 +714,43 @@ impl JSContext {
                             return Err(-1);
                         }
 
-                        let new_arr = js_create_from_ctor(self, new_target, classid as _)
-                            .check_exception()?
-                            .into_rc(self.rt());
-
-                        if UncheckedInto::<TypedArrayValue>::unchecked_into(*new_arr)
-                            .init(self, buffer, 0, count)
-                            .is_err()
-                        {
+                        let ta = TypedArrayValue(self.create_instance(new_target, isa).map_err(
+                            |_| {
+                                JS_FreeValue(self, enum_obj);
+                                JS_FreeValue(self, buffer);
+                                -1
+                            },
+                        )?);
+                        if ta.init(self, buffer, 0, count).is_err() {
                             JS_FreeValue(self, enum_obj);
                             JS_FreeValue(self, buffer);
+                            JS_FreeValue(self, ta.into());
                             return Err(-1);
                         }
+
+                        // let new_arr = js_create_from_ctor(self, new_target, class_id as _)
+                        //     .check_exception()?
+                        //     .into_rc(self.rt());
+
+                        // if UncheckedInto::<TypedArrayValue>::unchecked_into(*new_arr)
+                        //     .init(self, buffer, 0, count)
+                        //     .is_err()
+                        // {
+                        //     JS_FreeValue(self, enum_obj);
+                        //     JS_FreeValue(self, buffer);
+                        //     return Err(-1);
+                        // }
+
+                        let new_arr = ta.0.into_rc(self.rt());
 
                         for i in 0..count {
                             let val = enum_obj.get_property_u32(self, i as u32);
                             if val.is_exception() {
                                 JS_FreeValue(self, enum_obj);
-                                JS_FreeValue(self, buffer);
                                 return Err(-1);
                             }
-
                             if new_arr.set_property_u32(self, i as u32, val).is_err() {
                                 JS_FreeValue(self, enum_obj);
-                                JS_FreeValue(self, buffer);
                                 return Err(-1);
                             }
                         }
@@ -792,9 +852,9 @@ pub unsafe fn js_typed_array_set_internal(
     if (*src_p).class_id() >= JS_CLASS_UINT8C_ARRAY && (*src_p).class_id() <= JS_CLASS_FLOAT64_ARRAY
     {
         let dest_ta = p.typed_array();
-        let dest_abuf = dest_ta.buffer.as_mut().u.array_buffer;
-        let src_ta = (*src_p).u.typed_array;
-        let src_abuf = (*src_ta).buffer.as_ref().u.array_buffer;
+        let dest_abuf = dest_ta.buffer.as_mut().isa_mut().array_buffer_ptr();
+        let src_ta = (*src_p).isa().typed_array_ptr();
+        let src_abuf = (*src_ta).buffer.as_ref().isa().array_buffer_ptr();
         let shift = typed_array_size_log2(p.class_id());
 
         if (*src_abuf).detached {
@@ -803,7 +863,7 @@ pub unsafe fn js_typed_array_set_internal(
             return JSValue::EXCEPTION;
         }
 
-        count = (*src_p).u.array.typed_array_count as i64;
+        count = (*src_ta).count as i64;
         if offset > p.length() as i64 - count {
             JS_ThrowRangeError(ctx, c"invalid array length");
             JS_FreeValue(ctx, src_obj);
@@ -878,8 +938,12 @@ pub unsafe fn js_typed_array_set_internal(
 }
 
 pub unsafe fn js_typed_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p = val.object_unchecked();
-    let ta = p.u.typed_array;
+    let ta = val
+        .object_unchecked()
+        .isa_mut()
+        .typed_array_replace(std::ptr::null_mut())
+        .unwrap();
+
     if !ta.is_null() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called
@@ -893,8 +957,7 @@ pub unsafe fn js_typed_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
 }
 
 pub unsafe fn js_typed_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    let p = val.object_unchecked();
-    let ta = p.u.typed_array;
+    let ta = val.object_unchecked().isa().typed_array_ptr();
     if !ta.is_null() {
         JS_MarkValue(
             rt,

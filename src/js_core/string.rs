@@ -2,7 +2,6 @@ use {fallible_collections::FallibleVec, widestring::U16Str};
 
 use crate::{
     atom::{consts::*, JSAtom, JSAtomStruct},
-    class::js_create_from_ctor,
     context::JSContext,
     error::JS_ThrowRangeError,
     function::{JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree, JS_InvokeFree},
@@ -10,7 +9,7 @@ use crate::{
     regexp::js_is_regexp,
     value::{
         object::{
-            js_get_length32, js_get_length64, JS_SetObjectData, JS_ToObject, JS_ToObjectFree,
+            js_get_length32, js_get_length64, JSObjectIsa, JS_ToObject, JS_ToObjectFree,
             JS_PROP_CONFIGURABLE,
         },
         JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
@@ -30,10 +29,10 @@ pub unsafe fn js_string_constructor(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let tmp_str: JSValue = if argc == 0 {
+    let strval: JSValue = if argc == 0 {
         JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true)
     } else {
-        let s = if new_target.is_undefined() && JS_IsSymbol(*argv.offset(0)) {
+        if new_target.is_undefined() && JS_IsSymbol(*argv.offset(0)) {
             let p = JS_VALUE_GET_PTR(*argv.offset(0)).cast::<JSAtomStruct>();
             JS_ConcatString3(
                 ctx,
@@ -48,30 +47,24 @@ pub unsafe fn js_string_constructor(
             (*argv.offset(0))
                 .coerce_to_string_value(ctx.as_mut().unwrap())
                 .unwrap_or(JSValue::EXCEPTION)
-        };
-
-        if s.is_exception() {
-            return JSValue::EXCEPTION;
         }
-
-        s
     };
 
+    if strval.is_exception() {
+        return JSValue::EXCEPTION;
+    }
+
     if !new_target.is_undefined() {
-        let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_STRING);
-        if !obj.is_exception() {
-            JS_SetObjectData(ctx, obj, tmp_str);
-            obj.define_property_value(
-                ctx.as_mut().unwrap(),
-                JS_ATOM_length,
-                JSValue::from_i32(tmp_str.string().len() as _),
-                0,
-            )
-            .unwrap();
+        match (*ctx).create_instance(new_target, JSObjectIsa::STRING(strval)) {
+            Ok(obj) => obj,
+            Err(_) => {
+                // free str val
+                JS_FreeValue(ctx, strval);
+                JSValue::EXCEPTION
+            }
         }
-        obj
     } else {
-        tmp_str
+        strval
     }
 }
 
@@ -1518,20 +1511,28 @@ pub unsafe fn js_string_toString(
 }
 
 pub unsafe fn js_thisStringValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
-    if JS_VALUE_GET_TAG(this_val) == JS_TAG_STRING {
-        return this_val.dup();
+    if this_val.is_string() {
+        this_val.dup()
+    } else if let Some(d) = this_val
+        .object()
+        .and_then(|p| p.isa().value())
+        .and_then(|x| if x.is_string() { Some(x) } else { None })
+    {
+        d.dup()
+    } else {
+        (*ctx).JS_ThrowTypeError(c"not a string");
+        JSValue::EXCEPTION
     }
 
-    if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(this_val);
-        if (*p).class_id() == JS_CLASS_STRING {
-            if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_STRING {
-                return (*p).u.object_data.dup();
-            }
-        }
-    }
-
-    (*ctx).JS_ThrowTypeError(c"not a string")
+    // if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
+    //     let p = JS_VALUE_GET_OBJ(this_val);
+    //     if (*p).class_id() == JS_CLASS_STRING {
+    //         if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_STRING {
+    //             return (*p).u.object_data.dup();
+    //         }
+    //     }
+    // }
+    // (*ctx).JS_ThrowTypeError(c"not a string")
 }
 
 pub unsafe fn js_string_toLowerCase(
@@ -1673,31 +1674,28 @@ unsafe fn js_string_iterator_next(
     pdone: *mut i32,
     magic: i32,
 ) -> JSValue {
-    let it = if let Ok(mut p) = this_val
-        .object_unchecked()
-        .opaque_must::<JSArrayIteratorData>(JS_CLASS_STRING_ITERATOR, ctx.as_mut().unwrap())
-    {
-        p.as_mut()
+    if let JSObjectIsa::STRING_ITERATOR(p) = this_val.object_unchecked().isa() {
+        let it = (*p).as_mut().unwrap();
+
+        let ss = it.obj.string();
+        let idx = it.idx;
+
+        if idx >= ss.len() as u32 {
+            JS_FreeValue(ctx, it.obj);
+            it.obj = JSValue::UNDEFINED;
+            *pdone = 1;
+            return JSValue::UNDEFINED;
+        }
+
+        let c = ss.content().chars().nth(idx as usize).unwrap();
+        it.idx = idx;
+        *pdone = 0;
+
+        (*ctx).create_string_from_char(c)
     } else {
         *pdone = 0;
         return JSValue::EXCEPTION;
-    };
-
-    let ss = it.obj.string();
-    let idx = it.idx;
-
-    if idx >= ss.len() as u32 {
-        JS_FreeValue(ctx, it.obj);
-        it.obj = JSValue::UNDEFINED;
-        *pdone = 1;
-        return JSValue::UNDEFINED;
     }
-
-    let c = ss.content().chars().nth(idx as usize).unwrap();
-    it.idx = idx;
-    *pdone = 0;
-
-    (*ctx).create_string_from_char(c)
 }
 
 pub const js_string_iterator_proto_funcs: [JSCFunctionListEntry; 2] = [

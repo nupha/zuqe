@@ -27,14 +27,15 @@ use crate::{
 
 #[deprecated(note = "use JSObject::opaque() instead")]
 pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_void {
-    if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
-        return std::ptr::null_mut();
-    }
-    let p = JS_VALUE_GET_OBJ(obj);
-    if (*p).class_id() != class_id {
-        return std::ptr::null_mut();
-    }
-    (*p).u.opaque
+    unreachable!("use JSObject::opaque() instead")
+    // if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
+    //     return std::ptr::null_mut();
+    // }
+    // let p = JS_VALUE_GET_OBJ(obj);
+    // if (*p).class_id() != class_id {
+    //     return std::ptr::null_mut();
+    // }
+    // (*p).u.opaque
 }
 
 #[deprecated(note = "use JSObject::opaque_must() instead")]
@@ -54,10 +55,12 @@ pub unsafe fn JS_GetOpaque2(
 
 #[deprecated(note = "use JSObject::set_opaque() instead")]
 pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
-    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(obj);
-        (*p).u.opaque = opaque;
-    }
+    unreachable!("use JSObject::set_opaque() instead")
+
+    // if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
+    //     let p = JS_VALUE_GET_OBJ(obj);
+    //     (*p).u.opaque = opaque;
+    // }
 }
 
 #[inline(always)]
@@ -1370,9 +1373,7 @@ pub unsafe fn JS_NewObjectFromShape(
     sh: *mut JSShape,
     class_id: JSClassID,
 ) -> JSValue {
-    (*ctx)
-        .create_object_from_shape(sh.into(), class_id)
-        .unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused");
 }
 
 /* create a new empty shape with prototype 'proto' */

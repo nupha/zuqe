@@ -7,12 +7,12 @@ use crate::{
     context::JSContext,
     function::{
         func_kind_to_class_id, js_function_set_properties, JSFunctionBytecode, JSFunctionKindEnum,
-        JSVarRef,
+        JSObjectFunc, JSVarRef,
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
-        object::{JSAutoInitIDEnum, JS_NewObjectProto, JS_SetConstructorBit, JS_PROP_WRITABLE},
+        object::{JSAutoInitIDEnum, JSObjectIsa, JS_SetConstructorBit, JS_PROP_WRITABLE},
         JSValue, JS_FreeValue, JS_VALUE_GET_PTR,
     },
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
@@ -225,13 +225,23 @@ pub unsafe fn js_closure(
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
     debug_assert!(!b.is_null());
 
-    let func_obj = if let Ok(o) =
-        (*ctx).create_object_with_classid(func_kind_to_class_id[(*b).func_kind as usize])
-    {
-        o
-    } else {
-        JS_FreeValue(ctx, bfunc);
-        return JSValue::EXCEPTION;
+    let isa = match (*b).func_kind {
+        JSFunctionKindEnum::JS_FUNC_NORMAL => {
+            JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default())
+        }
+        JSFunctionKindEnum::JS_FUNC_GENERATOR => JSObjectIsa::GENERATOR(std::ptr::null_mut()),
+        JSFunctionKindEnum::JS_FUNC_ASYNC => JSObjectIsa::ASYNC_FUNCTION(JSObjectFunc::default()),
+        JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
+            JSObjectIsa::ASYNC_GENERATOR(std::ptr::null_mut())
+        }
+    };
+    let func_obj = match (*ctx).create_object_with_isa(isa) {
+        Ok(o) => o,
+        Err(isa) => {
+            drop(isa);
+            JS_FreeValue(ctx, bfunc);
+            return JSValue::EXCEPTION;
+        }
     };
 
     let func_obj = js_closure2(ctx, func_obj, b, cur_var_refs, sf);
@@ -263,11 +273,14 @@ pub unsafe fn js_closure(
             JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
         ));
 
-        let proto = JS_NewObjectProto(ctx, (*ctx).class_proto[proto_class_id as usize]);
-        if proto.is_exception() {
+        let proto = if let Ok(o) =
+            (*ctx).create_base_object_with_proto((*ctx).class_proto[proto_class_id as usize])
+        {
+            o
+        } else {
             JS_FreeValue(ctx, func_obj);
             return JSValue::EXCEPTION;
-        }
+        };
 
         let _ = func_obj.define_property_value(
             ctx.as_mut().unwrap(),
@@ -302,13 +315,14 @@ pub unsafe fn js_closure2(
     cur_var_refs: &[NonNull<JSVarRef>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
-    let p = func_obj.object_unchecked();
-    (*p.u.func).function_bytecode = b;
-    (*p.u.func).home_object = std::ptr::null_mut();
-    (*p.u.func).var_refs = Vec::new();
+    let func = func_obj.object_unchecked().isa_mut().func_mut().unwrap();
+
+    func.function_bytecode = b;
+    func.home_object = std::ptr::null_mut();
+    func.var_refs = Vec::new();
 
     if (*b).closure_var_count != 0 {
-        if (*p.u.func)
+        if func
             .var_refs
             .try_reserve_exact((*b).closure_var_count as usize)
             .is_err()
@@ -337,7 +351,7 @@ pub unsafe fn js_closure2(
                 vr
             };
 
-            (*p.u.func).var_refs.push(vr);
+            func.var_refs.push(vr);
         }
     }
 

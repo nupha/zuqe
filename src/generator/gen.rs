@@ -1,12 +1,10 @@
 use crate::{
-    class::js_create_from_ctor,
     context::JSContext,
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
     gc::JS_MarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, JS_FreeValue},
-    JS_CLASS_GENERATOR,
+    value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValue},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -80,15 +78,29 @@ pub unsafe fn js_generator_function_call(
     JS_FreeValue(ctx, func_ret);
 
     // create js object of generator class
-    let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_GENERATOR);
-    if obj.is_exception() {
-        s.free_generator_stack_rt(ctx.rt_mut());
-        return JSValue::EXCEPTION;
+    match ctx.create_instance(func_obj, JSObjectIsa::GENERATOR(Box::into_raw(s))) {
+        Ok(obj) => obj,
+        Err(isa) => {
+            if let JSObjectIsa::GENERATOR(s) = isa {
+                let mut s = Box::from_raw(s);
+                s.free_generator_stack_rt(ctx.rt_mut());
+            } else {
+                #[cfg(debug_assertions)]
+                unreachable!()
+            }
+            JSValue::EXCEPTION
+        }
     }
 
-    obj.object_unchecked().set_opaque(Box::into_raw(s).cast());
+    // let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_GENERATOR);
+    // if obj.is_exception() {
+    //     s.free_generator_stack_rt(ctx.rt_mut());
+    //     return JSValue::EXCEPTION;
+    // }
 
-    obj
+    // obj.object_unchecked().set_opaque(Box::into_raw(s).cast());
+
+    // obj
 }
 
 pub unsafe fn js_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {

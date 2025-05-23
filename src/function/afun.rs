@@ -13,8 +13,8 @@ use crate::{
     types::{init_list_head, list_add, list_add_tail, list_del},
     utils::UncheckedInto,
     value::{
-        object::JS_PROP_CONFIGURABLE, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
-        JS_VALUE_GET_OBJ,
+        object::{JSObjectIsa, JS_PROP_CONFIGURABLE},
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_VALUE_GET_OBJ,
     },
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
 };
@@ -72,18 +72,22 @@ impl JSAsyncFunctionState {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let p = JS_VALUE_GET_OBJ(val);
-        let s = (*p).u.async_function_data;
-        if !s.is_null() {
-            async_func_free(rt, s);
+        if let Some(s) = val.object().map(|p| {
+            p.isa_mut()
+                .async_func_state_replace(std::ptr::null_mut())
+                .unwrap()
+        }) {
+            if !s.is_null() {
+                async_func_free(rt, s);
+            }
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let p = JS_VALUE_GET_OBJ(val);
-        let s = (*p).u.async_function_data;
-        if !s.is_null() {
-            mark_func(rt, &mut (*s).header);
+        if let Some(s) = val.object().map(|p| p.isa().async_func_state_ptr()) {
+            if !s.is_null() {
+                mark_func(rt, &mut (*s).header);
+            }
         }
     }
 }
@@ -117,7 +121,8 @@ pub unsafe fn async_func_init(
     argv: *const JSValueConst,
 ) -> *mut JSAsyncFunctionState {
     let p = func_obj.object_unchecked();
-    let b = p.u.func.function_bytecode.as_mut().unwrap();
+    let func = p.isa().func().unwrap();
+    let b = func.function_bytecode.as_mut().unwrap();
 
     let mut s = if let Some(p) = js_malloc_typed::<JSAsyncFunctionState>(ctx, 1, false) {
         let o = JSAsyncFunctionState {
@@ -222,22 +227,23 @@ pub unsafe fn js_async_function_resolve_create(
     s: *mut JSAsyncFunctionState,
 ) -> Result<[JSValue; 2], i32> {
     let mut resolving_funcs = [JSValue::UNDEFINED; 2];
+    (*s).header.ref_count += 2;
 
     for i in 0..2 {
         let func_obj = ctx
-            .create_object_with_proto_and_classid(
-                ctx.function_proto,
-                JS_CLASS_ASYNC_FUNCTION_RESOLVE + i as JSClassID,
-            )
-            .map_err(|e| {
+            .create_object_with_proto_and_isa0(ctx.function_proto, {
+                if i == 0 {
+                    JSObjectIsa::ASYNC_FUNCTION_RESOLVE(s)
+                } else {
+                    JSObjectIsa::ASYNC_FUNCTION_REJECT(s)
+                }
+            })
+            .map_err(|_| {
                 JS_FreeValue(ctx, resolving_funcs[0]);
                 JS_FreeValue(ctx, resolving_funcs[1]);
-                e
+                (*s).header.ref_count -= 2;
+                -1
             })?;
-
-        let p = func_obj.object_unchecked();
-        (*s).header.ref_count += 1;
-        p.u.async_function_data = s;
 
         resolving_funcs[i] = func_obj;
     }
@@ -273,8 +279,10 @@ pub unsafe fn js_async_function_resolve_call(
     flags: i32,
 ) -> JSValue {
     let p = func_obj.object_unchecked();
-    let s = p.u.async_function_data;
     let is_reject = (p.class_id() - JS_CLASS_ASYNC_FUNCTION_RESOLVE) != 0;
+
+    let s = p.isa().async_func_state_ptr();
+    debug_assert!(!s.is_null());
 
     let arg = if argc > 0 {
         *argv.offset(0)

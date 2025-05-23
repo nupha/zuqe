@@ -567,11 +567,12 @@ impl JSValue {
 
 pub unsafe fn js_string_obj_get_length(obj: JSValueConst) -> usize {
     // This is a class exotic method: obj class_id is JS_CLASS_STRING
-    let p = JS_VALUE_GET_OBJ(obj);
-
-    if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_STRING {
-        let p1 = JS_VALUE_GET_STRING((*p).u.object_data);
-        (*p1).len()
+    if let Some(v) = obj.object_unchecked().isa().value() {
+        if v.is_string() {
+            v.string().len()
+        } else {
+            0
+        }
     } else {
         0
     }
@@ -608,8 +609,10 @@ pub unsafe fn js_string_get_own_property(
 
     if prop.is_int_type() {
         let p = obj.object_unchecked();
-        if JS_VALUE_GET_TAG(p.u.object_data) == JS_TAG_STRING {
-            let p1 = Rc::from_raw(p.u.object_data.string());
+        let obj_val = p.isa().value().unwrap();
+
+        if obj_val.is_string() {
+            let p1 = Rc::from_raw(obj_val.string());
 
             let idx = __JS_AtomToUInt32(prop);
             if idx < p1.len() as u32 {
@@ -667,11 +670,13 @@ pub unsafe fn js_string_define_own_property(
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
         let p = this_obj.object_unchecked();
-        if JS_VALUE_GET_TAG(p.u.object_data) != JS_TAG_STRING {
+        let object_data = p.isa().value().unwrap();
+
+        if !object_data.is_string() {
             def!();
         }
 
-        let p1 = Rc::from_raw(p.u.object_data.string());
+        let p1 = Rc::from_raw(object_data.string());
         let len = p1.len();
         let nth_char = p1.content().chars().nth(idx as usize);
         let _ = Rc::into_raw(p1);

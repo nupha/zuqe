@@ -5,7 +5,6 @@ use crate::{
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
     },
     bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
-    class::js_create_from_ctor,
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowStackOverflow},
     function::{
@@ -21,7 +20,8 @@ use crate::{
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::{
         object::{
-            js_get_length64, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_THROW,
+            js_get_length64, JSObjectIsa, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_THROW,
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat,
@@ -57,10 +57,13 @@ pub unsafe fn js_array_constructor(
     argc: i32,
     argv: *mut JSValueConst,
 ) -> JSValue {
-    let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_ARRAY);
-    if JS_IsException(obj) {
-        return obj;
-    }
+    let obj = if let Ok(o) =
+        (*ctx).create_instance(new_target, JSObjectIsa::ARRAY(JSObjectArray::default()))
+    {
+        o
+    } else {
+        return JSValue::EXCEPTION;
+    };
 
     if argc == 1 && JS_IsNumber(*argv.offset(0)) {
         let len = if let Ok(l) = JS_ToArrayLengthFree(ctx, (*argv.offset(0)).dup(), true) {
@@ -952,6 +955,8 @@ pub unsafe fn js_array_fill(
 }
 
 use std::ptr::NonNull;
+
+use super::JSObjectArray;
 
 pub unsafe fn js_array_find(
     ctx: *mut JSContext,

@@ -117,7 +117,12 @@ impl JSMapState {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let s = val.object_unchecked().u.map_state;
+        let s = val
+            .object_unchecked()
+            .isa_mut()
+            .map_state_replace(std::ptr::null_mut())
+            .unwrap();
+
         if !s.is_null() {
             // if the object is deleted we are sure that no iterator is using it
             list_foreach_safe(&mut (*s).records, |el| {
@@ -140,7 +145,7 @@ impl JSMapState {
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let s = val.object_unchecked().u.map_state;
+        let s = val.object_unchecked().isa().map_state_ptr();
         if !s.is_null() {
             list_foreach(&mut (*s).records, |el| {
                 let mr = list_entry!(el, JSMapRecord, link);

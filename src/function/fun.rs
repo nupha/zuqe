@@ -10,7 +10,7 @@ use crate::{
     proxy::JSProxyData,
     runtime::JSRuntime,
     value::{
-        object::{JSObject, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK},
+        object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK},
         JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_UNDEFINED,
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -62,6 +62,7 @@ pub enum FuncCallType {
     FUNC_CALL_TEMPLATE,
 }
 
+#[derive(Debug)]
 pub struct JSObjectFunc {
     pub function_bytecode: *mut JSFunctionBytecode,
 
@@ -72,6 +73,16 @@ pub struct JSObjectFunc {
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
     pub home_object: *mut JSObject,
+}
+
+impl Default for JSObjectFunc {
+    fn default() -> Self {
+        Self {
+            function_bytecode: std::ptr::null_mut(),
+            var_refs: Vec::new(),
+            home_object: std::ptr::null_mut(),
+        }
+    }
 }
 
 impl JSValue {
@@ -88,16 +99,22 @@ impl JSValue {
 }
 
 /* return NULL without exception if not a function or no bytecode */
-pub unsafe fn JS_GetFunctionBytecode(val: JSValueConst) -> *mut JSFunctionBytecode {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-        return std::ptr::null_mut();
-    }
+#[deprecated(note = "use JSObjectIsa::func() to get JSFunctionBytecode")]
+pub fn JS_GetFunctionBytecode(val: JSValueConst) -> *mut JSFunctionBytecode {
+    val.object()
+        .and_then(|o| o.isa().func())
+        .map(|f| f.function_bytecode)
+        .unwrap_or(std::ptr::null_mut())
 
-    let p = val.object_unchecked();
-    if !js_class_has_bytecode(p.class_id()) {
-        return std::ptr::null_mut();
-    }
-    p.u.func.function_bytecode
+    // if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+    //     return std::ptr::null_mut();
+    // }
+
+    // let p = val.object_unchecked();
+    // if !js_class_has_bytecode(p.class_id()) {
+    //     return std::ptr::null_mut();
+    // }
+    // p.u.func.function_bytecode
 }
 
 pub const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
@@ -120,30 +137,31 @@ pub unsafe fn JS_GetFunctionRealm(ctx: *mut JSContext, func_obj: JSValueConst) -
     let realm: *mut JSContext;
 
     let p = func_obj.object_unchecked();
-    match p.class_id() {
-        JS_CLASS_C_FUNCTION => {
-            realm = p.u.cfunc.realm;
+
+    match p.isa() {
+        JSObjectIsa::C_FUNCTION(cfunc) => {
+            realm = cfunc.realm;
         }
-        JS_CLASS_BYTECODE_FUNCTION
-        | JS_CLASS_GENERATOR_FUNCTION
-        | JS_CLASS_ASYNC_FUNCTION
-        | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
-            realm = (*p.u.func.function_bytecode).realm;
+        JSObjectIsa::BYTECODE_FUNCTION(func)
+        | JSObjectIsa::GENERATOR_FUNCTION(func)
+        | JSObjectIsa::ASYNC_FUNCTION(func)
+        | JSObjectIsa::ASYNC_GENERATOR_FUNCTION(func) => {
+            realm = (*func.function_bytecode).realm;
         }
-        JS_CLASS_PROXY => {
-            let s = p.u.opaque.cast::<JSProxyData>();
+        JSObjectIsa::PROXY(proxy) => {
+            let s = *proxy;
             if s.is_null() {
                 return ctx;
             }
             if (*s).is_revoked {
                 JS_ThrowTypeErrorRevokedProxy(ctx);
-                return std::ptr::null_mut(); // C2RS: NULL in C is std::ptr::null_mut() in Rust
+                return std::ptr::null_mut();
             } else {
                 realm = JS_GetFunctionRealm(ctx, (*s).target);
             }
         }
-        JS_CLASS_BOUND_FUNCTION => {
-            realm = JS_GetFunctionRealm(ctx, (*p.u.bound_function).func_obj);
+        JSObjectIsa::BOUND_FUNCTION(bfunc) => {
+            realm = JS_GetFunctionRealm(ctx, (*(*bfunc)).func_obj);
         }
         _ => {
             realm = ctx;
@@ -213,14 +231,15 @@ pub unsafe fn check_function(ctx: *mut JSContext, obj: JSValueConst) -> Result<(
 
 pub unsafe fn js_bytecode_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let p = JS_VALUE_GET_OBJ(val);
-    let p1 = (*p).u.func.home_object;
+    let func = (*p).isa_mut().func_mut().unwrap();
+    let p1 = func.home_object;
     if !p1.is_null() {
         JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, p1.cast()));
     }
 
-    let b = (*p).u.func.function_bytecode;
+    let b = func.function_bytecode;
     if !b.is_null() {
-        for vr_ptr in (*(*p).u.func).var_refs.drain(..) {
+        for vr_ptr in func.var_refs.drain(..) {
             if let Some(vr) = Box::from_raw(vr_ptr.as_ptr()).free(rt) {
                 // var ref is still alive
                 Box::leak(vr);
@@ -238,29 +257,21 @@ pub unsafe fn js_bytecode_function_mark(
 ) {
     let p = JS_VALUE_GET_OBJ(val);
     // let var_refs = (*p).u.func.var_refs;
-    let b = (*p).u.func.function_bytecode;
+    let func = (*p).isa().func().unwrap();
+    let b = func.function_bytecode;
 
-    if !(*p).u.func.home_object.is_null() {
+    if !func.home_object.is_null() {
         JS_MarkValue(
             rt,
-            JS_MKPTR!(JSTag::Object, (*p).u.func.home_object.cast()),
+            JS_MKPTR!(JSTag::Object, func.home_object.cast()),
             mark_func,
         );
     }
 
     if !b.is_null() {
-        for vr in (*(*p).u.func).var_refs.iter_mut() {
-            mark_func(rt, &mut vr.as_mut().u0.header);
+        for vr in func.var_refs.iter() {
+            mark_func(rt, &mut (*vr.as_ptr()).u0.header);
         }
-
-        // if !var_refs.is_null() {
-        //     for i in 0..(*b).closure_var_count {
-        //         let var_ref = *(var_refs.add(i as usize));
-        //         if !var_ref.is_null() {
-        //             mark_func(rt, &mut (*var_ref).u0.header);
-        //         }
-        //     }
-        // }
 
         // must mark the function bytecode because template objects may be part of a cycle
         JS_MarkValue(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);

@@ -34,7 +34,7 @@ pub unsafe fn JS_CheckBrand(
         return Err(-1);
     }
 
-    let home_obj = (*p1).u.func.home_object;
+    let home_obj = (*p1).isa().func().unwrap().home_object;
     if home_obj.is_null() {
         (*ctx).JS_ThrowTypeErrorNotAnObject();
         return Err(-1);

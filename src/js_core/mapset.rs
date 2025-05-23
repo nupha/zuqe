@@ -1,13 +1,13 @@
 use crate::{
     atom::consts::{JS_ATOM_add, JS_ATOM_next, JS_ATOM_set},
-    class::{js_create_from_ctor, JSClassID},
+    class::JSClassID,
     context::JSContext,
     function::JS_Call,
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     map::{map_find_record, map_normalize_key, JSMapState},
     mem::{js_malloc, js_malloc_typed},
-    types::init_list_head,
-    value::{JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsObject},
+    types::{init_list_head, list_head},
+    value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValue, JS_IsObject},
     JS_CLASS_MAP,
 };
 
@@ -24,10 +24,56 @@ pub unsafe fn js_map_constructor(
     let is_set = (magic & MAGIC_SET) != 0;
     let is_weak = (magic & MAGIC_WEAK) != 0;
 
-    let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_MAP + magic as u32);
-    if JS_IsException(obj) {
+    let mut s = if let Some(p) = js_malloc_typed::<JSMapState>(ctx, 1, false) {
+        const HASH_INIT_SIZE: usize = 1;
+        let o = JSMapState {
+            is_weak,
+            records: list_head::default(),
+            record_count: 0,
+            hash_table: {
+                let ptr: *mut list_head =
+                    js_malloc(ctx, std::mem::size_of::<JSValue>() * HASH_INIT_SIZE).cast();
+                if ptr.is_null() {
+                    return JSValue::EXCEPTION;
+                }
+                ptr
+            },
+            hash_size: HASH_INIT_SIZE as _,
+            record_count_threshold: 4,
+        };
+        p.write(o);
+        Box::from_raw(p.as_ptr())
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
+
+    init_list_head(&mut s.records);
+    init_list_head(s.hash_table);
+
+    let isa = match magic {
+        0 => JSObjectIsa::MAP(Box::into_raw(s)),
+        1 => JSObjectIsa::SET(Box::into_raw(s)),
+        2 => JSObjectIsa::WEAKMAP(Box::into_raw(s)),
+        3 => JSObjectIsa::WEAKSET(Box::into_raw(s)),
+        _ => unreachable!(),
+    };
+
+    let obj = match (*ctx).create_instance(new_target, isa) {
+        Ok(o) => o,
+        Err(isa) => {
+            if let JSObjectIsa::MAP(s)
+            | JSObjectIsa::SET(s)
+            | JSObjectIsa::WEAKMAP(s)
+            | JSObjectIsa::WEAKSET(s) = isa
+            {
+                drop(Box::from_raw(s))
+            } else {
+                #[cfg(debug_assertions)]
+                unreachable!()
+            }
+            return JSValue::EXCEPTION;
+        }
+    };
 
     macro_rules! fail {
         ($iter:expr, $next_method:expr, $adder:expr) => {
@@ -42,28 +88,6 @@ pub unsafe fn js_map_constructor(
             return JSValue::EXCEPTION;
         };
     }
-
-    let mut s = if let Some(p) = js_malloc_typed::<JSMapState>(ctx, 1, true) {
-        Box::from_raw(p.as_ptr())
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
-
-    s.is_weak = is_weak;
-    s.record_count_threshold = 4;
-    s.hash_size = 1;
-    s.hash_table = js_malloc(ctx, std::mem::size_of::<JSValue>() * s.hash_size as usize).cast();
-    if s.hash_table.is_null() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    init_list_head(&mut s.records);
-    init_list_head(s.hash_table);
-
-    // leak JSMapState ownership
-    obj.object_unchecked().set_opaque(Box::into_raw(s).cast());
 
     let arr = if argc > 0 {
         *argv.offset(0)
@@ -193,17 +217,15 @@ pub unsafe fn js_map_get(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let s = if let Ok(p) = this_val
-        .object_unchecked()
-        .opaque_must::<JSMapState>(JS_CLASS_MAP + magic as JSClassID, ctx.as_mut().unwrap())
-    {
-        p
-    } else {
+    let isa = this_val.object_unchecked().isa();
+    if isa.class_id() != JS_CLASS_MAP + magic as JSClassID {
         return JSValue::EXCEPTION;
-    };
+    }
+    let s = isa.map_state_ptr();
+    debug_assert!(!s.is_null());
 
     let key = map_normalize_key(ctx, *argv.offset(0));
-    let mr = map_find_record(ctx, s.as_ptr(), key);
+    let mr = map_find_record(ctx, s, key);
     if mr.is_null() {
         JSValue::UNDEFINED
     } else {
@@ -218,17 +240,15 @@ pub unsafe fn js_map_set(
     argv: *const JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let mut s = if let Ok(p) = this_val
-        .object_unchecked()
-        .opaque_must::<JSMapState>(JS_CLASS_MAP + magic as JSClassID, ctx.as_mut().unwrap())
-    {
-        p
-    } else {
+    let isa = this_val.object_unchecked().isa();
+    if isa.class_id() != JS_CLASS_MAP + magic as JSClassID {
         return JSValue::EXCEPTION;
-    };
+    }
+    let s = isa.map_state_ptr();
+    debug_assert!(!s.is_null());
 
     let key = map_normalize_key(ctx, *argv.offset(0));
-    if s.as_ref().is_weak && !key.is_object() {
+    if s.as_ref().unwrap().is_weak && !key.is_object() {
         return (*ctx).JS_ThrowTypeErrorNotAnObject();
     }
 
@@ -238,11 +258,11 @@ pub unsafe fn js_map_set(
         *argv.offset(1)
     };
 
-    let mut mr = map_find_record(ctx, s.as_ptr(), key);
+    let mut mr = map_find_record(ctx, s, key);
     if !mr.is_null() {
         JS_FreeValue(ctx, (*mr).value);
     } else {
-        mr = if let Ok(r) = s.as_mut().add_record(ctx.as_mut().unwrap(), key) {
+        mr = if let Ok(r) = (*s).add_record(ctx.as_mut().unwrap(), key) {
             r.as_ptr()
         } else {
             return JSValue::EXCEPTION;

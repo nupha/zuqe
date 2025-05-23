@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     function::{
         js_class_has_bytecode, js_closure2, js_poll_interrupts, JSFunctionBytecode,
-        JSFunctionKindEnum, JSVarRef,
+        JSFunctionKindEnum, JSObjectFunc, JSVarRef,
     },
     gc::set_cycle_flag,
     iterator::{
@@ -18,11 +18,12 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_get_length32, JS_CheckBrand, JS_DefineObjectName, JS_DefineObjectNameComputed,
-            JS_GetOwnPropertyInternal, JS_GetPrototypeFree, JS_IsCFunction, JS_IsInstanceOf,
-            JS_SetConstructorBit, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-            JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            js_get_length32, JSObjectIsa, JS_CheckBrand, JS_DefineObjectName,
+            JS_DefineObjectNameComputed, JS_GetOwnPropertyInternal, JS_GetPrototypeFree,
+            JS_IsCFunction, JS_IsInstanceOf, JS_SetConstructorBit, JS_GPN_SET_ENUM,
+            JS_GPN_STRING_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+            JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
@@ -182,7 +183,7 @@ pub unsafe fn js_op_define_class(
             parent_class = ctx.function_proto.dup();
         }
 
-        proto = if let Ok(o) = ctx.create_object_with_proto(parent_proto) {
+        proto = if let Ok(o) = ctx.create_base_object_with_proto(parent_proto) {
             o
         } else {
             break true; // fail
@@ -191,9 +192,13 @@ pub unsafe fn js_op_define_class(
         let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
         debug_assert_eq!((*b).func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
 
-        ctor = if let Ok(o) =
-            ctx.create_object_with_proto_and_classid(parent_class, JS_CLASS_BYTECODE_FUNCTION)
-        {
+        ctor = if let Ok(o) = ctx.create_object_with_proto_and_isa(parent_class, || {
+            Ok(JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
+                function_bytecode: std::ptr::null_mut(),
+                var_refs: Vec::new(),
+                home_object: std::ptr::null_mut(),
+            }))
+        }) {
             o
         } else {
             break true; // fail
@@ -306,25 +311,21 @@ pub unsafe fn js_method_set_home_object(
         return;
     }
 
-    let p = func_obj.object_unchecked();
-    if !js_class_has_bytecode(p.class_id()) {
-        return;
-    }
+    if let Some(func) = func_obj.object_unchecked().isa_mut().func_mut() {
+        if (*func.function_bytecode).need_home_object {
+            // free current home object
+            let p1 = func.home_object;
+            if !p1.is_null() {
+                JS_FreeValue(ctx, JS_MKPTR!(JSTag::Object, p1.cast()));
+            }
 
-    let b = p.u.func.function_bytecode;
-    if (*b).need_home_object {
-        // free current home object
-        let p1 = p.u.func.home_object;
-        if !p1.is_null() {
-            JS_FreeValue(ctx, JS_MKPTR!(JSTag::Object, p1.cast()));
+            // set new home object
+            func.home_object = if JS_VALUE_GET_TAG(home_obj) == JSTag::Object as i32 {
+                home_obj.dup().object_unchecked()
+            } else {
+                std::ptr::null_mut()
+            };
         }
-
-        // set new home object
-        (*p.u.func).home_object = if JS_VALUE_GET_TAG(home_obj) == JSTag::Object as i32 {
-            home_obj.dup().object_unchecked()
-        } else {
-            std::ptr::null_mut()
-        };
     }
 }
 
@@ -520,133 +521,120 @@ pub unsafe fn js_for_in_start(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
 pub unsafe fn js_for_in_next(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {
     let enum_obj: JSValueConst = *sp.offset(-1);
 
-    // fail safe
-    if JS_VALUE_GET_TAG(enum_obj) != JSTag::Object as i32 {
-        // C2RS: goto done translated to return 0 with done logic
-        *sp.offset(0) = JSValue::UNDEFINED;
-        *sp.offset(1) = JSValue::TRUE;
-        return 0;
-    }
+    if let Some(JSObjectIsa::FOR_IN_ITERATOR(it)) = enum_obj.object().map(|p| p.isa_mut()) {
+        let it = *it;
+        let mut prop: JSAtom;
 
-    let p = enum_obj.object_unchecked();
-
-    // 检查迭代器对象是否有效。
-    if p.class_id() != JS_CLASS_FOR_IN_ITERATOR {
-        // C2RS: goto done translated to return 0 with done logic
-        *sp.offset(0) = JSValue::UNDEFINED;
-        *sp.offset(1) = JSValue::TRUE;
-        return 0;
-    }
-
-    let it = p.u.for_in_iterator;
-    let mut prop: JSAtom;
-
-    loop {
-        if (*it).idx >= (*it).atom_count {
-            // 当前对象的属性遍历完成，需要查找原型链
-            if (*it).obj.is_undefined_or_null() {
-                *sp.offset(0) = JSValue::UNDEFINED;
-                *sp.offset(1) = JSValue::TRUE;
-                return 0;
-            }
-
-            if !(*it).in_prototype_chain {
-                let ret = js_for_in_prepare_prototype_chain_enum(ctx, enum_obj);
-                if ret < 0 {
-                    return -1;
-                }
-                if ret != 0 {
-                    // C2RS: goto done translated to return 0 with done logic
+        loop {
+            if (*it).idx >= (*it).atom_count {
+                // 当前对象的属性遍历完成，需要查找原型链
+                if (*it).obj.is_undefined_or_null() {
                     *sp.offset(0) = JSValue::UNDEFINED;
                     *sp.offset(1) = JSValue::TRUE;
                     return 0;
                 }
-                (*it).in_prototype_chain = true;
-            }
 
-            (*it).obj = JS_GetPrototypeFree(ctx, (*it).obj);
-            if (*it).obj.is_exception() {
-                return -1;
-            }
-            if (*it).obj.is_null() {
-                *sp.offset(0) = JSValue::UNDEFINED;
-                *sp.offset(1) = JSValue::TRUE;
-                return 0;
-            }
-
-            // must check for timeout to avoid infinite loop
-            if js_poll_interrupts(ctx) != 0 {
-                return -1;
-            }
-
-            if let Ok(names) = (*it)
-                .obj
-                .object_unchecked()
-                .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
-            {
-                (*it).atom_count = names.len() as _;
-                (*it).tab_atom = names;
-                (*it).idx = 0;
-            } else {
-                return -1;
-            }
-        } else {
-            // 遍历当前对象的属性
-            if (*it).is_array {
-                prop = JSAtom::from_u32((*it).idx);
-                (*it).idx += 1;
-            } else {
-                prop = (*it).tab_atom[(*it).idx as usize].atom;
-                let is_enumerable = (*it).tab_atom[(*it).idx as usize].is_enumerable;
-
-                (*it).idx += 1;
-                if (*it).in_prototype_chain {
-                    // slow case: we are in the prototype chain
-                    let ret = JS_GetOwnPropertyInternal(
-                        ctx,
-                        std::ptr::null_mut(),
-                        enum_obj.object_unchecked(),
-                        prop,
-                    );
+                if !(*it).in_prototype_chain {
+                    let ret = js_for_in_prepare_prototype_chain_enum(ctx, enum_obj);
                     if ret < 0 {
-                        return ret;
-                    }
-                    if ret != 0 {
-                        continue; // already visited
-                    }
-
-                    // add to the visited property list
-                    if enum_obj
-                        .define_property_value(ctx, prop, JSValue::NULL, JS_PROP_ENUMERABLE)
-                        .is_err()
-                    {
                         return -1;
                     }
+                    if ret != 0 {
+                        // C2RS: goto done translated to return 0 with done logic
+                        *sp.offset(0) = JSValue::UNDEFINED;
+                        *sp.offset(1) = JSValue::TRUE;
+                        return 0;
+                    }
+                    (*it).in_prototype_chain = true;
                 }
-                if !is_enumerable {
-                    continue;
-                }
-            }
 
-            // check if the property was deleted
-            let ret = JS_GetOwnPropertyInternal(
-                ctx,
-                std::ptr::null_mut(),
-                (*it).obj.object_unchecked(),
-                prop,
-            );
-            if ret < 0 {
-                return ret;
-            }
-            if ret != 0 {
-                break;
+                (*it).obj = JS_GetPrototypeFree(ctx, (*it).obj);
+                if (*it).obj.is_exception() {
+                    return -1;
+                }
+                if (*it).obj.is_null() {
+                    *sp.offset(0) = JSValue::UNDEFINED;
+                    *sp.offset(1) = JSValue::TRUE;
+                    return 0;
+                }
+
+                // must check for timeout to avoid infinite loop
+                if js_poll_interrupts(ctx) != 0 {
+                    return -1;
+                }
+
+                if let Ok(names) = (*it)
+                    .obj
+                    .object_unchecked()
+                    .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+                {
+                    (*it).atom_count = names.len() as _;
+                    (*it).tab_atom = names;
+                    (*it).idx = 0;
+                } else {
+                    return -1;
+                }
+            } else {
+                // 遍历当前对象的属性
+                if (*it).is_array {
+                    prop = JSAtom::from_u32((*it).idx);
+                    (*it).idx += 1;
+                } else {
+                    prop = (*it).tab_atom[(*it).idx as usize].atom;
+                    let is_enumerable = (*it).tab_atom[(*it).idx as usize].is_enumerable;
+
+                    (*it).idx += 1;
+                    if (*it).in_prototype_chain {
+                        // slow case: we are in the prototype chain
+                        let ret = JS_GetOwnPropertyInternal(
+                            ctx,
+                            std::ptr::null_mut(),
+                            enum_obj.object_unchecked(),
+                            prop,
+                        );
+                        if ret < 0 {
+                            return ret;
+                        }
+                        if ret != 0 {
+                            continue; // already visited
+                        }
+
+                        // add to the visited property list
+                        if enum_obj
+                            .define_property_value(ctx, prop, JSValue::NULL, JS_PROP_ENUMERABLE)
+                            .is_err()
+                        {
+                            return -1;
+                        }
+                    }
+                    if !is_enumerable {
+                        continue;
+                    }
+                }
+
+                // check if the property was deleted
+                let ret = JS_GetOwnPropertyInternal(
+                    ctx,
+                    std::ptr::null_mut(),
+                    (*it).obj.object_unchecked(),
+                    prop,
+                );
+                if ret < 0 {
+                    return ret;
+                }
+                if ret != 0 {
+                    break;
+                }
             }
         }
-    }
 
-    // return the property
-    *sp.offset(0) = prop.to_value(ctx, false); // 属性名
-    *sp.offset(1) = JSValue::FALSE; // 未完成标志
+        // return the property
+        *sp.offset(0) = prop.to_value(ctx, false); // 属性名
+        *sp.offset(1) = JSValue::FALSE; // 未完成标志
+    } else {
+        *sp.offset(0) = JSValue::UNDEFINED;
+        *sp.offset(1) = JSValue::TRUE;
+    }
 
     0
 }

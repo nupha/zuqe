@@ -5,7 +5,7 @@ use crate::{
     function::{CallArgs, JS_GetFunctionRealm},
     iterator::iterator_to_array,
     value::{
-        object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+        object::{JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
         JSValue, JS_FreeValue,
     },
     JS_CLASS_ERROR,
@@ -43,17 +43,12 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let obj = ctx
-        .create_object_with_proto_and_classid(proto, JS_CLASS_ERROR)
-        .map_err(|e| {
-            unsafe {
-                JS_FreeValue(ctx, proto);
-            }
-            e
+        .create_object_with_proto_and_isa(proto, || Ok(JSObjectIsa::ERROR))
+        .inspect_err(|_| {
+            JS_FreeValue(ctx, proto);
         })?;
 
-    unsafe {
-        JS_FreeValue(ctx, proto);
-    }
+    JS_FreeValue(ctx, proto);
 
     let mut arg_index = if args.magic == JSErrorEnum::Aggregate as i32 {
         1
@@ -135,9 +130,9 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &mut JSContext, errors: JSValue) -> JSValue {
-    let obj = if let Ok(o) = ctx.create_object_with_proto_and_classid(
+    let obj = if let Ok(o) = ctx.create_object_with_proto_and_isa(
         ctx.native_error_proto[JSErrorEnum::Aggregate as usize],
-        JS_CLASS_ERROR,
+        || Ok(JSObjectIsa::ERROR),
     ) {
         o
     } else {

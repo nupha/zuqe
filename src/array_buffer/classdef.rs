@@ -50,18 +50,21 @@ pub unsafe fn js_array_buffer_get_byteLength(
 ) -> JSValue {
     this_val
         .object_unchecked()
-        .opaque_must::<JSArrayBuffer>(class_id as _, ctx.as_mut().unwrap())
-        .map_or(JSValue::EXCEPTION, |p| {
-            JSValue::from(p.as_ref().byte_length() as i32)
-        })
+        .isa()
+        .array_buffer()
+        .map_or(
+            JSValue::EXCEPTION,
+            |p| JSValue::from(p.byte_length() as i32),
+        )
 }
 
 pub fn js_array_buffer_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let abuf = unsafe {
         args.this_raw()
             .object_unchecked()
-            .opaque_must::<JSArrayBuffer>(args.magic as _, ctx)?
-            .as_ref()
+            .isa()
+            .array_buffer()
+            .ok_or(-1)?
     };
 
     if abuf.detached {
@@ -100,10 +103,8 @@ pub fn js_array_buffer_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     } else {
         let mut args = [JSValue::from(new_len)];
         let o = unsafe { JS_CallConstructor(ctx, ctor, 1, args.as_mut_ptr()) };
-        unsafe {
-            JS_FreeValue(ctx, ctor);
-            JS_FreeValue(ctx, args[0]);
-        }
+        JS_FreeValue(ctx, ctor);
+        JS_FreeValue(ctx, args[0]);
         o
     }
     .check_exception()?
@@ -115,10 +116,14 @@ pub fn js_array_buffer_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let new_abuf = unsafe {
+        if new_obj.object_unchecked().isa().class_id() != args.magic as JSClassID {
+            return Err(-1);
+        }
         new_obj
             .object_unchecked()
-            .opaque_must::<JSArrayBuffer>(args.magic as JSClassID, ctx)?
-            .as_mut()
+            .isa_mut()
+            .array_buffer_mut()
+            .ok_or(-1)?
     };
 
     if new_abuf.detached {

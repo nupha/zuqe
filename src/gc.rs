@@ -132,7 +132,8 @@ pub unsafe fn JS_MarkValue(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_
 /// This ensures the realm is preserved during garbage collection
 pub unsafe fn js_autoinit_mark(rt: *mut JSRuntime, pr: *mut JSProperty, mark_func: JS_MarkFunc) {
     // Get the realm from the property and mark its header
-    mark_func(rt, &mut (*js_autoinit_get_realm(pr)).header);
+    let realm = js_autoinit_get_realm(pr);
+    mark_func(rt, &mut (*realm).header);
 }
 
 /// Recursively marks all child objects of a GC object

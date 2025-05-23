@@ -35,7 +35,8 @@ impl PromiseResolvingFuncValue {
         flags: i32,
     ) -> JSValue {
         let p = func_obj.object_unchecked();
-        let s = if let Some(s) = p.u.promise_function_data.as_mut() {
+        let pfd = p.isa().promise_func_data_ptr();
+        let s = if let Some(s) = pfd.as_mut() {
             if s.presolved.as_ref().already_resolved {
                 return JSValue::UNDEFINED;
             }
@@ -96,7 +97,7 @@ impl PromiseResolvingFuncValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let s = val.object_unchecked().u.promise_function_data;
+        let s = val.object_unchecked().isa().promise_func_data_ptr();
         if !s.is_null() {
             js_promise_resolve_function_free_resolved((*s).presolved.as_ptr());
             JS_FreeValueRT(rt, (*s).promise.0);
@@ -105,7 +106,7 @@ impl PromiseResolvingFuncValue {
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let s = val.object_unchecked().u.promise_function_data;
+        let s = val.object_unchecked().isa().promise_func_data_ptr();
         if !s.is_null() {
             JS_MarkValue(rt, (*s).promise.0, mark_func);
         }

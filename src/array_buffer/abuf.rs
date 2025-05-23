@@ -1,21 +1,19 @@
 use std::{
     ffi::c_void,
-    ops::Deref,
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
 
 use crate::{
-    class::{js_create_from_ctor, JSClassID},
+    class::JSClassID,
     context::JSContext,
     error::JSResult,
     list_entry,
     mem::js_malloc_typed,
-    obsoletes::JS_GetOpaque,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     types::{init_list_head, list_foreach, list_foreach_safe, list_head},
-    value::{JSValue, JSValueConst, JS_ToIndex},
+    value::{object::JSObjectIsa, JSValue, JSValueConst, JS_ToIndex},
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
 };
 
@@ -163,29 +161,18 @@ impl JSValue {
     /// If value if not an ArrayBuffer or SharedArrayBuffer instance, behaviour is undefined.
     pub unsafe fn array_buffer_unchecked<'a>(self) -> &'a mut JSArrayBuffer {
         debug_assert!(self.is_object());
-
-        let p = self.object_unchecked();
-        debug_assert!(matches!(
-            p.class_id(),
-            JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
-        ));
-
-        p.u.array_buffer.as_mut().unwrap()
+        self.object_unchecked()
+            .isa_mut()
+            .array_buffer_mut()
+            .unwrap()
     }
 
     /// Get Array buffer from JSValue.
     /// If value if not an ArrayBuffer or SharedArrayBuffer instance, returns Err.
     pub fn array_buffer<'a>(self) -> Result<&'a mut JSArrayBuffer, i32> {
-        self.object().ok_or(-1).and_then(|p| {
-            if matches!(
-                p.class_id(),
-                JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
-            ) {
-                Ok(unsafe { p.u.array_buffer.as_mut().unwrap() })
-            } else {
-                Err(-1)
-            }
-        })
+        self.object()
+            .and_then(|p| p.isa_mut().array_buffer_mut())
+            .ok_or(-1)
     }
 }
 
@@ -198,6 +185,11 @@ impl JSContext {
         content: ArrayBufferContent,
         opaque: *mut c_void,
     ) -> JSResult {
+        debug_assert!(matches!(
+            class_id,
+            JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
+        ));
+
         // make ArrayBuffer data
         let mut ab = unsafe {
             // FIXME: write() init value
@@ -208,25 +200,22 @@ impl JSContext {
             )
         };
 
-        ab.content = content;
-
         init_list_head(&mut ab.array_list);
-
+        ab.content = content;
         ab.detached = false;
         ab.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
         ab.opaque = opaque;
 
-        // create js instance
-        let ab_obj = unsafe { js_create_from_ctor(self, new_target, class_id).check_exception()? };
-
-        // Note: set pointer to object opaque, can be accessed using u.array_buffer field.
-        unsafe {
-            ab_obj
-                .object_unchecked()
-                .set_opaque(Box::into_raw(ab).cast());
-        }
-
-        Ok(ab_obj)
+        // create instance
+        self.create_instance(
+            new_target,
+            if class_id == JS_CLASS_ARRAY_BUFFER {
+                JSObjectIsa::ARRAY_BUFFER(Box::into_raw(ab))
+            } else {
+                JSObjectIsa::SHARED_ARRAY_BUFFER(Box::into_raw(ab))
+            },
+        )
+        .map_err(|_| -1)
     }
 
     /// create empty array buffer instance with required capacity.
@@ -486,12 +475,12 @@ pub unsafe fn js_shared_array_buffer_constructor(
 }
 
 pub unsafe fn JS_DetachArrayBuffer(ctx: *mut JSContext, obj: JSValueConst) {
-    if let Some(mut abuf) = obj
-        .object_unchecked()
-        .opaque::<JSArrayBuffer>(JS_CLASS_ARRAY_BUFFER)
-    {
-        if !abuf.as_ref().detached {
-            let abuf = abuf.as_mut();
+    if obj.object_unchecked().class_id() != JS_CLASS_ARRAY_BUFFER {
+        return;
+    }
+
+    if let Some(abuf) = obj.object_unchecked().isa_mut().array_buffer_mut() {
+        if !abuf.detached {
             match &abuf.content {
                 ArrayBufferContent::Raw(ptr, len, fin) => {
                     if let Some(f) = fin {
@@ -505,13 +494,12 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: *mut JSContext, obj: JSValueConst) {
 
             list_foreach(&mut abuf.array_list, |el| {
                 let ta = list_entry!(el, JSTypedArray, link);
-                let p = (*ta).obj;
+                let p = (*ta).obj; // typed array or dataview
 
                 // Note: the typed array length and offset fields are not modified
                 if (*p).class_id() != JS_CLASS_DATAVIEW {
-                    (*(*p).u.array).typed_array_count = 0;
-                    // TODO: remove this
-                    (*(*p).u.array).data.ptr = std::ptr::null_mut();
+                    let a = (*p).isa_mut().typed_array_mut().unwrap();
+                    a.count = 0;
                 }
             });
         }
@@ -521,7 +509,12 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: *mut JSContext, obj: JSValueConst) {
 // also used for SharedArrayBuffer
 pub unsafe fn js_array_buffer_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let p = val.object_unchecked();
-    let abuf = p.u.array_buffer;
+
+    // take current array buffer pointer out, replace it with null.
+    let abuf = p
+        .isa_mut()
+        .array_buffer_replace(std::ptr::null_mut())
+        .unwrap();
 
     // Note: the ArrayBuffer finalizer may be called before the typed array
     // finalizers using it, so abuf->array_list is not necessarily empty.
@@ -531,12 +524,12 @@ pub unsafe fn js_array_buffer_finalizer(rt: *mut JSRuntime, val: JSValue) {
 
             (*ta).link.prev = std::ptr::null_mut();
             (*ta).link.next = std::ptr::null_mut();
-            let p1 = (*ta).obj;
+            let p1 = (*ta).obj; // typed array or dataview
 
             // Note: the typed array length and offset fields are not modified
             if (*p1).class_id() != JS_CLASS_DATAVIEW {
-                (*(*p1).u.array).typed_array_count = 0;
-                (*(*p1).u.array).data.ptr = std::ptr::null_mut();
+                let a = (*p1).isa_mut().typed_array_mut().unwrap();
+                a.count = 0;
             }
         });
 
@@ -556,21 +549,5 @@ pub unsafe fn js_array_buffer_finalizer(rt: *mut JSRuntime, val: JSValue) {
             }
             _ => {}
         }
-
-        // match ((*abuf).shared, &(*rt).sab_funcs) {
-        //     (true, Some(fns)) => {
-        //         (fns.sab_free)(fns.sab_opaque, (*abuf).data.cast());
-        //     }
-        //     _ => {
-        //         if let Some(cb) = (*abuf).free_func {
-        //             cb(
-        //                 rt,
-        //                 (*abuf).opaque,
-        //                 (*abuf).data,
-        //                 (*abuf).byte_length as usize,
-        //             );
-        //         }
-        //     }
-        // }
     }
 }

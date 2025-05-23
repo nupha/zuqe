@@ -10,7 +10,11 @@ use crate::{
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_PROXY, JS_MKVAL,
 };
 
-use super::{object::JSObject, string::JSString, JSFloat64Union, JS_ToInt64Sat, MAX_SAFE_INTEGER};
+use super::{
+    object::{JSObject, JSObjectIsa},
+    string::JSString,
+    JSFloat64Union, JS_ToInt64Sat, MAX_SAFE_INTEGER,
+};
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {
@@ -398,6 +402,11 @@ impl JSValue {
         JS_VALUE_GET_TAG(*self) == JS_TAG_INT
     }
 
+    #[inline(always)]
+    pub const fn is_bool(&self) -> bool {
+        JS_VALUE_GET_TAG(*self) == JS_TAG_BOOL
+    }
+
     /// Determine if value `self` can be called like a function, that means value is a:
     ///
     /// - Compiled bytecode functions
@@ -408,14 +417,14 @@ impl JSValue {
             false
         } else {
             let p = unsafe { self.object_unchecked() };
-            match p.class_id() {
-                JS_CLASS_BYTECODE_FUNCTION => true,
-                JS_CLASS_PROXY => unsafe { (*p.u.proxy_data).is_func },
-                cid => {
+            match p.isa() {
+                JSObjectIsa::BYTECODE_FUNCTION(_) => true,
+                JSObjectIsa::PROXY(proxy) => unsafe { (**proxy).is_func },
+                s => {
                     // check if class proto is callable
                     ctx.rt()
                         .class_array
-                        .get(cid as usize)
+                        .get(s.class_id() as usize)
                         .and_then(|c| c.call)
                         .is_some()
                 }

@@ -1,13 +1,12 @@
 use crate::{
     atom::JSAtom,
     bytecode::run_bytecodes,
-    class::js_create_from_ctor,
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError},
     function::{build_arg_list, CallArgs, JSAsyncFunctionState},
     types::likely,
     value::{
-        object::{JSObject, JS_PROP_THROW, JS_PROP_THROW_STRICT},
+        object::{JSObject, JSObjectIsa, JS_PROP_THROW, JS_PROP_THROW_STRICT},
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_NULL,
         JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT,
     },
@@ -73,7 +72,8 @@ pub unsafe fn JS_CallInternal(
             let s = JS_VALUE_GET_PTR(func_obj).cast::<JSAsyncFunctionState>();
             let sf = &mut (*s).frame;
             let p = sf.cur_func.object_unchecked();
-            let b = p.u.func.function_bytecode.as_ref().unwrap();
+            let func = p.isa().func().unwrap();
+            let b = func.function_bytecode.as_ref().unwrap();
 
             let pc_offset = sf.cur_pc_offset;
             let sp_offset = std::mem::replace(&mut sf.cur_sp_offset, 0);
@@ -82,7 +82,7 @@ pub unsafe fn JS_CallInternal(
 
             run_bytecodes(
                 b,
-                p.u.func.home_object,
+                func.home_object,
                 sf,
                 caller_ctx,
                 this_obj,
@@ -90,7 +90,7 @@ pub unsafe fn JS_CallInternal(
                 &b.binary[b.bytecode_start as usize..],
                 pc_offset,
                 sp_offset,
-                &p.u.func.var_refs,
+                func.var_refs.as_slice(),
                 if argc == 0 {
                     &[]
                 } else {
@@ -330,7 +330,9 @@ pub unsafe fn JS_CallConstructorInternal(
         };
     }
 
-    let b = (*p).u.func.function_bytecode.as_mut().unwrap();
+    let func = (*p).isa().func().unwrap();
+    let b = func.function_bytecode.as_mut().unwrap();
+
     if b.is_derived_class_constructor {
         return JS_CallInternal(
             ctx,
@@ -343,10 +345,11 @@ pub unsafe fn JS_CallConstructorInternal(
         );
     } else {
         /* legacy constructor behavior */
-        let this = js_create_from_ctor(ctx, new_target, JS_CLASS_OBJECT);
-        if this.is_exception() {
+        let this = if let Ok(v) = ctx.create_instance(new_target, JSObjectIsa::OBJECT) {
+            v
+        } else {
             return JSValue::EXCEPTION;
-        }
+        };
 
         let ret = JS_CallInternal(ctx, func_obj, this, new_target, argc, argv, flags);
         return if JS_VALUE_GET_TAG(ret) == JS_TAG_OBJECT || ret.is_exception() {

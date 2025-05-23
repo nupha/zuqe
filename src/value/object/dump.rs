@@ -129,7 +129,8 @@ impl JSObject {
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
                     // 1, 2, 4, 8
                     let bytes_per_element = 1 << typed_array_size_log2(class_id);
-                    (*self.u.typed_array).with_bytes(|lst| {
+
+                    self.isa().typed_array().unwrap().with_bytes(|lst| {
                         for (i, b) in lst.iter().enumerate() {
                             if i != 0 && i % bytes_per_element == 0 {
                                 print!(", ");
@@ -188,18 +189,18 @@ impl JSObject {
             print!(" }}");
         }
 
-        if js_class_has_bytecode(self.class_id()) {
-            let b = self.u.func.function_bytecode;
+        if let Some(func) = self.isa().func() {
+            let b = func.function_bytecode;
             if (*b).closure_var_count != 0 {
                 print!(" Closure:");
-                for vr in self.u.func.var_refs.iter() {
+                for vr in func.var_refs.iter() {
                     print!(" ");
                     (*vr.as_ref().pvalue).repr(rt);
                 }
 
-                if !self.u.func.home_object.is_null() {
+                if !func.home_object.is_null() {
                     print!(" HomeObject: ");
-                    JS_MKPTR!(JSTag::Object, self.u.func.home_object.cast()).repr(rt);
+                    JS_MKPTR!(JSTag::Object, func.home_object.cast()).repr(rt);
                 }
             }
         }

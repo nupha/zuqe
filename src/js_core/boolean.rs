@@ -1,11 +1,11 @@
 use crate::{
     atom::consts::{JS_ATOM_false, JS_ATOM_true},
-    class::js_create_from_ctor,
     context::JSContext,
     function::JSCFunctionListEntry,
     value::{
-        object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException, JS_ToBool, JS_TAG_BOOL,
-        JS_TAG_OBJECT, JS_VALUE_GET_BOOL, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        object::{JSObjectIsa, JS_SetObjectData},
+        JSValue, JSValueConst, JS_IsException, JS_ToBool, JS_VALUE_GET_BOOL, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     JS_CFUNC_DEF, JS_CLASS_BOOLEAN,
 };
@@ -18,31 +18,27 @@ pub unsafe fn js_boolean_constructor(
 ) -> JSValue {
     let val = JS_ToBool(ctx, *argv.offset(0)).unwrap_or(true).into();
     if !new_target.is_undefined() {
-        let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_BOOLEAN);
-        if !obj.is_exception() {
-            JS_SetObjectData(ctx, obj, val);
-        }
-        obj
+        (*ctx)
+            .create_instance(new_target, JSObjectIsa::BOOLEAN(val))
+            .unwrap_or(JSValue::EXCEPTION)
     } else {
         val
     }
 }
 
 pub unsafe fn js_thisBooleanValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
-    if JS_VALUE_GET_TAG(this_val) == JS_TAG_BOOL {
-        return this_val.dup();
+    if this_val.is_bool() {
+        this_val.dup()
+    } else if let Some(d) = this_val
+        .object()
+        .and_then(|p| p.isa().value())
+        .and_then(|x| if x.is_bool() { Some(x) } else { None })
+    {
+        d.dup()
+    } else {
+        (*ctx).JS_ThrowTypeError(c"not a boolean");
+        JSValue::EXCEPTION
     }
-
-    if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(this_val);
-        if (*p).class_id() == JS_CLASS_BOOLEAN {
-            if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_BOOL {
-                return (*p).u.object_data;
-            }
-        }
-    }
-
-    (*ctx).JS_ThrowTypeError(c"not a boolean")
 }
 
 pub unsafe fn js_boolean_toString(

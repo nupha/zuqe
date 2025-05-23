@@ -14,7 +14,7 @@ use crate::{
     stack_frame::JSStackFrame,
     types::list_head,
     value::{
-        object::{JSAutoInitIDEnum, JSObject, JS_NewObject, JS_PROP_CONFIGURABLE},
+        object::{JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_NewObject, JS_PROP_CONFIGURABLE},
         JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,
         JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
         JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_TAG_OBJECT,
@@ -209,6 +209,12 @@ pub union JSCFunctionType {
     pub iterator_next: JSCFunctionIteratorNext,
 }
 
+impl std::fmt::Debug for JSCFunctionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<JSCFunctionType>")
+    }
+}
+
 #[repr(C)]
 pub struct JSCFunctionListEntry {
     pub name: &'static CStr,
@@ -259,7 +265,7 @@ pub struct JSCFunctionListEntryPropList {
     pub len: i32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct JSObjectCFunc {
     pub realm: *mut JSContext,
     pub c_function: JSCFunctionType,
@@ -293,8 +299,14 @@ impl NativeFunctionValue {
         let rt = ctx.rt.as_mut();
 
         let p = func_obj.object_unchecked();
-        let cproto = p.u.cfunc.cproto;
-        let arg_length = p.u.cfunc.length;
+        let cfunc = if let JSObjectIsa::C_FUNCTION(c) = p.isa() {
+            c
+        } else {
+            unreachable!()
+        };
+
+        let cproto = cfunc.cproto;
+        let arg_length = cfunc.length;
 
         // better to always check stack overflow
         if js_check_stack_overflow(
@@ -321,7 +333,7 @@ impl NativeFunctionValue {
         let sf = &mut sf_s;
         rt.current_stack_frame = sf;
 
-        let realm = p.u.cfunc.realm.as_mut().unwrap(); // change the current realm
+        let realm = cfunc.realm.as_mut().unwrap(); // change the current realm
 
         if argc < arg_length as i32 {
             // copy arguments to local buffer
@@ -356,7 +368,7 @@ impl NativeFunctionValue {
         }
 
         let arg_buf = sf.arg_base_ptr;
-        let func = &p.u.cfunc.c_function;
+        let func = &cfunc.c_function;
         let mut ret_val: JSValue;
 
         match cproto {
@@ -377,10 +389,10 @@ impl NativeFunctionValue {
                 }
 
                 let cc = CallArgs::new(
-                    p.u.cfunc.realm,
+                    cfunc.realm,
                     this_obj,
                     sf.args_slice(),
-                    p.u.cfunc.magic as _,
+                    cfunc.magic as _,
                     None,
                 );
                 ret_val = (func.native_callback)(realm, cc).unwrap_or(JSValue::EXCEPTION);
@@ -391,7 +403,7 @@ impl NativeFunctionValue {
                     realm.handle(),
                     this_obj,
                     sf.args_slice(),
-                    p.u.cfunc.magic as _,
+                    cfunc.magic as _,
                     None,
                 );
                 ret_val = (func.native_getter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
@@ -402,7 +414,7 @@ impl NativeFunctionValue {
                     realm.handle(),
                     this_obj,
                     sf.args_slice(),
-                    p.u.cfunc.magic as _,
+                    cfunc.magic as _,
                     None,
                 );
                 ret_val = (func.native_setter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
@@ -448,7 +460,7 @@ impl NativeFunctionValue {
                     this_obj,
                     sf.arg_count as _,
                     arg_buf,
-                    p.u.cfunc.magic as i32,
+                    cfunc.magic as i32,
                 );
             }
             JSCFunctionEnum::Getter => {
@@ -458,10 +470,10 @@ impl NativeFunctionValue {
                 ret_val = (func.setter)(realm, this_obj, *arg_buf);
             }
             JSCFunctionEnum::GetterMagic => {
-                ret_val = (func.getter_magic)(realm, this_obj, p.u.cfunc.magic as _);
+                ret_val = (func.getter_magic)(realm, this_obj, cfunc.magic as _);
             }
             JSCFunctionEnum::SetterMagic => {
-                ret_val = (func.setter_magic)(realm, this_obj, *arg_buf, p.u.cfunc.magic as _);
+                ret_val = (func.setter_magic)(realm, this_obj, *arg_buf, cfunc.magic as _);
             }
             JSCFunctionEnum::FF => {
                 let mut d1: f64 = 0.0;
@@ -490,7 +502,7 @@ impl NativeFunctionValue {
                     sf.arg_count as _,
                     arg_buf,
                     &mut done,
-                    (*p).u.cfunc.magic as _,
+                    cfunc.magic as _,
                 );
                 if !ret_val.is_exception() && done != 2 {
                     ret_val = js_create_iterator_result(realm, ret_val, done != 0);
@@ -503,16 +515,18 @@ impl NativeFunctionValue {
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let p = val.object_unchecked();
-        if !p.u.cfunc.realm.is_null() {
-            JS_FreeContext(p.u.cfunc.realm);
+        if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().isa_mut() {
+            if !cfunc.realm.is_null() {
+                JS_FreeContext(cfunc.realm);
+            }
         }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let p = val.object_unchecked();
-        if !p.u.cfunc.realm.is_null() {
-            mark_func(rt, &mut (*p.u.cfunc.realm).header);
+        if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().isa() {
+            if !cfunc.realm.is_null() {
+                mark_func(rt, &mut (*(cfunc.realm)).header);
+            }
         }
     }
 }
@@ -537,23 +551,26 @@ impl JSContext {
                 | JSCFunctionEnum::NativeConstructorOrFunc
         ));
 
-        let func_obj = self.create_object_with_proto_and_classid(proto_val, JS_CLASS_C_FUNCTION)?;
+        let mut realm = self.handle();
+
+        let func_obj = self.create_object_with_proto_and_isa(proto_val, || {
+            Ok(JSObjectIsa::C_FUNCTION(JSObjectCFunc {
+                realm: realm.dup().into(),
+                c_function: JSCFunctionType {
+                    native_callback: callback,
+                },
+                length,
+                cproto,
+                magic,
+            }))
+        })?;
+
         let ob = unsafe { func_obj.object_unchecked() };
 
         ob.detailed.set_constructor(matches!(
             cproto,
             JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
         ));
-
-        unsafe {
-            let cfunc = &mut ob.u.cfunc;
-
-            cfunc.realm = self.dup();
-            cfunc.c_function.native_callback = callback;
-            cfunc.length = length;
-            cfunc.cproto = cproto;
-            cfunc.magic = magic;
-        }
 
         // define properties length and name on function.
         let name_atom = self.create_atom(name).unwrap();
@@ -599,24 +616,23 @@ pub unsafe fn JS_NewCFunction3(
     magic: i16,
     proto_val: JSValueConst,
 ) -> JSValue {
-    let func_obj = if let Ok(o) =
-        (*ctx).create_object_with_proto_and_classid(proto_val, JS_CLASS_C_FUNCTION)
-    {
+    let mut realm = JSContextHandle::from(ctx);
+
+    let func_obj = if let Ok(o) = (*ctx).create_object_with_proto_and_isa(proto_val, || {
+        Ok(JSObjectIsa::C_FUNCTION(JSObjectCFunc {
+            realm: realm.dup().into(),
+            c_function: JSCFunctionType { generic: func },
+            length,
+            cproto,
+            magic,
+        }))
+    }) {
         o
     } else {
         return JSValue::EXCEPTION;
     };
 
     let p = func_obj.object_unchecked();
-
-    {
-        let cf = &mut p.u.cfunc;
-        cf.realm = ctx.as_mut().unwrap().dup();
-        cf.c_function.generic = func;
-        cf.length = length;
-        cf.cproto = cproto;
-        cf.magic = magic;
-    }
 
     p.detailed.set_constructor(matches!(
         cproto,

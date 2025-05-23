@@ -8,7 +8,10 @@ use crate::{
     promise::{js_promise_resolve, PromiseValue},
     runtime::JSRuntime,
     utils::UncheckedInto,
-    value::{JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_ToBool},
+    value::{
+        object::JSObjectIsa, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT,
+        JS_ToBool,
+    },
     JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
 };
 
@@ -39,27 +42,33 @@ impl JSContext {
     pub fn create_async_from_sync_iterator(&mut self, sync_iter: JSValue) -> JSResult {
         let next_method = sync_iter
             .get_property(self, JS_ATOM_next)
-            .check_exception()?
-            .into_rc(self.rt());
+            .check_exception()?;
 
-        let async_iter = self
-            .create_object_with_classid(JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)?
-            .into_rc(self.rt());
-
-        if let Some(p) = unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) } {
-            let mut s = unsafe { Box::from_raw(p.as_ptr()) };
-            s.sync_iter = sync_iter.dup();
-            s.next_method = next_method.into();
-
+        let s = if let Some(p) =
+            unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) }
+        {
+            let o = JSAsyncFromSyncIteratorData {
+                sync_iter: sync_iter.dup(),
+                next_method,
+            };
             unsafe {
-                async_iter
-                    .object_unchecked()
-                    .set_opaque(Box::into_raw(s).cast());
+                p.write(o);
             }
-
-            Ok(async_iter.into())
+            p
         } else {
-            Err(-1)
+            return Err(-1);
+        };
+
+        match self.create_object_with_isa(JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s.as_ptr())) {
+            Ok(o) => Ok(o),
+            Err(isa) => {
+                if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s) = isa {
+                    let s = unsafe { Box::from_raw(s) };
+                    JS_FreeValue(self, s.sync_iter);
+                    JS_FreeValue(self, s.next_method);
+                }
+                return Err(-1);
+            }
         }
     }
 }
@@ -125,11 +134,8 @@ pub unsafe fn js_async_from_sync_iterator_next(
         return JSValue::EXCEPTION;
     };
 
-    if let Some(p) = this_val
-        .object_unchecked()
-        .opaque::<JSAsyncFromSyncIteratorData>(JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
-        .map(|mut x| x.as_mut())
-    {
+    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = this_val.object_unchecked().isa() {
+        let p = (*p).as_ref().unwrap();
         let method: JSValueRc;
 
         if magic == GEN_MAGIC_NEXT {
@@ -239,14 +245,12 @@ pub unsafe fn js_async_from_sync_iterator_next(
 }
 
 pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    if let Some(mut p) = val
-        .object_unchecked()
-        .opaque::<JSAsyncFromSyncIteratorData>(JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
-    {
-        JS_FreeValueRT(rt, p.as_mut().sync_iter);
-        JS_FreeValueRT(rt, p.as_mut().next_method);
+    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
+        let p = *p;
+        JS_FreeValueRT(rt, p.as_mut().unwrap().sync_iter);
+        JS_FreeValueRT(rt, p.as_mut().unwrap().next_method);
 
-        drop(Box::from_raw(p.as_ptr())); // Box<JSAsyncFromSyncIteratorData>
+        drop(Box::from_raw(p));
     }
 }
 
@@ -255,12 +259,10 @@ pub unsafe fn js_async_from_sync_iterator_mark(
     val: JSValueConst,
     mark_func: JS_MarkFunc,
 ) {
-    if let Some(p) = val
-        .object_unchecked()
-        .opaque::<JSAsyncFromSyncIteratorData>(JS_CLASS_ASYNC_FROM_SYNC_ITERATOR)
-    {
-        JS_MarkValue(rt, p.as_ref().sync_iter, mark_func);
-        JS_MarkValue(rt, p.as_ref().next_method, mark_func);
+    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
+        let p = *p;
+        JS_MarkValue(rt, p.as_ref().unwrap().sync_iter, mark_func);
+        JS_MarkValue(rt, p.as_ref().unwrap().next_method, mark_func);
     }
 }
 

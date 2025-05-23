@@ -1,37 +1,31 @@
-use std::ops::DerefMut;
-
 use crate::{
-    class::js_create_from_ctor,
     context::JSContext,
     error::{JSResult, JS_ThrowRangeError},
     function::{CallArgs, JSCFunctionListEntry},
     js_core::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN},
     utils::skip_spaces,
     value::{
-        is_safe_integer, object::JS_SetObjectData, JSValue, JSValueConst, JS_IsException,
-        JS_IsNumber, JS_IsUndefined, JS_ToFloat64, JS_ToInt32Sat, JS_ToNumeric, JS_DTOA_FORCE_EXP,
-        JS_TAG_BIG_INT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+        is_safe_integer, object::JSObjectIsa, JSValue, JSValueConst, JS_IsNumber, JS_ToFloat64,
+        JS_ToInt32Sat, JS_ToNumeric, JS_DTOA_FORCE_EXP, JS_TAG_BIG_INT, JS_VALUE_GET_TAG,
     },
-    JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_NUMBER, JS_PROP_DOUBLE_DEF,
+    JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
 };
 
 use super::{f64_stringify, js_atof, JS_ToInt32, ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY};
 
 pub fn js_thisNumberValue(ctx: &mut JSContext, this_val: JSValue) -> JSResult {
     if JS_IsNumber(this_val) {
-        return Ok(this_val.dup());
-    } else if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
-        let p = unsafe { this_val.object_unchecked() };
-        if p.class_id() == JS_CLASS_NUMBER {
-            let d = unsafe { p.u.object_data };
-            if JS_IsNumber(d) {
-                return Ok(d.dup());
-            }
-        }
+        Ok(this_val.dup())
+    } else if let Some(d) = this_val
+        .object()
+        .and_then(|p| p.isa().value())
+        .and_then(|x| if JS_IsNumber(x) { Some(x) } else { None })
+    {
+        Ok(d.dup())
+    } else {
+        ctx.JS_ThrowTypeError(c"not a number");
+        Err(-1)
     }
-
-    ctx.JS_ThrowTypeError(c"not a number");
-    Err(-1)
 }
 
 pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
@@ -347,11 +341,15 @@ pub unsafe fn js_number_constructor(
     }
 
     if !new_target.is_undefined() {
-        let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_NUMBER);
-        if !obj.is_exception() {
-            JS_SetObjectData(ctx, obj, val);
-        }
-        obj
+        (*ctx)
+            .create_instance(new_target, JSObjectIsa::NUMBER(val))
+            .unwrap_or(JSValue::EXCEPTION)
+
+        // let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_NUMBER);
+        // if !obj.is_exception() {
+        //     JS_SetObjectData(ctx, obj, val);
+        // }
+        // obj
     } else {
         val
     }

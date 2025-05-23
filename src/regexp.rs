@@ -5,8 +5,8 @@ use crate::{
     parse::JSParseState,
     runtime::JSRuntime,
     value::{
-        JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        object::JSObjectIsa, JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT,
+        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_REGEXP,
 };
@@ -119,9 +119,8 @@ pub unsafe fn js_get_regexp(
     throw_error: bool,
 ) -> *mut JSRegExp {
     if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
-        let p = JS_VALUE_GET_OBJ(obj);
-        if (*p).class_id() == JS_CLASS_REGEXP {
-            return &mut (*p).u.regexp;
+        if let JSObjectIsa::REGEXP(re) = obj.object_unchecked().isa() {
+            return *re;
         }
     }
 

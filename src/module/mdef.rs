@@ -15,7 +15,8 @@ use crate::{
         JS_ThrowSyntaxErrorAtom,
     },
     function::{
-        js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSVarKindEnum, JSVarRef, JS_Call,
+        js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSObjectFunc, JSVarKindEnum,
+        JSVarRef, JS_Call,
     },
     gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
@@ -27,11 +28,12 @@ use crate::{
     },
     value::{
         object::{
-            JSAutoInitIDEnum, JSObject, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_VARREF,
-            JS_PROP_WRITABLE,
+            JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+            JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
-        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_TAG_OBJECT,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue,
+        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
 };
@@ -343,7 +345,9 @@ impl JSModuleDef {
         let mut s_s: GetExportNamesState = std::mem::zeroed();
         let s = &mut s_s;
 
-        let obj = ctx.create_object_with_classid(JS_CLASS_MODULE_NS)?;
+        let obj = ctx
+            .create_object_with_isa(JSObjectIsa::MODULE_NS)
+            .map_err(|_| -1)?;
         let p = obj.object_unchecked();
 
         let ret = self.get_exported_names(ctx, s, false);
@@ -390,8 +394,9 @@ impl JSModuleDef {
                         en.u.var_ref = (*res_me).u.local.var_ref;
                     } else {
                         let p1 = (*res_m).func_obj.object_unchecked();
-                        en.u.var_ref =
-                            p1.u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
+                        en.u.var_ref = p1.isa().func().unwrap().var_refs
+                            [(*res_me).u.local.var_idx as usize]
+                            .as_ptr();
                     }
                 }
             }
@@ -493,7 +498,7 @@ impl JSModuleDef {
         // allocate meta_obj only if requested to save memory
         let mut meta = self.meta_obj;
         if meta.is_undefined() {
-            meta = ctx.create_object_with_proto(JSValue::NULL)?;
+            meta = ctx.create_base_object_with_proto(JSValue::NULL)?;
             self.meta_obj = meta;
         }
         Ok(meta.dup())
@@ -1249,57 +1254,61 @@ pub unsafe fn js_create_module_var(
 // Create the <eval> function associated with the module
 pub unsafe fn js_create_module_bytecode_function(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32 {
     let bfunc = (*m).func_obj;
-    let func_obj = if let Ok(o) = (*ctx)
-        .create_object_with_proto_and_classid((*ctx).function_proto, JS_CLASS_BYTECODE_FUNCTION)
-    {
+    debug_assert_eq!(JS_VALUE_GET_TAG(bfunc), JS_TAG_FUNCTION_BYTECODE);
+
+    // get bytecode
+    let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
+
+    // create JS_CLASS_BYTECODE_FUNCTION object
+    let func_obj = if let Ok(o) =
+        (*ctx).create_object_with_proto_and_isa((*ctx).function_proto, || {
+            let mut var_refs = Vec::<NonNull<JSVarRef>>::new();
+
+            if (*b).closure_var_count != 0 {
+                if var_refs
+                    .try_reserve_exact((*b).closure_var_count as usize)
+                    .is_err()
+                {
+                    (*ctx).JS_ThrowOutOfMemory();
+                    return Err(-1);
+                };
+
+                // create the global variables. The other variables are imported from other modules
+                for cv in (*b).closure_vars_slice() {
+                    if cv.is_local() {
+                        if let Ok(vr) = js_create_module_var(ctx, (*cv).is_lexical()) {
+                            #[cfg(DUMP_MODULE_RESOLVE)]
+                            println!("local {}: {:p}", i, var_ref);
+
+                            var_refs.push(NonNull::new(Box::into_raw(vr)).unwrap());
+                        } else {
+                            return Err(-1);
+                        }
+                    } else {
+                        // The other variables are imported from other modules.
+                        // Add slot with a placeholder.
+                        var_refs.push(NonNull::dangling());
+                    }
+                }
+            }
+
+            Ok(JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
+                function_bytecode: {
+                    (*b).header.ref_count += 1; // add ref count
+                    b
+                },
+                var_refs,
+                home_object: std::ptr::null_mut(),
+            }))
+        }) {
         o
     } else {
         return -1;
     };
 
-    let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
-    let p = func_obj.object_unchecked();
-
-    (*b).header.ref_count += 1;
-    (*p.u.func).function_bytecode = b;
-    (*p.u.func).home_object = std::ptr::null_mut();
-    (*p.u.func).var_refs = Vec::new();
-
-    if (*b).closure_var_count != 0 {
-        if (*p.u.func)
-            .var_refs
-            .try_reserve_exact((*b).closure_var_count as usize)
-            .is_err()
-        {
-            (*ctx).JS_ThrowOutOfMemory();
-            JS_FreeValue(ctx, func_obj);
-            return -1;
-        };
-
-        // create the global variables. The other variables are imported from other modules
-        for cv in (*b).closure_vars_slice() {
-            if cv.is_local() {
-                if let Ok(vr) = js_create_module_var(ctx, (*cv).is_lexical()) {
-                    #[cfg(DUMP_MODULE_RESOLVE)]
-                    println!("local {}: {:p}", i, var_ref);
-
-                    (*p.u.func)
-                        .var_refs
-                        .push(NonNull::new(Box::into_raw(vr)).unwrap());
-                } else {
-                    JS_FreeValue(ctx, func_obj);
-                    return -1;
-                }
-            } else {
-                // The other variables are imported from other modules.
-                // Add slot with a placeholder.
-                (*p.u.func).var_refs.push(NonNull::dangling());
-            }
-        }
-    }
-
-    (*m).func_obj = func_obj;
+    // free old func_obj, set new func_obj for m
     JS_FreeValue(ctx, bfunc);
+    (*m).func_obj = func_obj;
 
     0
 }
@@ -1483,7 +1492,7 @@ pub unsafe fn js_inner_module_linking(
     let is_c_module = (*m).init_func.is_some();
     if !is_c_module {
         let p = JS_VALUE_GET_OBJ((*m).func_obj);
-        let var_refs = (*(*p).u.func).var_refs.as_mut_slice();
+        let var_refs = (*p).isa_mut().func_mut().unwrap().var_refs.as_mut_slice();
 
         for i in 0..(*m).import_entries_count {
             let mi = (*m).import_entries.offset(i as isize);
@@ -1559,7 +1568,9 @@ pub unsafe fn js_inner_module_linking(
                     let mut vr = (*res_me).u.local.var_ref;
                     if vr.is_null() {
                         let p1 = JS_VALUE_GET_OBJ((*res_m).func_obj);
-                        vr = (*p1).u.func.var_refs[(*res_me).u.local.var_idx as usize].as_ptr();
+                        vr = (*p1).isa().func().unwrap().var_refs
+                            [(*res_me).u.local.var_idx as usize]
+                            .as_ptr();
                     }
                     (*vr).u0.header.ref_count += 1;
                     var_refs[(*mi).var_idx as usize] = NonNull::new(vr).unwrap();
@@ -1653,7 +1664,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: *mut JSContext, n_stack_levels: i32)
             return JS_ATOM_NULL;
         }
 
-        let b = (*p).u.func.function_bytecode;
+        let b = (*p).isa().func().unwrap().function_bytecode;
         if !(*b).is_direct_or_indirect_eval {
             if !(*b).has_debug {
                 return JS_ATOM_NULL;

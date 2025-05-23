@@ -3,7 +3,9 @@ use crate::{
     error::JS_ThrowStackOverflow,
     gc::{JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
+    value::{
+        object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+    },
     JS_CLASS_BOUND_FUNCTION,
 };
 
@@ -19,38 +21,34 @@ pub struct JSBoundFunction {
 #[derive(Debug, Clone, Copy)]
 pub struct BoundFunctionValue(JSValue);
 
-impl JSValue {
-    #[inline(always)]
-    pub unsafe fn as_bound_function_unchecked(self) -> BoundFunctionValue {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
-        debug_assert_eq!((*self.object_unchecked()).class_id(), JS_CLASS_BOUND_FUNCTION);
-        std::mem::transmute(self)
-    }
-}
-
 impl BoundFunctionValue {
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        let p = val.object_unchecked();
-        let bf = p.u.bound_function;
+        if let JSObjectIsa::BOUND_FUNCTION(p) = val.object_unchecked().isa_mut() {
+            let bf = *p;
+            debug_assert!(!bf.is_null());
 
-        JS_FreeValueRT(rt, (*bf).func_obj);
-        JS_FreeValueRT(rt, (*bf).this_val);
+            JS_FreeValueRT(rt, (*bf).func_obj);
+            JS_FreeValueRT(rt, (*bf).this_val);
 
-        for a in (*bf).bind_args.iter() {
-            JS_FreeValueRT(rt, *a);
+            for a in (*bf).bind_args.iter() {
+                JS_FreeValueRT(rt, *a);
+            }
+
+            *p = std::ptr::null_mut();
+            drop(Box::from_raw(bf));
         }
-
-        drop(Box::from_raw(bf));
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-        let p = val.object_unchecked();
-        let bf: *mut JSBoundFunction = p.u.bound_function;
+        if let JSObjectIsa::BOUND_FUNCTION(p) = val.object_unchecked().isa_mut() {
+            let bf = *p;
+            debug_assert!(!bf.is_null());
 
-        JS_MarkValue(rt, (*bf).func_obj, mark_func);
-        JS_MarkValue(rt, (*bf).this_val, mark_func);
-        for a in (*bf).bind_args.iter() {
-            JS_MarkValue(rt, *a, mark_func);
+            JS_MarkValue(rt, (*bf).func_obj, mark_func);
+            JS_MarkValue(rt, (*bf).this_val, mark_func);
+            for a in (*bf).bind_args.iter() {
+                JS_MarkValue(rt, *a, mark_func);
+            }
         }
     }
 
@@ -62,46 +60,46 @@ impl BoundFunctionValue {
         argv: *const JSValueConst,
         flags: i32,
     ) -> JSValue {
-        #[cfg(debug_assertions)]
-        let _ = func_obj.as_bound_function_unchecked(); // ensure it's bound function
+        if let JSObjectIsa::BOUND_FUNCTION(p) = func_obj.object_unchecked().isa() {
+            let bf = (*p).as_ref().unwrap();
+            let arg_count = bf.bind_args.len() + argc as usize;
 
-        let p = func_obj.object_unchecked();
-        let bf = p.u.bound_function.as_mut().unwrap();
-        let arg_count = bf.bind_args.len() + argc as usize;
+            // let sbuf_size = std::mem::size_of::<JSValue>() * arg_count;
+            // if js_check_stack_overflow(ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {
+            //     return JS_ThrowStackOverflow(ctx);
+            // }
 
-        // let sbuf_size = std::mem::size_of::<JSValue>() * arg_count;
-        // if js_check_stack_overflow(ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {
-        //     return JS_ThrowStackOverflow(ctx);
-        // }
-
-        let mut arg_list = Vec::<JSValue>::new();
-        if arg_list.try_reserve_exact(arg_count).is_err() {
-            return JS_ThrowStackOverflow(ctx);
-        }
-        arg_list.extend_from_slice(&bf.bind_args);
-        arg_list.extend_from_slice(std::slice::from_raw_parts(argv, argc as usize));
-
-        if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-            let mut new_target = this_obj;
-            if func_obj.is_same(new_target) {
-                new_target = bf.func_obj;
+            let mut arg_list = Vec::<JSValue>::new();
+            if arg_list.try_reserve_exact(arg_count).is_err() {
+                return JS_ThrowStackOverflow(ctx);
             }
+            arg_list.extend_from_slice(&bf.bind_args);
+            arg_list.extend_from_slice(std::slice::from_raw_parts(argv, argc as usize));
 
-            JS_CallConstructor2(
-                ctx,
-                bf.func_obj,
-                new_target,
-                arg_count as _,
-                arg_list.as_mut_ptr(),
-            )
+            if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
+                let mut new_target = this_obj;
+                if func_obj.is_same(new_target) {
+                    new_target = bf.func_obj;
+                }
+
+                JS_CallConstructor2(
+                    ctx,
+                    bf.func_obj,
+                    new_target,
+                    arg_count as _,
+                    arg_list.as_mut_ptr(),
+                )
+            } else {
+                JS_Call(
+                    ctx,
+                    bf.func_obj,
+                    bf.this_val,
+                    arg_count as _,
+                    arg_list.as_mut_ptr(),
+                )
+            }
         } else {
-            JS_Call(
-                ctx,
-                bf.func_obj,
-                bf.this_val,
-                arg_count as _,
-                arg_list.as_mut_ptr(),
-            )
+            unreachable!()
         }
     }
 }

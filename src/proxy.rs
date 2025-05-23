@@ -7,7 +7,10 @@ use crate::{
     gc::JS_MarkFunc,
     runtime::{js_check_stack_overflow, JSRuntime},
     value::{
-        object::{JS_GetPrototype, JS_IsExtensible, JS_PreventExtensions, JS_SetPrototypeInternal},
+        object::{
+            JSObjectIsa, JS_GetPrototype, JS_IsExtensible, JS_PreventExtensions,
+            JS_SetPrototypeInternal,
+        },
         JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToBoolFree,
         JS_TAG_NULL, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
@@ -27,46 +30,47 @@ pub unsafe fn get_proxy_method(
     obj: JSValueConst,
     name: JSAtom,
 ) -> *mut JSProxyData {
-    let s = obj
-        .object_unchecked()
-        .opaque::<JSProxyData>(JS_CLASS_PROXY)
-        .unwrap();
+    if let JSObjectIsa::PROXY(s) = obj.object_unchecked().isa() {
+        let s = *s;
+        unimplemented!()
 
-    unimplemented!()
+        // // safer to test recursion in all proxy methods
+        // if js_check_stack_overflow((*ctx).rt, 0) {
+        //     JS_ThrowStackOverflow(ctx);
+        //     return std::ptr::null_mut();
+        // }
 
-    // // safer to test recursion in all proxy methods
-    // if js_check_stack_overflow((*ctx).rt, 0) {
-    //     JS_ThrowStackOverflow(ctx);
-    //     return std::ptr::null_mut();
-    // }
-
-    // // 's' should never be NULL
-    // if (*s).is_revoked {
-    //     JS_ThrowTypeErrorRevokedProxy(ctx);
-    //     return std::ptr::null_mut();
-    // }
-    // let method = JS_GetProperty(ctx, (*s).handler, name);
-    // if JS_IsException(method) {
-    //     return std::ptr::null_mut();
-    // }
-    // if JS_IsNull(method) {
-    //     method = JS_UNDEFINED;
-    // }
-    // *pmethod = method;
-    // s
+        // // 's' should never be NULL
+        // if (*s).is_revoked {
+        //     JS_ThrowTypeErrorRevokedProxy(ctx);
+        //     return std::ptr::null_mut();
+        // }
+        // let method = JS_GetProperty(ctx, (*s).handler, name);
+        // if JS_IsException(method) {
+        //     return std::ptr::null_mut();
+        // }
+        // if JS_IsNull(method) {
+        //     method = JS_UNDEFINED;
+        // }
+        // *pmethod = method;
+        // s
+    } else {
+        unreachable!()
+    }
 }
 
 pub unsafe fn js_proxy_isArray(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    if let Some(s) = obj.object_unchecked().opaque::<JSProxyData>(JS_CLASS_PROXY) {
+    if let JSObjectIsa::PROXY(s) = obj.object_unchecked().isa() {
+        let s = *s;
         if js_check_stack_overflow((*ctx).rt(), 0) {
             JS_ThrowStackOverflow(ctx);
             return Err(-1);
         }
-        if s.as_ref().is_revoked {
+        if s.as_ref().unwrap().is_revoked {
             JS_ThrowTypeErrorRevokedProxy(ctx);
             return Err(-1);
         }
-        JS_IsArray(ctx, s.as_ref().target)
+        JS_IsArray(ctx, s.as_ref().unwrap().target)
     } else {
         Ok(false)
     }

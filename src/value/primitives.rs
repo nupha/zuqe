@@ -173,12 +173,16 @@ pub unsafe fn JS_ToBool(ctx: *mut JSContext, val: JSValueConst) -> Result<bool, 
 }
 
 pub unsafe fn js_object_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p: *mut JSObject = JS_VALUE_GET_OBJ(val);
-    JS_FreeValueRT(rt, (*p).u.object_data);
-    (*p).u.object_data = JSValue::UNDEFINED;
+    // free object data
+    JS_FreeValueRT(
+        rt,
+        val.object_unchecked()
+            .isa_mut()
+            .value_replace(rt.as_mut().unwrap(), JSValue::UNDEFINED)
+            .unwrap(),
+    );
 }
 
 pub unsafe fn js_object_data_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    let p = JS_VALUE_GET_OBJ(val);
-    JS_MarkValue(rt, (*p).u.object_data, mark_func);
+    JS_MarkValue(rt, val.object_unchecked().isa().value().unwrap(), mark_func);
 }

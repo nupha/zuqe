@@ -53,14 +53,14 @@ impl JSObject {
             JS_CLASS_BYTECODE_FUNCTION => {
                 // (*(*p).u.func).home_object = std::ptr::null_mut();
                 // (*(*p).u.func).var_refs.clear();
-                ManuallyDrop::drop(&mut (*p).u.func);
+                // ManuallyDrop::drop(&mut (*p).u.func);
             }
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                ManuallyDrop::drop(&mut (*(*p).u.array).data.values);
-                ManuallyDrop::drop(&mut (*p).u.array);
+                // ManuallyDrop::drop(&mut (*(*p).u.array).data.values);
+                // ManuallyDrop::drop(&mut (*p).u.array);
             }
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                ManuallyDrop::drop(&mut (*p).u.array);
+                // ManuallyDrop::drop(&mut (*p).u.array);
             }
             _ => {
                 // (*p).u.opaque = std::ptr::null_mut();

@@ -421,8 +421,8 @@ impl BytecodeFunctionValue {
     ) -> JSValue {
         let func_obj = self.0;
         let p = self.0.object_unchecked();
-
-        let bf = p.u.func.function_bytecode.as_ref().unwrap();
+        let func = p.isa().func().unwrap();
+        let bf = func.function_bytecode.as_ref().unwrap();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
@@ -502,7 +502,7 @@ impl BytecodeFunctionValue {
 
         run_bytecodes(
             bf,
-            p.u.func.home_object,
+            func.home_object,
             sf,
             caller_ctx,
             this_obj,
@@ -510,7 +510,7 @@ impl BytecodeFunctionValue {
             &bf.binary[bf.bytecode_start as usize..],
             0,
             0,
-            &p.u.func.var_refs,
+            func.var_refs.as_slice(),
             args,
             bf.js_mode as _,
             false,

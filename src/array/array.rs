@@ -11,8 +11,8 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            JSObject, JSProperty, JSPropertyUnion, JSShapeHandle, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
+            JSObject, JSObjectIsa, JSProperty, JSPropertyUnion, JSShapeHandle,
+            JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToUint32,
         JS_TAG_INT, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
@@ -22,12 +22,10 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY,
 };
 
+#[derive(Debug, Default)]
 pub struct JSObjectArray {
-    pub u1: JSObjectArrayU1,
-    pub data: JSObjectArrayDataUnion,
-
-    /// for typed array only: the array length, 0 means detached, <= 2^31-1
-    pub(crate) typed_array_count: u32,
+    pub size: u32,
+    pub values: Vec<JSValue>,
 }
 
 // TODO: replace with this
@@ -45,7 +43,9 @@ pub struct JSObjectArray {
 pub union JSObjectArrayU1 {
     /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
     pub size: u32,
+
     /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
+    #[deprecated]
     pub typed_array: *mut JSTypedArray,
 }
 
@@ -78,7 +78,13 @@ impl JSContext {
     #[inline(always)]
     pub fn create_array(&mut self) -> JSResult {
         let arr_sh: JSShapeHandle = unsafe { (*self.array_shape).dup().into() };
-        self.create_object_from_shape(arr_sh, JS_CLASS_ARRAY)
+
+        self.create_object_from_shape_isa(arr_sh, || {
+            Ok(JSObjectIsa::ARRAY(JSObjectArray {
+                size: 0,
+                values: Vec::new(),
+            }))
+        })
     }
 
     /// create a fast array value. `capacity` indicates reserved space.
@@ -120,10 +126,11 @@ impl JSContext {
 impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn fast_array_values(&self) -> Option<&[JSValue]> {
-        if self.detailed.fast_array()
-            && matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-        {
-            Some(unsafe { (*self.u.array).data.values.as_slice() })
+        if self.detailed.fast_array() {
+            match self.isa() {
+                JSObjectIsa::ARGUMENTS(a) | JSObjectIsa::ARRAY(a) => Some(a.values.as_slice()),
+                _ => None,
+            }
         } else {
             None
         }
@@ -131,10 +138,11 @@ impl JSObject {
 
     /// if object is Array or Argument class, and is fast array, returns values mut.
     pub fn fast_array_values_mut(&mut self) -> Option<&mut Vec<JSValue>> {
-        if self.detailed.fast_array()
-            && matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-        {
-            Some(unsafe { &mut (*self.u.array).data.values })
+        if self.detailed.fast_array() {
+            match self.isa_mut() {
+                JSObjectIsa::ARGUMENTS(a) | JSObjectIsa::ARRAY(a) => Some(&mut a.values),
+                _ => None,
+            }
         } else {
             None
         }
@@ -143,41 +151,37 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
     pub unsafe fn fast_array_values_unchecked(&self) -> &[JSValue] {
-        debug_assert!(
-            matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-                && self.detailed.fast_array(),
-            "class={}, is_fast_array={}",
-            self.class_id(),
-            self.detailed.fast_array()
-        );
-
-        (*self.u.array).data.values.as_slice()
+        debug_assert!(self.detailed.fast_array());
+        match self.isa() {
+            JSObjectIsa::ARGUMENTS(a) | JSObjectIsa::ARRAY(a) => a.values.as_slice(),
+            _ => unreachable!(),
+        }
     }
 
     /// if object is Array or Argument class, and is fast array, returns values mut.
     /// SAFETY: must ensure `self` conforms precondition described above, otherwise behavior is undefined.
     #[inline(always)]
     pub unsafe fn fast_array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
-        debug_assert!(
-            matches!(self.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-                && self.detailed.fast_array(),
-            "class={}, is_fast_array={}",
-            self.class_id(),
-            self.detailed.fast_array()
-        );
+        debug_assert!(self.detailed.fast_array());
+        println!("[O.o] {:?}", self.isa());
 
-        &mut (*self.u.array).data.values
+        match self.isa_mut() {
+            JSObjectIsa::ARGUMENTS(a) | JSObjectIsa::ARRAY(a) => &mut a.values,
+            _ => unreachable!(),
+        }
     }
 
     /// get array object length.
     /// will panic if `self` is not an Array, Argument, or TypedArray.
     pub unsafe fn array_length_unchecked(&self) -> usize {
-        match self.class_id() {
-            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => self.fast_array_values_unchecked().len(),
-            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW => {
-                (*self.u.array).typed_array_count as usize
-            }
-            _ => unreachable!(),
+        if let Some(array) = self.isa().array() {
+            // ARRAY or ARGUMENT
+            array.values.len()
+        } else if let Some(ta) = self.isa().typed_array() {
+            // typed array or dataview
+            ta.count as usize
+        } else {
+            unreachable!("expect argument, array, typed array or dataview")
         }
     }
 
@@ -409,7 +413,6 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
         (*pr).u.value = v;
     }
 
-    (*(*p).u.array).u1.size = 0;
     (*p).detailed.set_fast_array(false);
 
     0

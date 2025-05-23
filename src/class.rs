@@ -14,8 +14,8 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{
-            JSObject, JSPropertyDescriptor, JS_NewObject, PropertyEnum, JS_PROP_CONFIGURABLE,
-            JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+            JSObject, JSObjectIsa, JSPropertyDescriptor, JS_NewObject, PropertyEnum,
+            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_VALUE_GET_OBJ,
         JS_VALUE_GET_TAG,
@@ -416,36 +416,78 @@ pub unsafe fn js_instantiate_prototype(
     }
 }
 
+impl JSContext {
+    /// `ctor` is the class constructor function, not consumed.
+    pub fn create_instance(
+        &mut self,
+        ctor: JSValue,
+        isa: JSObjectIsa,
+    ) -> Result<JSValue, JSObjectIsa> {
+        let class_id = isa.class_id();
+
+        let proto = if ctor.is_undefined() {
+            self.class_proto[class_id as usize].dup()
+        } else {
+            let p = ctor.get_property(self, JS_ATOM_prototype);
+            if p.is_exception() {
+                return Err(isa);
+            }
+            if !p.is_object() {
+                JS_FreeValue(self, p);
+                let realm = unsafe { JS_GetFunctionRealm(self, ctor) };
+                if realm.is_null() {
+                    return Err(isa);
+                }
+                unsafe { (*realm).class_proto[class_id as usize].dup() }
+            } else {
+                p
+            }
+        };
+
+        let obj = self
+            .create_object_with_proto_and_isa0(proto, isa)
+            .inspect_err(|_| {
+                JS_FreeValue(self, proto);
+            })?;
+
+        JS_FreeValue(self, proto);
+        Ok(obj)
+    }
+}
+
+#[deprecated(note = "use JSContext::create_instance() instead")]
 pub unsafe fn js_create_from_ctor(
     ctx: *mut JSContext,
     ctor: JSValueConst,
     class_id: JSClassID,
 ) -> JSValue {
-    let proto = if ctor.is_undefined() {
-        (*ctx).class_proto[class_id as usize].dup()
-    } else {
-        let p = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
-        if p.is_exception() {
-            return p;
-        }
-        if !p.is_object() {
-            JS_FreeValue(ctx, p);
-            let realm = JS_GetFunctionRealm(ctx, ctor);
-            if realm.is_null() {
-                return JSValue::EXCEPTION;
-            }
-            (*realm).class_proto[class_id as usize].dup()
-        } else {
-            p
-        }
-    };
+    unreachable!("unused");
 
-    let obj = (*ctx)
-        .create_object_with_proto_and_classid(proto, class_id)
-        .unwrap_or(JSValue::EXCEPTION);
+    // let proto = if ctor.is_undefined() {
+    //     (*ctx).class_proto[class_id as usize].dup()
+    // } else {
+    //     let p = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
+    //     if p.is_exception() {
+    //         return p;
+    //     }
+    //     if !p.is_object() {
+    //         JS_FreeValue(ctx, p);
+    //         let realm = JS_GetFunctionRealm(ctx, ctor);
+    //         if realm.is_null() {
+    //             return JSValue::EXCEPTION;
+    //         }
+    //         (*realm).class_proto[class_id as usize].dup()
+    //     } else {
+    //         p
+    //     }
+    // };
 
-    JS_FreeValue(ctx, proto);
-    return obj;
+    // let obj = (*ctx)
+    //     .create_object_with_proto_and_isa0(proto, JSObjectIsa::new(class_id))
+    //     .unwrap_or(JSValue::EXCEPTION);
+
+    // JS_FreeValue(ctx, proto);
+    // return obj;
 }
 
 unsafe fn js_arguments_define_own_property(

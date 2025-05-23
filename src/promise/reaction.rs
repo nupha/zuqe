@@ -3,7 +3,10 @@ use crate::{
     mem::js_malloc_typed,
     runtime::JSRuntime,
     types::{init_list_head, list_add_tail, list_head},
-    value::{object::JS_SpeciesConstructor, JSValue, JS_FreeValue, JS_FreeValueRT},
+    value::{
+        object::{JSObjectIsa, JS_SpeciesConstructor},
+        JSValue, JS_FreeValue, JS_FreeValueRT,
+    },
     JS_CLASS_PROMISE,
 };
 
@@ -68,12 +71,11 @@ impl PromiseValue {
             rd_array[i] = Box::into_raw(rd);
         }
 
-        let p = self
-            .0
-            .object_unchecked()
-            .opaque::<JSPromiseData>(JS_CLASS_PROMISE)
-            .unwrap()
-            .as_mut();
+        let p = if let JSObjectIsa::PROMISE(s) = self.0.object_unchecked().isa() {
+            (*s).as_mut().unwrap()
+        } else {
+            unreachable!()
+        };
 
         if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
             // register pending to call later in micro task job
@@ -124,11 +126,11 @@ impl PromiseValue {
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
     pub fn then(self, ctx: &mut JSContext, resolve: JSValue, reject: JSValue) -> Result<Self, i32> {
-        let _ = unsafe {
-            self.0
-                .object_unchecked()
-                .opaque_must::<JSPromiseData>(JS_CLASS_PROMISE, ctx)?
-        };
+        // let _ = unsafe {
+        //     self.0
+        //         .object_unchecked()
+        //         .opaque_must::<JSPromiseData>(JS_CLASS_PROMISE, ctx)?
+        // };
 
         let ctor = unsafe { JS_SpeciesConstructor(ctx, self.0, JSValue::UNDEFINED) }
             .check_exception()?
@@ -139,15 +141,11 @@ impl PromiseValue {
         // perform reaction
         let ret = unsafe { self.reaction(ctx, &[resolve, reject], &resolving_funcs) };
 
-        unsafe {
-            JS_FreeValue(ctx, resolving_funcs[0]);
-            JS_FreeValue(ctx, resolving_funcs[1]);
-        }
+        JS_FreeValue(ctx, resolving_funcs[0]);
+        JS_FreeValue(ctx, resolving_funcs[1]);
 
         if ret.is_err() {
-            unsafe {
-                JS_FreeValue(ctx, result_promise.into());
-            }
+            JS_FreeValue(ctx, result_promise.into());
             Err(-1)
         } else {
             Ok(result_promise)

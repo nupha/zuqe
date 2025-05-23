@@ -14,7 +14,7 @@ use crate::{
     runtime::JSRuntime,
     types::{init_list_head, list_find},
     value::{
-        object::{JSObjectFlags, JSObjectUnion},
+        object::{JSObjectFlags, JSObjectIsa, JSObjectUnion},
         JSTag, JSValue, JS_FreeValueRT,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -339,33 +339,205 @@ impl JSContext {
 
     /// create object based on specified shape and class_id.
     /// Note: `shape` is consumed.
-    pub fn create_object_from_shape(
+    // #[deprecated]
+    // pub fn create_object_from_shape(
+    //     &mut self,
+    //     shape: JSShapeHandle,
+    //     class_id: JSClassID,
+    // ) -> JSResult {
+    //     debug_assert!(class_id > 0);
+
+    //     js_trigger_gc(self.rt_mut(), std::mem::size_of::<JSObject>());
+
+    //     // alloc prop value slots, initializing with default value
+    //     let mut prop_values = Vec::<JSProperty>::new();
+    //     let prop_count = shape.props.len();
+    //     if prop_values
+    //         .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+    //         .is_err()
+    //     {
+    //         JSShape::free(self.rt_mut(), shape);
+    //         self.JS_ThrowOutOfMemory();
+    //         return Err(-1);
+    //     }
+
+    //     prop_values.extend(std::iter::repeat_n(
+    //         JSProperty {
+    //             u: JSPropertyUnion {
+    //                 value: JSValue::UNDEFINED,
+    //             },
+    //         },
+    //         prop_count,
+    //     ));
+
+    //     // alloc JSObject
+    //     let mut obj = if let Some(mut p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
+    //         let o = JSObject {
+    //             header: JSGCObjectHeader::new(1),
+    //             detailed: {
+    //                 let mut flags = JSObjectFlags::default();
+    //                 flags.set_class_id(class_id);
+    //                 flags.set_extensible(true);
+    //                 flags.set_free_mark(false);
+    //                 flags.set_exotic(false);
+    //                 flags.set_fast_array(false);
+    //                 flags.set_constructor(false);
+    //                 flags.set_uncatchable_error(false);
+    //                 flags.set_tmp_mark(false);
+    //                 flags.set_htmldda(false);
+    //                 flags
+    //             },
+    //             shape: shape.as_ptr(),
+    //             prop_values,
+    //             first_weak_ref: std::ptr::null_mut(),
+    //             isa: JSObjectIsa::OTHER(class_id),
+    //             // u: unsafe { std::mem::zeroed() },
+    //         };
+
+    //         unsafe {
+    //             p.write(o);
+
+    //             init_list_head(&mut p.as_mut().header.link);
+    //             Box::from_raw(p.as_ptr())
+    //         }
+    //     } else {
+    //         JSShape::free(self.rt_mut(), shape);
+    //         return Err(-1);
+    //     };
+
+    //     // initialize payload data
+    //     match class_id {
+    //         JS_CLASS_OBJECT => {}
+
+    //         JS_CLASS_BYTECODE_FUNCTION
+    //         | JS_CLASS_GENERATOR_FUNCTION
+    //         | JS_CLASS_ASYNC_FUNCTION
+    //         | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
+    //             // obj.u.func = ManuallyDrop::new(JSObjectFunc {
+    //             //     function_bytecode: std::ptr::null_mut(),
+    //             //     var_refs: Vec::new(),
+    //             //     home_object: std::ptr::null_mut(),
+    //             // });
+    //         }
+
+    //         JS_CLASS_ARRAY => {
+    //             // obj.u.array = ManuallyDrop::new(JSObjectArray {
+    //             //     u1: JSObjectArrayU1 { size: 0 },
+    //             //     data: JSObjectArrayDataUnion {
+    //             //         values: ManuallyDrop::new(Vec::new()),
+    //             //     },
+    //             //     typed_array_count: 0,
+    //             // });
+
+    //             obj.detailed.set_exotic(true);
+    //             obj.detailed.set_fast_array(true);
+
+    //             // for Array: the length property is always the first one
+    //             let pr0: *mut JSProperty = if shape.as_ptr() == self.array_shape {
+    //                 obj.prop_values.first_mut().unwrap()
+    //             } else {
+    //                 // only used for the first array, cannot fail
+    //                 obj.add_property(self, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)
+    //                     .unwrap()
+    //             };
+    //             unsafe {
+    //                 (*pr0).u.value = JSValue::ZERO;
+    //             }
+    //         }
+    //         JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+    //             // obj.u.array = ManuallyDrop::new(JSObjectArray {
+    //             //     u1: JSObjectArrayU1 { size: 0 },
+    //             //     data: JSObjectArrayDataUnion {
+    //             //         ptr: std::ptr::null_mut(),
+    //             //     },
+    //             //     typed_array_count: 0,
+    //             // });
+
+    //             obj.detailed.set_exotic(true);
+    //             obj.detailed.set_fast_array(true);
+    //         }
+    //         JS_CLASS_DATAVIEW => {
+    //             // obj.u.array = ManuallyDrop::new(JSObjectArray {
+    //             //     u1: JSObjectArrayU1 { size: 0 },
+    //             //     data: JSObjectArrayDataUnion {
+    //             //         ptr: std::ptr::null_mut(),
+    //             //     },
+    //             //     typed_array_count: 0,
+    //             // });
+    //         }
+
+    //         JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
+    //         | JS_CLASS_DATE | JS_CLASS_BIG_INT => {
+    //             // obj.u.object_data = JSValue::UNDEFINED;
+    //             if !self.rt().class_array[class_id as usize].exotic.is_null() {
+    //                 obj.detailed.set_exotic(true);
+    //             }
+    //         }
+
+    //         JS_CLASS_C_FUNCTION => {}
+
+    //         JS_CLASS_REGEXP => {
+    //             unimplemented!("JS_CLASS_REGEXP");
+    //             // *(*p).u.regexp.pattern = std::ptr::null_mut();
+    //             // (*p).u.regexp.bytecode = std::ptr::null_mut();
+    //             // if !(*(*ctx).rt)
+    //             //     .class_array
+    //             //     .wrapping_add(class_id as usize)
+    //             //     .as_mut()
+    //             //     .unwrap()
+    //             //     .exotic
+    //             //     .is_null()
+    //             // {
+    //             //     (*p). detailed.set_exotic(true);
+    //             // }
+    //         }
+
+    //         _ => {
+    //             if !self.rt().class_array[class_id as usize].exotic.is_null() {
+    //                 obj.detailed.set_exotic(true);
+    //             }
+    //         }
+    //     }
+
+    //     // take ownership of object
+    //     let p = Box::into_raw(obj);
+
+    //     debug_assert_eq!(p as usize, unsafe {
+    //         std::ptr::addr_of!((*p).header) as usize
+    //     });
+
+    //     unsafe {
+    //         add_gc_object(
+    //             self.rt_mut(),
+    //             &mut (*p).header,
+    //             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT,
+    //         );
+    //     }
+
+    //     Ok(JS_MKPTR!(JSTag::Object, p.cast()))
+    // }
+
+    /// create object based on specified shape and class_id.
+    /// when fail, caller should free isa related stuff.
+    /// Note: `shape` is consumed.
+    pub fn create_object_from_shape_isa0(
         &mut self,
         shape: JSShapeHandle,
-        class_id: JSClassID,
-    ) -> JSResult {
-        debug_assert!(class_id > 0);
-
+        isa: JSObjectIsa,
+    ) -> Result<JSValue, JSObjectIsa> {
         js_trigger_gc(self.rt_mut(), std::mem::size_of::<JSObject>());
 
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
         let prop_count = shape.props.len();
-        if prop_count > 0 {
-            if prop_values.try_reserve_exact(prop_count).is_err() {
-                JSShape::free(self.rt_mut(), shape);
-                self.JS_ThrowOutOfMemory();
-                return Err(-1);
-            }
+        if prop_values
+            .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+            .is_err()
+        {
+            JSShape::free(self.rt_mut(), shape);
+            self.JS_ThrowOutOfMemory();
+            return Err(isa);
         }
-        // if prop_values
-        //     .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
-        //     .is_err()
-        // {
-        //     JSShape::free(self.rt_mut(), shape);
-        //     self.JS_ThrowOutOfMemory();
-        //     return Err(-1);
-        // }
 
         prop_values.extend(std::iter::repeat_n(
             JSProperty {
@@ -377,63 +549,50 @@ impl JSContext {
         ));
 
         // alloc JSObject
-        let mut obj = if let Some(mut p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
-            let o = JSObject {
-                header: JSGCObjectHeader::new(1),
-                detailed: {
-                    let mut flags = JSObjectFlags::default();
-                    flags.set_class_id(class_id);
-                    flags.set_extensible(true);
-                    flags.set_free_mark(false);
-                    flags.set_exotic(false);
-                    flags.set_fast_array(false);
-                    flags.set_constructor(false);
-                    flags.set_uncatchable_error(false);
-                    flags.set_tmp_mark(false);
-                    flags.set_htmldda(false);
-                    flags
-                },
-                shape: shape.as_ptr(),
-                prop_values,
-                first_weak_ref: std::ptr::null_mut(),
-                u: unsafe { std::mem::zeroed() },
+        let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
+            let mut b = unsafe {
+                p.write(JSObject {
+                    header: JSGCObjectHeader::new(1),
+                    detailed: {
+                        let mut flags = JSObjectFlags::default();
+                        flags.set_extensible(true);
+                        flags.set_free_mark(false);
+                        flags.set_exotic(false);
+                        flags.set_fast_array(false);
+                        flags.set_constructor(false);
+                        flags.set_uncatchable_error(false);
+                        flags.set_tmp_mark(false);
+                        flags.set_htmldda(false);
+                        flags
+                    },
+                    shape: shape.as_ptr(),
+                    prop_values,
+                    first_weak_ref: std::ptr::null_mut(),
+                    isa,
+                });
+
+                Box::from_raw(p.as_ptr())
             };
 
-            unsafe {
-                p.write(o);
+            b.detailed.set_class_id(b.isa.class_id());
 
-                init_list_head(&mut p.as_mut().header.link);
-                Box::from_raw(p.as_ptr())
-            }
+            init_list_head(&mut b.header.link);
+            b
         } else {
             JSShape::free(self.rt_mut(), shape);
-            return Err(-1);
+            return Err(isa);
         };
 
         // initialize payload data
-        match class_id {
+        match obj.class_id() {
             JS_CLASS_OBJECT => {}
 
             JS_CLASS_BYTECODE_FUNCTION
             | JS_CLASS_GENERATOR_FUNCTION
             | JS_CLASS_ASYNC_FUNCTION
-            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
-                obj.u.func = ManuallyDrop::new(JSObjectFunc {
-                    function_bytecode: std::ptr::null_mut(),
-                    var_refs: Vec::new(),
-                    home_object: std::ptr::null_mut(),
-                });
-            }
+            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {}
 
             JS_CLASS_ARRAY => {
-                obj.u.array = ManuallyDrop::new(JSObjectArray {
-                    u1: JSObjectArrayU1 { size: 0 },
-                    data: JSObjectArrayDataUnion {
-                        values: ManuallyDrop::new(Vec::new()),
-                    },
-                    typed_array_count: 0,
-                });
-
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
 
@@ -450,30 +609,13 @@ impl JSContext {
                 }
             }
             JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                obj.u.array = ManuallyDrop::new(JSObjectArray {
-                    u1: JSObjectArrayU1 { size: 0 },
-                    data: JSObjectArrayDataUnion {
-                        ptr: std::ptr::null_mut(),
-                    },
-                    typed_array_count: 0,
-                });
-
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
             }
-            JS_CLASS_DATAVIEW => {
-                obj.u.array = ManuallyDrop::new(JSObjectArray {
-                    u1: JSObjectArrayU1 { size: 0 },
-                    data: JSObjectArrayDataUnion {
-                        ptr: std::ptr::null_mut(),
-                    },
-                    typed_array_count: 0,
-                });
-            }
+            JS_CLASS_DATAVIEW => {}
 
-            JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
-            | JS_CLASS_DATE | JS_CLASS_BIG_INT => {
-                obj.u.object_data = JSValue::UNDEFINED;
+            class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
+            | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
                 if !self.rt().class_array[class_id as usize].exotic.is_null() {
                     obj.detailed.set_exotic(true);
                 }
@@ -497,7 +639,158 @@ impl JSContext {
                 // }
             }
 
-            _ => {
+            class_id => {
+                if !self.rt().class_array[class_id as usize].exotic.is_null() {
+                    obj.detailed.set_exotic(true);
+                }
+            }
+        }
+
+        // take ownership of object
+        let p = Box::into_raw(obj);
+
+        debug_assert_eq!(p as usize, unsafe {
+            std::ptr::addr_of!((*p).header) as usize
+        });
+
+        unsafe {
+            add_gc_object(
+                self.rt_mut(),
+                &mut (*p).header,
+                JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT,
+            );
+        }
+
+        Ok(JS_MKPTR!(JSTag::Object, p.cast()))
+    }
+
+    /// create object based on specified shape and class_id.
+    /// Note: `shape` is consumed.
+    pub fn create_object_from_shape_isa(
+        &mut self,
+        shape: JSShapeHandle,
+        isa_fn: impl FnOnce() -> Result<JSObjectIsa, i32>,
+    ) -> JSResult {
+        js_trigger_gc(self.rt_mut(), std::mem::size_of::<JSObject>());
+
+        // alloc prop value slots, initializing with default value
+        let mut prop_values = Vec::<JSProperty>::new();
+        let prop_count = shape.props.len();
+        if prop_values
+            .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
+            .is_err()
+        {
+            JSShape::free(self.rt_mut(), shape);
+            self.JS_ThrowOutOfMemory();
+            return Err(-1);
+        }
+
+        prop_values.extend(std::iter::repeat_n(
+            JSProperty {
+                u: JSPropertyUnion {
+                    value: JSValue::UNDEFINED,
+                },
+            },
+            prop_count,
+        ));
+
+        // alloc JSObject
+        let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
+            let mut b = unsafe {
+                p.write(JSObject {
+                    header: JSGCObjectHeader::new(1),
+                    detailed: {
+                        let mut flags = JSObjectFlags::default();
+                        flags.set_extensible(true);
+                        flags.set_free_mark(false);
+                        flags.set_exotic(false);
+                        flags.set_fast_array(false);
+                        flags.set_constructor(false);
+                        flags.set_uncatchable_error(false);
+                        flags.set_tmp_mark(false);
+                        flags.set_htmldda(false);
+                        flags
+                    },
+                    shape: shape.as_ptr(),
+                    prop_values,
+                    first_weak_ref: std::ptr::null_mut(),
+                    isa: JSObjectIsa::OTHER(0), // unknown
+                                                // u: unsafe { std::mem::zeroed() },
+                });
+
+                Box::from_raw(p.as_ptr())
+            };
+
+            // setup isa info
+            b.isa = isa_fn().inspect_err(|_| {
+                JSShape::free(self.rt_mut(), shape);
+            })?;
+            b.detailed.set_class_id(b.isa.class_id());
+
+            init_list_head(&mut b.header.link);
+            b
+        } else {
+            JSShape::free(self.rt_mut(), shape);
+            return Err(-1);
+        };
+
+        // initialize payload data
+        match obj.class_id() {
+            JS_CLASS_OBJECT => {}
+
+            JS_CLASS_BYTECODE_FUNCTION
+            | JS_CLASS_GENERATOR_FUNCTION
+            | JS_CLASS_ASYNC_FUNCTION
+            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {}
+
+            JS_CLASS_ARRAY => {
+                obj.detailed.set_exotic(true);
+                obj.detailed.set_fast_array(true);
+
+                // for Array: the length property is always the first one
+                let pr0: *mut JSProperty = if shape.as_ptr() == self.array_shape {
+                    obj.prop_values.first_mut().unwrap()
+                } else {
+                    // only used for the first array, cannot fail
+                    obj.add_property(self, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)
+                        .unwrap()
+                };
+                unsafe {
+                    (*pr0).u.value = JSValue::ZERO;
+                }
+            }
+            JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                obj.detailed.set_exotic(true);
+                obj.detailed.set_fast_array(true);
+            }
+            JS_CLASS_DATAVIEW => {}
+
+            class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
+            | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
+                if !self.rt().class_array[class_id as usize].exotic.is_null() {
+                    obj.detailed.set_exotic(true);
+                }
+            }
+
+            JS_CLASS_C_FUNCTION => {}
+
+            JS_CLASS_REGEXP => {
+                unimplemented!("JS_CLASS_REGEXP");
+                // *(*p).u.regexp.pattern = std::ptr::null_mut();
+                // (*p).u.regexp.bytecode = std::ptr::null_mut();
+                // if !(*(*ctx).rt)
+                //     .class_array
+                //     .wrapping_add(class_id as usize)
+                //     .as_mut()
+                //     .unwrap()
+                //     .exotic
+                //     .is_null()
+                // {
+                //     (*p). detailed.set_exotic(true);
+                // }
+            }
+
+            class_id => {
                 if !self.rt().class_array[class_id as usize].exotic.is_null() {
                     obj.detailed.set_exotic(true);
                 }

@@ -9,14 +9,6 @@ use super::JSContext;
 #[repr(transparent)]
 pub struct JSContextHandle(NonNull<JSContext>);
 
-impl JSContext {
-    /// Convert to context handle, a non-null pointer to JSContext
-    #[inline(always)]
-    pub fn handle(&mut self) -> JSContextHandle {
-        JSContextHandle::from(self as *mut JSContext)
-    }
-}
-
 impl JSContextHandle {
     #[inline(always)]
     pub fn as_raw(self) -> NonNull<JSContext> {
@@ -26,6 +18,11 @@ impl JSContextHandle {
     #[inline(always)]
     pub fn as_ptr(self) -> *mut JSContext {
         self.0.as_ptr()
+    }
+
+    #[inline(always)]
+    pub fn dup(&mut self) -> Self {
+        unsafe { (*self.0.as_ptr()).dup().into() }
     }
 }
 
@@ -60,5 +57,13 @@ impl Deref for JSContextHandle {
 impl DerefMut for JSContextHandle {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut() }
+    }
+}
+
+impl JSContext {
+    /// Convert to context handle, a non-null pointer to JSContext
+    #[inline(always)]
+    pub fn handle(&mut self) -> JSContextHandle {
+        JSContextHandle::from(self as *mut JSContext)
     }
 }

@@ -1,7 +1,6 @@
 use crate::{
     array::js_array_push,
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
-    class::js_create_from_ctor,
     context::{JSContext, JS_GetActiveFunction},
     function::{JSCFunctionListEntry, JS_Call},
     iterator::{JSIteratorKindEnum, JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
@@ -9,17 +8,17 @@ use crate::{
     types::unlikely,
     value::{
         object::{
-            js_free_desc, JSPropertyDescriptor, JS_GetOwnPropertyInternal, JS_GetPrototype,
-            JS_IsExtensible, JS_NewObject, JS_NewObjectProto, JS_PreventExtensions,
+            js_free_desc, JSObjectIsa, JSPropertyDescriptor, JS_GetOwnPropertyInternal,
+            JS_GetPrototype, JS_IsExtensible, JS_NewObject, JS_PreventExtensions,
             JS_SetPrototypeInternal, JS_ToObject, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK,
             JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
             JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         },
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsNull,
-        JS_IsObject, JS_IsUndefined, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED,
+        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_IsObject,
+        JS_IsUndefined, JS_FALSE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_UNDEFINED,
         JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG, MAX_SAFE_INTEGER,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_OBJECT,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF,
 };
 
 pub unsafe fn JS_ObjectDefineProperties(
@@ -125,7 +124,9 @@ pub unsafe fn js_object_constructor(
     if !JS_IsUndefined(new_target)
         && JS_VALUE_GET_OBJ(new_target) != JS_VALUE_GET_OBJ(JS_GetActiveFunction(ctx))
     {
-        js_create_from_ctor(ctx, new_target, JS_CLASS_OBJECT)
+        (*ctx)
+            .create_instance(new_target, JSObjectIsa::OBJECT)
+            .unwrap_or(JSValue::EXCEPTION)
     } else {
         let a = *argv.offset(0);
         match JS_VALUE_GET_NORM_TAG(a) {
@@ -142,22 +143,23 @@ pub unsafe fn js_object_create(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let proto = *argv.offset(0);
-    if !JS_IsObject(proto) && !JS_IsNull(proto) {
+    if !proto.is_object() && !proto.is_null() {
         return ctx.as_mut().unwrap().JS_ThrowTypeError(c"not a prototype");
     }
-    let obj = JS_NewObjectProto(ctx, proto);
-    if JS_IsException(obj) {
-        return JSValue::EXCEPTION;
-    }
-    let props = *argv.offset(1);
-    if !JS_IsUndefined(props) {
-        if JS_ObjectDefineProperties(ctx, obj, props).is_err() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-    }
 
-    obj
+    if let Ok(obj) = (*ctx).create_base_object_with_proto(proto) {
+        let props = *argv.offset(1);
+        if !props.is_undefined() {
+            if JS_ObjectDefineProperties(ctx, obj, props).is_err() {
+                JS_FreeValue(ctx, obj);
+                return JSValue::EXCEPTION;
+            }
+        }
+
+        obj
+    } else {
+        JSValue::EXCEPTION
+    }
 }
 
 pub unsafe fn js_object_getPrototypeOf(
@@ -323,7 +325,9 @@ pub unsafe fn js_object_groupBy(
     let groups = if is_map != 0 {
         js_map_constructor(ctx, JSValue::UNDEFINED, 0, std::ptr::null_mut(), 0)
     } else {
-        JS_NewObjectProto(ctx, JSValue::NULL)
+        (*ctx)
+            .create_base_object_with_proto(JSValue::NULL)
+            .unwrap_or(JSValue::EXCEPTION)
     };
 
     if groups.is_exception() {
