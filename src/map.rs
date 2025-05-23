@@ -76,6 +76,7 @@ impl JSMapState {
         // new record
         let mut rec = unsafe {
             Box::from_raw(
+                // FIXME: write init value
                 js_malloc_typed::<JSMapRecord>(ctx, 1, true)
                     .ok_or(-1)?
                     .as_ptr(),

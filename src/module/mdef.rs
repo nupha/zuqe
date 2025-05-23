@@ -128,6 +128,7 @@ impl JSModuleDef {
     pub unsafe fn new(ctx: &mut JSContext, name: JSAtom) -> Result<Box<Self>, i32> {
         match js_malloc_typed::<JSModuleDef>(ctx, 1, true) {
             Some(ptr) => {
+                // FIXME: write init value
                 let mut m = Box::from_raw(ptr.as_ptr());
                 m.header.ref_count = 1;
                 m.module_name = name;

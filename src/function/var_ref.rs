@@ -189,7 +189,7 @@ impl JSStackFrame {
         is_arg: bool,
     ) -> Result<NonNull<JSVarRef>, i32> {
         let mut var_ref = if let Some(mut p) = js_malloc_typed::<JSVarRef>(ctx, 1, true) {
-            let o = JSVarRef {
+            p.write(JSVarRef {
                 u0: JSVarRefHeaderOrGCFields {
                     header: JSGCObjectHeader::new(1),
                 },
@@ -197,8 +197,7 @@ impl JSStackFrame {
                 value_or_links: JSVarRefValueOrLinks {
                     value: JSValue::UNDEFINED,
                 },
-            };
-            p.write(o);
+            });
 
             init_list_head(&mut p.as_mut().u0.header.link);
             Box::from_raw(p.as_ptr())

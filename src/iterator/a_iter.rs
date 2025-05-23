@@ -47,12 +47,11 @@ impl JSContext {
         let s = if let Some(p) =
             unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) }
         {
-            let o = JSAsyncFromSyncIteratorData {
-                sync_iter: sync_iter.dup(),
-                next_method,
-            };
             unsafe {
-                p.write(o);
+                p.write(JSAsyncFromSyncIteratorData {
+                    sync_iter: sync_iter.dup(),
+                    next_method,
+                });
             }
             p
         } else {

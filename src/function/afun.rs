@@ -125,7 +125,7 @@ pub unsafe fn async_func_init(
     let b = func.function_bytecode.as_mut().unwrap();
 
     let mut s = if let Some(p) = js_malloc_typed::<JSAsyncFunctionState>(ctx, 1, false) {
-        let o = JSAsyncFunctionState {
+        p.write(JSAsyncFunctionState {
             header: JSGCObjectHeader::new(1),
 
             argc,
@@ -138,8 +138,7 @@ pub unsafe fn async_func_init(
                 cur_func: func_obj.dup(),
                 ..Default::default()
             },
-        };
-        p.write(o);
+        });
         Box::from_raw(p.as_ptr())
     } else {
         return std::ptr::null_mut();

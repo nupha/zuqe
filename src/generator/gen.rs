@@ -56,6 +56,7 @@ pub unsafe fn js_generator_function_call(
     flags: i32,
 ) -> JSValue {
     let mut s = if let Some(p) = js_malloc_typed::<JSGeneratorData>(ctx, 1, true) {
+        // FIXME: write init value
         Box::from_raw(p.as_ptr())
     } else {
         return JSValue::EXCEPTION;

@@ -164,15 +164,14 @@ impl TypedArrayValue {
 
         let mut ta = unsafe {
             if let Some(p) = js_malloc_typed::<JSTypedArray>(ctx, 1, false) {
-                let o = JSTypedArray {
+                p.write(JSTypedArray {
                     link: list_head::default(),
                     obj: self.0.object_unchecked(),
                     buffer: NonNull::from(pbuffer),
                     offset: offset as u32,
                     byte_length: (count as u32) << size_log2,
                     count: count as u32,
-                };
-                p.write(o);
+                });
                 Box::from_raw(p.as_ptr())
             } else {
                 JS_FreeValue(ctx, buffer);

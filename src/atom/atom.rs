@@ -686,6 +686,7 @@ pub unsafe fn js_atom_concat_str(ctx: *mut JSContext, name: JSAtom, str1: *const
     let len1 = CStr::from_ptr(str1.cast()).count_bytes();
     let ttl_len = len + len1 + 1;
 
+    // FIXME: use Vec::try_reserve_exact()
     let res = if let Some(p) = js_malloc_typed::<u8>(ctx, ttl_len, false) {
         let mut new_str = Vec::from_raw_parts(p.as_ptr(), ttl_len, ttl_len);
         std::ptr::copy_nonoverlapping(astr.as_ptr().cast(), new_str.as_mut_ptr(), len);

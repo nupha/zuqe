@@ -26,7 +26,8 @@ pub unsafe fn js_map_constructor(
 
     let mut s = if let Some(p) = js_malloc_typed::<JSMapState>(ctx, 1, false) {
         const HASH_INIT_SIZE: usize = 1;
-        let o = JSMapState {
+
+        p.write(JSMapState {
             is_weak,
             records: list_head::default(),
             record_count: 0,
@@ -40,8 +41,7 @@ pub unsafe fn js_map_constructor(
             },
             hash_size: HASH_INIT_SIZE as _,
             record_count_threshold: 4,
-        };
-        p.write(o);
+        });
         Box::from_raw(p.as_ptr())
     } else {
         return JSValue::EXCEPTION;

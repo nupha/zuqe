@@ -45,7 +45,7 @@ impl PromiseValue {
 
         for i in 0..2 {
             let rd = if let Some(mut p) = js_malloc_typed::<JSPromiseReactionData>(ctx, 1, false) {
-                let o = JSPromiseReactionData {
+                p.write(JSPromiseReactionData {
                     link: list_head::default(),
                     resolving_funcs: [cap_resolving_funcs[0].dup(), cap_resolving_funcs[1].dup()],
                     handler: {
@@ -56,8 +56,7 @@ impl PromiseValue {
                             h.dup()
                         }
                     },
-                };
-                p.write(o);
+                });
 
                 init_list_head(&mut p.as_mut().link);
                 Box::from_raw(p.as_ptr())

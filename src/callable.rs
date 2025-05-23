@@ -34,6 +34,7 @@ impl JSCFunctionDataRecord {
         data: &[JSValue],
     ) -> Result<Box<Self>, i32> {
         if let Some(s) = unsafe { js_malloc_typed::<JSCFunctionDataRecord>(ctx, 1, false) } {
+            // FIXME: write init value
             let mut rec = unsafe { Box::from_raw(s.as_ptr()) };
 
             rec.func = callback;

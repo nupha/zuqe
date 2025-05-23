@@ -62,15 +62,14 @@ impl JSContext {
 
         let mut ta = unsafe {
             if let Some(ptr) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
-                let o = JSTypedArray {
+                ptr.write(JSTypedArray {
                     link: list_head::default(),
                     obj: std::ptr::null_mut(), // unknown initially
                     buffer: NonNull::from(buffer.dup().object_unchecked()), // buffer is duplicated
                     offset: offset as u32,
                     byte_length: len as _,
                     count: 0,
-                };
-                ptr.write(o);
+                });
                 ptr
             } else {
                 return Err(-1);

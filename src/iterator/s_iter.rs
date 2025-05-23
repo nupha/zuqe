@@ -333,16 +333,14 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
     };
 
     let mut it = if let Some(p) = js_malloc_typed::<JSForInIterator>(ctx, 1, false) {
-        // FIXME: write init value
-        let o = JSForInIterator {
+        p.write(JSForInIterator {
             obj,
             idx: 0,
             atom_count: 0,
             in_prototype_chain: false,
             is_array: false,
             tab_atom: Box::new([]),
-        };
-        p.write(o);
+        });
         Box::from_raw(p.as_ptr())
     } else {
         JS_FreeValue(ctx, obj);
