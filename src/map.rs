@@ -46,10 +46,11 @@ impl Drop for JSMapRecord {
 pub struct JSMapState {
     /// is WeakSet/WeakMap?
     pub is_weak: bool,
+
     /// list of JSMapRecord.link
+    /// TODO: use HashMap<u32, JSMapRecord>
     pub records: list_head,
     pub record_count: u32,
-
     pub hash_table: *mut list_head,
     pub hash_size: u32, // must be a power of two
 
@@ -74,42 +75,45 @@ impl JSMapState {
         key: JSValue,
     ) -> Result<NonNull<JSMapRecord>, i32> {
         // new record
-        let mut rec = unsafe {
-            Box::from_raw(
-                // FIXME: write init value
-                js_malloc_typed::<JSMapRecord>(ctx, 1, true)
-                    .ok_or(-1)?
-                    .as_ptr(),
-            )
-        };
+        let mut rec = if let Some(p) = unsafe { js_malloc_typed::<JSMapRecord>(ctx, 1, false) } {
+            unsafe {
+                p.write(JSMapRecord {
+                    ref_count: 1,
+                    empty: false,
+                    map: self as *mut _,
+                    next_weak_ref: std::ptr::null_mut(),
+                    link: list_head::default(),
+                    hash_link: list_head::default(),
+                    key: JSValue::UNDEFINED, // unknown for now
+                    value: JSValue::UNDEFINED,
+                });
 
-        debug_assert!((self as *mut Self).is_aligned());
-
-        rec.ref_count = 1;
-        rec.map = self as *mut _;
-        rec.empty = false;
-        rec.key = unsafe {
-            if self.is_weak {
-                let p = key.object_unchecked();
-                // Add the weak reference
-                debug_assert!(p.first_weak_ref.is_aligned());
-                rec.next_weak_ref = p.first_weak_ref;
-                p.first_weak_ref = rec.as_mut() as *mut _;
-                key
-            } else {
-                key.dup()
+                Box::from_raw(p.as_ptr())
             }
+        } else {
+            return Err(-1);
         };
 
+        rec.key = if self.is_weak {
+            let p = unsafe { key.object_unchecked() };
+            // Add the weak reference
+            debug_assert!(p.first_weak_ref.is_aligned());
+            rec.next_weak_ref = p.first_weak_ref;
+            p.first_weak_ref = rec.as_mut() as *mut _;
+            key
+        } else {
+            key.dup()
+        };
+
+        // insert record to hash table
+        let h = key.hash() & (self.hash_size - 1);
         unsafe {
-            // insert to state hash table
-            let h = key.hash() & (self.hash_size - 1);
-            list_add_tail(&mut (*rec).hash_link, self.hash_table.offset(h as isize));
-            list_add_tail(&mut (*rec).link, &mut self.records);
-
-            self.record_count += 1;
-
-            if self.record_count >= self.record_count_threshold {
+            list_add_tail(&mut rec.hash_link, self.hash_table.offset(h as isize));
+            list_add_tail(&mut rec.link, &mut self.records);
+        }
+        self.record_count += 1;
+        if self.record_count >= self.record_count_threshold {
+            unsafe {
                 map_hash_resize(ctx, self);
             }
         }

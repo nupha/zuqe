@@ -16,9 +16,9 @@ use crate::{
     },
     function::{
         js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSObjectFunc, JSVarKindEnum,
-        JSVarRef, JS_Call,
+        JSVarRef, JSVarRefHeaderOrGCFields, JSVarRefValueOrLinks, JS_Call,
     },
-    gc::{add_gc_object, JSGCObjectTypeEnum},
+    gc::{add_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
@@ -27,6 +27,7 @@ use crate::{
         list_head, JSRefCountHeader,
     },
     value::{
+        self,
         object::{
             JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
             JS_PROP_VARREF, JS_PROP_WRITABLE,
@@ -72,26 +73,32 @@ pub struct JSModuleDef {
     pub module_name: JSAtom,
     pub link: list_head,
 
+    // TODO: use Vec<JSReqModuleEntry>
     pub req_module_entries: *mut JSReqModuleEntry,
     pub req_module_entries_count: u16,
     pub req_module_entries_size: i32,
 
     pub export_entries: Vec<Box<JSExportEntry>>,
-    // pub export_entries: *mut JSExportEntry,
-    // pub export_entries_count: u16,
-    // pub export_entries_size: i32,
+
+    // TODO: use Vec<JSStartExportEntry>
     pub star_export_entries: *mut JSStarExportEntry,
     pub star_export_entries_count: i32,
     pub star_export_entries_size: i32,
 
+    // TODO: use Vec<JSImportEntry>
     pub import_entries: *mut JSImportEntry,
     pub import_entries_count: u16,
     pub import_entries_size: i32,
 
     pub module_ns: JSValue,
-    pub func_obj: JSValue,                   /* only used for JS modules */
-    pub init_func: Option<JSModuleInitFunc>, /* only used for C modules */
-    pub has_tla: bool,                       /* true if func_obj contains await */
+    /// for JS modules only
+    pub func_obj: JSValue,
+    /// for C modules only
+    pub init_func: Option<JSModuleInitFunc>,
+
+    /// true if func_obj contains await
+    pub has_tla: bool,
+
     pub resolved: bool,
     pub func_created: bool,
     pub status: JSModuleStatus,
@@ -107,6 +114,7 @@ pub struct JSModuleDef {
     pub async_parent_modules: *mut *mut JSModuleDef,
     pub async_parent_modules_count: i32,
     pub async_parent_modules_size: i32,
+
     pub pending_async_dependencies: i32,
     pub async_evaluation: bool,
     pub async_evaluation_timestamp: i64,
@@ -126,33 +134,65 @@ pub struct JSModuleDef {
 impl JSModuleDef {
     /// 'name' is consumed
     pub unsafe fn new(ctx: &mut JSContext, name: JSAtom) -> Result<Box<Self>, i32> {
-        match js_malloc_typed::<JSModuleDef>(ctx, 1, true) {
-            Some(ptr) => {
-                // FIXME: write init value
-                let mut m = Box::from_raw(ptr.as_ptr());
-                m.header.ref_count = 1;
-                m.module_name = name;
-                m.module_ns = JSValue::UNDEFINED;
-                m.func_obj = JSValue::UNDEFINED;
-                m.eval_exception = JSValue::UNDEFINED;
-                m.meta_obj = JSValue::UNDEFINED;
-                m.promise = JSValue::UNDEFINED;
-                m.resolving_funcs[0] = JSValue::UNDEFINED;
-                m.resolving_funcs[1] = JSValue::UNDEFINED;
-
-                m.export_entries = Vec::new();
-                m.star_export_entries = std::ptr::null_mut();
-                m.import_entries = std::ptr::null_mut();
-                m.req_module_entries = std::ptr::null_mut();
-
-                list_add_tail(&mut m.link, &mut ctx.loaded_modules);
-                Ok(m)
-            }
-            None => {
+        let ptr = js_malloc_typed::<JSModuleDef>(ctx, 1, false)
+            .ok_or(-1)
+            .inspect_err(|_| {
                 JS_FreeAtom(ctx, name);
-                Err(-1)
-            }
-        }
+            })?;
+
+        ptr.write(JSModuleDef {
+            header: JSRefCountHeader { ref_count: 1 },
+
+            module_name: name,
+            link: list_head::default(),
+
+            req_module_entries: std::ptr::null_mut(),
+            req_module_entries_count: 0,
+            req_module_entries_size: 0,
+
+            export_entries: Vec::new(),
+            star_export_entries: std::ptr::null_mut(),
+            star_export_entries_count: 0,
+            star_export_entries_size: 0,
+
+            import_entries: std::ptr::null_mut(),
+            import_entries_count: 0,
+            import_entries_size: 0,
+
+            module_ns: JSValue::UNDEFINED,
+            func_obj: JSValue::UNDEFINED,
+            init_func: None,
+
+            has_tla: false,
+            resolved: false,
+            func_created: false,
+            status: JSModuleStatus::JS_MODULE_STATUS_UNLINKED,
+
+            dfs_index: 0,
+            dfs_ancestor_index: 0,
+            stack_prev: std::ptr::null_mut(),
+
+            async_parent_modules: std::ptr::null_mut(),
+            async_parent_modules_count: 0,
+            async_parent_modules_size: 0,
+
+            pending_async_dependencies: 0,
+            async_evaluation: false,
+            async_evaluation_timestamp: 0,
+            cycle_root: std::ptr::null_mut(),
+
+            promise: JSValue::UNDEFINED,
+            resolving_funcs: [JSValue::UNDEFINED; 2],
+            eval_has_exception: false,
+            eval_exception: JSValue::UNDEFINED,
+
+            meta_obj: JSValue::UNDEFINED,
+        });
+
+        let mut m = Box::from_raw(ptr.as_ptr());
+        list_add_tail(&mut m.link, &mut ctx.loaded_modules);
+
+        Ok(m)
     }
 }
 
@@ -1227,19 +1267,25 @@ pub unsafe fn js_create_module_var(
     is_lexical: bool,
 ) -> Result<Box<JSVarRef>, i32> {
     let mut var_ref = if let Some(p) = js_malloc_typed::<JSVarRef>(ctx, 1, true) {
-        // FIXME: write() init value
+        p.write(JSVarRef {
+            u0: JSVarRefHeaderOrGCFields {
+                header: JSGCObjectHeader::new(1),
+            },
+            pvalue: std::ptr::null_mut(), // unknown for now
+            value_or_links: JSVarRefValueOrLinks {
+                value: if is_lexical {
+                    JSValue::UNINITIALIZED
+                } else {
+                    JSValue::UNDEFINED
+                },
+            },
+        });
         Box::from_raw(p.as_ptr())
     } else {
         return Err(-1);
     };
 
-    var_ref.u0.header.ref_count = 1;
-    var_ref.set_detached(true);
-    var_ref.value_or_links.value = if is_lexical {
-        JSValue::UNINITIALIZED
-    } else {
-        JSValue::UNDEFINED
-    };
+    // Note: self reference. must use Pin
     var_ref.pvalue = &mut (*var_ref).value_or_links.value;
 
     init_list_head(&mut var_ref.u0.header.link);

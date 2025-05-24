@@ -446,7 +446,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
             let s: *mut JSMallocState = &mut rt.malloc_state;
             println!("MemState: {:?}", *s);
 
-            // FIXME:
+            // TODO:
             // if (*s).malloc_count > 1 {
             //     if !(*rt).rt_info.is_null() {
             //         print!(

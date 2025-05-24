@@ -191,31 +191,32 @@ impl JSContext {
         ));
 
         // make ArrayBuffer data
-        let mut ab = unsafe {
-            // FIXME: write() init value
-            Box::from_raw(
-                js_malloc_typed::<JSArrayBuffer>(self, 1, false)
-                    .ok_or(-1)?
-                    .as_ptr(),
-            )
+        let ab = unsafe {
+            let mut p = js_malloc_typed::<JSArrayBuffer>(self, 1, false).ok_or(-1)?;
+            p.write(JSArrayBuffer {
+                content,
+                detached: false,
+                shared: class_id == JS_CLASS_SHARED_ARRAY_BUFFER,
+                array_list: list_head::default(),
+                opaque: opaque,
+            });
+            init_list_head(&mut p.as_mut().array_list);
+            p.as_ptr()
         };
 
-        init_list_head(&mut ab.array_list);
-        ab.content = content;
-        ab.detached = false;
-        ab.shared = class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
-        ab.opaque = opaque;
-
-        // create instance
+        // create array buffer or shared array buffer instance
         self.create_instance(
             new_target,
             if class_id == JS_CLASS_ARRAY_BUFFER {
-                JSObjectIsa::ARRAY_BUFFER(Box::into_raw(ab))
+                JSObjectIsa::ARRAY_BUFFER(ab)
             } else {
-                JSObjectIsa::SHARED_ARRAY_BUFFER(Box::into_raw(ab))
+                JSObjectIsa::SHARED_ARRAY_BUFFER(ab)
             },
         )
-        .map_err(|_| -1)
+        .map_err(|_| unsafe {
+            drop(Box::from_raw(ab));
+            -1
+        })
     }
 
     /// create empty array buffer instance with required capacity.

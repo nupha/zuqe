@@ -298,6 +298,7 @@ pub unsafe fn js_closure(
             .unwrap();
     }
 
+    debug_assert!(closure.object_unchecked().isa().func().is_some());
     closure
 }
 

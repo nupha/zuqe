@@ -21,7 +21,7 @@ pub struct JSCFunctionDataRecord {
     pub func: JSNativeCallback,
     pub length: u8,
     pub magic: u16,
-    pub data: SmallVec<[JSValue; 8]>,
+    pub data: Vec<JSValue>,
 }
 
 impl JSCFunctionDataRecord {
@@ -34,20 +34,25 @@ impl JSCFunctionDataRecord {
         data: &[JSValue],
     ) -> Result<Box<Self>, i32> {
         if let Some(s) = unsafe { js_malloc_typed::<JSCFunctionDataRecord>(ctx, 1, false) } {
-            // FIXME: write init value
-            let mut rec = unsafe { Box::from_raw(s.as_ptr()) };
-
-            rec.func = callback;
-            rec.length = length as u8;
-            rec.magic = magic as u16;
-
-            rec.data = SmallVec::new();
-            rec.data.try_reserve_exact(data.len()).map_err(|_| -1)?;
-            for d in data {
-                rec.data.push(d.dup());
+            unsafe {
+                s.write(JSCFunctionDataRecord {
+                    func: callback,
+                    length,
+                    magic: magic as _,
+                    data: {
+                        let mut lst = Vec::new();
+                        if lst.try_reserve_exact(data.len()).is_err() {
+                            ctx.JS_ThrowOutOfMemory();
+                            return Err(-1);
+                        }
+                        for d in data {
+                            lst.push(d.dup());
+                        }
+                        lst
+                    },
+                });
             }
-
-            Ok(rec)
+            Ok(unsafe { Box::from_raw(s.as_ptr()) })
         } else {
             ctx.JS_ThrowOutOfMemory();
             Err(-1)

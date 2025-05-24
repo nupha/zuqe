@@ -112,7 +112,7 @@ pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) 
     }
 }
 
-// JSAsyncFunctionState (used by generator and async functions)
+/// JSAsyncFunctionState (used by generator and async functions)
 pub unsafe fn async_func_init(
     ctx: *mut JSContext,
     func_obj: JSValueConst,

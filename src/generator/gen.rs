@@ -55,20 +55,20 @@ pub unsafe fn js_generator_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
+    let func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
+    if func_state.is_null() {
+        return JSValue::EXCEPTION;
+    }
+
     let mut s = if let Some(p) = js_malloc_typed::<JSGeneratorData>(ctx, 1, true) {
-        // FIXME: write init value
+        p.write(JSGeneratorData {
+            state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
+            func_state,
+        });
         Box::from_raw(p.as_ptr())
     } else {
         return JSValue::EXCEPTION;
     };
-
-    s.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START;
-
-    s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
-    if s.func_state.is_null() {
-        s.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
-        return JSValue::EXCEPTION;
-    }
 
     // execute the function up to 'OP_initial_yield'
     let func_ret = async_func_resume(ctx, s.func_state);
@@ -92,16 +92,6 @@ pub unsafe fn js_generator_function_call(
             JSValue::EXCEPTION
         }
     }
-
-    // let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_GENERATOR);
-    // if obj.is_exception() {
-    //     s.free_generator_stack_rt(ctx.rt_mut());
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // obj.object_unchecked().set_opaque(Box::into_raw(s).cast());
-
-    // obj
 }
 
 pub unsafe fn js_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {

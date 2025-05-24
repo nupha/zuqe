@@ -64,6 +64,7 @@ pub struct JSAsyncGeneratorRequest {
 }
 
 impl JSAsyncGeneratorData {
+    /// drop the generator data and all holding requests
     pub fn dispose(mut self: Box<Self>, rt: &mut JSRuntime) {
         unsafe {
             list_foreach_safe(&mut self.queue, |el| {
@@ -115,21 +116,25 @@ impl AsyncGeneratorValue {
         argv: *const JSValue,
         flags: i32,
     ) -> JSValue {
-        let mut s = if let Some(p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
-            // FIXME: write() init value
+        let o = JSAsyncGeneratorData {
+            generator: std::ptr::null_mut(), // unkown for now
+            state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
+            func_state: {
+                let st = async_func_init(ctx, func_obj, this_obj, argc, argv);
+                if st.is_null() {
+                    return JSValue::EXCEPTION;
+                }
+                st
+            },
+            queue: list_head::default(),
+        };
+        let s = if let Some(mut p) = js_malloc_typed::<JSAsyncGeneratorData>(ctx, 1, true) {
+            p.write(o);
+            init_list_head(&mut p.as_mut().queue);
             Box::from_raw(p.as_ptr())
         } else {
             return JSValue::EXCEPTION;
         };
-
-        s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START;
-        init_list_head(&mut s.queue);
-
-        s.func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
-        if s.func_state.is_null() {
-            s.dispose(ctx.rt_mut());
-            return JSValue::EXCEPTION;
-        }
 
         // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
         let func_ret = async_func_resume(ctx, s.func_state);
@@ -139,10 +144,12 @@ impl AsyncGeneratorValue {
         }
         JS_FreeValue(ctx, func_ret);
 
+        // create AsyncGenerator instance
         match ctx.create_instance(func_obj, JSObjectIsa::ASYNC_GENERATOR(Box::into_raw(s))) {
             Ok(obj) => {
                 let ob = obj.object_unchecked();
                 let obptr = ob as *mut JSObject;
+                // fix generator field.
                 if let JSObjectIsa::ASYNC_GENERATOR(s) = ob.isa_mut() {
                     (*s).as_mut().unwrap().generator = obptr;
                 } else {
@@ -158,12 +165,6 @@ impl AsyncGeneratorValue {
                 JSValue::EXCEPTION
             }
         }
-
-        // let obj = js_create_from_ctor(ctx, func_obj, JS_CLASS_ASYNC_GENERATOR);
-        // let ob = obj.object_unchecked();
-        // s.generator = ob;
-        // ob.set_opaque(Box::into_raw(s).cast());
-        // obj
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {

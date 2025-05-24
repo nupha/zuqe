@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{pin::Pin, ptr::NonNull};
 
 use crate::{
     container_of,
@@ -22,18 +22,20 @@ use super::{async_func_free, JSAsyncFunctionState};
 pub struct JSVarRef {
     pub u0: JSVarRefHeaderOrGCFields,
 
-    // 一个指向 JSValue 的指针。这个字段有两个主要用途：
-    // 1. 变量值的定位 ：
-    //    - 当变量在栈上时（未分离状态）， pvalue 指向栈上的变量值位置（ var_buf 或 arg_buf ）
-    //    - 当变量被分离时（detached = true）， pvalue 指向 JSVarRef 结构体内部的 value_or_links.value 字段
-    // 2. 闭包变量访问 ：
-    //    - 它允许闭包函数访问外部作用域的变量
-    //    - 通过这个指针可以实现对变量的读写操作，无论变量实际存储在栈上还是已经被分离到堆上
+    /// 一个指向 JSValue 的指针。这个字段有两个主要用途：
+    /// 1. 变量值的定位 ：
+    ///    - 当变量在栈上时（未分离状态）， pvalue 指向栈上的变量值位置（ var_buf 或 arg_buf ）
+    ///    - 当变量被分离时（detached = true）， pvalue 指向 JSVarRef 结构体内部的 value_or_links.value 字段
+    /// 2. 闭包变量访问 ：
+    ///    - 它允许闭包函数访问外部作用域的变量
+    ///    - 通过这个指针可以实现对变量的读写操作，无论变量实际存储在栈上还是已经被分离到堆上
+    ///
+    /// SAFETY: 此指针可能指向自引用(value_or_links.value)，所以必须Pin
     pub pvalue: *mut JSValue,
 
-    // 联合体，根据变量是否被分离(detached)有不同用途：
-    // - 当变量被分离时：存储实际的 JSValue 值
-    // - 当变量未被分离时：存储链表节点信息和异步函数状态指针
+    /// 根据变量是否被分离(detached)有不同用途：
+    /// - 当变量被分离时：存储实际的 JSValue 值
+    /// - 当变量未被分离时：存储链表节点信息和异步函数状态指针
     pub value_or_links: JSVarRefValueOrLinks,
 }
 
@@ -204,6 +206,9 @@ impl JSStackFrame {
         } else {
             return Err(-1);
         };
+
+        // FIXME: should Pin
+        // let var_ref = Pin::new(var_ref);
 
         var_ref.set_detached(false);
         var_ref.set_var_idx(var_idx);
