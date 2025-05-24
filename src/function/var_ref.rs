@@ -1,4 +1,4 @@
-use std::{pin::Pin, ptr::NonNull};
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     container_of,
@@ -29,14 +29,15 @@ pub struct JSVarRef {
     /// 2. 闭包变量访问 ：
     ///    - 它允许闭包函数访问外部作用域的变量
     ///    - 通过这个指针可以实现对变量的读写操作，无论变量实际存储在栈上还是已经被分离到堆上
-    ///
-    /// SAFETY: 此指针可能指向自引用(value_or_links.value)，所以必须Pin
     pub pvalue: *mut JSValue,
 
     /// 根据变量是否被分离(detached)有不同用途：
     /// - 当变量被分离时：存储实际的 JSValue 值
     /// - 当变量未被分离时：存储链表节点信息和异步函数状态指针
     pub value_or_links: JSVarRefValueOrLinks,
+
+    /// SAFETY: pvalue指针可能指向自引用(value_or_links.value)，所以!Unpin
+    _mark: PhantomPinned,
 }
 
 // #[cfg(debug_assertions)]
@@ -199,6 +200,7 @@ impl JSStackFrame {
                 value_or_links: JSVarRefValueOrLinks {
                     value: JSValue::UNDEFINED,
                 },
+                _mark: PhantomPinned,
             });
 
             init_list_head(&mut p.as_mut().u0.header.link);

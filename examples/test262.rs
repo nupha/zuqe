@@ -22,7 +22,7 @@ use zhuque::{
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
     value::{
-        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, StringContent,
+        object::JS_PROP_C_W_E, JSValue, JSValueConst, JSValueRc, JS_FreeValue, StringContent,
         JS_TAG_EXCEPTION, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG,
     },
@@ -105,7 +105,7 @@ fn setup_ctx_helpers(mut ctx: JSContextHandle) -> Result<JSValue, i32> {
     }
 
     // $262
-    let obj262 = ctx.create_object()?;
+    let obj262 = ctx.create_base_object()?;
 
     {
         let f = ctx.create_native_function(
@@ -305,7 +305,7 @@ fn run_test_content(
     eval_flags: u32,
     is_async: bool,
 ) -> Result<(), JSValue> {
-    let mut ret_val: zhuque::value::JSValueRc = ctx
+    let mut ret_val: JSValueRc = ctx
         .eval(
             CString::new(content).unwrap().as_c_str(),
             filename.as_os_str().to_str().unwrap(),
@@ -317,7 +317,7 @@ fn run_test_content(
     let async_done = 0; // counter of "Test262:AsyncTestComplete" messages
 
     if ret_promise && !ret_val.is_exception() {
-        // ret_val is Promise
+        // ret_val is Promise, execute pending jobs
         loop {
             match ctx.rt_mut().execute_pending_job() {
                 Ok((None, false)) => {
@@ -553,12 +553,20 @@ fn main() {
         .open("test262-result.txt")
         .unwrap();
 
-    // run_test_file(&Path::new("./tests/test-harness.js"), false, &mut fp);
-    // fp.flush().unwrap();
+    run_test_file(
+        &Path::new(
+            "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js", // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-incorrect-ctor.js",
+        ),
+        true,
+        &mut fp,
+    );
+    fp.flush().unwrap();
 
-    for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
-        let fname = fname.unwrap();
-        run_test_file(&fname, true, &mut fp);
-        fp.flush().unwrap();
-    }
+    // for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
+    //     let fname = fname.unwrap();
+    //     if fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
+    //         run_test_file(&fname, true, &mut fp);
+    //         fp.flush().unwrap();
+    //     }
+    // }
 }
