@@ -710,7 +710,7 @@ pub unsafe fn JS_SetPrototypeInternal(
 
     if p.as_mut()
         .unwrap()
-        .js_shape_prepare_update(ctx, std::ptr::null_mut())
+        .shape_prepare_update(ctx, std::ptr::null_mut())
         != 0
     {
         return Err(-1);

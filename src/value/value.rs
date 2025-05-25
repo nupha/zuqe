@@ -327,14 +327,15 @@ impl JSValue {
 
     /// increase value refcount
     #[inline(always)]
-    pub fn dup(self) -> Self {
-        if JS_VALUE_HAS_REF_COUNT(self) {
-            match JS_VALUE_GET_TAG(self) {
+    pub fn dup(&self) -> Self {
+        let v = *self;
+        if JS_VALUE_HAS_REF_COUNT(v) {
+            match JS_VALUE_GET_TAG(v) {
                 JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
-                    Rc::increment_strong_count(self.string());
+                    Rc::increment_strong_count(v.string());
                 },
                 _ => {
-                    let p = JS_VALUE_GET_PTR(self).cast::<JSRefCountHeader>();
+                    let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
                     unsafe {
                         p.as_mut().unwrap().ref_count += 1;
                     }
@@ -342,7 +343,7 @@ impl JSValue {
             }
         }
 
-        self
+        v
     }
 
     /// get value refcount

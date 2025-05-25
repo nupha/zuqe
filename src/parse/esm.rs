@@ -8,8 +8,8 @@ use crate::{
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::js_resize_array,
     module::{
-        add_req_module_entry, find_export_entry, JSExportEntry, JSExportEntry_u, JSExportTypeEnum,
-        JSImportEntry, JSModuleDef,
+        add_req_module_entry, find_export_entry, JSExportEntry, JSExportEntry_u_local,
+        JSExportTypeEnum, JSImportEntry, JSModuleDef,
     },
 };
 
@@ -312,8 +312,12 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     m,
                     local_name,
                     export_name,
-                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
+                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                        var_idx: u16::MAX, // unknown for now
+                        var_ref: None,
+                    },
                 );
+
                 JS_FreeAtom(ctx.as_ptr(), local_name);
                 JS_FreeAtom(ctx.as_ptr(), export_name);
                 if me.is_null() {
@@ -335,8 +339,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 }
 
                 for me in &mut (*m).export_entries[first_export..] {
-                    me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT;
-                    me.u.req_module_idx = idx;
+                    me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx);
                 }
             }
         }
@@ -365,13 +368,12 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 m,
                 JS_ATOM__star_,
                 export_name,
-                JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT,
+                JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx),
             );
             JS_FreeAtom(ctx.as_ptr(), export_name);
             if me.is_null() {
                 return -1;
             }
-            (*me).u.req_module_idx = idx;
         }
 
         TOK_DEFAULT => {
@@ -418,7 +420,10 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 m,
                 local_name,
                 JS_ATOM_default,
-                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
+                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                    var_idx: u16::MAX, // unknown for now
+                    var_ref: None,
+                },
             )
             .is_null()
             {
@@ -475,7 +480,6 @@ pub unsafe fn add_export_entry2(
         export_type,
         local_name: local_name.dup((*ctx).rt()),
         export_name: export_name.dup((*ctx).rt()),
-        u: JSExportEntry_u { req_module_idx: 0 },
     });
 
     let ptr = me.as_mut() as *mut _;

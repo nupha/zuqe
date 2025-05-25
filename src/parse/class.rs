@@ -712,7 +712,10 @@ pub unsafe fn js_parse_class(
             } else {
                 JS_ATOM_default
             },
-            JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
+            JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                var_idx: u16::MAX,
+                var_ref: None,
+            },
         )
         .is_null()
         {

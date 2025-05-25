@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{cell::RefCell, pin::Pin, ptr::NonNull, rc::Rc};
 
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
@@ -145,7 +145,7 @@ pub unsafe fn js_op_define_class(
     sp: *mut JSValue,
     class_name: JSAtom,
     class_flags: i32,
-    cur_var_refs: &[NonNull<JSVarRef>],
+    cur_var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
     sf: *mut JSStackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {

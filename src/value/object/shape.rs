@@ -104,6 +104,7 @@ impl JSShape {
     /// if provided, should ensure this object has enough property value slots capacity.
     ///
     /// Note: `atom`, `obj` are not consumed.
+    /// TODO: rename to add_property_defination
     pub fn add_shape_property(
         &mut self,
         ctx: &mut JSContext,
@@ -149,8 +150,13 @@ impl JSShape {
         self.has_small_array_index |= atom.is_int_type();
 
         #[cfg(debug_assertions)]
-        if let Some(o) = obj.as_deref() {
-            debug_assert_eq!(self.props.len(), o.prop_values.len())
+        {
+            if prop_flags & JS_PROP_LENGTH != 0 {
+                debug_assert_eq!(self.props.len(), 1, "length property must be indexed 0")
+            }
+            if let Some(o) = obj.as_deref() {
+                debug_assert_eq!(self.props.len(), o.prop_values.len())
+            }
         }
 
         Ok(())
@@ -539,14 +545,13 @@ impl JSContext {
             return Err(isa);
         }
 
-        prop_values.extend(std::iter::repeat_n(
-            JSProperty {
+        for _ in 0..prop_count {
+            prop_values.push(JSProperty {
                 u: JSPropertyUnion {
                     value: JSValue::UNDEFINED,
                 },
-            },
-            prop_count,
-        ));
+            })
+        }
 
         // alloc JSObject
         let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
@@ -596,11 +601,11 @@ impl JSContext {
                 obj.detailed.set_exotic(true);
                 obj.detailed.set_fast_array(true);
 
-                // for Array: the length property is always the first one
+                // Array: the length property is always at index 0
                 let pr0: *mut JSProperty = if shape.as_ptr() == self.array_shape {
                     obj.prop_values.first_mut().unwrap()
                 } else {
-                    // only used for the first array, cannot fail
+                    // only used for the fast array, cannot fail
                     obj.add_property(self, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)
                         .unwrap()
                 };
@@ -685,14 +690,13 @@ impl JSContext {
             return Err(-1);
         }
 
-        prop_values.extend(std::iter::repeat_n(
-            JSProperty {
+        for _ in 0..prop_count {
+            prop_values.push(JSProperty {
                 u: JSPropertyUnion {
                     value: JSValue::UNDEFINED,
                 },
-            },
-            prop_count,
-        ));
+            });
+        }
 
         // alloc JSObject
         let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
@@ -926,8 +930,8 @@ pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
 // }
 
 impl JSObject {
-    /// ensure that the shape can be safely modified
-    pub unsafe fn js_shape_prepare_update(
+    /// ensure that the shape can be safely modified.
+    pub unsafe fn shape_prepare_update(
         &mut self,
         ctx: *mut JSContext,
         pprs: *mut *mut JSShapeProperty,
@@ -964,4 +968,13 @@ impl JSObject {
 
         0
     }
+}
+
+#[deprecated(note = "use JSObject::shape_prepare_update() instead")]
+pub unsafe fn js_shape_prepare_update(
+    ctx: *mut JSContext,
+    p: *mut JSObject,
+    pprs: *mut *mut JSShapeProperty,
+) -> i32 {
+    (*p).shape_prepare_update(ctx, pprs)
 }

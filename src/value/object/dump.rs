@@ -165,7 +165,7 @@ impl JSObject {
                             print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
                         }
                         JS_PROP_VARREF => {
-                            print!("[varref {:p}]", pr.u.var_ref);
+                            print!("[varref {:p}]", pr.u.var_ref.as_ptr());
                         }
                         JS_PROP_AUTOINIT => {
                             print!(
@@ -195,7 +195,7 @@ impl JSObject {
                 print!(" Closure:");
                 for vr in func.var_refs.iter() {
                     print!(" ");
-                    (*vr.as_ref().pvalue).repr(rt);
+                    (*vr.as_ref().borrow().pvalue).repr(rt);
                 }
 
                 if !func.home_object.is_null() {

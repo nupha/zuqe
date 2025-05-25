@@ -8,7 +8,6 @@ use crate::{
 
 use super::{
     super::{JSValue, JS_FreeValue},
-    free_property,
     obj::JS_ToObject,
     JSObject, JSShapeProperty, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
 };
@@ -27,7 +26,7 @@ impl JSObject {
             }
 
             let mut prs = prs as *mut JSShapeProperty;
-            if unsafe { self.js_shape_prepare_update(ctx, std::ptr::addr_of_mut!(prs)) } != 0 {
+            if unsafe { self.shape_prepare_update(ctx, std::ptr::addr_of_mut!(prs)) } != 0 {
                 return Err(-1);
             }
 
@@ -38,16 +37,12 @@ impl JSObject {
 
         if let Some((idx, flags)) = idx_and_flags {
             // remove and free property value
-            let mut val = self.prop_values.remove(idx);
-            unsafe {
-                free_property((*ctx).rt_mut(), &mut val, flags);
-            }
+            let val = self.prop_values.remove(idx);
+            val.dispose((*ctx).rt_mut(), flags);
 
             // remove shape property of current self.shape
             let prs = self.shape_mut().unwrap().props.shift_remove(&prop).unwrap();
-            unsafe {
-                JS_FreeAtom(ctx, prs.atom);
-            }
+            JS_FreeAtom(ctx, prs.atom);
 
             return Ok(true);
         }

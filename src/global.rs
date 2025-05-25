@@ -98,8 +98,9 @@ pub unsafe fn JS_DefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, def_flags: u
     }
 }
 
-// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
-// XXX: could support exotic global object.
+/// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
+/// `func` is not consumed.
+/// XXX: could support exotic global object.
 pub unsafe fn JS_DefineGlobalFunction(
     ctx: *mut JSContext,
     prop: JSAtom,
@@ -122,6 +123,8 @@ pub unsafe fn JS_DefineGlobalFunction(
             | JS_PROP_HAS_ENUMERABLE;
     }
 
+    println!("======== [O.o] func refcount={:?}", func.ref_count());
+
     if (*ctx)
         .global_obj
         .define_property(
@@ -136,6 +139,8 @@ pub unsafe fn JS_DefineGlobalFunction(
     {
         return -1;
     }
+
+    println!("[O.o] func refcount2={:?}", func.ref_count());
 
     0
 }

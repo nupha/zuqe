@@ -1,4 +1,4 @@
-use std::mem::ManuallyDrop;
+use std::{mem::ManuallyDrop, rc::Rc};
 
 use crate::{
     array::JSObjectArray,
@@ -92,20 +92,17 @@ pub unsafe fn js_build_mapped_arguments(
     for i in 0..arg_count {
         match sf.get_var_ref(ctx, i as _, true) {
             Ok(var_ref) => {
-                let pr = if let Ok(x) = p.add_property(
+                if let Ok(pr) = p.add_property(
                     ctx,
                     JSAtom::from_u32(i as u32),
                     JS_PROP_C_W_E | JS_PROP_VARREF,
                 ) {
-                    x
+                    (*pr).u.var_ref = ManuallyDrop::new(var_ref);
                 } else {
-                    if let Some(vr) = Box::from_raw(var_ref.as_ptr()).free((*ctx).rt_mut()) {
-                        Box::leak(vr);
-                    }
+                    debug_assert!(Rc::strong_count(&var_ref) > 1);
                     JS_FreeValue(ctx, val);
                     return JSValue::EXCEPTION;
-                };
-                (*pr).u.var_ref = var_ref.as_ptr();
+                }
             }
             Err(_) => {
                 JS_FreeValue(ctx, val);

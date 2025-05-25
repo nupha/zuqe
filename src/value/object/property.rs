@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use std::{cell::RefCell, ffi::c_void, mem::ManuallyDrop, ops::DerefMut, pin::Pin, rc::Rc};
 
 use crate::{
     atom::{JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
@@ -103,17 +103,15 @@ pub struct JSPropertyDescriptor {
     pub setter: JSValue,
 }
 
-#[derive(Clone, Copy)]
 pub struct JSProperty {
     pub u: JSPropertyUnion,
 }
 
-#[derive(Clone, Copy)]
 pub union JSPropertyUnion {
-    pub value: JSValue,           // JS_PROP_NORMAL
-    pub getset: JSPropertyGetSet, // JS_PROP_GETSET
-    pub var_ref: *mut JSVarRef,   // JS_PROP_VARREF, TODO: use NonNull<JSVarRef>
-    pub init: JSPropertyAutoInit, // JS_PROP_AUTOINIT
+    pub value: JSValue,                                         // JS_PROP_NORMAL
+    pub getset: JSPropertyGetSet,                               // JS_PROP_GETSET
+    pub var_ref: ManuallyDrop<Rc<RefCell<Pin<Box<JSVarRef>>>>>, // TODO: manally drop this!
+    pub init: JSPropertyAutoInit,                               // JS_PROP_AUTOINIT
 }
 
 #[derive(Clone, Copy)]
@@ -122,12 +120,94 @@ pub struct JSPropertyGetSet {
     pub setter: *mut JSObject, // NULL if undefined
 }
 
+impl Default for JSPropertyGetSet {
+    fn default() -> Self {
+        Self {
+            getter: std::ptr::null_mut(),
+            setter: std::ptr::null_mut(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct JSPropertyAutoInit {
     /// realm and init_id (JS_AUTOINIT_ID_x) in the 2 low bits
     pub realm_and_id: usize,
     // opaque pointer
     pub opaque: *mut c_void,
+}
+
+impl JSProperty {
+    /// unset property value type.
+    /// after calling this method, the property is in unknown type.
+    pub(crate) unsafe fn unset_value(&mut self, ctx: &mut JSContext) {
+        JS_FreeValue(ctx, self.u.value);
+    }
+
+    /// unset property getset type.
+    /// after calling this method, the property is in unknown type.
+    pub(crate) unsafe fn unset_getset(&mut self, ctx: &mut JSContext) {
+        if !self.u.getset.getter.is_null() {
+            JS_FreeValue(ctx, JS_MKPTR!(JSTag::Object, self.u.getset.getter.cast()));
+        }
+        if !self.u.getset.setter.is_null() {
+            JS_FreeValue(ctx, JS_MKPTR!(JSTag::Object, self.u.getset.setter.cast()));
+        }
+    }
+
+    /// unset property var_ref type.
+    /// decreament var_ref, if ref count reaches zero, do var ref cleanup.
+    /// after calling this method, the property is in unknown type.
+    /// must ensure the property is var_ref union type.
+    pub(crate) unsafe fn unset_var_ref(&mut self, ctx: &mut JSContext) {
+        if Rc::strong_count(&self.u.var_ref) == 1 {
+            // var_ref should be dropped, do clean up, but not real dealloc because it's a union.
+            self.u
+                .var_ref
+                .borrow_mut()
+                .as_mut()
+                .get_unchecked_mut()
+                .before_drop_clean_up(ctx.rt_mut());
+        } else {
+            // decrement var_ref
+            Rc::decrement_strong_count((*self.u.var_ref).as_ptr());
+        }
+    }
+
+    pub fn dispose(self, rt: &mut JSRuntime, prop_flags: u32) {
+        if prop_flags & JS_PROP_TMASK != 0 {
+            match prop_flags & JS_PROP_TMASK {
+                JS_PROP_GETSET => unsafe {
+                    if !self.u.getset.getter.is_null() {
+                        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.u.getset.getter.cast()));
+                    }
+                    if !self.u.getset.setter.is_null() {
+                        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.u.getset.setter.cast()));
+                    }
+                },
+                JS_PROP_VARREF => {
+                    if let Some(vr) =
+                        Rc::into_inner(ManuallyDrop::into_inner(unsafe { self.u.var_ref }))
+                            .map(RefCell::into_inner)
+                    {
+                        // is last reference, call clean up before drop
+                        unsafe {
+                            let mut p = Pin::into_inner_unchecked(vr);
+                            p.deref_mut().before_drop_clean_up(rt);
+                        }
+                    }
+                }
+                JS_PROP_AUTOINIT => unsafe {
+                    js_autoinit_free(rt, &self);
+                },
+                _ => {}
+            }
+        } else {
+            unsafe {
+                JS_FreeValueRT(rt, self.u.value);
+            }
+        }
+    }
 }
 
 #[deprecated(note = "use JSValue::has_property() instead")]
@@ -145,20 +225,19 @@ impl JSObject {
     /// Returns error if memory allocation fails.
     pub(super) fn grow_prop_value_slots(&mut self, new_length: usize) -> Result<(), i32> {
         if new_length > self.prop_values.len() {
-            let grow = new_length - self.prop_values.len();
-            if self.prop_values.try_reserve_exact(grow).is_err() {
+            let delta = new_length - self.prop_values.len();
+            if self.prop_values.try_reserve_exact(delta).is_err() {
                 return Err(-1);
             }
 
-            // init extended elements to `undefined` jsvalue
-            self.prop_values.extend(std::iter::repeat_n(
-                JSProperty {
+            // init extended elements to undefined
+            for _ in 0..delta {
+                self.prop_values.push(JSProperty {
                     u: JSPropertyUnion {
                         value: JSValue::UNDEFINED,
                     },
-                },
-                grow,
-            ));
+                });
+            }
         }
 
         Ok(())
@@ -174,7 +253,7 @@ impl JSObject {
         flags: u32,
     ) -> i32 {
         if flags != (*(*pprs)).flags() {
-            if self.js_shape_prepare_update(ctx, pprs) != 0 {
+            if self.shape_prepare_update(ctx, pprs) != 0 {
                 return -1;
             }
             (*(*pprs)).set_flags(flags);
@@ -377,30 +456,33 @@ impl JSValue {
     }
 }
 
+#[deprecated(note = "use JSProperty::dispose() instead")]
 pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags: u32) {
-    if unlikely(prop_flags & JS_PROP_TMASK != 0) {
-        match prop_flags & JS_PROP_TMASK {
-            JS_PROP_GETSET => {
-                if !(*pr).u.getset.getter.is_null() {
-                    JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()));
-                }
-                if !(*pr).u.getset.setter.is_null() {
-                    JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()));
-                }
-            }
-            JS_PROP_VARREF => {
-                if let Some(vr) = Box::from_raw((*pr).u.var_ref).free(rt) {
-                    std::mem::forget(vr);
-                }
-            }
-            JS_PROP_AUTOINIT => {
-                js_autoinit_free(rt, pr);
-            }
-            _ => {}
-        }
-    } else {
-        JS_FreeValueRT(rt, (*pr).u.value);
-    }
+    unreachable!("use JSProperty::dispose() instead");
+
+    // if unlikely(prop_flags & JS_PROP_TMASK != 0) {
+    //     match prop_flags & JS_PROP_TMASK {
+    //         JS_PROP_GETSET => {
+    //             if !(*pr).u.getset.getter.is_null() {
+    //                 JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()));
+    //             }
+    //             if !(*pr).u.getset.setter.is_null() {
+    //                 JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()));
+    //             }
+    //         }
+    //         JS_PROP_VARREF => {
+    //             if let Some(vr) = Box::from_raw((*pr).u.var_ref).free(rt) {
+    //                 std::mem::forget(vr);
+    //             }
+    //         }
+    //         JS_PROP_AUTOINIT => {
+    //             js_autoinit_free(rt, pr);
+    //         }
+    //         _ => {}
+    //     }
+    // } else {
+    //     JS_FreeValueRT(rt, (*pr).u.value);
+    // }
 }
 
 /// Computes the effective property flags by combining input flags with default flags
@@ -483,7 +565,7 @@ pub unsafe fn JS_AutoInitProperty(
     pr: *mut JSProperty,
     mut prs: *mut JSShapeProperty,
 ) -> i32 {
-    if (*p).js_shape_prepare_update(ctx, &mut prs) != 0 {
+    if (*p).shape_prepare_update(ctx, &mut prs) != 0 {
         return -1;
     }
 
@@ -553,7 +635,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                             }
                         }
                         JS_PROP_VARREF => {
-                            let val = *(*pr.u.var_ref).pvalue;
+                            let val = *(*pr.u.var_ref).borrow().pvalue;
                             if unlikely(JS_IsUninitialized(val)) {
                                 JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                                 return -1;
@@ -575,7 +657,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
             } else {
                 /* for consistency, send the exception even if desc is NULL */
                 if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
-                    if JS_IsUninitialized(*(*pr.u.var_ref).pvalue) {
+                    if JS_IsUninitialized(*(pr.u.var_ref).borrow().pvalue) {
                         JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                         return -1;
                     }

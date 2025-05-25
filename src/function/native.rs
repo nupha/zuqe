@@ -326,7 +326,7 @@ impl NativeFunctionValue {
             var_count: 0,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
-            var_ref_list: list_head::default(),
+            var_ref_list: Vec::new(),
             js_mode: 0,
         };
 

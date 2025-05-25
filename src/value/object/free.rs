@@ -1,5 +1,3 @@
-use std::mem::ManuallyDrop;
-
 use crate::{
     gc::{remove_gc_object, JSGCPhaseEnum},
     runtime::JSRuntime,
@@ -9,7 +7,7 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
-use super::{free_property, JSObject, JSShape};
+use super::{JSObject, JSShape};
 
 impl JSObject {
     /// Safely frees a GC object, releasing all associated resources.
@@ -29,8 +27,8 @@ impl JSObject {
         let sh = (*p).shape_mut().unwrap();
 
         // free all prop values
-        for (prs, mut v) in sh.props.values().zip((*p).prop_values.drain(..)) {
-            free_property(rt, &mut v, prs.flags());
+        for (prs, v) in sh.props.values().zip((*p).prop_values.drain(..)) {
+            v.dispose(rt, prs.flags());
         }
 
         // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list

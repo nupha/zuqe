@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{cell::RefCell, pin::Pin, ptr::NonNull, rc::Rc};
 
 use fallible_collections::FallibleVec;
 
@@ -219,7 +219,7 @@ impl JSFunctionDef {
 pub unsafe fn js_closure(
     ctx: *mut JSContext,
     bfunc: JSValue,
-    cur_var_refs: &[NonNull<JSVarRef>],
+    cur_var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
@@ -307,7 +307,7 @@ pub unsafe fn js_closure2(
     ctx: *mut JSContext,
     func_obj: JSValue,
     b: *mut JSFunctionBytecode,
-    cur_var_refs: &[NonNull<JSVarRef>],
+    cur_var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     let func = func_obj.object_unchecked().isa_mut().func_mut().unwrap();
@@ -341,9 +341,7 @@ pub unsafe fn js_closure2(
                 };
                 vr
             } else {
-                let mut vr = cur_var_refs[cv.var_idx as usize];
-                vr.as_mut().u0.header.ref_count += 1;
-                vr
+                cur_var_refs[cv.var_idx as usize].clone()
             };
 
             func.var_refs.push(vr);

@@ -1,9 +1,13 @@
 use std::{
+    cell::RefCell,
     cmp::Ordering,
     ffi::{c_void, CStr},
-    ops::Deref,
+    marker::PhantomPinned,
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
     path::PathBuf,
-    ptr::NonNull,
+    pin::Pin,
+    rc::Rc,
 };
 
 use crate::{
@@ -197,19 +201,6 @@ impl JSModuleDef {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JSExportTypeEnum {
-    JS_EXPORT_TYPE_LOCAL,
-    JS_EXPORT_TYPE_INDIRECT,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExportedNameEntryEnum {
-    EXPORTED_NAME_AMBIGUOUS,
-    EXPORTED_NAME_NORMAL,
-    EXPORTED_NAME_NS,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JSResolveResultEnum {
     JS_RESOLVE_RES_EXCEPTION = -1, /* memory alloc error */
     JS_RESOLVE_RES_FOUND = 0,
@@ -218,21 +209,19 @@ pub enum JSResolveResultEnum {
     JS_RESOLVE_RES_AMBIGUOUS,
 }
 
-#[repr(C)]
+#[derive(Debug, Clone)]
+pub enum ExportedNameEntryEnum {
+    EXPORTED_NAME_AMBIGUOUS,
+    EXPORTED_NAME_NORMAL(Rc<RefCell<Pin<Box<JSVarRef>>>>),
+    EXPORTED_NAME_NS(*mut JSModuleDef),
+}
+
 pub struct ExportedNameEntry {
     pub export_name: JSAtom,
     pub export_type: ExportedNameEntryEnum,
-    pub u: ExportedNameEntryUnion,
-}
 
-#[repr(C)]
-pub union ExportedNameEntryUnion {
-    pub me: *mut JSExportEntry, /* using when the list is built */
-
-    // TODO: NonNull<JSVarRef>
-    pub var_ref: *mut JSVarRef, /* EXPORTED_NAME_NORMAL */
-
-    pub module: *mut JSModuleDef, /* for EXPORTED_NAME_NS */
+    /// using when the list is built
+    pub me: *mut JSExportEntry,
 }
 
 #[repr(C)]
@@ -254,32 +243,34 @@ pub struct JSReqModuleEntry {
     pub module: *mut JSModuleDef, /* used using resolution */
 }
 
+#[derive(Debug, Clone)]
+pub enum JSExportTypeEnum {
+    JS_EXPORT_TYPE_LOCAL {
+        var_idx: u16,
+        var_ref: Option<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
+    },
+
+    /// indirect export with req_module_idx
+    JS_EXPORT_TYPE_INDIRECT(i32),
+}
+
 #[repr(C)]
 pub struct JSExportEntry {
-    pub u: JSExportEntry_u,
     pub export_type: JSExportTypeEnum,
-    // '*' if export ns from. not used for local export after compilation
+
+    /// '*' if export ns from. not used for local export after compilation
     pub local_name: JSAtom,
-    // exported variable name
+
+    /// exported variable name
     pub export_name: JSAtom,
 }
 
-#[repr(C)]
-pub union JSExportEntry_u {
-    // for local export
-    pub local: JSExportEntry_u_local,
-    // module for indirect export
-    pub req_module_idx: i32,
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
+#[derive(Clone)]
 pub struct JSExportEntry_u_local {
-    // closure variable index
+    /// closure variable index
     pub var_idx: u16,
-    // if != NULL, reference to the variable
-    // TODO use Option<NonNull<JSVarRef>>
-    pub var_ref: *mut JSVarRef,
+    /// if None, reference to the variable
+    pub var_ref: Option<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
 }
 
 #[repr(C)]
@@ -342,7 +333,7 @@ impl JSModuleDef {
 
             if let Some(j) = find_exported_name(s, me.export_name) {
                 let en = s.exported_names.add(j as usize).as_mut().unwrap();
-                en.u.me = std::ptr::null_mut();
+                en.me = std::ptr::null_mut();
             } else {
                 if js_resize_array(
                     ctx,
@@ -364,7 +355,11 @@ impl JSModuleDef {
                 en.export_name = me.export_name;
 
                 // avoid a second lookup for simple module exports
-                en.u.me = if from_star || me.export_type != JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                en.me = if from_star
+                    || !matches!(
+                        me.export_type,
+                        JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. }
+                    ) {
                     std::ptr::null_mut()
                 } else {
                     me.deref() as *const JSExportEntry as *mut JSExportEntry
@@ -405,9 +400,9 @@ impl JSModuleDef {
 
             let mut res_me = std::ptr::null_mut::<JSExportEntry>();
             let mut res_m = std::ptr::null_mut::<JSModuleDef>();
-            let res = if !en.u.me.is_null() {
+            let res = if !en.me.is_null() {
                 // fast case: no resolution needed
-                res_me = en.u.me;
+                res_me = en.me;
                 res_m = self;
                 JSResolveResultEnum::JS_RESOLVE_RES_FOUND
             } else {
@@ -423,21 +418,26 @@ impl JSModuleDef {
                 }
                 en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
             } else {
-                if (*res_me).local_name == JS_ATOM__star_ {
-                    en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS;
-                    en.u.module = (*(*res_m)
-                        .req_module_entries
-                        .add((*res_me).u.req_module_idx as usize))
-                    .module;
-                } else {
-                    en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL;
-                    if !(*res_me).u.local.var_ref.is_null() {
-                        en.u.var_ref = (*res_me).u.local.var_ref;
-                    } else {
-                        let p1 = (*res_m).func_obj.object_unchecked();
-                        en.u.var_ref = p1.isa().func().unwrap().var_refs
-                            [(*res_me).u.local.var_idx as usize]
-                            .as_ptr();
+                match (*res_me).export_type.clone() {
+                    JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                        if (*res_me).local_name == JS_ATOM__star_ {
+                            en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS(
+                                (*(*res_m).req_module_entries.add(req_module_idx as usize)).module,
+                            );
+                        }
+                    }
+                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
+                        debug_assert_ne!((*res_me).local_name, JS_ATOM__star_);
+                        debug_assert_ne!(var_idx, u16::MAX);
+
+                        en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NORMAL(
+                            if let Some(vr) = var_ref {
+                                vr
+                            } else {
+                                let p1 = (*res_m).func_obj.object_unchecked();
+                                p1.isa().func().unwrap().var_refs[var_idx as usize].clone()
+                            },
+                        );
                     }
                 }
             }
@@ -476,30 +476,28 @@ impl JSModuleDef {
         for i in 0..s.exported_names_count {
             let en = s.exported_names.add(i as usize).as_mut().unwrap();
 
-            match en.export_type {
-                ExportedNameEntryEnum::EXPORTED_NAME_NORMAL => {
-                    let var_ref = en.u.var_ref;
+            match &en.export_type {
+                ExportedNameEntryEnum::EXPORTED_NAME_NORMAL(var_ref) => {
                     if let Ok(pr) = p.add_property(
                         ctx,
                         en.export_name,
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
                     ) {
-                        (*var_ref).u0.header.ref_count += 1;
-                        (*pr).u.var_ref = var_ref;
+                        (*pr).u.var_ref = ManuallyDrop::new(var_ref.clone());
                     } else {
                         js_free(ctx, s.exported_names.cast());
                         JS_FreeValue(ctx, obj);
                         return Err(-1);
                     }
                 }
-                ExportedNameEntryEnum::EXPORTED_NAME_NS => {
+                ExportedNameEntryEnum::EXPORTED_NAME_NS(module) => {
                     // the exported namespace must be created on demand
                     if obj
                         .define_auto_init_property(
                             ctx,
                             en.export_name,
                             JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
-                            en.u.module.cast(),
+                            (*module).cast(),
                             JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                         )
                         .is_err()
@@ -581,33 +579,18 @@ pub unsafe fn js_free_module_def(ctx: *mut JSContext, m: *mut JSModuleDef) {
     js_free(ctx, (*m).req_module_entries.cast());
 
     for me in (*m).export_entries.drain(..) {
-        if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-            debug_assert!(!me.u.local.var_ref.is_null());
-            debug_assert!(me.u.local.var_ref.is_aligned());
+        if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
+            debug_assert!(var_ref.is_some());
 
-            if let Some(_) = Box::from_raw(me.u.local.var_ref).free((*ctx).rt_mut()) {
-                unreachable!();
-                // std::mem::forget(_vr);
+            if let Some(vr) = var_ref.and_then(Rc::into_inner) {
+                let mut p = Pin::into_inner_unchecked(vr.into_inner());
+                p.deref_mut().before_drop_clean_up((*ctx).rt_mut());
             }
         }
+
         JS_FreeAtom(ctx, me.export_name);
         JS_FreeAtom(ctx, me.local_name);
     }
-
-    // for i in 0..(*m).export_entries_count {
-    //     let me = (*m).export_entries.offset(i as isize);
-    //     debug_assert!(!me.is_null());
-
-    //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-    //         if let Some(vr) = Box::from_raw((*me).u.local.var_ref).free((*ctx).rt_mut()) {
-    //             unreachable!();
-    //             std::mem::forget(vr);
-    //         }
-    //     }
-    //     JS_FreeAtom(ctx, (*me).export_name);
-    //     JS_FreeAtom(ctx, (*me).local_name);
-    // }
-    // js_free(ctx, (*m).export_entries.cast());
 
     js_free(ctx, (*m).star_export_entries.cast());
 
@@ -804,25 +787,23 @@ pub unsafe fn js_resolve_export1(
     }
 
     if let Some(me) = find_export_entry(ctx, m, export_name) {
-        if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-            // local export
-            *pmodule = m;
-            *pme = me as *const JSExportEntry as *mut JSExportEntry;
-            return JSResolveResultEnum::JS_RESOLVE_RES_FOUND;
-        } else {
-            // indirect export
-            let m1 = (*(*m)
-                .req_module_entries
-                .offset((*me).u.req_module_idx as isize))
-            .module;
-
-            if (*me).local_name == JS_ATOM__star_ {
-                // export ns from
+        match me.export_type {
+            JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. } => {
                 *pmodule = m;
                 *pme = me as *const JSExportEntry as *mut JSExportEntry;
                 return JSResolveResultEnum::JS_RESOLVE_RES_FOUND;
-            } else {
-                return js_resolve_export1(ctx, pmodule, pme, m1, (*me).local_name, s);
+            }
+            JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                let m1 = (*(*m).req_module_entries.offset(req_module_idx as isize)).module;
+
+                return if (*me).local_name == JS_ATOM__star_ {
+                    // export ns from
+                    *pmodule = m;
+                    *pme = me as *const JSExportEntry as *mut JSExportEntry;
+                    JSResolveResultEnum::JS_RESOLVE_RES_FOUND
+                } else {
+                    js_resolve_export1(ctx, pmodule, pme, m1, (*me).local_name, s)
+                };
             }
         }
     } else {
@@ -939,9 +920,9 @@ pub unsafe fn add_module_variables(ctx: *mut JSContext, fd: *mut JSFunctionDef) 
 
     // resolve the variable names of the local exports
     for me in (*m).export_entries.iter_mut() {
-        if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+        if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, .. } = &mut me.export_type {
             if let Some(idx) = (*fd).find_closure_var(me.local_name) {
-                me.u.local.var_idx = idx;
+                *var_idx = idx;
             } else {
                 JS_ThrowSyntaxErrorAtom(
                     ctx,
@@ -952,22 +933,6 @@ pub unsafe fn add_module_variables(ctx: *mut JSContext, fd: *mut JSFunctionDef) 
             }
         }
     }
-
-    // for i in 0..(*m).export_entries_count {
-    //     let me = ((*m).export_entries).offset(i as isize);
-    //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-    //         if let Some(idx) = (*fd).find_closure_var((*me).local_name) {
-    //             (*me).u.local.var_idx = idx;
-    //         } else {
-    //             JS_ThrowSyntaxErrorAtom(
-    //                 ctx,
-    //                 c"exported variable '%s' does not exist",
-    //                 (*me).local_name,
-    //             );
-    //             return -1;
-    //         }
-    //     }
-    // }
 
     0
 }
@@ -1226,26 +1191,16 @@ pub unsafe fn js_create_module_function(ctx: *mut JSContext, m: *mut JSModuleDef
     if is_c_module {
         // initialize the exported variables
         for me in (*m).export_entries.iter_mut() {
-            if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                if let Ok(var_ref) = js_create_module_var(ctx, false) {
-                    me.u.local.var_ref = Box::into_raw(var_ref);
+            if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
+                if let Ok(vr) = js_create_module_var(ctx, false) {
+                    var_ref.replace(vr);
                 } else {
                     return -1;
                 }
             }
         }
-        // for i in 0..(*m).export_entries_count {
-        //     let me = (*m).export_entries.offset(i as isize);
-        //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-        //         if let Ok(var_ref) = js_create_module_var(ctx, false) {
-        //             (*me).u.local.var_ref = Box::into_raw(var_ref);
-        //         } else {
-        //             return -1;
-        //         }
-        //     }
-        // }
     } else {
-        if js_create_module_bytecode_function(ctx, m) != 0 {
+        if js_create_module_bytecode_function(ctx, m).is_err() {
             return -1;
         }
     }
@@ -1262,15 +1217,16 @@ pub unsafe fn js_create_module_function(ctx: *mut JSContext, m: *mut JSModuleDef
     0
 }
 
-pub unsafe fn js_create_module_var(
+pub fn js_create_module_var(
     ctx: *mut JSContext,
     is_lexical: bool,
-) -> Result<Box<JSVarRef>, i32> {
-    let mut var_ref = if let Some(p) = js_malloc_typed::<JSVarRef>(ctx, 1, true) {
+) -> Result<Rc<RefCell<Pin<Box<JSVarRef>>>>, i32> {
+    let var_ref = unsafe {
+        let mut p = js_malloc_typed::<JSVarRef>(ctx, 1, false).ok_or(-1)?;
+
         p.write(JSVarRef {
-            u0: JSVarRefHeaderOrGCFields {
-                header: JSGCObjectHeader::new(1),
-            },
+            var_idx: 0,
+            bitfield: 0,
             pvalue: std::ptr::null_mut(), // unknown for now
             value_or_links: JSVarRefValueOrLinks {
                 value: if is_lexical {
@@ -1279,85 +1235,88 @@ pub unsafe fn js_create_module_var(
                     JSValue::UNDEFINED
                 },
             },
+            _mark: PhantomPinned,
         });
+
+        // SAFETY: self referenced
+        p.as_mut().pvalue = std::ptr::addr_of_mut!(p.as_mut().value_or_links.value);
+        p.as_mut().set_detached(true);
+
+        // add_gc_object(
+        //     (*ctx).rt_mut(),
+        //     header,
+        //     JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
+        // );
+
         Box::from_raw(p.as_ptr())
-    } else {
-        return Err(-1);
     };
 
-    // Note: self reference. must use Pin
-    var_ref.pvalue = &mut (*var_ref).value_or_links.value;
-
-    init_list_head(&mut var_ref.u0.header.link);
-    add_gc_object(
-        (*ctx).rt_mut(),
-        &mut var_ref.u0.header,
-        JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
-    );
-
-    Ok(var_ref)
+    Ok(Rc::new(RefCell::new(Pin::from(var_ref))))
 }
 
 // Create the <eval> function associated with the module
-pub unsafe fn js_create_module_bytecode_function(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32 {
+pub unsafe fn js_create_module_bytecode_function(
+    ctx: *mut JSContext,
+    m: *mut JSModuleDef,
+) -> Result<(), i32> {
     let bfunc = (*m).func_obj;
     debug_assert_eq!(JS_VALUE_GET_TAG(bfunc), JS_TAG_FUNCTION_BYTECODE);
 
     // get bytecode
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
 
-    // create JS_CLASS_BYTECODE_FUNCTION object
-    let func_obj = if let Ok(o) =
-        (*ctx).create_object_with_proto_and_isa((*ctx).function_proto, || {
-            let mut var_refs = Vec::<NonNull<JSVarRef>>::new();
+    // make isa to instance
+    let isa = {
+        let mut var_refs = Vec::<Rc<RefCell<Pin<Box<JSVarRef>>>>>::new();
 
-            if (*b).closure_var_count != 0 {
-                if var_refs
-                    .try_reserve_exact((*b).closure_var_count as usize)
-                    .is_err()
-                {
+        if (*b).closure_var_count != 0 {
+            var_refs
+                .try_reserve_exact((*b).closure_var_count as usize)
+                .map_err(|_| {
                     (*ctx).JS_ThrowOutOfMemory();
-                    return Err(-1);
-                };
+                    -1
+                })?;
 
-                // create the global variables. The other variables are imported from other modules
-                for cv in (*b).closure_vars_slice() {
-                    if cv.is_local() {
-                        if let Ok(vr) = js_create_module_var(ctx, (*cv).is_lexical()) {
-                            #[cfg(DUMP_MODULE_RESOLVE)]
-                            println!("local {}: {:p}", i, var_ref);
+            // create the global variables.
+            // The other variables are imported from other modules
+            for cv in (*b).closure_vars_slice() {
+                if cv.is_local() {
+                    let vr = js_create_module_var(ctx, (*cv).is_lexical())?;
+                    #[cfg(DUMP_MODULE_RESOLVE)]
+                    println!("local {}: {:p}", i, var_ref);
 
-                            var_refs.push(NonNull::new(Box::into_raw(vr)).unwrap());
-                        } else {
-                            return Err(-1);
-                        }
-                    } else {
-                        // The other variables are imported from other modules.
-                        // Add slot with a placeholder.
-                        var_refs.push(NonNull::dangling());
-                    }
+                    var_refs.push(vr);
+                } else {
+                    // The other variables are imported from other modules.
+                    // Add slot with a placeholder.
+                    var_refs.push(Rc::new(RefCell::new(Box::pin(JSVarRef::PLACEHOLDER))));
                 }
             }
+        }
 
-            Ok(JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
-                function_bytecode: {
-                    (*b).header.ref_count += 1; // add ref count
-                    b
-                },
-                var_refs,
-                home_object: std::ptr::null_mut(),
-            }))
-        }) {
-        o
-    } else {
-        return -1;
+        JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
+            function_bytecode: {
+                (*b).header.ref_count += 1; // add ref count
+                b
+            },
+            var_refs,
+            home_object: std::ptr::null_mut(),
+        })
     };
 
-    // free old func_obj, set new func_obj for m
+    // create JS_CLASS_BYTECODE_FUNCTION object
+    let func_obj = (*ctx)
+        .create_object_with_proto_and_isa0((*ctx).function_proto, isa)
+        .map_err(|_| {
+            (*b).header.ref_count -= 1;
+            -1
+        })?;
+
+    // free old func_obj, set with new func_obj
     JS_FreeValue(ctx, bfunc);
     (*m).func_obj = func_obj;
 
-    0
+    Ok(())
 }
 
 // Prepare a module to be executed by resolving all the imported
@@ -1489,37 +1448,19 @@ pub unsafe fn js_inner_module_linking(
 
     // check the indirect exports
     for me in (*m).export_entries.iter_mut() {
-        if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT
-            && me.local_name != JS_ATOM__star_
-        {
-            let mut res_me: *mut JSExportEntry = std::ptr::null_mut();
-            let mut res_m: *mut JSModuleDef = std::ptr::null_mut();
-            let m1 = (*(*m).req_module_entries.offset(me.u.req_module_idx as isize)).module;
-            let ret = js_resolve_export(ctx, &mut res_m, &mut res_me, m1, (*me).local_name);
-            if ret != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
-                js_resolve_export_throw_error(ctx, ret, m, me.export_name);
-                return -1;
+        if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = me.export_type {
+            if me.local_name != JS_ATOM__star_ {
+                let mut res_me: *mut JSExportEntry = std::ptr::null_mut();
+                let mut res_m: *mut JSModuleDef = std::ptr::null_mut();
+                let m1 = (*(*m).req_module_entries.add(req_module_idx as usize)).module;
+                let ret = js_resolve_export(ctx, &mut res_m, &mut res_me, m1, (*me).local_name);
+                if ret != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
+                    js_resolve_export_throw_error(ctx, ret, m, me.export_name);
+                    return -1;
+                }
             }
         }
     }
-    // for i in 0..(*m).export_entries_count {
-    //     let me: *mut JSExportEntry = (*m).export_entries.offset(i as isize);
-    //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT
-    //         && (*me).local_name != JS_ATOM__star_
-    //     {
-    //         let mut res_me: *mut JSExportEntry = std::ptr::null_mut();
-    //         let mut res_m: *mut JSModuleDef = std::ptr::null_mut();
-    //         m1 = (*(*m)
-    //             .req_module_entries
-    //             .offset((*me).u.req_module_idx as isize))
-    //         .module;
-    //         let ret = js_resolve_export(ctx, &mut res_m, &mut res_me, m1, (*me).local_name);
-    //         if ret != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
-    //             js_resolve_export_throw_error(ctx, ret, m, (*me).export_name);
-    //             return -1;
-    //         }
-    //     }
-    // }
 
     #[cfg(DUMP_MODULE_RESOLVE)]
     {
@@ -1555,6 +1496,7 @@ pub unsafe fn js_inner_module_linking(
                 .req_module_entries
                 .offset((*mi).req_module_idx as isize))
             .module;
+
             if (*mi).import_name == JS_ATOM__star_ {
                 // name space import
                 let val = if let Ok(o) = (*m1).ns(ctx.as_mut().unwrap()) {
@@ -1566,7 +1508,9 @@ pub unsafe fn js_inner_module_linking(
                 set_value(
                     ctx,
                     &mut var_refs[(*mi).var_idx as usize]
+                        .borrow_mut()
                         .as_mut()
+                        .get_unchecked_mut()
                         .value_or_links
                         .value,
                     val,
@@ -1579,52 +1523,71 @@ pub unsafe fn js_inner_module_linking(
             } else {
                 let mut res_me: *mut JSExportEntry = std::ptr::null_mut();
                 let mut res_m: *mut JSModuleDef = std::ptr::null_mut();
+
                 let ret = js_resolve_export(ctx, &mut res_m, &mut res_me, m1, (*mi).import_name);
                 if ret != JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
                     js_resolve_export_throw_error(ctx, ret, m1, (*mi).import_name);
                     return -1;
                 }
 
-                if (*res_me).local_name == JS_ATOM__star_ {
-                    // name space import from
-                    let m2 = (*(*res_m)
-                        .req_module_entries
-                        .offset((*res_me).u.req_module_idx as isize))
-                    .module;
+                match res_me.as_ref().unwrap().export_type.clone() {
+                    JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                        if (*res_me).local_name == JS_ATOM__star_ {
+                            // name space import from
+                            let m2 =
+                                (*(*res_m).req_module_entries.add(req_module_idx as usize)).module;
 
-                    let val = if let Ok(o) = (*m2).ns(ctx.as_mut().unwrap()) {
-                        o
-                    } else {
-                        return -1;
-                    };
+                            let val = if let Ok(o) = (*m2).ns(ctx.as_mut().unwrap()) {
+                                o
+                            } else {
+                                return -1;
+                            };
 
-                    if let Ok(mut var_ref) = js_create_module_var(ctx, true) {
-                        set_value(ctx, &mut var_ref.value_or_links.value, val);
-                        var_refs[(*mi).var_idx as usize] =
-                            NonNull::new(Box::into_raw(var_ref)).unwrap();
+                            if let Ok(var_ref) = js_create_module_var(ctx, true) {
+                                set_value(
+                                    ctx,
+                                    &mut var_ref
+                                        .borrow_mut()
+                                        .as_mut()
+                                        .get_unchecked_mut() // get mut of Pin<>
+                                        .value_or_links
+                                        .value,
+                                    val,
+                                );
+
+                                var_refs[(*mi).var_idx as usize] = var_ref;
+
+                                #[cfg(DUMP_MODULE_RESOLVE)]
+                                {
+                                    println!("namespace from");
+                                }
+                            } else {
+                                JS_FreeValue(ctx, val);
+                                return -1;
+                            }
+                        }
+                    }
+                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
+                        debug_assert_ne!((*res_me).local_name, JS_ATOM__star_);
+                        debug_assert_ne!(var_idx, u16::MAX);
+
+                        var_refs[(*mi).var_idx as usize] = if let Some(v) = var_ref {
+                            v
+                        } else {
+                            (*res_m)
+                                .func_obj
+                                .object_unchecked()
+                                .isa()
+                                .func()
+                                .unwrap()
+                                .var_refs[var_idx as usize]
+                                .clone()
+                        };
 
                         #[cfg(DUMP_MODULE_RESOLVE)]
                         {
-                            println!("namespace from");
+                            println!("local export (var_ref={:?})", var_ref);
                         }
-                    } else {
-                        JS_FreeValue(ctx, val);
-                        return -1;
-                    }
-                } else {
-                    let mut vr = (*res_me).u.local.var_ref;
-                    if vr.is_null() {
-                        let p1 = JS_VALUE_GET_OBJ((*res_m).func_obj);
-                        vr = (*p1).isa().func().unwrap().var_refs
-                            [(*res_me).u.local.var_idx as usize]
-                            .as_ptr();
-                    }
-                    (*vr).u0.header.ref_count += 1;
-                    var_refs[(*mi).var_idx as usize] = NonNull::new(vr).unwrap();
-
-                    #[cfg(DUMP_MODULE_RESOLVE)]
-                    {
-                        println!("local export (var_ref={:?})", var_ref);
                     }
                 }
             }
@@ -1632,20 +1595,12 @@ pub unsafe fn js_inner_module_linking(
 
         // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
         for me in (*m).export_entries.iter_mut() {
-            if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                let mut var_ref = var_refs[me.u.local.var_idx as usize];
-                var_ref.as_mut().u0.header.ref_count += 1;
-                me.u.local.var_ref = var_ref.as_ptr();
+            if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } = &mut me.export_type
+            {
+                debug_assert_ne!(*var_idx, u16::MAX);
+                var_ref.replace(var_refs[*var_idx as usize].clone());
             }
         }
-        // for i in 0..(*m).export_entries_count {
-        //     let me: *mut JSExportEntry = (*m).export_entries.offset(i as isize);
-        //     if (*me).export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-        //         let mut var_ref = var_refs[(*me).u.local.var_idx as usize];
-        //         var_ref.as_mut().u0.header.ref_count += 1;
-        //         (*me).u.local.var_ref = var_ref.as_ptr();
-        //     }
-        // }
 
         // initialize the global variables
         let ret_val = JS_Call(

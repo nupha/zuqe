@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ptr::NonNull};
+use std::{cell::RefCell, ffi::CStr, mem::ManuallyDrop, pin::Pin, ptr::NonNull, rc::Rc};
 
 use crate::{
     atom::{
@@ -70,7 +70,7 @@ pub unsafe fn run_bytecodes(
     bytecodes: &[u8],      // Array of bytecode instructions to execute
     pc_offset: usize,      // Current instruction pointer (program counter) offset
     sp_offset: usize,      // Current stack pointer offset
-    var_refs: &[NonNull<JSVarRef>],
+    var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
     args: &[JSValue], // actual calling arguments pass in by caller, not padded length
     mode: i32,
     throwed: bool, // Indicates if an exception has been thrown
@@ -941,6 +941,7 @@ pub unsafe fn run_bytecodes(
                     if val.is_exception() {
                         break State::Exception;
                     } else {
+                        println!("[O.o]... GET_VAR refcount={:?}", val.ref_count());
                         SP![0] = val;
                         SP_GO!(1);
                     }
@@ -1050,26 +1051,34 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    let val = var_refs[idx as usize].as_ref().pvalue;
-                    SP![0] = (*val).dup();
+                    let val = *var_refs[idx as usize].as_ref().borrow().pvalue;
+                    SP![0] = val.dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1]);
+                    set_value(
+                        ctx,
+                        var_refs[idx as usize].as_ref().borrow_mut().pvalue,
+                        SP![-1],
+                    );
                     SP_GO!(-1);
                 }
                 OpCode::SET_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1].dup());
+                    set_value(
+                        ctx,
+                        var_refs[idx as usize].as_ref().borrow_mut().pvalue,
+                        SP![-1].dup(),
+                    );
                 }
                 OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
-                    let pval = var_refs[idx as usize].as_ref().pvalue;
+                    let pval = var_refs[idx as usize].as_ref().borrow_mut().pvalue;
                     if JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
                         break State::Exception;
@@ -1089,7 +1098,7 @@ pub unsafe fn run_bytecodes(
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
-                    let pval = var_refs[idx as usize].as_ref().pvalue;
+                    let pval = var_refs[idx as usize].as_ref().borrow_mut().pvalue;
                     if !JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
                         break State::Exception;
@@ -1157,27 +1166,24 @@ pub unsafe fn run_bytecodes(
                         break State::Exception;
                     } else {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            let mut vr = var_refs[idx as usize];
-                            vr.as_mut().u0.header.ref_count += 1;
-                            Ok(vr)
+                            Ok(var_refs[idx as usize].clone())
                         } else {
                             sf.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
                         };
 
                         match var_ref {
                             Ok(vr) => {
+                                debug_assert!(Rc::strong_count(&vr) > 1);
+
                                 if let Ok(pr) = SP![-1].object_unchecked().add_property(
                                     ctx,
                                     atom,
                                     JS_PROP_WRITABLE | JS_PROP_VARREF,
                                 ) {
-                                    (*pr).u.var_ref = vr.as_ptr();
+                                    (*pr).u.var_ref = ManuallyDrop::new(vr);
                                     SP![0] = atom.to_value(ctx, false);
                                     SP_GO!(1);
                                 } else {
-                                    if let Some(p) = Box::from_raw(vr.as_ptr()).free(rt) {
-                                        Box::leak(p); // var ref is still alive, don't drop
-                                    }
                                     break State::Exception;
                                 };
                             }

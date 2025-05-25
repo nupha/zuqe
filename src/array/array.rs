@@ -382,7 +382,7 @@ pub unsafe fn convert_fast_array_to_array(ctx: *mut JSContext, p: *mut JSObject)
             && matches!((*p).class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
     );
 
-    if (*p).js_shape_prepare_update(ctx, std::ptr::null_mut()) != 0 {
+    if (*p).shape_prepare_update(ctx, std::ptr::null_mut()) != 0 {
         return -1;
     }
 

@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{ops::Deref, ptr::NonNull};
 
 use smallvec::SmallVec;
 
@@ -7,7 +7,7 @@ use crate::{
     bytecode::{opcode_info_final, opcode_info_intermediate, run_bytecodes},
     context::{JSContext, JS_FreeContext},
     eval::JS_EVAL_TYPE_INDIRECT,
-    function::{func_kind_to_class_id, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
+    function::{func_kind_to_class_id, JSVarRef, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
     gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
@@ -448,12 +448,10 @@ impl BytecodeFunctionValue {
             var_count: 0,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
-            var_ref_list: list_head::default(),
+            var_ref_list: Vec::new(),
             js_mode: bf.js_mode as _,
         };
         let sf = &mut sf_s;
-
-        init_list_head(&mut sf.var_ref_list);
 
         // make local buffer and running bytecodes with it.
         // local_buf layout:

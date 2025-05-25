@@ -144,7 +144,6 @@ pub unsafe fn async_func_init(
         return std::ptr::null_mut();
     };
 
-    init_list_head(&mut s.frame.var_ref_list);
     init_list_head(&mut s.header.link);
 
     add_gc_object(

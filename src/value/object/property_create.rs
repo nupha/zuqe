@@ -69,9 +69,8 @@ impl JSObject {
         Ok(self.prop_values.get_mut(new_len - 1).unwrap())
     }
 
-    /// A detailed version of add_property()
-    /// `prop` keeps ref count unchanged after calling.
-    /// Both `prop`, `val`, `getter` and `setter` keep ref count unchanged after calling.
+    /// A detailed version of add_property().
+    /// Both `prop`, `val`, `getter` and `setter` are not consumed.
     pub unsafe fn create_property(
         &mut self,
         ctx: &mut JSContext,
@@ -222,6 +221,7 @@ impl JSObject {
         let pr = self.add_property(ctx, prop, prop_flags)?;
 
         if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+            // getset property
             (*pr).u.getset.getter = std::ptr::null_mut();
             if (flags & JS_PROP_HAS_GET) != 0 && getter.is_callable(ctx) {
                 (*pr).u.getset.getter = JS_VALUE_GET_OBJ(getter.dup());
@@ -231,6 +231,7 @@ impl JSObject {
                 (*pr).u.getset.setter = JS_VALUE_GET_OBJ(setter.dup());
             }
         } else {
+            // normal property
             (*pr).u.value = if (flags & JS_PROP_HAS_VALUE) != 0 {
                 val.dup()
             } else {

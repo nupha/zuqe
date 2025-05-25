@@ -1,8 +1,9 @@
-use std::ptr::NonNull;
+use std::{cell::RefCell, pin::Pin, ptr::NonNull, rc::Rc};
 
 use crate::{
     context::JSContext,
     error::{is_backtrace_needed, JS_IsUncatchableError},
+    function::JSVarRef,
     iterator::JS_IteratorClose,
     types::{list_empty, list_head},
     value::{JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
@@ -36,8 +37,7 @@ pub struct JSStackFrame {
     pub cur_sp_offset: usize,
 
     /// registered var refs in stack frame
-    /// list of JSVarRef.var_ref_link
-    pub var_ref_list: list_head,
+    pub var_ref_list: Vec<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
 
     /// for C functions, only JS_MODE_MATH may be set
     pub js_mode: i32,
@@ -55,7 +55,7 @@ impl Default for JSStackFrame {
             var_count: 0,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
-            var_ref_list: list_head::default(),
+            var_ref_list: Vec::new(),
             js_mode: 0,
         }
     }
@@ -162,7 +162,7 @@ impl JSStackFrame {
             self.cur_sp_offset = sp;
         } else {
             // is normal function
-            if !list_empty(&self.var_ref_list) {
+            if !self.var_ref_list.is_empty() {
                 // variable references reference the stack: must close them
                 self.close_var_refs(ctx);
             }

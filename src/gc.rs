@@ -33,6 +33,7 @@ pub enum JSGCObjectTypeEnum {
     JS_GC_OBJ_TYPE_JS_OBJECT,
     JS_GC_OBJ_TYPE_FUNCTION_BYTECODE,
     JS_GC_OBJ_TYPE_SHAPE,
+    #[deprecated]
     JS_GC_OBJ_TYPE_VAR_REF,
     JS_GC_OBJ_TYPE_ASYNC_FUNCTION,
     JS_GC_OBJ_TYPE_JS_CONTEXT,
@@ -161,7 +162,7 @@ unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_func
                         }
                         JS_PROP_VARREF => {
                             // Note: the tag does not matter provided it is a GC object
-                            mark_func(rt, &mut (*(*pr).u.var_ref).u0.header);
+                            // mark_func(rt, &mut (*(*pr).u.var_ref).u0.header);
                         }
                         JS_PROP_AUTOINIT => {
                             js_autoinit_mark(rt, pr, mark_func);
@@ -543,9 +544,13 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
 
 pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut JSModuleDef, mark_func: JS_MarkFunc) {
     for me in m.export_entries.iter() {
-        if me.export_type == JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL && !me.u.local.var_ref.is_null()
+        if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+            var_ref: Some(vr), ..
+        } = &me.export_type
         {
-            mark_func(rt, &mut (*me.u.local.var_ref).u0.header);
+            // FIXME
+            println!("[O.o] mark module def varref");
+            // mark_func(rt, &mut (*me.u.local.var_ref).u0.header);
         }
     }
 

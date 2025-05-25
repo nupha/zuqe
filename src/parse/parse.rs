@@ -323,7 +323,10 @@ impl JSParseState<'_> {
                         self.cur_func().module,
                         name,
                         name,
-                        JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL,
+                        JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                            var_idx: u16::MAX,
+                            var_ref: None,
+                        },
                     )
                     .is_null()
                     {

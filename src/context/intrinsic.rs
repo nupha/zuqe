@@ -149,7 +149,7 @@ impl JSContext {
                 .unwrap()
                 .as_ptr();
 
-            // add length property as #0
+            // add length property as index 0
             unsafe {
                 (*self.array_shape)
                     .add_shape_property(
