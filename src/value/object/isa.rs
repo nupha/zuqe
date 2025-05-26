@@ -92,26 +92,26 @@ impl JSObjectIsa {
     //         }
     //     }
 
-    pub fn array(&self) -> Option<&JSObjectArray> {
+    pub const fn array(&self) -> Option<&JSObjectArray> {
         match self {
             Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),
             _ => None,
         }
     }
-    pub fn array_mut(&mut self) -> Option<&mut JSObjectArray> {
+    pub const fn array_mut(&mut self) -> Option<&mut JSObjectArray> {
         match self {
             Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),
             _ => None,
         }
     }
 
-    pub fn array_buffer_ptr(&self) -> *mut JSArrayBuffer {
+    pub const fn array_buffer_ptr(&self) -> *mut JSArrayBuffer {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => *a,
             _ => std::ptr::null_mut(),
         }
     }
-    pub unsafe fn array_buffer_replace(
+    pub const unsafe fn array_buffer_replace(
         &mut self,
         ptr: *mut JSArrayBuffer,
     ) -> Result<*mut JSArrayBuffer, i32> {
@@ -120,19 +120,19 @@ impl JSObjectIsa {
             _ => Err(-1),
         }
     }
-    pub fn array_buffer(&self) -> Option<&JSArrayBuffer> {
+    pub const fn array_buffer(&self) -> Option<&JSArrayBuffer> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => unsafe { (*a).as_ref() },
             _ => None,
         }
     }
-    pub fn array_buffer_mut(&mut self) -> Option<&mut JSArrayBuffer> {
+    pub const fn array_buffer_mut(&mut self) -> Option<&mut JSArrayBuffer> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => unsafe { (*a).as_mut() },
             _ => None,
         }
     }
-    pub fn typed_array_ptr(&self) -> *mut JSTypedArray {
+    pub const fn typed_array_ptr(&self) -> *mut JSTypedArray {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -149,7 +149,7 @@ impl JSObjectIsa {
             _ => std::ptr::null_mut(),
         }
     }
-    pub fn typed_array(&self) -> Option<&JSTypedArray> {
+    pub const fn typed_array(&self) -> Option<&JSTypedArray> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -166,7 +166,7 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    pub fn typed_array_mut(&mut self) -> Option<&mut JSTypedArray> {
+    pub const fn typed_array_mut(&mut self) -> Option<&mut JSTypedArray> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -183,7 +183,10 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    pub fn typed_array_replace(&mut self, ta: *mut JSTypedArray) -> Result<*mut JSTypedArray, i32> {
+    pub const fn typed_array_replace(
+        &mut self,
+        ta: *mut JSTypedArray,
+    ) -> Result<*mut JSTypedArray, i32> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -200,13 +203,13 @@ impl JSObjectIsa {
             _ => Err(-1),
         }
     }
-    pub fn promise_func_data_ptr(&self) -> *mut JSPromiseFunctionData {
+    pub const fn promise_func_data_ptr(&self) -> *mut JSPromiseFunctionData {
         match self {
             Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => *a,
             _ => std::ptr::null_mut(),
         }
     }
-    pub fn promise_func_data_replace(
+    pub const fn promise_func_data_replace(
         &mut self,
         ta: *mut JSPromiseFunctionData,
     ) -> Result<*mut JSPromiseFunctionData, i32> {
@@ -217,13 +220,13 @@ impl JSObjectIsa {
             _ => Err(-1),
         }
     }
-    pub fn map_state_ptr(&self) -> *mut JSMapState {
+    pub const fn map_state_ptr(&self) -> *mut JSMapState {
         match self {
             Self::MAP(a) | Self::SET(a) | Self::WEAKMAP(a) | Self::WEAKSET(a) => *a,
             _ => std::ptr::null_mut(),
         }
     }
-    pub fn map_state_replace(&mut self, ta: *mut JSMapState) -> Result<*mut JSMapState, i32> {
+    pub const fn map_state_replace(&mut self, ta: *mut JSMapState) -> Result<*mut JSMapState, i32> {
         match self {
             Self::MAP(a) | Self::SET(a) | Self::WEAKMAP(a) | Self::WEAKSET(a) => unsafe {
                 Ok(std::ptr::replace(a, ta))
@@ -231,7 +234,7 @@ impl JSObjectIsa {
             _ => Err(-1),
         }
     }
-    pub fn func(&self) -> Option<&JSObjectFunc> {
+    pub const fn func(&self) -> Option<&JSObjectFunc> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -240,7 +243,7 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    pub fn func_mut(&mut self) -> Option<&mut JSObjectFunc> {
+    pub const fn func_mut(&mut self) -> Option<&mut JSObjectFunc> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -250,13 +253,13 @@ impl JSObjectIsa {
         }
     }
 
-    pub fn async_func_state_ptr(&self) -> *mut JSAsyncFunctionState {
+    pub const fn async_func_state_ptr(&self) -> *mut JSAsyncFunctionState {
         match self {
             Self::ASYNC_FUNCTION_RESOLVE(a) | Self::ASYNC_FUNCTION_REJECT(a) => *a,
             _ => std::ptr::null_mut(),
         }
     }
-    pub unsafe fn async_func_state_replace(
+    pub const unsafe fn async_func_state_replace(
         &mut self,
         ptr: *mut JSAsyncFunctionState,
     ) -> Result<*mut JSAsyncFunctionState, i32> {
@@ -270,7 +273,7 @@ impl JSObjectIsa {
 
     /// returned value is not duplicated.
     /// caller should do duplicate if want to reference it.
-    pub fn value(&self) -> Option<JSValue> {
+    pub const fn value(&self) -> Option<JSValue> {
         match self {
             Self::NUMBER(a) | Self::STRING(a) | Self::BOOLEAN(a) | Self::SYMBOL(a) => Some(*a),
             _ => None,

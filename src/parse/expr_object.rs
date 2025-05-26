@@ -38,7 +38,7 @@ impl<'s> JSParseState<'s> {
 
                 emit_op(self, OpCode::NULL); // dummy excludeList
                 emit_op(self, OpCode::COPY_DATA_PROPERTIES);
-                emit_u8(self, 2 | (1 << 2) | (0 << 5));
+                emit_u8(self, 2 | (1 << 2));
                 emit_op(self, OpCode::DROP); // pop excludeList
                 emit_op(self, OpCode::DROP); // pop src object
 

@@ -230,13 +230,10 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             }
         }
         TOK_FUNCTION => {
-            // if stmt_function(s, decl_mask).is_err() {
-            //     fail!();
-            // }
             // ES6 Annex B.3.2 and B.3.3 semantics
-            if (decl_mask & DECL_MASK_FUNC) == 0 {
-                state.replace(StmtState::FuncDeclError);
-            } else if decl_mask & DECL_MASK_OTHER == 0 && peek_token(s, false) == '*' as i32 {
+            if (decl_mask & DECL_MASK_FUNC == 0)
+                || (decl_mask & DECL_MASK_OTHER == 0 && peek_token(s, false) == '*' as i32)
+            {
                 state.replace(StmtState::FuncDeclError);
             } else {
                 state.replace(StmtState::ParseFuncVar);
@@ -313,7 +310,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
     }
 
     JS_FreeAtom(s.ctx.as_ptr(), label_name);
-    return 0;
+    0
 }
 
 pub fn js_unsupported_keyword(s: &mut JSParseState, atom: JSAtom) -> i32 {

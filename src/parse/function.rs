@@ -282,7 +282,7 @@ impl<'s> JSParseState<'s> {
                             emit_op(self, OpCode::DUP);
                             emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
                             emit_atom_dup(self, name);
-                            emit_u16(self, (*fd1).scope_level as _);
+                            emit_u16(self, fd1.scope_level as _);
                         }
                         emit_op(self, OpCode::PUT_ARG);
                         emit_u16(self, idx as _);
@@ -650,7 +650,7 @@ impl<'s> JSParseState<'s> {
                 // avoid creating a lexical variable in the global scope. XXX: check annex B
                 if let Some(hf) = fd0.find_global_var(func_name) {
                     /* XXX: should check scope chain */
-                    if (*hf).scope_level == fd0.scope_level {
+                    if hf.scope_level == fd0.scope_level {
                         self.throw_syntax_error(c"invalid redefinition of global identifier");
                         JS_FreeAtom(ctx.as_ptr(), func_name);
                         return Err(-1);
@@ -873,7 +873,7 @@ pub unsafe fn js_parse_check_duplicate_parameter(s: *mut JSParseState, name: JSA
         return -1;
     }
 
-    return 0;
+    0
 }
 
 pub unsafe fn js_parse_function_check_names(
@@ -936,34 +936,7 @@ pub unsafe fn js_parse_function_check_names(
                 return -1;
             }
         }
-
-        // for idx in 0..(*fd).arg_count {
-        //     name = (*(*fd).args.offset(idx as isize)).var_name;
-        //     if name != JS_ATOM_NULL {
-        //         for i in 0..idx {
-        //             if (*(*fd).args.offset(i as isize)).var_name == name {
-        //                 (*s).throw_syntax_error(
-        //                     c"duplicate argument names not allowed in this context",
-        //                 );
-        //                 return -1;
-        //             }
-        //         }
-
-        //         // Check if argument name duplicates a destructuring parameter
-        //         // XXX: should have a flag for such variables
-        //         if (*fd)
-        //             .vars
-        //             .iter()
-        //             .any(|vd| vd.var_name == name && vd.scope_level == 0)
-        //         {
-        //             (*s).throw_syntax_error(
-        //                 c"duplicate argument names not allowed in this context",
-        //             );
-        //             return -1;
-        //         }
-        //     }
-        // }
     }
 
-    return 0;
+    0
 }

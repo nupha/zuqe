@@ -582,7 +582,7 @@ impl JSValue {
                 debug_assert_eq!(
                     p.shape().and_then(|sh| {
                         sh.props.iter().enumerate().find_map(|(i, (a, d))| {
-                            if *a == JS_ATOM_length && d as *const _ == prs as *mut _ as *const _ {
+                            if *a == JS_ATOM_length && std::ptr::eq(d, prs) {
                                 Some(i)
                             } else {
                                 None

@@ -101,7 +101,7 @@ impl<'s> JSParseState<'s> {
         self.free_token();
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum ISA {
+        enum State {
             DefaultToken(char),
             SkipLineComment,
             HasIdent(char),
@@ -109,7 +109,7 @@ impl<'s> JSParseState<'s> {
             ParseNumber,
             Fail,
         }
-        let mut isa: Option<ISA> = None;
+        let mut state: Option<State> = None;
 
         let mut p = self.buf_ptr;
         self.last_ptr = self.buf_ptr;
@@ -125,12 +125,12 @@ impl<'s> JSParseState<'s> {
                     if p >= self.buf_end {
                         self.token.val = TOK_EOF;
                     } else {
-                        isa = Some(ISA::DefaultToken('\0'));
+                        state = Some(State::DefaultToken('\0'));
                     }
                 }
                 '`' => {
                     if self.parse_template_part(p.offset(1)).is_err() {
-                        isa = Some(ISA::Fail);
+                        state = Some(State::Fail);
                     } else {
                         p = self.buf_ptr;
                     }
@@ -140,7 +140,7 @@ impl<'s> JSParseState<'s> {
                         .parse_string(c, true, p.offset(1), None, &mut p)
                         .is_err()
                     {
-                        isa = Some(ISA::Fail);
+                        state = Some(State::Fail);
                     }
                 }
                 c @ ('\r' | '\n') => {
@@ -149,7 +149,7 @@ impl<'s> JSParseState<'s> {
                         p = p.offset(1);
                     }
                     p = p.offset(1);
-                    isa = Some(ISA::LineTerminator);
+                    state = Some(State::LineTerminator);
                 }
                 // 0x0c='\f', 0x0b='\v'
                 '\u{000c}' | '\u{000b}' | ' ' | '\t' => {
@@ -198,7 +198,7 @@ impl<'s> JSParseState<'s> {
                         b'/' => {
                             // line comment
                             p = p.add(2);
-                            isa = Some(ISA::SkipLineComment);
+                            state = Some(State::SkipLineComment);
                         }
                         b'=' => {
                             // /=
@@ -212,14 +212,14 @@ impl<'s> JSParseState<'s> {
                     } // starts with '/'
                 }
                 '\\' => {
-                    isa = Some(ISA::DefaultToken('\\'));
+                    state = Some(State::DefaultToken('\\'));
                     if *p.add(1) == b'u' {
                         let mut p1 = p.add(1);
                         let cp = self.parse_string_escape(&mut p1, 1)?;
                         if let Some(c1) = char::from_u32(cp) {
                             if Self::is_ident_first(c1) {
                                 p = p1;
-                                isa = Some(ISA::HasIdent(c1));
+                                state = Some(State::HasIdent(c1));
                             } else {
                                 // syntax error?
                                 self.throw_syntax_error(c"syntax error");
@@ -234,7 +234,7 @@ impl<'s> JSParseState<'s> {
                 ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => {
                     // identifier
                     p = p.add(1);
-                    isa = Some(ISA::HasIdent(ch));
+                    state = Some(State::HasIdent(ch));
                 }
                 '#' => {
                     // private name
@@ -253,14 +253,14 @@ impl<'s> JSParseState<'s> {
 
                     if !Self::is_ident_first(c1) {
                         self.throw_syntax_error(c"invalid first charactor of private name");
-                        isa = Some(ISA::Fail);
+                        state = Some(State::Fail);
                     } else {
                         p = p1;
                         if let Ok((atom, _)) = self.parse_ident(&mut p, c1, true) {
                             self.token.u.ident.atom = atom;
                             self.token.val = TOK_PRIVATE_NAME;
                         } else {
-                            isa = Some(ISA::Fail);
+                            state = Some(State::Fail);
                         }
                     }
                 }
@@ -269,22 +269,22 @@ impl<'s> JSParseState<'s> {
                         p = p.add(3);
                         self.token.val = TOK_ELLIPSIS;
                     } else if (*p.add(1)).is_ascii_digit() {
-                        isa = Some(ISA::ParseNumber);
+                        state = Some(State::ParseNumber);
                     } else {
-                        isa = Some(ISA::DefaultToken('.'))
+                        state = Some(State::DefaultToken('.'))
                     }
                 }
                 '0' => {
                     // in strict mode, octal literals are not accepted
                     if is_digit(*p.add(1)) && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
                         self.throw_syntax_error(c"octal literals are deprecated in strict mode");
-                        isa = Some(ISA::Fail);
+                        state = Some(State::Fail);
                     } else {
-                        isa = Some(ISA::ParseNumber);
+                        state = Some(State::ParseNumber);
                     }
                 }
                 '1'..='9' => {
-                    isa = Some(ISA::ParseNumber);
+                    state = Some(State::ParseNumber);
                 }
                 '*' => {
                     if *p.offset(1) == b'=' {
@@ -299,7 +299,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_POW;
                         }
                     } else {
-                        isa = Some(ISA::DefaultToken('*'));
+                        state = Some(State::DefaultToken('*'));
                     }
                 }
                 '%' => {
@@ -307,7 +307,7 @@ impl<'s> JSParseState<'s> {
                         p = p.offset(2);
                         self.token.val = TOK_MOD_ASSIGN;
                     } else {
-                        isa = Some(ISA::DefaultToken('%'));
+                        state = Some(State::DefaultToken('%'));
                     }
                 }
                 '+' => {
@@ -318,7 +318,7 @@ impl<'s> JSParseState<'s> {
                         p = p.offset(2);
                         self.token.val = TOK_INC;
                     } else {
-                        isa = Some(ISA::DefaultToken('+'));
+                        state = Some(State::DefaultToken('+'));
                     }
                 }
                 '-' => {
@@ -340,7 +340,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_DEC;
                         }
                     } else {
-                        isa = Some(ISA::DefaultToken('-'));
+                        state = Some(State::DefaultToken('-'));
                     }
                 }
                 '<' => {
@@ -364,7 +364,7 @@ impl<'s> JSParseState<'s> {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     } else {
-                        isa = Some(ISA::DefaultToken('<'));
+                        state = Some(State::DefaultToken('<'));
                     }
                 }
                 '>' => {
@@ -388,7 +388,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_SAR;
                         }
                     } else {
-                        isa = Some(ISA::DefaultToken('>'));
+                        state = Some(State::DefaultToken('>'));
                     }
                 }
                 '=' => {
@@ -418,7 +418,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_NEQ;
                         }
                     } else {
-                        isa = Some(ISA::DefaultToken('!'));
+                        state = Some(State::DefaultToken('!'));
                     }
                 }
                 '&' => {
@@ -434,7 +434,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_LAND;
                         }
                     } else {
-                        isa = Some(ISA::DefaultToken('&'));
+                        state = Some(State::DefaultToken('&'));
                     }
                 }
                 '^' => {
@@ -442,7 +442,7 @@ impl<'s> JSParseState<'s> {
                         p = p.offset(2);
                         self.token.val = TOK_XOR_ASSIGN;
                     } else {
-                        isa = Some(ISA::DefaultToken('^'))
+                        state = Some(State::DefaultToken('^'))
                     }
                 }
                 '|' => {
@@ -458,7 +458,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_LOR;
                         }
                     } else {
-                        isa = Some(ISA::DefaultToken('|'));
+                        state = Some(State::DefaultToken('|'));
                     }
                 }
                 '?' => {
@@ -476,7 +476,7 @@ impl<'s> JSParseState<'s> {
                         p = p.offset(2);
                         self.token.val = TOK_QUESTION_MARK_DOT;
                     } else {
-                        isa = Some(ISA::DefaultToken('?'));
+                        state = Some(State::DefaultToken('?'));
                     }
                 }
 
@@ -493,27 +493,27 @@ impl<'s> JSParseState<'s> {
                             if code.is_whitespace() {
                                 continue 'redo;
                             } else if JSParseState::is_ident_first(code) {
-                                isa = Some(ISA::HasIdent(code));
+                                state = Some(State::HasIdent(code));
                             } else {
                                 self.throw_syntax_error(c"unexpected character");
-                                isa = Some(ISA::Fail);
+                                state = Some(State::Fail);
                             }
                         }
                     }
                 }
                 c => {
-                    isa = Some(ISA::DefaultToken(c));
+                    state = Some(State::DefaultToken(c));
                 }
             } // match ch
 
             // handle token type
-            if let Some(what) = isa.take() {
+            if let Some(what) = state.take() {
                 match what {
-                    ISA::DefaultToken(ch) => {
+                    State::DefaultToken(ch) => {
                         self.token.val = ch as i32;
                         p = p.offset(1);
                     }
-                    ISA::HasIdent(first_char) => {
+                    State::HasIdent(first_char) => {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
                             self.token.u.ident.atom = atom;
@@ -528,16 +528,16 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     }
-                    ISA::LineTerminator => {
+                    State::LineTerminator => {
                         self.got_lf = true;
                         self.line_num += 1;
                         continue 'redo;
                     }
-                    ISA::SkipLineComment => {
+                    State::SkipLineComment => {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     }
-                    ISA::ParseNumber => {
+                    State::ParseNumber => {
                         // NOTE: p may be changed after calling next_token_parse_number()
                         if self
                             .next_token_parse_number(std::ptr::addr_of_mut!(p))
@@ -547,7 +547,7 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     }
-                    ISA::Fail => {
+                    State::Fail => {
                         self.token.val = TOK_ERROR;
                         return Err(-1);
                     }

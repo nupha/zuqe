@@ -309,7 +309,10 @@ impl TypedArrayValue {
                     unreachable!()
                 }
             };
-            let ta = Self(ctx.create_instance_from_ctor(new_target, isa).map_err(|_| -1)?);
+            let ta = Self(
+                ctx.create_instance_from_ctor(new_target, isa)
+                    .map_err(|_| -1)?,
+            );
             if ta.init(ctx, dst_abuf, 0, count).is_err() {
                 JS_FreeValue(ctx, ta.0);
                 return Err(-1);
@@ -597,7 +600,7 @@ impl JSContext {
         // bind array buffer to typed array
         if unsafe { ta.init(self, buffer, 0, count).is_err() } {
             JS_FreeValue(self, ta.0);
-            return Err(-1);
+            Err(-1)
         } else {
             Ok(ta.0)
         }
@@ -666,8 +669,10 @@ impl JSContext {
                             length
                         };
 
-                        let ta =
-                            TypedArrayValue(self.create_instance_from_ctor(new_target, isa).map_err(|_| -1)?);
+                        let ta = TypedArrayValue(
+                            self.create_instance_from_ctor(new_target, isa)
+                                .map_err(|_| -1)?,
+                        );
 
                         if ta.init(self, source.dup(), offset, count).is_err() {
                             JS_FreeValue(self, source);
@@ -713,13 +718,14 @@ impl JSContext {
                             return Err(-1);
                         }
 
-                        let ta = TypedArrayValue(self.create_instance_from_ctor(new_target, isa).map_err(
-                            |_| {
-                                JS_FreeValue(self, enum_obj);
-                                JS_FreeValue(self, buffer);
-                                -1
-                            },
-                        )?);
+                        let ta = TypedArrayValue(
+                            self.create_instance_from_ctor(new_target, isa)
+                                .map_err(|_| {
+                                    JS_FreeValue(self, enum_obj);
+                                    JS_FreeValue(self, buffer);
+                                    -1
+                                })?,
+                        );
                         if ta.init(self, buffer, 0, count).is_err() {
                             JS_FreeValue(self, enum_obj);
                             JS_FreeValue(self, buffer);

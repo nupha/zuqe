@@ -66,74 +66,67 @@ pub unsafe fn js_atof(
     let mut goto: Option<GotoLabel> = None;
     let mut is_neg: bool = false;
 
-    // 用loop+break让goto处提前退出
-    loop {
-        match *p {
-            b'+' => {
-                p = p.offset(1);
-                p_start = p_start.offset(1);
-                if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
-                    goto = Some(GotoLabel::NoRadixPrefix(false));
-                    break;
-                }
+    match *p {
+        b'+' => {
+            p = p.offset(1);
+            p_start = p_start.offset(1);
+            if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
+                goto = Some(GotoLabel::NoRadixPrefix(false));
             }
-            b'-' => {
-                is_neg = true;
-                p = p.offset(1);
-                p_start = p_start.offset(1);
-                if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
-                    goto = Some(GotoLabel::NoRadixPrefix(true));
-                    break;
-                }
+        }
+        b'-' => {
+            is_neg = true;
+            p = p.offset(1);
+            p_start = p_start.offset(1);
+            if flags & ATOD_ACCEPT_PREFIX_AFTER_SIGN == 0 {
+                goto = Some(GotoLabel::NoRadixPrefix(true));
             }
-            _ => {}
-        };
+        }
+        _ => {}
+    };
 
-        if *p == b'0' {
-            let mut no_prefix = false;
+    if *p == b'0' {
+        let mut no_prefix = false;
 
-            // check next char for radix
-            match *p.offset(1) {
-                b'x' | b'X' if radix == 0 || radix == 16 => {
-                    p = p.offset(2);
-                    radix = 16;
+        // check next char for radix
+        match *p.offset(1) {
+            b'x' | b'X' if radix == 0 || radix == 16 => {
+                p = p.offset(2);
+                radix = 16;
+            }
+            b'o' | b'O' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
+                p = p.offset(2);
+                radix = 8;
+            }
+            b'b' | b'B' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
+                p = p.offset(2);
+                radix = 2;
+            }
+            b'0'..=b'9' if radix == 0 && flags & ATOD_ACCEPT_LEGACY_OCTAL != 0 => {
+                let mut i = 1;
+                sep = 256;
+                while *p.offset(i) >= b'0' && *p.offset(i) <= b'7' {
+                    i += 1;
                 }
-                b'o' | b'O' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
-                    p = p.offset(2);
-                    radix = 8;
-                }
-                b'b' | b'B' if radix == 0 && flags & ATOD_ACCEPT_BIN_OCT != 0 => {
-                    p = p.offset(2);
-                    radix = 2;
-                }
-                b'0'..=b'9' if radix == 0 && flags & ATOD_ACCEPT_LEGACY_OCTAL != 0 => {
-                    let mut i = 1;
-                    sep = 256;
-                    while *p.offset(i) >= b'0' && *p.offset(i) <= b'7' {
-                        i += 1;
-                    }
-                    if *p.offset(i) == b'8' || *p.offset(i) == b'9' {
-                        no_prefix = true;
-                    }
-                    p = p.offset(1);
-                    radix = 8;
-                }
-                _ => {
+                if *p.offset(i) == b'8' || *p.offset(i) == b'9' {
                     no_prefix = true;
                 }
+                p = p.offset(1);
+                radix = 8;
             }
-
-            if !no_prefix {
-                // there must be a digit after the prefix
-                if to_digit(*p) >= radix {
-                    fail!();
-                }
+            _ => {
+                no_prefix = true;
             }
-        } else {
-            goto = Some(GotoLabel::NoRadixPrefix(is_neg));
         }
 
-        break;
+        if !no_prefix {
+            // there must be a digit after the prefix
+            if to_digit(*p) >= radix {
+                fail!();
+            }
+        }
+    } else {
+        goto = Some(GotoLabel::NoRadixPrefix(is_neg));
     }
 
     let mut atod_type = flags & ATOD_TYPE_MASK;

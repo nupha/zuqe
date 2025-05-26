@@ -696,24 +696,13 @@ pub unsafe fn JS_IsCFunction(
     func: JSCFunction,
     magic: i32,
 ) -> bool {
-    val.object().map_or(false, |o| {
+    val.object().is_some_and(|o| {
         if let JSObjectIsa::C_FUNCTION(cfunc) = o.isa() {
             std::ptr::fn_addr_eq(cfunc.c_function.generic, func) && cfunc.magic == magic as i16
         } else {
             false
         }
     })
-
-    // if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-    //     return false;
-    // }
-    // let p = JS_VALUE_GET_OBJ(val);
-    // if (*p).class_id() == JS_CLASS_C_FUNCTION {
-    //     std::ptr::fn_addr_eq((*p).u.cfunc.c_function.generic, func)
-    //         && (*p).u.cfunc.magic == magic as i16
-    // } else {
-    //     false
-    // }
 }
 
 /// `val` is not consumed.

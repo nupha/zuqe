@@ -202,7 +202,6 @@ pub unsafe fn js_parse_destructuring_element(
             emit_op(s, OpCode::SWAP);
         }
         while (*s).token.val != '}' as i32 {
-            let prop_type: i32;
             if (*s).token.val == TOK_ELLIPSIS {
                 if has_ellipsis == 0 {
                     ctx.JS_ThrowInternalError(c"unexpected ellipsis token");
@@ -249,14 +248,14 @@ pub unsafe fn js_parse_destructuring_element(
                 emit_op(s, OpCode::COPY_DATA_PROPERTIES);
                 emit_u8(
                     s,
-                    (0 | ((depth_lvalue + 1) << 2) | ((depth_lvalue + 2) << 5)) as u8,
+                    (((depth_lvalue + 1) << 2) | ((depth_lvalue + 2) << 5)) as u8,
                 );
 
                 set_val!(); // #79 goto set_val
                 continue;
             }
 
-            prop_type = js_parse_property_name(s, &mut prop_name, false, true, false);
+            let prop_type = js_parse_property_name(s, &mut prop_name, false, true, false);
             if prop_type < 0 {
                 return -1;
             }
@@ -632,11 +631,11 @@ pub unsafe fn js_parse_destructuring_element(
         has_initializer = false;
     }
 
-    return has_initializer as i32;
+    has_initializer as i32
 }
 
 pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
-    if !((*s).token.val == TOK_IDENT && !(*s).token.u.ident.is_reserved)
+    if ((*s).token.val != TOK_IDENT || (*s).token.u.ident.is_reserved)
         || ((*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
             && ((*s).token.u.ident.atom == JS_ATOM_eval
                 || (*s).token.u.ident.atom == JS_ATOM_arguments))
@@ -655,5 +654,5 @@ pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg:
         return JS_ATOM_NULL;
     }
 
-    return name;
+    name
 }

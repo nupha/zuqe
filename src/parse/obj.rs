@@ -21,7 +21,7 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
             emit_atom_dup(s, name);
         }
         opcodes::op_set_class_name => {
-            let define_class_pos = (*fd).last_opcode_pos + 1
+            let define_class_pos = fd.last_opcode_pos + 1
                 - read_from_ptr::<i32>(
                     fd.byte_code
                         .as_ptr()
@@ -30,7 +30,7 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
 
             assert_eq!(
                 *fd.byte_code.as_ptr().offset(define_class_pos as isize),
-                opcodes::OP_define_class as u8
+                opcodes::OP_define_class
             );
 
             // for consistency we free the previous atom which is JS_ATOM_empty_string
@@ -69,11 +69,11 @@ pub unsafe fn set_object_name_computed(s: *mut JSParseState) {
 
         assert_eq!(
             *fd.byte_code.as_ptr().offset(define_class_pos as isize),
-            opcodes::OP_define_class as u8
+            opcodes::OP_define_class
         );
 
         *fd.byte_code.as_mut_ptr().offset(define_class_pos as isize) =
-            opcodes::OP_define_class_computed as u8;
+            opcodes::OP_define_class_computed;
 
         fd.last_opcode_pos = -1;
     }

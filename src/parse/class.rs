@@ -528,7 +528,7 @@ pub unsafe fn js_parse_class(
                 ctor_fd = method_fd;
             } else if is_private {
                 (*method_fd).need_home_object = true; // needed for brand check
-                if find_private_class_field(ctx.as_ptr(), fd, name, (*fd).scope_level) >= 0 {
+                if find_private_class_field(ctx.as_ptr(), fd, name, fd.scope_level) >= 0 {
                     private_field_already_defined!();
                 }
                 if add_private_class_field(
@@ -581,12 +581,12 @@ pub unsafe fn js_parse_class(
     }
     // patch the constant pool index for the constructor
     write_to_ptr::<u32>(
-        (*fd).byte_code.as_mut_ptr().add(ctor_cpool_offset),
+        fd.byte_code.as_mut_ptr().add(ctor_cpool_offset),
         (*ctor_fd).parent_cpool_idx as u32,
     );
 
     // store the class source code in the constructor.
-    if (*fd).js_mode & JS_MODE_STRIP as u8 == 0 {
+    if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
         debug_assert!((*s).buf_ptr >= class_start_ptr);
 
         let src_len = (*s).buf_ptr.offset_from(class_start_ptr) as usize;
@@ -665,7 +665,7 @@ pub unsafe fn js_parse_class(
         emit_op(s, OpCode::DUP);
         emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
         emit_atom_dup(s, class_name);
-        emit_u16(s, (*fd).scope_level as _);
+        emit_u16(s, fd.scope_level as _);
     }
 
     /* initialize the static fields */
@@ -688,7 +688,7 @@ pub unsafe fn js_parse_class(
         }
         emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
         emit_atom_dup(s, class_var_name);
-        emit_u16(s, (*fd).scope_level as _);
+        emit_u16(s, fd.scope_level as _);
     } else {
         if class_name == JS_ATOM_NULL {
             /* cannot use OP_set_name because the name of the class
@@ -697,7 +697,7 @@ pub unsafe fn js_parse_class(
             emit_op_temp(s, OpCodeTemp::SET_CLASS_NAME);
             emit_u32(
                 s,
-                (*fd).last_opcode_pos as u32 + 1 - define_class_offset as u32,
+                fd.last_opcode_pos as u32 + 1 - define_class_offset as u32,
             );
         }
     }
@@ -705,7 +705,7 @@ pub unsafe fn js_parse_class(
     if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
         if add_export_entry(
             s,
-            (*fd).module,
+            fd.module,
             class_var_name,
             if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
                 class_var_name
@@ -726,7 +726,7 @@ pub unsafe fn js_parse_class(
     // Cleanup
     JS_FreeAtom(ctx.as_ptr(), class_name);
     JS_FreeAtom(ctx.as_ptr(), class_var_name);
-    (*fd).js_mode = saved_js_mode;
+    fd.js_mode = saved_js_mode;
 
     return 0;
 }
@@ -1028,7 +1028,7 @@ pub unsafe fn find_private_class_field(
         idx = vd.scope_next;
     }
 
-    return -1;
+    -1
 }
 
 /* build a private setter function name from the private getter name */
@@ -1063,7 +1063,7 @@ pub unsafe fn js_parse_class_default_ctor(
     (*s).buf_ptr = str.as_ptr();
     (*s).buf_end = str
         .as_ptr()
-        .offset(CStr::from_ptr(str.as_ptr().cast()).count_bytes() as isize);
+        .add(CStr::from_ptr(str.as_ptr().cast()).count_bytes());
 
     // next_token -> parse_function_decl2 -> seek_token
     let mut ret = (*s)
@@ -1109,5 +1109,5 @@ pub unsafe fn js_parse_class_default_ctor(
         0
     };
 
-    return ret;
+    ret
 }

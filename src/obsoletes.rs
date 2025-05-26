@@ -676,7 +676,7 @@ pub unsafe fn find_line_num(
     b: *mut JSFunctionBytecode,
     pc_value: u32,
 ) -> i32 {
-    (*b).find_line_num(pc_value).map_or(-1, |x| x as i32)
+    (*b).find_line_num(pc_value).unwrap_or(-1)
 }
 
 /// Note: `value` is duplicated inside.
@@ -1310,7 +1310,7 @@ pub unsafe fn resolve_scope_var(
     var_name: JSAtom,
     scope_level: i32,
     op: u8,
-    bc: &mut Vec<u8>,
+    bc: &[u8],
     bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
     label: Option<&LabelSlot>,
     pos_next: usize,

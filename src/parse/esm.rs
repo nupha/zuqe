@@ -441,7 +441,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
         }
     }
 
-    return (*s).parse_expect_semi().map_or(-1, |_| 0);
+    (*s).parse_expect_semi().map_or(-1, |_| 0)
 }
 
 pub unsafe fn add_export_entry2(
@@ -521,7 +521,7 @@ pub unsafe fn add_import(
             .cur_func()
             .closure_vars
             .as_ref()
-            .map_or(false, |lst| lst.iter().any(|cv| cv.var_name == local_name))
+            .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
         {
             (*s).throw_syntax_error(c"duplicate import binding");
             return -1;
@@ -563,7 +563,7 @@ pub unsafe fn add_import(
     (*mi).import_name = import_name.dup(ctx.rt());
     (*mi).var_idx = var_idx;
 
-    return 0;
+    0
 }
 
 /// return true if 'input' contains the source of a module

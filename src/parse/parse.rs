@@ -205,7 +205,7 @@ impl JSParseState<'_> {
             c = (*p1) as char;
             p1 = p1.add(1);
 
-            if c == '\\' && *p1 == b'u' as u8 {
+            if c == '\\' && *p1 == b'u' {
                 // escape \uXXXX
                 let mut p_temp = p1;
                 let cp = self.parse_string_escape(&mut p_temp, 1)?;
@@ -248,7 +248,7 @@ impl JSParseState<'_> {
 
     /// test if `c` is allowed in non-first char of an ident
     #[inline(always)]
-    pub fn is_ident_next(c: char) -> bool {
+    pub const fn is_ident_next(c: char) -> bool {
         if c.is_ascii() {
             matches!(c, '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' | '$')
         } else {
@@ -266,7 +266,7 @@ impl JSParseState<'_> {
 
     /// test if `c` could be used as first char of an ident
     #[inline(always)]
-    pub fn is_ident_first(c: char) -> bool {
+    pub const fn is_ident_first(c: char) -> bool {
         if c.is_ascii() {
             matches!(c,  '$' | 'A'..='Z' | 'a'..='z' | '_')
             // (lre_id_start_table_ascii[(c >> 5) as usize] >> (c & 31)) as i32 & 1
@@ -575,14 +575,14 @@ pub unsafe fn js_parse_skip_parens_token(
             // ')'
             CHAR_BRACKET_R => {
                 level -= 1;
-                if state[level] != '(' as u8 {
+                if state[level] != b'(' {
                     break;
                 }
             }
             // ']'
             CHAR_SQUARE_R => {
                 level -= 1;
-                if state[level] != '[' as u8 {
+                if state[level] != b'[' {
                     break;
                 }
             }
@@ -637,7 +637,7 @@ pub unsafe fn js_parse_skip_parens_token(
                     if level >= 256 {
                         break;
                     }
-                    state[level] = '`' as u8;
+                    state[level] = b'`';
                     level += 1;
                 }
             }
@@ -794,7 +794,6 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             emit_op(s, OpCode::DELETE);
         }
         opcodes::op_get_array_el_opt_chain => {
-            let next_label: i32;
             let opt_chain_label = read_from_ptr::<u32>(
                 fd.byte_code
                     .as_ptr()
@@ -804,7 +803,7 @@ pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
             fd.byte_code.truncate(fd.last_opcode_pos as _); // (*fd).byte_code.size = (*fd).last_opcode_pos;
 
             emit_op(s, OpCode::DELETE);
-            next_label = emit_goto(s, OpCode::GOTO, -1);
+            let next_label = emit_goto(s, OpCode::GOTO, -1);
             emit_label(s, opt_chain_label as _);
             // if the optional chain is not taken, return 'true'
             emit_op(s, OpCode::DROP);

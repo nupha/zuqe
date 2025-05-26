@@ -76,15 +76,13 @@ pub unsafe fn js_parse_regexp(s: *mut JSParseState) -> i32 {
         }
 
         // flags
-        while let Some((i, c)) = chars.next() {
+        for (i, c) in chars {
             if !JSParseState::is_ident_next(c) {
                 break;
             }
-
             if res_string2.push_char(c).is_err() {
                 fail!();
             }
-
             offset = i;
         }
 
@@ -92,7 +90,7 @@ pub unsafe fn js_parse_regexp(s: *mut JSParseState) -> i32 {
         (*s).token.u.regexp.body = (*(*s).ctx).create_string_from_content(res_string);
         (*s).token.u.regexp.flags = (*(*s).ctx).create_string_from_content(res_string2);
         (*s).buf_ptr = (*s).buf_ptr.add(offset);
-        return 0;
+        0
     } else {
         invalid_utf8!();
     }

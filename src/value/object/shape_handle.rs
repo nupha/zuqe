@@ -13,7 +13,7 @@ pub struct JSShapeHandle(NonNull<JSShape>);
 impl JSShapeHandle {
     /// increase shape ref count
     #[inline(always)]
-    pub fn dup(mut self) -> Self {
+    pub const fn dup(mut self) -> Self {
         unsafe {
             self.0.as_mut().dup();
         }

@@ -66,7 +66,7 @@ impl<'s> JSParseState<'s> {
     /// * `input` - Input buffer containing source code
     /// * `input_len` - Length of input buffer
     /// * `filename` - Name of source file
-    pub fn new(
+    pub const fn new(
         ctx: JSContextHandle,
         fd: NonNull<JSFunctionDef>,
         input: *const u8,
