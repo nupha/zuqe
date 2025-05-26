@@ -219,7 +219,7 @@ impl JSFunctionDef {
 pub unsafe fn js_closure(
     ctx: *mut JSContext,
     bfunc: JSValue,
-    cur_var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
+    cur_var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
@@ -307,7 +307,7 @@ pub unsafe fn js_closure2(
     ctx: *mut JSContext,
     func_obj: JSValue,
     b: *mut JSFunctionBytecode,
-    cur_var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
+    cur_var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     let func = func_obj.object_unchecked().isa_mut().func_mut().unwrap();

@@ -145,7 +145,7 @@ pub unsafe fn js_op_define_class(
     sp: *mut JSValue,
     class_name: JSAtom,
     class_flags: i32,
-    cur_var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
+    cur_var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {

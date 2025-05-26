@@ -209,10 +209,10 @@ pub enum JSResolveResultEnum {
     JS_RESOLVE_RES_AMBIGUOUS,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ExportedNameEntryEnum {
     EXPORTED_NAME_AMBIGUOUS,
-    EXPORTED_NAME_NORMAL(Rc<RefCell<Pin<Box<JSVarRef>>>>),
+    EXPORTED_NAME_NORMAL(JSVarRef),
     EXPORTED_NAME_NS(*mut JSModuleDef),
 }
 
@@ -243,11 +243,11 @@ pub struct JSReqModuleEntry {
     pub module: *mut JSModuleDef, /* used using resolution */
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum JSExportTypeEnum {
     JS_EXPORT_TYPE_LOCAL {
         var_idx: u16,
-        var_ref: Option<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
+        var_ref: Option<JSVarRef>,
     },
 
     /// indirect export with req_module_idx
@@ -270,7 +270,7 @@ pub struct JSExportEntry_u_local {
     /// closure variable index
     pub var_idx: u16,
     /// if None, reference to the variable
-    pub var_ref: Option<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
+    pub var_ref: Option<JSVarRef>,
 }
 
 #[repr(C)]
@@ -581,10 +581,10 @@ pub unsafe fn js_free_module_def(ctx: *mut JSContext, m: *mut JSModuleDef) {
     for me in (*m).export_entries.drain(..) {
         if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
             debug_assert!(var_ref.is_some());
-
-            if let Some(vr) = var_ref.and_then(Rc::into_inner) {
-                let mut p = Pin::into_inner_unchecked(vr.into_inner());
-                p.deref_mut().before_drop_clean_up((*ctx).rt_mut());
+            if let Some(mut vr) = var_ref.and_then(JSVarRef::into_inner) {
+                vr.as_mut()
+                    .get_unchecked_mut()
+                    .before_drop_clean_up((*ctx).rt_mut());
             }
         }
 
@@ -1217,41 +1217,30 @@ pub unsafe fn js_create_module_function(ctx: *mut JSContext, m: *mut JSModuleDef
     0
 }
 
-pub fn js_create_module_var(
-    ctx: *mut JSContext,
-    is_lexical: bool,
-) -> Result<Rc<RefCell<Pin<Box<JSVarRef>>>>, i32> {
-    let var_ref = unsafe {
-        let mut p = js_malloc_typed::<JSVarRef>(ctx, 1, false).ok_or(-1)?;
+pub fn js_create_module_var(ctx: *mut JSContext, is_lexical: bool) -> Result<JSVarRef, i32> {
+    let mut var_ref = JSVarRef::new(if is_lexical {
+        JSValue::UNINITIALIZED
+    } else {
+        JSValue::UNDEFINED
+    });
 
-        p.write(JSVarRef {
-            var_idx: 0,
-            bitfield: 0,
-            pvalue: std::ptr::null_mut(), // unknown for now
-            value_or_links: JSVarRefValueOrLinks {
-                value: if is_lexical {
-                    JSValue::UNINITIALIZED
-                } else {
-                    JSValue::UNDEFINED
-                },
-            },
-            _mark: PhantomPinned,
-        });
+    unsafe {
+        let p = var_ref.as_mut().get_unchecked_mut();
 
         // SAFETY: self referenced
-        p.as_mut().pvalue = std::ptr::addr_of_mut!(p.as_mut().value_or_links.value);
-        p.as_mut().set_detached(true);
+        p.pvalue = std::ptr::addr_of_mut!(p.value_or_links.value);
+        p.set_detached(true);
 
-        // add_gc_object(
-        //     (*ctx).rt_mut(),
-        //     header,
-        //     JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
-        // );
-
-        Box::from_raw(p.as_ptr())
+        // Note:: gc obj list accepts weak ref,
+        // don't increase refcount of var_ref.
+        add_gc_object(
+            (*ctx).rt_mut(),
+            var_ref.as_ptr().cast(),
+            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
+        );
     };
 
-    Ok(Rc::new(RefCell::new(Pin::from(var_ref))))
+    Ok(var_ref)
 }
 
 // Create the <eval> function associated with the module
@@ -1267,7 +1256,7 @@ pub unsafe fn js_create_module_bytecode_function(
 
     // make isa to instance
     let isa = {
-        let mut var_refs = Vec::<Rc<RefCell<Pin<Box<JSVarRef>>>>>::new();
+        let mut var_refs = Vec::<JSVarRef>::new();
 
         if (*b).closure_var_count != 0 {
             var_refs
@@ -1289,7 +1278,7 @@ pub unsafe fn js_create_module_bytecode_function(
                 } else {
                     // The other variables are imported from other modules.
                     // Add slot with a placeholder.
-                    var_refs.push(Rc::new(RefCell::new(Box::pin(JSVarRef::PLACEHOLDER))));
+                    var_refs.push(JSVarRef::PLACEHOLDER);
                 }
             }
         }
@@ -1508,7 +1497,6 @@ pub unsafe fn js_inner_module_linking(
                 set_value(
                     ctx,
                     &mut var_refs[(*mi).var_idx as usize]
-                        .borrow_mut()
                         .as_mut()
                         .get_unchecked_mut()
                         .value_or_links
@@ -1543,11 +1531,10 @@ pub unsafe fn js_inner_module_linking(
                                 return -1;
                             };
 
-                            if let Ok(var_ref) = js_create_module_var(ctx, true) {
+                            if let Ok(mut var_ref) = js_create_module_var(ctx, true) {
                                 set_value(
                                     ctx,
                                     &mut var_ref
-                                        .borrow_mut()
                                         .as_mut()
                                         .get_unchecked_mut() // get mut of Pin<>
                                         .value_or_links

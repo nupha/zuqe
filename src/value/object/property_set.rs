@@ -93,7 +93,7 @@ impl JSObject {
                         if class_id == JS_CLASS_MODULE_NS {
                             return Err(Some(SetPropState::ErrReadOnly));
                         }
-                        set_value(ctx, pr.u.var_ref.as_ref().borrow_mut().pvalue, val);
+                        set_value(ctx, (*pr.u.var_ref).as_mut().pvalue, val);
                         return Ok(true);
                     }
                     f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {

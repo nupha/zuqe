@@ -159,14 +159,14 @@ impl JSObjectFlags {
         }
     }
 
-    #[deprecated]
-    pub const fn class_id(&self) -> JSClassID {
-        self.bitfield & 0x0000_FFFF
-    }
-    #[deprecated]
-    pub const fn set_class_id(&mut self, id: JSClassID) {
-        self.bitfield = (self.bitfield & 0xFFFF_0000) | (id & 0x0000_FFFF);
-    }
+    // #[deprecated]
+    // pub const fn class_id(&self) -> JSClassID {
+    //     self.bitfield & 0x0000_FFFF
+    // }
+    // #[deprecated]
+    // pub const fn set_class_id(&mut self, id: JSClassID) {
+    //     self.bitfield = (self.bitfield & 0xFFFF_0000) | (id & 0x0000_FFFF);
+    // }
 }
 
 /// Type-specific object payload storage
@@ -247,8 +247,8 @@ impl JSObject {
     /// Get object's class_id
     #[inline(always)]
     pub const fn class_id(&self) -> JSClassID {
-        self.detailed.class_id()
-        // self.isa.class_id()
+        //self.detailed.class_id()
+        self.isa.class_id()
     }
 
     #[inline(always)]
@@ -323,7 +323,7 @@ impl JSObject {
 #[cfg(debug_assertions)]
 impl Drop for JSObject {
     fn drop(&mut self) {
-        debug_assert_eq!(self.class_id(), 0);
+        //debug_assert_eq!(self.class_id(), 0);
         debug_assert_eq!(self.header.ref_count, 0);
         debug_assert!(self.shape.is_null());
         debug_assert!(self.prop_values.is_empty());

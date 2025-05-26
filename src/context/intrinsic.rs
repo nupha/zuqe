@@ -67,7 +67,6 @@ impl JSContext {
         let object_proto = self
             .create_object_with_proto_and_isa0(JSValue::NULL, JSObjectIsa::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);
-        // let object_proto = unsafe { JS_NewObjectProto(self, JSValue::NULL) };
 
         // Object
         self.class_proto[JS_CLASS_OBJECT as usize] = object_proto;

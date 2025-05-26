@@ -108,10 +108,10 @@ pub struct JSProperty {
 }
 
 pub union JSPropertyUnion {
-    pub value: JSValue,                                         // JS_PROP_NORMAL
-    pub getset: JSPropertyGetSet,                               // JS_PROP_GETSET
-    pub var_ref: ManuallyDrop<Rc<RefCell<Pin<Box<JSVarRef>>>>>, // TODO: manally drop this!
-    pub init: JSPropertyAutoInit,                               // JS_PROP_AUTOINIT
+    pub value: JSValue,                  // JS_PROP_NORMAL
+    pub getset: JSPropertyGetSet,        // JS_PROP_GETSET
+    pub var_ref: ManuallyDrop<JSVarRef>, // TODO: manally drop this!
+    pub init: JSPropertyAutoInit,        // JS_PROP_AUTOINIT
 }
 
 #[derive(Clone, Copy)]
@@ -160,17 +160,16 @@ impl JSProperty {
     /// after calling this method, the property is in unknown type.
     /// must ensure the property is var_ref union type.
     pub(crate) unsafe fn unset_var_ref(&mut self, ctx: &mut JSContext) {
-        if Rc::strong_count(&self.u.var_ref) == 1 {
-            // var_ref should be dropped, do clean up, but not real dealloc because it's a union.
-            self.u
-                .var_ref
-                .borrow_mut()
+        if self.u.var_ref.ref_count() == 1 {
+            // var_ref should be dropped, perform clean up,
+            // but not real cal ::drop() because it's a union.
+            (*self.u.var_ref)
                 .as_mut()
                 .get_unchecked_mut()
                 .before_drop_clean_up(ctx.rt_mut());
         } else {
             // decrement var_ref
-            Rc::decrement_strong_count((*self.u.var_ref).as_ptr());
+            (*self.u.var_ref).dec_ref();
         }
     }
 
@@ -186,14 +185,11 @@ impl JSProperty {
                     }
                 },
                 JS_PROP_VARREF => {
-                    if let Some(vr) =
-                        Rc::into_inner(ManuallyDrop::into_inner(unsafe { self.u.var_ref }))
-                            .map(RefCell::into_inner)
+                    if let Some(mut vr) =
+                        ManuallyDrop::into_inner(unsafe { self.u.var_ref }).into_inner()
                     {
-                        // is last reference, call clean up before drop
                         unsafe {
-                            let mut p = Pin::into_inner_unchecked(vr);
-                            p.deref_mut().before_drop_clean_up(rt);
+                            vr.as_mut().get_unchecked_mut().before_drop_clean_up(rt);
                         }
                     }
                 }
@@ -635,7 +631,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                             }
                         }
                         JS_PROP_VARREF => {
-                            let val = *(*pr.u.var_ref).borrow().pvalue;
+                            let val = *(*pr.u.var_ref).as_ref().pvalue;
                             if unlikely(JS_IsUninitialized(val)) {
                                 JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                                 return -1;
@@ -657,7 +653,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
             } else {
                 /* for consistency, send the exception even if desc is NULL */
                 if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF {
-                    if JS_IsUninitialized(*(pr.u.var_ref).borrow().pvalue) {
+                    if JS_IsUninitialized(*(pr.u.var_ref).as_ref().pvalue) {
                         JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                         return -1;
                     }

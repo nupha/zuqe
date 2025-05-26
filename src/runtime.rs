@@ -296,7 +296,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
             if (*p).ref_count != 0 {
                 if !header_done {
                     println!("Object leaks:\n");
-                    crate::utils::JS_DumpObjectHeader();
+                    crate::gc::JS_DumpObjectHeader();
                     header_done = true;
                 }
                 crate::gc::JS_DumpGCObject(rt, p);

@@ -534,7 +534,7 @@ impl JSValue {
                     /* JS_PROP_WRITABLE is always true for variable
                     references, but they are write protected in module name
                     spaces. */
-                    if !val.is_same(*pr.u.var_ref.as_ref().borrow().pvalue) {
+                    if !val.is_same(*pr.u.var_ref.as_ref().pvalue) {
                         return if ctx
                             .JS_ThrowTypeErrorOrFalse(flags, c"property is not configurable")
                         {
@@ -547,12 +547,7 @@ impl JSValue {
                     // update the referenced value
                     set_value(
                         ctx,
-                        pr.u.var_ref
-                            .as_ref()
-                            .borrow_mut()
-                            .as_mut()
-                            .get_unchecked_mut()
-                            .pvalue,
+                        (*pr.u.var_ref).as_mut().get_unchecked_mut().pvalue,
                         val.dup(),
                     );
                 }
@@ -577,7 +572,7 @@ impl JSValue {
 
                 // convert property to value type
                 pr.unset_var_ref(ctx);
-                let v = (*pr.u.var_ref.as_ref().borrow().pvalue).dup();
+                let v = (*pr.u.var_ref.as_ref().pvalue).dup();
                 pr.u.value = v;
                 prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
             }

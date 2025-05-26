@@ -1,5 +1,6 @@
+use std::ops::Deref;
+
 use crate::{
-    function::js_class_has_bytecode,
     gc::{JSGCObjectHeader, JSGCObjectTypeEnum},
     list_entry,
     runtime::JSRuntime,
@@ -57,15 +58,6 @@ pub unsafe fn JS_DumpShapes(rt: *mut JSRuntime) {
         }
     }
 
-    // for i in 0..(*rt).shape_hash_size {
-    //     let mut sh = *(*rt).shape_hash.offset(i as isize);
-    //     while !sh.is_null() {
-    //         (*sh).dump(rt.as_ref().unwrap(), i);
-    //         debug_assert!((*sh).is_hashed);
-    //         sh = (*sh).shape_hash_next;
-    //     }
-    // }
-
     // dump non-hashed shapes
     list_foreach(&mut (*rt).gc_obj_list, |el| {
         let gp = list_entry!(el, JSGCObjectHeader, link);
@@ -102,7 +94,7 @@ impl JSObject {
                 sh.proto
             );
         } else {
-            print!("{:3}  {:14} {:14p} ", "-", "-", "-");
+            print!("{:>3}  {:>14} {:>14} ", "-", "-", "-");
         }
 
         // print class name
@@ -139,7 +131,7 @@ impl JSObject {
                         }
                     });
                 }
-                _ => unimplemented!(),
+                class_id => unimplemented!("{}", class_id),
             }
 
             print!(" ] ");
@@ -165,7 +157,7 @@ impl JSObject {
                             print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
                         }
                         JS_PROP_VARREF => {
-                            print!("[varref {:p}]", pr.u.var_ref.as_ptr());
+                            print!("[varref {:p}]", pr.u.var_ref.deref());
                         }
                         JS_PROP_AUTOINIT => {
                             print!(
@@ -176,7 +168,7 @@ impl JSObject {
                             );
                         }
                         _ => {
-                            pr.u.value.repr(rt);
+                            print!("{}", pr.u.value.repr(rt));
                         }
                     }
                 } else {
@@ -194,13 +186,14 @@ impl JSObject {
             if (*b).closure_var_count != 0 {
                 print!(" Closure:");
                 for vr in func.var_refs.iter() {
-                    print!(" ");
-                    (*vr.as_ref().borrow().pvalue).repr(rt);
+                    print!(" {}", (*vr.as_ref().pvalue).repr(rt));
                 }
 
                 if !func.home_object.is_null() {
-                    print!(" HomeObject: ");
-                    JS_MKPTR!(JSTag::Object, func.home_object.cast()).repr(rt);
+                    print!(
+                        " HomeObject: {}",
+                        JS_MKPTR!(JSTag::Object, func.home_object.cast()).repr(rt)
+                    );
                 }
             }
         }

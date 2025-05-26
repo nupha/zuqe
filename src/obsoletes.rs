@@ -1427,7 +1427,7 @@ pub unsafe fn js_free_shape_null(rt: *mut JSRuntime, sh: *mut JSShape) {
 
 #[deprecated(note = "use JSObject::free() instead")]
 pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
-    JSObject::free(rt.as_mut().unwrap(), p);
+    JSObject::dispose(rt.as_mut().unwrap(), p);
 }
 
 #[deprecated(note = "not used")]

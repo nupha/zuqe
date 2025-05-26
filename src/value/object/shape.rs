@@ -240,18 +240,19 @@ impl JSShape {
             self.proto = std::ptr::null_mut();
         }
 
-        // clear prop definations and free key atoms
+        // free prop key atoms
         for (_, prs) in self.props.drain(..) {
             JS_FreeAtomRT(rt, prs.atom);
         }
 
-        if !self.header.link.next.is_null() && !self.header.link.prev.is_null() {
-            unsafe {
-                remove_gc_object(&mut self.header);
-            }
+        unsafe {
+            remove_gc_object(&mut self.header);
         }
-
-        drop(self);
+        // if !self.header.link.next.is_null() && !self.header.link.prev.is_null() {
+        //     unsafe {
+        //         remove_gc_object(&mut self.header);
+        //     }
+        // }
     }
 
     /// decrease ref count of `shape`.
@@ -579,8 +580,7 @@ impl JSContext {
                 Box::from_raw(p.as_ptr())
             };
 
-            b.detailed.set_class_id(b.isa.class_id());
-
+            //b.detailed.set_class_id(b.isa.class_id());
             init_list_head(&mut b.header.link);
             b
         } else {
@@ -654,11 +654,9 @@ impl JSContext {
         // take ownership of object
         let p = Box::into_raw(obj);
 
-        debug_assert_eq!(p as usize, unsafe {
-            std::ptr::addr_of!((*p).header) as usize
-        });
-
         unsafe {
+            debug_assert_eq!(p as usize, std::ptr::addr_of!((*p).header) as usize);
+
             add_gc_object(
                 self.rt_mut(),
                 &mut (*p).header,
@@ -729,7 +727,7 @@ impl JSContext {
             b.isa = isa_fn().inspect_err(|_| {
                 JSShape::free(self.rt_mut(), shape);
             })?;
-            b.detailed.set_class_id(b.isa.class_id());
+            //b.detailed.set_class_id(b.isa.class_id());
 
             init_list_head(&mut b.header.link);
             b

@@ -1,4 +1,11 @@
-use std::{cell::RefCell, marker::PhantomPinned, pin::Pin, ptr::NonNull, rc::Rc};
+use std::{
+    cell::RefCell,
+    marker::PhantomPinned,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    ptr::NonNull,
+    rc::Rc,
+};
 
 use crate::{
     container_of,
@@ -16,41 +23,6 @@ use crate::{
 };
 
 use super::{async_func_free, JSAsyncFunctionState};
-
-pub struct JSVarRef {
-    pub var_idx: u16,
-
-    /// bitfield for is_detached and is_arg
-    pub bitfield: u8,
-
-    /// 一个指向 JSValue 的指针。这个字段有两个主要用途：
-    /// 1. 变量值的定位 ：
-    ///    - 当变量在栈上时（detached = false）， pvalue 指向栈上的变量值位置（ var_buf 或 arg_buf ）
-    ///    - 当变量被分离时（detached = true）， pvalue 指向 JSVarRef 结构体内部的 value_or_links.value 字段
-    /// 2. 闭包变量访问 ：
-    ///    - 它允许闭包函数访问外部作用域的变量
-    ///    - 通过这个指针可以实现对变量的读写操作，无论变量实际存储在栈上还是已经被分离到堆上
-    pub pvalue: *mut JSValue,
-
-    /// 根据变量是否被分离(detached)有不同用途：
-    /// - 当变量被分离时：存储实际的 JSValue 值
-    /// - 当变量未被分离时：存储链表节点信息和异步函数状态指针
-    pub value_or_links: JSVarRefValueOrLinks,
-
-    /// SAFETY: pvalue指针可能指向自引用(value_or_links.value)，所以!Unpin
-    pub _mark: PhantomPinned,
-}
-
-impl std::fmt::Debug for JSVarRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("JSVarRef")
-            .field("var_idx", &self.var_idx)
-            .field("bitfield", &self.bitfield)
-            .field("pvalue", &self.pvalue)
-            .field("value_or_links", &"...")
-            .finish()
-    }
-}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -79,9 +51,11 @@ pub union JSVarRefValueOrLinks {
     pub links: JSVarRefLinks, // used when is_detached = FALSE
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct JSVarRefLinks {
+    pub u0: JSVarRefHeaderOrGCFields,
+
     /// JSStackFrame.var_ref_list list
     pub var_ref_list: list_head,
 
@@ -89,19 +63,62 @@ pub struct JSVarRefLinks {
     pub async_func: *mut JSAsyncFunctionState,
 }
 
-impl JSVarRef {
-    pub const PLACEHOLDER_ID: u16 = u16::MAX;
+#[repr(C)]
+pub struct JSVarRefInner {
+    pub u0: JSVarRefHeaderOrGCFields,
 
+    pub var_idx: u16,
+
+    /// bitfield for is_detached and is_arg
+    pub bitfield: u8,
+
+    /// 一个指向 JSValue 的指针。这个字段有两个主要用途：
+    /// 1. 变量值的定位 ：
+    ///    - 当变量在栈上时（detached = false）， pvalue 指向栈上的变量值位置（ var_buf 或 arg_buf ）
+    ///    - 当变量被分离时（detached = true）， pvalue 指向 JSVarRef 结构体内部的 value_or_links.value 字段
+    /// 2. 闭包变量访问 ：
+    ///    - 它允许闭包函数访问外部作用域的变量
+    ///    - 通过这个指针可以实现对变量的读写操作，无论变量实际存储在栈上还是已经被分离到堆上
+    pub pvalue: *mut JSValue,
+
+    /// 根据变量是否被分离(detached)有不同用途：
+    /// - 当变量被分离时：存储实际的 JSValue 值
+    /// - 当变量未被分离时：存储链表节点信息和异步函数状态指针
+    pub value_or_links: JSVarRefValueOrLinks,
+
+    /// SAFETY: pvalue指针可能指向自引用(value_or_links.value)，所以!Unpin
+    pub _mark: PhantomPinned,
+
+    #[cfg(debug_assertions)]
+    cleared: bool,
+}
+
+#[cfg(debug_assertions)]
+impl Drop for JSVarRefInner {
+    fn drop(&mut self) {
+        debug_assert!(self.cleared, "JSVarRefInner must be cleaned up before drop");
+        unsafe {
+            debug_assert!(self.u0.header.ref_count == 0);
+            debug_assert!(self.u0.header.link.prev.is_null());
+            debug_assert!(self.u0.header.link.next.is_null());
+        }
+    }
+}
+
+impl std::fmt::Debug for JSVarRefInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JSVarRef")
+            .field("var_idx", &self.var_idx)
+            .field("bitfield", &self.bitfield)
+            .field("pvalue", &self.pvalue)
+            .field("value_or_links", &"...")
+            .finish()
+    }
+}
+
+impl JSVarRefInner {
     /// a dummpy var ref used as placeholder
-    pub const PLACEHOLDER: Self = Self {
-        var_idx: Self::PLACEHOLDER_ID, // this id is identical to placeholder
-        bitfield: 0,
-        pvalue: std::ptr::null_mut(),
-        value_or_links: JSVarRefValueOrLinks {
-            value: JSValue::UNDEFINED,
-        },
-        _mark: PhantomPinned,
-    };
+    pub const INVALID: NonNull<Self> = NonNull::<Self>::dangling();
 
     pub fn is_detached(&self) -> bool {
         self.bitfield & 0b1000_0000 != 0
@@ -127,6 +144,8 @@ impl JSVarRef {
 
     /// do clean up before varref drop
     pub(crate) unsafe fn before_drop_clean_up(&mut self, rt: *mut JSRuntime) {
+        debug_assert_eq!(self.u0.header.ref_count, 1);
+
         if self.is_detached() {
             JS_FreeValueRT(rt, self.value_or_links.value);
         } else {
@@ -136,19 +155,133 @@ impl JSVarRef {
                 async_func_free(rt, self.value_or_links.links.async_func);
             }
         }
+
+        // remove varref from gc list, tmp list or zero ref count list
+        list_del(&mut self.u0.header.link);
+
+        #[cfg(debug_assertions)]
+        {
+            self.cleared = true;
+            self.u0.header.ref_count = 0;
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct JSVarRef(NonNull<JSVarRefInner>);
+
+impl Clone for JSVarRef {
+    fn clone(&self) -> Self {
+        unsafe {
+            (*self.0.as_ptr()).u0.header.ref_count += 1;
+        }
+        Self(self.0)
+    }
+}
+
+impl Drop for JSVarRef {
+    fn drop(&mut self) {
+        if self.0 != JSVarRefInner::INVALID {
+            unsafe {
+                let n = self.0.as_mut().u0.header.ref_count;
+                debug_assert!(n > 0);
+
+                if n == 1 {
+                    debug_assert!(
+                        self.0.as_ref().cleared,
+                        "JSVarRef must be cleaned up before drop"
+                    );
+
+                    drop(Box::from_raw(self.0.as_ptr()));
+                } else {
+                    self.0.as_mut().u0.header.ref_count -= 1;
+                }
+            }
+        }
+    }
+}
+
+impl JSVarRef {
+    /// a dummpy var ref used as placeholder
+    pub const PLACEHOLDER: Self = Self(JSVarRefInner::INVALID);
+
+    pub fn new(init_value: JSValue) -> Self {
+        let mut vr = Box::new(JSVarRefInner {
+            u0: JSVarRefHeaderOrGCFields {
+                header: JSGCObjectHeader::new(1),
+            },
+            var_idx: 0,
+            bitfield: 0,
+            pvalue: std::ptr::null_mut(), // unknown for now
+            value_or_links: JSVarRefValueOrLinks { value: init_value },
+            _mark: PhantomPinned,
+
+            #[cfg(debug_assertions)]
+            cleared: false,
+        });
+
+        unsafe {
+            init_list_head(&mut vr.u0.header.link);
+        }
+
+        Self(unsafe { NonNull::new_unchecked(Box::into_raw(vr)) })
+    }
+
+    #[inline(always)]
+    pub fn as_ptr(&self) -> *mut JSVarRefInner {
+        self.0.as_ptr()
+    }
+
+    #[inline(always)]
+    pub fn as_ref(&self) -> Pin<&JSVarRefInner> {
+        unsafe {
+            let p = self.0.as_ref();
+            Pin::new_unchecked(p)
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_mut(&mut self) -> Pin<&mut JSVarRefInner> {
+        unsafe {
+            let p = self.0.as_mut();
+            Pin::new_unchecked(p)
+        }
+    }
+
+    /// get VarRef ref_count
+    #[inline(always)]
+    pub fn ref_count(&self) -> usize {
+        unsafe { self.0.as_ref().u0.header.ref_count as _ }
+    }
+
+    #[inline(always)]
+    /// decrement VarRef ref_count
+    pub unsafe fn dec_ref(&mut self) {
+        debug_assert!(self.ref_count() > 0);
+        unsafe {
+            self.0.as_mut().u0.header.ref_count -= 1;
+        }
+    }
+
+    /// if has only one ref count, consume and return inner data as Some(JSVarRefInner), otherwise None.
+    pub fn into_inner(self) -> Option<Pin<Box<JSVarRefInner>>> {
+        let mut s = self;
+        unsafe {
+            if s.0.as_ref().u0.header.ref_count == 1 {
+                let p = s.0.as_ptr().cast::<JSVarRefInner>();
+                s.0 = JSVarRefInner::INVALID;
+                Some(Pin::from(Box::from_raw(p)))
+            } else {
+                None
+            }
+        }
     }
 }
 
 #[deprecated(note = "use JSVarRef::dispose() instead")]
 pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
     unreachable!("unused");
-
-    // if !var_ref.is_null() {
-    //     if let Some(vr) = Box::from_raw(var_ref).free(rt) {
-    //         // still alive
-    //         Box::leak(vr);
-    //     }
-    // }
 }
 
 #[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
@@ -172,27 +305,18 @@ impl JSStackFrame {
         ctx: &mut JSContext,
         var_idx: u16,
         is_arg: bool,
-    ) -> Result<Box<JSVarRef>, i32> {
-        if let Some(p) = unsafe { js_malloc_typed::<JSVarRef>(ctx, 1, false) } {
-            let mut o = JSVarRef {
-                bitfield: 0,
-                var_idx,
-                pvalue: std::ptr::null_mut(),
-                value_or_links: JSVarRefValueOrLinks {
-                    value: JSValue::UNDEFINED,
-                },
-                _mark: PhantomPinned,
-            };
-            o.set_detached(false);
-            o.set_arg(is_arg);
+    ) -> Result<JSVarRef, i32> {
+        let mut vr = JSVarRef::new(JSValue::UNDEFINED);
+        debug_assert_eq!(vr.ref_count(), 1);
 
-            unsafe {
-                p.write(o);
-                Ok(Box::from_raw(p.as_ptr()))
-            }
-        } else {
-            Err(-1)
+        unsafe {
+            let p = vr.as_mut().get_unchecked_mut();
+            p.set_var_idx(var_idx);
+            p.set_detached(false);
+            p.set_arg(is_arg);
         }
+
+        Ok(vr)
     }
 
     /// find VarRef by id and is_arg. if not found, create new.
@@ -201,10 +325,10 @@ impl JSStackFrame {
         ctx: &mut JSContext,
         var_idx: u16,
         is_arg: bool,
-    ) -> Result<Rc<RefCell<Pin<Box<JSVarRef>>>>, i32> {
+    ) -> Result<JSVarRef, i32> {
         // search in existing var refs
         if let Some(vr) = self.var_ref_list.iter().find_map(|v| {
-            let vr = v.borrow();
+            let vr = v.as_ref();
             if vr.var_idx() == var_idx && vr.is_arg() == is_arg {
                 Some(v.clone())
             } else {
@@ -217,70 +341,64 @@ impl JSStackFrame {
         // not found, make new var_ref
         let mut vr = self.make_var_ref(ctx, var_idx, is_arg)?;
 
-        vr.set_detached(false);
-        vr.set_arg(is_arg);
-        vr.set_var_idx(var_idx);
+        unsafe {
+            let p = vr.as_mut().get_unchecked_mut();
 
-        // unsafe {
-        //     add_gc_object(
-        //         ctx.rt_mut(),
-        //         header,
-        //         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
-        //     );
-        // }
+            p.set_detached(false);
+            p.set_arg(is_arg);
+            p.set_var_idx(var_idx);
+            p.value_or_links.links.async_func = if self.js_mode & JS_MODE_ASYNC != 0 {
+                // The stack frame is detached and may be destroyed at any
+                // time so its reference count must be increased. Calling
+                // close_var_refs() when destroying the stack frame is not
+                // possible because it would change the graph between the GC
+                // objects. Another solution could be to temporarily detach
+                // the JSVarRef of async functions during the GC. It would
+                // have the advantage of allowing the release of unused stack
+                // frames in a cycle.
 
-        vr.as_mut().value_or_links.links.async_func = if self.js_mode & JS_MODE_ASYNC != 0 {
-            // The stack frame is detached and may be destroyed at any
-            // time so its reference count must be increased. Calling
-            // close_var_refs() when destroying the stack frame is not
-            // possible because it would change the graph between the GC
-            // objects. Another solution could be to temporarily detach
-            // the JSVarRef of async functions during the GC. It would
-            // have the advantage of allowing the release of unused stack
-            // frames in a cycle.
+                // `self` is from the JSAsyncFunctionState::frame field.
+                // use container_of!() to get the JSAsyncFunctionState that contains `self` stack frame.
 
-            // `self` is from the JSAsyncFunctionState::frame field.
-            // use container_of!() to get the JSAsyncFunctionState that contains `self` stack frame.
-            unsafe {
                 let afs = container_of!(self as *mut JSStackFrame, JSAsyncFunctionState, frame);
                 (*afs).header.ref_count += 1;
-
                 afs
-            }
-        } else {
-            std::ptr::null_mut()
-        };
-
-        vr.as_mut().pvalue = unsafe {
-            if is_arg {
+            } else {
+                std::ptr::null_mut()
+            };
+            p.pvalue = if is_arg {
                 self.arg_base_ptr.offset(var_idx as isize)
             } else {
                 self.var_base_ptr.offset(var_idx as isize)
-            }
-        };
+            };
+
+            // Note:: gc obj list accepts weak ref,
+            // don't increase refcount of var_ref.
+            add_gc_object(
+                ctx.rt_mut(),
+                vr.as_ptr().cast(),
+                JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
+            );
+        }
 
         // register to var ref list
-        let vr: Rc<RefCell<Pin<Box<JSVarRef>>>> = Rc::new(RefCell::new(Pin::from(vr)));
         self.var_ref_list.push(vr.clone());
 
         Ok(vr)
     }
 
     pub fn close_var_refs(&mut self, ctx: &mut JSContext) {
-        for vr in self.var_ref_list.iter_mut() {
-            let mut var_ref = vr.borrow_mut();
-
+        for var_ref in self.var_ref_list.iter_mut() {
             // no need to unlink var_ref->var_ref_link as the list is never used afterwards
-            if unsafe { !var_ref.value_or_links.links.async_func.is_null() } {
-                unsafe {
-                    async_func_free(ctx.rt_mut(), var_ref.value_or_links.links.async_func);
-                }
-            }
+            let vr = var_ref.as_ref();
+            let var_idx = vr.var_idx();
 
-            let var_idx = var_ref.var_idx();
-
-            // SAFETY: update fields of !Unpin
             unsafe {
+                if !vr.value_or_links.links.async_func.is_null() {
+                    async_func_free(ctx.rt_mut(), vr.value_or_links.links.async_func);
+                }
+
+                // SAFETY: update fields of !Unpin
                 let p = var_ref.as_mut().get_unchecked_mut();
 
                 // set value
@@ -325,16 +443,18 @@ impl JSStackFrame {
     }
 
     pub unsafe fn close_lexical_var(&mut self, ctx: &mut JSContext, var_idx: u16, is_arg: bool) {
-        if let Some(i) = self.var_ref_list.iter().position(|v| {
-            let v = v.borrow();
-            v.var_idx() == var_idx && v.is_arg() == is_arg
-        }) {
+        if let Some(i) = self
+            .var_ref_list
+            .iter()
+            .position(|v| v.as_ref().var_idx() == var_idx && v.as_ref().is_arg() == is_arg)
+        {
             // remove the var ref, list order is not cared
-            let removed = self.var_ref_list.swap_remove(i);
-            let mut var_ref = removed.borrow_mut();
-
-            if !var_ref.value_or_links.links.async_func.is_null() {
-                async_func_free(ctx.rt_mut(), var_ref.value_or_links.links.async_func);
+            let mut var_ref = self.var_ref_list.swap_remove(i);
+            if !var_ref.as_ref().value_or_links.links.async_func.is_null() {
+                async_func_free(
+                    ctx.rt_mut(),
+                    var_ref.as_ref().value_or_links.links.async_func,
+                );
             }
 
             // SAFETY: update fields of !Unpin

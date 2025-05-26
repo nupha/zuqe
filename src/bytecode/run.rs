@@ -70,7 +70,7 @@ pub unsafe fn run_bytecodes(
     bytecodes: &[u8],      // Array of bytecode instructions to execute
     pc_offset: usize,      // Current instruction pointer (program counter) offset
     sp_offset: usize,      // Current stack pointer offset
-    var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
+    var_refs: &[JSVarRef],
     args: &[JSValue], // actual calling arguments pass in by caller, not padded length
     mode: i32,
     throwed: bool, // Indicates if an exception has been thrown
@@ -941,7 +941,6 @@ pub unsafe fn run_bytecodes(
                     if val.is_exception() {
                         break State::Exception;
                     } else {
-                        println!("[O.o]... GET_VAR refcount={:?}", val.ref_count());
                         SP![0] = val;
                         SP_GO!(1);
                     }
@@ -1051,34 +1050,26 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    let val = *var_refs[idx as usize].as_ref().borrow().pvalue;
+                    let val = *var_refs[idx as usize].as_ref().pvalue;
                     SP![0] = val.dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(
-                        ctx,
-                        var_refs[idx as usize].as_ref().borrow_mut().pvalue,
-                        SP![-1],
-                    );
+                    set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1]);
                     SP_GO!(-1);
                 }
                 OpCode::SET_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(
-                        ctx,
-                        var_refs[idx as usize].as_ref().borrow_mut().pvalue,
-                        SP![-1].dup(),
-                    );
+                    set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1].dup());
                 }
                 OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
-                    let pval = var_refs[idx as usize].as_ref().borrow_mut().pvalue;
+                    let pval = var_refs[idx as usize].as_ref().pvalue;
                     if JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
                         break State::Exception;
@@ -1098,7 +1089,7 @@ pub unsafe fn run_bytecodes(
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
-                    let pval = var_refs[idx as usize].as_ref().borrow_mut().pvalue;
+                    let pval = var_refs[idx as usize].as_ref().pvalue;
                     if !JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
                         break State::Exception;
@@ -1166,15 +1157,14 @@ pub unsafe fn run_bytecodes(
                         break State::Exception;
                     } else {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            Ok(var_refs[idx as usize].clone())
+                            let vr = var_refs[idx as usize].clone();
+                            Ok(vr)
                         } else {
                             sf.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
                         };
 
                         match var_ref {
                             Ok(vr) => {
-                                debug_assert!(Rc::strong_count(&vr) > 1);
-
                                 if let Ok(pr) = SP![-1].object_unchecked().add_property(
                                     ctx,
                                     atom,

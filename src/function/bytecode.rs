@@ -498,7 +498,7 @@ impl BytecodeFunctionValue {
         sf.prev_frame = caller_ctx.rt().current_stack_frame;
         caller_ctx.rt_mut().current_stack_frame = sf;
 
-        run_bytecodes(
+        let retval = run_bytecodes(
             bf,
             func.home_object,
             sf,
@@ -512,7 +512,18 @@ impl BytecodeFunctionValue {
             args,
             bf.js_mode as _,
             false,
-        )
+        );
+
+        // stack frame is about to drop, check var_ref_list
+        for vr in sf.var_ref_list.drain(..) {
+            if let Some(mut vr) = vr.into_inner() {
+                vr.as_mut()
+                    .get_unchecked_mut()
+                    .before_drop_clean_up(caller_ctx.rt_mut());
+            }
+        }
+
+        retval
     }
 }
 

@@ -53,13 +53,6 @@ pub unsafe fn js_get_stack_pointer() -> usize {
     get_frame_address(0).unwrap()
 }
 
-pub fn JS_DumpObjectHeader() {
-    println!(
-        "{:14} {:4} {:4} {:14} {:14} {:10} PROPS",
-        "ADDRESS", "REFS", "SHRF", "SHAPE@", "PROTO", "CLASS",
-    );
-}
-
 //
 // OPCODE UTILS
 //

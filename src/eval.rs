@@ -80,7 +80,7 @@ impl JSContext {
         let mut m: *mut JSModuleDef = std::ptr::null_mut();
         let mut b: *mut JSFunctionBytecode = std::ptr::null_mut();
         let mut sf: *mut JSStackFrame = std::ptr::null_mut();
-        let mut var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>] = &[];
+        let mut var_refs: &[JSVarRef] = &[];
         let mut js_mode: u32 = 0;
 
         if eval_type == JS_EVAL_TYPE_DIRECT {
@@ -338,7 +338,7 @@ pub unsafe fn JS_EvalFunctionInternal(
     ctx: *mut JSContext,
     fun_obj: JSValue,
     this_obj: JSValueConst,
-    var_refs: &[Rc<RefCell<Pin<Box<JSVarRef>>>>],
+    var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     match JS_VALUE_GET_TAG(fun_obj) {

@@ -10,7 +10,16 @@ use crate::{
 use super::{JSObject, JSShape};
 
 impl JSObject {
-    /// Safely frees a GC object, releasing all associated resources.
+    // pub unsafe fn free(rt: &mut JSRuntime, p: *mut Self) {
+    //     let n = (*p).header.ref_count;
+    //     debug_assert!(n > 0);
+    //     (*p).header.ref_count -= 1;
+    //     if n == 0 {
+    //         Self::dispose(rt, p);
+    //     }
+    // }
+
+    /// Safely frees a JSObject, releasing all associated resources.
     /// This includes:
     /// - Marking the object as invalid to prevent use during freeing cycles
     /// - Freeing all property values
@@ -19,14 +28,14 @@ impl JSObject {
     /// - Calling the class finalizer if defined
     /// - Handling object memory cleanup based on GC phase
     /// The object must be in either tmp_obj_list or gc_zero_ref_count_list chain.
-    pub unsafe fn free(rt: &mut JSRuntime, p: *mut Self) {
+    pub unsafe fn dispose(rt: &mut JSRuntime, p: *mut Self) {
         // used to tell the object is invalid when freeing cycles
         (*p).detailed.set_free_mark(true);
 
         // shape can't be null
         let sh = (*p).shape_mut().unwrap();
 
-        // free all prop values
+        // free all prop definations and prop values
         for (prs, v) in sh.props.values().zip((*p).prop_values.drain(..)) {
             v.dispose(rt, prs.flags());
         }
@@ -64,9 +73,6 @@ impl JSObject {
                 // (*p).u.opaque = std::ptr::null_mut();
             }
         }
-
-        // fail safe
-        (*p).detailed.set_class_id(0);
 
         remove_gc_object(&mut (*p).header);
 

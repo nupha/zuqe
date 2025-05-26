@@ -1,7 +1,11 @@
+use std::pin::Pin;
+
 use crate::{
     context::JSContext,
     error::JS_NATIVE_ERROR_COUNT,
-    function::{free_function_bytecode, JSAsyncFunctionState, JSFunctionBytecode, JSVarRef},
+    function::{
+        free_function_bytecode, JSAsyncFunctionState, JSFunctionBytecode, JSVarRef, JSVarRefInner,
+    },
     list_entry,
     module::{JSExportTypeEnum, JSModuleDef},
     runtime::JSRuntime,
@@ -9,7 +13,6 @@ use crate::{
         init_list_head, list_add_tail, list_count, list_del, list_find, list_foreach,
         list_foreach_safe, list_head,
     },
-    utils::JS_DumpObjectHeader,
     value::{
         object::{
             js_autoinit_get_realm, JSObject, JSProperty, JSShape, JS_PROP_AUTOINIT, JS_PROP_GETSET,
@@ -33,7 +36,6 @@ pub enum JSGCObjectTypeEnum {
     JS_GC_OBJ_TYPE_JS_OBJECT,
     JS_GC_OBJ_TYPE_FUNCTION_BYTECODE,
     JS_GC_OBJ_TYPE_SHAPE,
-    #[deprecated]
     JS_GC_OBJ_TYPE_VAR_REF,
     JS_GC_OBJ_TYPE_ASYNC_FUNCTION,
     JS_GC_OBJ_TYPE_JS_CONTEXT,
@@ -64,13 +66,16 @@ pub struct JSGCObjectHeader {
 }
 
 impl JSGCObjectHeader {
-    pub fn new(ref_count: i32) -> Self {
+    pub const fn new(ref_count: i32) -> Self {
         Self {
             ref_count,
             bitfields: 0,
             dummy1: 0,
             dummy2: 0,
-            link: list_head::default(),
+            link: list_head {
+                prev: std::ptr::null_mut(),
+                next: std::ptr::null_mut(),
+            },
         }
     }
 
@@ -92,7 +97,14 @@ impl JSGCObjectHeader {
     }
 }
 
-/// Frees objects with zero reference count
+pub fn JS_DumpObjectHeader() {
+    println!(
+        "{:>14} {:4} {:4} {:>14} {:>14} {:10} PROPS",
+        "ADDRESS", "REFS", "SHRF", "SHAPE@", "PROTO", "CLASS",
+    );
+}
+
+/// Frees objects with zero reference count (in gc_zero_ref_count_list chain).
 pub unsafe fn free_zero_refcount(rt: *mut JSRuntime) {
     // Set GC phase to decrement reference count
     (*rt).gc_phase = JSGCPhaseEnum::JS_GC_PHASE_DECREF;
@@ -191,7 +203,7 @@ unsafe fn mark_children(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader, mark_func
             }
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF => {
-            let var_ref = gp.cast::<JSVarRef>();
+            let var_ref = Pin::new_unchecked(gp.cast::<JSVarRefInner>().as_ref().unwrap());
             if (*var_ref).is_detached() {
                 JS_MarkValue(rt, *(*var_ref).pvalue, mark_func);
             } else if !(*var_ref).value_or_links.links.async_func.is_null() {
@@ -389,8 +401,12 @@ pub unsafe fn gc_free_cycles(rt: &mut JSRuntime) {
 
                 free_gc_object(rt, p);
 
-                // `el` is removed from tmp_obj_list
-                debug_assert!(!list_find(el, &mut rt.tmp_obj_list));
+                // `el` is removed from tmp_obj_list.
+                // `el` could be added to zero ref count list or dropped directly.
+            }
+            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF => {
+                list_del(&mut (*p).link);
+                list_add_tail(&mut (*p).link, &mut rt.gc_zero_ref_count_list);
             }
             _ => {
                 list_del(&mut (*p).link);
@@ -414,8 +430,8 @@ pub unsafe fn gc_free_cycles(rt: &mut JSRuntime) {
             JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_ASYNC_FUNCTION => {
                 drop(Box::from_raw(p.cast::<JSAsyncFunctionState>()));
             }
-            _ => {
-                unreachable!()
+            t => {
+                unreachable!("{t:?}")
             }
         }
     });
@@ -491,7 +507,7 @@ pub unsafe fn remove_gc_object(h: *mut JSGCObjectHeader) {
 pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
     match (*gp).gc_obj_type() {
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_OBJECT => {
-            JSObject::free(rt.as_mut().unwrap(), gp.cast());
+            JSObject::dispose(rt.as_mut().unwrap(), gp.cast());
         }
         JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE => {
             free_function_bytecode(rt, gp.cast());
@@ -543,14 +559,13 @@ pub unsafe fn JS_MarkContext(rt: &mut JSRuntime, ctx: &mut JSContext, mark_func:
 }
 
 pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut JSModuleDef, mark_func: JS_MarkFunc) {
-    for me in m.export_entries.iter() {
+    for me in m.export_entries.iter_mut() {
         if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
             var_ref: Some(vr), ..
-        } = &me.export_type
+        } = &mut me.export_type
         {
-            // FIXME
-            println!("[O.o] mark module def varref");
-            // mark_func(rt, &mut (*me.u.local.var_ref).u0.header);
+            // mark for var_ref
+            mark_func(rt, &mut vr.as_mut().get_unchecked_mut().u0.header);
         }
     }
 

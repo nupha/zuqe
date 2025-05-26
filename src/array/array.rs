@@ -163,7 +163,6 @@ impl JSObject {
     #[inline(always)]
     pub unsafe fn fast_array_values_mut_unchecked(&mut self) -> &mut Vec<JSValue> {
         debug_assert!(self.detailed.fast_array());
-        println!("[O.o] {:?}", self.isa());
 
         match self.isa_mut() {
             JSObjectIsa::ARGUMENTS(a) | JSObjectIsa::ARRAY(a) => &mut a.values,

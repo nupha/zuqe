@@ -56,7 +56,7 @@ impl JSObject {
                         };
                     }
                     JS_PROP_VARREF => {
-                        let val = *pr.u.var_ref.as_ref().borrow().pvalue;
+                        let val = *pr.u.var_ref.as_ref().pvalue;
                         return if JS_IsUninitialized(val) {
                             JS_ThrowReferenceErrorUninitialized(ctx, prs.atom)
                         } else {

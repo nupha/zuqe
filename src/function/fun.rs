@@ -67,7 +67,7 @@ pub struct JSObjectFunc {
     pub function_bytecode: *mut JSFunctionBytecode,
 
     /// closure variable refrences
-    pub var_refs: Vec<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
+    pub var_refs: Vec<JSVarRef>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
@@ -240,11 +240,8 @@ pub unsafe fn js_bytecode_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let b = func.function_bytecode;
     if !b.is_null() {
         for vr in func.var_refs.drain(..) {
-            if Rc::strong_count(&vr) == 1 {
-                vr.borrow_mut()
-                    .as_mut()
-                    .get_unchecked_mut()
-                    .before_drop_clean_up(rt);
+            if let Some(mut vr) = vr.into_inner() {
+                vr.as_mut().get_unchecked_mut().before_drop_clean_up(rt);
             }
         }
 
@@ -271,34 +268,27 @@ pub unsafe fn js_bytecode_function_mark(
     }
 
     if !b.is_null() {
-        func.var_refs.retain(|vr| {
-            if Rc::strong_count(vr) == 1 {
-                // should remove
-                println!(
-                    "[O.o] remove varref for {:?}",
-                    (*vr.borrow().pvalue).object().map(|o| {
-                        o.dump(rt.as_mut().unwrap());
-                    })
-                );
+        // func.var_refs.retain_mut(|vr| {
+        //     if vr.strong_count() == 1 {
+        //         // should remove
+        //         println!(
+        //             "[O.o] remove varref for {:?}",
+        //             (*vr.pvalue).object().map(|o| {
+        //                 o.dump(rt.as_mut().unwrap());
+        //             })
+        //         );
 
-                vr.borrow_mut()
-                    .as_mut()
-                    .get_unchecked_mut()
-                    .before_drop_clean_up(rt);
-                false
-            } else {
-                // keep this
-                true
-            }
-        });
+        //         vr.as_mut().get_unchecked_mut().before_drop_clean_up(rt);
+        //         false
+        //     } else {
+        //         // keep this
+        //         true
+        //     }
+        // });
 
-        // for vr in func.var_refs.iter() {
-        //     println!(
-        //         "[O.o] ~~~~~ todo: mark var_ref in function: rc={}",
-        //         Rc::strong_count(vr)
-        //     );
-        //     // mark_func(rt, &mut (*vr.as_ptr()).u0.header);
-        // }
+        for vr in func.var_refs.iter_mut() {
+            mark_func(rt, &mut vr.as_mut().get_unchecked_mut().u0.header);
+        }
 
         // must mark the function bytecode because template objects may be part of a cycle
         JS_MarkValue(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);

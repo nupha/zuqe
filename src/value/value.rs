@@ -575,9 +575,9 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     {
         print!("Freeing ({tag:2}) ");
         if tag == JS_TAG_OBJECT {
-            JS_DumpObject(rt, JS_VALUE_GET_OBJ(v));
+            v.object_unchecked().dump(rt.as_ref().unwrap());
         } else {
-            JS_DumpValueShort(rt, v);
+            print!("{}", v.repr(rt.as_ref().unwrap()));
             println!();
         }
     }

@@ -37,7 +37,7 @@ pub struct JSStackFrame {
     pub cur_sp_offset: usize,
 
     /// registered var refs in stack frame
-    pub var_ref_list: Vec<Rc<RefCell<Pin<Box<JSVarRef>>>>>,
+    pub var_ref_list: Vec<JSVarRef>,
 
     /// for C functions, only JS_MODE_MATH may be set
     pub js_mode: i32,

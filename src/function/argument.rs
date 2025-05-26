@@ -99,7 +99,7 @@ pub unsafe fn js_build_mapped_arguments(
                 ) {
                     (*pr).u.var_ref = ManuallyDrop::new(var_ref);
                 } else {
-                    debug_assert!(Rc::strong_count(&var_ref) > 1);
+                    debug_assert!(var_ref.ref_count() > 1);
                     JS_FreeValue(ctx, val);
                     return JSValue::EXCEPTION;
                 }
