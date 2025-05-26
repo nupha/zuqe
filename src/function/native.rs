@@ -12,7 +12,6 @@ use crate::{
     iterator::js_create_iterator_result,
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
-    types::list_head,
     value::{
         object::{JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_NewObject, JS_PROP_CONFIGURABLE},
         JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,

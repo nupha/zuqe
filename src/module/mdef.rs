@@ -1,13 +1,9 @@
 use std::{
-    cell::RefCell,
     cmp::Ordering,
     ffi::{c_void, CStr},
-    marker::PhantomPinned,
     mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     path::PathBuf,
-    pin::Pin,
-    rc::Rc,
 };
 
 use crate::{
@@ -20,18 +16,17 @@ use crate::{
     },
     function::{
         js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSObjectFunc, JSVarKindEnum,
-        JSVarRef, JSVarRefHeaderOrGCFields, JSVarRefValueOrLinks, JS_Call,
+        JSVarRef, JS_Call,
     },
-    gc::{add_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
+    gc::{add_gc_object, JSGCObjectTypeEnum},
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
     types::{
-        init_list_head, list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret,
-        list_head, JSRefCountHeader,
+        list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head,
+        JSRefCountHeader,
     },
     value::{
-        self,
         object::{
             JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
             JS_PROP_VARREF, JS_PROP_WRITABLE,
@@ -40,7 +35,7 @@ use crate::{
         JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
         JS_VALUE_GET_TAG,
     },
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_MODULE_NS, JS_MKPTR,
+    JS_MKPTR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,25 +1,13 @@
-use std::{
-    cell::RefCell,
-    marker::PhantomPinned,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    ptr::NonNull,
-    rc::Rc,
-};
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     container_of,
     context::{JSContext, JS_MODE_ASYNC},
-    gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
-    list_entry,
-    mem::js_malloc_typed,
+    gc::{add_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    types::{
-        init_list_head, list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret,
-        list_head,
-    },
-    value::{JSValue, JS_DupValue, JS_FreeValueRT},
+    types::{init_list_head, list_del, list_head},
+    value::{JSValue, JS_FreeValueRT},
 };
 
 use super::{async_func_free, JSAsyncFunctionState};

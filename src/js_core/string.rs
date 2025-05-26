@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     error::JS_ThrowRangeError,
     function::{JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree, JS_InvokeFree},
-    iterator::{js_create_array_iterator, JSArrayIteratorData, JSIteratorKindEnum},
+    iterator::{js_create_array_iterator, JSIteratorKindEnum},
     regexp::js_is_regexp,
     value::{
         object::{
@@ -16,11 +16,11 @@ use crate::{
         JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
         JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
         JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
-        JS_STRING_LEN_MAX, JS_TAG_INT, JS_TAG_OBJECT, JS_TAG_STRING, JS_VALUE_GET_INT,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
+        JS_STRING_LEN_MAX, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+        JS_VALUE_GET_TAG,
     },
-    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
-    JS_ITERATOR_NEXT_DEF, JS_MKPTR, JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_ITERATOR_NEXT_DEF, JS_MKPTR,
+    JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
 };
 
 pub unsafe fn js_string_constructor(

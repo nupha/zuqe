@@ -6,8 +6,8 @@ use crate::{
     error::JS_ThrowRangeError,
     gc::{free_zero_refcount, JSGCObjectHeader, JSGCPhaseEnum},
     runtime::JSRuntime,
-    types::{list_add, list_del, unlikely, JSRefCountHeader},
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_PROXY, JS_MKVAL,
+    types::{list_add, list_del, JSRefCountHeader},
+    JS_MKVAL,
 };
 
 use super::{

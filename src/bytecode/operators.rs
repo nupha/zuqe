@@ -1,12 +1,10 @@
-use std::{cell::RefCell, pin::Pin, ptr::NonNull, rc::Rc};
-
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
     function::{
-        js_class_has_bytecode, js_closure2, js_poll_interrupts, JSFunctionBytecode,
-        JSFunctionKindEnum, JSObjectFunc, JSVarRef,
+        js_closure2, js_poll_interrupts, JSFunctionBytecode, JSFunctionKindEnum, JSObjectFunc,
+        JSVarRef,
     },
     gc::set_cycle_flag,
     iterator::{
@@ -28,7 +26,7 @@ use crate::{
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_ToBoolFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_FOR_IN_ITERATOR, JS_CLASS_OBJECT, JS_MKPTR,
+    JS_CLASS_OBJECT, JS_MKPTR,
 };
 
 pub unsafe fn js_operator_delete(ctx: &mut JSContext, sp: *mut JSValue) -> i32 {

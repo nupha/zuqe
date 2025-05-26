@@ -10,12 +10,10 @@ use crate::{
     atom::{consts::*, JSAtom, JSAtomInfo, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextHandle},
-    function::JS_InvokeFree,
     types::{list_head, unlikely},
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
-        JS_VALUE_GET_TAG,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };

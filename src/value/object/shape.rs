@@ -1,20 +1,17 @@
-use std::{mem::ManuallyDrop, ops::DerefMut, ptr::NonNull};
+use std::{ops::DerefMut, ptr::NonNull};
 
 use indexmap::IndexMap;
 
 use crate::{
-    array::{JSObjectArray, JSObjectArrayDataUnion, JSObjectArrayU1},
     atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
-    class::{self, JSClassID},
     context::JSContext,
     error::JSResult,
-    function::{JSCFunctionType, JSObjectCFunc, JSObjectFunc},
     gc::{add_gc_object, js_trigger_gc, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    types::{init_list_head, list_find},
+    types::init_list_head,
     value::{
-        object::{JSObjectFlags, JSObjectIsa, JSObjectUnion},
+        object::{JSObjectFlags, JSObjectIsa},
         JSTag, JSValue, JS_FreeValueRT,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -248,11 +245,6 @@ impl JSShape {
         unsafe {
             remove_gc_object(&mut self.header);
         }
-        // if !self.header.link.next.is_null() && !self.header.link.prev.is_null() {
-        //     unsafe {
-        //         remove_gc_object(&mut self.header);
-        //     }
-        // }
     }
 
     /// decrease ref count of `shape`.

@@ -6,7 +6,7 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::JSObjectIsa, JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_REGEXP,
 };

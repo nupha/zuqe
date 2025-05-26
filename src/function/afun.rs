@@ -1,5 +1,4 @@
 use crate::{
-    class::JSClassID,
     context::{JSContext, JS_MODE_ASYNC},
     error::JS_ThrowStackOverflow,
     gc::{
@@ -14,9 +13,9 @@ use crate::{
     utils::UncheckedInto,
     value::{
         object::{JSObjectIsa, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_VALUE_GET_OBJ,
+        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
     },
-    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_MKPTR, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::{

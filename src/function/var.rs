@@ -1,11 +1,9 @@
 use crate::{
-    atom::{consts::*, JSAtom, JS_DupAtom, JS_ATOM_NULL},
-    bytecode::opcodes,
+    atom::{consts::*, JSAtom, JS_ATOM_NULL},
     context::{JSContext, JS_MODE_STRICT},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::JSFunctionDef,
     runtime::JS_MAX_LOCAL_VARS,
-    utils::{push_vec_u32, push_vec_u8},
 };
 
 use super::ARG_SCOPE_INDEX;

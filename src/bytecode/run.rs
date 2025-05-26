@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ffi::CStr, mem::ManuallyDrop, pin::Pin, ptr::NonNull, rc::Rc};
+use std::{ffi::CStr, mem::ManuallyDrop};
 
 use crate::{
     atom::{
@@ -84,7 +84,6 @@ pub unsafe fn run_bytecodes(
 
     let cpools = b.cpools_slice();
     let ctx = b.realm.as_mut().unwrap();
-    let rt = ctx.rt.as_mut();
 
     let sp_base = sf.stack_base_ptr().as_ptr();
     let pc_base = bytecodes.as_ptr();

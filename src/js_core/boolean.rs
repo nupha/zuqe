@@ -3,11 +3,9 @@ use crate::{
     context::JSContext,
     function::JSCFunctionListEntry,
     value::{
-        object::{JSObjectIsa, JS_SetObjectData},
-        JSValue, JSValueConst, JS_IsException, JS_ToBool, JS_VALUE_GET_BOOL, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        object::JSObjectIsa, JSValue, JSValueConst, JS_IsException, JS_ToBool, JS_VALUE_GET_BOOL,
     },
-    JS_CFUNC_DEF, JS_CLASS_BOOLEAN,
+    JS_CFUNC_DEF,
 };
 
 pub unsafe fn js_boolean_constructor(

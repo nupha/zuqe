@@ -12,7 +12,7 @@ use crate::{
         object::JSObjectIsa, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT,
         JS_ToBool,
     },
-    JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    JS_CFUNC_MAGIC_DEF,
 };
 
 use super::{js_create_iterator_result, JS_IteratorGetCompleteValue, JS_IteratorNext2};
