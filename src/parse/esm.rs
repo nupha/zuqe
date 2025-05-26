@@ -8,8 +8,8 @@ use crate::{
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::js_resize_array,
     module::{
-        add_req_module_entry, find_export_entry, JSExportEntry, JSExportEntry_u_local,
-        JSExportTypeEnum, JSImportEntry, JSModuleDef,
+        add_req_module_entry, find_export_entry, JSExportEntry, JSExportTypeEnum, JSImportEntry,
+        JSModuleDef,
     },
 };
 

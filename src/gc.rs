@@ -3,9 +3,7 @@ use std::pin::Pin;
 use crate::{
     context::JSContext,
     error::JS_NATIVE_ERROR_COUNT,
-    function::{
-        free_function_bytecode, JSAsyncFunctionState, JSFunctionBytecode, JSVarRef, JSVarRefInner,
-    },
+    function::{free_function_bytecode, JSAsyncFunctionState, JSFunctionBytecode, JSVarRefInner},
     list_entry,
     module::{JSExportTypeEnum, JSModuleDef},
     runtime::JSRuntime,

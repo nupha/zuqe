@@ -260,14 +260,6 @@ pub struct JSExportEntry {
     pub export_name: JSAtom,
 }
 
-#[derive(Clone)]
-pub struct JSExportEntry_u_local {
-    /// closure variable index
-    pub var_idx: u16,
-    /// if None, reference to the variable
-    pub var_ref: Option<JSVarRef>,
-}
-
 #[repr(C)]
 pub struct JSStarExportEntry {
     pub req_module_idx: i32, // in req_module_entries
