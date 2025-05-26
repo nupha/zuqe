@@ -58,7 +58,7 @@ pub unsafe fn js_map_constructor(
         _ => unreachable!(),
     };
 
-    let obj = match (*ctx).create_instance(new_target, isa) {
+    let obj = match (*ctx).create_instance_from_ctor(new_target, isa) {
         Ok(o) => o,
         Err(isa) => {
             if let JSObjectIsa::MAP(s)

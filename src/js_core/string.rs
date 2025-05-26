@@ -55,7 +55,7 @@ pub unsafe fn js_string_constructor(
     }
 
     if !new_target.is_undefined() {
-        match (*ctx).create_instance(new_target, JSObjectIsa::STRING(strval)) {
+        match (*ctx).create_instance_from_ctor(new_target, JSObjectIsa::STRING(strval)) {
             Ok(obj) => obj,
             Err(_) => {
                 // free str val

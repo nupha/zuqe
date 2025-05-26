@@ -84,7 +84,7 @@ pub unsafe fn js_create_array_iterator(
         return JSValue::EXCEPTION;
     };
 
-    match (*ctx).create_object_with_isa(if class_id == JS_CLASS_STRING_ITERATOR {
+    match (*ctx).create_instance(if class_id == JS_CLASS_STRING_ITERATOR {
         JSObjectIsa::STRING_ITERATOR(it.as_ptr())
     } else {
         JSObjectIsa::ARRAY_ITERATOR(it.as_ptr())

@@ -41,7 +41,7 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let obj = ctx
-        .create_object_with_proto_and_isa0(proto, JSObjectIsa::ERROR)
+        .create_instance_from_proto(proto, JSObjectIsa::ERROR)
         .map_err(|_| {
             JS_FreeValue(ctx, proto);
             -1
@@ -129,7 +129,7 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &mut JSContext, errors: JSValue) -> JSValue {
-    let obj = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+    let obj = if let Ok(o) = ctx.create_instance_from_proto(
         ctx.native_error_proto[JSErrorEnum::Aggregate as usize],
         JSObjectIsa::ERROR,
     ) {

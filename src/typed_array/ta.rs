@@ -309,7 +309,7 @@ impl TypedArrayValue {
                     unreachable!()
                 }
             };
-            let ta = Self(ctx.create_instance(new_target, isa).map_err(|_| -1)?);
+            let ta = Self(ctx.create_instance_from_ctor(new_target, isa).map_err(|_| -1)?);
             if ta.init(ctx, dst_abuf, 0, count).is_err() {
                 JS_FreeValue(ctx, ta.0);
                 return Err(-1);
@@ -564,7 +564,7 @@ impl JSContext {
     ) -> JSResult {
         // create typed array object
         let ta = TypedArrayValue(
-            self.create_instance(
+            self.create_instance_from_ctor(
                 new_target,
                 match class_id {
                     JS_CLASS_UINT8C_ARRAY => JSObjectIsa::UINT8C_ARRAY(std::ptr::null_mut()),
@@ -667,7 +667,7 @@ impl JSContext {
                         };
 
                         let ta =
-                            TypedArrayValue(self.create_instance(new_target, isa).map_err(|_| -1)?);
+                            TypedArrayValue(self.create_instance_from_ctor(new_target, isa).map_err(|_| -1)?);
 
                         if ta.init(self, source.dup(), offset, count).is_err() {
                             JS_FreeValue(self, source);
@@ -713,7 +713,7 @@ impl JSContext {
                             return Err(-1);
                         }
 
-                        let ta = TypedArrayValue(self.create_instance(new_target, isa).map_err(
+                        let ta = TypedArrayValue(self.create_instance_from_ctor(new_target, isa).map_err(
                             |_| {
                                 JS_FreeValue(self, enum_obj);
                                 JS_FreeValue(self, buffer);

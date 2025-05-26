@@ -223,7 +223,7 @@ pub unsafe fn js_closure(
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
     debug_assert!(!b.is_null());
 
-    let func_obj = match (*ctx).create_object_with_isa(match (*b).func_kind {
+    let func_obj = match (*ctx).create_instance(match (*b).func_kind {
         JSFunctionKindEnum::JS_FUNC_NORMAL => {
             JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default())
         }

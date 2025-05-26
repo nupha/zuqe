@@ -58,7 +58,7 @@ pub unsafe fn js_array_constructor(
     argv: *mut JSValueConst,
 ) -> JSValue {
     let obj = if let Ok(o) =
-        (*ctx).create_instance(new_target, JSObjectIsa::ARRAY(JSObjectArray::default()))
+        (*ctx).create_instance_from_ctor(new_target, JSObjectIsa::ARRAY(JSObjectArray::default()))
     {
         o
     } else {

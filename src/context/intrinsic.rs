@@ -65,7 +65,7 @@ impl JSContext {
     /// No JSAtom should be allocated by this function.
     pub(super) fn add_core_objects(&mut self) {
         let object_proto = self
-            .create_object_with_proto_and_isa0(JSValue::NULL, JSObjectIsa::OBJECT)
+            .create_instance_from_proto(JSValue::NULL, JSObjectIsa::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);
 
         // Object
@@ -101,7 +101,7 @@ impl JSContext {
             // standard Errors
             for i in 0..JS_NATIVE_ERROR_COUNT {
                 let proto = self
-                    .create_object_with_proto_and_isa0(err_proto, JSObjectIsa::OBJECT)
+                    .create_instance_from_proto(err_proto, JSObjectIsa::OBJECT)
                     .unwrap();
 
                 let name = JS_NewAtomString(self, NATIVE_ERROR_NAMES[i]);
@@ -132,7 +132,7 @@ impl JSContext {
         {
             // the array prototype is an array
             let array_proto = self
-                .create_object_with_proto_and_isa0(
+                .create_instance_from_proto(
                     object_proto,
                     JSObjectIsa::ARRAY(JSObjectArray::default()),
                 )
@@ -349,7 +349,7 @@ impl JSContext {
 
     unsafe fn intrinsic_number(&mut self) {
         let number_proto = self
-            .create_object_with_proto_and_isa0(
+            .create_instance_from_proto(
                 self.class_proto[JS_CLASS_OBJECT as usize],
                 JSObjectIsa::NUMBER(JSValue::ZERO),
             )
@@ -374,7 +374,7 @@ impl JSContext {
 
     unsafe fn intrinsic_boolean(&mut self) {
         let bool_proto = self
-            .create_object_with_proto_and_isa0(
+            .create_instance_from_proto(
                 self.class_proto[JS_CLASS_OBJECT as usize],
                 JSObjectIsa::BOOLEAN(JSValue::FALSE),
             )
@@ -397,7 +397,7 @@ impl JSContext {
             .unwrap();
 
         let string_proto = self
-            .create_object_with_proto_and_isa0(
+            .create_instance_from_proto(
                 self.class_proto[JS_CLASS_OBJECT as usize],
                 JSObjectIsa::STRING(empty_str),
             )

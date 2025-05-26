@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSValue {
-    let val = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+    let val = if let Ok(o) = ctx.create_instance_from_proto(
         ctx.class_proto[JS_CLASS_OBJECT as usize],
         JSObjectIsa::ARGUMENTS(JSObjectArray::default()),
     ) {
@@ -72,7 +72,7 @@ pub unsafe fn js_build_mapped_arguments(
     sf: &mut JSStackFrame,
     arg_count: i32,
 ) -> JSValue {
-    let val = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+    let val = if let Ok(o) = ctx.create_instance_from_proto(
         ctx.class_proto[JS_CLASS_OBJECT as usize],
         JSObjectIsa::MAPPED_ARGUMENTS,
     ) {

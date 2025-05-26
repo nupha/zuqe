@@ -417,8 +417,9 @@ pub unsafe fn js_instantiate_prototype(
 }
 
 impl JSContext {
-    /// `ctor` is the class constructor function, not consumed.
-    pub fn create_instance(
+    /// create new instance based on class constructor `ctor` and isa payload data.
+    /// `ctor` is not consumed.
+    pub fn create_instance_from_ctor(
         &mut self,
         ctor: JSValue,
         isa: JSObjectIsa,
@@ -445,7 +446,7 @@ impl JSContext {
         };
 
         let obj = self
-            .create_object_with_proto_and_isa0(proto, isa)
+            .create_instance_from_proto(proto, isa)
             .inspect_err(|_| {
                 JS_FreeValue(self, proto);
             })?;
@@ -455,39 +456,13 @@ impl JSContext {
     }
 }
 
-#[deprecated(note = "use JSContext::create_instance() instead")]
+#[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
 pub unsafe fn js_create_from_ctor(
     ctx: *mut JSContext,
     ctor: JSValueConst,
     class_id: JSClassID,
 ) -> JSValue {
     unreachable!("unused");
-
-    // let proto = if ctor.is_undefined() {
-    //     (*ctx).class_proto[class_id as usize].dup()
-    // } else {
-    //     let p = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
-    //     if p.is_exception() {
-    //         return p;
-    //     }
-    //     if !p.is_object() {
-    //         JS_FreeValue(ctx, p);
-    //         let realm = JS_GetFunctionRealm(ctx, ctor);
-    //         if realm.is_null() {
-    //             return JSValue::EXCEPTION;
-    //         }
-    //         (*realm).class_proto[class_id as usize].dup()
-    //     } else {
-    //         p
-    //     }
-    // };
-
-    // let obj = (*ctx)
-    //     .create_object_with_proto_and_isa0(proto, JSObjectIsa::new(class_id))
-    //     .unwrap_or(JSValue::EXCEPTION);
-
-    // JS_FreeValue(ctx, proto);
-    // return obj;
 }
 
 unsafe fn js_arguments_define_own_property(

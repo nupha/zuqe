@@ -190,7 +190,7 @@ pub unsafe fn js_op_define_class(
         let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
         debug_assert_eq!((*b).func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
 
-        ctor = if let Ok(o) = ctx.create_object_with_proto_and_isa0(
+        ctor = if let Ok(o) = ctx.create_instance_from_proto(
             parent_class,
             JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default()),
         ) {

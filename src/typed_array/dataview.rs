@@ -76,7 +76,7 @@ impl JSContext {
             }
         };
 
-        match self.create_instance(new_target, JSObjectIsa::DATAVIEW(ta.as_ptr())) {
+        match self.create_instance_from_ctor(new_target, JSObjectIsa::DATAVIEW(ta.as_ptr())) {
             Ok(o) => unsafe {
                 let p = o.object_unchecked();
                 ta.as_mut().obj = p as *mut JSObject; // set back pointer to the object
@@ -88,39 +88,6 @@ impl JSContext {
                 Err(-1)
             }
         }
-
-        // let obj =
-        //     unsafe { js_create_from_ctor(self, new_target, JS_CLASS_DATAVIEW).check_exception()? };
-
-        // if abuf.detached {
-        //     // check again, could have been detached in create_instance()
-        //     JS_ThrowTypeErrorDetachedArrayBuffer(self);
-        //     return Err(-1);
-        // }
-
-        // let p = unsafe { obj.object_unchecked() };
-
-        /////
-        // let ta = unsafe {
-        //     if let Some(ptr) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
-        //         let o = JSTypedArray {
-        //             link: list_head::default(),
-        //             obj: p as *mut JSObject,
-        //             buffer: NonNull::from(buffer.dup().object_unchecked()), // buffer is duplicated
-        //             offset: offset as u32,
-        //             byte_length: len as _,
-        //             count: 0,
-        //         };
-        //         ptr.write(o);
-        //         Box::from_raw(ptr.as_ptr())
-        //     } else {
-        //         JS_FreeValue(self, obj);
-        //         return Err(-1);
-        //     }
-        // };
-        // p.isa_mut().typed_array_replace(Box::into_raw(ta));
-
-        // Ok(obj)
     }
 }
 

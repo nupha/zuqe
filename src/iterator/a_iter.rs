@@ -58,7 +58,7 @@ impl JSContext {
             return Err(-1);
         };
 
-        match self.create_object_with_isa(JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s.as_ptr())) {
+        match self.create_instance(JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s.as_ptr())) {
             Ok(o) => Ok(o),
             Err(isa) => {
                 if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s) = isa {

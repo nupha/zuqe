@@ -228,7 +228,7 @@ pub unsafe fn js_async_function_resolve_create(
 
     for i in 0..2 {
         let func_obj = ctx
-            .create_object_with_proto_and_isa0(ctx.function_proto, {
+            .create_instance_from_proto(ctx.function_proto, {
                 if i == 0 {
                     JSObjectIsa::ASYNC_FUNCTION_RESOLVE(s)
                 } else {

@@ -345,7 +345,7 @@ pub unsafe fn JS_CallConstructorInternal(
         );
     } else {
         /* legacy constructor behavior */
-        let this = if let Ok(v) = ctx.create_instance(new_target, JSObjectIsa::OBJECT) {
+        let this = if let Ok(v) = ctx.create_instance_from_ctor(new_target, JSObjectIsa::OBJECT) {
             v
         } else {
             return JSValue::EXCEPTION;

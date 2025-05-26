@@ -480,14 +480,15 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 impl JSContext {
-    /// create new instance with specified prototype value and isa.
+    /// create new instance with prototype and isa payload data.
     /// `proto` is Prototype object (can be JSValue::NULL).
     /// Note: `proto` is not consumed.
-    pub fn create_object_with_proto_and_isa0(
+    pub fn create_instance_from_proto(
         &mut self,
         proto: JSValue,
         isa: JSObjectIsa,
     ) -> Result<JSValue, JSObjectIsa> {
+        // find shape for prototype
         let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
             match self.rt().find_shape_by_proto(proto_ob) {
@@ -502,58 +503,14 @@ impl JSContext {
             }
         };
 
-        self.create_object_from_shape_isa0(shape, isa)
+        self.create_instance_from_shape(shape, isa)
     }
 
-    /// create new instance with specified prototype value and isa.
-    /// `proto` is Prototype object (can be JSValue::NULL).
-    /// Note: `proto` is not consumed.
-    pub fn create_object_with_proto_and_isa(
-        &mut self,
-        proto: JSValue,
-        isa_fn: impl FnOnce() -> Result<JSObjectIsa, i32>,
-    ) -> JSResult {
-        let shape: JSShapeHandle = unsafe {
-            let proto_ob = get_proto_obj(proto);
-            match self.rt().find_shape_by_proto(proto_ob) {
-                Some(sh) => sh.dup(),
-                None => self.create_shape(proto_ob.as_mut())?,
-            }
-        };
-        self.create_object_from_shape_isa(shape, isa_fn)
-    }
-
-    /// create new instance with specified prototype value and class id.
-    /// `proto` is Prototype object (can be JSValue::NULL).
-    /// Note: `proto` is not consumed.
-    // #[deprecated(note = "use create_object_with_proto_and_isa() instead")]
-    // pub fn create_object_with_proto_and_classid(
-    //     &mut self,
-    //     proto: JSValue,
-    //     class_id: JSClassID,
-    // ) -> JSResult {
-    //     let shape: JSShapeHandle = unsafe {
-    //         let proto_ob = get_proto_obj(proto);
-    //         match self.rt().find_shape_by_proto(proto_ob) {
-    //             Some(sh) => sh.dup(),
-    //             None => self.create_shape(proto_ob.as_mut())?,
-    //         }
-    //     };
-    //     self.create_object_from_shape(shape, class_id)
-    // }
-
-    // /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
-    // /// returns Err if fail.
-    // #[inline(always)]
-    // pub fn create_object_with_classid(&mut self, class_id: JSClassID) -> JSResult {
-    //     self.create_object_with_proto_and_classid(self.class_proto[class_id as usize], class_id)
-    // }
-
-    /// create new instance of registered class_id, use registered prototype value of the class_id as prototype.
+    /// create new instance with isa payload data.
     /// returns Err if fail.
     #[inline(always)]
-    pub fn create_object_with_isa(&mut self, isa: JSObjectIsa) -> Result<JSValue, JSObjectIsa> {
-        self.create_object_with_proto_and_isa0(self.class_proto[isa.class_id() as usize], isa)
+    pub fn create_instance(&mut self, isa: JSObjectIsa) -> Result<JSValue, JSObjectIsa> {
+        self.create_instance_from_proto(self.class_proto[isa.class_id() as usize], isa)
     }
 
     /// create new instance of basic object with given prototype value.
@@ -561,7 +518,7 @@ impl JSContext {
     /// `proto` is not consumed.
     #[inline(always)]
     pub fn create_base_object_with_proto(&mut self, proto: JSValue) -> JSResult {
-        self.create_object_with_proto_and_isa0(proto, JSObjectIsa::OBJECT)
+        self.create_instance_from_proto(proto, JSObjectIsa::OBJECT)
             .map_err(|_| -1)
     }
 
@@ -569,8 +526,7 @@ impl JSContext {
     /// returns Err if fail.
     #[inline(always)]
     pub fn create_base_object(&mut self) -> JSResult {
-        self.create_object_with_isa(JSObjectIsa::OBJECT)
-            .map_err(|_| -1)
+        self.create_instance(JSObjectIsa::OBJECT).map_err(|_| -1)
     }
 }
 
@@ -917,7 +873,7 @@ pub unsafe fn JS_ToObject(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
             unimplemented!()
         }
         t @ (JSTag::Int | JSTag::Float64 | JSTag::String | JSTag::Symbol) => (*ctx)
-            .create_object_with_isa(match t {
+            .create_instance(match t {
                 JSTag::Int | JSTag::Float64 => JSObjectIsa::NUMBER(val.dup()),
                 JSTag::String => JSObjectIsa::STRING(val.dup()),
                 JSTag::Symbol => JSObjectIsa::STRING(val.dup()),

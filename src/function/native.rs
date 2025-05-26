@@ -553,7 +553,7 @@ impl JSContext {
         let mut realm = self.handle();
 
         let func_obj = self
-            .create_object_with_proto_and_isa0(
+            .create_instance_from_proto(
                 proto_val,
                 JSObjectIsa::C_FUNCTION(JSObjectCFunc {
                     realm: realm.dup().into(),
@@ -625,7 +625,7 @@ pub unsafe fn JS_NewCFunction3(
 ) -> JSValue {
     let mut realm = JSContextHandle::from(ctx);
 
-    match (*ctx).create_object_with_proto_and_isa0(
+    match (*ctx).create_instance_from_proto(
         proto_val,
         JSObjectIsa::C_FUNCTION(JSObjectCFunc {
             realm: realm.dup().into(),

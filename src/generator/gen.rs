@@ -79,7 +79,7 @@ pub unsafe fn js_generator_function_call(
     JS_FreeValue(ctx, func_ret);
 
     // create js object of generator class
-    match ctx.create_instance(func_obj, JSObjectIsa::GENERATOR(Box::into_raw(s))) {
+    match ctx.create_instance_from_ctor(func_obj, JSObjectIsa::GENERATOR(Box::into_raw(s))) {
         Ok(obj) => obj,
         Err(isa) => {
             if let JSObjectIsa::GENERATOR(s) = isa {

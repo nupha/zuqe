@@ -145,7 +145,9 @@ impl AsyncGeneratorValue {
         JS_FreeValue(ctx, func_ret);
 
         // create AsyncGenerator instance
-        match ctx.create_instance(func_obj, JSObjectIsa::ASYNC_GENERATOR(Box::into_raw(s))) {
+        match ctx
+            .create_instance_from_ctor(func_obj, JSObjectIsa::ASYNC_GENERATOR(Box::into_raw(s)))
+        {
             Ok(obj) => {
                 let ob = obj.object_unchecked();
                 let obptr = ob as *mut JSObject;

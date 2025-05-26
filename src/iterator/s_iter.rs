@@ -380,8 +380,8 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
     }
 
     let it_ptr = Box::into_raw(it);
-    if let Ok(o) = (*ctx)
-        .create_object_with_proto_and_isa0(JSValue::NULL, JSObjectIsa::FOR_IN_ITERATOR(it_ptr))
+    if let Ok(o) =
+        (*ctx).create_instance_from_proto(JSValue::NULL, JSObjectIsa::FOR_IN_ITERATOR(it_ptr))
     {
         o
     } else {

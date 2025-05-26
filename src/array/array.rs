@@ -74,15 +74,18 @@ pub union JSObjectArrayDataUnion {
 
 impl JSContext {
     /// create an array value.
-    #[inline(always)]
     pub fn create_array(&mut self) -> JSResult {
         let arr_sh: JSShapeHandle = unsafe { (*self.array_shape).dup().into() };
-
-        self.create_object_from_shape_isa(arr_sh, || {
-            Ok(JSObjectIsa::ARRAY(JSObjectArray {
+        self.create_instance_from_shape(
+            arr_sh,
+            JSObjectIsa::ARRAY(JSObjectArray {
                 size: 0,
                 values: Vec::new(),
-            }))
+            }),
+        )
+        .map_err(|isa| {
+            drop(isa);
+            -1
         })
     }
 

@@ -108,7 +108,7 @@ impl JSContext {
         let mut ctx = self.handle();
 
         let func_obj = self
-            .create_object_with_proto_and_isa0(self.function_proto, {
+            .create_instance_from_proto(self.function_proto, {
                 let s = JSCFunctionDataRecord::new(ctx.deref_mut(), callback, length, magic, data)?;
                 JSObjectIsa::C_FUNCTION_DATA(Box::into_raw(s))
             })

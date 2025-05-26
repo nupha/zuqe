@@ -125,7 +125,7 @@ pub unsafe fn js_object_constructor(
         && JS_VALUE_GET_OBJ(new_target) != JS_VALUE_GET_OBJ(JS_GetActiveFunction(ctx))
     {
         (*ctx)
-            .create_instance(new_target, JSObjectIsa::OBJECT)
+            .create_instance_from_ctor(new_target, JSObjectIsa::OBJECT)
             .unwrap_or(JSValue::EXCEPTION)
     } else {
         let a = *argv.offset(0);

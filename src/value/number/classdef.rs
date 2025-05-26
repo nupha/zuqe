@@ -342,7 +342,7 @@ pub unsafe fn js_number_constructor(
 
     if !new_target.is_undefined() {
         (*ctx)
-            .create_instance(new_target, JSObjectIsa::NUMBER(val))
+            .create_instance_from_ctor(new_target, JSObjectIsa::NUMBER(val))
             .unwrap_or(JSValue::EXCEPTION)
 
         // let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_NUMBER);

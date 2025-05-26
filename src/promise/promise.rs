@@ -118,7 +118,8 @@ impl PromiseValue {
         init_list_head(&mut s.promise_reactions[1]);
 
         // create js object of promise class
-        let promise = match ctx.create_instance(new_target, JSObjectIsa::PROMISE(Box::into_raw(s)))
+        let promise = match ctx
+            .create_instance_from_ctor(new_target, JSObjectIsa::PROMISE(Box::into_raw(s)))
         {
             Ok(o) => Self(o),
             Err(isa) => {
@@ -236,7 +237,7 @@ impl PromiseValue {
                 presolved: sr_ptr,
             });
 
-            match ctx.create_object_with_proto_and_isa0(
+            match ctx.create_instance_from_proto(
                 ctx.function_proto,
                 if i == 0 {
                     JSObjectIsa::PROMISE_RESOLVE_FUNCTION(Box::into_raw(s))

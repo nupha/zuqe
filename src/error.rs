@@ -87,7 +87,7 @@ impl JSContext {
         message: &CStr,
         add_backtrace: bool,
     ) -> JSValue {
-        let obj = if let Ok(o) = self.create_object_with_proto_and_isa0(
+        let obj = if let Ok(o) = self.create_instance_from_proto(
             self.native_error_proto[error_num as usize],
             JSObjectIsa::ERROR,
         ) {

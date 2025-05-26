@@ -377,7 +377,7 @@ impl JSModuleDef {
         let s = &mut s_s;
 
         let obj = ctx
-            .create_object_with_isa(JSObjectIsa::MODULE_NS)
+            .create_instance(JSObjectIsa::MODULE_NS)
             .map_err(|_| -1)?;
         let p = obj.object_unchecked();
 
@@ -1290,7 +1290,7 @@ pub unsafe fn js_create_module_bytecode_function(
 
     // create JS_CLASS_BYTECODE_FUNCTION object
     let func_obj = (*ctx)
-        .create_object_with_proto_and_isa0((*ctx).function_proto, isa)
+        .create_instance_from_proto((*ctx).function_proto, isa)
         .map_err(|_| {
             (*b).header.ref_count -= 1;
             -1

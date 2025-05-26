@@ -205,7 +205,7 @@ impl JSContext {
         };
 
         // create array buffer or shared array buffer instance
-        self.create_instance(
+        self.create_instance_from_ctor(
             new_target,
             if class_id == JS_CLASS_ARRAY_BUFFER {
                 JSObjectIsa::ARRAY_BUFFER(ab)
