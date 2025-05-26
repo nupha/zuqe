@@ -96,7 +96,7 @@ pub struct JSVarRefInner {
 #[cfg(debug_assertions)]
 impl Drop for JSVarRefInner {
     fn drop(&mut self) {
-        debug_assert!(self.cleared, "JSVarRefInner must be cleaned up before drop");
+        debug_assert!(self.cleared);
         unsafe {
             debug_assert!(self.u0.header.ref_count == 0);
             debug_assert!(self.u0.header.link.prev.is_null());
@@ -184,18 +184,11 @@ impl Drop for JSVarRef {
     fn drop(&mut self) {
         if self.0 != JSVarRefInner::INVALID {
             unsafe {
-                let n = self.0.as_mut().u0.header.ref_count;
-                debug_assert!(n > 0);
-
-                if n == 1 {
-                    debug_assert!(
-                        self.0.as_ref().cleared,
-                        "JSVarRef must be cleaned up before drop"
-                    );
-
+                let p = self.0.as_mut();
+                debug_assert!(p.u0.header.ref_count > 0);
+                p.u0.header.ref_count -= 1;
+                if p.u0.header.ref_count == 0 {
                     drop(Box::from_raw(self.0.as_ptr()));
-                } else {
-                    self.0.as_mut().u0.header.ref_count -= 1;
                 }
             }
         }
