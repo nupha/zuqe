@@ -4,11 +4,12 @@ use crate::{
     context::{is_strict_mode, JSContext},
     error::{JSResult, JS_SetUncatchableError},
     function::{build_arg_list, CallArgs, JSAsyncFunctionState},
+    gc::RefCounted,
     utils::likely,
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_THROW, JS_PROP_THROW_STRICT},
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_IsException, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG, JS_VALUE_REF_COUNT,
+        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
     },
     JS_CLASS_BYTECODE_FUNCTION, JS_MKPTR,
 };
@@ -114,7 +115,7 @@ pub unsafe fn JS_CallInternal(
             let argv_ref_count0 = if argc > 0 {
                 std::slice::from_raw_parts(argv, argc as usize)
                     .iter()
-                    .map(|x| JS_VALUE_REF_COUNT(*x))
+                    .map(|x| x.ref_count())
                     .collect::<Vec<_>>()
             } else {
                 vec![]
@@ -126,7 +127,7 @@ pub unsafe fn JS_CallInternal(
             let argv_ref_count1 = if argc > 0 {
                 std::slice::from_raw_parts(argv, argc as usize)
                     .iter()
-                    .map(|x| JS_VALUE_REF_COUNT(*x))
+                    .map(|x| x.ref_count())
                     .collect::<Vec<_>>()
             } else {
                 vec![]
@@ -134,7 +135,7 @@ pub unsafe fn JS_CallInternal(
 
             #[cfg(debug_assertions)]
             for (a, b) in argv_ref_count0.iter().zip(argv_ref_count1.iter()) {
-                debug_assert!(a.unwrap_or(0) <= b.unwrap_or(0));
+                debug_assert!(a <= b);
             }
 
             ret

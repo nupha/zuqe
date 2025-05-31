@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     error::JS_ThrowStackOverflow,
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT},
 };

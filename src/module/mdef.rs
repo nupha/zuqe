@@ -24,10 +24,7 @@ use crate::{
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
-    utils::{
-        list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head,
-        JSRefCountHeader,
-    },
+    utils::{list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head},
     value::{
         object::{
             JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
@@ -69,7 +66,7 @@ pub type JSModuleInitFunc =
 
 #[repr(C)]
 pub struct JSModuleDef {
-    pub header: JSRefCountHeader, /* must come first, 32-bit */
+    ref_count: i32,
 
     pub module_name: JSAtom,
     pub link: list_head,
@@ -132,6 +129,22 @@ pub struct JSModuleDef {
     pub meta_obj: JSValue,
 }
 
+impl RefCounted for JSModuleDef {
+    fn ref_count(&self) -> i32 {
+        self.ref_count
+    }
+
+    fn inc_ref(&mut self) -> i32 {
+        self.ref_count += 1;
+        self.ref_count
+    }
+
+    fn dec_ref(&mut self) -> i32 {
+        self.ref_count -= 1;
+        self.ref_count
+    }
+}
+
 impl JSModuleDef {
     /// 'name' is consumed
     pub unsafe fn new(ctx: &mut JSContext, name: JSAtom) -> Result<Box<Self>, i32> {
@@ -142,7 +155,7 @@ impl JSModuleDef {
             })?;
 
         ptr.write(JSModuleDef {
-            header: JSRefCountHeader { ref_count: 1 },
+            ref_count: 1,
 
             module_name: name,
             link: list_head::default(),

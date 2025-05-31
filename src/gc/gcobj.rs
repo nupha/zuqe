@@ -33,8 +33,13 @@ pub enum GCObjectType {
 pub type GCObjectNodeData = Box<dyn GCObject>;
 
 pub trait RefCounted {
+    /// get current ref count
     fn ref_count(&self) -> i32;
+
+    /// increament ref count, then returns new ref count
     fn inc_ref(&mut self) -> i32;
+
+    /// decreament ref count, then returns new ref count
     fn dec_ref(&mut self) -> i32;
 }
 

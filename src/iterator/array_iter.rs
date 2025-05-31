@@ -2,7 +2,7 @@ use crate::{
     array::js_create_array,
     context::JSContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
     typed_array::TypedArrayValue,

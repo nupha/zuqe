@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JS_ThrowTypeErrorRevokedProxy},
     function::JS_CallFree,
-    gc::{GCMarkFunc, JS_MarkFunc},
+    gc::GCMarkFunc,
     runtime::{js_check_stack_overflow, JSRuntime},
     value::{
         object::{

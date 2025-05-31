@@ -372,7 +372,7 @@ pub unsafe fn js_append_enumerate(ctx: &mut JSContext, sp: *mut JSValue) -> i32 
     let dest = *sp.offset(-3); // the dest array
 
     #[cfg(debug_assertions)]
-    let _src_rc0 = src.ref_count();
+    let _src_rc0 = crate::gc::RefCounted::ref_count(&src);
 
     // XXX: further optimisations:
     //       - use ctx->array_proto_values?
@@ -498,7 +498,7 @@ pub unsafe fn js_append_enumerate(ctx: &mut JSContext, sp: *mut JSValue) -> i32 
     JS_FreeValue(ctx, method);
 
     #[cfg(debug_assertions)]
-    debug_assert_eq!(src.ref_count().unwrap_or(-1), _src_rc0.unwrap_or(-1));
+    debug_assert_eq!(crate::gc::RefCounted::ref_count(&src), _src_rc0);
 
     0
 }

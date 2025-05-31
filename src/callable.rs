@@ -1,18 +1,15 @@
 use std::{ops::DerefMut, ptr::NonNull};
 
-use smallvec::SmallVec;
-
 use crate::{
     atom::consts::JS_ATOM_empty_string,
-    context::{JSContext, JSContextHandle},
+    context::JSContext,
     error::JSResult,
     function::{js_function_set_properties, CallArgs, JSNativeCallback},
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
-        object::{JSObject, JSObjectIsa},
-        JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+        object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
     },
     JS_CLASS_C_FUNCTION_DATA,
 };

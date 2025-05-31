@@ -7,7 +7,7 @@ use crate::{
     function::JSFunctionBytecode,
     gc::{GCObject, JSGCPhaseEnum},
     runtime::JSRuntime,
-    utils::{JSRefCountHeader, Node},
+    utils::Node,
     JS_MKVAL,
 };
 
@@ -16,6 +16,57 @@ use super::{
     string::JSString,
     JSFloat64Union, JS_ToInt64Sat, MAX_SAFE_INTEGER,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(i32)]
+pub enum JSTag {
+    BigDecimal = -11,
+    BigInt = -10,
+    BigFloat = -9,
+    Symbol = -8,
+    String = -7,
+    Module = -3,
+    FunctionBytecode = -2,
+    Object = -1,
+
+    //
+    // these types are not ref counted
+    //
+    Int = 0,
+    Bool = 1,
+    Null = 2,
+    Undefined = 3,
+    Uninitialized = 4,
+    CatchOffset = 5,
+    Exception = 6,
+    Float64 = 7,
+}
+
+impl Default for JSTag {
+    fn default() -> Self {
+        Self::Int
+    }
+}
+
+pub const JS_TAG_BIG_DECIMAL: i32 = JSTag::BigDecimal as i32;
+pub const JS_TAG_BIG_INT: i32 = JSTag::BigInt as i32;
+pub const JS_TAG_BIG_FLOAT: i32 = JSTag::BigFloat as i32;
+pub const JS_TAG_SYMBOL: i32 = JSTag::Symbol as i32;
+pub const JS_TAG_STRING: i32 = JSTag::String as i32;
+pub const JS_TAG_MODULE: i32 = JSTag::Module as i32;
+pub const JS_TAG_FUNCTION_BYTECODE: i32 = JSTag::FunctionBytecode as i32;
+pub const JS_TAG_OBJECT: i32 = JSTag::Object as i32;
+pub const JS_TAG_INT: i32 = JSTag::Int as i32;
+pub const JS_TAG_BOOL: i32 = JSTag::Bool as i32;
+pub const JS_TAG_NULL: i32 = JSTag::Null as i32;
+pub const JS_TAG_UNDEFINED: i32 = JSTag::Undefined as i32;
+pub const JS_TAG_UNINITIALIZED: i32 = JSTag::Uninitialized as i32;
+pub const JS_TAG_CATCH_OFFSET: i32 = JSTag::CatchOffset as i32;
+pub const JS_TAG_EXCEPTION: i32 = JSTag::Exception as i32;
+pub const JS_TAG_FLOAT64: i32 = JSTag::Float64 as i32;
+
+pub const JS_TAG_FIRST: i32 = JSTag::BigDecimal as i32;
+pub const JS_TAG_LAST: i32 = JSTag::Float64 as i32;
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {
@@ -58,6 +109,13 @@ mod nb_value {
 
     impl JSValue {
         pub const NAN: Self = 0x7ff8000000000000 - ((JS_FLOAT64_TAG_ADDEND as u64) << 32);
+
+        /// get value tag as int
+        #[inline(always)]
+        pub const fn tag(self) -> i32 {
+            // ((v >> 32) & 0xFFFF_FFFF) as i32
+            (v >> 32) as i32
+        }
     }
 
     #[inline(always)]
@@ -88,12 +146,6 @@ mod nb_value {
     #[inline(always)]
     pub fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
         tag - super::JS_TAG_FIRST >= super::JS_TAG_FLOAT64 - super::JS_TAG_FIRST
-    }
-
-    #[inline(always)]
-    pub fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
-        // ((v >> 32) & 0xFFFF_FFFF) as i32
-        (v >> 32) as i32
     }
 
     #[inline(always)]
@@ -170,6 +222,12 @@ mod nnb_value {
             tag: super::JSTag::Float64,
             u: JSValueUnion { float64: f64::NAN },
         };
+
+        /// get value tag as int
+        #[inline(always)]
+        pub const fn tag(self) -> i32 {
+            self.tag as i32
+        }
     }
 
     #[deprecated(note = "use JSValue::NAN instead")]
@@ -205,11 +263,6 @@ mod nnb_value {
     }
 
     #[inline(always)]
-    pub const fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
-        v.tag as i32
-    }
-
-    #[inline(always)]
     pub const fn JS_VALUE_GET_PTR(v: JSValue) -> *mut c_void {
         unsafe { v.u.ptr }
     }
@@ -220,61 +273,19 @@ pub use nnb_value::*;
 
 pub type JSValueConst = JSValue;
 
-pub const SIZEOF_JSVALUE: usize = std::mem::size_of::<JSValue>();
-
-///////////////////
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(i32)]
-pub enum JSTag {
-    BigDecimal = -11,
-    BigInt = -10,
-    BigFloat = -9,
-    Symbol = -8,
-    String = -7,
-    Module = -3,
-    FunctionBytecode = -2,
-    Object = -1,
-
-    // these types don't need ref count
-    Int = 0,
-    Bool = 1,
-    Null = 2,
-    Undefined = 3,
-    Uninitialized = 4,
-    CatchOffset = 5,
-    Exception = 6,
-    Float64 = 7,
+#[inline(always)]
+pub const fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
+    v.tag()
 }
 
-impl Default for JSTag {
-    fn default() -> Self {
-        Self::Int
-    }
+/// same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing
+#[inline(always)]
+pub fn JS_VALUE_GET_NORM_TAG(v: JSValue) -> JSTag {
+    v.tag_norm()
 }
-
-pub const JS_TAG_BIG_DECIMAL: i32 = JSTag::BigDecimal as i32;
-pub const JS_TAG_BIG_INT: i32 = JSTag::BigInt as i32;
-pub const JS_TAG_BIG_FLOAT: i32 = JSTag::BigFloat as i32;
-pub const JS_TAG_SYMBOL: i32 = JSTag::Symbol as i32;
-pub const JS_TAG_STRING: i32 = JSTag::String as i32;
-pub const JS_TAG_MODULE: i32 = JSTag::Module as i32;
-pub const JS_TAG_FUNCTION_BYTECODE: i32 = JSTag::FunctionBytecode as i32;
-pub const JS_TAG_OBJECT: i32 = JSTag::Object as i32;
-pub const JS_TAG_INT: i32 = JSTag::Int as i32;
-pub const JS_TAG_BOOL: i32 = JSTag::Bool as i32;
-pub const JS_TAG_NULL: i32 = JSTag::Null as i32;
-pub const JS_TAG_UNDEFINED: i32 = JSTag::Undefined as i32;
-pub const JS_TAG_UNINITIALIZED: i32 = JSTag::Uninitialized as i32;
-pub const JS_TAG_CATCH_OFFSET: i32 = JSTag::CatchOffset as i32;
-pub const JS_TAG_EXCEPTION: i32 = JSTag::Exception as i32;
-pub const JS_TAG_FLOAT64: i32 = JSTag::Float64 as i32;
-
-pub const JS_TAG_FIRST: i32 = JSTag::BigDecimal as i32;
-pub const JS_TAG_LAST: i32 = JSTag::Float64 as i32;
 
 //
-// CONSTANT JSVALUES
+// CONSTANT VALUES
 //
 #[deprecated(note = "use JSValue::NULL instead")]
 pub const JS_NULL: JSValue = JSValue::NULL;
@@ -311,6 +322,21 @@ impl JSValue {
     pub const ZERO: JSValue = JS_MKVAL!(JSTag::Int, 0);
     pub(crate) const UNINITIALIZED: JSValue = JS_MKVAL!(JSTag::Uninitialized, 0);
 
+    /// same as ::tag(), but return JS_TAG_FLOAT64 with NaN boxing
+    #[inline(always)]
+    pub fn tag_norm(self) -> JSTag {
+        let tag = self.tag();
+        if JS_TAG_IS_FLOAT64(tag) {
+            JSTag::Float64
+        } else {
+            debug_assert!(
+                (JS_TAG_FIRST..JS_TAG_LAST).contains(&tag),
+                "unknown value tag {tag}"
+            );
+            unsafe { std::mem::transmute::<i32, JSTag>(tag) }
+        }
+    }
+
     /// set new value and returns the old value.
     #[inline(always)]
     pub const fn replace(&mut self, new_val: JSValue) -> JSValue {
@@ -323,49 +349,6 @@ impl JSValue {
         let v0 = std::mem::replace(self, new_val);
         unsafe {
             JS_FreeValueRT(rt, v0);
-        }
-    }
-
-    /// increase value refcount
-    #[inline(always)]
-    pub fn dup(&self) -> Self {
-        let v = *self;
-        if JS_VALUE_HAS_REF_COUNT(v) {
-            match JS_VALUE_GET_TAG(v) {
-                JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
-                    Rc::increment_strong_count(v.string());
-                },
-                _ => {
-                    let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-                    unsafe {
-                        p.as_mut().unwrap().ref_count += 1;
-                    }
-                }
-            }
-        }
-
-        v
-    }
-
-    /// get value refcount
-    pub fn ref_count(&self) -> Option<i32> {
-        let v = *self;
-
-        if JS_VALUE_HAS_REF_COUNT(v) {
-            match JS_VALUE_GET_TAG(v) {
-                JS_TAG_STRING | JS_TAG_SYMBOL => {
-                    let p = unsafe { Rc::from_raw(v.string()) };
-                    let r = Rc::strong_count(&p);
-                    let _ = Rc::into_raw(p);
-                    Some(r as i32)
-                }
-                _ => {
-                    let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-                    Some(unsafe { (*p).ref_count })
-                }
-            }
-        } else {
-            None
         }
     }
 
@@ -446,7 +429,7 @@ impl JSValue {
 
     /// calc hash for jsvalue
     pub fn hash(self) -> u32 {
-        let tag = JS_VALUE_GET_NORM_TAG(self);
+        let tag = self.tag_norm();
         let h: u32 = match tag {
             JSTag::Bool => JS_VALUE_GET_INT(self) as u32,
             JSTag::String => unsafe {
@@ -477,34 +460,10 @@ impl JSValue {
     }
 }
 
-/* same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing */
-#[inline(always)]
-pub fn JS_VALUE_GET_NORM_TAG(v: JSValue) -> JSTag {
-    let tag = JS_VALUE_GET_TAG(v);
-    if JS_TAG_IS_FLOAT64(tag) {
-        JSTag::Float64
-    } else {
-        debug_assert!(
-            (JS_TAG_FIRST..JS_TAG_LAST).contains(&tag),
-            "unknown value tag {tag}"
-        );
-        unsafe { std::mem::transmute::<i32, JSTag>(tag) }
-    }
-}
-
 #[inline(always)]
 pub const fn JS_VALUE_HAS_REF_COUNT(v: JSValue) -> bool {
     (JS_VALUE_GET_TAG(v) as u32) >= JS_TAG_FIRST as u32
     // JS_VALUE_GET_TAG(v) < 0
-}
-
-pub const unsafe fn JS_VALUE_REF_COUNT(v: JSValue) -> Option<i32> {
-    if JS_VALUE_HAS_REF_COUNT(v) {
-        let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-        Some((*p).ref_count)
-    } else {
-        None
-    }
 }
 
 #[deprecated(note = "use JSValue::string() instead")]

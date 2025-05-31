@@ -10,7 +10,7 @@ use crate::{
     function::{
         JSCFunction, JSCFunctionEnum, JSFunctionDef, JS_GetFunctionRealm, JS_NewCFunction2,
     },
-    gc::{set_cycle_flag, GCMarkFunc, JS_MarkFunc},
+    gc::{set_cycle_flag, GCMarkFunc},
     runtime::JSRuntime,
     value::{
         object::{

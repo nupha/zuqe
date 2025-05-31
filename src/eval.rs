@@ -14,6 +14,7 @@ use crate::{
         add_closure_variables, js_class_has_bytecode, js_closure, JSFunctionBytecode,
         JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_CallFree,
     },
+    gc::RefCounted,
     module::{
         js_create_module_function, js_free_module_def, js_link_module, js_resolve_module,
         JSModuleDef, JS_NewModuleValue,
@@ -354,10 +355,7 @@ pub unsafe fn JS_EvalFunctionInternal(
         }
         JS_TAG_MODULE => {
             let m = JS_VALUE_GET_PTR(fun_obj).cast::<JSModuleDef>();
-            debug_assert!(
-                (*m).header.ref_count >= 2,
-                "the module refcount should be >= 2"
-            );
+            debug_assert!((*m).ref_count() >= 2, "the module refcount should be >= 2");
 
             JS_FreeValue(ctx, fun_obj);
             if js_create_module_function(ctx, m) < 0 {

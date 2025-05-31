@@ -8,7 +8,7 @@ use crate::{
     context::{JSContext, JSContextHandle, JS_FreeContext},
     error::{JSResult, JS_ThrowStackOverflow},
     function::JS_CALL_FLAG_CONSTRUCTOR,
-    gc::{GCMarkFunc, JS_MarkFunc},
+    gc::GCMarkFunc,
     iterator::js_create_iterator_result,
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,

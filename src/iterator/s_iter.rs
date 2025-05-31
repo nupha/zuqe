@@ -2,7 +2,7 @@ use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     map::JSMapRecord,
     mem::js_malloc_typed,
     runtime::JSRuntime,
@@ -15,7 +15,6 @@ use crate::{
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_TAG_NULL,
         JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
     },
-    JS_CLASS_C_FUNCTION, JS_CLASS_FOR_IN_ITERATOR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

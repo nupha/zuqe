@@ -1,7 +1,7 @@
 use crate::{
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
-    gc::{GCMarkFunc, JS_MarkFunc},
+    gc::GCMarkFunc,
     parse::JSParseState,
     runtime::JSRuntime,
     value::{

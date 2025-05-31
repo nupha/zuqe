@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use crate::{
     atom::consts::*,
     context::JSContext,
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,

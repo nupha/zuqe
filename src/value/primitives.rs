@@ -4,19 +4,17 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     function::JS_CallFree,
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
         HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_TAG_BIG_INT, JS_TAG_BOOL,
         JS_TAG_EXCEPTION, JS_TAG_INT, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
         JS_TAG_UNDEFINED, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_MKVAL,
 };
-
-use super::object::JSObject;
 
 impl From<bool> for JSValue {
     #[inline]

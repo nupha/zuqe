@@ -16,9 +16,3 @@ pub const fn likely(x: bool) -> bool {
 pub const fn unlikely(x: bool) -> bool {
     x
 }
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct JSRefCountHeader {
-    pub ref_count: i32,
-}

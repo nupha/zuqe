@@ -466,20 +466,14 @@ impl JSValue {
         } // loop
 
         #[cfg(debug_assertions)]
-        let _val_rc = val.ref_count();
+        let _val_rc = crate::gc::RefCounted::ref_count(&val);
 
         let r = (*p).create_property(ctx, prop, val, getter, setter, flags);
 
         #[cfg(debug_assertions)]
         if flags & JS_PROP_HAS_VALUE != 0 {
-            if let Some(c) = val.ref_count() {
-                debug_assert!(
-                    c >= _val_rc.unwrap(),
-                    "before:{}, after:{}",
-                    _val_rc.unwrap(),
-                    c
-                );
-            }
+            let c = crate::gc::RefCounted::ref_count(&val);
+            debug_assert!(c >= _val_rc, "before:{}, after:{}", _val_rc, c);
         }
 
         r
@@ -726,7 +720,7 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         #[cfg(debug_assertions)]
-        let _val_rc_cnt = val.ref_count();
+        let _val_rc_cnt = crate::gc::RefCounted::ref_count(&val);
 
         let ret = unsafe {
             self.define_property(
@@ -744,13 +738,9 @@ impl JSValue {
         };
 
         #[cfg(debug_assertions)]
-        if let Some(c) = val.ref_count() {
-            debug_assert!(
-                c >= _val_rc_cnt.unwrap(),
-                "before:{}, after:{}",
-                _val_rc_cnt.unwrap(),
-                c
-            );
+        {
+            let c = crate::gc::RefCounted::ref_count(&val);
+            debug_assert!(c >= _val_rc_cnt, "before:{}, after:{}", _val_rc_cnt, c);
         }
 
         // consume `val`

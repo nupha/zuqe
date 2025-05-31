@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallArgs, JSCFunctionListEntry, JS_Call},
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     mem::js_malloc_typed,
     promise::{js_promise_resolve, PromiseValue},
     runtime::JSRuntime,

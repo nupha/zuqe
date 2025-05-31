@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
-    gc::{GCMarkFunc, JS_MarkFunc},
+    gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValue},
