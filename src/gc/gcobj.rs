@@ -45,21 +45,23 @@ pub trait RefCounted {
 
 pub trait GCObject: RefCounted {
     fn gc_type(&self) -> GCObjectType;
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>>;
+
+    /// get node link - the raw pointer of wrapper Node instance.
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>>;
 
     fn gc_mark(&self) -> u8;
     fn set_gc_mark(&mut self, mark: u8);
 
     fn gc_dump(&self, rt: &JSRuntime);
 
-    /// perform gcobject clean ups before object is about to drop.
+    /// perform gcobject clean up before object is about to drop.
     /// when calling this, ref_count may not nessesarily be zero.
     fn finalize(&mut self, rt: &mut JSRuntime);
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct JSGCObjectHeader {
+pub struct GCObjectHeader {
     pub ref_count: i32,
 
     bitfields: u8,
@@ -69,7 +71,7 @@ pub struct JSGCObjectHeader {
     pub list_node: *mut Node<GCObjectNodeData>,
 }
 
-impl JSGCObjectHeader {
+impl GCObjectHeader {
     pub const fn new(ref_count: i32) -> Self {
         Self {
             ref_count,
@@ -79,12 +81,12 @@ impl JSGCObjectHeader {
     }
 
     #[inline(always)]
-    pub fn gc_mark(&self) -> u8 {
-        self.bitfields & 0x0f
+    pub const fn gc_mark(&self) -> u8 {
+        self.bitfields
     }
 
     #[inline(always)]
-    pub fn set_gc_mark(&mut self, m: u8) {
-        self.bitfields = (self.bitfields & 0xf0) | (m & 0x0f)
+    pub const fn set_gc_mark(&mut self, m: u8) {
+        self.bitfields = m
     }
 }

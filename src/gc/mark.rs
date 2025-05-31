@@ -12,7 +12,7 @@ use crate::{
             JS_PROP_VARREF,
         },
         JSTag, JSValue, JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG, JS_VALUE_HAS_REF_COUNT,
+        JS_VALUE_HAS_REF_COUNT,
     },
     JS_CLASS_OBJECT, JS_MKPTR,
 };
@@ -30,7 +30,7 @@ impl JSRuntime {
     /// Only marks values that have reference counts (objects and function bytecode)
     pub(crate) unsafe fn gc_mark_value(&mut self, val: JSValue, mark_func: GCMarkFunc) {
         if JS_VALUE_HAS_REF_COUNT(val) {
-            match JS_VALUE_GET_TAG(val) {
+            match val.tag() {
                 JS_TAG_OBJECT => {
                     mark_func(self, val.object_unchecked());
                 }

@@ -12,9 +12,8 @@ use crate::{
             JS_SetPrototypeInternal,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToBoolFree,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_TAG_NULL, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ,
     },
-    JS_CLASS_PROXY,
 };
 
 pub struct JSProxyData {
@@ -151,7 +150,7 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: *mut JSContext, obj: JSValueConst) ->
     if s.is_null() {
         return JSValue::EXCEPTION;
     }
-    if JS_IsUndefined(method) {
+    if method.is_undefined() {
         return JS_GetPrototype(ctx, (*s).target);
     }
 
@@ -162,11 +161,11 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: *mut JSContext, obj: JSValueConst) ->
         1,
         &mut (*s).target,
     );
-    if JS_IsException(ret) {
+    if ret.is_exception() {
         return ret;
     }
 
-    if !matches!(JS_VALUE_GET_TAG(ret), JS_TAG_NULL | JS_TAG_OBJECT) {
+    if !matches!(ret.tag(), JS_TAG_NULL | JS_TAG_OBJECT) {
         {
             // C2RS: goto fail replaced with a block to handle the failure case
             JS_FreeValue(ctx, ret);

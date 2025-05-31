@@ -6,7 +6,7 @@ use crate::{
     utils::skip_spaces,
     value::{
         is_safe_integer, object::JSObjectIsa, JSValue, JSValueConst, JS_IsNumber, JS_ToFloat64,
-        JS_ToInt32Sat, JS_ToNumeric, JS_DTOA_FORCE_EXP, JS_TAG_BIG_INT, JS_VALUE_GET_TAG,
+        JS_ToInt32Sat, JS_ToNumeric, JS_DTOA_FORCE_EXP, JS_TAG_BIG_INT,
     },
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
 };
@@ -334,7 +334,7 @@ pub unsafe fn js_number_constructor(
         if val.is_exception() {
             return JSValue::EXCEPTION;
         }
-        if JS_VALUE_GET_TAG(val) == JS_TAG_BIG_INT {
+        if val.tag() == JS_TAG_BIG_INT {
             (*ctx).JS_ThrowTypeError(c"BigInt is not supported");
             return JSValue::EXCEPTION;
         }

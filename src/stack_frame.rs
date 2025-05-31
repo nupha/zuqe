@@ -5,7 +5,7 @@ use crate::{
     error::{is_backtrace_needed, JS_IsUncatchableError},
     function::JSVarRef,
     iterator::JS_IteratorClose,
-    value::{JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
+    value::{JSTag, JSValue, JS_FreeValue, JS_TAG_CATCH_OFFSET, JS_VALUE_GET_INT},
 };
 
 /// Represents a stack frame in the JavaScript execution context
@@ -111,27 +111,9 @@ impl JSStackFrame {
             while sp > 0 {
                 sp -= 1;
                 let val = *sp_base.add(sp);
-
-                // debug
-                // {
-                //     print!(
-                //         "[O.o]         pc={pc}, sp={sp}, tag={:?} {}, rc={:?}, obj_cls={:?} ",
-                //         JS_VALUE_GET_NORM_TAG(val),
-                //         JS_VALUE_GET_TAG(val),
-                //         val.ref_count(),
-                //         if JS_VALUE_GET_TAG(val) == JSTag::Object as i32 {
-                //             (*JS_VALUE_GET_OBJ(val)).class_id()
-                //         } else {
-                //             9999
-                //         }
-                //     );
-                //     val.dump(ctx.rt());
-                //     println!();
-                // }
-
                 JS_FreeValue(ctx, val);
 
-                if JS_VALUE_GET_TAG(val) == JSTag::CatchOffset as i32 {
+                if val.tag() == JS_TAG_CATCH_OFFSET {
                     let pos = JS_VALUE_GET_INT(val);
                     if pos == 0 {
                         // enumerator: close it with a throw

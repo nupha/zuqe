@@ -25,11 +25,10 @@ use crate::{
         },
         JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
         JS_IsNumber, JS_IsUndefined, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat,
-        JS_ToLocaleStringFree, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
-        MAX_SAFE_INTEGER,
+        JS_ToLocaleStringFree, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ, MAX_SAFE_INTEGER,
     },
-    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY,
-    JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_ITERATOR_NEXT_DEF,
+    JS_PROP_STRING_DEF,
 };
 
 pub const special_find: i32 = 0;
@@ -1365,7 +1364,7 @@ pub unsafe fn js_array_join(
                 el = JS_ToLocaleStringFree(ctx, el.into()).into_rc((*ctx).rt());
             }
 
-            if JS_VALUE_GET_TAG(*el) != JSTag::String as i32 {
+            if (*el).tag() != JSTag::String as i32 {
                 el = JS_ToStringFree(ctx, el.into()).into_rc((*ctx).rt());
                 if el.is_exception() {
                     JS_FreeValue(ctx, sep);

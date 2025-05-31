@@ -24,7 +24,7 @@ use crate::{
         JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_ToBoolFree, JS_ToFloat64,
         JS_ToIndex, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree, JS_ToUint32,
         JS_ToUint8ClampFree, StringContent, HINT_NUMBER, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF,
     JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY,
@@ -85,7 +85,7 @@ pub unsafe fn js_typed_array_constructor(
     argv: *mut JSValueConst,
     classid: i32,
 ) -> JSValue {
-    let res = if JS_VALUE_GET_TAG(*argv.offset(0)) != JS_TAG_OBJECT {
+    let res = if (*argv.offset(0)).tag() != JS_TAG_OBJECT {
         let mut len = 0;
         if JS_ToIndex(ctx, &mut len, *argv.offset(0)) != 0 {
             return JSValue::EXCEPTION;

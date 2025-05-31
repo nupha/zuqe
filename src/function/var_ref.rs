@@ -3,7 +3,7 @@ use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use crate::{
     container_of,
     context::{JSContext, JS_MODE_ASYNC},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, GCObjectHeader, RefCounted},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::Node,
@@ -14,7 +14,7 @@ use super::JSAsyncFunctionState;
 
 #[repr(C)]
 pub struct JSVarRef {
-    pub header: JSGCObjectHeader,
+    pub header: GCObjectHeader,
 
     /// bitfield for is_detached and is_arg
     pub bitfield: u8,
@@ -101,7 +101,7 @@ impl GCObject for JSVarRef {
         }
     }
 
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
         unsafe {
             debug_assert!(!self.header.list_node.is_null());
             NonNull::new_unchecked(self.header.list_node)
@@ -134,7 +134,7 @@ impl JSVarRef {
 
     pub fn new(value: JSValue) -> Pin<Box<Self>> {
         let vr = Box::pin(Self {
-            header: JSGCObjectHeader::new(1),
+            header: GCObjectHeader::new(1),
             bitfield: 0,
             pvalue: std::ptr::null_mut(), // unknown for now
 
@@ -164,7 +164,7 @@ impl JSVarRef {
         unsafe {
             if var_ref.as_mut().dec_ref() == 0 {
                 // remove from gc list, do finalize clean up and drop
-                let mut node = var_ref.as_mut().gc_list_node();
+                let mut node = var_ref.as_mut().gc_node_ptr();
 
                 Node::unlink(node);
                 node.as_mut().finalize(rt.as_mut().unwrap());

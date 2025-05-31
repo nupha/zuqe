@@ -4,10 +4,7 @@ use crate::{
     gc::GCMarkFunc,
     parse::JSParseState,
     runtime::JSRuntime,
-    value::{
-        object::JSObjectIsa, JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT,
-        JS_VALUE_GET_TAG,
-    },
+    value::{object::JSObjectIsa, JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT},
     JS_CLASS_REGEXP,
 };
 
@@ -118,7 +115,7 @@ pub unsafe fn js_get_regexp(
     obj: JSValueConst,
     throw_error: bool,
 ) -> *mut JSRegExp {
-    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
+    if obj.tag() == JS_TAG_OBJECT {
         if let JSObjectIsa::REGEXP(re) = obj.object_unchecked().isa() {
             return *re;
         }

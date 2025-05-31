@@ -14,7 +14,7 @@ use crate::{
     value::{
         object::{js_get_length64, JSObject, JSObjectIsa, JS_ToObject},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToInt64Sat, JS_TAG_OBJECT,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_OBJ,
     },
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
@@ -635,7 +635,7 @@ impl JSContext {
         };
         let size_log2 = typed_array_size_log2(class_id);
 
-        match JS_VALUE_GET_TAG(source) {
+        match source.tag() {
             JS_TAG_UNDEFINED => self.create_typed_array(new_target, length, class_id),
             JS_TAG_OBJECT => {
                 let p = source.object_unchecked();

@@ -6,7 +6,7 @@ use crate::{
     },
     context::JSContext,
     function::JSVarRef,
-    value::{JS_ToBoolFree, JS_VALUE_HAS_REF_COUNT},
+    value::{JS_ToBoolFree, JS_TAG_OBJECT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MODULE_NS,
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
@@ -14,7 +14,7 @@ use crate::{
 use super::{
     super::{
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_NumberIsNegativeOrMinusZero,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_OBJ,
     },
     check_define_prop_flags, get_prop_flags, js_get_function_name, js_object_has_name,
     JSAutoInitIDEnum, JSProperty, JSPropertyDescriptor, JSShapeProperty, JS_AutoInitProperty,
@@ -43,7 +43,7 @@ impl JSValue {
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        if JS_VALUE_GET_TAG(self) != JSTag::Object as i32 {
+        if self.tag() != JS_TAG_OBJECT {
             ctx.JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
@@ -860,7 +860,7 @@ impl JSValue {
         opaque: *mut std::ffi::c_void,
         flags: u32,
     ) -> Result<bool, i32> {
-        if JS_VALUE_GET_TAG(self) != JSTag::Object as i32 {
+        if self.tag() != JS_TAG_OBJECT {
             return Ok(false);
         }
 

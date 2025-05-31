@@ -24,7 +24,6 @@ use zhuque::{
     value::{
         object::JS_PROP_C_W_E, JSValue, JSValueConst, JSValueRc, JS_FreeValue, StringContent,
         JS_TAG_EXCEPTION, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
     },
 };
 
@@ -210,7 +209,7 @@ pub unsafe fn js_module_set_import_meta(
     use_realpath: i32,
     is_main: bool,
 ) -> i32 {
-    debug_assert_eq!(JS_VALUE_GET_TAG(func_val), JS_TAG_MODULE);
+    debug_assert_eq!(func_val.tag(), JS_TAG_MODULE);
 
     let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
 
@@ -371,7 +370,7 @@ fn dump_error(ctx: &mut JSContext, err_val: JSValue, msg: &str, outf: &mut dyn W
     writeln!(outf, "[MESSAGE] {msg}",).unwrap();
 
     let s = err_val.get_property(ctx, JS_ATOM_stack);
-    match JS_VALUE_GET_TAG(s) {
+    match s.tag() {
         JS_TAG_EXCEPTION | JS_TAG_NULL | JS_TAG_UNDEFINED => {}
         _ => {
             let ss = s.coerce_to_utf8(ctx.handle()).unwrap();

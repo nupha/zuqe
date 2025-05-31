@@ -8,13 +8,13 @@ use crate::{
     context::{JSContext, JS_FreeContext},
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{func_kind_to_class_id, JSVarRef, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
+    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr, Node},
     value::{
         object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
-        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
+        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT,
     },
     JS_CLASS_BYTECODE_FUNCTION,
 };
@@ -42,7 +42,7 @@ impl Default for JSFunctionBytecodeDebug {
 
 #[repr(C)]
 pub struct JSFunctionBytecode {
-    pub header: JSGCObjectHeader, // must come first
+    pub header: GCObjectHeader, // must come first
 
     pub js_mode: u8,
     pub has_prototype: bool, // true if a prototype field is necessary
@@ -162,7 +162,7 @@ impl GCObject for JSFunctionBytecode {
         }
     }
 
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
         debug_assert!(!self.header.list_node.is_null());
         unsafe { NonNull::new_unchecked(self.header.list_node) }
     }
@@ -480,7 +480,7 @@ pub struct BytecodeFunctionValue(JSValue);
 impl JSValue {
     pub unsafe fn as_bytecode_function_unchecked(self) -> BytecodeFunctionValue {
         debug_assert!(matches!(
-            JS_VALUE_GET_TAG(self),
+            self.tag(),
             JS_TAG_FUNCTION_BYTECODE | JS_TAG_OBJECT
         ));
         debug_assert_eq!(

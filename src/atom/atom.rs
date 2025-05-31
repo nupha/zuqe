@@ -14,7 +14,7 @@ use crate::{
     runtime::JSRuntime,
     value::{
         JSTag, JSValue, JSValueConst, JS_DumpString, JS_FreeValue, StringContent, JS_VALUE_GET_INT,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_PTR,
     },
     JS_MKPTR,
 };
@@ -510,7 +510,7 @@ pub unsafe fn JS_AtomIsArrayIndex(ctx: *mut JSContext, pval: *mut u32, atom: JSA
 
 /// `val` keeps ref count unchanged after call this function.
 pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
-    let tag = JS_VALUE_GET_TAG(val);
+    let tag = val.tag();
 
     if tag == JSTag::Int as i32 && JS_VALUE_GET_INT(val) as u32 <= JS_ATOM_MAX_INT {
         JSAtom::from_u32(JS_VALUE_GET_INT(val) as u32)
@@ -518,7 +518,7 @@ pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
         js_symbol_to_atom(ctx, val).dup((*ctx).rt())
     } else {
         if let Ok(tmp) = val.coerce_to_propkey_value(ctx.as_mut().unwrap()) {
-            if JS_VALUE_GET_TAG(tmp) == JSTag::Symbol as i32 {
+            if tmp.tag() == JSTag::Symbol as i32 {
                 js_symbol_to_atom(ctx, tmp)
             } else {
                 (*ctx)
@@ -551,7 +551,7 @@ pub unsafe fn JS_ValueToAtom(ctx: *mut JSContext, val: JSValueConst) -> JSAtom {
 }
 
 pub unsafe fn js_symbol_to_atom(ctx: *const JSContext, val: JSValue) -> JSAtom {
-    debug_assert_eq!(JS_VALUE_GET_TAG(val), JSTag::Symbol as i32);
+    debug_assert_eq!(val.tag(), JSTag::Symbol as i32);
 
     match (*JS_VALUE_GET_PTR(val).cast::<JSAtomStruct>()).atom_info() {
         Some(JSAtomInfo::Symbol(a)) | Some(JSAtomInfo::GlobalSymbol(a)) => {

@@ -18,7 +18,7 @@ use crate::{
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT,
-        JS_TAG_OBJECT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG,
+        JS_TAG_OBJECT, JS_VALUE_GET_INT,
     },
     JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_MKPTR, JS_PROP_STRING_DEF,
@@ -94,7 +94,7 @@ impl JSValue {
     /// you must ensure that `value` is an AsyncGeneratorValue object.
     #[inline(always)]
     pub unsafe fn as_async_generator_unchecked(self) -> AsyncGeneratorValue {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert_eq!(self.tag(), JS_TAG_OBJECT);
         debug_assert!(matches!(
             self.object_unchecked().class_id(),
             JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
@@ -295,7 +295,7 @@ impl JSAsyncGeneratorData {
                                 JS_FreeValue(ctx, func_ret);
                             }
                         } else {
-                            debug_assert_eq!(JS_VALUE_GET_TAG(func_ret), JS_TAG_INT);
+                            debug_assert_eq!(func_ret.tag(), JS_TAG_INT);
                             let func_ret_code = JS_VALUE_GET_INT(func_ret);
                             let value = (*self.func_state)
                                 .frame

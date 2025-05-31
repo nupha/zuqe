@@ -8,12 +8,12 @@ use crate::{
         is_var_in_arg_scope, resolve_labels, JSClosureVar, JSFunctionBytecode,
         JSFunctionBytecodeDebug, JSVarDef, JSVarKindEnum, ARG_SCOPE_END, ARG_SCOPE_INDEX,
     },
-    gc::JSGCObjectHeader,
+    gc::GCObjectHeader,
     list_entry,
     mem::js_malloc_typed,
     module::add_module_variables,
-    utils::{init_list_head, list_foreach_safe_with_ret},
-    value::{JSTag, JSValue, JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG},
+    utils::list_foreach_safe_with_ret,
+    value::{JSTag, JSValue, JS_TAG_FUNCTION_BYTECODE},
     JS_MKPTR,
 };
 
@@ -93,7 +93,7 @@ impl JSFunctionDef {
             if func_obj.is_exception() {
                 return Some(-1); // fail exit
             }
-            debug_assert_eq!(JS_VALUE_GET_TAG(func_obj), JS_TAG_FUNCTION_BYTECODE);
+            debug_assert_eq!(func_obj.tag(), JS_TAG_FUNCTION_BYTECODE);
 
             // put child function to parent's constant pool
             self.cpool[cpool_idx as usize] = func_obj;
@@ -127,7 +127,7 @@ impl JSFunctionDef {
         // alloc bytecode function
         let mut bf = if let Some(mut p) = js_malloc_typed::<JSFunctionBytecode>(ctx, 1, true) {
             let o = JSFunctionBytecode {
-                header: JSGCObjectHeader::new(1),
+                header: GCObjectHeader::new(1),
                 func_name: self.func_name,
                 js_mode: self.js_mode,
                 has_prototype: self.has_prototype,

@@ -9,18 +9,16 @@ use zhuque::{
     context::{JSContext, JS_FreeContext},
     error::JS_ThrowReferenceError,
     eval::{
-        JS_EvalFunction, JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL,
-        JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
+        JS_EvalFunction, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
+        JS_EVAL_TYPE_MODULE,
     },
-    gc::GCObject,
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,
     promise::PromiseValue,
     runtime::JSRuntime,
     value::{
-        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, JS_TAG_MODULE,
-        JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        object::JS_PROP_C_W_E, JSValue, JSValueConst, JS_FreeValue, JS_TAG_MODULE, JS_VALUE_GET_PTR,
     },
 };
 
@@ -163,7 +161,7 @@ pub unsafe fn js_module_set_import_meta(
     use_realpath: i32,
     is_main: bool,
 ) -> i32 {
-    debug_assert_eq!(JS_VALUE_GET_TAG(func_val), JS_TAG_MODULE);
+    debug_assert_eq!(func_val.tag(), JS_TAG_MODULE);
 
     let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
 

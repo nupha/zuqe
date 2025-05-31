@@ -6,7 +6,7 @@ use crate::{
     error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
     parse::token::CHAR_SLASH,
-    value::{JS_FreeValue, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
+    value::{JS_FreeValue, JS_TAG_INT, JS_VALUE_GET_INT},
 };
 
 use super::{
@@ -244,7 +244,7 @@ impl<'s> JSParseState<'s> {
         match self.token.val {
             TOK_NUMBER => {
                 let val = self.token.u.num.val;
-                if JS_VALUE_GET_TAG(val) == JS_TAG_INT {
+                if val.tag() == JS_TAG_INT {
                     emit_op(self, OpCode::PUSH_I32);
                     emit_u32(self, JS_VALUE_GET_INT(val) as _);
                 } else {

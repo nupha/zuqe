@@ -4,7 +4,7 @@ use crate::{
     context::{JSContext, JS_MODE_ASYNC},
     error::JS_ThrowStackOverflow,
     gc::{
-        GCMarkFunc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum,
+        GCMarkFunc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, JSGCPhaseEnum,
         RefCounted,
     },
     mem::js_malloc_typed,
@@ -26,7 +26,7 @@ use super::{
 
 #[repr(C)]
 pub struct JSAsyncFunctionState {
-    pub header: JSGCObjectHeader,
+    pub header: GCObjectHeader,
 
     /// 'this' argument
     pub this_val: JSValue,
@@ -92,7 +92,7 @@ impl GCObject for JSAsyncFunctionState {
         }
     }
 
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
         debug_assert!(!self.header.list_node.is_null());
         unsafe { NonNull::new_unchecked(self.header.list_node) }
     }
@@ -106,7 +106,7 @@ impl JSAsyncFunctionState {
         unsafe {
             if (*s).dec_ref() == 0 {
                 if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                    let node = (*s).gc_list_node();
+                    let node = (*s).gc_node_ptr();
 
                     Node::unlink(node);
                     (*rt).gc_zero_ref_count_list.push_raw(node);
@@ -202,7 +202,7 @@ pub unsafe fn async_func_init(
 
     let mut af = if let Some(p) = js_malloc_typed::<JSAsyncFunctionState>(ctx, 1, false) {
         p.write(JSAsyncFunctionState {
-            header: JSGCObjectHeader::new(1),
+            header: GCObjectHeader::new(1),
             argc,
             this_val: this_obj.dup(),
             resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],

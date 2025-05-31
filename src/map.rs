@@ -10,10 +10,7 @@ use crate::{
         init_list_head, list_add_tail, list_empty, list_foreach, list_foreach_safe,
         list_foreach_with_ret, list_head,
     },
-    value::{
-        JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_TAG,
-    },
+    value::{JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_IS_FLOAT64, JS_VALUE_GET_FLOAT64},
 };
 
 #[repr(C)]
@@ -166,7 +163,7 @@ impl JSMapState {
 // XXX: could normalize strings to speed up comparison
 pub unsafe fn map_normalize_key(ctx: *mut JSContext, key: JSValueConst) -> JSValueConst {
     // convert -0.0 to +0.0
-    if JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(key)) && JS_VALUE_GET_FLOAT64(key) == 0.0 {
+    if JS_TAG_IS_FLOAT64(key.tag()) && JS_VALUE_GET_FLOAT64(key) == 0.0 {
         JSValue::ZERO
     } else {
         key

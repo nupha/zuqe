@@ -56,27 +56,6 @@ impl JSRuntime {
         self.gc_obj_list.push(gcobject_to_node(ob));
     }
 
-    // pub fn gc_free_object(&mut self, mut ob: NonNull<dyn GCObject>) {
-    //     unsafe {
-    //         debug_assert!(
-    //             ob.as_ref().ref_count() > 0,
-    //             "gcobject ref_count={}",
-    //             ob.as_ref().ref_count()
-    //         );
-    //     }
-
-    //     unsafe {
-    //         if ob.as_mut().dec_ref() == 0 {
-    //             // remove from gc list, do finalize clean up and drop
-    //             let mut node = ob.as_mut().gc_list_node();
-
-    //             Node::detach_from_list(node);
-    //             node.as_mut().finalize(self);
-    //             drop(Box::from_raw(node.as_ptr()));
-    //         }
-    //     }
-    // }
-
     /// Frees objects in zeroed gc list
     pub unsafe fn gc_free_zeroed(&mut self) {
         // Set GC phase to decrement reference count
@@ -108,7 +87,7 @@ impl JSRuntime {
                     debug_assert!((*p).ref_count() > 0);
 
                     if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
-                        let n = (*p).gc_list_node();
+                        let n = (*p).gc_node_ptr();
                         Node::unlink(n);
                         (*rt).tmp_obj_list.push_raw(n);
                     }

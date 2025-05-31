@@ -12,7 +12,7 @@ use crate::{
     error::{js_error_proto_funcs, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::EvalFunc,
     function::{js_function_proto, JSCFunctionEnum, JSVarBinding, JS_SetPropertyFunctionList},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum, RefCounted},
+    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, JSGCPhaseEnum, RefCounted},
     mem::js_malloc_rt_typed,
     module::{js_free_modules, JSFreeModuleEnum},
     runtime::JSRuntime,
@@ -34,7 +34,7 @@ use super::JSContextHandle;
 #[repr(C)]
 pub struct JSLexEnv {
     /// Environment header (must be first field)
-    header: JSGCObjectHeader,
+    header: GCObjectHeader,
 
     /// Outer environment
     outer: *mut JSLexEnv,
@@ -47,7 +47,7 @@ pub struct JSLexEnv {
 #[repr(C)]
 pub struct JSDebugInfo {
     /// Debug info header (must be first field)
-    header: JSGCObjectHeader,
+    header: GCObjectHeader,
 
     /// Source file name
     filename: *const c_char,
@@ -69,7 +69,7 @@ pub struct JSDebugInfo {
 #[repr(C)]
 pub struct JSContext {
     /// Garbage collection header (must be first field)
-    pub header: JSGCObjectHeader,
+    pub header: GCObjectHeader,
 
     /// Pointer to parent runtime instance
     pub rt: NonNull<JSRuntime>,
@@ -225,7 +225,7 @@ impl GCObject for JSContext {
         }
     }
 
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
         debug_assert!(!self.header.list_node.is_null());
         unsafe { NonNull::new_unchecked(self.header.list_node) }
     }
@@ -480,7 +480,7 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
         let rt = (*ctx).rt_mut();
 
         if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-            let node = (*ctx).gc_list_node();
+            let node = (*ctx).gc_node_ptr();
             Node::unlink(node);
             rt.gc_zero_ref_count_list.push_raw(node);
 
@@ -496,7 +496,7 @@ impl JSRuntime {
     unsafe fn create_context_raw(&mut self) -> Result<JSContextHandle, i32> {
         let p = js_malloc_rt_typed::<JSContext>(self, 1, false).ok_or(-1)?;
         p.write(JSContext {
-            header: JSGCObjectHeader::new(1),
+            header: GCObjectHeader::new(1),
             rt: NonNull::new_unchecked(self),
             link: list_head::default(),
             binary_object_count: 0,

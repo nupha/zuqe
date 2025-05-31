@@ -17,7 +17,6 @@ use crate::{
         JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,
         JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
         JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_TAG_OBJECT,
-        JS_VALUE_GET_TAG,
     },
     JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION,
 };
@@ -280,7 +279,7 @@ pub struct NativeFunctionValue(JSValue);
 impl JSValue {
     #[inline(always)]
     pub unsafe fn as_native_function_unchecked(self) -> NativeFunctionValue {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert_eq!(self.tag(), JS_TAG_OBJECT);
         debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
         std::mem::transmute(self)
     }

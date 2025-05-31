@@ -139,7 +139,7 @@ mod nb_value {
 
     #[inline(always)]
     pub fn JS_VALUE_IS_NAN(v: JSValue) -> bool {
-        let tag = JS_VALUE_GET_TAG(v);
+        let tag = v.tag();
         tag == (JS_NAN >> 32)
     }
 
@@ -354,42 +354,42 @@ impl JSValue {
 
     #[inline(always)]
     pub const fn is_exception(self) -> bool {
-        JS_VALUE_GET_TAG(self) == JS_TAG_EXCEPTION
+        self.tag() == JS_TAG_EXCEPTION
     }
 
     #[inline(always)]
     pub const fn is_null(self) -> bool {
-        JS_VALUE_GET_TAG(self) == JS_TAG_NULL
+        self.tag() == JS_TAG_NULL
     }
 
     #[inline(always)]
     pub const fn is_undefined(self) -> bool {
-        JS_VALUE_GET_TAG(self) == JS_TAG_UNDEFINED
+        self.tag() == JS_TAG_UNDEFINED
     }
 
     #[inline(always)]
-    pub const fn is_undefined_or_null(&self) -> bool {
-        matches!(JS_VALUE_GET_TAG(*self), JS_TAG_UNDEFINED | JS_TAG_NULL)
+    pub const fn is_undefined_or_null(self) -> bool {
+        matches!(self.tag(), JS_TAG_UNDEFINED | JS_TAG_NULL)
     }
 
     #[inline(always)]
-    pub const fn is_object(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_OBJECT
+    pub const fn is_object(self) -> bool {
+        self.tag() == JS_TAG_OBJECT
     }
 
     #[inline(always)]
-    pub const fn is_string(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_STRING
+    pub const fn is_string(self) -> bool {
+        self.tag() == JS_TAG_STRING
     }
 
     #[inline(always)]
-    pub const fn is_int(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_INT
+    pub const fn is_int(self) -> bool {
+        self.tag() == JS_TAG_INT
     }
 
     #[inline(always)]
-    pub const fn is_bool(&self) -> bool {
-        JS_VALUE_GET_TAG(*self) == JS_TAG_BOOL
+    pub const fn is_bool(self) -> bool {
+        self.tag() == JS_TAG_BOOL
     }
 
     /// Determine if value `self` can be called like a function, that means value is a:
@@ -398,7 +398,7 @@ impl JSValue {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     pub fn is_callable(self, ctx: &JSContext) -> bool {
-        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+        if self.tag() != JS_TAG_OBJECT {
             false
         } else {
             let p = unsafe { self.object_unchecked() };
@@ -462,7 +462,7 @@ impl JSValue {
 
 #[inline(always)]
 pub const fn JS_VALUE_HAS_REF_COUNT(v: JSValue) -> bool {
-    (JS_VALUE_GET_TAG(v) as u32) >= JS_TAG_FIRST as u32
+    v.tag() as u32 >= JS_TAG_FIRST as u32
     // JS_VALUE_GET_TAG(v) < 0
 }
 
@@ -503,10 +503,10 @@ pub fn JS_FreeValue(ctx: *mut JSContext, v: JSValue) {
 #[inline]
 pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     if JS_VALUE_HAS_REF_COUNT(v) {
-        let mut gcobj = match JS_VALUE_GET_TAG(v) {
-            JS_TAG_OBJECT => v.object_unchecked().gc_list_node(),
+        let mut gcobj = match v.tag() {
+            JS_TAG_OBJECT => v.object_unchecked().gc_node_ptr(),
             JS_TAG_FUNCTION_BYTECODE => {
-                (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_list_node()
+                (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_node_ptr()
             }
             JS_TAG_STRING | JS_TAG_SYMBOL => {
                 let s = Rc::from_raw(v.string());
@@ -531,7 +531,7 @@ pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
 /* called with the ref_count of 'v' reaches zero. */
 #[inline(always)]
 pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
-    let tag = JS_VALUE_GET_TAG(v);
+    let tag = v.tag();
 
     #[cfg(feature = "dump_free")]
     {
@@ -547,7 +547,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     match tag {
         JS_TAG_OBJECT => {
             if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                let node = v.object_unchecked().gc_list_node();
+                let node = v.object_unchecked().gc_node_ptr();
                 debug_assert_eq!(node.as_ref().ref_count(), 0);
 
                 Node::unlink(node);
@@ -560,7 +560,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
         }
         JS_TAG_FUNCTION_BYTECODE => {
             if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                let node = (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_list_node();
+                let node = (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_node_ptr();
                 debug_assert_eq!(node.as_ref().ref_count(), 0);
 
                 Node::unlink(node);
@@ -593,42 +593,39 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
 
 #[inline]
 pub const fn JS_IsNumber(v: JSValueConst) -> bool {
-    let tag = JS_VALUE_GET_TAG(v);
+    let tag = v.tag();
     (tag == JS_TAG_INT || JS_TAG_IS_FLOAT64(tag)) as _
 }
 
 #[inline]
 #[allow(unused_variables)]
 pub const fn JS_IsBigInt(ctx: *mut JSContext, v: JSValueConst) -> bool {
-    let tag = JS_VALUE_GET_TAG(v);
-    tag == JS_TAG_BIG_INT
+    v.tag() == JS_TAG_BIG_INT
 }
 
 #[inline]
 pub const fn JS_IsBigFloat(v: JSValueConst) -> bool {
-    let tag = JS_VALUE_GET_TAG(v);
-    tag == JS_TAG_BIG_FLOAT
+    v.tag() == JS_TAG_BIG_FLOAT
 }
 
 #[inline]
 pub const fn JS_IsBigDecimal(v: JSValueConst) -> bool {
-    let tag = JS_VALUE_GET_TAG(v);
-    tag == JS_TAG_BIG_DECIMAL
+    v.tag() == JS_TAG_BIG_DECIMAL
 }
 
 #[inline]
 pub const fn JS_IsBool(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_BOOL
+    v.tag() == JS_TAG_BOOL
 }
 
 #[deprecated(note = "use JSValue::is_null() instead")]
 pub fn JS_IsNull(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_NULL
+    v.tag() == JS_TAG_NULL
 }
 
 #[deprecated(note = "use JSValue::is_undefined() instead")]
 pub fn JS_IsUndefined(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_UNDEFINED
+    v.tag() == JS_TAG_UNDEFINED
 }
 
 #[deprecated(note = "use JSValue::is_exception() instead")]
@@ -638,7 +635,7 @@ pub fn JS_IsException(v: JSValueConst) -> bool {
 
 #[inline]
 pub const fn JS_IsUninitialized(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_UNINITIALIZED
+    v.tag() == JS_TAG_UNINITIALIZED
 }
 
 #[deprecated(note = "use JSValue::is_string() instead")]
@@ -649,7 +646,7 @@ pub const fn JS_IsString(v: JSValueConst) -> bool {
 
 #[inline]
 pub const fn JS_IsSymbol(v: JSValueConst) -> bool {
-    JS_VALUE_GET_TAG(v) == JS_TAG_SYMBOL
+    v.tag() == JS_TAG_SYMBOL
 }
 
 #[deprecated(note = "use JSValue::is_object() instead")]
@@ -660,7 +657,7 @@ pub const fn JS_IsObject(v: JSValueConst) -> bool {
 
 #[inline]
 pub fn JS_IsHTMLDDA(obj: JSValueConst) -> bool {
-    if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
+    if obj.tag() != JS_TAG_OBJECT {
         false
     } else {
         unsafe { obj.object_unchecked().detailed.is_htmldda() }

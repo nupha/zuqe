@@ -13,7 +13,7 @@ use crate::{
             js_get_length32, JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E, JS_PROP_HAS_GET,
             JS_PROP_HAS_SET, JS_PROP_VARREF, JS_PROP_WRITABLE,
         },
-        JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSValue, JSValueConst, JS_FreeValue, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
     },
     JS_CLASS_OBJECT,
 };
@@ -164,7 +164,7 @@ pub unsafe fn build_arg_list(
     ctx: *mut JSContext,
     array_arg: JSValueConst,
 ) -> Result<Box<[JSValue]>, i32> {
-    if JS_VALUE_GET_TAG(array_arg) != JS_TAG_OBJECT {
+    if array_arg.tag() != JS_TAG_OBJECT {
         (*ctx).JS_ThrowTypeError(c"not an object");
         return Err(-1);
     }

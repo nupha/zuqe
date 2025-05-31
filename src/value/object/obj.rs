@@ -12,7 +12,7 @@ use crate::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
         JSObjectFunc, JS_CallFree,
     },
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
+    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
     generator::{JSAsyncGeneratorData, JSGeneratorData},
     iterator::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
@@ -35,7 +35,7 @@ use super::{
     super::{
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
         JS_GetPrototypePrimitive, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ,
     },
     js_free_desc, reset_weak_ref, JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape,
     JSShapeHandle, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
@@ -222,7 +222,7 @@ pub union JSObjectUnion {
 
 #[repr(C)]
 pub struct JSObject {
-    pub header: JSGCObjectHeader,
+    pub header: GCObjectHeader,
 
     /// object flags
     pub detailed: JSObjectFlags,
@@ -323,7 +323,7 @@ impl GCObject for JSObject {
         }
     }
 
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
         debug_assert!(!self.header.list_node.is_null());
         unsafe { NonNull::new_unchecked(self.header.list_node) }
     }
@@ -423,12 +423,9 @@ impl JSValue {
     #[inline(always)]
     pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
         debug_assert!(
-            matches!(
-                JS_VALUE_GET_TAG(self),
-                JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
-            ),
+            matches!(self.tag(), JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE),
             "tag={}",
-            JS_VALUE_GET_TAG(self)
+            self.tag()
         );
         debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
 
@@ -439,10 +436,7 @@ impl JSValue {
     /// Returns None for non-object and non-bytecode-function
     #[inline]
     pub fn object<'a>(self) -> Option<&'a mut JSObject> {
-        if matches!(
-            JS_VALUE_GET_TAG(self),
-            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
-        ) {
+        if matches!(self.tag(), JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE) {
             debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
             Some(unsafe { JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap() })
         } else {
@@ -452,7 +446,7 @@ impl JSValue {
 
     #[inline]
     pub fn is_constructor(self) -> bool {
-        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
+        if self.tag() != JS_TAG_OBJECT {
             false
         } else {
             unsafe { self.object_unchecked().detailed.is_constructor() }
@@ -689,20 +683,20 @@ pub unsafe fn JS_SetPrototypeInternal(
     throw_flag: bool,
 ) -> Result<bool, i32> {
     if throw_flag {
-        if JS_VALUE_GET_TAG(obj) == JS_TAG_NULL || JS_VALUE_GET_TAG(obj) == JS_TAG_UNDEFINED {
+        if obj.is_undefined_or_null() {
             (*ctx).JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
     } else {
-        if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
+        if obj.tag() != JS_TAG_OBJECT {
             (*ctx).JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
     }
 
     let p = JS_VALUE_GET_OBJ(obj);
-    let proto = if JS_VALUE_GET_TAG(proto_val) != JS_TAG_OBJECT {
-        if JS_VALUE_GET_TAG(proto_val) != JS_TAG_NULL {
+    let proto = if proto_val.tag() != JS_TAG_OBJECT {
+        if proto_val.tag() != JS_TAG_NULL {
             (*ctx).JS_ThrowTypeErrorNotAnObject();
             return Err(-1);
         }
@@ -711,7 +705,7 @@ pub unsafe fn JS_SetPrototypeInternal(
         JS_VALUE_GET_OBJ(proto_val)
     };
 
-    if throw_flag && JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
+    if throw_flag && obj.tag() != JS_TAG_OBJECT {
         return Ok(true);
     }
     if unlikely((*p).class_id() == JS_CLASS_PROXY) {
@@ -777,7 +771,7 @@ pub unsafe fn JS_SetPrototypeInternal(
 
 #[inline(always)]
 pub unsafe fn get_proto_obj(proto_val: JSValue) -> *mut JSObject {
-    if JS_VALUE_GET_TAG(proto_val) != JS_TAG_OBJECT {
+    if proto_val.tag() != JS_TAG_OBJECT {
         std::ptr::null_mut()
     } else {
         JS_VALUE_GET_OBJ(proto_val)
@@ -808,7 +802,7 @@ pub unsafe fn JS_SetConstructorBit(
     func_obj: JSValueConst,
     val: bool,
 ) -> bool {
-    if JS_VALUE_GET_TAG(func_obj) != JS_TAG_OBJECT {
+    if func_obj.tag() != JS_TAG_OBJECT {
         false
     } else {
         let p = JS_VALUE_GET_OBJ(func_obj);
@@ -819,7 +813,7 @@ pub unsafe fn JS_SetConstructorBit(
 
 #[inline(always)]
 pub unsafe fn JS_IsError(ctx: *const JSContext, val: JSValueConst) -> bool {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+    if val.tag() != JS_TAG_OBJECT {
         return false;
     }
     let p = JS_VALUE_GET_OBJ(val);
@@ -877,11 +871,11 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     }
 
     // Only explicitly boxed values are instances of constructors
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+    if val.tag() != JS_TAG_OBJECT {
         return Ok(false);
     }
     let obj_proto = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
-    if JS_VALUE_GET_TAG(obj_proto) != JS_TAG_OBJECT {
+    if obj_proto.tag() != JS_TAG_OBJECT {
         if !obj_proto.is_exception() {
             ctx.as_mut()
                 .unwrap()
@@ -1009,7 +1003,7 @@ pub unsafe fn JS_SetObjectData(ctx: *mut JSContext, obj: JSValueConst, val: JSVa
 /// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.
 /// `obj` keep ref count unchanged after calling.
 pub unsafe fn JS_GetPrototype(ctx: *mut JSContext, obj: JSValueConst) -> JSValue {
-    if JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT {
+    if obj.tag() == JS_TAG_OBJECT {
         let ob = obj.object_unchecked();
         if ob.class_id() == JS_CLASS_PROXY {
             js_proxy_getPrototypeOf(ctx, obj)
@@ -1044,7 +1038,7 @@ pub unsafe fn js_object_has_name(obj: JSValueConst) -> bool {
             true
         } else {
             let val = pr.u.value;
-            if JS_VALUE_GET_TAG(val) != JS_TAG_STRING {
+            if val.tag() != JS_TAG_STRING {
                 true
             } else {
                 !val.string().is_empty()
@@ -1087,7 +1081,7 @@ pub unsafe fn seal_template_obj(ctx: *mut JSContext, obj: JSValueConst) -> i32 {
 
 // return Err(-1) if exception (Proxy object only) or TRUE/FALSE
 pub unsafe fn JS_PreventExtensions(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    if unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
+    if unlikely(obj.tag() != JS_TAG_OBJECT) {
         return Ok(false);
     }
     let p = JS_VALUE_GET_OBJ(obj);

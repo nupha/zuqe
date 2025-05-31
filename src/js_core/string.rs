@@ -17,7 +17,6 @@ use crate::{
         JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
         JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
         JS_STRING_LEN_MAX, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
-        JS_VALUE_GET_TAG,
     },
     JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_ITERATOR_NEXT_DEF, JS_MKPTR,
     JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
@@ -1523,16 +1522,6 @@ pub unsafe fn js_thisStringValue(ctx: *mut JSContext, this_val: JSValueConst) ->
         (*ctx).JS_ThrowTypeError(c"not a string");
         JSValue::EXCEPTION
     }
-
-    // if JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT {
-    //     let p = JS_VALUE_GET_OBJ(this_val);
-    //     if (*p).class_id() == JS_CLASS_STRING {
-    //         if JS_VALUE_GET_TAG((*p).u.object_data) == JS_TAG_STRING {
-    //             return (*p).u.object_data.dup();
-    //         }
-    //     }
-    // }
-    // (*ctx).JS_ThrowTypeError(c"not a string")
 }
 
 pub unsafe fn js_string_toLowerCase(
@@ -1739,7 +1728,7 @@ pub unsafe fn js_string_fromCodePoint(
     let mut res_string = StringContent::Empty;
 
     for i in 0..argc {
-        let c: i32 = if JS_VALUE_GET_TAG(*argv.offset(i as isize)) == JS_TAG_INT {
+        let c: i32 = if (*argv.offset(i as isize)).tag() == JS_TAG_INT {
             JS_VALUE_GET_INT(*argv.offset(i as isize))
         } else {
             let mut d: f64 = 0.0;

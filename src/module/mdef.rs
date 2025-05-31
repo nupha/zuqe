@@ -32,7 +32,6 @@ use crate::{
         },
         set_value, JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue,
         JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_PTR,
-        JS_VALUE_GET_TAG,
     },
     JS_MKPTR,
 };
@@ -1250,7 +1249,7 @@ pub unsafe fn js_create_module_bytecode_function(
     m: *mut JSModuleDef,
 ) -> Result<(), i32> {
     let bfunc = (*m).func_obj;
-    debug_assert_eq!(JS_VALUE_GET_TAG(bfunc), JS_TAG_FUNCTION_BYTECODE);
+    debug_assert_eq!(bfunc.tag(), JS_TAG_FUNCTION_BYTECODE);
 
     // get bytecode
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
@@ -1644,7 +1643,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: *mut JSContext, n_stack_levels: i32)
     }
 
     loop {
-        if JS_VALUE_GET_TAG((*sf).cur_func) != JS_TAG_OBJECT {
+        if (*sf).cur_func.tag() != JS_TAG_OBJECT {
             return JS_ATOM_NULL;
         }
 

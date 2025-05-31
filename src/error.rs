@@ -4,17 +4,14 @@ use crate::{
     atom::{consts::*, JSAtom, ATOM_GET_STR_BUF_SIZE, JS_ATOM_NULL},
     class::JSClassID,
     context::{is_strict_mode, JSContext},
-    function::{
-        get_func_name, js_class_has_bytecode, JSCFunctionListEntry, JSFunctionBytecode,
-        JS_GetFunctionBytecode,
-    },
+    function::{get_func_name, JSCFunctionListEntry, JSFunctionBytecode, JS_GetFunctionBytecode},
     value::{
         object::{
             JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
             JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
-        JS_IsEmptyString, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_IsEmptyString, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
     },
     JS_CFUNC_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
 };
@@ -201,7 +198,7 @@ pub unsafe fn JS_GetException(ctx: *mut JSContext) -> JSValue {
 
 /* Note: it is important that no exception is returned by this function */
 pub unsafe fn is_backtrace_needed(obj: JSValueConst) -> bool {
-    if JS_VALUE_GET_TAG(obj) != JSTag::Object as i32 {
+    if obj.tag() != JSTag::Object as i32 {
         false
     } else {
         let p = obj.object_unchecked();
@@ -458,7 +455,7 @@ pub unsafe fn JS_ThrowStackOverflow(ctx: *mut JSContext) -> JSValue {
 
 /// used to avoid catching interrupt exceptions
 pub unsafe fn JS_IsUncatchableError(ctx: *const JSContext, val: JSValueConst) -> bool {
-    if JS_VALUE_GET_TAG(val) != JSTag::Object as i32 {
+    if val.tag() != JSTag::Object as i32 {
         false
     } else {
         let p = JS_VALUE_GET_OBJ(val);
@@ -467,7 +464,7 @@ pub unsafe fn JS_IsUncatchableError(ctx: *const JSContext, val: JSValueConst) ->
 }
 
 pub unsafe fn JS_SetUncatchableError(ctx: *mut JSContext, val: JSValueConst, flag: bool) {
-    if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
+    if val.tag() != JS_TAG_OBJECT {
         return;
     }
     let p = JS_VALUE_GET_OBJ(val);

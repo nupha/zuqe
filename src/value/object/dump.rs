@@ -24,7 +24,7 @@ impl JSShape {
             i,
             self.ref_count(),
             if self.is_hashed { '*' } else { ' ' }, // hashed?
-            if self.gc_list_node().as_ref().is_linked() {
+            if self.gc_node_ptr().as_ref().is_linked() {
                 "+" // in gc list
             } else {
                 "-" // not in gc list

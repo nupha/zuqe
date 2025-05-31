@@ -8,9 +8,7 @@ use crate::{
     gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{
-        object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
-    },
+    value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT},
     JS_CLASS_C_FUNCTION_DATA,
 };
 
@@ -86,7 +84,7 @@ pub struct CallableValue(JSValue);
 impl JSValue {
     /// as C_FUNCTION_DATA class object
     pub unsafe fn as_callbable_unchecked(self) -> CallableValue {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert_eq!(self.tag(), JS_TAG_OBJECT);
         debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION_DATA);
         std::mem::transmute(self)
     }

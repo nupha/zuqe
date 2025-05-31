@@ -14,6 +14,7 @@ use crate::{
         Uint8Array,
     },
     utils::UncheckedInto,
+    value::{JS_TAG_INT, JS_TAG_OBJECT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT16_ARRAY,
@@ -24,7 +25,7 @@ use super::{
     super::{
         set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive,
         JS_ToFloat64Free, JS_ToUint8ClampFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_OBJ,
     },
     obj::JSObject,
     JSPropertyDescriptor, JS_AutoInitProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT,
@@ -168,7 +169,7 @@ impl JSValue {
         let this_tag = JS_VALUE_GET_NORM_TAG(this_obj);
 
         let mut state = if this_tag != JSTag::Object {
-            if JS_VALUE_GET_TAG(self) == JSTag::Object as i32 {
+            if self.tag() == JS_TAG_OBJECT {
                 p_self = self.object_unchecked() as _;
                 p_this = std::ptr::null_mut();
                 SetPropState::SetterOrAutoInit
@@ -526,9 +527,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        if JS_VALUE_GET_TAG(self) == JSTag::Object as i32
-            && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
-        {
+        if self.tag() == JS_TAG_OBJECT && prop.tag() == JS_TAG_INT {
             let p = unsafe { self.object_unchecked() };
             let idx = JS_VALUE_GET_INT(prop);
             let mut ta_out_of_bound = false;

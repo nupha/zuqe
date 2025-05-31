@@ -18,7 +18,6 @@ use crate::{
             JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
         },
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
     },
     *,
 };
@@ -235,10 +234,7 @@ impl JSContext {
     /// Note: `proto_obj` is consumed, old proto object will be consumed.
     pub fn set_class_proto(&mut self, class_id: JSClassID, proto_obj: JSValue) {
         debug_assert!(class_id < self.class_proto.len() as JSClassID);
-        debug_assert_eq!(
-            JS_VALUE_GET_TAG(self.class_proto[class_id as usize]),
-            JS_TAG_NULL
-        );
+        debug_assert_eq!(self.class_proto[class_id as usize].tag(), JS_TAG_NULL);
 
         let old = self.class_proto[class_id as usize].replace(proto_obj);
         unsafe {

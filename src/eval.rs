@@ -1,18 +1,16 @@
 use std::{
-    cell::RefCell,
     ffi::{CStr, CString},
     ops::DerefMut,
     pin::Pin,
     ptr::NonNull,
-    rc::Rc,
 };
 
 use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
-        add_closure_variables, js_class_has_bytecode, js_closure, JSFunctionBytecode,
-        JSFunctionDef, JSFunctionKindEnum, JSVarRef, JS_CallFree,
+        add_closure_variables, js_closure, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
+        JSVarRef, JS_CallFree,
     },
     gc::RefCounted,
     module::{
@@ -23,7 +21,7 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         JSValue, JSValueConst, JS_FreeValue, JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE,
-        JS_TAG_OBJECT, JS_VALUE_GET_PTR, JS_VALUE_GET_TAG,
+        JS_TAG_OBJECT, JS_VALUE_GET_PTR,
     },
 };
 
@@ -87,7 +85,7 @@ impl JSContext {
         if eval_type == JS_EVAL_TYPE_DIRECT {
             sf = self.rt().current_stack_frame;
             debug_assert!(!sf.is_null());
-            debug_assert!(JS_VALUE_GET_TAG((*sf).cur_func) == JS_TAG_OBJECT);
+            debug_assert!((*sf).cur_func.tag() == JS_TAG_OBJECT);
 
             let ob = (*sf).cur_func.object_unchecked();
             let func = ob.isa().func().expect("expect bytecode object");
@@ -270,7 +268,7 @@ impl JSContext {
             let module_func = self.eval(source, url, eval_flags | JS_EVAL_FLAG_COMPILE_ONLY);
             if !module_func.is_exception() {
                 unsafe {
-                    debug_assert_eq!(JS_VALUE_GET_TAG(module_func), JS_TAG_MODULE);
+                    debug_assert_eq!(module_func.tag(), JS_TAG_MODULE);
 
                     let mdef = JS_VALUE_GET_PTR(module_func).cast::<JSModuleDef>();
                     if (*mdef).set_import_meta(self, url, true).is_err() {
@@ -342,7 +340,7 @@ pub unsafe fn JS_EvalFunctionInternal(
     var_refs: &[NonNull<Pin<JSVarRef>>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
-    match JS_VALUE_GET_TAG(fun_obj) {
+    match fun_obj.tag() {
         JS_TAG_FUNCTION_BYTECODE => {
             let fun_closure = js_closure(ctx, fun_obj, var_refs, sf);
             JS_CallFree(

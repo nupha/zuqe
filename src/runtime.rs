@@ -306,8 +306,9 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
     debug_assert!(rt.gc_obj_list.is_empty());
 
-    // free the classes
+    // free classes
     while let Some(cls) = rt.class_array.pop() {
+        // 0: base object class
         if cls.class_id != 0 {
             JS_FreeAtomRT(rt, cls.class_name);
         }

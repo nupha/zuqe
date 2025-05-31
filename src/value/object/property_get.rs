@@ -15,8 +15,8 @@ use crate::{
     utils::{unlikely, UncheckedInto},
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive, JS_IsUninitialized,
-        JS_TAG_EXCEPTION, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED,
-        JS_VALUE_GET_INT, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_TAG_EXCEPTION, JS_TAG_INT, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED,
+        JS_VALUE_GET_INT, JS_VALUE_GET_OBJ,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
@@ -167,7 +167,7 @@ impl JSValue {
         this_obj: JSValueConst,
         throw_ref_error: bool,
     ) -> JSValue {
-        let p = match JS_VALUE_GET_TAG(self) {
+        let p = match self.tag() {
             JS_TAG_OBJECT => JS_VALUE_GET_OBJ(self),
             JS_TAG_NULL => {
                 return ctx.JS_ThrowTypeError(CStr::from_ptr(
@@ -240,9 +240,7 @@ impl JSValue {
 
     /// NOTE: returned property value has increased ref_count by 1
     pub fn get_property_value(self, ctx: &mut JSContext, prop: JSValue) -> JSValue {
-        if JS_VALUE_GET_TAG(self) == JSTag::Object as i32
-            && JS_VALUE_GET_TAG(prop) == JSTag::Int as i32
-        {
+        if self.tag() == JS_TAG_OBJECT && prop.tag() == JS_TAG_INT {
             let idx = JS_VALUE_GET_INT(prop);
             let p = unsafe { self.object_unchecked() };
 

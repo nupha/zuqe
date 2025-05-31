@@ -12,7 +12,7 @@ use crate::{
         JSAsyncFunctionState, JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
         JSGlobalVar, JSNativeCallback, JSVarKindEnum, JSVarRef, LabelSlot, RelocEntry,
     },
-    gc::{JSGCObjectHeader, JSGCObjectTypeEnum},
+    gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
     map::JSMapState,
     module::JSModuleDef,
@@ -1495,7 +1495,7 @@ pub unsafe fn JS_DumpObject(rt: *const JSRuntime, p: *const JSObject) {
 /// Adds a new GC object to the garbage collector's tracking list
 /// Initializes the object's mark and type, then adds it to the GC object list
 #[deprecated]
-pub unsafe fn add_gc_object(rt: *mut JSRuntime, h: *mut JSGCObjectHeader, tp: JSGCObjectTypeEnum) {
+pub unsafe fn add_gc_object(rt: *mut JSRuntime, h: *mut GCObjectHeader, tp: JSGCObjectTypeEnum) {
     unreachable!("unused");
 }
 
@@ -1504,7 +1504,7 @@ pub unsafe fn add_gc_object(rt: *mut JSRuntime, h: *mut JSGCObjectHeader, tp: JS
 /// - rt: Pointer to the JavaScript runtime
 /// - gp: Pointer to the garbage collected object header
 #[deprecated]
-pub type JS_MarkFunc = unsafe fn(rt: *mut crate::runtime::JSRuntime, gp: *mut JSGCObjectHeader);
+pub type JS_MarkFunc = unsafe fn(rt: *mut crate::runtime::JSRuntime, gp: *mut GCObjectHeader);
 
 /// Marks a JavaScript value during garbage collection
 /// Only marks values that have reference counts (objects and function bytecode)
@@ -1529,7 +1529,7 @@ pub unsafe fn js_autoinit_mark(rt: *mut JSRuntime, pr: *mut JSProperty, mark_fun
 #[deprecated]
 pub(super) unsafe fn mark_children(
     rt: *mut crate::runtime::JSRuntime,
-    gp: *mut JSGCObjectHeader,
+    gp: *mut GCObjectHeader,
     mark_func: JS_MarkFunc,
 ) {
     unreachable!("unused");
@@ -1566,13 +1566,13 @@ pub unsafe fn gc_free_cycles(rt: &mut JSRuntime) {
 /// Frees a GC object based on its type
 /// Handles different types of GC objects with their specific cleanup logic
 #[deprecated(note = "use gc_free() instead")]
-pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut JSGCObjectHeader) {
+pub unsafe fn free_gc_object(rt: *mut JSRuntime, gp: *mut GCObjectHeader) {
     unreachable!("unused");
 }
 
 /// Removes an object from either the main GC object list or temporary list
 #[deprecated(note = "use set status to Zeroed instead")]
-pub unsafe fn remove_gc_object(h: *mut JSGCObjectHeader) {
+pub unsafe fn remove_gc_object(h: *mut GCObjectHeader) {
     unreachable!("unused");
 }
 
@@ -1585,7 +1585,7 @@ pub unsafe fn free_zero_refcount(rt: *mut JSRuntime) {
 /// Decrements the reference count of a child GC object
 /// Moves the object to the temporary list if its refcount reaches zero
 #[deprecated]
-pub unsafe fn gc_decref_child(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+pub unsafe fn gc_decref_child(rt: *mut JSRuntime, p: *mut GCObjectHeader) {
     unreachable!("unsed");
 }
 
@@ -1597,7 +1597,7 @@ pub unsafe fn gc_decref(rt: &mut JSRuntime) {
 }
 
 #[deprecated(note = "use GCObject::gc_dump() instead")]
-pub unsafe fn JS_DumpGCObject(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
+pub unsafe fn JS_DumpGCObject(rt: *mut JSRuntime, p: *mut GCObjectHeader) {
     unreachable!("unused");
 }
 

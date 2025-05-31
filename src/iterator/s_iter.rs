@@ -13,7 +13,7 @@ use crate::{
             JS_PROP_ENUMERABLE, JS_PROP_THROW,
         },
         JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_UNDEFINED, JS_VALUE_GET_TAG,
+        JS_TAG_OBJECT, JS_TAG_UNDEFINED,
     },
 };
 
@@ -320,7 +320,7 @@ pub unsafe fn js_for_in_iterator_mark(rt: *mut JSRuntime, val: JSValue, mark_fun
 
 /// `obj` is consumed.
 pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValue {
-    let tag = JS_VALUE_GET_TAG(obj);
+    let tag = obj.tag();
     let obj = if !matches!(tag, JS_TAG_OBJECT | JS_TAG_NULL | JS_TAG_UNDEFINED) {
         JS_ToObjectFree(ctx, obj)
     } else {

@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
     context::JSContext,
-    gc::{js_trigger_gc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
+    gc::{js_trigger_gc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
     mem::js_malloc_typed,
     runtime::JSRuntime,
     utils::{init_list_head, Node},
@@ -58,7 +58,7 @@ impl JSShapeProperty {
 #[repr(C)]
 pub struct JSShape {
     /// hash table of size hash_mask + 1 before the start of the structure (see prop_hash_end()).
-    pub header: JSGCObjectHeader,
+    pub header: GCObjectHeader,
 
     /// true if the shape is inserted in the shape hash table. If not, JSShape.hash is not valid
     pub is_hashed: bool,
@@ -133,7 +133,7 @@ impl GCObject for JSShape {
         println!("{:14p} {:4} [shape]", self, self.ref_count());
     }
 
-    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
         debug_assert!(!self.header.list_node.is_null());
         unsafe { NonNull::new_unchecked(self.header.list_node) }
     }
@@ -183,7 +183,7 @@ impl JSShape {
         }
 
         let mut shape = Box::new(Self {
-            header: JSGCObjectHeader::new(1),
+            header: GCObjectHeader::new(1),
             has_small_array_index: false,
             hash: shape_initial_hash(proto_ptr),
             is_hashed: true,
@@ -301,7 +301,7 @@ impl JSShape {
         }
 
         let sh2 = Box::new(Self {
-            header: JSGCObjectHeader::new(1),
+            header: GCObjectHeader::new(1),
             is_hashed: false,
             has_small_array_index: self.has_small_array_index,
             hash: self.hash,
@@ -338,7 +338,7 @@ impl JSShape {
         debug_assert!(sh.ref_count() > 0);
         if sh.dec_ref() == 0 {
             // clear up and drop the shape
-            let mut node = sh.deref().gc_list_node();
+            let mut node = sh.deref().gc_node_ptr();
             unsafe {
                 Node::unlink(node);
                 node.as_mut().finalize(rt);
@@ -383,7 +383,7 @@ impl JSContext {
         let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
             let mut b = unsafe {
                 p.write(JSObject {
-                    header: JSGCObjectHeader::new(1),
+                    header: GCObjectHeader::new(1),
                     detailed: {
                         let mut flags = JSObjectFlags::default();
                         flags.set_extensible(true);

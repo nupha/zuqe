@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     gc::GCMarkFunc,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
+    value::{JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_OBJECT},
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
 };
 
@@ -115,7 +115,7 @@ impl PromiseResolvingFuncValue {
 
 impl JSValue {
     pub unsafe fn as_promise_resolving_func_unchecked(self) -> PromiseResolvingFuncValue {
-        debug_assert_eq!(JS_VALUE_GET_TAG(self), JS_TAG_OBJECT);
+        debug_assert_eq!(self.tag(), JS_TAG_OBJECT);
         debug_assert!(matches!(
             self.object_unchecked().class_id(),
             JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION

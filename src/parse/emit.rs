@@ -3,7 +3,7 @@ use crate::{
     bytecode::{opcodes, OpCode, OpCodeTemp},
     function::{JSFunctionDef, JSFunctionKindEnum},
     utils::{push_vec_u16, push_vec_u32, push_vec_u8},
-    value::{JSValueConst, JS_TAG_STRING, JS_VALUE_GET_TAG},
+    value::{JSValueConst, JS_TAG_STRING},
 };
 
 use super::state::JSParseState;
@@ -205,7 +205,7 @@ impl JSFunctionDef {
 
     /// Note: `val` keep ref_count unchanged after calling this function
     pub fn emit_push_const(&mut self, val: JSValueConst, as_atom: bool, last_line_num: i32) -> i32 {
-        if JS_VALUE_GET_TAG(val) == JS_TAG_STRING && as_atom {
+        if val.tag() == JS_TAG_STRING && as_atom {
             // Note: converting to atom will consume the string,
             // so clone the string description to keep val's refcount
             if let Ok(atom) = self

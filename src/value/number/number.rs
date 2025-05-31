@@ -5,7 +5,7 @@ use crate::{
     value::{
         JSTag, JSValue, JSValueConst, JSValueUnion, JS_DupValue, JS_FreeValue, JS_IsException,
         JS_IsNumber, HINT_NUMBER, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_TAG,
+        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
     },
     JS_MKVAL,
 };
@@ -461,7 +461,7 @@ pub unsafe fn __JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSVal
 
 #[inline]
 pub unsafe fn JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue) -> i32 {
-    let tag = JS_VALUE_GET_TAG(val);
+    let tag = val.tag();
     if tag <= JS_TAG_NULL {
         *pres = JS_VALUE_GET_INT(val) as f64;
         0
