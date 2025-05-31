@@ -181,3 +181,9 @@ macro_rules! container_of {
         .cast::<$container>()
     };
 }
+
+pub struct ListNode<T> {
+    pub prev: *mut Self,
+    pub next: *mut Self,
+    inner: T,
+}

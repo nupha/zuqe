@@ -3,22 +3,20 @@ use std::ffi::CStr;
 use crate::{
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
-        JSObjectArray,
     },
     array_buffer::{
         js_array_buffer_constructor, js_array_buffer_funcs, js_array_buffer_proto_funcs,
         js_shared_array_buffer_constructor, js_shared_array_buffer_funcs,
         js_shared_array_buffer_proto_funcs,
     },
-    atom::{consts::*, JSAtom, JS_NewAtomString},
+    atom::{consts::*, JSAtom},
     class::{JSClassID, JS_SetConstructor, JS_SetConstructor2},
     context::{JSContext, JS_MODE_STRICT},
-    error::{js_error_proto_funcs, JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
+    error::{JSErrorEnum, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     function::{
-        js_async_function_proto_funcs, js_function_proto, BytecodeFunctionValue, JSCFunction,
-        JSCFunctionEnum, JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode,
-        JS_NewCFunction, JS_NewCFunction2, JS_NewCFunction3, JS_NewCFunctionMagic,
-        JS_SetPropertyFunctionList,
+        js_async_function_proto_funcs, BytecodeFunctionValue, JSCFunction, JSCFunctionEnum,
+        JSCFunctionMagic, JSFunctionKindEnum, JS_GetFunctionBytecode, JS_NewCFunction,
+        JS_NewCFunction2, JS_NewCFunction3, JS_NewCFunctionMagic, JS_SetPropertyFunctionList,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -45,9 +43,8 @@ use crate::{
     value::{
         js_number_constructor, js_number_funcs, js_number_proto_funcs,
         object::{
-            get_proto_obj, js_object_seal, JSObjectIsa, JS_NewObject, JS_PROP_CONFIGURABLE,
-            JS_PROP_C_W_E, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
+            js_object_seal, JSObjectIsa, JS_NewObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
+            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_WRITABLE,
         },
         JSValue, JSValueConst, JS_FreeValue,
     },
@@ -61,113 +58,6 @@ use crate::{
 };
 
 impl JSContext {
-    /// Add minimum amount of objects to be able to compile code and display error messages.
-    /// No JSAtom should be allocated by this function.
-    pub(super) fn add_core_objects(&mut self) {
-        let object_proto = self
-            .create_instance_from_proto(JSValue::NULL, JSObjectIsa::OBJECT)
-            .unwrap_or(JSValue::EXCEPTION);
-
-        // Object
-        self.class_proto[JS_CLASS_OBJECT as usize] = object_proto;
-
-        // Function
-        {
-            self.function_proto = self
-                .create_native_function_with_proto(
-                    js_function_proto,
-                    "",
-                    0,
-                    JSCFunctionEnum::NativeFunc,
-                    0,
-                    object_proto,
-                )
-                .unwrap();
-
-            self.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = self.function_proto.dup();
-        }
-
-        // Error
-        unsafe {
-            let err_proto = self.create_base_object().unwrap();
-            JS_SetPropertyFunctionList(
-                self,
-                err_proto,
-                js_error_proto_funcs.as_ptr(),
-                js_error_proto_funcs.len(),
-            );
-            self.class_proto[JS_CLASS_ERROR as usize] = err_proto;
-
-            // standard Errors
-            for i in 0..JS_NATIVE_ERROR_COUNT {
-                let proto = self
-                    .create_instance_from_proto(err_proto, JSObjectIsa::OBJECT)
-                    .unwrap();
-
-                let name = JS_NewAtomString(self, NATIVE_ERROR_NAMES[i]);
-                proto
-                    .define_property_value(
-                        self,
-                        JS_ATOM_name,
-                        name,
-                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                    )
-                    .unwrap();
-
-                let msg = JS_ATOM_empty_string.to_value(self, true);
-                proto
-                    .define_property_value(
-                        self,
-                        JS_ATOM_message,
-                        msg,
-                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                    )
-                    .unwrap();
-
-                self.native_error_proto[i as usize] = proto;
-            }
-        }
-
-        // Array
-        {
-            // the array prototype is an array
-            let array_proto = self
-                .create_instance_from_proto(
-                    object_proto,
-                    JSObjectIsa::ARRAY(JSObjectArray::default()),
-                )
-                .unwrap();
-            self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
-
-            self.array_shape = self
-                .create_shape_with_capacity(
-                    unsafe { get_proto_obj(array_proto).as_mut() },
-                    JS_PROP_INITIAL_HASH_SIZE,
-                    1,
-                )
-                .unwrap()
-                .as_ptr();
-
-            // add length property as index 0
-            unsafe {
-                (*self.array_shape)
-                    .add_shape_property(
-                        self,
-                        None,
-                        JS_ATOM_length,
-                        JS_PROP_WRITABLE | JS_PROP_LENGTH,
-                    )
-                    .unwrap();
-            }
-        }
-
-        /* XXX: could test it on first context creation to ensure that no
-        new atoms are created in JS_AddIntrinsicBasicObjects(). It is
-        necessary to avoid useless renumbering of atoms after
-        JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
-        // assert_eq!((*(*ctx).rt).atom_count as u32, JS_ATOM_INIT_COUNT);
-    }
-
     unsafe fn intrinsic_throw_error(&mut self) {
         // throw TypeError()
         self.throw_type_error = JS_NewCFunction(self, js_throw_type_error, c"", 0);

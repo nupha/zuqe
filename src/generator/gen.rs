@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
-    gc::JS_MarkFunc,
+    gc::{GCMarkFunc, JS_MarkFunc},
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValue},
@@ -98,6 +98,6 @@ pub unsafe fn js_generator_finalizer(rt: *mut JSRuntime, val: JSValue) {
     unimplemented!();
 }
 
-pub unsafe fn js_generator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+pub unsafe fn js_generator_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
     unimplemented!();
 }

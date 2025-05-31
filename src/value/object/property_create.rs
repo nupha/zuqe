@@ -1,9 +1,10 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     array::{add_fast_array_element, convert_fast_array_to_array},
     atom::{JSAtom, JS_AtomIsArrayIndex, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
     context::JSContext,
+    gc::GCObject,
     value::object::{JSShape, JSShapeHandle},
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
@@ -24,49 +25,51 @@ impl JSObject {
         prop: JSAtom,
         prop_flags: u32,
     ) -> Result<*mut JSProperty, i32> {
-        let mut use_sh = JSShapeHandle::from(self.shape);
+        let mut sh = JSShapeHandle::from(self.shape);
 
-        if use_sh.is_hashed {
+        if sh.is_hashed {
             // try to find an existing shape
-            match ctx.rt().find_shape_with_prop(use_sh, prop, prop_flags) {
+            match ctx.rt().find_shape_with_prop(sh, prop, prop_flags) {
                 Some(found) => {
                     // matching shape found: use it
                     let new_len = found.props.len();
-                    if new_len != use_sh.props.len() {
-                        debug_assert!(new_len > use_sh.props.len());
+                    if new_len != sh.props.len() {
+                        debug_assert!(new_len > sh.props.len());
                         self.grow_prop_value_slots(new_len).inspect_err(|_| {
                             ctx.JS_ThrowOutOfMemory();
                         })?;
                     }
 
-                    self.shape = found.dup().into();
-                    JSShape::free(ctx.rt_mut(), use_sh);
-
+                    self.shape = unsafe {
+                        (*found.as_ptr()).inc_ref();
+                        found.into()
+                    };
+                    JSShape::free(ctx.rt_mut(), sh);
                     return Ok(self.prop_values.get_mut(new_len - 1).unwrap());
                 }
                 None => {
-                    // no matching found, clone current for update
-                    let mut new_sh = use_sh.deref_mut().clone(ctx)?;
-                    // register the new shape
-                    new_sh.is_hashed = true;
-                    ctx.rt_mut().register_shape(new_sh);
+                    if sh.deref().ref_count() != 1 {
+                        // shape is shared, clone it
+                        let mut new_sh = sh.deref_mut().clone(ctx)?;
+                        // register the cloned shape
+                        new_sh.is_hashed = true;
+                        ctx.rt_mut().register_shape(new_sh);
 
-                    JSShape::free(ctx.rt_mut(), use_sh);
-
-                    self.shape = new_sh.into();
+                        // free current shape and use new cloned
+                        JSShape::free(ctx.rt_mut(), sh);
+                        self.shape = new_sh.into();
+                    }
                 }
             };
         }
+        debug_assert_eq!(unsafe { (*self.shape).ref_count() }, 1);
 
-        debug_assert_eq!(self.shape().unwrap().header.ref_count, 1);
-
-        // for unhashed or cloned shape: add property defination to shape
         unsafe {
             (*self.shape).add_shape_property(ctx, Some(self), prop, prop_flags)?;
         }
 
-        let new_len = self.shape().unwrap().props.len();
-        Ok(self.prop_values.get_mut(new_len - 1).unwrap())
+        let len = self.shape().unwrap().props.len();
+        Ok(self.prop_values.get_mut(len - 1).unwrap())
     }
 
     /// A detailed version of add_property().
@@ -99,7 +102,7 @@ impl JSObject {
                     /* XXX: should update the length after defining
                     the property */
                     len = $idx + 1;
-                    set_value(ctx, &mut (*plen).u.value, JSValue::from_u32(len));
+                    set_value(ctx, &mut (*plen).u.value, JSValue::from(len));
                 }
             };
         }

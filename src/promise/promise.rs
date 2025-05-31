@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{js_function_set_properties, CallArgs, JS_Call, JS_CallConstructor},
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     js_core::error::js_aggregate_error_constructor,
     list_entry,
     promise::JSPromiseReactionData,
@@ -469,20 +469,20 @@ impl PromiseValue {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         if let JSObjectIsa::PROMISE(s) = val.object_unchecked().isa() {
             let s = *s;
 
             for i in 0..2 {
                 list_foreach(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
                     let rd = list_entry!(el, JSPromiseReactionData, link);
-                    JS_MarkValue(rt, (*rd).resolving_funcs[0], mark_func);
-                    JS_MarkValue(rt, (*rd).resolving_funcs[1], mark_func);
-                    JS_MarkValue(rt, (*rd).handler, mark_func);
+                    (*rt).gc_mark_value((*rd).resolving_funcs[0], mark_func);
+                    (*rt).gc_mark_value((*rd).resolving_funcs[1], mark_func);
+                    (*rt).gc_mark_value((*rd).handler, mark_func);
                 });
             }
 
-            JS_MarkValue(rt, s.as_mut().unwrap().promise_result, mark_func);
+            (*rt).gc_mark_value(s.as_mut().unwrap().promise_result, mark_func);
         }
     }
 }

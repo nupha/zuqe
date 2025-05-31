@@ -5,16 +5,29 @@ use std::{
 };
 
 use crate::{
-    error::JS_NATIVE_ERROR_COUNT,
+    array::JSObjectArray,
+    atom::{
+        consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
+        JS_NewAtomString,
+    },
+    error::{js_error_proto_funcs, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::EvalFunc,
-    function::JSVarBinding,
-    gc::{add_gc_object, remove_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
+    function::{js_function_proto, JSCFunctionEnum, JSVarBinding, JS_SetPropertyFunctionList},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
     mem::js_malloc_rt_typed,
     module::{js_free_modules, JSFreeModuleEnum},
+    node_list::Node,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     types::{init_list_head, list_head},
-    value::{object::JSShape, JSValue, JS_FreeValue},
+    value::{
+        object::{
+            get_proto_obj, JSObjectIsa, JSShape, JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE,
+            JS_PROP_LENGTH, JS_PROP_WRITABLE,
+        },
+        JSValue, JS_FreeValue,
+    },
+    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
 };
 
 use super::JSContextHandle;
@@ -132,6 +145,94 @@ pub struct JSContext {
     pub stack_frame: *mut JSStackFrame,
 }
 
+impl GCObject for JSContext {
+    fn ref_count(&self) -> i32 {
+        self.header.ref_count
+    }
+
+    fn inc_ref(&mut self) -> i32 {
+        self.header.ref_count += 1;
+        self.header.ref_count
+    }
+
+    fn dec_ref(&mut self) -> i32 {
+        self.header.ref_count -= 1;
+        self.header.ref_count
+    }
+
+    fn gc_type(&self) -> crate::gc::GCObjectType {
+        GCObjectType::Context(NonNull::from(self))
+    }
+
+    fn gc_mark(&self) -> u8 {
+        self.header.gc_mark()
+    }
+
+    fn set_gc_mark(&mut self, mark: u8) {
+        self.header.set_gc_mark(mark);
+    }
+
+    fn gc_dump(&self, rt: &JSRuntime) {
+        println!("{:14p} {:4} [context]", self, self.ref_count());
+    }
+
+    fn finalize(&mut self, rt: &mut JSRuntime) {
+        println!("[O.o] ************* Context finalize");
+
+        #[cfg(feature = "dump_atoms")]
+        JS_DumpAtoms(rt);
+
+        #[cfg(feature = "dump_shapes")]
+        crate::shape::JS_DumpShapes((*ctx).rt);
+
+        #[cfg(feature = "dump_objects")]
+        self.rt_mut().gc_dump_objects(1);
+
+        #[cfg(feature = "DUMP_MEM")]
+        {
+            let mut stats: JSMemoryUsage;
+            JS_ComputeMemoryUsage(rt, &mut stats);
+            JS_DumpMemoryUsage(stdout, &stats, rt);
+        }
+
+        unsafe {
+            js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
+        }
+
+        JS_FreeValue(self, self.global_obj);
+        JS_FreeValue(self, self.global_var_obj);
+        JS_FreeValue(self, self.throw_type_error);
+        JS_FreeValue(self, self.eval_func);
+        JS_FreeValue(self, self.array_proto_values);
+
+        for i in 0..JS_NATIVE_ERROR_COUNT {
+            JS_FreeValue(self, self.native_error_proto[i as usize]);
+        }
+
+        while let Some(c) = self.class_proto.pop() {
+            JS_FreeValue(self, c);
+        }
+
+        JS_FreeValue(self, self.iterator_proto);
+        JS_FreeValue(self, self.async_iterator_proto);
+        JS_FreeValue(self, self.promise_ctor);
+        JS_FreeValue(self, self.array_ctor);
+        JS_FreeValue(self, self.regexp_ctor);
+        JS_FreeValue(self, self.function_ctor);
+        JS_FreeValue(self, self.function_proto);
+
+        if !self.array_shape.is_null() {
+            let sh = self.array_shape;
+            JSShape::free(self.rt_mut(), sh.into());
+        }
+    }
+
+    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+        debug_assert!(!self.header.list_node.is_null());
+        unsafe { NonNull::new_unchecked(self.header.list_node) }
+    }
+}
+
 impl<'a> From<&'a JSContext> for &'a JSRuntime {
     #[inline(always)]
     fn from(value: &'a JSContext) -> Self {
@@ -214,9 +315,7 @@ impl JSContext {
 
     /// Clears the current exception
     pub fn clear_exception(&mut self) {
-        unsafe {
-            JS_FreeValue(self, self.current_exception);
-        }
+        JS_FreeValue(self, self.current_exception);
         self.current_exception = JSValue::UNDEFINED;
     }
 
@@ -231,6 +330,113 @@ impl JSContext {
     #[inline(always)]
     pub fn global_object_dup(&self) -> JSValue {
         self.global_obj.dup()
+    }
+
+    /// Add minimum amount of objects to be able to compile code and display error messages.
+    /// No JSAtom should be allocated by this function.
+    fn add_core_objects(&mut self) {
+        let object_proto = self
+            .create_instance_from_proto(JSValue::NULL, JSObjectIsa::OBJECT)
+            .unwrap_or(JSValue::EXCEPTION);
+
+        // Object
+        self.class_proto[JS_CLASS_OBJECT as usize] = object_proto;
+
+        // Function
+        {
+            self.function_proto = self
+                .create_native_function_with_proto(
+                    js_function_proto,
+                    "",
+                    0,
+                    JSCFunctionEnum::NativeFunc,
+                    0,
+                    object_proto,
+                )
+                .unwrap();
+            self.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = self.function_proto.dup();
+        }
+
+        // Error
+        unsafe {
+            let err_proto = self.create_base_object().unwrap();
+            self.class_proto[JS_CLASS_ERROR as usize] = err_proto;
+
+            JS_SetPropertyFunctionList(
+                self,
+                err_proto,
+                js_error_proto_funcs.as_ptr(),
+                js_error_proto_funcs.len(),
+            );
+
+            // standard Errors
+            for i in 0..JS_NATIVE_ERROR_COUNT {
+                let proto = self
+                    .create_instance_from_proto(err_proto, JSObjectIsa::OBJECT)
+                    .unwrap();
+
+                let name = JS_NewAtomString(self, NATIVE_ERROR_NAMES[i]);
+                proto
+                    .define_property_value(
+                        self,
+                        JS_ATOM_name,
+                        name,
+                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                    )
+                    .unwrap();
+
+                let msg = JS_ATOM_empty_string.to_value(self, true);
+                proto
+                    .define_property_value(
+                        self,
+                        JS_ATOM_message,
+                        msg,
+                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                    )
+                    .unwrap();
+
+                self.native_error_proto[i] = proto;
+            }
+        }
+
+        // Array
+        {
+            // the array prototype is an array
+            let array_proto = self
+                .create_instance_from_proto(
+                    object_proto,
+                    JSObjectIsa::ARRAY(JSObjectArray::default()),
+                )
+                .unwrap();
+            self.class_proto[JS_CLASS_ARRAY as usize] = array_proto;
+
+            self.array_shape = JSShape::with_capacity(
+                self,
+                unsafe { get_proto_obj(array_proto).as_mut() },
+                JS_PROP_INITIAL_HASH_SIZE,
+                1,
+            )
+            .unwrap()
+            .as_ptr();
+
+            // add length property as index 0
+            unsafe {
+                (*self.array_shape)
+                    .add_shape_property(
+                        self,
+                        None,
+                        JS_ATOM_length,
+                        JS_PROP_WRITABLE | JS_PROP_LENGTH,
+                    )
+                    .unwrap();
+            }
+        }
+
+        /* XXX: could test it on first context creation to ensure that no
+        new atoms are created in JS_AddIntrinsicBasicObjects(). It is
+        necessary to avoid useless renumbering of atoms after
+        JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
+        // assert_eq!((*(*ctx).rt).atom_count as u32, JS_ATOM_INIT_COUNT);
     }
 }
 
@@ -272,111 +478,85 @@ pub fn JS_DupContext(ctx: *mut JSContext) -> *mut JSContext {
 }
 
 pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
-    (*ctx).header.ref_count -= 1;
-    if (*ctx).header.ref_count > 0 {
-        return;
-    }
-
-    let mut ctx = {
+    if (*ctx).dec_ref() == 0 {
         let rt = (*ctx).rt_mut();
 
-        let idx = rt
-            .context_list
-            .iter()
-            .position(|c| c.as_ref() as *const JSContext as usize == ctx as usize)
-            .unwrap();
+        if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
+            let node = (*ctx).gc_list_node();
+            Node::detach_from_list(node);
+            rt.gc_zero_ref_count_list.push_raw(node);
 
-        rt.context_list.swap_remove(idx)
-    };
-
-    // TODO: move following to JSContext::drop()
-
-    #[cfg(feature = "dump_atoms")]
-    JS_DumpAtoms(rt);
-
-    #[cfg(feature = "dump_shapes")]
-    crate::shape::JS_DumpShapes((*ctx).rt);
-
-    #[cfg(feature = "dump_objects")]
-    JS_DumpGCObjects(rt);
-
-    #[cfg(feature = "DUMP_MEM")]
-    {
-        let mut stats: JSMemoryUsage;
-        JS_ComputeMemoryUsage(rt, &mut stats);
-        JS_DumpMemoryUsage(stdout, &stats, rt);
+            if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
+                rt.gc_free_zeroed();
+            }
+        }
     }
-
-    js_free_modules(ctx.as_mut(), JSFreeModuleEnum::JS_FREE_MODULE_ALL);
-
-    JS_FreeValue(ctx.as_mut(), ctx.global_obj);
-    JS_FreeValue(ctx.as_mut(), ctx.global_var_obj);
-    JS_FreeValue(ctx.as_mut(), ctx.throw_type_error);
-    JS_FreeValue(ctx.as_mut(), ctx.eval_func);
-    JS_FreeValue(ctx.as_mut(), ctx.array_proto_values);
-
-    for i in 0..JS_NATIVE_ERROR_COUNT {
-        JS_FreeValue(ctx.as_mut(), ctx.native_error_proto[i as usize]);
-    }
-
-    while let Some(c) = ctx.class_proto.pop() {
-        JS_FreeValue(ctx.as_mut(), c);
-    }
-
-    JS_FreeValue(ctx.as_mut(), ctx.iterator_proto);
-    JS_FreeValue(ctx.as_mut(), ctx.async_iterator_proto);
-    JS_FreeValue(ctx.as_mut(), ctx.promise_ctor);
-    JS_FreeValue(ctx.as_mut(), ctx.array_ctor);
-    JS_FreeValue(ctx.as_mut(), ctx.regexp_ctor);
-    JS_FreeValue(ctx.as_mut(), ctx.function_ctor);
-    JS_FreeValue(ctx.as_mut(), ctx.function_proto);
-
-    if !ctx.array_shape.is_null() {
-        let sh = ctx.array_shape;
-        JSShape::free(ctx.rt_mut(), sh.into());
-    }
-
-    remove_gc_object(&mut ctx.header);
-
-    // ctx: Box<JSContext> is dropped here
 }
 
 impl JSRuntime {
-    /// Create JSContext, returns the new context pointer wrapper.
+    /// Create JSContext register to gc list, then returns the context handle.
     unsafe fn create_context_raw(&mut self) -> Result<JSContextHandle, i32> {
-        let p = js_malloc_rt_typed::<JSContext>(self, 1, true).ok_or(-1)?;
+        let p = js_malloc_rt_typed::<JSContext>(self, 1, false).ok_or(-1)?;
+        p.write(JSContext {
+            header: JSGCObjectHeader::new(1),
+            rt: NonNull::new_unchecked(self),
+            link: list_head::default(),
+            binary_object_count: 0,
+            binary_object_size: 0,
+
+            array_shape: std::ptr::null_mut(),
+
+            function_ctor: JSValue::NULL,
+            array_ctor: JSValue::NULL,
+            regexp_ctor: JSValue::NULL,
+            promise_ctor: JSValue::NULL,
+
+            class_proto: {
+                let mut lst = Vec::<JSValue>::new();
+                lst.try_reserve_exact(self.class_array.capacity())
+                    .map_err(|_| -1)?;
+                lst.extend(std::iter::repeat_n(JSValue::NULL, self.class_array.len()));
+                lst
+            },
+            function_proto: JSValue::UNDEFINED,
+            native_error_proto: [JSValue::UNDEFINED; JS_NATIVE_ERROR_COUNT],
+            iterator_proto: JSValue::UNDEFINED,
+            async_iterator_proto: JSValue::UNDEFINED,
+            array_proto_values: JSValue::UNDEFINED,
+            throw_type_error: JSValue::UNDEFINED,
+            eval_func: JSValue::UNDEFINED,
+
+            current_exception: JSValue::NULL,
+            global_obj: JSValue::UNDEFINED,
+            global_var_obj: JSValue::UNDEFINED,
+
+            random_state: 0,
+            interrupt_counter: 0,
+            loaded_modules: list_head::default(),
+            compile_regexp: None,
+            eval_handle: None,
+
+            stack_trace: JSValue::UNDEFINED,
+            stack_limit: 0,
+            stack_pointer: 0,
+            stack_size: 0,
+            stack_frame: std::ptr::null_mut(),
+
+            user_opaque: std::ptr::null_mut(),
+        });
         let mut ctx = Box::from_raw(p.as_ptr());
-
-        ctx.header.ref_count = 1;
-        ctx.array_ctor = JSValue::NULL;
-        ctx.regexp_ctor = JSValue::NULL;
-        ctx.promise_ctor = JSValue::NULL;
-
-        // initialize class proto list
-        ctx.class_proto = Vec::<JSValue>::new();
-        ctx.class_proto
-            .try_reserve_exact(self.class_array.len())
-            .map_err(|_| -1)?;
-        ctx.class_proto
-            .extend(std::iter::repeat_n(JSValue::NULL, self.class_array.len()));
 
         init_list_head(&mut ctx.loaded_modules);
         init_list_head(&mut ctx.header.link);
-        add_gc_object(
-            self,
-            std::ptr::addr_of_mut!(ctx.header),
-            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_JS_CONTEXT,
-        );
-
-        ctx.rt = NonNull::new_unchecked(self as *mut JSRuntime);
 
         ctx.add_core_objects();
 
-        let ctx_ref: JSContextHandle = ctx.deref_mut().handle();
+        let ctx_ptr: JSContextHandle = ctx.handle();
 
-        self.context_list.push(ctx);
+        self.context_list.push(ctx_ptr);
+        self.gc_add_object(ctx);
 
-        Ok(ctx_ref)
+        Ok(ctx_ptr)
     }
 
     /// Creates a new JavaScript execution context

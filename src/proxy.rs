@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JS_ThrowTypeErrorRevokedProxy},
     function::JS_CallFree,
-    gc::JS_MarkFunc,
+    gc::{GCMarkFunc, JS_MarkFunc},
     runtime::{js_check_stack_overflow, JSRuntime},
     value::{
         object::{
@@ -264,6 +264,6 @@ pub unsafe fn js_proxy_finalizer(rt: *mut JSRuntime, val: JSValue) {
     unimplemented!();
 }
 
-pub unsafe fn js_proxy_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+pub unsafe fn js_proxy_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
     unimplemented!();
 }

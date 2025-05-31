@@ -7,7 +7,7 @@ use crate::{
     context::{JSContext, JSContextHandle},
     error::JSResult,
     function::{js_function_set_properties, CallArgs, JSNativeCallback},
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
@@ -162,10 +162,10 @@ impl CallableValue {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         if let JSObjectIsa::C_FUNCTION_DATA(p) = val.object_unchecked().isa() {
             for d in (*p).as_ref().unwrap().data() {
-                JS_MarkValue(rt, *d, mark_func);
+                (*rt).gc_mark_value(*d, mark_func);
             }
         }
     }

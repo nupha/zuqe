@@ -1,8 +1,8 @@
 use std::ops::DerefMut;
 
 use zhuque::{
-    context::JS_FreeContext, eval::JS_EVAL_TYPE_GLOBAL, gc::JS_DumpGCObjects,
-    mem::JS_DEFAULT_MALLOC_FUNCTIONS, runtime::JSRuntime, value::JS_FreeValue,
+    context::JS_FreeContext, eval::JS_EVAL_TYPE_GLOBAL, mem::JS_DEFAULT_MALLOC_FUNCTIONS,
+    runtime::JSRuntime, value::JS_FreeValue,
 };
 
 fn main() {
@@ -40,12 +40,12 @@ fn main() {
                 JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
             );
             println!("::::::::::::::: eval: {r:?}");
-            JS_DumpGCObjects(js.as_mut());
+            js.as_mut().gc_dump_objects(1);
             // JS_DumpAtoms(js.as_mut());
 
             println!("================ free eval result");
             JS_FreeValue(ctx.deref_mut(), r);
-            JS_DumpGCObjects(js.as_mut());
+            js.as_mut().gc_dump_objects(1);
             // JS_DumpAtoms(js.as_mut());
 
             JS_FreeContext(ctx.deref_mut());

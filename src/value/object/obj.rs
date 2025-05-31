@@ -1,4 +1,10 @@
-use std::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
+use std::{
+    ffi::c_void,
+    marker::PhantomData,
+    mem::ManuallyDrop,
+    ptr::NonNull,
+    sync::atomic::{AtomicU16, Ordering},
+};
 
 use crate::{
     array::JSObjectArray,
@@ -12,31 +18,34 @@ use crate::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
         JSObjectFunc, JS_CallFree,
     },
-    gc::JSGCObjectHeader,
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
     generator::{JSAsyncGeneratorData, JSGeneratorData},
     iterator::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
     },
     map::{JSMapRecord, JSMapState},
+    node_list::Node,
     promise::{JSPromiseData, JSPromiseFunctionData},
     proxy::{
         js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf, JSProxyData,
     },
     regexp::{JSRegExp, JSRegExpStringIteratorData},
+    runtime::JSRuntime,
     typed_array::JSTypedArray,
-    types::unlikely,
+    types::{list_add_tail, list_del, list_head, unlikely},
     value::{JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_PTR},
-    JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_MKPTR,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
     super::{
         JSTag, JSValue, JSValueConst, JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue,
-        JS_GetPrototypePrimitive, JS_IsException, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT,
-        JS_TAG_STRING, JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JS_GetPrototypePrimitive, JS_ToBoolFree, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
+        JS_TAG_UNDEFINED, JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
-    js_free_desc, JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape, JSShapeHandle,
-    JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
+    js_free_desc, reset_weak_ref, JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape,
+    JSShapeHandle, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
     JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
     JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
 };
@@ -237,8 +246,103 @@ pub struct JSObject {
 
     /// object payload
     pub isa: JSObjectIsa,
-    // #[deprecated]
-    // pub u: JSObjectUnion,
+}
+
+impl GCObject for JSObject {
+    fn ref_count(&self) -> i32 {
+        self.header.ref_count
+    }
+
+    fn inc_ref(&mut self) -> i32 {
+        self.header.ref_count += 1;
+        self.header.ref_count
+    }
+
+    fn dec_ref(&mut self) -> i32 {
+        self.header.ref_count -= 1;
+        self.header.ref_count
+    }
+
+    fn gc_type(&self) -> GCObjectType {
+        GCObjectType::Object(NonNull::from(self))
+    }
+
+    fn gc_mark(&self) -> u8 {
+        self.header.gc_mark()
+    }
+
+    fn set_gc_mark(&mut self, mark: u8) {
+        self.header.set_gc_mark(mark);
+    }
+
+    fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
+        self.dump(rt);
+    }
+
+    fn finalize(&mut self, rt: &mut JSRuntime) {
+        // used to tell the object is invalid when freeing cycles
+        self.detailed.set_free_mark(true);
+
+        // free all prop definations and prop values
+        // shape can't be null
+        for (prs, pr) in unsafe { (*self.shape).props.values().zip(self.prop_values.drain(..)) } {
+            pr.dispose(rt, prs.flags());
+        }
+
+        // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list
+        JSShape::free(rt, self.shape.into());
+
+        // set shape to null means object is freed
+        self.shape = std::ptr::null_mut();
+
+        if !self.first_weak_ref.is_null() {
+            unsafe {
+                reset_weak_ref(rt, self);
+            }
+        }
+
+        // call class finalizer
+        if let Some(cb) = rt.class_array[self.class_id() as usize].finalizer {
+            unsafe {
+                cb(rt, JS_MKPTR!(JSTag::Object, (self as *mut Self).cast()));
+            }
+        }
+
+        // ManuallyDrop union
+        match self.class_id() {
+            JS_CLASS_BYTECODE_FUNCTION => {
+                // (*(*p).u.func).home_object = std::ptr::null_mut();
+                // (*self.isa.func).var_refs.clear();
+                // ManuallyDrop::drop(&mut (*p).u.func);
+            }
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                // ManuallyDrop::drop(&mut (*(*p).u.array).data.values);
+                // ManuallyDrop::drop(&mut (*p).u.array);
+            }
+            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                // ManuallyDrop::drop(&mut (*p).u.array);
+            }
+            _ => {
+                // (*p).u.opaque = std::ptr::null_mut();
+            }
+        }
+    }
+
+    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+        debug_assert!(!self.header.list_node.is_null());
+        unsafe { NonNull::new_unchecked(self.header.list_node) }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for JSObject {
+    fn drop(&mut self) {
+        //debug_assert_eq!(self.class_id(), 0);
+        debug_assert_eq!(self.ref_count(), 0);
+        debug_assert!(self.shape.is_null());
+        debug_assert!(self.prop_values.is_empty());
+        debug_assert!(self.first_weak_ref.is_null());
+    }
 }
 
 impl JSObject {
@@ -318,26 +422,19 @@ impl JSObject {
     }
 }
 
-#[cfg(debug_assertions)]
-impl Drop for JSObject {
-    fn drop(&mut self) {
-        //debug_assert_eq!(self.class_id(), 0);
-        debug_assert_eq!(self.header.ref_count, 0);
-        debug_assert!(self.shape.is_null());
-        debug_assert!(self.prop_values.is_empty());
-        debug_assert!(self.first_weak_ref.is_null());
-    }
-}
-
 impl JSValue {
     /// Get JSObject payload reference of JSValue.
     /// Safety: if JSValue is not a JS_TAG_OBJECT or JS_TAG_FUNCTION_BYTECODE, behaviour is undefined.
     #[inline(always)]
     pub unsafe fn object_unchecked<'a>(self) -> &'a mut JSObject {
-        debug_assert!(matches!(
-            JS_VALUE_GET_TAG(self),
-            JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
-        ));
+        debug_assert!(
+            matches!(
+                JS_VALUE_GET_TAG(self),
+                JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE
+            ),
+            "tag={}",
+            JS_VALUE_GET_TAG(self)
+        );
         debug_assert!(!JS_VALUE_GET_PTR(self).is_null());
 
         JS_VALUE_GET_PTR(self).cast::<JSObject>().as_mut().unwrap()
@@ -480,7 +577,8 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 impl JSContext {
-    /// create new instance with prototype and isa payload data.
+    /// create new instance of isa type, with prototype and isa payload data.
+    /// when fail, isa is returned back in Err, caller should free it.
     /// `proto` is Prototype object (can be JSValue::NULL).
     /// Note: `proto` is not consumed.
     pub fn create_instance_from_proto(
@@ -492,9 +590,12 @@ impl JSContext {
         let shape: JSShapeHandle = unsafe {
             let proto_ob = get_proto_obj(proto);
             match self.rt().find_shape_by_proto(proto_ob) {
-                Some(sh) => sh.dup(),
+                Some(sh) => {
+                    (*sh.as_ptr()).inc_ref();
+                    sh
+                }
                 None => {
-                    if let Ok(sh) = self.create_shape(proto_ob.as_mut()) {
+                    if let Ok(sh) = JSShape::new(self, proto_ob.as_mut()) {
                         sh
                     } else {
                         return Err(isa);
@@ -679,6 +780,7 @@ pub unsafe fn JS_SetPrototypeInternal(
     Ok(true)
 }
 
+#[inline(always)]
 pub unsafe fn get_proto_obj(proto_val: JSValue) -> *mut JSObject {
     if JS_VALUE_GET_TAG(proto_val) != JS_TAG_OBJECT {
         std::ptr::null_mut()

@@ -4,7 +4,7 @@ use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_NULL},
     context::JSContext,
     error::{JSErrorEnum, JSResult, JS_ThrowRangeError},
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, GCObject},
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
@@ -75,7 +75,10 @@ pub union JSObjectArrayDataUnion {
 impl JSContext {
     /// create an array value.
     pub fn create_array(&mut self) -> JSResult {
-        let arr_sh: JSShapeHandle = unsafe { (*self.array_shape).dup().into() };
+        let arr_sh: JSShapeHandle = unsafe {
+            (*self.array_shape).inc_ref();
+            self.array_shape.into()
+        };
         self.create_instance_from_shape(
             arr_sh,
             JSObjectIsa::ARRAY(JSObjectArray {
@@ -751,11 +754,11 @@ pub unsafe fn js_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
     }
 }
 
-pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
     let p = JS_VALUE_GET_OBJ(val);
     if let Some(lst) = (*p).fast_array_values() {
         for v in lst {
-            JS_MarkValue(rt, *v, mark_func);
+            (*rt).gc_mark_value(*v, mark_func);
         }
     }
 }

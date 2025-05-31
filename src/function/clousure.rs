@@ -1,3 +1,5 @@
+use std::{pin::Pin, ptr::NonNull};
+
 use fallible_collections::FallibleVec;
 
 use crate::{
@@ -7,6 +9,7 @@ use crate::{
         func_kind_to_class_id, js_function_set_properties, JSFunctionBytecode, JSFunctionKindEnum,
         JSObjectFunc, JSVarRef,
     },
+    gc::GCObject,
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
@@ -217,7 +220,7 @@ impl JSFunctionDef {
 pub unsafe fn js_closure(
     ctx: *mut JSContext,
     bfunc: JSValue,
-    cur_var_refs: &[JSVarRef],
+    cur_var_refs: &[NonNull<Pin<JSVarRef>>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     let b = JS_VALUE_GET_PTR(bfunc).cast::<JSFunctionBytecode>();
@@ -305,14 +308,14 @@ pub unsafe fn js_closure2(
     ctx: *mut JSContext,
     func_obj: JSValue,
     b: *mut JSFunctionBytecode,
-    cur_var_refs: &[JSVarRef],
+    cur_var_refs: &[NonNull<Pin<JSVarRef>>],
     sf: *mut JSStackFrame,
 ) -> JSValue {
     let func = func_obj.object_unchecked().isa_mut().func_mut().unwrap();
+    debug_assert!(func.var_refs.is_empty());
 
     func.function_bytecode = b;
     func.home_object = std::ptr::null_mut();
-    func.var_refs.clear();
 
     if (*b).closure_var_count != 0 {
         if func
@@ -327,22 +330,21 @@ pub unsafe fn js_closure2(
 
         // initialize function object var_refs with closure variables
         for cv in (*b).closure_vars_slice() {
-            let vr = if cv.is_local() {
-                /* reuse the existing variable reference if it already exists */
-                let vr = if let Ok(r) =
-                    (*sf).get_var_ref(ctx.as_mut().unwrap(), cv.var_idx, cv.is_arg())
-                {
+            let var_ref = if cv.is_local() {
+                // reuse the existing variable reference if it already exists
+                if let Ok(r) = (*sf).get_var_ref(ctx.as_mut().unwrap(), cv.var_idx, cv.is_arg()) {
                     r
                 } else {
                     JS_FreeValue(ctx, func_obj);
                     return JSValue::EXCEPTION;
-                };
-                vr
+                }
             } else {
-                cur_var_refs[cv.var_idx as usize].clone()
+                let vr = cur_var_refs[cv.var_idx as usize];
+                vr.cast::<JSVarRef>().as_mut().inc_ref(); // increament ref count
+                vr
             };
 
-            func.var_refs.push(vr);
+            func.var_refs.push(var_ref);
         }
     }
 

@@ -8,7 +8,7 @@ use crate::{
     context::{JSContext, JSContextHandle, JS_FreeContext},
     error::{JSResult, JS_ThrowStackOverflow},
     function::JS_CALL_FLAG_CONSTRUCTOR,
-    gc::JS_MarkFunc,
+    gc::{GCMarkFunc, JS_MarkFunc},
     iterator::js_create_iterator_result,
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
@@ -521,10 +521,10 @@ impl NativeFunctionValue {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
         if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().isa() {
             if !cfunc.realm.is_null() {
-                mark_func(rt, &mut (*(cfunc.realm)).header);
+                mark_func(rt, cfunc.realm);
             }
         }
     }

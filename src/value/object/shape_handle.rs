@@ -11,15 +11,6 @@ use super::JSShape;
 pub struct JSShapeHandle(NonNull<JSShape>);
 
 impl JSShapeHandle {
-    /// increase shape ref count
-    #[inline(always)]
-    pub const fn dup(mut self) -> Self {
-        unsafe {
-            self.0.as_mut().dup();
-        }
-        self
-    }
-
     #[inline(always)]
     pub const fn as_ptr(self) -> *mut JSShape {
         self.0.as_ptr()

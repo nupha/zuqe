@@ -123,8 +123,6 @@ pub unsafe fn JS_DefineGlobalFunction(
             | JS_PROP_HAS_ENUMERABLE;
     }
 
-    println!("======== [O.o] func refcount={:?}", func.ref_count());
-
     if (*ctx)
         .global_obj
         .define_property(
@@ -139,8 +137,6 @@ pub unsafe fn JS_DefineGlobalFunction(
     {
         return -1;
     }
-
-    println!("[O.o] func refcount2={:?}", func.ref_count());
 
     0
 }

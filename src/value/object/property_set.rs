@@ -8,7 +8,7 @@ use crate::{
     },
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
-    function::call_setter,
+    function::{call_setter, JSVarRef},
     typed_array::{
         Float32Array, Float64Array, Int16Array, Int32Array, Int8Array, Uint16Array, Uint32Array,
         Uint8Array,
@@ -93,7 +93,7 @@ impl JSObject {
                         if class_id == JS_CLASS_MODULE_NS {
                             return Err(Some(SetPropState::ErrReadOnly));
                         }
-                        set_value(ctx, (*pr.u.var_ref).as_mut().pvalue, val);
+                        set_value(ctx, (*pr.u.var_ref).cast::<JSVarRef>().as_mut().pvalue, val);
                         return Ok(true);
                     }
                     f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {

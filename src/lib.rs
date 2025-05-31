@@ -22,6 +22,7 @@ pub mod js_core;
 pub mod map;
 pub mod mem;
 pub mod module;
+pub mod node_list;
 pub mod parse;
 pub mod promise;
 pub mod proxy;

@@ -5,7 +5,8 @@ use crate::{
         JS_ATOM_NULL,
     },
     context::JSContext,
-    value::JS_ToBoolFree,
+    function::JSVarRef,
+    value::{JS_ToBoolFree, JS_VALUE_HAS_REF_COUNT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MODULE_NS,
     JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
@@ -473,7 +474,7 @@ impl JSValue {
         if flags & JS_PROP_HAS_VALUE != 0 {
             if let Some(c) = val.ref_count() {
                 debug_assert!(
-                    c > _val_rc.unwrap(),
+                    c >= _val_rc.unwrap(),
                     "before:{}, after:{}",
                     _val_rc.unwrap(),
                     c
@@ -534,7 +535,7 @@ impl JSValue {
                     /* JS_PROP_WRITABLE is always true for variable
                     references, but they are write protected in module name
                     spaces. */
-                    if !val.is_same(*pr.u.var_ref.as_ref().pvalue) {
+                    if !val.is_same(*pr.u.var_ref.cast::<JSVarRef>().as_ref().pvalue) {
                         return if ctx
                             .JS_ThrowTypeErrorOrFalse(flags, c"property is not configurable")
                         {
@@ -547,7 +548,7 @@ impl JSValue {
                     // update the referenced value
                     set_value(
                         ctx,
-                        (*pr.u.var_ref).as_mut().get_unchecked_mut().pvalue,
+                        (*pr.u.var_ref).cast::<JSVarRef>().as_ref().pvalue,
                         val.dup(),
                     );
                 }
@@ -572,7 +573,7 @@ impl JSValue {
 
                 // convert property to value type
                 pr.unset_var_ref(ctx);
-                let v = (*pr.u.var_ref.as_ref().pvalue).dup();
+                let v = (*pr.u.var_ref.cast::<JSVarRef>().as_ref().pvalue).dup();
                 pr.u.value = v;
                 prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
             }
@@ -753,9 +754,7 @@ impl JSValue {
         }
 
         // consume `val`
-        unsafe {
-            JS_FreeValue(ctx, val);
-        }
+        JS_FreeValue(ctx, val);
 
         ret
     }

@@ -1,4 +1,4 @@
-use std::{ffi::CStr, mem::ManuallyDrop};
+use std::{ffi::CStr, mem::ManuallyDrop, pin::Pin, ptr::NonNull};
 
 use crate::{
     atom::{
@@ -70,7 +70,7 @@ pub unsafe fn run_bytecodes(
     bytecodes: &[u8],      // Array of bytecode instructions to execute
     pc_offset: usize,      // Current instruction pointer (program counter) offset
     sp_offset: usize,      // Current stack pointer offset
-    var_refs: &[JSVarRef],
+    var_refs: &[NonNull<Pin<JSVarRef>>],
     args: &[JSValue], // actual calling arguments pass in by caller, not padded length
     mode: i32,
     throwed: bool, // Indicates if an exception has been thrown
@@ -92,10 +92,10 @@ pub unsafe fn run_bytecodes(
 
     if throwed {
         // has thrown current exception, handle it before execution.
-        let pc_offset = pc.offset_from(pc_base) as usize;
-        let sp_offset = sp.offset_from(sp_base) as usize;
+        let cur_pc = pc.offset_from(pc_base) as usize;
+        let cur_sp = sp.offset_from(sp_base) as usize;
 
-        if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, pc_offset, sp_offset) {
+        if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, cur_pc, cur_sp) {
             // continue execution: update pc and sp.
             pc = pc_base.offset(new_pc as _);
             sp = sp_base.offset(new_sp as _);
@@ -103,7 +103,7 @@ pub unsafe fn run_bytecodes(
             // abort execution: sp=0, pc unchanged
             sf.handle_exit(
                 ctx,
-                pc_offset,
+                cur_pc,
                 0,
                 b.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
             );
@@ -1049,26 +1049,34 @@ pub unsafe fn run_bytecodes(
                 OpCode::GET_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    let val = *var_refs[idx as usize].as_ref().pvalue;
+                    let val = *var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue;
                     SP![0] = val.dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1]);
+                    set_value(
+                        ctx,
+                        var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue,
+                        SP![-1],
+                    );
                     SP_GO!(-1);
                 }
                 OpCode::SET_VAR_REF => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(ctx, var_refs[idx as usize].as_ref().pvalue, SP![-1].dup());
+                    set_value(
+                        ctx,
+                        var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue,
+                        SP![-1].dup(),
+                    );
                 }
                 OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
-                    let pval = var_refs[idx as usize].as_ref().pvalue;
+                    let pval = var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue;
                     if JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
                         break State::Exception;
@@ -1088,7 +1096,7 @@ pub unsafe fn run_bytecodes(
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
 
-                    let pval = var_refs[idx as usize].as_ref().pvalue;
+                    let pval = var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue;
                     if !JS_IsUninitialized(*pval) {
                         JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
                         break State::Exception;

@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_void},
     num::NonZeroU16,
+    ptr::NonNull,
     rc::Rc,
 };
 
@@ -10,19 +11,20 @@ use crate::{
     atom::{JSAtomStruct, JS_FreeAtomRT},
     callable::CallableValue,
     class::{js_arguments_exotic_methods, JSClass},
-    context::JSContext,
+    context::{JSContext, JSContextHandle},
     function::{
         js_async_function_call, js_async_function_resolve_call, BoundFunctionValue,
         NativeFunctionValue,
     },
-    gc::{JSGCObjectHeader, JSGCPhaseEnum},
+    gc::{GCObjectNodeData, JSGCPhaseEnum},
     generator::{js_generator_function_call, AsyncGeneratorValue},
     list_entry,
     mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{js_module_ns_exotic_methods, JSModuleLoaderFunc, JSModuleNormalizeFunc},
+    node_list::NodeList,
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
     stack_frame::JSStackFrame,
-    types::{init_list_head, list_empty, list_foreach, list_foreach_safe, list_head},
+    types::{init_list_head, list_foreach_safe, list_head},
     utils::js_get_stack_pointer,
     value::{js_string_exotic_methods, object::JSShapeHandle, JSValue, JS_FreeValueRT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -57,17 +59,18 @@ pub struct JSRuntime {
     /// registered classes
     pub class_array: Vec<JSClass>,
 
-    /// context list
-    pub context_list: Vec<Box<JSContext>>,
+    /// context list pointer (weak, maybe disposed)
+    /// TODO: use strong pointer holding one ref count? XXX
+    pub context_list: Vec<JSContextHandle>,
 
-    /// list of JSGCObjectHeader.link. List of allocated GC objects (used by garbage collector)
-    pub gc_obj_list: list_head,
-    /// list of JSGCObjectHeader.link. Used during JS_FreeValueRT()
-    pub gc_zero_ref_count_list: list_head,
-    /// used during GC
-    pub tmp_obj_list: list_head,
     pub gc_phase: JSGCPhaseEnum,
-
+    /// List of allocated GC objects (used by garbage collector)
+    pub gc_obj_list: NodeList<GCObjectNodeData>,
+    /// Used during JS_FreeValueRT()
+    pub gc_zero_ref_count_list: NodeList<GCObjectNodeData>,
+    /// used during GC
+    pub tmp_obj_list: NodeList<GCObjectNodeData>,
+    //pub gc_list: Vec<NonNull<dyn GCObject>>,
     pub malloc_gc_threshold: usize,
 
     #[cfg(feature = "dump_leaks")]
@@ -136,17 +139,19 @@ impl JSRuntime {
 
             class_array: Vec::new(),
 
-            gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
             current_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             module_loader_opaque: std::ptr::null_mut(),
             sab_funcs: None,
 
             context_list: Vec::with_capacity(1),
-            gc_obj_list: list_head::default(),
-            gc_zero_ref_count_list: list_head::default(),
-            tmp_obj_list: list_head::default(),
+            gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
+            // gc_list: Vec::with_capacity(128),
+            gc_obj_list: NodeList::new(),
+            gc_zero_ref_count_list: NodeList::new(),
+            tmp_obj_list: NodeList::new(),
             malloc_gc_threshold: 256 * 1024,
+
             stack_size: JS_DEFAULT_STACK_SIZE,
             stack_top: 0,
             stack_limit: 0,
@@ -173,9 +178,6 @@ impl JSRuntime {
             interrupt_opaque: std::ptr::null_mut(),
         });
 
-        init_list_head(&mut rt.gc_obj_list);
-        init_list_head(&mut rt.gc_zero_ref_count_list);
-        init_list_head(&mut rt.tmp_obj_list);
         init_list_head(&mut rt.job_list);
         #[cfg(feature = "dump_leaks")]
         init_list_head(&mut rt.debug_string_list);
@@ -279,45 +281,33 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
     #[cfg(feature = "dump_leaks")]
     {
-        /* leaking objects */
+        // leaking objects
 
-        /* remove the internal refcounts to display only the object
-        referenced externally */
-        list_foreach(&mut rt.gc_obj_list, |el| {
-            let p = list_entry!(el, JSGCObjectHeader, link);
-            (*p).set_gc_mark(0);
-        });
-
-        crate::gc::gc_decref(rt);
+        // remove the internal refcounts to display only the object referenced externally
+        for node in rt.gc_obj_list.iter_mut() {
+            node.set_gc_mark(0);
+        }
+        rt.gc_decref();
 
         let mut header_done = false;
-        list_foreach(&mut rt.gc_obj_list, |el| {
-            let p = list_entry!(el, JSGCObjectHeader, link);
-            if (*p).ref_count != 0 {
+        for node in rt.gc_obj_list.iter() {
+            if node.ref_count() != 0 {
                 if !header_done {
                     println!("Object leaks:\n");
                     crate::gc::JS_DumpObjectHeader();
                     header_done = true;
                 }
-                crate::gc::JS_DumpGCObject(rt, p);
+                node.gc_dump(rt);
             }
-        });
-
-        let mut count = 0;
-        let mut el = rt.gc_obj_list.next;
-        while el != &mut rt.gc_obj_list {
-            let p = list_entry!(el, JSGCObjectHeader, link);
-            if (*p).ref_count == 0 {
-                count += 1;
-            }
-            el = (*el).next;
         }
+
+        let count = rt.gc_obj_list.iter().filter(|n| n.ref_count() == 0).count();
         if count != 0 {
             println!("Secondary object leaks: {}", count);
         }
     }
 
-    debug_assert!(list_empty(&rt.gc_obj_list));
+    debug_assert!(rt.gc_obj_list.is_empty());
 
     // free the classes
     while let Some(cls) = rt.class_array.pop() {

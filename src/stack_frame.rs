@@ -29,15 +29,19 @@ pub struct JSStackFrame {
     pub var_base_ptr: *mut JSValue, // TODO: use *const ?
     pub var_count: u16,
 
-    /// only used in bytecode functions : PC of the instruction after the call.
-    /// this is the offset to pc base
+    /// PC of the instruction after the call (only used in bytecode functions).
+    /// this denotes a position in local_buf biased to pc_base.
+    ///
+    /// for what **pc_base** means, see JSFunctionBytecode::bytecode_start.
     pub cur_pc_offset: usize,
-    /// only used in generators. Current stack pointer value. 0 if the function is running.
-    /// this is the offset to sp base
+
+    /// Current stack pointer value (only used in generators). 0 if the function is running.
+    /// this denotes a position in local_buf biased to `stack_base_ptr()`,
+    /// use `stack_cur_ptr()` can get raw pointer to the position.
     pub cur_sp_offset: usize,
 
     /// registered var refs in stack frame
-    pub var_ref_list: Vec<JSVarRef>,
+    pub var_ref_list: Vec<NonNull<Pin<JSVarRef>>>,
 
     /// for C functions, only JS_MODE_MATH may be set
     pub js_mode: i32,
@@ -80,7 +84,7 @@ impl JSStackFrame {
 
     /// get stack current pointer
     #[inline(always)]
-    pub const fn stack_current_ptr(&self) -> NonNull<JSValue> {
+    pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset) }
     }
 

@@ -12,6 +12,7 @@ use zhuque::{
         JS_EvalFunction, JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL,
         JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
     },
+    gc::GCObject,
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JSModuleDef, JS_SetModuleLoaderFunc},
     parse::JS_DetectModule,

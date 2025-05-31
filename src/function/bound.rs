@@ -1,12 +1,9 @@
 use crate::{
     context::JSContext,
     error::JS_ThrowStackOverflow,
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
-    value::{
-        object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG,
-    },
-    JS_CLASS_BOUND_FUNCTION,
+    value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValueRT},
 };
 
 use super::{JS_Call, JS_CallConstructor2, JS_CALL_FLAG_CONSTRUCTOR};
@@ -39,15 +36,17 @@ impl BoundFunctionValue {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         if let JSObjectIsa::BOUND_FUNCTION(p) = val.object_unchecked().isa_mut() {
             let bf = *p;
             debug_assert!(!bf.is_null());
 
-            JS_MarkValue(rt, (*bf).func_obj, mark_func);
-            JS_MarkValue(rt, (*bf).this_val, mark_func);
+            (*rt).gc_mark_value(val, mark_func);
+            (*rt).gc_mark_value((*bf).func_obj, mark_func);
+            (*rt).gc_mark_value((*bf).this_val, mark_func);
+
             for a in (*bf).bind_args.iter() {
-                JS_MarkValue(rt, *a, mark_func);
+                (*rt).gc_mark_value(*a, mark_func);
             }
         }
     }

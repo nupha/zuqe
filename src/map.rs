@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     context::JSContext,
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     list_entry,
     mem::{js_free_rt, js_malloc_typed, js_realloc2},
     runtime::JSRuntime,
@@ -149,15 +149,15 @@ impl JSMapState {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         let s = val.object_unchecked().isa().map_state_ptr();
         if !s.is_null() {
             list_foreach(&mut (*s).records, |el| {
                 let mr = list_entry!(el, JSMapRecord, link);
                 if !(*s).is_weak {
-                    JS_MarkValue(rt, (*mr).key, mark_func);
+                    (*rt).gc_mark_value((*mr).key, mark_func);
                 }
-                JS_MarkValue(rt, (*mr).value, mark_func);
+                (*rt).gc_mark_value((*mr).value, mark_func);
             });
         }
     }
@@ -267,20 +267,10 @@ pub unsafe fn delete_weak_ref(mr: *mut JSMapRecord) {
     *pmr = (*mr1).next_weak_ref;
 }
 
-#[deprecated(note = "use JSMapState::hook_finalizer() instead")]
-pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    JSMapState::hook_finalizer(rt, val);
-}
-
-#[deprecated(note = "use JSMapState::hook_mark() instead")]
-pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    JSMapState::hook_mark(rt, val, mark_func);
-}
-
 pub unsafe fn js_map_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
     unimplemented!();
 }
 
-pub unsafe fn js_map_iterator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+pub unsafe fn js_map_iterator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
     unimplemented!();
 }

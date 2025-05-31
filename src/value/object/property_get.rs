@@ -7,7 +7,7 @@ use crate::{
     },
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
-    function::JS_CallFree,
+    function::{JSVarRef, JS_CallFree},
     typed_array::{
         Float32Array, Float64Array, Int16Array, Int32Array, Int8Array, Uint16Array, Uint32Array,
         Uint8Array,
@@ -56,7 +56,7 @@ impl JSObject {
                         };
                     }
                     JS_PROP_VARREF => {
-                        let val = *pr.u.var_ref.as_ref().pvalue;
+                        let val = *pr.u.var_ref.cast::<JSVarRef>().as_ref().pvalue;
                         return if JS_IsUninitialized(val) {
                             JS_ThrowReferenceErrorUninitialized(ctx, prs.atom)
                         } else {

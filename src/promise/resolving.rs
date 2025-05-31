@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use crate::{
     atom::consts::*,
     context::JSContext,
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_TAG},
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -105,10 +105,10 @@ impl PromiseResolvingFuncValue {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         let s = val.object_unchecked().isa().promise_func_data_ptr();
         if !s.is_null() {
-            JS_MarkValue(rt, (*s).promise.0, mark_func);
+            (*rt).gc_mark_value((*s).promise.0, mark_func);
         }
     }
 }

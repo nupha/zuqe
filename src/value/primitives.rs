@@ -4,7 +4,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     function::JS_CallFree,
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     runtime::JSRuntime,
     value::{
         JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
@@ -183,6 +183,6 @@ pub unsafe fn js_object_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
     );
 }
 
-pub unsafe fn js_object_data_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
-    JS_MarkValue(rt, val.object_unchecked().isa().value().unwrap(), mark_func);
+pub unsafe fn js_object_data_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
+    (*rt).gc_mark_value(val.object_unchecked().isa().value().unwrap(), mark_func);
 }

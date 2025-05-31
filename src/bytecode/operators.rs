@@ -1,3 +1,5 @@
+use std::{pin::Pin, ptr::NonNull};
+
 use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
@@ -143,7 +145,7 @@ pub unsafe fn js_op_define_class(
     sp: *mut JSValue,
     class_name: JSAtom,
     class_flags: i32,
-    cur_var_refs: &[JSVarRef],
+    cur_var_refs: &[NonNull<Pin<JSVarRef>>],
     sf: *mut JSStackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {

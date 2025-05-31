@@ -1,4 +1,7 @@
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::{
+    ffi::{c_char, c_void, CStr, CString},
+    ptr::NonNull,
+};
 
 use crate::{
     atom::{
@@ -11,7 +14,9 @@ use crate::{
         JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
         JSNativeCallback, JSVarKindEnum, JSVarRef, LabelSlot, RelocEntry,
     },
+    gc::JS_MarkFunc,
     generator::JSAsyncGeneratorData,
+    map::JSMapState,
     module::JSModuleDef,
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
@@ -1377,28 +1382,25 @@ pub unsafe fn JS_NewObjectFromShape(
 }
 
 /* create a new empty shape with prototype 'proto' */
-#[deprecated(note = "use JSContext::create_shape2() instead")]
+#[deprecated(note = "use JSShape::with_capacity instead")]
 pub unsafe fn js_new_shape2(
     ctx: *mut JSContext,
     proto: *mut JSObject,
     hash_size: usize,
     prop_size: i32,
 ) -> *mut JSShape {
-    (*ctx)
-        .create_shape_with_capacity(proto.as_mut(), hash_size, prop_size)
+    JSShape::with_capacity(ctx.as_mut().unwrap(), proto.as_mut(), hash_size, prop_size)
         .map_or(std::ptr::null_mut(), |p| p.as_ptr())
 }
 
-#[deprecated(note = "use JSContext::create_shape() instead")]
+#[deprecated(note = "use JSShape::new() instead")]
 pub unsafe fn js_new_shape(ctx: *mut JSContext, proto: *mut JSObject) -> *mut JSShape {
-    (*ctx)
-        .create_shape(proto.as_mut())
-        .map_or(std::ptr::null_mut(), |p| p.as_ptr())
+    JSShape::new(ctx.as_mut().unwrap(), proto.as_mut()).map_or(std::ptr::null_mut(), |p| p.as_ptr())
 }
 
 #[deprecated(note = "use JSShape::dup() instead")]
 pub unsafe fn js_dup_shape(sh: *mut JSShape) -> *mut JSShape {
-    (*sh).dup()
+    unreachable!("unused");
 }
 
 /* The shape is cloned. The new shape is not inserted in the shape hash table */
@@ -1409,8 +1411,9 @@ pub unsafe fn js_clone_shape(ctx: *mut JSContext, sh1: *mut JSShape) -> Result<*
 
 #[deprecated(note = "use JSShape::dispose() instead")]
 pub unsafe fn js_free_shape0(rt: *mut JSRuntime, sh: *mut JSShape) {
-    debug_assert_eq!((*sh).header.ref_count, 0);
-    Box::from_raw(sh).dispose(rt.as_mut().unwrap());
+    unreachable!("unused");
+    // debug_assert_eq!((*sh).header.ref_count, 0);
+    // Box::from_raw(sh).dispose(rt.as_mut().unwrap());
 }
 
 #[deprecated(note = "use JSShape::free() instead")]
@@ -1426,8 +1429,9 @@ pub unsafe fn js_free_shape_null(rt: *mut JSRuntime, sh: *mut JSShape) {
 }
 
 #[deprecated(note = "use JSObject::free() instead")]
-pub unsafe fn free_object(rt: *mut JSRuntime, p: *mut JSObject) {
-    JSObject::dispose(rt.as_mut().unwrap(), p);
+pub unsafe fn free_object(rt: *mut JSRuntime, p: NonNull<JSObject>) {
+    unreachable!("unused");
+    // JSObject::dispose(rt.as_mut().unwrap(), p);
 }
 
 #[deprecated(note = "not used")]
@@ -1467,4 +1471,26 @@ pub unsafe fn find_hashed_shape_prop(
     prop_flags: u32,
 ) -> Option<JSShapeHandle> {
     rt.find_shape_with_prop(sh.into(), atom, prop_flags)
+}
+
+#[deprecated(note = "use JSRuntime::gc() instead")]
+pub fn JS_RunGC(rt: &mut JSRuntime) {
+    rt.gc();
+}
+
+#[deprecated(note = "use JSMapState::hook_finalizer() instead")]
+pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
+    JSMapState::hook_finalizer(rt, val);
+}
+
+#[deprecated(note = "use JSMapState::hook_mark() instead")]
+pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    unreachable!("unused");
+    // JSMapState::hook_mark(rt, val, mark_func);
+}
+
+// for debug only: dump an object without side effect
+#[deprecated(note = "use JSObject::dump() instead")]
+pub unsafe fn JS_DumpObject(rt: *const JSRuntime, p: *const JSObject) {
+    (*p).dump(rt.as_ref().unwrap());
 }

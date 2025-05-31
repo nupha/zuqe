@@ -1,7 +1,7 @@
 use crate::{
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
-    gc::JS_MarkFunc,
+    gc::{GCMarkFunc, JS_MarkFunc},
     parse::JSParseState,
     runtime::JSRuntime,
     value::{
@@ -160,10 +160,6 @@ pub unsafe fn js_regexp_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
     unimplemented!();
 }
 
-pub unsafe fn js_regexp_iterator_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
+pub unsafe fn js_regexp_iterator_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
     unimplemented!();
 }

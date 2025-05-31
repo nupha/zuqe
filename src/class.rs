@@ -10,7 +10,7 @@ use crate::{
     function::{
         JSCFunction, JSCFunctionEnum, JSFunctionDef, JS_GetFunctionRealm, JS_NewCFunction2,
     },
-    gc::{set_cycle_flag, JS_MarkFunc},
+    gc::{set_cycle_flag, GCMarkFunc, JS_MarkFunc},
     runtime::JSRuntime,
     value::{
         object::{
@@ -33,7 +33,7 @@ pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
 pub type JSClassID = u32;
 
 pub type JSClassFinalizer = unsafe fn(rt: *mut JSRuntime, val: JSValue);
-pub type JSClassGCMark = unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: JS_MarkFunc);
+pub type JSClassGCMark = unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc);
 
 /// class native constructor callback func
 pub type JSClassCall = unsafe fn(
@@ -49,34 +49,25 @@ pub type JSClassCall = unsafe fn(
 #[repr(C)]
 pub struct JSClassExoticMethods {
     pub get_own_property:
-        Option<unsafe fn(*mut JSContext, *mut JSPropertyDescriptor, JSValueConst, JSAtom) -> c_int>,
+        Option<unsafe fn(*mut JSContext, *mut JSPropertyDescriptor, JSValue, JSAtom) -> c_int>,
 
     pub get_own_property_names:
-        Option<unsafe fn(*mut JSContext, *mut *mut PropertyEnum, *mut u32, JSValueConst) -> c_int>,
+        Option<unsafe fn(*mut JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> c_int>,
 
-    pub delete_property: Option<unsafe fn(*mut JSContext, JSValueConst, JSAtom) -> c_int>,
+    pub delete_property: Option<unsafe fn(*mut JSContext, JSValue, JSAtom) -> c_int>,
 
+    /// both JSValue(s), JSAtom should not be consumed.
     pub define_own_property: Option<
-        unsafe fn(
-            *mut JSContext,
-            JSValueConst,
-            JSAtom,
-            JSValueConst,
-            JSValueConst,
-            JSValueConst,
-            c_int,
-        ) -> c_int,
+        unsafe fn(*mut JSContext, JSValue, JSAtom, JSValue, JSValue, JSValue, c_int) -> c_int,
     >,
 
-    pub has_property: Option<unsafe fn(*mut JSContext, JSValueConst, JSAtom) -> c_int>,
+    pub has_property: Option<unsafe fn(*mut JSContext, JSValue, JSAtom) -> c_int>,
 
-    pub get_property:
-        Option<unsafe fn(*mut JSContext, JSValueConst, JSAtom, JSValueConst) -> JSValue>,
+    pub get_property: Option<unsafe fn(*mut JSContext, JSValue, JSAtom, JSValue) -> JSValue>,
 
     /// returns 0,1,-1
-    pub set_property: Option<
-        unsafe fn(*mut JSContext, JSValueConst, JSAtom, JSValueConst, JSValueConst, c_int) -> c_int,
-    >,
+    pub set_property:
+        Option<unsafe fn(*mut JSContext, JSValue, JSAtom, JSValue, JSValue, c_int) -> c_int>,
 }
 
 #[repr(C)]
@@ -151,22 +142,29 @@ impl JSRuntime {
                 return Err(-1); // class_id slot is in use
             }
         } else {
-            if class_id as usize >= self.class_array.capacity() {
-                self.class_array
-                    .try_reserve(class_id as usize - self.class_array.capacity() + 1)
-                    .map_err(|_| -1)?;
-            }
+            if class_id as usize >= self.class_array.len() {
+                // number of extra slots to grow
+                let grow = class_id as usize - self.class_array.len() + 1;
 
-            // fill slots with empty entries
-            for _ in 0..=(class_id as usize - self.class_array.len()) {
-                self.class_array.push(JSClass {
-                    class_id: 0,
-                    class_name: JS_ATOM_NULL,
-                    finalizer: None,
-                    gc_mark: None,
-                    call: None,
-                    exotic: std::ptr::null(),
-                });
+                // grow context class prototype array
+                for mut ctx in self.context_list.iter().copied() {
+                    ctx.class_proto.try_reserve(grow).map_err(|_| -1)?;
+                    ctx.class_proto
+                        .extend(std::iter::repeat_n(JSValue::NULL, grow));
+                }
+
+                // grow class array, fill slots with empty class entries
+                self.class_array.try_reserve(grow).map_err(|_| -1)?;
+                for _ in 0..grow {
+                    self.class_array.push(JSClass {
+                        class_id: 0,
+                        class_name: JS_ATOM_NULL,
+                        finalizer: None,
+                        gc_mark: None,
+                        call: None,
+                        exotic: std::ptr::null(),
+                    });
+                }
             }
         }
 

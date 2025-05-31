@@ -8,10 +8,11 @@ use crate::{
     context::{JSContext, JS_FreeContext},
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{func_kind_to_class_id, JSVarRef, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
-    gc::{remove_gc_object, JSGCObjectHeader, JSGCPhaseEnum},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
+    node_list::Node,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    types::{init_list_head, list_add_tail, list_head},
+    types::{list_add_tail, list_del, list_head},
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::{
         object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
@@ -82,8 +83,89 @@ pub struct JSFunctionBytecode {
     pub vardefs_start: i32,
     /// start index of closure vars >=0 for valid index
     pub closure_var_start: i32,
-    /// start index of bytecode in binary
+    /// index in binary where bytecode starts
     pub bytecode_start: u32,
+}
+
+impl GCObject for JSFunctionBytecode {
+    fn ref_count(&self) -> i32 {
+        self.header.ref_count
+    }
+
+    fn inc_ref(&mut self) -> i32 {
+        self.header.ref_count += 1;
+        self.header.ref_count
+    }
+
+    fn dec_ref(&mut self) -> i32 {
+        self.header.ref_count -= 1;
+        self.header.ref_count
+    }
+
+    fn gc_type(&self) -> GCObjectType {
+        GCObjectType::FunctionBytecode(NonNull::from(self))
+    }
+
+    fn gc_mark(&self) -> u8 {
+        self.header.gc_mark()
+    }
+
+    fn set_gc_mark(&mut self, mark: u8) {
+        self.header.set_gc_mark(mark);
+    }
+
+    fn gc_dump(&self, rt: &JSRuntime) {
+        println!("{:14p} {:4} [function bytecode]", self, self.ref_count());
+    }
+
+    fn finalize(&mut self, rt: &mut JSRuntime) {
+        free_bytecode_atoms(rt, &self.binary[self.bytecode_start as usize..], true);
+
+        // free const values
+        if let Some(consts) = self.cpools_slice() {
+            for v in consts {
+                unsafe {
+                    JS_FreeValueRT(rt, *v);
+                }
+            }
+        }
+
+        // free vardef var_name atom
+        if let Some(vds) = unsafe { self.vardefs_slice_mut() } {
+            for vd in vds {
+                JS_FreeAtomRT(rt, vd.var_name);
+            }
+        }
+
+        // free closure vars atom
+        if let Some(cvs) = self.closure_vars_slice_mut() {
+            for cv in cvs {
+                JS_FreeAtomRT(rt, cv.var_name);
+            }
+        }
+
+        if !self.realm.is_null() {
+            unsafe {
+                JS_FreeContext(self.realm);
+            }
+        }
+
+        JS_FreeAtomRT(rt, self.func_name);
+        self.func_name = JS_ATOM_NULL; // safe guard
+
+        if self.has_debug {
+            JS_FreeAtomRT(rt, self.debug.filename);
+            self.debug.filename = JS_ATOM_NULL;
+
+            // self.debug.pc2line_buf.take();
+            // drop(self.debug.source.take());
+        }
+    }
+
+    fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>> {
+        debug_assert!(!self.header.list_node.is_null());
+        unsafe { NonNull::new_unchecked(self.header.list_node) }
+    }
 }
 
 /* for the encoding of the pc2line table */
@@ -516,11 +598,7 @@ impl BytecodeFunctionValue {
 
         // stack frame is about to drop, check var_ref_list
         for vr in sf.var_ref_list.drain(..) {
-            if let Some(mut vr) = vr.into_inner() {
-                vr.as_mut()
-                    .get_unchecked_mut()
-                    .before_drop_clean_up(caller_ctx.rt_mut());
-            }
+            JSVarRef::free(caller_ctx.rt_mut(), vr.cast());
         }
 
         retval
@@ -631,54 +709,12 @@ impl BytecodeFunctionValue {
     }
 }
 
-pub unsafe fn free_function_bytecode(rt: *mut JSRuntime, b: *mut JSFunctionBytecode) {
-    free_bytecode_atoms(rt, &(*b).binary[(*b).bytecode_start as usize..], true);
-
-    // free const values
-    if let Some(consts) = (*b).cpools_slice() {
-        for v in consts {
-            JS_FreeValueRT(rt, *v);
-        }
-    }
-
-    // free vardef var_name atom
-    if let Some(vds) = (*b).vardefs_slice_mut() {
-        for vd in vds {
-            JS_FreeAtomRT(rt, vd.var_name);
-        }
-    }
-
-    // free closure vars atom
-    if let Some(cvs) = (*b).closure_vars_slice_mut() {
-        for cv in cvs {
-            JS_FreeAtomRT(rt, cv.var_name);
-        }
-    }
-
-    if !(*b).realm.is_null() {
-        JS_FreeContext((*b).realm.as_mut().unwrap());
-    }
-
-    JS_FreeAtomRT(rt, (*b).func_name);
-    (*b).func_name = JS_ATOM_NULL; // safe guard
-
-    if (*b).has_debug {
-        (*b).debug.pc2line_buf.take();
-
-        JS_FreeAtomRT(rt, (*b).debug.filename);
-        (*b).debug.filename = JS_ATOM_NULL;
-
-        // drop source code
-        drop((*b).debug.source.take());
-    }
-
-    remove_gc_object(&mut (*b).header);
-
-    if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*b).header.ref_count != 0 {
-        list_add_tail(&mut (*b).header.link, &mut (*rt).gc_zero_ref_count_list);
-    } else {
-        drop(Box::from_raw(b));
-    }
+#[deprecated(note = "unused")]
+pub unsafe fn free_function_bytecode(
+    rt: *mut JSRuntime,
+    mut b: NonNull<JSFunctionBytecode>,
+) -> Option<NonNull<JSFunctionBytecode>> {
+    unreachable!("unused")
 }
 
 /// free atom in bytecode

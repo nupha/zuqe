@@ -8,7 +8,7 @@ use crate::{
         is_var_in_arg_scope, resolve_labels, JSClosureVar, JSFunctionBytecode,
         JSFunctionBytecodeDebug, JSVarDef, JSVarKindEnum, ARG_SCOPE_END, ARG_SCOPE_INDEX,
     },
-    gc::{add_gc_object, JSGCObjectHeader, JSGCObjectTypeEnum},
+    gc::JSGCObjectHeader,
     list_entry,
     mem::js_malloc_typed,
     module::add_module_variables,
@@ -334,22 +334,19 @@ impl JSFunctionDef {
             }
         }
 
-        add_gc_object(
-            ctx.rt_mut(),
-            &mut bf.header,
-            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_FUNCTION_BYTECODE,
-        );
-
         #[cfg(feature = "dump_bytecode")]
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
             crate::bytecode::js_dump_function_bytecode(ctx, bf.as_mut());
         }
 
+        let bf_ptr = bf.as_mut() as *mut JSFunctionBytecode;
+        ctx.rt_mut().gc_add_object(bf);
+
         // drop function defination
         self.dispose(ctx);
 
         // return bytecode function value
-        JS_MKPTR!(JSTag::FunctionBytecode, Box::into_raw(bf).cast())
+        JS_MKPTR!(JSTag::FunctionBytecode, bf_ptr.cast())
     }
 }
 

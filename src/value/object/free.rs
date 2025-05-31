@@ -1,92 +1,33 @@
-use crate::{
-    gc::{remove_gc_object, JSGCPhaseEnum},
-    runtime::JSRuntime,
-    types::{list_add_tail, list_del},
-    value::{JSTag, JS_FreeValueRT},
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_FLOAT64_ARRAY,
-    JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
-};
+use crate::{runtime::JSRuntime, types::list_del, value::JS_FreeValueRT};
 
-use super::{JSObject, JSShape};
+use super::JSObject;
 
-impl JSObject {
-    // pub unsafe fn free(rt: &mut JSRuntime, p: *mut Self) {
-    //     let n = (*p).header.ref_count;
-    //     debug_assert!(n > 0);
-    //     (*p).header.ref_count -= 1;
-    //     if n == 0 {
-    //         Self::dispose(rt, p);
-    //     }
-    // }
+// impl JSObject {
+//     /// Safely frees a JSObject, releasing all associated resources.
+//     /// This includes:
+//     /// - Marking the object as invalid to prevent use during freeing cycles
+//     /// - Freeing all property values
+//     /// - Destroying the object's shape immediately
+//     /// - Resetting weak references
+//     /// - Calling the class finalizer if defined
+//     /// - Handling object memory cleanup based on GC phase
+//     /// The object must be in either tmp_obj_list or gc_zero_ref_count_list chain.
+//     pub unsafe fn dispose(rt: &mut JSRuntime, mut p: NonNull<Self>) -> Option<NonNull<Self>> {
+//         p.as_mut().before_drop_clean_up(rt);
 
-    /// Safely frees a JSObject, releasing all associated resources.
-    /// This includes:
-    /// - Marking the object as invalid to prevent use during freeing cycles
-    /// - Freeing all property values
-    /// - Destroying the object's shape immediately
-    /// - Resetting weak references
-    /// - Calling the class finalizer if defined
-    /// - Handling object memory cleanup based on GC phase
-    /// The object must be in either tmp_obj_list or gc_zero_ref_count_list chain.
-    pub unsafe fn dispose(rt: &mut JSRuntime, p: *mut Self) {
-        // used to tell the object is invalid when freeing cycles
-        (*p).detailed.set_free_mark(true);
-
-        // shape can't be null
-        let sh = (*p).shape_mut().unwrap();
-
-        // free all prop definations and prop values
-        for (prs, v) in sh.props.values().zip((*p).prop_values.drain(..)) {
-            v.dispose(rt, prs.flags());
-        }
-
-        // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list
-        JSShape::free(rt, sh.into());
-
-        // set shape to null means object is freed
-        (*p).shape = std::ptr::null_mut();
-
-        if !(*p).first_weak_ref.is_null() {
-            reset_weak_ref(rt, p);
-        }
-
-        // call class finalizer
-        if let Some(cb) = rt.class_array[(*p).class_id() as usize].finalizer {
-            cb(rt, JS_MKPTR!(JSTag::Object, p.cast()));
-        }
-
-        // ManuallyDrop union
-        match (*p).class_id() {
-            JS_CLASS_BYTECODE_FUNCTION => {
-                // (*(*p).u.func).home_object = std::ptr::null_mut();
-                // (*(*p).u.func).var_refs.clear();
-                // ManuallyDrop::drop(&mut (*p).u.func);
-            }
-            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                // ManuallyDrop::drop(&mut (*(*p).u.array).data.values);
-                // ManuallyDrop::drop(&mut (*p).u.array);
-            }
-            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                // ManuallyDrop::drop(&mut (*p).u.array);
-            }
-            _ => {
-                // (*p).u.opaque = std::ptr::null_mut();
-            }
-        }
-
-        remove_gc_object(&mut (*p).header);
-
-        if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && (*p).header.ref_count != 0 {
-            // this means we are in free cycles process,
-            // where tmp_obj_list object not always have ref_count==0, it could be 1 sometimes.
-            // in this case, we put this object in `gc_zero_ref_count_list` to free object attached payload.
-            // see `gc_free_cycles()` bottom half for detail.
-            list_add_tail(&mut (*p).header.link, &mut rt.gc_zero_ref_count_list);
-        } else {
-            drop(Box::from_raw(p));
-        }
-    }
-}
+//         if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && p.as_ref().ref_count() != 0 {
+//             // we are in free cycles process,
+//             // where Temp status object does not always have ref_count==0, it could be 1 sometimes.
+//             // in this case, we put this object in Zeroed state to let it be freed in later
+//             // gc_free_cycles() call.
+//             p.as_mut().gc_set_status(GCStatus::Zeroed);
+//             Some(p)
+//         } else {
+//             drop(Box::from_raw(p.as_ptr()));
+//             None
+//         }
+//     }
+// }
 
 pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSObject) {
     // first pass to remove the records from the WeakMap/WeakSet lists

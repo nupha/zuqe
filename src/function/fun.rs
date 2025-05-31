@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::RefCell, pin::Pin, ptr::NonNull, rc::Rc};
+use std::{borrow::Cow, pin::Pin, ptr::NonNull};
 
 use crate::{
     atom::{consts::*, JSAtom},
@@ -6,8 +6,7 @@ use crate::{
     context::JSContext,
     error::{JSResult, JS_ThrowTypeErrorRevokedProxy},
     function::JSVarRef,
-    gc::{JS_MarkFunc, JS_MarkValue},
-    proxy::JSProxyData,
+    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK},
@@ -15,8 +14,7 @@ use crate::{
         JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
     },
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION, JS_CLASS_GENERATOR,
-    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_PROXY, JS_MKPTR,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_MKPTR,
 };
 
 use super::{CallArgs, JSFunctionBytecode};
@@ -67,7 +65,7 @@ pub struct JSObjectFunc {
     pub function_bytecode: *mut JSFunctionBytecode,
 
     /// closure variable refrences
-    pub var_refs: Vec<JSVarRef>,
+    pub var_refs: Vec<NonNull<Pin<JSVarRef>>>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
@@ -82,6 +80,13 @@ impl Default for JSObjectFunc {
             var_refs: Vec::new(),
             home_object: std::ptr::null_mut(),
         }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for JSObjectFunc {
+    fn drop(&mut self) {
+        debug_assert!(self.var_refs.is_empty());
     }
 }
 
@@ -240,57 +245,27 @@ pub unsafe fn js_bytecode_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
     let b = func.function_bytecode;
     if !b.is_null() {
         for vr in func.var_refs.drain(..) {
-            if let Some(mut vr) = vr.into_inner() {
-                vr.as_mut().get_unchecked_mut().before_drop_clean_up(rt);
-            }
+            JSVarRef::free(rt, vr.cast());
         }
-
         JS_FreeValueRT(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()));
     }
 }
 
-pub unsafe fn js_bytecode_function_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
+pub unsafe fn js_bytecode_function_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
     let p = JS_VALUE_GET_OBJ(val);
-    // let var_refs = (*p).u.func.var_refs;
     let func = (*p).isa_mut().func_mut().unwrap();
     let b = func.function_bytecode;
 
     if !func.home_object.is_null() {
-        JS_MarkValue(
-            rt,
-            JS_MKPTR!(JSTag::Object, func.home_object.cast()),
-            mark_func,
-        );
+        (*rt).gc_mark_value(JS_MKPTR!(JSTag::Object, func.home_object.cast()), mark_func);
     }
 
     if !b.is_null() {
-        // func.var_refs.retain_mut(|vr| {
-        //     if vr.strong_count() == 1 {
-        //         // should remove
-        //         println!(
-        //             "[O.o] remove varref for {:?}",
-        //             (*vr.pvalue).object().map(|o| {
-        //                 o.dump(rt.as_mut().unwrap());
-        //             })
-        //         );
-
-        //         vr.as_mut().get_unchecked_mut().before_drop_clean_up(rt);
-        //         false
-        //     } else {
-        //         // keep this
-        //         true
-        //     }
-        // });
-
-        for vr in func.var_refs.iter_mut() {
-            mark_func(rt, &mut vr.as_mut().get_unchecked_mut().u0.header);
+        for vr in func.var_refs.iter() {
+            mark_func(rt, vr.cast::<JSVarRef>().as_ptr());
         }
 
         // must mark the function bytecode because template objects may be part of a cycle
-        JS_MarkValue(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);
+        (*rt).gc_mark_value(JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);
     }
 }

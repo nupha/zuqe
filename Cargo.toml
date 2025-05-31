@@ -22,7 +22,7 @@ dump_gc_free = []
 default = [
     "atomics",
     "dump_leaks",
-    #"dump_objects",
+    "dump_objects",
     #"dump_shapes",
     "dump_bytecode",
     #"dump_free",

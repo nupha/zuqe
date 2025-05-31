@@ -6,7 +6,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     iterator::js_array_from_iterator,
     mem::js_malloc_typed,
     runtime::JSRuntime,
@@ -961,11 +961,10 @@ pub unsafe fn js_typed_array_finalizer(rt: *mut JSRuntime, val: JSValue) {
     }
 }
 
-pub unsafe fn js_typed_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+pub unsafe fn js_typed_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
     let ta = val.object_unchecked().isa().typed_array_ptr();
     if !ta.is_null() {
-        JS_MarkValue(
-            rt,
+        (*rt).gc_mark_value(
             JS_MKPTR!(JSTag::Object, (*ta).buffer.as_ptr().cast()),
             mark_func,
         );

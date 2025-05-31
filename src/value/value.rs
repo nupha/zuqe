@@ -4,9 +4,11 @@ use crate::{
     atom::JS_FreeAtomStruct,
     context::JSContext,
     error::JS_ThrowRangeError,
-    gc::{free_zero_refcount, JSGCObjectHeader, JSGCPhaseEnum},
+    function::JSFunctionBytecode,
+    gc::{GCObject, JSGCPhaseEnum},
+    node_list::Node,
     runtime::JSRuntime,
-    types::{list_add, list_del, JSRefCountHeader},
+    types::JSRefCountHeader,
     JS_MKVAL,
 };
 
@@ -543,7 +545,11 @@ pub fn JS_FreeValue(ctx: *mut JSContext, v: JSValue) {
 #[inline]
 pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     if JS_VALUE_HAS_REF_COUNT(v) {
-        match JS_VALUE_GET_TAG(v) {
+        let mut gcobj = match JS_VALUE_GET_TAG(v) {
+            JS_TAG_OBJECT => v.object_unchecked().gc_list_node(),
+            JS_TAG_FUNCTION_BYTECODE => {
+                (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_list_node()
+            }
             JS_TAG_STRING | JS_TAG_SYMBOL => {
                 let s = Rc::from_raw(v.string());
                 if Rc::strong_count(&s) == 1 {
@@ -552,16 +558,14 @@ pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
                         JS_FreeAtomStruct(rt, at.atom());
                     }
                 }
+                return;
             }
-            _ => {
-                let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-                debug_assert!((*p).ref_count > 0);
+            _ => return,
+        };
 
-                (*p).ref_count -= 1;
-                if (*p).ref_count <= 0 {
-                    __JS_FreeValueRT(rt, v);
-                }
-            }
+        debug_assert!(gcobj.as_ref().ref_count() > 0);
+        if gcobj.as_mut().dec_ref() == 0 {
+            __JS_FreeValueRT(rt, v);
         }
     }
 }
@@ -583,14 +587,29 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
     }
 
     match tag {
-        JS_TAG_OBJECT | JS_TAG_FUNCTION_BYTECODE => {
-            let p = JS_VALUE_GET_PTR(v).cast::<JSGCObjectHeader>();
+        JS_TAG_OBJECT => {
             if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                list_del(&mut (*p).link);
-                list_add(&mut (*p).link, &mut (*rt).gc_zero_ref_count_list);
+                let node = v.object_unchecked().gc_list_node();
+                debug_assert_eq!(node.as_ref().ref_count(), 0);
+
+                Node::detach_from_list(node);
+                (*rt).gc_zero_ref_count_list.push_raw(node);
 
                 if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
-                    free_zero_refcount(rt);
+                    (*rt).gc_free_zeroed();
+                }
+            }
+        }
+        JS_TAG_FUNCTION_BYTECODE => {
+            if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
+                let node = (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_list_node();
+                debug_assert_eq!(node.as_ref().ref_count(), 0);
+
+                Node::detach_from_list(node);
+                (*rt).gc_zero_ref_count_list.push_raw(node);
+
+                if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
+                    (*rt).gc_free_zeroed();
                 }
             }
         }

@@ -4,6 +4,8 @@ use crate::{
     array::JSObjectArray,
     atom::{consts::*, JSAtom},
     context::JSContext,
+    function::JSVarRef,
+    gc::GCObject,
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
@@ -91,15 +93,15 @@ pub unsafe fn js_build_mapped_arguments(
 
     for i in 0..arg_count {
         match sf.get_var_ref(ctx, i as _, true) {
-            Ok(var_ref) => {
+            Ok(vr) => {
                 if let Ok(pr) = p.add_property(
                     ctx,
                     JSAtom::from_u32(i as u32),
                     JS_PROP_C_W_E | JS_PROP_VARREF,
                 ) {
-                    (*pr).u.var_ref = ManuallyDrop::new(var_ref);
+                    (*pr).u.var_ref = ManuallyDrop::new(vr);
                 } else {
-                    debug_assert!(var_ref.ref_count() > 1);
+                    debug_assert!(vr.cast::<JSVarRef>().as_ref().ref_count() > 1);
                     JS_FreeValue(ctx, val);
                     return JSValue::EXCEPTION;
                 }

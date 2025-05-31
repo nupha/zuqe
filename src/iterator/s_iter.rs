@@ -2,7 +2,7 @@ use crate::{
     atom::{consts::*, JSAtom, JS_FreeAtomRT},
     context::JSContext,
     function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     map::JSMapRecord,
     mem::js_malloc_typed,
     runtime::JSRuntime,
@@ -312,14 +312,10 @@ pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
     }
 }
 
-pub unsafe fn js_for_in_iterator_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: JS_MarkFunc,
-) {
+pub unsafe fn js_for_in_iterator_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
     if let JSObjectIsa::FOR_IN_ITERATOR(p) = val.object_unchecked().isa() {
         let it = *p;
-        JS_MarkValue(rt, (*it).obj, mark_func);
+        (*rt).gc_mark_value((*it).obj, mark_func);
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
         async_func_free, async_func_init, async_func_resume, CallArgs, JSAsyncFunctionState,
         JSCFunctionListEntry, JS_Call,
     },
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     iterator::{js_create_iterator_result, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     list_entry,
     mem::js_malloc_typed,
@@ -175,19 +175,19 @@ impl AsyncGeneratorValue {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         if let Some(JSObjectIsa::ASYNC_GENERATOR(p)) = val.object().map(|o| o.isa()) {
             list_foreach(&mut p.as_mut().unwrap().queue, |el| {
                 let req = list_entry!(el, JSAsyncGeneratorRequest, link);
 
-                JS_MarkValue(rt, (*req).result, mark_func);
-                JS_MarkValue(rt, (*req).promise, mark_func);
-                JS_MarkValue(rt, (*req).resolving_funcs[0], mark_func);
-                JS_MarkValue(rt, (*req).resolving_funcs[1], mark_func);
+                (*rt).gc_mark_value((*req).result, mark_func);
+                (*rt).gc_mark_value((*req).promise, mark_func);
+                (*rt).gc_mark_value((*req).resolving_funcs[0], mark_func);
+                (*rt).gc_mark_value((*req).resolving_funcs[1], mark_func);
             });
 
             if !p.as_ref().unwrap().func_state.is_null() {
-                mark_func(rt, &mut (*p.as_ref().unwrap().func_state).header);
+                mark_func(rt, p.as_ref().unwrap().func_state);
             }
         }
     }
@@ -262,12 +262,9 @@ impl JSAsyncGeneratorData {
                             // 'yield' returns a value. 'yield *' also returns a value
                             // in case the 'throw' method is called
                             unsafe {
-                                *(*self.func_state)
-                                    .frame
-                                    .stack_current_ptr()
-                                    .offset(-1)
-                                    .as_mut() = value;
-                                *(*self.func_state).frame.stack_current_ptr().as_mut() =
+                                *(*self.func_state).frame.stack_cur_ptr().offset(-1).as_mut() =
+                                    value;
+                                *(*self.func_state).frame.stack_cur_ptr().as_mut() =
                                     JSValue::from_i32((*next).completion_type);
                                 (*self.func_state).frame.cur_sp_offset += 1;
                                 (*self.func_state).throw_flag = false;
@@ -303,7 +300,7 @@ impl JSAsyncGeneratorData {
                             let func_ret_code = JS_VALUE_GET_INT(func_ret);
                             let value = (*self.func_state)
                                 .frame
-                                .stack_current_ptr()
+                                .stack_cur_ptr()
                                 .offset(-1)
                                 .as_mut()
                                 .replace(JSValue::UNDEFINED);
@@ -607,11 +604,7 @@ pub fn js_async_generator_resolve_function(ctx: &mut JSContext, args: CallArgs) 
         } else {
             // return value of await
             unsafe {
-                *(*p.func_state)
-                    .frame
-                    .stack_current_ptr()
-                    .offset(-1)
-                    .as_mut() = val.dup();
+                *(*p.func_state).frame.stack_cur_ptr().offset(-1).as_mut() = val.dup();
             }
         }
 

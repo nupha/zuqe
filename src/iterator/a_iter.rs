@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallArgs, JSCFunctionListEntry, JS_Call},
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
     promise::{js_promise_resolve, PromiseValue},
     runtime::JSRuntime,
@@ -256,12 +256,12 @@ pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSV
 pub unsafe fn js_async_from_sync_iterator_mark(
     rt: *mut JSRuntime,
     val: JSValueConst,
-    mark_func: JS_MarkFunc,
+    mark_func: GCMarkFunc,
 ) {
     if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
         let p = *p;
-        JS_MarkValue(rt, p.as_ref().unwrap().sync_iter, mark_func);
-        JS_MarkValue(rt, p.as_ref().unwrap().next_method, mark_func);
+        (*rt).gc_mark_value((*p).sync_iter, mark_func);
+        (*rt).gc_mark_value((*p).next_method, mark_func);
     }
 }
 

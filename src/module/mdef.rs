@@ -2,8 +2,10 @@ use std::{
     cmp::Ordering,
     ffi::{c_void, CStr},
     mem::ManuallyDrop,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     path::PathBuf,
+    pin::Pin,
+    ptr::NonNull,
 };
 
 use crate::{
@@ -18,7 +20,7 @@ use crate::{
         js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSObjectFunc, JSVarKindEnum,
         JSVarRef, JS_Call,
     },
-    gc::{add_gc_object, JSGCObjectTypeEnum},
+    gc::GCObject,
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
@@ -207,7 +209,7 @@ pub enum JSResolveResultEnum {
 #[derive(Clone)]
 pub enum ExportedNameEntryEnum {
     EXPORTED_NAME_AMBIGUOUS,
-    EXPORTED_NAME_NORMAL(JSVarRef),
+    EXPORTED_NAME_NORMAL(NonNull<Pin<JSVarRef>>),
     EXPORTED_NAME_NS(*mut JSModuleDef),
 }
 
@@ -242,7 +244,7 @@ pub struct JSReqModuleEntry {
 pub enum JSExportTypeEnum {
     JS_EXPORT_TYPE_LOCAL {
         var_idx: u16,
-        var_ref: Option<JSVarRef>,
+        var_ref: Option<NonNull<Pin<JSVarRef>>>,
     },
 
     /// indirect export with req_module_idx
@@ -463,14 +465,15 @@ impl JSModuleDef {
         for i in 0..s.exported_names_count {
             let en = s.exported_names.add(i as usize).as_mut().unwrap();
 
-            match &en.export_type {
+            match en.export_type {
                 ExportedNameEntryEnum::EXPORTED_NAME_NORMAL(var_ref) => {
                     if let Ok(pr) = p.add_property(
                         ctx,
                         en.export_name,
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
                     ) {
-                        (*pr).u.var_ref = ManuallyDrop::new(var_ref.clone());
+                        var_ref.cast::<JSVarRef>().as_mut().inc_ref();
+                        (*pr).u.var_ref = ManuallyDrop::new(var_ref);
                     } else {
                         js_free(ctx, s.exported_names.cast());
                         JS_FreeValue(ctx, obj);
@@ -484,7 +487,7 @@ impl JSModuleDef {
                             ctx,
                             en.export_name,
                             JSAutoInitIDEnum::JS_AUTOINIT_ID_MODULE_NS,
-                            (*module).cast(),
+                            module.cast(),
                             JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                         )
                         .is_err()
@@ -568,10 +571,8 @@ pub unsafe fn js_free_module_def(ctx: *mut JSContext, m: *mut JSModuleDef) {
     for me in (*m).export_entries.drain(..) {
         if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
             debug_assert!(var_ref.is_some());
-            if let Some(mut vr) = var_ref.and_then(JSVarRef::into_inner) {
-                vr.as_mut()
-                    .get_unchecked_mut()
-                    .before_drop_clean_up((*ctx).rt_mut());
+            if let Some(vr) = var_ref {
+                JSVarRef::free((*ctx).rt_mut(), vr.cast());
             }
         }
 
@@ -1204,30 +1205,30 @@ pub unsafe fn js_create_module_function(ctx: *mut JSContext, m: *mut JSModuleDef
     0
 }
 
-pub fn js_create_module_var(ctx: *mut JSContext, is_lexical: bool) -> Result<JSVarRef, i32> {
-    let mut var_ref = JSVarRef::new(if is_lexical {
+pub fn js_create_module_var(
+    ctx: *mut JSContext,
+    is_lexical: bool,
+) -> Result<NonNull<Pin<JSVarRef>>, i32> {
+    let var_ref = JSVarRef::new(if is_lexical {
         JSValue::UNINITIALIZED
     } else {
         JSValue::UNDEFINED
     });
 
     unsafe {
-        let p = var_ref.as_mut().get_unchecked_mut();
+        let mut vr = Pin::into_inner_unchecked(var_ref);
+        let p = vr.as_mut();
 
-        // SAFETY: self referenced
-        p.pvalue = std::ptr::addr_of_mut!(p.value_or_links.value);
+        let ret: NonNull<Pin<JSVarRef>> = NonNull::new_unchecked(p).cast();
+
+        // DANGER: self referenced
+        p.pvalue = std::ptr::addr_of_mut!(p.value);
         p.set_detached(true);
 
-        // Note:: gc obj list accepts weak ref,
-        // don't increase refcount of var_ref.
-        add_gc_object(
-            (*ctx).rt_mut(),
-            var_ref.as_ptr().cast(),
-            JSGCObjectTypeEnum::JS_GC_OBJ_TYPE_VAR_REF,
-        );
-    };
+        (*ctx).rt_mut().gc_add_object(vr);
 
-    Ok(var_ref)
+        Ok(ret)
+    }
 }
 
 // Create the <eval> function associated with the module
@@ -1243,7 +1244,7 @@ pub unsafe fn js_create_module_bytecode_function(
 
     // make isa to instance
     let isa = {
-        let mut var_refs = Vec::<JSVarRef>::new();
+        let mut var_refs = Vec::<NonNull<Pin<JSVarRef>>>::new();
 
         if (*b).closure_var_count != 0 {
             var_refs
@@ -1265,14 +1266,14 @@ pub unsafe fn js_create_module_bytecode_function(
                 } else {
                     // The other variables are imported from other modules.
                     // Add slot with a placeholder.
-                    var_refs.push(JSVarRef::PLACEHOLDER);
+                    var_refs.push(JSVarRef::INVALID);
                 }
             }
         }
 
         JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
             function_bytecode: {
-                (*b).header.ref_count += 1; // add ref count
+                (*b).inc_ref(); // IMPORTANT
                 b
             },
             var_refs,
@@ -1284,7 +1285,7 @@ pub unsafe fn js_create_module_bytecode_function(
     let func_obj = (*ctx)
         .create_instance_from_proto((*ctx).function_proto, isa)
         .map_err(|_| {
-            (*b).header.ref_count -= 1;
+            (*b).dec_ref();
             -1
         })?;
 
@@ -1483,11 +1484,12 @@ pub unsafe fn js_inner_module_linking(
 
                 set_value(
                     ctx,
-                    &mut var_refs[(*mi).var_idx as usize]
-                        .as_mut()
-                        .get_unchecked_mut()
-                        .value_or_links
-                        .value,
+                    std::ptr::addr_of_mut!(
+                        var_refs[(*mi).var_idx as usize]
+                            .cast::<JSVarRef>()
+                            .as_mut()
+                            .value
+                    ),
                     val,
                 );
 
@@ -1521,11 +1523,9 @@ pub unsafe fn js_inner_module_linking(
                             if let Ok(mut var_ref) = js_create_module_var(ctx, true) {
                                 set_value(
                                     ctx,
-                                    &mut var_ref
-                                        .as_mut()
-                                        .get_unchecked_mut() // get mut of Pin<>
-                                        .value_or_links
-                                        .value,
+                                    std::ptr::addr_of_mut!(
+                                        var_ref.cast::<JSVarRef>().as_mut().value
+                                    ),
                                     val,
                                 );
 

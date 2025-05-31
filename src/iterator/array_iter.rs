@@ -2,7 +2,7 @@ use crate::{
     array::js_create_array,
     context::JSContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
-    gc::{JS_MarkFunc, JS_MarkValue},
+    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
     mem::js_malloc_typed,
     runtime::JSRuntime,
     typed_array::TypedArrayValue,
@@ -35,14 +35,13 @@ impl JSArrayIteratorData {
         }
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
         if let JSObjectIsa::ARRAY_ITERATOR(it) | JSObjectIsa::STRING_ITERATOR(it) =
             val.object_unchecked().isa()
         {
             let it = *it;
-
             if !it.is_null() {
-                JS_MarkValue(rt, (*it).obj, mark_func);
+                (*rt).gc_mark_value((*it).obj, mark_func);
             }
         }
     }
