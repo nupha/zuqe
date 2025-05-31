@@ -3,7 +3,10 @@ use std::ptr::NonNull;
 use crate::{
     context::{JSContext, JS_MODE_ASYNC},
     error::JS_ThrowStackOverflow,
-    gc::{GCMarkFunc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
+    gc::{
+        GCMarkFunc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum,
+        RefCounted,
+    },
     mem::js_malloc_typed,
     promise::{js_promise_resolve, PromiseValue},
     runtime::{js_check_stack_overflow, JSRuntime},
@@ -43,7 +46,7 @@ pub struct JSAsyncFunctionState {
     pub frame: JSStackFrame,
 }
 
-impl GCObject for JSAsyncFunctionState {
+impl RefCounted for JSAsyncFunctionState {
     fn ref_count(&self) -> i32 {
         self.header.ref_count
     }
@@ -57,7 +60,9 @@ impl GCObject for JSAsyncFunctionState {
         self.header.ref_count -= 1;
         self.header.ref_count
     }
+}
 
+impl GCObject for JSAsyncFunctionState {
     fn gc_type(&self) -> GCObjectType {
         GCObjectType::AsyncFunction(NonNull::from(self))
     }

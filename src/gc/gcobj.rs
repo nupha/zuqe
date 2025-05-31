@@ -30,34 +30,15 @@ pub enum GCObjectType {
     Context(NonNull<JSContext>),
 }
 
-// impl GCObjectType {
-//     pub fn gc_link(&mut self) -> NonNull<list_head> {
-//         unsafe {
-//             match self {
-//                 GCObjectType::Object(o) => o.as_mut().gc_link(),
-//                 GCObjectType::FunctionByteCode(g) => g.as_mut().gc_link(),
-//                 GCObjectType::Shape(g) => g.as_mut().gc_link(),
-//                 GCObjectType::VarRef(g) => g.as_mut().gc_link(),
-//                 GCObjectType::AsyncFunction(g) => g.as_mut().gc_link(),
-//                 GCObjectType::Context(g) => g.as_mut().gc_link(),
-//             }
-//         }
-//     }
-
-//     pub fn gc_add_to_list(&mut self, list: &mut list_head) {
-//         unsafe {
-//             list_add_tail(self.gc_link().as_ptr(), list);
-//         }
-//     }
-// }
-
 pub type GCObjectNodeData = Box<dyn GCObject>;
 
-pub trait GCObject {
+pub trait RefCounted {
     fn ref_count(&self) -> i32;
     fn inc_ref(&mut self) -> i32;
     fn dec_ref(&mut self) -> i32;
+}
 
+pub trait GCObject: RefCounted {
     fn gc_type(&self) -> GCObjectType;
     fn gc_list_node(&self) -> NonNull<Node<GCObjectNodeData>>;
 

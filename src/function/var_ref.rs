@@ -3,7 +3,7 @@ use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use crate::{
     container_of,
     context::{JSContext, JS_MODE_ASYNC},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::Node,
@@ -89,7 +89,7 @@ pub struct JSVarRef {
     pub _mark: PhantomPinned,
 }
 
-impl GCObject for JSVarRef {
+impl RefCounted for JSVarRef {
     fn ref_count(&self) -> i32 {
         self.header.ref_count
     }
@@ -103,7 +103,9 @@ impl GCObject for JSVarRef {
         self.header.ref_count -= 1;
         self.header.ref_count
     }
+}
 
+impl GCObject for JSVarRef {
     fn gc_type(&self) -> GCObjectType {
         GCObjectType::VarRef(NonNull::from(self).cast::<Pin<JSVarRef>>())
     }

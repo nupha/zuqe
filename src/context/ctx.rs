@@ -13,7 +13,7 @@ use crate::{
     error::{js_error_proto_funcs, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::EvalFunc,
     function::{js_function_proto, JSCFunctionEnum, JSVarBinding, JS_SetPropertyFunctionList},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum, RefCounted},
     mem::js_malloc_rt_typed,
     module::{js_free_modules, JSFreeModuleEnum},
     runtime::JSRuntime,
@@ -144,7 +144,7 @@ pub struct JSContext {
     pub stack_frame: *mut JSStackFrame,
 }
 
-impl GCObject for JSContext {
+impl RefCounted for JSContext {
     fn ref_count(&self) -> i32 {
         self.header.ref_count
     }
@@ -158,7 +158,9 @@ impl GCObject for JSContext {
         self.header.ref_count -= 1;
         self.header.ref_count
     }
+}
 
+impl GCObject for JSContext {
     fn gc_type(&self) -> crate::gc::GCObjectType {
         GCObjectType::Context(NonNull::from(self))
     }

@@ -20,7 +20,7 @@ use crate::{
         js_class_has_bytecode, JSFunctionBytecode, JSFunctionDef, JSObjectFunc, JSVarKindEnum,
         JSVarRef, JS_Call,
     },
-    gc::GCObject,
+    gc::RefCounted,
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},

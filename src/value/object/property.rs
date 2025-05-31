@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
     function::JSVarRef,
-    gc::GCObject,
+    gc::{GCObject, RefCounted},
     proxy::js_proxy_isExtensible,
     runtime::JSRuntime,
     utils::{unlikely, Node},

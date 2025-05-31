@@ -8,7 +8,7 @@ use crate::{
     context::{JSContext, JS_FreeContext},
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{func_kind_to_class_id, JSVarRef, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr, Node},
@@ -85,7 +85,7 @@ pub struct JSFunctionBytecode {
     pub bytecode_start: u32,
 }
 
-impl GCObject for JSFunctionBytecode {
+impl RefCounted for JSFunctionBytecode {
     fn ref_count(&self) -> i32 {
         self.header.ref_count
     }
@@ -99,7 +99,9 @@ impl GCObject for JSFunctionBytecode {
         self.header.ref_count -= 1;
         self.header.ref_count
     }
+}
 
+impl GCObject for JSFunctionBytecode {
     fn gc_type(&self) -> GCObjectType {
         GCObjectType::FunctionBytecode(NonNull::from(self))
     }

@@ -4,7 +4,7 @@ use crate::{
     array::{add_fast_array_element, convert_fast_array_to_array},
     atom::{JSAtom, JS_AtomIsArrayIndex, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
     context::JSContext,
-    gc::GCObject,
+    gc::RefCounted,
     value::object::{JSShape, JSShapeHandle},
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };

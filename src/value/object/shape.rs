@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
     context::JSContext,
-    gc::{js_trigger_gc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
+    gc::{js_trigger_gc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
     mem::js_malloc_typed,
     runtime::JSRuntime,
     utils::{init_list_head, Node},
@@ -80,7 +80,7 @@ pub struct JSShape {
     pub props: IndexMap<JSAtom, JSShapeProperty>,
 }
 
-impl GCObject for JSShape {
+impl RefCounted for JSShape {
     fn ref_count(&self) -> i32 {
         self.header.ref_count
     }
@@ -94,7 +94,9 @@ impl GCObject for JSShape {
         self.header.ref_count -= 1;
         self.header.ref_count
     }
+}
 
+impl GCObject for JSShape {
     fn gc_type(&self) -> GCObjectType {
         GCObjectType::Shape(NonNull::from(self))
     }

@@ -12,7 +12,7 @@ use crate::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
         JSObjectFunc, JS_CallFree,
     },
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, RefCounted},
     generator::{JSAsyncGeneratorData, JSGeneratorData},
     iterator::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
@@ -241,7 +241,7 @@ pub struct JSObject {
     pub isa: JSObjectIsa,
 }
 
-impl GCObject for JSObject {
+impl RefCounted for JSObject {
     fn ref_count(&self) -> i32 {
         self.header.ref_count
     }
@@ -255,7 +255,9 @@ impl GCObject for JSObject {
         self.header.ref_count -= 1;
         self.header.ref_count
     }
+}
 
+impl GCObject for JSObject {
     fn gc_type(&self) -> GCObjectType {
         GCObjectType::Object(NonNull::from(self))
     }

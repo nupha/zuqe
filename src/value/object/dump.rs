@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     function::JSVarRef,
-    gc::{GCObject, GCObjectType},
+    gc::{GCObjectType, RefCounted},
     runtime::JSRuntime,
     typed_array::typed_array_size_log2,
     value::{

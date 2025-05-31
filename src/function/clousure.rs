@@ -9,7 +9,7 @@ use crate::{
         func_kind_to_class_id, js_function_set_properties, JSFunctionBytecode, JSFunctionKindEnum,
         JSObjectFunc, JSVarRef,
     },
-    gc::GCObject,
+    gc::RefCounted,
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{

@@ -1,11 +1,11 @@
-use std::{mem::ManuallyDrop, rc::Rc};
+use std::mem::ManuallyDrop;
 
 use crate::{
     array::JSObjectArray,
     atom::{consts::*, JSAtom},
     context::JSContext,
     function::JSVarRef,
-    gc::GCObject,
+    gc::RefCounted,
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{

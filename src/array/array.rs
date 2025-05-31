@@ -4,7 +4,7 @@ use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_NULL},
     context::JSContext,
     error::{JSErrorEnum, JSResult, JS_ThrowRangeError},
-    gc::{GCMarkFunc, GCObject},
+    gc::{GCMarkFunc, RefCounted},
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
