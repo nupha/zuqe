@@ -108,7 +108,7 @@ impl JSAsyncFunctionState {
                 if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
                     let node = (*s).gc_list_node();
 
-                    Node::detach_from_list(node);
+                    Node::unlink(node);
                     (*rt).gc_zero_ref_count_list.push_raw(node);
 
                     if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {

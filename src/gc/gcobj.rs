@@ -60,16 +60,13 @@ pub trait GCObject: RefCounted {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct JSGCObjectHeader {
-    pub ref_count: i32, // must come first, 32-bit
+    pub ref_count: i32,
 
-    // gc_obj_type: 4 bits
-    // mark:  4 bits used by the GC
     bitfields: u8,
 
-    dummy2: u16, /* not used by the GC */
-
+    /// raw pointer of Node<T> wrapper object that embedding this.
+    /// when not wrapped in Node<T>, should be null.
     pub list_node: *mut Node<GCObjectNodeData>,
-    pub link: list_head,
 }
 
 impl JSGCObjectHeader {
@@ -77,20 +74,8 @@ impl JSGCObjectHeader {
         Self {
             ref_count,
             bitfields: 0,
-            dummy2: 0,
-            list_node: std::ptr::null_mut(),
-            link: list_head {
-                prev: std::ptr::null_mut(),
-                next: std::ptr::null_mut(),
-            },
+            list_node: std::ptr::null_mut(), // no Node<T> wrapper
         }
-    }
-
-    pub fn gc_obj_type(&self) -> JSGCObjectTypeEnum {
-        unsafe { std::mem::transmute(self.bitfields >> 4) }
-    }
-    pub fn set_gc_obj_type(&mut self, t: JSGCObjectTypeEnum) {
-        self.bitfields = (self.bitfields & 0x0f) | ((t as u8) << 4);
     }
 
     #[inline(always)]

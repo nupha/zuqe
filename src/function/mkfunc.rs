@@ -166,7 +166,6 @@ impl JSFunctionDef {
             };
             p.write(o);
 
-            init_list_head(&mut p.as_mut().header.link);
             Box::from_raw(p.as_ptr())
         } else {
             fail!();

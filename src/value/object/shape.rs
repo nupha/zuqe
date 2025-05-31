@@ -340,7 +340,7 @@ impl JSShape {
             // clear up and drop the shape
             let mut node = sh.deref().gc_list_node();
             unsafe {
-                Node::detach_from_list(node);
+                Node::unlink(node);
                 node.as_mut().finalize(rt);
                 drop(Box::from_raw(node.as_ptr()));
             }
@@ -404,7 +404,6 @@ impl JSContext {
                 Box::from_raw(p.as_ptr())
             };
 
-            init_list_head(&mut b.header.link);
             b
         } else {
             JSShape::free(self.rt_mut(), shape);

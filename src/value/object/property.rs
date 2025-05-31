@@ -173,7 +173,7 @@ impl JSProperty {
                 .as_mut()
                 .finalize(ctx.rt_mut());
 
-            Node::detach_from_list((*self.u.var_ref).cast::<JSVarRef>().as_mut().gc_list_node());
+            Node::unlink((*self.u.var_ref).cast::<JSVarRef>().as_mut().gc_list_node());
         }
     }
 

@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     function::JSVarRef,
-    gc::{GCObjectType, RefCounted},
+    gc::{GCObject, GCObjectType, RefCounted},
     runtime::JSRuntime,
     typed_array::typed_array_size_log2,
     value::{
@@ -24,10 +24,10 @@ impl JSShape {
             i,
             self.ref_count(),
             if self.is_hashed { '*' } else { ' ' }, // hashed?
-            if self.header.link.next.is_null() && self.header.link.prev.is_null() {
-                " " // not in gc list
-            } else {
+            if self.gc_list_node().as_ref().is_linked() {
                 "+" // in gc list
+            } else {
+                "-" // not in gc list
             },
             self,
             self.proto,

@@ -109,7 +109,7 @@ impl JSRuntime {
 
                     if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
                         let n = (*p).gc_list_node();
-                        Node::detach_from_list(n);
+                        Node::unlink(n);
                         (*rt).tmp_obj_list.push_raw(n);
                     }
                 });
@@ -120,7 +120,7 @@ impl JSRuntime {
             if node.ref_count() == 0 {
                 unsafe {
                     let n = NonNull::from(node);
-                    Node::detach_from_list(n);
+                    Node::unlink(n);
                     (*rt).tmp_obj_list.push_raw(n);
                 }
             }

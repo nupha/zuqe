@@ -550,7 +550,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
                 let node = v.object_unchecked().gc_list_node();
                 debug_assert_eq!(node.as_ref().ref_count(), 0);
 
-                Node::detach_from_list(node);
+                Node::unlink(node);
                 (*rt).gc_zero_ref_count_list.push_raw(node);
 
                 if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
@@ -563,7 +563,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
                 let node = (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_list_node();
                 debug_assert_eq!(node.as_ref().ref_count(), 0);
 
-                Node::detach_from_list(node);
+                Node::unlink(node);
                 (*rt).gc_zero_ref_count_list.push_raw(node);
 
                 if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {

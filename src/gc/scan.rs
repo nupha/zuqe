@@ -36,7 +36,7 @@ impl JSRuntime {
                         // in this case, `p` is now in tmp_obj_list, restore it to gc_obj_list
 
                         let node1 = (*p).gc_list_node();
-                        Node::detach_from_list(node1);
+                        Node::unlink(node1);
                         (*rt).gc_obj_list.push_raw(node1);
 
                         // reset the mark for the next GC call

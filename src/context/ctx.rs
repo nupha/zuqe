@@ -481,7 +481,7 @@ pub unsafe fn JS_FreeContext(ctx: *mut JSContext) {
 
         if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
             let node = (*ctx).gc_list_node();
-            Node::detach_from_list(node);
+            Node::unlink(node);
             rt.gc_zero_ref_count_list.push_raw(node);
 
             if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
@@ -545,7 +545,6 @@ impl JSRuntime {
         let mut ctx = Box::from_raw(p.as_ptr());
 
         init_list_head(&mut ctx.loaded_modules);
-        init_list_head(&mut ctx.header.link);
 
         ctx.add_core_objects();
 

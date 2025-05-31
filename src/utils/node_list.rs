@@ -30,14 +30,6 @@ impl<T: Deref> Drop for Node<T> {
     fn drop(&mut self) {
         debug_assert!(self.prev.is_null());
         debug_assert!(self.next.is_null());
-        // unsafe {
-        //     if !self.prev.is_null() {
-        //         drop(Box::from_raw(self.prev));
-        //     }
-        //     if !self.next.is_null() {
-        //         drop(Box::from_raw(self.next));
-        //     }
-        // }
     }
 }
 
@@ -68,27 +60,25 @@ impl<T: Deref> Node<T> {
     pub fn into_inner(self) -> T {
         unsafe {
             let r = std::ptr::read(&self.data);
-
-            if !self.prev.is_null() {
-                drop(Box::from_raw(self.prev));
-            }
-            if !self.next.is_null() {
-                drop(Box::from_raw(self.next));
-            }
-
+            // if !self.prev.is_null() {
+            //     drop(Box::from_raw(self.prev));
+            // }
+            // if !self.next.is_null() {
+            //     drop(Box::from_raw(self.next));
+            // }
             std::mem::forget(self);
             r
         }
     }
 
-    #[deprecated(note = "use Node::detach_from_list()")]
-    pub fn remove_from_list(&mut self) {
-        unsafe {
-            Self::detach_from_list(NonNull::from(self));
-        }
+    /// check if this node is linked in a node list
+    #[inline(always)]
+    pub fn is_linked(&self) -> bool {
+        !self.prev.is_null()
     }
 
-    pub unsafe fn detach_from_list(mut node: NonNull<Node<T>>) {
+    /// detach `node` from any engaged node list
+    pub unsafe fn unlink(mut node: NonNull<Node<T>>) {
         match (node.as_mut().prev.as_mut(), node.as_mut().next.as_mut()) {
             (Some(before), Some(after)) => {
                 before.next = after;
