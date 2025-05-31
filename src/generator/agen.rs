@@ -2,8 +2,8 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        async_func_free, async_func_init, async_func_resume, CallArgs, JSAsyncFunctionState,
-        JSCFunctionListEntry, JS_Call,
+        async_func_init, async_func_resume, CallArgs, JSAsyncFunctionState, JSCFunctionListEntry,
+        JS_Call,
     },
     gc::GCMarkFunc,
     iterator::{js_create_iterator_result, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
@@ -78,7 +78,7 @@ impl JSAsyncGeneratorData {
             });
 
             if !self.func_state.is_null() {
-                async_func_free(rt, self.func_state);
+                JSAsyncFunctionState::free(rt, self.func_state);
             }
         }
     }
@@ -338,9 +338,7 @@ impl JSAsyncGeneratorData {
     pub fn complete(&mut self, ctx: &mut JSContext) {
         if self.state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED {
             self.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
-            unsafe {
-                async_func_free(ctx.rt_mut(), self.func_state);
-            }
+            JSAsyncFunctionState::free(ctx.rt_mut(), self.func_state);
             self.func_state = std::ptr::null_mut();
         }
     }

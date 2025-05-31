@@ -1,6 +1,7 @@
 use crate::{
     gc::{gc_mark_children, GCObject},
     runtime::JSRuntime,
+    utils::Node,
 };
 
 use super::{GCObjectType, JSGCPhaseEnum};
@@ -19,13 +20,6 @@ impl JSRuntime {
         let rt = self as *mut JSRuntime;
 
         for node in self.gc_obj_list.iter_mut() {
-            // O.o
-            if node.ref_count() == 0 {
-                println!("[O.o][gc_scan] node ref count=1");
-                unsafe {
-                    node.gc_dump(rt.as_ref().unwrap());
-                }
-            }
             debug_assert!(
                 node.ref_count() > 0,
                 "[gc_scan: node ref_count={}",
@@ -41,8 +35,8 @@ impl JSRuntime {
                         // ref_count was 0
                         // in this case, `p` is now in tmp_obj_list, restore it to gc_obj_list
 
-                        let mut node1 = (*p).gc_list_node();
-                        node1.as_mut().remove_from_list();
+                        let node1 = (*p).gc_list_node();
+                        Node::detach_from_list(node1);
                         (*rt).gc_obj_list.push_raw(node1);
 
                         // reset the mark for the next GC call

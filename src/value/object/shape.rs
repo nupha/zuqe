@@ -216,13 +216,6 @@ impl JSShape {
         )
     }
 
-    // /// increase shape ref_count
-    // #[inline(always)]
-    // pub const fn dup(&mut self) -> &mut Self {
-    //     self.header.ref_count += 1;
-    //     self
-    // }
-
     /// Append property defination to shape.
     /// `obj` is an JSObject that uses the shape,
     /// if provided, should ensure this object has enough property value slots capacity.

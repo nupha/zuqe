@@ -9,8 +9,8 @@ use crate::{
     class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{
-        JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
-        JSNativeCallback, JSVarKindEnum, JSVarRef, LabelSlot, RelocEntry,
+        JSAsyncFunctionState, JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
+        JSGlobalVar, JSNativeCallback, JSVarKindEnum, JSVarRef, LabelSlot, RelocEntry,
     },
     gc::{JSGCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
@@ -1604,4 +1604,14 @@ pub unsafe fn JS_DumpGCObject(rt: *mut JSRuntime, p: *mut JSGCObjectHeader) {
 #[deprecated(note = "use JSRuntime::gc_dump_objects() instead")]
 pub unsafe fn JS_DumpGCObjects(rt: *mut JSRuntime) {
     unreachable!("unused");
+}
+
+#[deprecated(note = "use JSAsyncFunctionState::dispose() instead")]
+pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSAsyncFunctionState::free() instead")]
+pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+    JSAsyncFunctionState::free(rt.as_mut().unwrap(), s);
 }

@@ -1,6 +1,6 @@
 use crate::{
     context::JSContext,
-    function::{async_func_free, async_func_init, async_func_resume, JSAsyncFunctionState},
+    function::{async_func_init, async_func_resume, JSAsyncFunctionState},
     gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
@@ -32,9 +32,7 @@ impl JSGeneratorData {
     pub fn free_generator_stack_rt(&mut self, rt: &mut JSRuntime) {
         if self.state != JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
             if !self.func_state.is_null() {
-                unsafe {
-                    async_func_free(rt, (*self).func_state);
-                }
+                JSAsyncFunctionState::free(rt, self.func_state);
                 self.func_state = std::ptr::null_mut();
             }
             self.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;

@@ -5,7 +5,6 @@ use crate::{
     error::{is_backtrace_needed, JS_IsUncatchableError},
     function::JSVarRef,
     iterator::JS_IteratorClose,
-    utils::{list_empty, list_head},
     value::{JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
 };
 

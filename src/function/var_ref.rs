@@ -10,47 +10,7 @@ use crate::{
     value::{JSValue, JS_FreeValueRT},
 };
 
-use super::{async_func_free, JSAsyncFunctionState};
-
-// #[repr(C)]
-// #[derive(Clone, Copy)]
-// pub union JSVarRefHeaderOrGCFields {
-//     pub header: JSGCObjectHeader, // must come first
-//     pub gc_fields: JSVarRefGCFields,
-// }
-
-// #[derive(Debug, Clone, Copy)]
-// #[repr(C)]
-// pub struct JSVarRefGCFields {
-//     // reserved for header.ref_count and header.mark/gc_obj_type
-//     __gc_ref_count: i32,
-//     __gc_mark: u8,
-
-//     /// bitfield for is_detached and is_arg
-//     pub bitfield: u8,
-//     /// index of the function variable on the stack
-//     pub var_idx: u16,
-// }
-
-// #[derive(Clone, Copy)]
-// #[repr(C)]
-// pub union JSVarRefValueOrLinks {
-//     pub value: JSValue,       // used when is_detached = TRUE
-//     pub links: JSVarRefLinks, // used when is_detached = FALSE
-// }
-
-// #[derive(Clone, Copy)]
-// #[repr(C)]
-// pub struct JSVarRefLinks {
-//     pub u0: JSVarRefHeaderOrGCFields,
-
-//     /// link for JSStackFrame.var_ref_list list
-//     #[deprecated]
-//     pub var_ref_link: list_head,
-
-//     /// != NULL if async stack frame
-//     pub async_func: *mut JSAsyncFunctionState,
-// }
+use super::JSAsyncFunctionState;
 
 #[repr(C)]
 pub struct JSVarRef {
@@ -131,9 +91,7 @@ impl GCObject for JSVarRef {
             }
         } else {
             if !self.async_func.is_null() {
-                unsafe {
-                    async_func_free(rt, self.async_func);
-                }
+                JSAsyncFunctionState::free(rt, self.async_func);
             }
         }
 
@@ -194,19 +152,24 @@ impl JSVarRef {
         vr
     }
 
-    pub unsafe fn free(rt: *mut JSRuntime, mut var_ref: NonNull<Self>) {
-        debug_assert!(
-            var_ref.as_ref().ref_count() > 0,
-            "var ref ref_count={}",
-            var_ref.as_ref().ref_count()
-        );
+    pub fn free(rt: *mut JSRuntime, mut var_ref: NonNull<Self>) {
+        unsafe {
+            debug_assert!(
+                var_ref.as_ref().ref_count() > 0,
+                "var ref ref_count={}",
+                var_ref.as_ref().ref_count()
+            );
+        }
 
-        if var_ref.as_mut().dec_ref() == 0 {
-            var_ref.as_mut().finalize(rt.as_mut().unwrap());
+        unsafe {
+            if var_ref.as_mut().dec_ref() == 0 {
+                // remove from gc list, do finalize clean up and drop
+                let mut node = var_ref.as_mut().gc_list_node();
 
-            // remove from gc list, and drop
-            var_ref.as_mut().gc_list_node().as_mut().remove_from_list();
-            drop(Box::from_raw(var_ref.as_ptr()));
+                Node::detach_from_list(node);
+                node.as_mut().finalize(rt.as_mut().unwrap());
+                drop(Box::from_raw(node.as_ptr()));
+            }
         }
     }
 
@@ -353,7 +316,7 @@ impl JSStackFrame {
 
                 let var_idx = vr.var_idx();
                 if !vr.async_func.is_null() {
-                    async_func_free(ctx.rt_mut(), vr.async_func);
+                    JSAsyncFunctionState::free(ctx.rt_mut(), vr.async_func);
                 }
 
                 vr.value = if vr.is_arg() {
@@ -384,7 +347,7 @@ impl JSStackFrame {
                 let var_ref = var_ref.cast::<JSVarRef>().as_mut();
 
                 if !var_ref.async_func.is_null() {
-                    async_func_free(ctx.rt_mut(), var_ref.async_func);
+                    JSAsyncFunctionState::free(ctx.rt_mut(), var_ref.async_func);
                 }
 
                 var_ref.value = (*self.var_base_ptr.add(var_idx as usize)).dup();
