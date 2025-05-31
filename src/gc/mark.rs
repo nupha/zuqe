@@ -108,111 +108,6 @@ impl JSRuntime {
     }
 }
 
-// /// Recursively marks all child objects of a GC object
-// /// This ensures all referenced objects are preserved during garbage collection
-// pub(super) unsafe fn gc_mark_children(
-//     rt: *mut JSRuntime,
-//     ob: *mut dyn GCObject,
-//     mark_func: GCMarkFunc,
-// ) {
-//     debug_assert!(matches!(
-//         (*ob).gc_status(),
-//         GCStatus::Tracking | GCStatus::Temp
-//     ));
-
-//     match (*ob).gc_type() {
-//         GCObjectType::Object(mut p) => {
-//             mark_func(rt, p.as_ref().shape);
-
-//             // Mark all the fields
-//             for (idx, prs) in p.as_ref().shape().unwrap().props.values().enumerate() {
-//                 let pr = p.as_mut().prop_values.get_mut(idx).unwrap();
-
-//                 if prs.flags() & JS_PROP_TMASK != 0 {
-//                     match prs.flags() & JS_PROP_TMASK {
-//                         JS_PROP_GETSET => {
-//                             if !pr.u.getset.getter.is_null() {
-//                                 mark_func(rt, pr.u.getset.getter);
-//                             }
-//                             if !pr.u.getset.setter.is_null() {
-//                                 mark_func(rt, pr.u.getset.setter);
-//                             }
-//                         }
-//                         JS_PROP_VARREF => {
-//                             // Note: the tag does not matter provided it is a GC object
-//                             // mark_func(rt, &mut (*(*pr).u.var_ref).u0.header);
-//                         }
-//                         JS_PROP_AUTOINIT => {
-//                             (*rt).gc_mark_autoinit(pr, mark_func);
-//                         }
-//                         _ => {}
-//                     }
-//                 } else {
-//                     (*rt).gc_mark_value(pr.u.value, mark_func);
-//                 }
-//             }
-
-//             if p.as_ref().class_id() != JS_CLASS_OBJECT {
-//                 if let Some(f) = (*rt).class_array[p.as_ref().class_id() as usize].gc_mark {
-//                     f(rt, JS_MKPTR!(JSTag::Object, p.as_ptr().cast()), mark_func);
-//                 }
-//             }
-//         }
-//         GCObjectType::FunctionByteCode(b) => {
-//             // The template objects can be part of a cycle
-//             if let Some(cpool) = b.as_ref().cpools_slice() {
-//                 cpool
-//                     .iter()
-//                     .for_each(|v| (*rt).gc_mark_value(*v, mark_func));
-//             }
-//             if !b.as_ref().realm.is_null() {
-//                 mark_func(rt, b.as_ref().realm);
-//             }
-//         }
-//         GCObjectType::VarRef(p) => {
-//             let var_ref: Pin<&JSVarRefInner> = Pin::new_unchecked(p.as_ref());
-//             if var_ref.is_detached() {
-//                 (*rt).gc_mark_value(*(*var_ref).pvalue, mark_func);
-//             } else if !(*var_ref).value_or_links.links.async_func.is_null() {
-//                 mark_func(rt, (*var_ref).value_or_links.links.async_func);
-//             }
-//         }
-//         GCObjectType::AsyncFunction(s) => {
-//             unimplemented!("mark_children() for JS_GC_OBJ_TYPE_ASYNC_FUNCTION")
-
-//             // let s = gp as *mut JSAsyncFunctionState;
-//             // let sf = &mut (*s).frame;
-//             // let mut sp: *mut JSValue;
-
-//             // if (*s).is_completed == 0 {
-//             //     JS_MarkValue(rt, (*sf).cur_func, mark_func);
-//             //     JS_MarkValue(rt, (*s).this_val, mark_func);
-//             //     // sf->cur_sp = NULL if the function is running
-//             //     if !(*sf).cur_sp.is_null() {
-//             //         // If the function is running, cur_sp is not known so we
-//             //         // cannot mark the stack. Marking the variables is not needed
-//             //         // because a running function cannot be part of a removable cycle
-//             //         sp = (*sf).arg_buf;
-//             //         while sp < (*sf).cur_sp {
-//             //             JS_MarkValue(rt, *sp, mark_func);
-//             //             sp = sp.offset(1);
-//             //         }
-//             //     }
-//             // }
-//             // JS_MarkValue(rt, (*s).resolving_funcs[0], mark_func);
-//             // JS_MarkValue(rt, (*s).resolving_funcs[1], mark_func);
-//         }
-//         GCObjectType::Shape(sh) => {
-//             if !sh.as_ref().proto.is_null() {
-//                 mark_func(rt, sh.as_ref().proto);
-//             }
-//         }
-//         GCObjectType::Context(mut ctx) => {
-//             (*rt).gc_mark_context(ctx.as_mut(), mark_func);
-//         }
-//     }
-// }
-
 /// Recursively marks all child objects of a GC object
 /// This ensures all referenced objects are preserved during garbage collection
 pub(super) unsafe fn gc_mark_children(
@@ -239,8 +134,9 @@ pub(super) unsafe fn gc_mark_children(
                             }
                         }
                         JS_PROP_VARREF => {
-                            // Note: the tag does not matter provided it is a GC object
-                            // mark_func(rt, &mut (*(*pr).u.var_ref).u0.header);
+                            // Note: the tag does not matter.
+                            // provided it is a GC object
+                            mark_func(rt, (*pr.u.var_ref).cast::<JSVarRef>().as_ptr());
                         }
                         JS_PROP_AUTOINIT => {
                             (*rt).gc_mark_autoinit(pr, mark_func);
@@ -284,6 +180,7 @@ pub(super) unsafe fn gc_mark_children(
                 (*rt).gc_mark_value(sf.cur_func, mark_func);
                 (*rt).gc_mark_value(s.as_ref().this_val, mark_func);
 
+                // HINT:
                 // cur_sp_offset = 0 if the function is running.
                 // If the function is running, cur_sp_offset is not known so we
                 // cannot mark the stack. Marking the variables is not needed
