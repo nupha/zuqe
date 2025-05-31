@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ops::DerefMut};
+use std::ops::DerefMut;
 
 use crate::{
     atom::consts::*,
@@ -13,8 +13,7 @@ use crate::{
         object::{JS_NewObject, JS_SpeciesConstructor, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E},
         JSValue, JSValueRc, JS_FreeValue,
     },
-    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_PROMISE,
-    JS_PROP_STRING_DEF,
+    JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_PROP_STRING_DEF,
 };
 
 use super::{

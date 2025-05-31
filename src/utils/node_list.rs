@@ -5,6 +5,7 @@ use std::{
     ptr::NonNull,
 };
 
+/// Node wrapper that holding inner `data`
 pub struct Node<T: Deref> {
     prev: *mut Self,
     next: *mut Self,
@@ -34,6 +35,7 @@ impl<T: Deref> Drop for Node<T> {
 }
 
 impl<T: Deref> Node<T> {
+    /// create a node wrapper that holding `data`.
     pub fn new(mut data: T, set_link: impl FnOnce(&mut T, NonNull<Node<T>>)) -> Box<Self> {
         unsafe {
             let ptr = {
@@ -43,7 +45,7 @@ impl<T: Deref> Node<T> {
                 );
                 std::alloc::alloc(ly).cast::<Self>()
             };
-            debug_assert!(!ptr.is_null(), "fail to alloc"); // TODO
+            debug_assert!(!ptr.is_null(), "fail to alloc Node wrapper"); // TODO
 
             set_link(&mut data, NonNull::new_unchecked(ptr));
 
@@ -60,12 +62,6 @@ impl<T: Deref> Node<T> {
     pub fn into_inner(self) -> T {
         unsafe {
             let r = std::ptr::read(&self.data);
-            // if !self.prev.is_null() {
-            //     drop(Box::from_raw(self.prev));
-            // }
-            // if !self.next.is_null() {
-            //     drop(Box::from_raw(self.next));
-            // }
             std::mem::forget(self);
             r
         }
@@ -140,18 +136,16 @@ impl<'a, T: DerefMut> Iterator for ListNodeIterMut<'a, T> {
     }
 }
 
+/// node chain - a linked list of nodes.
 pub struct NodeList<T: DerefMut> {
     dummy_node: ManuallyDrop<Box<Node<T>>>,
 }
 
+#[cfg(debug_assertions)]
 impl<T: DerefMut> Drop for NodeList<T> {
     fn drop(&mut self) {
         debug_assert!(self.dummy_node.prev.is_null());
         debug_assert!(self.dummy_node.next.is_null());
-
-        // if !self.dummy_node.next.is_null() {
-        //     drop(unsafe { Box::from_raw(self.dummy_node.next) });
-        // }
     }
 }
 
