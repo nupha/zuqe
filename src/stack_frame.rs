@@ -1,11 +1,11 @@
-use std::{cell::RefCell, pin::Pin, ptr::NonNull, rc::Rc};
+use std::{pin::Pin, ptr::NonNull};
 
 use crate::{
     context::JSContext,
     error::{is_backtrace_needed, JS_IsUncatchableError},
     function::JSVarRef,
     iterator::JS_IteratorClose,
-    types::{list_empty, list_head},
+    utils::{list_empty, list_head},
     value::{JSTag, JSValue, JS_FreeValue, JS_VALUE_GET_INT, JS_VALUE_GET_TAG},
 };
 

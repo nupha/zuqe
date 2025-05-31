@@ -1,10 +1,4 @@
-use std::{
-    ffi::c_void,
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ptr::NonNull,
-    sync::atomic::{AtomicU16, Ordering},
-};
+use std::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
     array::JSObjectArray,
@@ -24,7 +18,6 @@ use crate::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
     },
     map::{JSMapRecord, JSMapState},
-    node_list::Node,
     promise::{JSPromiseData, JSPromiseFunctionData},
     proxy::{
         js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf, JSProxyData,
@@ -32,7 +25,7 @@ use crate::{
     regexp::{JSRegExp, JSRegExpStringIteratorData},
     runtime::JSRuntime,
     typed_array::JSTypedArray,
-    types::{list_add_tail, list_del, list_head, unlikely},
+    utils::{unlikely, Node},
     value::{JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_PTR},
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,

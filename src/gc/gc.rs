@@ -1,8 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    context::JSContext, function::JSVarRef, node_list::Node, runtime::JSRuntime,
-    value::JSValueConst,
+    context::JSContext, function::JSVarRef, runtime::JSRuntime, utils::Node, value::JSValueConst,
 };
 
 use super::{gc_mark_children, GCObject, GCObjectType};

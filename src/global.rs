@@ -5,7 +5,7 @@ use crate::{
     context::{is_strict_mode, JSContext},
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
-    types::unlikely,
+    utils::unlikely,
     value::{
         object::{
             JSObject, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,

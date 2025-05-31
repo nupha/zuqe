@@ -15,7 +15,7 @@ use crate::{
         JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
     },
     stack_frame::JSStackFrame,
-    types::unlikely,
+    utils::unlikely,
     value::{
         object::{
             js_get_length32, JSObjectIsa, JS_CheckBrand, JS_DefineObjectName,

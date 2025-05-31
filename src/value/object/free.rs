@@ -1,4 +1,4 @@
-use crate::{runtime::JSRuntime, types::list_del, value::JS_FreeValueRT};
+use crate::{runtime::JSRuntime, utils::list_del, value::JS_FreeValueRT};
 
 use super::JSObject;
 

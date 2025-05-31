@@ -6,7 +6,7 @@ use crate::{
     error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},
     function::{CallArgs, JSCFunctionListEntry},
     mem::js_malloc_typed,
-    types::list_head,
+    utils::list_head,
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSValue, JS_FreeValue, JS_ToBool, JS_ToFloat64, JS_ToIndex, JS_ToUint32,

@@ -4,9 +4,8 @@ use crate::{
     function::{JSFunctionBytecode, JSVarRef},
     list_entry,
     module::{JSExportTypeEnum, JSModuleDef},
-    node_list::Node,
     runtime::JSRuntime,
-    types::list_foreach,
+    utils::{list_foreach, Node},
     value::{
         object::{
             js_autoinit_get_realm, JSProperty, JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_TMASK,

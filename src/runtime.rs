@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_void},
     num::NonZeroU16,
-    ptr::NonNull,
     rc::Rc,
 };
 
@@ -11,7 +10,7 @@ use crate::{
     atom::{JSAtomStruct, JS_FreeAtomRT},
     callable::CallableValue,
     class::{js_arguments_exotic_methods, JSClass},
-    context::{JSContext, JSContextHandle},
+    context::JSContextHandle,
     function::{
         js_async_function_call, js_async_function_resolve_call, BoundFunctionValue,
         NativeFunctionValue,
@@ -21,11 +20,9 @@ use crate::{
     list_entry,
     mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
     module::{js_module_ns_exotic_methods, JSModuleLoaderFunc, JSModuleNormalizeFunc},
-    node_list::NodeList,
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
     stack_frame::JSStackFrame,
-    types::{init_list_head, list_foreach_safe, list_head},
-    utils::js_get_stack_pointer,
+    utils::{init_list_head, js_get_stack_pointer, list_foreach_safe, list_head, NodeList},
     value::{js_string_exotic_methods, object::JSShapeHandle, JSValue, JS_FreeValueRT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,

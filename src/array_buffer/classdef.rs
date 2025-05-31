@@ -13,8 +13,6 @@ use crate::{
     JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
 };
 
-use super::JSArrayBuffer;
-
 pub unsafe fn js_array_buffer_isView(
     ctx: *mut JSContext,
     this_val: JSValue,

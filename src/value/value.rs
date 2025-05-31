@@ -6,9 +6,8 @@ use crate::{
     error::JS_ThrowRangeError,
     function::JSFunctionBytecode,
     gc::{GCObject, JSGCPhaseEnum},
-    node_list::Node,
     runtime::JSRuntime,
-    types::JSRefCountHeader,
+    utils::{JSRefCountHeader, Node},
     JS_MKVAL,
 };
 

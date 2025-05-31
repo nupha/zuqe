@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{js_poll_interrupts, CallArgs, JSCFunctionListEntry, JS_Invoke},
-    types::unlikely,
+    utils::unlikely,
     value::{
         object::{
             js_free_desc, JSObject, JSPropertyDescriptor, JS_GetOwnPropertyInternal,

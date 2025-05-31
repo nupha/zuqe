@@ -12,8 +12,7 @@ use crate::{
         Float32Array, Float64Array, Int16Array, Int32Array, Int8Array, Uint16Array, Uint32Array,
         Uint8Array,
     },
-    types::unlikely,
-    utils::UncheckedInto,
+    utils::{unlikely, UncheckedInto},
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive, JS_IsUninitialized,
         JS_TAG_EXCEPTION, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_UNDEFINED,

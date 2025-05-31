@@ -1,17 +1,12 @@
-use std::{
-    marker::PhantomPinned,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    ptr::NonNull,
-};
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     container_of,
     context::{JSContext, JS_MODE_ASYNC},
     gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
-    node_list::Node,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
+    utils::Node,
     value::{JSValue, JS_FreeValueRT},
 };
 

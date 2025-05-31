@@ -1,22 +1,3 @@
-#[cfg(target_pointer_width = "64")]
-pub const JS_PTR64: () = ();
-
-#[inline(always)]
-pub const fn likely(x: bool) -> bool {
-    x
-}
-
-#[inline(always)]
-pub const fn unlikely(x: bool) -> bool {
-    x
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct JSRefCountHeader {
-    pub ref_count: i32,
-}
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct list_head {

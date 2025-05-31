@@ -10,9 +10,8 @@ use crate::{
     context::JSContext,
     gc::{js_trigger_gc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
     mem::js_malloc_typed,
-    node_list::Node,
     runtime::JSRuntime,
-    types::init_list_head,
+    utils::{init_list_head, Node},
     value::{
         object::{JSObjectFlags, JSObjectIsa},
         JSTag, JSValue, JS_FreeValueRT,

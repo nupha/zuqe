@@ -5,11 +5,10 @@ use crate::{
     error::JS_ThrowStackOverflow,
     gc::{GCMarkFunc, GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
     mem::js_malloc_typed,
-    node_list::Node,
     promise::{js_promise_resolve, PromiseValue},
     runtime::{js_check_stack_overflow, JSRuntime},
     stack_frame::JSStackFrame,
-    utils::UncheckedInto,
+    utils::{Node, UncheckedInto},
     value::{
         object::{JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,

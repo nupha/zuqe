@@ -6,7 +6,7 @@ use crate::{
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     map::{map_find_record, map_normalize_key, JSMapState},
     mem::{js_malloc, js_malloc_typed},
-    types::{init_list_head, list_head},
+    utils::{init_list_head, list_head},
     value::{object::JSObjectIsa, JSValue, JSValueConst, JS_FreeValue, JS_IsObject},
     JS_CLASS_MAP,
 };

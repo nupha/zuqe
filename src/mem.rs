@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr::NonNull};
 
-use crate::{context::JSContext, runtime::JSRuntime, types::unlikely};
+use crate::{context::JSContext, runtime::JSRuntime, utils::unlikely};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub const MALLOC_OVERHEAD: usize = 0;

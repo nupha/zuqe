@@ -1,4 +1,4 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::ptr::NonNull;
 
 use smallvec::SmallVec;
 
@@ -8,12 +8,10 @@ use crate::{
     context::{JSContext, JS_FreeContext},
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{func_kind_to_class_id, JSVarRef, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
-    node_list::Node,
+    gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    types::{list_add_tail, list_del, list_head},
-    utils::{get_leb128, get_sleb128, read_from_ptr},
+    utils::{get_leb128, get_sleb128, read_from_ptr, Node},
     value::{
         object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
         JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT, JS_VALUE_GET_TAG,

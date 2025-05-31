@@ -2,15 +2,14 @@ use crate::{
     context::JSContext,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    types::{init_list_head, list_add_tail, list_head},
+    utils::{init_list_head, list_add_tail, list_head},
     value::{
         object::{JSObjectIsa, JS_SpeciesConstructor},
         JSValue, JS_FreeValue, JS_FreeValueRT,
     },
-    JS_CLASS_PROMISE,
 };
 
-use super::{job::promise_reaction_job, JSPromiseData, JSPromiseStateEnum, PromiseValue};
+use super::{job::promise_reaction_job, JSPromiseStateEnum, PromiseValue};
 
 pub struct JSPromiseReactionData {
     // not used in promise_reaction_job

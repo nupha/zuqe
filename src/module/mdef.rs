@@ -2,7 +2,7 @@ use std::{
     cmp::Ordering,
     ffi::{c_void, CStr},
     mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     path::PathBuf,
     pin::Pin,
     ptr::NonNull,
@@ -24,7 +24,7 @@ use crate::{
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
-    types::{
+    utils::{
         list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head,
         JSRefCountHeader,
     },

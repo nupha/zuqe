@@ -2,24 +2,24 @@ use std::{ops::DerefMut, ptr::NonNull};
 
 use crate::{
     atom::consts::*,
-    callable::JSCFunctionDataRecord,
     context::JSContext,
     error::JSResult,
     function::{js_function_set_properties, CallArgs, JS_Call, JS_CallConstructor},
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     js_core::error::js_aggregate_error_constructor,
     list_entry,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
-    types::{init_list_head, list_del, list_foreach, list_foreach_safe, list_head},
-    utils::{UncheckedFrom, UncheckedInto},
+    utils::{
+        init_list_head, list_del, list_foreach, list_foreach_safe, list_head, UncheckedFrom,
+        UncheckedInto,
+    },
     value::{
         object::{JSObjectIsa, JS_NewObject, JS_PROP_C_W_E},
         set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
         JS_ToInt32,
     },
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_PROMISE,
-    JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    JS_CLASS_PROMISE,
 };
 
 use super::{

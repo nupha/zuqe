@@ -2,11 +2,11 @@ use std::ptr::NonNull;
 
 use crate::{
     context::JSContext,
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     list_entry,
     mem::{js_free_rt, js_malloc_typed, js_realloc2},
     runtime::JSRuntime,
-    types::{
+    utils::{
         init_list_head, list_add_tail, list_empty, list_foreach, list_foreach_safe,
         list_foreach_with_ret, list_head,
     },

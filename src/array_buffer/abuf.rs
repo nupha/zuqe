@@ -12,7 +12,7 @@ use crate::{
     mem::js_malloc_typed,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
-    types::{init_list_head, list_foreach, list_foreach_safe, list_head},
+    utils::{init_list_head, list_foreach, list_foreach_safe, list_head},
     value::{object::JSObjectIsa, JSValue, JSValueConst, JS_ToIndex},
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
 };

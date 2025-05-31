@@ -7,8 +7,7 @@ use crate::{
     list_entry,
     promise::PromiseValue,
     runtime::JSRuntime,
-    types::{list_add_tail, list_del, list_empty, list_head},
-    utils::UncheckedInto,
+    utils::{list_add_tail, list_del, list_empty, list_head, UncheckedInto},
     value::{JSValue, JS_FreeValue, JS_ToBool},
 };
 

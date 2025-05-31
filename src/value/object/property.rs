@@ -1,6 +1,4 @@
-use std::{
-    cell::RefCell, ffi::c_void, mem::ManuallyDrop, ops::DerefMut, pin::Pin, ptr::NonNull, rc::Rc,
-};
+use std::{ffi::c_void, mem::ManuallyDrop, pin::Pin, ptr::NonNull};
 
 use crate::{
     atom::{JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
@@ -8,10 +6,9 @@ use crate::{
     error::JS_ThrowReferenceErrorUninitialized,
     function::JSVarRef,
     gc::GCObject,
-    node_list::Node,
     proxy::js_proxy_isExtensible,
     runtime::JSRuntime,
-    types::unlikely,
+    utils::{unlikely, Node},
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 

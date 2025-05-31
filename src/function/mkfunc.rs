@@ -12,7 +12,7 @@ use crate::{
     list_entry,
     mem::js_malloc_typed,
     module::add_module_variables,
-    types::{init_list_head, list_foreach_safe_with_ret},
+    utils::{init_list_head, list_foreach_safe_with_ret},
     value::{JSTag, JSValue, JS_TAG_FUNCTION_BYTECODE, JS_VALUE_GET_TAG},
     JS_MKPTR,
 };

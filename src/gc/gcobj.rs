@@ -1,17 +1,10 @@
-use std::{
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    ptr::NonNull,
-};
+use std::{pin::Pin, ptr::NonNull};
 
 use crate::{
     context::JSContext,
     function::{JSAsyncFunctionState, JSFunctionBytecode, JSVarRef},
-    node_list::{Node, NodeList},
     runtime::JSRuntime,
-    types::{list_add_tail, list_head},
+    utils::{list_head, Node},
     value::object::{JSObject, JSShape},
 };
 

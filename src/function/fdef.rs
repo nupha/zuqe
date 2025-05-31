@@ -8,14 +8,14 @@ use crate::{
         free_bytecode_atoms, JSClosureVar, JSFunctionKindEnum, JSGlobalVar, JSVarDef,
         JSVarKindEnum, JSVarScope, DEFINE_GLOBAL_LEX_VAR,
     },
-    gc::GCObject,
     list_entry,
     mem::js_malloc_typed,
     module::JSModuleDef,
     parse::JSParseFunctionEnum,
-    runtime::JSRuntime,
-    types::{init_list_head, list_add_tail, list_del, list_foreach_safe, list_head},
-    utils::{push_vec_u16, push_vec_u32, push_vec_u8, read_from_ptr},
+    utils::{
+        init_list_head, list_add_tail, list_del, list_foreach_safe, list_head, push_vec_u16,
+        push_vec_u32, push_vec_u8, read_from_ptr,
+    },
     value::{
         object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
         JSValue, JS_FreeValue,

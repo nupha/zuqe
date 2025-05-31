@@ -10,7 +10,7 @@ use crate::{
     atom::{consts::*, JSAtom, JSAtomInfo, __JS_AtomToUInt32},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextHandle},
-    types::{list_head, unlikely},
+    utils::unlikely,
     value::{
         JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
         JS_TAG_UNDEFINED, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING, JS_VALUE_GET_TAG,
@@ -53,8 +53,9 @@ pub struct JSString {
     /// string content
     content: Rc<StringContent>,
 
+    /// For tracking string allocations
     #[cfg(feature = "dump_leaks")]
-    pub link: crate::types::list_head, // For tracking string allocations
+    pub link: crate::utils::list_head,
 }
 
 impl JSString {
@@ -67,7 +68,7 @@ impl JSString {
             content,
 
             #[cfg(feature = "dump_leaks")]
-            link: list_head::default(),
+            link: crate::utils::list_head::default(),
         })
     }
 

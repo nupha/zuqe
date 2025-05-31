@@ -5,17 +5,16 @@ use crate::{
         async_func_free, async_func_init, async_func_resume, CallArgs, JSAsyncFunctionState,
         JSCFunctionListEntry, JS_Call,
     },
-    gc::{GCMarkFunc, JS_MarkFunc, JS_MarkValue},
+    gc::GCMarkFunc,
     iterator::{js_create_iterator_result, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     list_entry,
     mem::js_malloc_typed,
     promise::{js_promise_resolve, PromiseValue},
     runtime::JSRuntime,
-    types::{
+    utils::{
         init_list_head, list_add_tail, list_del, list_empty, list_foreach, list_foreach_safe,
-        list_head,
+        list_head, UncheckedInto,
     },
-    utils::UncheckedInto,
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT, JS_TAG_INT,

@@ -16,10 +16,9 @@ use crate::{
     gc::{GCObject, GCObjectNodeData, GCObjectType, JSGCObjectHeader, JSGCPhaseEnum},
     mem::js_malloc_rt_typed,
     module::{js_free_modules, JSFreeModuleEnum},
-    node_list::Node,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    types::{init_list_head, list_head},
+    utils::{init_list_head, list_head, Node},
     value::{
         object::{
             get_proto_obj, JSObjectIsa, JSShape, JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE,

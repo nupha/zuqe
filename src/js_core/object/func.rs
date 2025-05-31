@@ -5,7 +5,7 @@ use crate::{
     function::{JSCFunctionListEntry, JS_Call},
     iterator::{JSIteratorKindEnum, JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
-    types::unlikely,
+    utils::unlikely,
     value::{
         object::{
             js_free_desc, JSObjectIsa, JSPropertyDescriptor, JS_GetOwnPropertyInternal,

@@ -8,7 +8,7 @@ use crate::{
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
-    types::unlikely,
+    utils::unlikely,
     value::{
         object::{
             JSObject, JSObjectIsa, JSProperty, JSPropertyUnion, JSShapeHandle,
