@@ -1,5 +1,4 @@
 use std::{
-    ops::DerefMut,
     os::raw::c_char,
     ptr::{self, NonNull},
 };
@@ -161,7 +160,7 @@ impl RefCounted for JSContext {
 }
 
 impl GCObject for JSContext {
-    fn gc_type(&self) -> crate::gc::GCObjectType {
+    fn gc_type(&self) -> GCObjectType {
         GCObjectType::Context(NonNull::from(self))
     }
 
@@ -178,8 +177,6 @@ impl GCObject for JSContext {
     }
 
     fn finalize(&mut self, rt: &mut JSRuntime) {
-        println!("[O.o] ************* Context finalize");
-
         #[cfg(feature = "dump_atoms")]
         JS_DumpAtoms(rt);
 

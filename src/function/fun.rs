@@ -10,8 +10,8 @@ use crate::{
     runtime::JSRuntime,
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK},
-        JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_UNDEFINED,
-        JS_VALUE_GET_OBJ, JS_VALUE_GET_TAG,
+        JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
+        JS_VALUE_GET_TAG,
     },
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_MKPTR,
@@ -213,15 +213,6 @@ pub unsafe fn js_function_set_properties(
         name.to_value(ctx.as_mut().unwrap(), true),
         JS_PROP_CONFIGURABLE,
     );
-}
-
-pub unsafe fn js_function_proto_v0(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    JS_UNDEFINED
 }
 
 pub fn js_function_proto(_: &mut JSContext, _: CallArgs) -> JSResult {
