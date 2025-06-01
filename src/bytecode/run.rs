@@ -1047,20 +1047,25 @@ pub unsafe fn run_bytecodes(
                 }
 
                 OpCode::GET_VAR_REF => {
+                    // get value from var_ref, duplicate and push it on stack
+                    // Stack operation: [^] -> [value, ^] where ^ is stack top
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    let val = *var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue;
-                    SP![0] = val.dup();
+                    SP![0] = var_refs[idx as usize]
+                        .cast::<JSVarRef>()
+                        .as_ref()
+                        .value_dup();
                     SP_GO!(1);
                 }
                 OpCode::PUT_VAR_REF => {
+                    // consume and store stack top value to var_ref
+                    // Stack operation: [value, ^] -> [^] where ^ is stack top
                     let idx = read_from_ptr::<u16>(pc);
                     PC_GO!(2);
-                    set_value(
-                        ctx,
-                        var_refs[idx as usize].cast::<JSVarRef>().as_ref().pvalue,
-                        SP![-1],
-                    );
+                    var_refs[idx as usize]
+                        .cast::<JSVarRef>()
+                        .as_mut()
+                        .set_value(ctx, SP![-1]);
                     SP_GO!(-1);
                 }
                 OpCode::SET_VAR_REF => {

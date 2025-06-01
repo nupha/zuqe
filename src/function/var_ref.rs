@@ -3,11 +3,11 @@ use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use crate::{
     container_of,
     context::{JSContext, JS_MODE_ASYNC},
-    gc::{GCObject, GCObjectNodeData, GCObjectType, GCObjectHeader, RefCounted},
+    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::Node,
-    value::{JSValue, JS_FreeValueRT},
+    value::{set_value, JSValue, JS_FreeValueRT},
 };
 
 use super::JSAsyncFunctionState;
@@ -193,6 +193,22 @@ impl JSVarRef {
     }
     pub fn set_var_idx(&mut self, v: u16) {
         self.var_idx = v
+    }
+
+    /// get value of var.
+    /// returned value is duplicated, caller should free it.
+    #[inline(always)]
+    pub fn value_dup(&self) -> JSValue {
+        unsafe { (*self.pvalue).dup() }
+    }
+
+    /// set value to var, free old value.
+    /// Note: `value` is consumed
+    #[inline(always)]
+    pub fn set_value(&mut self, ctx: &mut JSContext, value: JSValue) {
+        unsafe {
+            set_value(ctx, self.pvalue, value);
+        }
     }
 }
 

@@ -107,7 +107,7 @@ impl JSRuntime {
 
         self.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
 
-        // debug O.o print gcobject in variant chains
+        // O.o print gcobject in variant chains
         {
             println!("[O.o]----------- free cycles purge");
             self.gc_dump_objects(1);
@@ -126,7 +126,7 @@ impl JSRuntime {
                         | GCObjectType::AsyncFunction(_)
                         | GCObjectType::Context(_)
                 ),
-                "Shape, VarRef can't live long in gc zero list upto remove cycles phase"
+                "Shape, VarRef can't live long in gc zero list up to pruge zero gc list stage"
             );
 
             drop(node);
