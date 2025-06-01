@@ -64,6 +64,10 @@ impl JSRuntime {
         while let Some(mut node) = self.gc_zero_ref_count_list.pop() {
             debug_assert_eq!(node.ref_count(), 0);
             node.finalize(self);
+
+            if self.gc_phase==JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && node.ref_count()!=0{
+                self.gc_zero_ref_count_list.push(node);
+            }
             // node is dropped here
         }
 

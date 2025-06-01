@@ -226,8 +226,8 @@ impl JSVarRef {
                 // remove from gc list, do finalize clean up and drop
                 let mut node = var_ref.as_mut().gc_node_ptr();
 
-                Node::unlink(node);
                 node.as_mut().finalize(rt.as_mut().unwrap());
+                Node::unlink(node);
                 drop(Box::from_raw(node.as_ptr()));
             }
         }
