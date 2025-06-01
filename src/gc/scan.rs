@@ -1,8 +1,6 @@
-use crate::{
-    gc::{gc_mark_children, GCObject},
-    runtime::JSRuntime,
-    utils::Node,
-};
+use std::ptr::NonNull;
+
+use crate::{gc::GCObject, runtime::JSRuntime, utils::Node};
 
 use super::{GCObjectType, JSGCPhaseEnum};
 
@@ -17,7 +15,7 @@ impl JSRuntime {
             self.tmp_obj_list.len(),
         );
 
-        let rt = self as *mut JSRuntime;
+        let mut rt = unsafe { NonNull::new_unchecked(self as *mut JSRuntime) };
 
         for node in self.gc_obj_list.iter_mut() {
             debug_assert!(
@@ -30,10 +28,9 @@ impl JSRuntime {
             node.set_gc_mark(0);
 
             unsafe {
-                gc_mark_children(rt, node, |rt: *mut JSRuntime, p: *mut dyn GCObject| {
+                node.gc_mark_children(rt.as_mut(), |rt: *mut JSRuntime, p: *mut dyn GCObject| {
                     if (*p).inc_ref() == 1 {
-                        // ref_count was 0
-                        // in this case, `p` is now in tmp_obj_list, restore it to gc_obj_list
+                        // ref_count was 0: `p` is now in tmp_obj_list, restore it to gc_obj_list
 
                         let node1 = (*p).gc_node_ptr();
                         Node::unlink(node1);
@@ -49,7 +46,7 @@ impl JSRuntime {
         // restore the refcount of the objects to be deleted.
         for node in self.tmp_obj_list.iter_mut() {
             unsafe {
-                gc_mark_children(rt, node, |_, p: *mut dyn GCObject| {
+                node.gc_mark_children(rt.as_mut(), |_, p: *mut dyn GCObject| {
                     (*p).inc_ref();
                 });
             }

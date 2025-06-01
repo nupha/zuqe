@@ -4,7 +4,7 @@ use crate::{
     context::JSContext, function::JSVarRef, runtime::JSRuntime, utils::Node, value::JSValueConst,
 };
 
-use super::{gc_mark_children, GCObject, GCObjectType};
+use super::{GCObject, GCObjectType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JSGCPhaseEnum {
@@ -76,23 +76,32 @@ impl JSRuntime {
     pub fn gc_decref(&mut self) {
         debug_assert!(self.tmp_obj_list.is_empty());
 
-        let rt = self as *mut JSRuntime;
+        let mut rt = unsafe { NonNull::new_unchecked(self) };
 
         for node in self.gc_obj_list.iter_mut() {
             debug_assert_eq!(node.gc_mark(), 0);
 
-            unsafe {
-                gc_mark_children(rt, node, |rt, p| {
-                    debug_assert!(!p.is_null());
-                    debug_assert!((*p).ref_count() > 0);
+            node.gc_mark_children(unsafe { rt.as_mut() }, |rt, p| unsafe {
+                debug_assert!(!p.is_null());
 
-                    if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
-                        let n = (*p).gc_node_ptr();
-                        Node::unlink(n);
-                        (*rt).tmp_obj_list.push_raw(n);
-                    }
-                });
-            }
+                #[cfg(debug_assertions)]
+                if (*p).gc_mark() == 0 {
+                    debug_assert!(
+                        (*p).ref_count() > 0,
+                        "object in gc list must have ref count greater than 0, if it's not in marking"
+                    );
+                }
+ 
+
+                // must do def_ref() first
+                if   (*p).dec_ref() == 0 && (*p).gc_mark() == 1  {
+                    let n = (*p).gc_node_ptr();
+                    Node::unlink(n);
+                    (*rt).tmp_obj_list.push_raw(n);
+                }else{
+                    // node is dropped
+                }
+            });
 
             node.set_gc_mark(1);
 
@@ -100,7 +109,7 @@ impl JSRuntime {
                 unsafe {
                     let n = NonNull::from(node);
                     Node::unlink(n);
-                    (*rt).tmp_obj_list.push_raw(n);
+                    self.tmp_obj_list.push_raw(n);
                 }
             }
         }

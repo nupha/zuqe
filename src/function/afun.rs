@@ -75,6 +75,43 @@ impl GCObject for JSAsyncFunctionState {
         self.header.set_gc_mark(mark);
     }
 
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        if !self.is_completed {
+            let sf = &mut self.frame;
+
+            unsafe {
+                rt.gc_mark_value(sf.cur_func, mark_func);
+                rt.gc_mark_value(self.this_val, mark_func);
+            }
+
+            // HINT:
+            // cur_sp_offset = 0 if the function is running.
+            // If the function is running, cur_sp_offset is not known so we
+            // cannot mark the stack. Marking the variables is not needed
+            // because a running function cannot be part of a removable cycle
+
+            if sf.cur_sp_offset != 0 {
+                // for async function, arg_base_ptr point to a position in local_buf,
+                // cur_sp_offset is also about local_buf,
+                // they are match.
+                // mark values in arg_base through cur_sp range.
+                let mut ptr = sf.arg_base_ptr;
+                let end_ptr = sf.stack_cur_ptr().as_ptr();
+                while ptr < end_ptr {
+                    unsafe {
+                        rt.gc_mark_value(*ptr, mark_func);
+                        ptr = ptr.add(1);
+                    }
+                }
+            }
+        }
+
+        unsafe {
+            rt.gc_mark_value(self.resolving_funcs[0], mark_func);
+            rt.gc_mark_value(self.resolving_funcs[1], mark_func);
+        }
+    }
+
     fn gc_dump(&self, rt: &JSRuntime) {
         println!("{:14p} {:4} [async_function]", self, self.ref_count());
     }

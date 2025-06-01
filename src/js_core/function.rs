@@ -4,12 +4,13 @@ use crate::{
     error::JSResult,
     function::{
         js_class_has_bytecode, js_function_apply, CallArgs, JSBoundFunction, JSCFunctionListEntry,
-        JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
+        JSFunctionBytecode, JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
     },
+    gc::{GCObject, RefCounted},
     value::{
         object::{JSObjectIsa, JS_GetOwnProperty, JS_OrdinaryIsInstanceOf, JS_PROP_CONFIGURABLE},
         JSTag, JSValue, JS_ConcatString3, JS_FreeValue, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG,
+        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
     },
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BOUND_FUNCTION,
 };
@@ -45,10 +46,12 @@ pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 }
 
 pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    args.this_value.ensure_callable(ctx)?;
+    let this_val = args.this_raw();
+
+    this_val.ensure_callable(ctx)?;
 
     let mut bf = Box::new(JSBoundFunction {
-        func_obj: args.this_value.dup(),
+        func_obj: this_val.dup(),
         this_val: args.get_raw(0).dup(), // argument #0 is for `this`
         bind_args: Vec::new(),
     });
@@ -57,7 +60,6 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     if arg_count > 0 {
         arg_count -= 1;
     }
-
     if arg_count > 0 {
         // collect arguments starting from #1
         if bf.bind_args.try_reserve_exact(arg_count).is_err() {
@@ -71,13 +73,12 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     let func_obj = {
         let bf_ptr = Box::into_raw(bf);
-
         ctx.create_instance_from_proto(ctx.function_proto, JSObjectIsa::BOUND_FUNCTION(bf_ptr))
             .map_err(|_| {
-                let bf = unsafe { Box::from_raw(bf_ptr) };
+                let mut bf = unsafe { Box::from_raw(bf_ptr) };
                 JS_FreeValue(ctx, bf.func_obj);
-                JS_FreeValue(ctx, bf.this_val);
-                for a in bf.bind_args {
+                JS_FreeValue(ctx, this_val);
+                for a in bf.bind_args.drain(..) {
                     JS_FreeValue(ctx, a);
                 }
                 -1
@@ -85,11 +86,11 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     };
 
     let p = unsafe { func_obj.object_unchecked() };
-    p.detailed.set_constructor(args.this_value.is_constructor());
+    p.detailed.set_constructor(this_val.is_constructor());
 
     unsafe {
         /* XXX: the spec could be simpler by only using GetOwnProperty */
-        let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this_value, JS_ATOM_length);
+        let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this_raw(), JS_ATOM_length);
         if ret < 0 {
             JS_FreeValue(ctx, func_obj);
             return Err(-1);
@@ -98,14 +99,14 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         let len_val = if ret == 0 {
             JSValue::ZERO
         } else {
-            let length = args.this_value.get_property(ctx, JS_ATOM_length);
-            match JS_VALUE_GET_NORM_TAG(length) {
+            let len = this_val.get_property(ctx, JS_ATOM_length);
+            match len.tag_norm() {
                 JSTag::Int => {
-                    let n = JS_VALUE_GET_INT(length);
+                    let n = JS_VALUE_GET_INT(len);
                     JSValue::from_i32(std::cmp::max(0, n - arg_count as i32))
                 }
                 JSTag::Float64 => {
-                    let mut d = JS_VALUE_GET_FLOAT64(length);
+                    let mut d = JS_VALUE_GET_FLOAT64(len);
                     if d.is_nan() {
                         d = 0.0;
                     } else {
@@ -123,7 +124,7 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                     return Err(-1);
                 }
                 _ => {
-                    JS_FreeValue(ctx, length);
+                    JS_FreeValue(ctx, len);
                     JSValue::ZERO
                 }
             }

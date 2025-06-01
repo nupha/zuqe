@@ -114,6 +114,21 @@ impl GCObject for JSFunctionBytecode {
         self.header.set_gc_mark(mark);
     }
 
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: crate::gc::GCMarkFunc) {
+        // The template objects can be part of a cycle
+        if let Some(cpool) = self.cpools_slice() {
+            cpool.iter().for_each(|v| unsafe {
+                rt.gc_mark_value(*v, mark_func);
+            });
+        }
+
+        if !self.realm.is_null() {
+            unsafe {
+                mark_func(rt, self.realm);
+            }
+        }
+    }
+
     fn gc_dump(&self, rt: &JSRuntime) {
         println!("{:14p} {:4} [function bytecode]", self, self.ref_count());
     }

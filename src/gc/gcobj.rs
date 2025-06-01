@@ -8,6 +8,8 @@ use crate::{
     value::object::{JSObject, JSShape},
 };
 
+use super::GCMarkFunc;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSGCObjectTypeEnum {
@@ -51,6 +53,8 @@ pub trait GCObject: RefCounted {
 
     fn gc_mark(&self) -> u8;
     fn set_gc_mark(&mut self, mark: u8);
+
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc);
 
     fn gc_dump(&self, rt: &JSRuntime);
 

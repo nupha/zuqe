@@ -8,7 +8,10 @@ use indexmap::IndexMap;
 use crate::{
     atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
     context::JSContext,
-    gc::{js_trigger_gc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
+    gc::{
+        js_trigger_gc, GCMarkFunc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType,
+        RefCounted,
+    },
     mem::js_malloc_typed,
     runtime::JSRuntime,
     utils::{init_list_head, Node},
@@ -126,6 +129,14 @@ impl GCObject for JSShape {
         // free prop key atoms
         for (_, prs) in self.props.drain(..) {
             JS_FreeAtomRT(rt, prs.atom);
+        }
+    }
+
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        if !self.proto.is_null() {
+            unsafe {
+                mark_func(rt, self.proto);
+            }
         }
     }
 
@@ -325,13 +336,6 @@ impl JSShape {
         (*ctx).rt_mut().gc_add_object(sh);
         Ok(sh_ptr.into())
     }
-
-    // #[deprecated]
-    // pub fn dispose(mut self: Box<Self>, rt: &mut JSRuntime) {
-    //     debug_assert_eq!(self.ref_count(), 0);
-    //     self.before_drop_clean_up(rt);
-    //     self.gc_set_status(GCStatus::Invalid); // dropped flag
-    // }
 
     /// decrement ref count of `shape`, if ref count reaches 0, dispose it.
     pub fn free(rt: &mut JSRuntime, mut sh: JSShapeHandle) {

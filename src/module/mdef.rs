@@ -1229,17 +1229,10 @@ pub fn js_create_module_var(
 
     unsafe {
         let mut vr = Pin::into_inner_unchecked(var_ref);
-        let p = vr.as_mut();
-
-        let ret: NonNull<Pin<JSVarRef>> = NonNull::new_unchecked(p).cast();
-
-        // DANGER: self referenced
-        p.pvalue = std::ptr::addr_of_mut!(p.value);
-        p.set_detached(true);
+        let vr_ptr: NonNull<Pin<JSVarRef>> = NonNull::new_unchecked(vr.as_mut()).cast();
 
         (*ctx).rt_mut().gc_add_object(vr);
-
-        Ok(ret)
+        Ok(vr_ptr)
     }
 }
 
@@ -1494,16 +1487,8 @@ pub unsafe fn js_inner_module_linking(
                     return -1;
                 };
 
-                set_value(
-                    ctx,
-                    std::ptr::addr_of_mut!(
-                        var_refs[(*mi).var_idx as usize]
-                            .cast::<JSVarRef>()
-                            .as_mut()
-                            .value
-                    ),
-                    val,
-                );
+                let vref = var_refs[(*mi).var_idx as usize].cast::<JSVarRef>().as_mut();
+                vref.set_value(ctx.as_mut().unwrap(), val);
 
                 #[cfg(DUMP_MODULE_RESOLVE)]
                 {
@@ -1532,14 +1517,11 @@ pub unsafe fn js_inner_module_linking(
                                 return -1;
                             };
 
-                            if let Ok(mut var_ref) = js_create_module_var(ctx, true) {
-                                set_value(
-                                    ctx,
-                                    std::ptr::addr_of_mut!(
-                                        var_ref.cast::<JSVarRef>().as_mut().value
-                                    ),
-                                    val,
-                                );
+                            if let Ok(var_ref) = js_create_module_var(ctx, true) {
+                                var_ref
+                                    .cast::<JSVarRef>()
+                                    .as_mut()
+                                    .set_value(ctx.as_mut().unwrap(), val);
 
                                 var_refs[(*mi).var_idx as usize] = var_ref;
 

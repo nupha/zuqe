@@ -10,9 +10,9 @@ use crate::{
     error::JSResult,
     function::{
         js_poll_interrupts, JSAsyncFunctionState, JSBoundFunction, JSCFunction, JSObjectCFunc,
-        JSObjectFunc, JS_CallFree,
+        JSObjectFunc, JSVarRef, JS_CallFree,
     },
-    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
+    gc::{GCMarkFunc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
     generator::{JSAsyncGeneratorData, JSGeneratorData},
     iterator::{
         JSArrayIteratorData, JSAsyncFromSyncIteratorData, JSForInIterator, JSMapIteratorData,
@@ -39,8 +39,9 @@ use super::{
     },
     js_free_desc, reset_weak_ref, JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape,
     JSShapeHandle, JSShapeProperty, JS_GetOwnPropertyInternal, JS_IsExtensible, JS_GPN_STRING_MASK,
-    JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE,
-    JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    JS_GPN_SYMBOL_MASK, JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK,
+    JS_PROP_VARREF, JS_PROP_WRITABLE,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -158,15 +159,6 @@ impl JSObjectFlags {
             self.bitfield &= !Self::MASK_IS_HTMLDDA;
         }
     }
-
-    // #[deprecated]
-    // pub const fn class_id(&self) -> JSClassID {
-    //     self.bitfield & 0x0000_FFFF
-    // }
-    // #[deprecated]
-    // pub const fn set_class_id(&mut self, id: JSClassID) {
-    //     self.bitfield = (self.bitfield & 0xFFFF_0000) | (id & 0x0000_FFFF);
-    // }
 }
 
 /// Type-specific object payload storage
@@ -268,6 +260,51 @@ impl GCObject for JSObject {
 
     fn set_gc_mark(&mut self, mark: u8) {
         self.header.set_gc_mark(mark);
+    }
+
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        unsafe {
+            mark_func(rt, self.shape);
+        }
+
+        // Mark all the fields
+        for (prs, pr) in unsafe { (*self.shape).props.values() }.zip(self.prop_values.iter_mut()) {
+            match prs.flags() & JS_PROP_TMASK {
+                0 => unsafe {
+                    // prop with normal value
+                    rt.gc_mark_value(pr.u.value, mark_func);
+                },
+                JS_PROP_GETSET => unsafe {
+                    if !pr.u.getset.getter.is_null() {
+                        mark_func(rt, pr.u.getset.getter);
+                    }
+                    if !pr.u.getset.setter.is_null() {
+                        mark_func(rt, pr.u.getset.setter);
+                    }
+                },
+                JS_PROP_VARREF => unsafe {
+                    // Note: the tag does not matter.
+                    // provided it is a GC object
+                    mark_func(rt, (*pr.u.var_ref).cast::<JSVarRef>().as_ptr());
+                },
+                JS_PROP_AUTOINIT => unsafe {
+                    rt.gc_mark_autoinit(pr, mark_func);
+                },
+                _ => {}
+            }
+        }
+
+        if self.class_id() != JS_CLASS_OBJECT {
+            if let Some(f) = rt.class_array[self.class_id() as usize].gc_mark {
+                unsafe {
+                    f(
+                        rt,
+                        JS_MKPTR!(JSTag::Object, (self as *mut JSObject).cast()),
+                        mark_func,
+                    );
+                }
+            }
+        }
     }
 
     fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {

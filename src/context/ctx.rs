@@ -12,7 +12,10 @@ use crate::{
     error::{js_error_proto_funcs, JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES},
     eval::EvalFunc,
     function::{js_function_proto, JSCFunctionEnum, JSVarBinding, JS_SetPropertyFunctionList},
-    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, JSGCPhaseEnum, RefCounted},
+    gc::{
+        GCMarkFunc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, JSGCPhaseEnum,
+        RefCounted,
+    },
     mem::js_malloc_rt_typed,
     module::{js_free_modules, JSFreeModuleEnum},
     runtime::JSRuntime,
@@ -170,6 +173,12 @@ impl GCObject for JSContext {
 
     fn set_gc_mark(&mut self, mark: u8) {
         self.header.set_gc_mark(mark);
+    }
+
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        unsafe {
+            rt.gc_mark_context(self, mark_func);
+        }
     }
 
     fn gc_dump(&self, rt: &JSRuntime) {
