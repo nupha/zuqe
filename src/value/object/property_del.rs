@@ -37,8 +37,8 @@ impl JSObject {
 
         if let Some((idx, flags)) = idx_and_flags {
             // remove and free property value
-            let val = self.prop_values.remove(idx);
-            val.dispose((*ctx).rt_mut(), flags);
+            let prop_val = self.prop_values.remove(idx);
+            prop_val.free((*ctx).rt_mut(), flags);
 
             // remove shape property of current self.shape
             let prs = self.shape_mut().unwrap().props.shift_remove(&prop).unwrap();

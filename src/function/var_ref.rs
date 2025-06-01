@@ -423,15 +423,15 @@ impl JSStackFrame {
 
         // register to stack frame var ref list.
         // Note: inc ref_count let var_ref_list hold at least 1 strong ref.
-        // unsafe {
-        //     vr_ptr.cast::<JSVarRef>().as_mut().inc_ref();
-        // }
+        unsafe {
+            vr_ptr.cast::<JSVarRef>().as_mut().inc_ref();
+        }
         self.var_ref_list.push(vr_ptr);
 
         Ok(vr_ptr)
     }
 
-    pub fn close_var_refs(&mut self, ctx: &mut JSContext) {
+    pub fn close_var_refs(&self, ctx: &mut JSContext) {
         for var_ref in self.var_ref_list.iter() {
             unsafe {
                 var_ref.cast::<JSVarRef>().as_mut().detach(ctx.rt_mut());

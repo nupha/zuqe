@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     context::{JSContext, JS_MODE_ASYNC},
@@ -43,7 +43,7 @@ pub struct JSAsyncFunctionState {
     pub resolving_funcs: [JSValue; 2],
 
     /// stack frame to run async function
-    pub frame: JSStackFrame,
+    pub frame: Pin<Box<JSStackFrame>>,
 }
 
 impl RefCounted for JSAsyncFunctionState {
@@ -79,18 +79,16 @@ impl GCObject for JSAsyncFunctionState {
         if !self.is_completed {
             let sf = &mut self.frame;
 
-            unsafe {
-                rt.gc_mark_value(sf.cur_func, mark_func);
-                rt.gc_mark_value(self.this_val, mark_func);
-            }
+            rt.gc_mark_value(sf.cur_func, mark_func);
+            rt.gc_mark_value(self.this_val, mark_func);
 
             // HINT:
-            // cur_sp_offset = 0 if the function is running.
+            // cur_sp_offset != -1 if the function is running.
             // If the function is running, cur_sp_offset is not known so we
             // cannot mark the stack. Marking the variables is not needed
             // because a running function cannot be part of a removable cycle
 
-            if sf.cur_sp_offset != 0 {
+            if sf.cur_sp_offset != -1 {
                 // for async function, arg_base_ptr point to a position in local_buf,
                 // cur_sp_offset is also about local_buf,
                 // they are match.
@@ -106,10 +104,8 @@ impl GCObject for JSAsyncFunctionState {
             }
         }
 
-        unsafe {
-            rt.gc_mark_value(self.resolving_funcs[0], mark_func);
-            rt.gc_mark_value(self.resolving_funcs[1], mark_func);
-        }
+        rt.gc_mark_value(self.resolving_funcs[0], mark_func);
+        rt.gc_mark_value(self.resolving_funcs[1], mark_func);
     }
 
     fn gc_dump(&self, rt: &JSRuntime) {
@@ -135,6 +131,13 @@ impl GCObject for JSAsyncFunctionState {
     }
 }
 
+#[cfg(debug_assertions)]
+impl Drop for JSAsyncFunctionState {
+    fn drop(&mut self) {
+        debug_assert!(self.frame.var_ref_list.is_empty());
+    }
+}
+
 impl JSAsyncFunctionState {
     pub fn free(rt: &mut JSRuntime, s: *mut Self) {
         debug_assert!(!s.is_null());
@@ -143,6 +146,8 @@ impl JSAsyncFunctionState {
         unsafe {
             if (*s).dec_ref() == 0 {
                 if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
+                    //(*s).frame.finalize(rt);
+
                     let node = (*s).gc_node_ptr();
 
                     Node::unlink(node);
@@ -156,32 +161,33 @@ impl JSAsyncFunctionState {
         }
     }
 
-    /// free values on stack frame
+    /// free values on async stack frame
     pub fn free_frame(&mut self, rt: &mut JSRuntime) {
-        let sf = &mut self.frame;
+        if !self.frame.as_ref().arg_base_ptr.is_null() {
+            debug_assert!(
+                self.frame.as_ref().cur_sp_offset != -1,
+                "cannot free the function if it is running"
+            );
 
-        if !sf.arg_base_ptr.is_null() {
-            // cannot free the function if it is running
-            let mut p = sf.arg_base_ptr; // arg base is on local_buf
-            let cur_sp = sf.stack_cur_ptr().as_ptr(); // cur ptr is on local_buf
-            while p < cur_sp {
+            let mut p = self.frame.as_ref().arg_base_ptr; // arg base is on local_buf
+            let end_p = self.frame.as_ref().stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
+            while p < end_p {
                 unsafe {
                     JS_FreeValueRT(rt, *p);
                     p = p.add(1);
                 }
             }
-            sf.arg_base_ptr = std::ptr::null_mut();
+            unsafe {
+                self.frame.as_mut().get_unchecked_mut().arg_base_ptr = std::ptr::null_mut();
+            }
         }
 
         unsafe {
-            JS_FreeValueRT(rt, sf.cur_func);
+            JS_FreeValueRT(rt, self.frame.as_ref().cur_func);
             JS_FreeValueRT(rt, self.this_val);
-        }
 
-        // safe guard
-        {
-            sf.cur_func = JSValue::UNDEFINED;
-            self.this_val = JSValue::UNDEFINED;
+            // clean up var refs
+            self.frame.as_mut().get_unchecked_mut().finalize(rt);
         }
     }
 
@@ -245,7 +251,7 @@ pub unsafe fn async_func_init(
             resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
             throw_flag: false,
             is_completed: false,
-            frame: JSStackFrame {
+            frame: Box::pin(JSStackFrame {
                 js_mode: b.js_mode as i32 | JS_MODE_ASYNC,
                 cur_func: func_obj.dup(),
                 prev_frame: std::ptr::null_mut(),
@@ -257,7 +263,8 @@ pub unsafe fn async_func_init(
                 cur_sp_offset: 0,
                 var_ref_list: Vec::new(),
                 local_buf,
-            },
+                _mark: PhantomPinned,
+            }),
         });
         Box::from_raw(p.as_ptr())
     } else {
@@ -272,7 +279,7 @@ pub unsafe fn async_func_init(
 pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionState) -> JSValue {
     debug_assert!(!(*s).is_completed);
 
-    let sf = &mut (*s).frame;
+    // let sf = &mut (*s).frame;
 
     let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx)
@@ -285,24 +292,25 @@ pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionStat
             (*s).this_val,
             JSValue::UNDEFINED,
             (*s).argc,
-            sf.arg_base_ptr,
+            (*s).frame.as_ref().arg_base_ptr,
             JS_CALL_FLAG_GENERATOR,
         )
     };
 
     if ret.is_exception() || ret.is_undefined() {
         if ret.is_undefined() {
-            debug_assert!(sf.cur_sp_offset > 0);
-            let sp_base = sf.stack_base_ptr();
-            ret = (*sp_base.as_ptr().add(sf.cur_sp_offset - 1)).replace(JSValue::UNDEFINED);
+            debug_assert!((*s).frame.as_ref().cur_sp_offset > 0);
+            let sp_base = (*s).frame.as_ref().stack_base_ptr();
+            ret = sp_base
+                .add((*s).frame.as_ref().cur_sp_offset as usize - 1)
+                .as_mut()
+                .replace(JSValue::UNDEFINED);
         }
 
         // end of execution
         (*s).is_completed = true;
-
         // close the closure variables.
-        sf.close_var_refs(ctx);
-
+        (*s).frame.as_ref().close_var_refs(ctx);
         (*s).free_frame(ctx.rt_mut());
     }
 
@@ -383,11 +391,13 @@ pub unsafe fn js_async_function_resolve_call(
         ctx.throw(arg.dup());
     } else {
         // return value of await
+        debug_assert!((*s).frame.cur_sp_offset > 0);
+
         *(*s)
             .frame
             .stack_base_ptr()
             .as_ptr()
-            .add((*s).frame.cur_sp_offset - 1) = arg.dup();
+            .add((*s).frame.cur_sp_offset as usize - 1) = arg.dup();
     }
 
     js_async_function_resume(ctx, s);

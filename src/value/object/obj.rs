@@ -320,7 +320,7 @@ impl GCObject for JSObject {
         // free all prop definations and prop values
         // shape can't be null
         for (prs, pr) in unsafe { (*self.shape).props.values().zip(self.prop_values.drain(..)) } {
-            pr.dispose(rt, prs.flags());
+            pr.free(rt, prs.flags());
         }
 
         // as an optimization we destroy the shape immediately without putting it in gc_zero_ref_count_list

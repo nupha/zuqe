@@ -24,6 +24,7 @@ use crate::{
     list_entry,
     mem::{js_free, js_malloc_typed, js_resize_array},
     runtime::{js_check_stack_overflow, JSRuntime},
+    stack_frame::JSStackFrame,
     utils::{list_add_tail, list_del, list_foreach_safe, list_foreach_with_ret, list_head},
     value::{
         object::{
@@ -1611,13 +1612,13 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: *mut JSContext, n_stack_levels: i32)
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in JSFunctionBytecode.
-    let mut sf = (*ctx).rt().current_stack_frame;
+    let mut sf = (*ctx).rt().current_stack_frame.cast::<JSStackFrame>();
     if sf.is_null() {
         return JS_ATOM_NULL;
     }
     let mut levels = n_stack_levels;
     while levels > 0 {
-        sf = (*sf).prev_frame;
+        sf = (*sf).prev_frame.cast::<JSStackFrame>();
         if sf.is_null() {
             return JS_ATOM_NULL;
         }
@@ -1641,7 +1642,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: *mut JSContext, n_stack_levels: i32)
             }
             return JS_DupAtom(ctx, (*b).debug.filename);
         } else {
-            sf = (*sf).prev_frame;
+            sf = (*sf).prev_frame.cast::<JSStackFrame>();
             if sf.is_null() {
                 return JS_ATOM_NULL;
             }

@@ -1606,7 +1606,7 @@ pub unsafe fn JS_DumpGCObjects(rt: *mut JSRuntime) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSAsyncFunctionState::dispose() instead")]
+#[deprecated(note = "use JSAsyncFunctionState::finalize() instead")]
 pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
     unreachable!("unused");
 }

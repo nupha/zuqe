@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_void},
     num::NonZeroU16,
+    pin::Pin,
     rc::Rc,
 };
 
@@ -82,7 +83,7 @@ pub struct JSRuntime {
     /* true if inside an out of memory error, to avoid recursing */
     pub in_out_of_memory: bool,
 
-    pub current_stack_frame: *mut JSStackFrame,
+    pub current_stack_frame: *mut Pin<JSStackFrame>,
 
     pub interrupt_handler: Option<JSInterruptHandler>,
     pub interrupt_opaque: *mut c_void,

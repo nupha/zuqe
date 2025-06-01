@@ -83,7 +83,7 @@ impl JSContext {
         let mut js_mode: u32 = 0;
 
         if eval_type == JS_EVAL_TYPE_DIRECT {
-            sf = self.rt().current_stack_frame;
+            sf = self.rt().current_stack_frame.cast::<JSStackFrame>();
             debug_assert!(!sf.is_null());
             debug_assert!((*sf).cur_func.tag() == JS_TAG_OBJECT);
 

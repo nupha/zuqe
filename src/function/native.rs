@@ -1,5 +1,6 @@
 use std::{
     ffi::{c_char, c_void, CStr},
+    marker::PhantomPinned,
     ops::Deref,
 };
 
@@ -326,10 +327,11 @@ impl NativeFunctionValue {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: 0,
+            _mark: PhantomPinned,
         };
 
         let sf = &mut sf_s;
-        rt.current_stack_frame = sf;
+        rt.current_stack_frame = (sf as *mut JSStackFrame).cast();
 
         let realm = cfunc.realm.as_mut().unwrap(); // change the current realm
 

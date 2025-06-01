@@ -265,7 +265,11 @@ impl JSAsyncGeneratorData {
                                     value;
                                 *(*self.func_state).frame.stack_cur_ptr().as_mut() =
                                     JSValue::from_i32((*next).completion_type);
-                                (*self.func_state).frame.cur_sp_offset += 1;
+                                (*self.func_state)
+                                    .frame
+                                    .as_mut()
+                                    .get_unchecked_mut()
+                                    .cur_sp_offset += 1;
                                 (*self.func_state).throw_flag = false;
                             }
                         }

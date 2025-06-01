@@ -759,9 +759,7 @@ impl JSValue {
     ) -> Result<bool, i32> {
         let atom = ctx.create_atom(prop)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
-        unsafe {
-            JS_FreeAtom(ctx, atom);
-        }
+        JS_FreeAtom(ctx, atom);
         ret
     }
 
@@ -780,16 +778,12 @@ impl JSValue {
         };
 
         if atom == JS_ATOM_NULL {
-            unsafe {
-                JS_FreeValue(ctx, val);
-            }
+            JS_FreeValue(ctx, val);
             return Err(-1);
         }
 
         let ret = self.define_property_value(ctx, atom, val, flags);
-        unsafe {
-            JS_FreeAtom(ctx, atom);
-        }
+        JS_FreeAtom(ctx, atom);
         ret
     }
 
@@ -817,9 +811,7 @@ impl JSValue {
         // self.define_property_value_value(ctx, JSValue::from_i64(idx), val, flags)
         let atom = ctx.rt_mut().add_atom_i64(idx);
         let ret = self.define_property_value(ctx, atom, val, flags);
-        unsafe {
-            JS_FreeAtom(ctx, atom);
-        }
+        JS_FreeAtom(ctx, atom);
         ret
     }
 

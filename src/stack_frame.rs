@@ -1,18 +1,19 @@
-use std::{pin::Pin, ptr::NonNull};
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     context::JSContext,
     error::{is_backtrace_needed, JS_IsUncatchableError},
     function::JSVarRef,
     iterator::JS_IteratorClose,
-    value::{JSTag, JSValue, JS_FreeValue, JS_TAG_CATCH_OFFSET, JS_VALUE_GET_INT},
+    runtime::JSRuntime,
+    value::{JSValue, JS_FreeValue, JS_TAG_CATCH_OFFSET, JS_VALUE_GET_INT},
 };
 
 /// Represents a stack frame in the JavaScript execution context
 #[repr(C)]
 pub struct JSStackFrame {
     /// NULL if first stack frame
-    pub prev_frame: *mut Self,
+    pub prev_frame: *mut Pin<Self>,
 
     /// current function, JS_UNDEFINED if the frame is detached
     pub cur_func: JSValue,
@@ -20,11 +21,13 @@ pub struct JSStackFrame {
     /// buffer for arguments, variables, and stack space.
     pub local_buf: Vec<JSValue>,
 
-    /// arguments base pointer and count
+    /// arguments base pointer and count.
+    /// may point to local_buf, self referenced.
     pub arg_base_ptr: *mut JSValue, // TODO: use *const ?
     pub arg_count: u16,
 
-    /// variables base pointer and count
+    /// variables base pointer and count.
+    /// may point to local_buf, self referenced.
     pub var_base_ptr: *mut JSValue, // TODO: use *const ?
     pub var_count: u16,
 
@@ -34,16 +37,19 @@ pub struct JSStackFrame {
     /// for what **pc_base** means, see JSFunctionBytecode::bytecode_start.
     pub cur_pc_offset: usize,
 
-    /// Current stack pointer value (only used in generators). 0 if the function is running.
+    /// Current stack pointer value (only used in generators).
+    /// -1 if the function is running.
     /// this denotes a position in local_buf biased to `stack_base_ptr()`,
     /// use `stack_cur_ptr()` can get raw pointer to the position.
-    pub cur_sp_offset: usize,
+    pub cur_sp_offset: i32,
 
     /// registered var refs in stack frame
     pub var_ref_list: Vec<NonNull<Pin<JSVarRef>>>,
 
     /// for C functions, only JS_MODE_MATH may be set
     pub js_mode: i32,
+
+    pub _mark: PhantomPinned,
 }
 
 impl Default for JSStackFrame {
@@ -60,7 +66,15 @@ impl Default for JSStackFrame {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: 0,
+            _mark: PhantomPinned,
         }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for JSStackFrame {
+    fn drop(&mut self) {
+        debug_assert!(self.var_ref_list.is_empty());
     }
 }
 
@@ -84,7 +98,8 @@ impl JSStackFrame {
     /// get stack current pointer
     #[inline(always)]
     pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
-        unsafe { self.stack_base_ptr().add(self.cur_sp_offset) }
+        debug_assert!(self.cur_sp_offset >= 0);
+        unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
     }
 
     /// processing current exception, add backtrace information for example.
@@ -144,7 +159,7 @@ impl JSStackFrame {
             // the local variables are freed by the caller in the generator
             // case. Hence the label 'done' should never be reached in a generator function.
             self.cur_pc_offset = pc;
-            self.cur_sp_offset = sp;
+            self.cur_sp_offset = sp as i32;
         } else {
             // is normal function
             if !self.var_ref_list.is_empty() {
@@ -164,5 +179,12 @@ impl JSStackFrame {
         }
 
         ctx.rt_mut().current_stack_frame = self.prev_frame;
+    }
+
+    /// perform clean up before drop
+    pub fn finalize(&mut self, rt: &mut JSRuntime) {
+        for vr in self.var_ref_list.drain(..) {
+            JSVarRef::free(rt, vr.cast())
+        }
     }
 }

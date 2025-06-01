@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{marker::PhantomPinned, ptr::NonNull};
 
 use smallvec::SmallVec;
 
@@ -117,7 +117,7 @@ impl GCObject for JSFunctionBytecode {
     fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: crate::gc::GCMarkFunc) {
         // The template objects can be part of a cycle
         if let Some(cpool) = self.cpools_slice() {
-            cpool.iter().for_each(|v| unsafe {
+            cpool.iter().for_each(|v| {
                 rt.gc_mark_value(*v, mark_func);
             });
         }
@@ -535,7 +535,7 @@ impl BytecodeFunctionValue {
         let buf_values_count =
             arg_copy_num as usize + bf.var_count as usize + bf.stack_size as usize;
 
-        let mut sf_s = JSStackFrame {
+        let mut sframe = JSStackFrame {
             prev_frame: std::ptr::null_mut(),
             cur_func: func_obj,
             local_buf: Vec::<JSValue>::new(),
@@ -547,8 +547,9 @@ impl BytecodeFunctionValue {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: bf.js_mode as _,
+            _mark: PhantomPinned,
         };
-        let sf = &mut sf_s;
+        let sf = &mut sframe;
 
         // make local buffer and running bytecodes with it.
         // local_buf layout:
@@ -593,7 +594,7 @@ impl BytecodeFunctionValue {
         sf.var_count = bf.var_count;
 
         sf.prev_frame = caller_ctx.rt().current_stack_frame;
-        caller_ctx.rt_mut().current_stack_frame = sf;
+        caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
 
         let retval = run_bytecodes(
             bf,
@@ -611,10 +612,8 @@ impl BytecodeFunctionValue {
             false,
         );
 
-        // stack frame is about to drop,
-        for vr in sf.var_ref_list.drain(..) {
-            JSVarRef::free(caller_ctx.rt_mut(), vr.cast());
-        }
+        // stack frame is about to drop
+        sf.finalize(caller_ctx.rt_mut());
 
         retval
     }

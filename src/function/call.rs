@@ -1,3 +1,5 @@
+use std::pin::Pin;
+
 use crate::{
     atom::JSAtom,
     bytecode::run_bytecodes,
@@ -5,6 +7,7 @@ use crate::{
     error::{JSResult, JS_SetUncatchableError},
     function::{build_arg_list, CallArgs, JSAsyncFunctionState},
     gc::RefCounted,
+    stack_frame::JSStackFrame,
     utils::likely,
     value::{
         object::{JSObject, JSObjectIsa, JS_PROP_THROW, JS_PROP_THROW_STRICT},
@@ -71,15 +74,17 @@ pub unsafe fn JS_CallInternal(
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
             let s = JS_VALUE_GET_PTR(func_obj).cast::<JSAsyncFunctionState>();
-            let sf = &mut (*s).frame;
+            let sf = (*s).frame.as_mut().get_unchecked_mut();
             let p = sf.cur_func.object_unchecked();
             let func = p.isa().func().unwrap();
             let b = func.function_bytecode.as_ref().unwrap();
 
             let pc_offset = sf.cur_pc_offset;
-            let sp_offset = std::mem::replace(&mut sf.cur_sp_offset, 0);
+            let sp_offset = std::mem::replace(&mut sf.cur_sp_offset, -1);
+            debug_assert!(sp_offset >= 0);
+
             sf.prev_frame = rt.current_stack_frame;
-            rt.current_stack_frame = sf;
+            rt.current_stack_frame = (sf as *mut JSStackFrame).cast();
 
             run_bytecodes(
                 b,
@@ -90,7 +95,7 @@ pub unsafe fn JS_CallInternal(
                 new_target,
                 &b.binary[b.bytecode_start as usize..],
                 pc_offset,
-                sp_offset,
+                sp_offset as usize,
                 func.var_refs.as_slice(),
                 if argc == 0 {
                     &[]

@@ -5,6 +5,7 @@ use crate::{
     class::JSClassID,
     context::{is_strict_mode, JSContext},
     function::{get_func_name, JSCFunctionListEntry, JSFunctionBytecode, JS_GetFunctionBytecode},
+    stack_frame::JSStackFrame,
     value::{
         object::{
             JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -115,7 +116,7 @@ impl JSContext {
         let rt = self.rt();
 
         // the backtrace is added later if called from a bytecode function
-        let sf = rt.current_stack_frame;
+        let sf = rt.current_stack_frame.cast::<JSStackFrame>();
         let add_backtrace = !rt.in_out_of_memory
             && (sf.is_null() || unsafe { JS_GetFunctionBytecode((*sf).cur_func).is_null() });
 
@@ -244,11 +245,11 @@ impl JSContext {
             }
         }
 
-        let mut sf = self.rt().current_stack_frame;
+        let mut sf = self.rt().current_stack_frame.cast::<JSStackFrame>();
         while !sf.is_null() {
             if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
                 backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
-                sf = unsafe { (*sf).prev_frame };
+                sf = unsafe { (*sf).prev_frame.cast() };
                 continue;
             }
 
@@ -302,7 +303,7 @@ impl JSContext {
                 break;
             }
 
-            sf = unsafe { (*sf).prev_frame };
+            sf = unsafe { (*sf).prev_frame.cast() };
         }
 
         Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())

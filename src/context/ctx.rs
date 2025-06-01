@@ -1,5 +1,6 @@
 use std::{
     os::raw::c_char,
+    pin::Pin,
     ptr::{self, NonNull},
 };
 
@@ -143,7 +144,7 @@ pub struct JSContext {
     pub stack_limit: usize,
     pub stack_pointer: usize,
     pub stack_size: usize,
-    pub stack_frame: *mut JSStackFrame,
+    pub stack_frame: *mut Pin<JSStackFrame>,
 }
 
 impl RefCounted for JSContext {
@@ -292,11 +293,11 @@ impl JSContext {
     ///
     /// # Safety
     /// The caller must ensure the frame pointer is valid
-    pub unsafe fn push_stack_frame(&mut self, frame: *mut JSStackFrame) {
+    pub unsafe fn push_stack_frame(&mut self, frame: *mut Pin<JSStackFrame>) {
         if self.stack_frame.is_null() {
             self.stack_frame = frame;
         } else {
-            (*frame).prev_frame = self.stack_frame;
+            (*frame.cast::<JSStackFrame>()).prev_frame = self.stack_frame;
             self.stack_frame = frame;
         }
     }
@@ -305,12 +306,12 @@ impl JSContext {
     ///
     /// # Safety
     /// The caller must ensure no references to the popped frame remain
-    pub unsafe fn pop_stack_frame(&mut self) -> *mut JSStackFrame {
+    pub unsafe fn pop_stack_frame(&mut self) -> *mut Pin<JSStackFrame> {
         if self.stack_frame.is_null() {
             return ptr::null_mut();
         }
         let frame = self.stack_frame;
-        self.stack_frame = (*frame).prev_frame;
+        self.stack_frame = (*frame.cast::<JSStackFrame>()).prev_frame;
         frame
     }
 
@@ -450,7 +451,12 @@ impl JSContext {
 /* only valid inside C functions */
 #[inline(always)]
 pub unsafe fn JS_GetActiveFunction(ctx: *const JSContext) -> JSValue {
-    (*(*ctx).rt.as_ref().current_stack_frame).cur_func
+    (*(*ctx)
+        .rt
+        .as_ref()
+        .current_stack_frame
+        .cast::<JSStackFrame>())
+    .cur_func
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;
@@ -461,7 +467,11 @@ pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
 #[inline(always)]
 pub fn is_strict_mode(ctx: *mut JSContext) -> bool {
     unsafe {
-        let sf = (*ctx).rt.as_ref().current_stack_frame;
+        let sf = (*ctx)
+            .rt
+            .as_ref()
+            .current_stack_frame
+            .cast::<JSStackFrame>();
         !sf.is_null() && (*sf).js_mode & JS_MODE_STRICT != 0
     }
 }

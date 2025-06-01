@@ -139,7 +139,9 @@ pub unsafe fn js_build_mapped_arguments(
     let _ = val.define_property_value(
         ctx,
         JS_ATOM_callee,
-        (*ctx.rt().current_stack_frame).cur_func.dup(),
+        (*ctx.rt().current_stack_frame.cast::<JSStackFrame>())
+            .cur_func
+            .dup(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );
 

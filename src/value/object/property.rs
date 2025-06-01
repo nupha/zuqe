@@ -160,46 +160,36 @@ impl JSProperty {
     }
 
     /// unset property var_ref type.
-    /// decreament var_ref, if ref count reaches zero, do var ref cleanup.
     /// after calling this method, the property is in unknown type.
     /// must ensure the property is var_ref union type.
     pub(crate) unsafe fn unset_var_ref(&mut self, ctx: &mut JSContext) {
-        if (*self.u.var_ref).cast::<JSVarRef>().as_mut().dec_ref() == 0 {
-            // when ref_count reaches 0, var_ref should be dropped:
-            // perform clean up and remove from gc list only,
-            // don't really drop because it's in a union.
-            (*self.u.var_ref)
-                .cast::<JSVarRef>()
-                .as_mut()
-                .finalize(ctx.rt_mut());
-
-            Node::unlink((*self.u.var_ref).cast::<JSVarRef>().as_mut().gc_node_ptr());
-        }
+        let vr_ptr = ManuallyDrop::into_inner(self.u.var_ref).cast::<JSVarRef>();
+        debug_assert!(vr_ptr.as_ref().ref_count() > 0);
+        JSVarRef::free(ctx.rt_mut(), vr_ptr);
     }
 
-    pub fn dispose(self, rt: &mut JSRuntime, prop_flags: u32) {
-        if prop_flags & JS_PROP_TMASK != 0 {
-            match prop_flags & JS_PROP_TMASK {
-                JS_PROP_GETSET => unsafe {
-                    if !self.u.getset.getter.is_null() {
-                        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.u.getset.getter.cast()));
-                    }
-                    if !self.u.getset.setter.is_null() {
-                        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.u.getset.setter.cast()));
-                    }
-                },
-                JS_PROP_VARREF => {
-                    let vr_ptr = ManuallyDrop::into_inner(unsafe { self.u.var_ref });
-                    JSVarRef::free(rt, vr_ptr.cast());
-                }
-                JS_PROP_AUTOINIT => unsafe {
-                    js_autoinit_free(rt, &self);
-                },
-                _ => {}
-            }
-        } else {
-            unsafe {
+    pub fn free(self, rt: &mut JSRuntime, prop_flags: u32) {
+        match prop_flags & JS_PROP_TMASK {
+            JS_PROP_NORMAL => unsafe {
                 JS_FreeValueRT(rt, self.u.value);
+            },
+            JS_PROP_GETSET => unsafe {
+                if !self.u.getset.getter.is_null() {
+                    JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.u.getset.getter.cast()));
+                }
+                if !self.u.getset.setter.is_null() {
+                    JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.u.getset.setter.cast()));
+                }
+            },
+            JS_PROP_VARREF => {
+                let vr_ptr = ManuallyDrop::into_inner(unsafe { self.u.var_ref });
+                JSVarRef::free(rt, vr_ptr.cast());
+            }
+            JS_PROP_AUTOINIT => unsafe {
+                js_autoinit_free(rt, &self);
+            },
+            _ => {
+                unreachable!();
             }
         }
     }
@@ -451,33 +441,9 @@ impl JSValue {
     }
 }
 
-#[deprecated(note = "use JSProperty::dispose() instead")]
+#[deprecated(note = "use JSProperty::free() instead")]
 pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags: u32) {
-    unreachable!("use JSProperty::dispose() instead");
-
-    // if unlikely(prop_flags & JS_PROP_TMASK != 0) {
-    //     match prop_flags & JS_PROP_TMASK {
-    //         JS_PROP_GETSET => {
-    //             if !(*pr).u.getset.getter.is_null() {
-    //                 JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*pr).u.getset.getter.cast()));
-    //             }
-    //             if !(*pr).u.getset.setter.is_null() {
-    //                 JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, (*pr).u.getset.setter.cast()));
-    //             }
-    //         }
-    //         JS_PROP_VARREF => {
-    //             if let Some(vr) = Box::from_raw((*pr).u.var_ref).free(rt) {
-    //                 std::mem::forget(vr);
-    //             }
-    //         }
-    //         JS_PROP_AUTOINIT => {
-    //             js_autoinit_free(rt, pr);
-    //         }
-    //         _ => {}
-    //     }
-    // } else {
-    //     JS_FreeValueRT(rt, (*pr).u.value);
-    // }
+    unreachable!("use JSProperty::free() instead");
 }
 
 /// Computes the effective property flags by combining input flags with default flags
