@@ -26,7 +26,7 @@ use crate::{
 
 use super::{
     JSObject, JSPropertyDescriptor, JS_AutoInitProperty, JS_PROP_AUTOINIT, JS_PROP_GETSET,
-    JS_PROP_TMASK, JS_PROP_VARREF,
+    JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF,
 };
 
 impl JSObject {
@@ -45,6 +45,9 @@ impl JSObject {
             // 1. find in shape
             if let Some((prs, pr)) = (*p).find_own_property_mut(prop) {
                 match prs.flags() & JS_PROP_TMASK {
+                    JS_PROP_NORMAL => {
+                        return pr.u.value.dup();
+                    }
                     JS_PROP_GETSET => {
                         return if pr.u.getset.getter.is_null() {
                             JSValue::UNDEFINED
@@ -69,9 +72,6 @@ impl JSObject {
                         } else {
                             continue;
                         }
-                    }
-                    0 => {
-                        return pr.u.value.dup();
                     }
                     _ => unreachable!(),
                 }

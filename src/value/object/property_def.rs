@@ -491,18 +491,6 @@ impl JSValue {
         let p = self.object_unchecked();
 
         match prs.flags() & JS_PROP_TMASK {
-            JS_PROP_GETSET => {
-                // convert property to value type
-                if p.shape_prepare_update(ctx, &mut (prs as *mut JSShapeProperty)) != 0 {
-                    return Err(-1);
-                }
-                pr.unset_getset(ctx);
-                prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
-                pr.u.value = JSValue::UNDEFINED;
-            }
-            JS_PROP_VARREF => {
-                // always writable
-            }
             JS_PROP_NORMAL => {
                 if prs.flags() & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
                     && (flags & JS_PROP_HAS_VALUE) != 0
@@ -517,6 +505,18 @@ impl JSValue {
                         Ok(true)
                     };
                 }
+            }
+            JS_PROP_GETSET => {
+                // convert property to value type
+                if p.shape_prepare_update(ctx, &mut (prs as *mut JSShapeProperty)) != 0 {
+                    return Err(-1);
+                }
+                pr.unset_getset(ctx);
+                prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
+                pr.u.value = JSValue::UNDEFINED;
+            }
+            JS_PROP_VARREF => {
+                // always writable
             }
             _ => {
                 unreachable!();

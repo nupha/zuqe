@@ -270,7 +270,7 @@ impl GCObject for JSObject {
         // Mark all the fields
         for (prs, pr) in unsafe { (*self.shape).props.values() }.zip(self.prop_values.iter_mut()) {
             match prs.flags() & JS_PROP_TMASK {
-                0 => unsafe {
+                JS_PROP_NORMAL => unsafe {
                     // prop with normal value
                     rt.gc_mark_value(pr.u.value, mark_func);
                 },
@@ -290,7 +290,9 @@ impl GCObject for JSObject {
                 JS_PROP_AUTOINIT => unsafe {
                     rt.gc_mark_autoinit(pr, mark_func);
                 },
-                _ => {}
+                _ => {
+                    unreachable!();
+                }
             }
         }
 

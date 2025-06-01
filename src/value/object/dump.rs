@@ -6,7 +6,7 @@ use crate::{
     runtime::JSRuntime,
     typed_array::typed_array_size_log2,
     value::{
-        object::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_VARREF},
+        object::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_VARREF},
         JSTag,
     },
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
@@ -151,6 +151,9 @@ impl JSObject {
                 // value
                 if let Some(pr) = self.prop_values.get(idx) {
                     match prs.flags() & JS_PROP_TMASK {
+                        JS_PROP_NORMAL => unsafe {
+                            print!("{}", pr.u.value.repr(rt));
+                        },
                         JS_PROP_GETSET => unsafe {
                             print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
                         },
@@ -165,9 +168,9 @@ impl JSObject {
                                 pr.u.init.opaque
                             );
                         },
-                        _ => unsafe {
-                            print!("{}", pr.u.value.repr(rt));
-                        },
+                        _ => {
+                            unreachable!();
+                        }
                     }
                 } else {
                     // prop value slots is cleared

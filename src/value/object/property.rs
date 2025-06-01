@@ -616,38 +616,37 @@ pub unsafe fn JS_GetOwnPropertyInternal(
                 (*desc).setter = JSValue::UNDEFINED;
                 (*desc).value = JSValue::UNDEFINED;
 
-                if prs.flags() & JS_PROP_TMASK != 0 {
-                    match prs.flags() & JS_PROP_TMASK {
-                        JS_PROP_GETSET => {
-                            (*desc).flags |= JS_PROP_GETSET;
-                            if !pr.u.getset.getter.is_null() {
-                                (*desc).getter =
-                                    JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast()).dup();
-                            }
-                            if !pr.u.getset.setter.is_null() {
-                                (*desc).setter =
-                                    JS_MKPTR!(JSTag::Object, pr.u.getset.setter.cast()).dup();
-                            }
-                        }
-                        JS_PROP_VARREF => {
-                            let val = *(*pr.u.var_ref).cast::<JSVarRef>().as_ref().pvalue;
-                            if unlikely(JS_IsUninitialized(val)) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
-                                return -1;
-                            }
-                            (*desc).value = val.dup();
-                        }
-                        JS_PROP_AUTOINIT => {
-                            // Instantiate property and retry
-                            if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
-                                return -1;
-                            }
-                            continue; // retry
-                        }
-                        _ => {}
+                match prs.flags() & JS_PROP_TMASK {
+                    JS_PROP_NORMAL => {
+                        (*desc).value = pr.u.value.dup();
                     }
-                } else {
-                    (*desc).value = pr.u.value.dup();
+                    JS_PROP_GETSET => {
+                        (*desc).flags |= JS_PROP_GETSET;
+                        if !pr.u.getset.getter.is_null() {
+                            (*desc).getter =
+                                JS_MKPTR!(JSTag::Object, pr.u.getset.getter.cast()).dup();
+                        }
+                        if !pr.u.getset.setter.is_null() {
+                            (*desc).setter =
+                                JS_MKPTR!(JSTag::Object, pr.u.getset.setter.cast()).dup();
+                        }
+                    }
+                    JS_PROP_VARREF => {
+                        let val = *(*pr.u.var_ref).cast::<JSVarRef>().as_ref().pvalue;
+                        if unlikely(JS_IsUninitialized(val)) {
+                            JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
+                            return -1;
+                        }
+                        (*desc).value = val.dup();
+                    }
+                    JS_PROP_AUTOINIT => {
+                        // Instantiate property and retry
+                        if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
+                            return -1;
+                        }
+                        continue; // retry
+                    }
+                    _ => {}
                 }
             } else {
                 /* for consistency, send the exception even if desc is NULL */
