@@ -155,9 +155,8 @@ impl JSStackFrame {
             // free local buf to stack top (sp)
             if !self.local_buf.is_empty() {
                 let mut pval = self.local_buf.as_ptr();
-                let sp_top = self.stack_base_ptr().add(sp).as_ptr();
-
-                while pval < sp_top {
+                let end_ptr = self.stack_base_ptr().add(sp).as_ptr();
+                while pval < end_ptr {
                     JS_FreeValue(ctx, *pval);
                     pval = pval.add(1);
                 }

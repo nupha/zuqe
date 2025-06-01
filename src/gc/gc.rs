@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     context::JSContext, function::JSVarRef, runtime::JSRuntime, utils::Node, value::JSValueConst,
@@ -116,11 +116,13 @@ impl JSRuntime {
     }
 
     /// Executes garbage collection process once
-    pub fn gc(&mut self) {
+    pub fn gc(&mut self) { 
         // decrement the reference of the children of each object. mark = 1 after this pass.
         self.gc_decref();
+ 
         // keep the GC objects with a non zero refcount and their childs
         self.gc_scan();
+ 
         // free the GC objects in a cycle
         self.gc_free_cycles();
     }

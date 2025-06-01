@@ -141,7 +141,12 @@ impl GCObject for JSShape {
     }
 
     fn gc_dump(&self, rt: &JSRuntime) {
-        println!("{:14p} {:4} [shape]", self, self.ref_count());
+        println!(
+            "{:14p} {:4} [shape {:12x}]",
+            self,
+            self.ref_count(),
+            self.hash
+        );
     }
 
     fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {

@@ -95,8 +95,12 @@ impl JSRuntime {
                         drop(node);
                     }
                 }
-                GCObjectType::Shape(_) | GCObjectType::VarRef(_) => {
-                    // these objects are meant to be dropped cascading
+                GCObjectType::Shape(_) => {
+                    // these objects are weak ref: to be dropped cascading
+                    self.gc_zero_ref_count_list.push(node);
+                }
+                GCObjectType::VarRef(_) => {
+                    // these objects are weak ref: to be dropped cascading
                     self.gc_zero_ref_count_list.push(node);
                 }
             }
@@ -115,16 +119,19 @@ impl JSRuntime {
         // purge gz_zero_ref_count_list to drop gcobjects
         while let Some(node) = self.gc_zero_ref_count_list.pop() {
             debug_assert_eq!(node.ref_count(), 0);
-            debug_assert!(
-                matches!(
-                    node.gc_type(),
-                    GCObjectType::Object(_)
-                        | GCObjectType::FunctionBytecode(_)
-                        | GCObjectType::AsyncFunction(_)
-                        | GCObjectType::Context(_)
-                ),
-                "Shape, VarRef can't live long in gc zero list up to pruge zero gc list stage"
-            );
+
+            match node.gc_type() {
+                GCObjectType::Object(_)
+                | GCObjectType::FunctionBytecode(_)
+                | GCObjectType::AsyncFunction(_)
+                | GCObjectType::Context(_) => {}
+
+                GCObjectType::Shape(_) | GCObjectType::VarRef(_) => {
+                    println!("[O.o] ------------------");
+                    node.gc_dump(self);
+                    unreachable!("[O.o] above object can't live long in gc zero list up to pruge zero gc list stage");
+                }
+            }
 
             drop(node);
         }

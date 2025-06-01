@@ -554,8 +554,8 @@ fn main() {
 
     run_test_file(
           &Path::new(
-            "/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
-            // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js", 
+            //"/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
+            "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js", 
             // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-incorrect-ctor.js",
           ),
           true,

@@ -190,9 +190,7 @@ impl JSProperty {
                 },
                 JS_PROP_VARREF => {
                     let vr_ptr = ManuallyDrop::into_inner(unsafe { self.u.var_ref });
-                    unsafe {
-                        JSVarRef::free(rt, vr_ptr.cast());
-                    }
+                    JSVarRef::free(rt, vr_ptr.cast());
                 }
                 JS_PROP_AUTOINIT => unsafe {
                     js_autoinit_free(rt, &self);

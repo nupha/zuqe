@@ -369,8 +369,8 @@ impl JSStackFrame {
             .var_ref_list
             .iter()
             .find(|v| unsafe {
-                let v = v.as_ptr().cast::<JSVarRef>();
-                (*v).var_idx() == Some(var_idx) && (*v).is_arg() == is_arg
+                let v = v.cast::<JSVarRef>().as_ref();
+                v.var_idx() == Some(var_idx) && v.is_arg() == is_arg
             })
             .copied()
         {
@@ -381,7 +381,7 @@ impl JSStackFrame {
         }
 
         // make new VarRef bind to target var_idx
-        let mut vr = JSVarRef::new_bind(
+        let mut vref = JSVarRef::new_bind(
             var_idx,
             is_arg,
             unsafe {
@@ -403,7 +403,6 @@ impl JSStackFrame {
 
                 // `self` is from the JSAsyncFunctionState::frame field.
                 // use container_of!() to get the JSAsyncFunctionState that contains `self` stack frame.
-
                 unsafe {
                     let af = container_of!(self as *mut JSStackFrame, JSAsyncFunctionState, frame);
                     (*af).inc_ref();
@@ -415,18 +414,18 @@ impl JSStackFrame {
         );
 
         let vr_ptr: NonNull<Pin<JSVarRef>> = unsafe {
-            let p = vr.as_mut().get_unchecked_mut();
+            let p = vref.as_mut().get_unchecked_mut();
             NonNull::new_unchecked((p as *mut JSVarRef).cast())
         };
 
         ctx.rt_mut()
-            .gc_add_object(unsafe { Pin::into_inner_unchecked(vr) });
+            .gc_add_object(unsafe { Pin::into_inner_unchecked(vref) });
 
         // register to stack frame var ref list.
         // Note: inc ref_count let var_ref_list hold at least 1 strong ref.
-        unsafe {
-            vr_ptr.cast::<JSVarRef>().as_mut().inc_ref();
-        }
+        // unsafe {
+        //     vr_ptr.cast::<JSVarRef>().as_mut().inc_ref();
+        // }
         self.var_ref_list.push(vr_ptr);
 
         Ok(vr_ptr)

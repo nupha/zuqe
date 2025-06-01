@@ -611,7 +611,7 @@ impl BytecodeFunctionValue {
             false,
         );
 
-        // stack frame is about to drop, check var_ref_list
+        // stack frame is about to drop,
         for vr in sf.var_ref_list.drain(..) {
             JSVarRef::free(caller_ctx.rt_mut(), vr.cast());
         }

@@ -18,6 +18,8 @@ use crate::{
     JS_CLASS_OBJECT,
 };
 
+use super::free_var_ref;
+
 pub unsafe fn js_build_arguments(ctx: &mut JSContext, args: &[JSValue]) -> JSValue {
     let val = if let Ok(o) = ctx.create_instance_from_proto(
         ctx.class_proto[JS_CLASS_OBJECT as usize],
@@ -89,7 +91,7 @@ pub unsafe fn js_build_mapped_arguments(
     let pr = p
         .add_property(ctx, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
         .unwrap();
-    (*pr).u.value = JSValue::from_i32(args.len() as i32);
+    (*pr).u.value = JSValue::from(args.len() as i32);
 
     for i in 0..arg_count {
         match sf.get_var_ref(ctx, i as _, true) {
@@ -102,6 +104,8 @@ pub unsafe fn js_build_mapped_arguments(
                     (*pr).u.var_ref = ManuallyDrop::new(vr);
                 } else {
                     debug_assert!(vr.cast::<JSVarRef>().as_ref().ref_count() > 1);
+                    JSVarRef::free((*ctx).rt_mut(), vr.cast::<JSVarRef>());
+
                     JS_FreeValue(ctx, val);
                     return JSValue::EXCEPTION;
                 }

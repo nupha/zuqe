@@ -33,6 +33,7 @@ use crate::{
         js_function_apply, js_poll_interrupts, CallArgs, JSFunctionBytecode, JSFunctionKindEnum,
         JSVarRef, JS_Call, JS_CallConstructorInternal, JS_CallFree, JS_CallInternal,
     },
+    gc::RefCounted,
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
     global::{
         JS_CheckDefineGlobalVar, JS_CheckGlobalVar, JS_DefineGlobalFunction, JS_DefineGlobalVar,
@@ -1164,34 +1165,34 @@ pub unsafe fn run_bytecodes(
                         .create_base_object_with_proto(JSValue::NULL)
                         .unwrap_or(JSValue::EXCEPTION);
                     SP_GO!(1);
-
                     if SP![-1].is_exception() {
                         break State::Exception;
-                    } else {
-                        let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            let vr = var_refs[idx as usize].clone();
-                            Ok(vr)
-                        } else {
-                            sf.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
-                        };
+                    }
 
-                        match var_ref {
-                            Ok(vr) => {
-                                if let Ok(pr) = SP![-1].object_unchecked().add_property(
-                                    ctx,
-                                    atom,
-                                    JS_PROP_WRITABLE | JS_PROP_VARREF,
-                                ) {
-                                    (*pr).u.var_ref = ManuallyDrop::new(vr);
-                                    SP![0] = atom.to_value(ctx, false);
-                                    SP_GO!(1);
-                                } else {
-                                    break State::Exception;
-                                };
-                            }
-                            Err(_) => {
+                    let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
+                        let vr = var_refs[idx as usize];
+                        vr.cast::<JSVarRef>().as_mut().inc_ref();
+                        Ok(vr)
+                    } else {
+                        sf.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
+                    };
+                    match var_ref {
+                        Ok(vr) => {
+                            if let Ok(pr) = SP![-1].object_unchecked().add_property(
+                                ctx,
+                                atom,
+                                JS_PROP_WRITABLE | JS_PROP_VARREF,
+                            ) {
+                                (*pr).u.var_ref = ManuallyDrop::new(vr);
+                                SP![0] = atom.to_value(ctx, false);
+                                SP_GO!(1);
+                            } else {
+                                JSVarRef::free(ctx.rt_mut(), vr.cast::<JSVarRef>());
                                 break State::Exception;
-                            }
+                            };
+                        }
+                        Err(_) => {
+                            break State::Exception;
                         }
                     }
                 }
