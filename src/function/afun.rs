@@ -1,4 +1,4 @@
-use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
+use std::{marker::PhantomPinned, ptr::NonNull};
 
 use crate::{
     context::{JSContext, JS_MODE_ASYNC},
