@@ -1,6 +1,6 @@
 use crate::{
     context::JSContext,
-    function::{async_func_init, async_func_resume, JSAsyncFunctionState},
+    function::{async_func_resume, JSAsyncFunctionState},
     gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
@@ -53,15 +53,25 @@ pub unsafe fn js_generator_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    let func_state = async_func_init(ctx, func_obj, this_obj, argc, argv);
-    if func_state.is_null() {
+    let afunc_state = if let Ok(a) = JSAsyncFunctionState::new(
+        ctx,
+        func_obj,
+        this_obj,
+        if argc == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(argv, argc as usize)
+        },
+    ) {
+        a
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     let mut s = if let Some(p) = js_malloc_typed::<JSGeneratorData>(ctx, 1, true) {
         p.write(JSGeneratorData {
             state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
-            func_state,
+            func_state: afunc_state.as_ptr(),
         });
         Box::from_raw(p.as_ptr())
     } else {

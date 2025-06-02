@@ -65,9 +65,10 @@ impl JSRuntime {
             debug_assert_eq!(node.ref_count(), 0);
             node.finalize(self);
 
-            if self.gc_phase==JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && node.ref_count()!=0{
+            if self.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && node.ref_count() != 0 {
                 self.gc_zero_ref_count_list.push(node);
             }
+
             // node is dropped here
         }
 
@@ -90,19 +91,25 @@ impl JSRuntime {
 
                 #[cfg(debug_assertions)]
                 if (*p).gc_mark() == 0 {
+                    // if (*p).ref_count() == 0 {
+                    //     (*p).gc_dump(rt.as_ref().unwrap());
+                    //     let n = (*p).gc_node_ptr();
+                    //     Node::unlink(n);
+                    //     // panic!("object in gc list must have ref count greater than 0, if it's not in marking")
+                    // }
+
                     debug_assert!(
                         (*p).ref_count() > 0,
                         "object in gc list must have ref count greater than 0, if it's not in marking"
                     );
                 }
- 
 
                 // must do def_ref() first
-                if   (*p).dec_ref() == 0 && (*p).gc_mark() == 1  {
+                if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
                     let n = (*p).gc_node_ptr();
                     Node::unlink(n);
                     (*rt).tmp_obj_list.push_raw(n);
-                }else{
+                } else {
                     // node is dropped
                 }
             });
@@ -120,13 +127,13 @@ impl JSRuntime {
     }
 
     /// Executes garbage collection process once
-    pub fn gc(&mut self) { 
+    pub fn gc(&mut self) {
         // decrement the reference of the children of each object. mark = 1 after this pass.
         self.gc_decref();
- 
+
         // keep the GC objects with a non zero refcount and their childs
         self.gc_scan();
- 
+
         // free the GC objects in a cycle
         self.gc_free_cycles();
     }

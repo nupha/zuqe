@@ -69,12 +69,12 @@ pub unsafe fn JS_CallInternal(
 
     let rt = caller_ctx.rt.as_mut();
 
-    if JS_VALUE_GET_TAG(func_obj) != JSTag::Object as i32 {
+    if !func_obj.is_object() {
         return if (flags & JS_CALL_FLAG_GENERATOR) != 0 {
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
             let s = JS_VALUE_GET_PTR(func_obj).cast::<JSAsyncFunctionState>();
-            let sf = (*s).frame.as_mut().get_unchecked_mut();
+            let sf = &mut (*s).frame;
             let p = sf.cur_func.object_unchecked();
             let func = p.isa().func().unwrap();
             let b = func.function_bytecode.as_ref().unwrap();
@@ -111,11 +111,12 @@ pub unsafe fn JS_CallInternal(
     }
 
     let p = func_obj.object_unchecked();
-    let cid = p.class_id();
+    let class_id = p.class_id();
 
-    if cid != JS_CLASS_BYTECODE_FUNCTION {
-        // not a bytecode function, use native call function defined on its class.
-        return if let Some(cb) = rt.class_array[cid as usize].call {
+    if class_id != JS_CLASS_BYTECODE_FUNCTION {
+        // for non-bytecode function (e.g. bound function, native function, async function etc),
+        // use callback defined on the class.
+        return if let Some(cb) = rt.class_array[class_id as usize].call {
             #[cfg(debug_assertions)]
             let argv_ref_count0 = if argc > 0 {
                 std::slice::from_raw_parts(argv, argc as usize)

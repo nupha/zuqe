@@ -43,7 +43,7 @@ pub struct JSAsyncFunctionState {
     pub resolving_funcs: [JSValue; 2],
 
     /// stack frame to run async function
-    pub frame: Pin<Box<JSStackFrame>>,
+    pub frame: JSStackFrame,
 }
 
 impl RefCounted for JSAsyncFunctionState {
@@ -139,6 +139,73 @@ impl Drop for JSAsyncFunctionState {
 }
 
 impl JSAsyncFunctionState {
+    /// make new JSAsyncFunctionState, register to gc tracking list.
+    /// `func_obj`, `this_obj`, `args` are not consumed.
+    pub fn new(
+        ctx: &mut JSContext,
+        func_obj: JSValue,
+        this_obj: JSValue,
+        args: &[JSValue],
+    ) -> Result<NonNull<JSAsyncFunctionState>, i32> {
+        let p = unsafe { func_obj.object_unchecked() };
+        let func = p.isa().func().unwrap();
+        let b = unsafe { func.function_bytecode.as_mut().unwrap() };
+
+        // alloc local buf, set up arguments, variables and stack pointer
+        let arg_count = std::cmp::max(b.arg_count as usize, args.len());
+        let buf_len = arg_count + b.var_count as usize + b.stack_size as usize;
+        let mut local_buf = {
+            let mut lst = Vec::<JSValue>::new();
+            lst.try_reserve_exact(buf_len).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+            lst
+        };
+        for a in args {
+            local_buf.push(a.dup());
+        }
+        if buf_len > args.len() {
+            local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                buf_len - args.len() as usize,
+            ));
+        }
+        debug_assert_eq!(local_buf.len(), buf_len);
+
+        let mut af = unsafe {
+            let p = js_malloc_typed::<Self>(ctx, 1, false).ok_or(-1)?;
+
+            p.write(Self {
+                header: GCObjectHeader::new(1),
+                argc: args.len() as _,
+                this_val: this_obj.dup(),
+                resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
+                throw_flag: false,
+                is_completed: false,
+                frame: JSStackFrame {
+                    js_mode: b.js_mode as i32 | JS_MODE_ASYNC,
+                    cur_func: func_obj.dup(),
+                    prev_frame: std::ptr::null_mut(),
+                    arg_base_ptr: local_buf.as_mut_ptr(),
+                    arg_count: arg_count as _,
+                    var_base_ptr: local_buf.as_mut_ptr().add(arg_count as usize),
+                    var_count: b.var_count,
+                    cur_pc_offset: 0,
+                    cur_sp_offset: 0,
+                    var_ref_list: Vec::new(),
+                    local_buf,
+                    _mark: PhantomPinned,
+                },
+            });
+            Box::from_raw(p.as_ptr())
+        };
+
+        let ptr = NonNull::from(af.as_mut());
+        ctx.rt_mut().gc_add_object(af);
+        Ok(ptr)
+    }
+
     pub fn free(rt: &mut JSRuntime, s: *mut Self) {
         debug_assert!(!s.is_null());
         debug_assert!(unsafe { (*s).ref_count() > 0 });
@@ -163,32 +230,30 @@ impl JSAsyncFunctionState {
 
     /// free values on async stack frame
     pub fn free_frame(&mut self, rt: &mut JSRuntime) {
-        if !self.frame.as_ref().arg_base_ptr.is_null() {
+        if !self.frame.arg_base_ptr.is_null() {
             debug_assert!(
-                self.frame.as_ref().cur_sp_offset != -1,
+                self.frame.cur_sp_offset != -1,
                 "cannot free the function if it is running"
             );
 
-            let mut p = self.frame.as_ref().arg_base_ptr; // arg base is on local_buf
-            let end_p = self.frame.as_ref().stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
+            let mut p = self.frame.arg_base_ptr; // arg base is on local_buf
+            let end_p = self.frame.stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
             while p < end_p {
                 unsafe {
                     JS_FreeValueRT(rt, *p);
                     p = p.add(1);
                 }
             }
-            unsafe {
-                self.frame.as_mut().get_unchecked_mut().arg_base_ptr = std::ptr::null_mut();
-            }
+            self.frame.arg_base_ptr = std::ptr::null_mut();
         }
 
         unsafe {
-            JS_FreeValueRT(rt, self.frame.as_ref().cur_func);
+            JS_FreeValueRT(rt, self.frame.cur_func);
             JS_FreeValueRT(rt, self.this_val);
-
-            // clean up var refs
-            self.frame.as_mut().get_unchecked_mut().finalize(rt);
         }
+
+        // clean up var refs
+        self.frame.finalize(rt);
     }
 
     pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
@@ -212,70 +277,6 @@ impl JSAsyncFunctionState {
     }
 }
 
-/// JSAsyncFunctionState (used by generator and async functions)
-pub unsafe fn async_func_init(
-    ctx: *mut JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-) -> *mut JSAsyncFunctionState {
-    let p = func_obj.object_unchecked();
-    let func = p.isa().func().unwrap();
-    let b = func.function_bytecode.as_mut().unwrap();
-
-    // alloc local buf, set up arguments, variables and stack pointer
-    let arg_count = std::cmp::max(b.arg_count as usize, argc as usize);
-    let buf_len = arg_count + b.var_count as usize + b.stack_size as usize;
-    let mut local_buf = {
-        let mut lst = Vec::<JSValue>::new();
-        if lst.try_reserve_exact(buf_len).is_err() {
-            return std::ptr::null_mut();
-        }
-        lst
-    };
-    for i in 0..argc as usize {
-        local_buf.push((*argv.add(i)).dup());
-    }
-    local_buf.extend(std::iter::repeat_n(
-        JSValue::UNDEFINED,
-        buf_len - argc as usize,
-    ));
-    debug_assert_eq!(local_buf.len(), buf_len);
-
-    let mut af = if let Some(p) = js_malloc_typed::<JSAsyncFunctionState>(ctx, 1, false) {
-        p.write(JSAsyncFunctionState {
-            header: GCObjectHeader::new(1),
-            argc,
-            this_val: this_obj.dup(),
-            resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
-            throw_flag: false,
-            is_completed: false,
-            frame: Box::pin(JSStackFrame {
-                js_mode: b.js_mode as i32 | JS_MODE_ASYNC,
-                cur_func: func_obj.dup(),
-                prev_frame: std::ptr::null_mut(),
-                arg_base_ptr: local_buf.as_mut_ptr(),
-                arg_count: arg_count as _,
-                var_base_ptr: local_buf.as_mut_ptr().add(arg_count as usize),
-                var_count: b.var_count,
-                cur_pc_offset: 0,
-                cur_sp_offset: 0,
-                var_ref_list: Vec::new(),
-                local_buf,
-                _mark: PhantomPinned,
-            }),
-        });
-        Box::from_raw(p.as_ptr())
-    } else {
-        return std::ptr::null_mut();
-    };
-
-    let ptr = af.as_mut() as *mut JSAsyncFunctionState;
-    (*ctx).rt_mut().gc_add_object(af);
-    ptr
-}
-
 pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionState) -> JSValue {
     debug_assert!(!(*s).is_completed);
 
@@ -292,17 +293,17 @@ pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionStat
             (*s).this_val,
             JSValue::UNDEFINED,
             (*s).argc,
-            (*s).frame.as_ref().arg_base_ptr,
+            (*s).frame.arg_base_ptr,
             JS_CALL_FLAG_GENERATOR,
         )
     };
 
     if ret.is_exception() || ret.is_undefined() {
         if ret.is_undefined() {
-            debug_assert!((*s).frame.as_ref().cur_sp_offset > 0);
-            let sp_base = (*s).frame.as_ref().stack_base_ptr();
+            debug_assert!((*s).frame.cur_sp_offset > 0);
+            let sp_base = (*s).frame.stack_base_ptr();
             ret = sp_base
-                .add((*s).frame.as_ref().cur_sp_offset as usize - 1)
+                .add((*s).frame.cur_sp_offset as usize - 1)
                 .as_mut()
                 .replace(JSValue::UNDEFINED);
         }
@@ -310,7 +311,7 @@ pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionStat
         // end of execution
         (*s).is_completed = true;
         // close the closure variables.
-        (*s).frame.as_ref().close_var_refs(ctx);
+        (*s).frame.close_var_refs(ctx);
         (*s).free_frame(ctx.rt_mut());
     }
 
@@ -404,7 +405,7 @@ pub unsafe fn js_async_function_resolve_call(
     JSValue::UNDEFINED
 }
 
-/// call an 'async function XXX() {...}' like function
+/// call an async function
 pub unsafe fn js_async_function_call(
     ctx: &mut JSContext,
     func_obj: JSValueConst,
@@ -413,18 +414,28 @@ pub unsafe fn js_async_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    let s = async_func_init(ctx, func_obj, this_obj, argc, argv);
-    if s.is_null() {
+    let mut s = if let Ok(a) = JSAsyncFunctionState::new(
+        ctx,
+        func_obj,
+        this_obj,
+        if argc == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(argv, argc as usize)
+        },
+    ) {
+        a
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     if let Ok((promise, resolving_funcs)) = ctx.create_promise(JSValue::UNDEFINED) {
-        (*s).resolving_funcs = resolving_funcs;
-        js_async_function_resume(ctx, s);
-        JSAsyncFunctionState::free(ctx.rt_mut(), s);
+        s.as_mut().resolving_funcs = resolving_funcs;
+        js_async_function_resume(ctx, s.as_ptr());
+        JSAsyncFunctionState::free(ctx.rt_mut(), s.as_ptr());
         promise.as_value()
     } else {
-        JSAsyncFunctionState::free(ctx.rt_mut(), s);
+        JSAsyncFunctionState::free(ctx.rt_mut(), s.as_ptr());
         JSValue::EXCEPTION
     }
 }

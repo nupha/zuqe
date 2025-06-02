@@ -1615,3 +1615,25 @@ pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState
 pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
     JSAsyncFunctionState::free(rt.as_mut().unwrap(), s);
 }
+
+/// make new JSAsyncFunctionState (used by generator and async functions)
+#[deprecated(note = "use JSAsyncFunctionState::new() instead")]
+pub unsafe fn async_func_init(
+    ctx: *mut JSContext,
+    func_obj: JSValueConst,
+    this_obj: JSValueConst,
+    argc: i32,
+    argv: *const JSValueConst,
+) -> *mut JSAsyncFunctionState {
+    JSAsyncFunctionState::new(
+        ctx.as_mut().unwrap(),
+        func_obj,
+        this_obj,
+        if argc == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(argv, argc as usize)
+        },
+    )
+    .map_or(std::ptr::null_mut(), |p| p.as_ptr())
+}

@@ -215,7 +215,7 @@ impl JSFunctionDef {
     }
 }
 
-/// Get func object closure with captured variables, returns function object.
+/// Build func object closure with captured variables, returns function object.
 /// `bfunc` is consumed.
 pub unsafe fn js_closure(
     ctx: *mut JSContext,

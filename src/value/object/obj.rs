@@ -335,15 +335,17 @@ impl GCObject for JSObject {
             }
         }
 
+        let class_id = self.class_id();
+
         // call class finalizer
-        if let Some(cb) = rt.class_array[self.class_id() as usize].finalizer {
+        if let Some(cb) = rt.class_array[class_id as usize].finalizer {
             unsafe {
                 cb(rt, JS_MKPTR!(JSTag::Object, (self as *mut Self).cast()));
             }
         }
 
         // ManuallyDrop union
-        match self.class_id() {
+        match class_id {
             JS_CLASS_BYTECODE_FUNCTION => {
                 // (*(*p).u.func).home_object = std::ptr::null_mut();
                 // (*self.isa.func).var_refs.clear();

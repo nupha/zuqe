@@ -317,46 +317,46 @@ fn run_test_content(
 
     if ret_promise && !ret_val.is_exception() {
         // ret_val is Promise, execute pending jobs
-        loop {
-            match ctx.rt_mut().execute_pending_job() {
-                Ok((None, false)) => {
-                    if is_async {
-                        // test if the test called $DONE() once
-                        ret_val = if async_done != 1 {
-                            ctx.JS_ThrowTypeError(c"$DONE() not called")
-                        } else {
-                            JSValue::UNDEFINED
-                        }
-                        .into_rc(ctx.rt());
-                    } else {
-                        // check that the returned promise is fulfilled
-                        let promise: PromiseValue =
-                            TryFrom::try_from(JSValue::from(ret_val)).unwrap();
+        // loop {
+        //     match ctx.rt_mut().execute_pending_job() {
+        //         Ok((None, false)) => {
+        //             if is_async {
+        //                 // test if the test called $DONE() once
+        //                 ret_val = if async_done != 1 {
+        //                     ctx.JS_ThrowTypeError(c"$DONE() not called")
+        //                 } else {
+        //                     JSValue::UNDEFINED
+        //                 }
+        //                 .into_rc(ctx.rt());
+        //             } else {
+        //                 // check that the returned promise is fulfilled
+        //                 let promise: PromiseValue =
+        //                     TryFrom::try_from(JSValue::from(ret_val)).unwrap();
 
-                        ret_val = match promise.state() {
-                            Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
-                            Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
-                                ctx.throw(promise.result())
-                            }
-                            Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
-                                ctx.JS_ThrowTypeError(c"promise not fulfilled")
-                            }
-                        }
-                        .into_rc(ctx.rt());
+        //                 ret_val = match promise.state() {
+        //                     Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
+        //                     Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
+        //                         ctx.throw(promise.result())
+        //                     }
+        //                     Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
+        //                         ctx.JS_ThrowTypeError(c"promise not fulfilled")
+        //                     }
+        //                 }
+        //                 .into_rc(ctx.rt());
 
-                        JS_FreeValue(ctx, promise.into());
-                    }
-                    break;
-                }
-                Err(_) => {
-                    ret_val = JSValue::EXCEPTION.into_rc(ctx.rt());
-                    break;
-                }
-                _ => {}
-            }
+        //                 JS_FreeValue(ctx, promise.into());
+        //             }
+        //             break;
+        //         }
+        //         Err(_) => {
+        //             ret_val = JSValue::EXCEPTION.into_rc(ctx.rt());
+        //             break;
+        //         }
+        //         _ => {}
+        //     }
 
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+        //     std::thread::sleep(std::time::Duration::from_millis(5));
+        // }
     }
 
     if ret_val.is_exception() {

@@ -95,9 +95,9 @@ impl GCObject for JSVarRef {
 
     fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
         match self.state {
-            VarRefState::Detached { value } => unsafe {
+            VarRefState::Detached { value } => {
                 rt.gc_mark_value(value, mark_func);
-            },
+            }
             VarRefState::Bind { async_func, .. } => unsafe {
                 if !async_func.is_null() {
                     mark_func(rt, async_func);

@@ -1,10 +1,7 @@
 use crate::{
     context::JSContext,
     error::JSResult,
-    function::{
-        async_func_init, async_func_resume, CallArgs, JSAsyncFunctionState, JSCFunctionListEntry,
-        JS_Call,
-    },
+    function::{async_func_resume, CallArgs, JSAsyncFunctionState, JSCFunctionListEntry, JS_Call},
     gc::GCMarkFunc,
     iterator::{js_create_iterator_result, GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     list_entry,
@@ -119,11 +116,20 @@ impl AsyncGeneratorValue {
             generator: std::ptr::null_mut(), // unkown for now
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
             func_state: {
-                let st = async_func_init(ctx, func_obj, this_obj, argc, argv);
-                if st.is_null() {
+                if let Ok(a) = JSAsyncFunctionState::new(
+                    ctx,
+                    func_obj,
+                    this_obj,
+                    if argc == 0 {
+                        &[]
+                    } else {
+                        std::slice::from_raw_parts(argv, argc as usize)
+                    },
+                ) {
+                    a.as_ptr()
+                } else {
                     return JSValue::EXCEPTION;
                 }
-                st
             },
             queue: list_head::default(),
         };
@@ -265,11 +271,7 @@ impl JSAsyncGeneratorData {
                                     value;
                                 *(*self.func_state).frame.stack_cur_ptr().as_mut() =
                                     JSValue::from_i32((*next).completion_type);
-                                (*self.func_state)
-                                    .frame
-                                    .as_mut()
-                                    .get_unchecked_mut()
-                                    .cur_sp_offset += 1;
+                                (*self.func_state).frame.cur_sp_offset += 1;
                                 (*self.func_state).throw_flag = false;
                             }
                         }
