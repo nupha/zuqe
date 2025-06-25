@@ -101,16 +101,16 @@ impl JSProperty {
 
             // reset AUTO INIT flag to NORMAL
             this_obj.shape().unwrap().with_mut(|s| {
-                let prs = s.props.get_mut(&prop.0).unwrap();
+                let prs = s.prop_defs.get_mut(&prop.0).unwrap();
                 prs.set_flags(prs.flags() & (!JS_PROP_TMASK));
             });
 
             // set property normal value
             if let Ok(val) = val {
-                *self = JSProperty::Value(val.clone());
+                *self = JSProperty::Normal(val.clone());
                 Ok(val)
             } else {
-                *self = JSProperty::Value(JSValue::UNDEFINED);
+                *self = JSProperty::Normal(JSValue::UNDEFINED);
                 Err(-1)
             }
         } else {

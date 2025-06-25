@@ -211,7 +211,7 @@ impl JSObject {
             let pr = &mut self.0.prop_values.borrow_mut()[idx];
 
             match pr {
-                JSProperty::Value(v) => {
+                JSProperty::Normal(v) => {
                     if prs_flags & JS_PROP_WRITABLE == 0 {
                         return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                             Err(-1)
@@ -420,7 +420,7 @@ impl JSValue {
                             continue;
                         } else {
                             target.add_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
-                                *pr = JSProperty::Value(val);
+                                *pr = JSProperty::Normal(val);
                             })?;
                             return Ok(true);
                         }

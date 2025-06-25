@@ -57,7 +57,7 @@ impl JSRuntime {
     /// This ensures the realm is preserved during garbage collection
     pub unsafe fn gc_mark_autoinit(&mut self, pr: *mut JSProperty, mark_func: GCMarkFunc) {
         // Get the realm from the property and mark its header
-        let realm = (*pr).realm().unwrap();
+        let realm = (*pr).auto_init_realm().unwrap();
         //  mark_func(self, realm);
     }
 

@@ -3,7 +3,7 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::JSContext,
-    value::object::JSObjectInner,
+    value::object::{JSObjectInner, JSShape},
 };
 
 use super::{
@@ -16,23 +16,24 @@ impl JSObjectInner {
     /// Grows the property values array to accommodate more properties.
     /// Takes a new length and extends the array with undefined values if needed.
     /// Returns error if memory allocation fails.
-    pub(super) fn grow_prop_value_slots(&self, new_length: usize) -> Result<(), i32> {
+    pub(super) fn grow_prop_value_slots(&self, total_length: usize) -> Result<(), i32> {
         let mut slots = self.prop_values.borrow_mut();
 
         let len = slots.len();
-        if new_length > len {
-            let delta = new_length - len;
+        if total_length > len {
+            let delta = total_length - len;
             slots.try_reserve_exact(delta).map_err(|_| -1)?;
-            // init extended elements to undefined
+
+            // init extended values
             for _ in 0..delta {
-                slots.push(JSProperty::Value(JSValue::UNDEFINED));
+                slots.push(JSProperty::default());
             }
         }
 
         Ok(())
     }
 
-    /// Add a property to shape and prop value slots.
+    /// Add a property to shape and enlarge prop value slots.
     /// Note: the property value is initialized to undefined. Returns Err if memory error.
     /// `prop` is not consumed.
     fn do_add_property<R>(
@@ -43,6 +44,7 @@ impl JSObjectInner {
         then: Option<impl FnOnce(&mut JSProperty) -> R>,
     ) -> Result<Option<R>, i32> {
         let mut shape = self.shape.borrow_mut().take().unwrap();
+        let mut shape0: Option<JSShape> = None;
 
         if shape.is_hashed() {
             // try to find an existing shape
@@ -51,54 +53,84 @@ impl JSObjectInner {
                     // found matching shape
                     let new_len = found.len();
                     let len = shape.len();
+                    debug_assert!(new_len > len);
 
-                    if new_len != len {
-                        debug_assert!(new_len > len);
-                        self.grow_prop_value_slots(new_len).inspect_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
-                        })?;
+                    if self.grow_prop_value_slots(new_len).is_err() {
+                        ctx.JS_ThrowOutOfMemory();
+                        self.shape.borrow_mut().replace(shape); // restore old shape
+                        return Err(-1);
                     }
 
+                    // use found shape
                     self.shape.borrow_mut().replace(found);
 
-                    if let Some(f) = then {
-                        return Ok(Some(f(self
+                    return if let Some(f) = then {
+                        Ok(Some(f(self
                             .prop_values
                             .borrow_mut()
                             .get_mut(new_len - 1)
-                            .unwrap())));
+                            .unwrap())))
                     } else {
-                        return Ok(None);
-                    }
+                        Ok(None)
+                    };
                 }
                 None => {
                     if shape.strong_count() != 1 {
-                        // shape is shared, clone and use new shape
-                        let new_sh = shape.clone_to_new(ctx)?;
-                        // register the new shape
-                        ctx.rt_mut().register_shape(&new_sh).inspect_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
-                        })?;
-
-                        shape = new_sh;
+                        // current shape is shared, clone and use the new
+                        let new_shape = shape.clone_to_new(ctx)?;
+                        shape0.replace(shape);
+                        shape = new_shape;
                     }
                 }
             };
         }
 
-        // add shape property
-        let len = shape
-            .add_shape_property(ctx, prop, prop_flags)
-            .inspect_err(|_| {
-                self.shape.borrow_mut().replace(shape.clone());
-            })?;
+        // Note: shape must be exclusive now, so that is can be modified.
+        // add shape property, enlarge object prop value slot.
+        let len = if let Ok(n) = shape.add_shape_property(ctx, prop, prop_flags, Some(self)) {
+            n
+        } else {
+            // fail to modify shape: restore old shape for object
+            if let Some(sh0) = shape0 {
+                self.shape.borrow_mut().replace(sh0);
+            } else {
+                // shape was unregistered
+                ctx.rt_mut().register_shape(&shape);
+                self.shape.borrow_mut().replace(shape);
+            }
+            return Err(-1);
+        };
 
+        // let len = if let Ok(n) = shape.add_shape_property(ctx, prop, prop_flags) {
+        //     n
+        // } else {
+        //     // can't add property in shape, restore the old shape for object
+        //     if let Some(sh0) = shape0 {
+        //         self.shape.borrow_mut().replace(sh0);
+        //     } else {
+        //         // shape was unregistered
+        //         ctx.rt_mut().register_shape(&shape);
+        //         self.shape.borrow_mut().replace(shape);
+        //     }
+        //     return Err(-1);
+        // };
+
+        // // ensure object's prop values slot have same length as shape's length
+        // if self.grow_prop_value_slots(len).is_err() {
+        //     ctx.JS_ThrowOutOfMemory();
+
+        //     // restore old shape
+        //     if let Some(sh0) = shape0 {
+        //         ctx.rt_mut().unregister_shape(shape.id(), shape.hash());
+        //         self.shape.borrow_mut().replace(sh0);
+        //     } else {
+        //         self.shape.borrow_mut().replace(shape);
+        //     }
+        //     return Err(-1);
+        // }
+
+        // let object use modified shape
         self.shape.borrow_mut().replace(shape.clone());
-
-        // ensure object's prop values slot have same length as shape's length
-        self.grow_prop_value_slots(len).inspect_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
-        })?;
 
         if let Some(f) = then {
             Ok(Some(f(&mut self.prop_values.borrow_mut()[len - 1])))
@@ -107,7 +139,7 @@ impl JSObjectInner {
         }
     }
 
-    /// Add a property to shape and prop value slots.
+    /// Add a property to shape and enlarge prop value slots.
     /// Note: the property value is initialized to undefined. Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline(always)]
@@ -124,7 +156,7 @@ impl JSObjectInner {
 }
 
 impl JSObject {
-    /// Add a property to shape and prop value slots.
+    /// Add a property to shape and enlarge prop value slots.
     /// Note: the property value is initialized to undefined. Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline]
@@ -176,7 +208,7 @@ impl JSObject {
                     // prop #0 of Array is length
                     let prop0_flags = $p
                         .shape()
-                        .map(|sh| sh.0.borrow().props.first().unwrap().1.flags())
+                        .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
                         .unwrap();
 
                     if prop0_flags & JS_PROP_WRITABLE == 0 {
@@ -188,7 +220,7 @@ impl JSObject {
                     }
 
                     $p.0.prop_values.borrow_mut()[0] =
-                        JSProperty::Value(JSValue::from($idx as u32 + 1))
+                        JSProperty::Normal(JSValue::from($idx as u32 + 1))
                 }
             };
         }
@@ -207,7 +239,7 @@ impl JSObject {
         if obj_flags.is_exotic() {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
-                    let mut idx: u32 = 0;
+                    let idx: u32;
 
                     if obj_flags.fast_array() {
                         if prop.is_int_type() {
@@ -261,21 +293,19 @@ impl JSObject {
                     }
                 }
                 cid => {
-                    if (flags & JS_PROP_NO_EXOTIC) == 0 {
+                    if flags & JS_PROP_NO_EXOTIC == 0 {
                         let em = ctx.rt().class_array[cid as usize].exotic;
                         if !em.is_null() {
                             if let Some(cb) = unsafe { (*em).define_own_property } {
-                                let r = unsafe {
-                                    cb(
-                                        ctx,
-                                        &JSValue::Object(self.clone()),
-                                        prop,
-                                        &val,
-                                        &getter,
-                                        &setter,
-                                        flags as _,
-                                    )
-                                };
+                                let r = cb(
+                                    ctx,
+                                    &JSValue::Object(self.clone()),
+                                    prop,
+                                    &val,
+                                    &getter,
+                                    &setter,
+                                    flags as _,
+                                );
                                 return if r < 0 { Err(-1) } else { Ok(r != 0) };
                             }
 
@@ -294,6 +324,9 @@ impl JSObject {
                 }
             }
         }
+
+        // If prop is not an exotic property, nor an array element:
+        // add shape property and put the value in value slot.
 
         if !obj_flags.extensible() {
             return if ctx.JS_ThrowTypeErrorOrFalse(flags, "object is not extensible") {
@@ -326,7 +359,7 @@ impl JSObject {
                 }
             } else {
                 // normal property
-                JSProperty::Value(if flags & JS_PROP_HAS_VALUE != 0 {
+                JSProperty::Normal(if flags & JS_PROP_HAS_VALUE != 0 {
                     val
                 } else {
                     JSValue::UNDEFINED

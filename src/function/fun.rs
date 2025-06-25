@@ -154,7 +154,7 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
     if let Some(obj) = func.object() {
         if let Some((idx, prs_flags)) = obj.find_own_property(JS_ATOM_name) {
             if prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL {
-                if let Some(JSProperty::Value(JSValue::String(s))) =
+                if let Some(JSProperty::Normal(JSValue::String(s))) =
                     obj.0.prop_values.borrow().get(idx)
                 {
                     return Some(s.content().to_str().into_owned());

@@ -23,11 +23,11 @@ impl JSShapeInner {
             self.proto
                 .as_ref()
                 .map_or(std::ptr::null(), |o| o as *const _),
-            self.props.len(),
-            self.props.len(),
+            self.prop_defs.len(),
+            self.prop_defs.len(),
         );
 
-        for (_, prs) in self.props.iter() {
+        for (_, prs) in self.prop_defs.iter() {
             print!(" {}", prs.atom.to_str(rt));
         }
 
@@ -144,7 +144,7 @@ impl JSObject {
 
             let prop_values = self.0.prop_values.borrow();
             let mut is_first: bool = true;
-            for (idx, (_, prs)) in sh.0.borrow().props.iter().enumerate() {
+            for (idx, (_, prs)) in sh.0.borrow().prop_defs.iter().enumerate() {
                 if !is_first {
                     print!(", ");
                 };
@@ -155,7 +155,7 @@ impl JSObject {
                 // value
                 if let Some(pr) = prop_values.get(idx) {
                     match pr {
-                        JSProperty::Value(val) => {
+                        JSProperty::Normal(val) => {
                             print!("{}", val.repr());
                         }
                         JSProperty::GetSet { getter, setter } => {

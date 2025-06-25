@@ -190,7 +190,7 @@ impl JSObjectInner {
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
         if let Some(sh) = &shape {
-            let prop_count = sh.0.borrow().props.len();
+            let prop_count = sh.0.borrow().prop_defs.len();
 
             if prop_values
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
@@ -201,7 +201,7 @@ impl JSObjectInner {
             };
 
             for _ in 0..prop_count {
-                prop_values.push(JSProperty::Value(JSValue::UNDEFINED))
+                prop_values.push(JSProperty::Normal(JSValue::UNDEFINED))
             }
         }
 
@@ -242,7 +242,7 @@ impl JSObjectInner {
                         .as_ref()
                         .map_or(usize::MAX, |a| a.id())
                 {
-                    prop_values[0] = JSProperty::Value(JSValue::Int(0));
+                    prop_values[0] = JSProperty::Normal(JSValue::Int(0));
                 } else {
                     add_length_prop = true;
                 };
@@ -301,7 +301,7 @@ impl JSObjectInner {
                 JS_ATOM_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 |pr| {
-                    *pr = JSProperty::Value(JSValue::Int(0));
+                    *pr = JSProperty::Normal(JSValue::Int(0));
                 },
             )
             .unwrap()
@@ -923,7 +923,7 @@ pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValueConst, val: JSValue)
 pub fn js_object_has_name(obj: &JSValue) -> bool {
     let ob = unsafe { obj.object_unchecked() };
     if let Some((idx, _)) = ob.find_own_property(JS_ATOM_name) {
-        if let JSProperty::Value(JSValue::String(ss)) = ob.0.prop_values.borrow().get(idx).unwrap()
+        if let JSProperty::Normal(JSValue::String(ss)) = ob.0.prop_values.borrow().get(idx).unwrap()
         {
             !ss.is_empty()
         } else {

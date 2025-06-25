@@ -280,7 +280,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
                 .unwrap()
                 .0
                 .borrow()
-                .props
+                .prop_defs
                 .iter()
                 .any(|(_, prs)| prs.flags() & JS_PROP_ENUMERABLE != 0)
             {

@@ -1,7 +1,7 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::RefCell,
     ops::DerefMut,
-    os::raw::c_char,
+    os::raw::{c_char, c_void},
     pin::Pin,
     ptr::{self, NonNull},
     rc::{Rc, Weak},
@@ -17,11 +17,11 @@ use crate::{
     error::{JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFunc,
     function::{JSCFunctionEnum, js_function_proto},
-    gc::{GCMarkFunc, GCObjectHeader, JSGCPhaseEnum},
+    gc::{GCMarkFunc, GCObjectHeader},
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    utils::{Node, list_head},
+    utils::list_head,
     value::{
         JSValue,
         object::{
@@ -68,12 +68,11 @@ pub struct JSDebugInfo {
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.
 #[repr(C)]
-#[derive(Debug)]
 pub(crate) struct JSContextInner {
     /// Garbage collection header (must be first field)
     pub header: GCObjectHeader,
 
-    /// Pointer to parent runtime instance
+    /// Pointer to runtime
     //pub rt: NonNull<JSRuntime>,
 
     /// Linked list node for runtime context list
@@ -253,10 +252,10 @@ impl JSContextInner {
             self.async_iterator_proto = JSValue::UNDEFINED;
             self.array_proto_values = JSValue::UNDEFINED;
             self.throw_type_error = JSValue::UNDEFINED;
-            self.eval_func = JSValue::UNDEFINED;
-            self.current_exception = JSValue::NULL;
             self.global_obj = JSValue::UNDEFINED;
             self.global_var_obj = JSValue::UNDEFINED;
+            self.eval_func = JSValue::UNDEFINED;
+            self.current_exception = JSValue::NULL;
             self.stack_trace = JSValue::UNDEFINED;
 
             self.class_proto.clear();
@@ -297,12 +296,18 @@ impl JSContextInner {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JSContext(pub(crate) Rc<RefCell<JSContextInner>>);
 
 impl PartialEq for JSContext {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
+    }
+}
+
+impl std::fmt::Debug for JSContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<JSContext {:p}>", self.id() as *const c_void)
     }
 }
 
@@ -476,15 +481,21 @@ impl JSContext {
                 cx.class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone();
             });
 
-            let ash =
+            let array_sh =
                 JSShape::with_capacity(self, array_proto.object(), JS_PROP_INITIAL_HASH_SIZE, 1)
                     .unwrap();
-            // add length property as index 0
-            ash.add_shape_property(self, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)
+            // define length property at index 0
+            array_sh
+                .add_shape_property(
+                    self,
+                    JS_ATOM_length,
+                    JS_PROP_WRITABLE | JS_PROP_LENGTH,
+                    None,
+                )
                 .unwrap();
 
             self.with_mut(|cx| {
-                cx.array_shape.replace(ash);
+                cx.array_shape.replace(array_sh);
             });
         }
 

@@ -55,7 +55,7 @@ impl JSObject {
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
 
-        for (_, prs) in self.shape().unwrap().0.borrow().props.iter() {
+        for (_, prs) in self.shape().unwrap().0.borrow().prop_defs.iter() {
             let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
             let kind = prs.atom.kind(ctx.rt());
 

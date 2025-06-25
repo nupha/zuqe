@@ -32,7 +32,7 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
         JS_ATOM_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         |pr| {
-            *pr = JSProperty::Value(JSValue::Int(args.len() as i32));
+            *pr = JSProperty::Normal(JSValue::Int(args.len() as i32));
         },
     )
     .unwrap();
@@ -97,7 +97,7 @@ pub unsafe fn js_build_mapped_arguments(
         JS_ATOM_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         |pr| {
-            *pr = JSProperty::Value(JSValue::Int(args.len() as i32));
+            *pr = JSProperty::Normal(JSValue::Int(args.len() as i32));
         },
     )
     .unwrap();

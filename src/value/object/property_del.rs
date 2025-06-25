@@ -21,7 +21,7 @@ impl JSObject {
                 .unwrap()
                 .0
                 .borrow()
-                .props
+                .prop_defs
                 .get_full(&prop.0)
                 .map(|(i, _, p)| (i, p.flags()))
             {
@@ -41,7 +41,7 @@ impl JSObject {
                     .unwrap()
                     .0
                     .borrow_mut()
-                    .props
+                    .prop_defs
                     .shift_remove(&prop.0)
                     .unwrap();
                 debug_assert_eq!(prop, prs.atom);

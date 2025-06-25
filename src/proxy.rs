@@ -1,7 +1,6 @@
 use std::ops::Deref;
 
 use crate::{
-    array::JS_IsArray,
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowStackOverflow, JS_ThrowTypeErrorRevokedProxy},
@@ -58,17 +57,15 @@ pub unsafe fn get_proxy_method<'a>(
 pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = val {
         if let JSObjectIsa::PROXY(s) = p.0.isa.borrow().deref() {
-            unsafe {
-                if js_check_stack_overflow(ctx.rt().deref(), 0) {
-                    JS_ThrowStackOverflow(ctx);
-                    return Err(-1);
-                }
-                if s.is_revoked {
-                    JS_ThrowTypeErrorRevokedProxy(ctx);
-                    return Err(-1);
-                }
-                JS_IsArray(ctx, &(*s).target)
+            if js_check_stack_overflow(ctx.rt(), 0) {
+                JS_ThrowStackOverflow(ctx);
+                return Err(-1);
             }
+            if s.is_revoked {
+                JS_ThrowTypeErrorRevokedProxy(ctx);
+                return Err(-1);
+            }
+            s.target.is_array(ctx)
         } else {
             Ok(false)
         }
@@ -77,15 +74,16 @@ pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     }
 }
 
-pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValueConst) -> Result<bool, i32> {
+pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     let (method, s) = unsafe { get_proxy_method(ctx, obj, JS_ATOM_isExtensible)? };
     if method.is_undefined() {
         return s.target.is_extensible(ctx);
     }
 
-    let ret = JS_Call(ctx, &method, &s.handler, &[s.target.clone()]).check_exception()?;
+    let b = JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target))
+        .check_exception()?
+        .coerce_to_bool(ctx)?;
 
-    let b = ret.coerce_to_bool(ctx)?;
     if b != s.target.is_extensible(ctx)? {
         ctx.JS_ThrowTypeError("proxy: inconsistent isExtensible");
         return Err(-1);

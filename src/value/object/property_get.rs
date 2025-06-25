@@ -61,7 +61,7 @@ impl JSObject {
                             JSProperty::default(),
                         );
                         let val = pr.instantiate(&p, prop).unwrap_or(JSValue::EXCEPTION);
-                        debug_assert!(matches!(pr, JSProperty::Value(_)));
+                        debug_assert!(matches!(pr, JSProperty::Normal(_)));
                         self.0.prop_values.borrow_mut()[idx] = pr;
                         val
                     }

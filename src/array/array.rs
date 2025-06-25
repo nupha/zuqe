@@ -152,13 +152,13 @@ impl JSObject {
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
         // not an integer, then if it >= 2^31.
-        if let JSProperty::Value(JSValue::Int(array_len)) =
+        if let JSProperty::Normal(JSValue::Int(array_len)) =
             self.0.prop_values.borrow().first().cloned().unwrap()
         {
             if new_len > array_len as usize {
                 if self
                     .shape()
-                    .and_then(|sh| sh.0.borrow().props.get_index(0).map(|(_, p)| p.flags()))
+                    .and_then(|sh| sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags()))
                     .unwrap()
                     & JS_PROP_WRITABLE
                     == 0
@@ -171,7 +171,7 @@ impl JSObject {
                 }
                 // replace with new length, drop old length
                 self.0.prop_values.borrow_mut()[0] =
-                    JSProperty::Value(JSValue::Int(new_len as i32));
+                    JSProperty::Normal(JSValue::Int(new_len as i32));
             }
         }
 
@@ -214,10 +214,10 @@ impl JSObject {
             .and_then(|sh| {
                 //prop `length` is #0
                 debug_assert!(
-                    sh.0.borrow().props[0].flags() & JS_PROP_LENGTH != 0,
+                    sh.0.borrow().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
                     "Object don't have length property"
                 );
-                sh.0.borrow().props.get_index(0).map(|(_, p)| p.flags())
+                sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags())
             })
             .unwrap()
             & JS_PROP_WRITABLE
@@ -240,7 +240,7 @@ impl JSObject {
                 }
             })
             .unwrap();
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Value(JSValue::from_u32(len as _));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from_u32(len as _));
         } else {
             // Note: length is always a uint32 because the object is an array
             let mut cur_len = self
@@ -258,7 +258,7 @@ impl JSObject {
                 let mut sh = self.shape().unwrap();
                 let d = cur_len - len;
 
-                if d <= sh.0.borrow().props.len() {
+                if d <= sh.0.borrow().prop_defs.len() {
                     // faster to iterate
                     while cur_len > len {
                         let atom = ctx.rt_mut().register_atom_u32(cur_len as u32 - 1);
@@ -275,7 +275,7 @@ impl JSObject {
                     cur_len = len;
 
                     sh.with_mut(|sh| {
-                        for pr in sh.props.values() {
+                        for pr in sh.prop_defs.values() {
                             if let Some(idx) = pr.atom.to_array_index(ctx.rt()) {
                                 if idx >= cur_len && pr.flags() & JS_PROP_CONFIGURABLE == 0 {
                                     cur_len = idx + 1;
@@ -284,11 +284,11 @@ impl JSObject {
                         }
                     });
 
-                    let num_props = sh.0.borrow().props.len();
+                    let num_props = sh.0.borrow().prop_defs.len();
                     for i in 0..num_props {
                         let prop =
                             sh.0.borrow()
-                                .props
+                                .prop_defs
                                 .get_index(i)
                                 .map(|(_, prs)| prs.atom)
                                 .unwrap();
@@ -307,7 +307,7 @@ impl JSObject {
             }
 
             // #0 is the `length`
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Value(JSValue::from(cur_len as u32));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(cur_len as u32));
 
             if cur_len > len {
                 return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "not configurable") {
@@ -410,7 +410,7 @@ pub unsafe fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i3
             JSAtom::new_u32(i as _), // int as property name
             JS_PROP_C_W_E,
             |pr| {
-                *pr = JSProperty::Value(v);
+                *pr = JSProperty::Normal(v);
             },
         )
         .expect("FIXME: add_property error");

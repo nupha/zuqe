@@ -65,7 +65,7 @@ impl JSObject {
                         JSProperty::default(),
                     );
                     val = pr.instantiate(self, prop)?;
-                    debug_assert!(matches!(pr, JSProperty::Value(_)));
+                    debug_assert!(matches!(pr, JSProperty::Normal(_)));
                     self.0.prop_values.borrow_mut()[idx] = pr;
                 }
 
@@ -301,9 +301,9 @@ impl JSObject {
             JS_PROP_GETSET => {
                 // convert property to value type
                 self.shape_prepare_update(ctx)?;
-                self.0.prop_values.borrow_mut()[idx] = JSProperty::Value(JSValue::UNDEFINED);
+                self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(JSValue::UNDEFINED);
                 self.shape().unwrap().with_mut(|s| {
-                    let prs = s.props.get_mut(&prop.0).unwrap();
+                    let prs = s.prop_defs.get_mut(&prop.0).unwrap();
                     prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                 });
             }
@@ -344,9 +344,9 @@ impl JSObject {
 
                         self.shape_prepare_update(ctx)?;
                         self.0.prop_values.borrow_mut()[idx] =
-                            JSProperty::Value(vref.value().clone());
+                            JSProperty::Normal(vref.value().clone());
                         self.shape().unwrap().with_mut(|s| {
-                            let prs = s.props.get_mut(&prop.0).unwrap();
+                            let prs = s.prop_defs.get_mut(&prop.0).unwrap();
                             prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                         });
                     }
@@ -390,7 +390,7 @@ impl JSObject {
             return res;
         } else {
             if flags & JS_PROP_HAS_VALUE != 0 {
-                self.0.prop_values.borrow_mut()[idx] = JSProperty::Value(val);
+                self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
             }
             if flags & JS_PROP_HAS_WRITABLE != 0 {
                 self.js_update_property_flags(
@@ -432,7 +432,7 @@ impl JSObject {
             self.shape_prepare_update(ctx)?;
 
             self.shape().unwrap().with_mut(|s| {
-                let prs = s.props.get_mut(&prop.0).unwrap();
+                let prs = s.prop_defs.get_mut(&prop.0).unwrap();
                 prs.set_flags(
                     (prs.flags() & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) | JS_PROP_GETSET,
                 );

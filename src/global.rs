@@ -37,7 +37,7 @@ impl JSContext {
 
             // XXX: should handle JS_PROP_AUTOINIT properties?
             // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
-            if let JSProperty::Value(JSValue::UNINITIALIZED) =
+            if let JSProperty::Normal(JSValue::UNINITIALIZED) =
                 gvobj.0.prop_values.borrow().get(idx).unwrap()
             {
                 JS_ThrowReferenceErrorUninitialized(self, prop);
@@ -130,7 +130,7 @@ pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: JSAtom, def_flags: u32) -> i32 
         0
     } else if p
         .add_property_then(ctx, prop, flags, |pr| {
-            *pr = JSProperty::Value(val);
+            *pr = JSProperty::Normal(val);
         })
         .is_ok()
     {
@@ -191,11 +191,11 @@ pub fn JS_GetGlobalVar(ctx: &JSContext, prop: JSAtom, throw_ref_error: bool) -> 
         // found prop in global var object
         // XXX: should handle JS_PROP_TMASK properties
         match gvobj.0.prop_values.borrow().get(idx).unwrap() {
-            JSProperty::Value(JSValue::UNINITIALIZED) => {
+            JSProperty::Normal(JSValue::UNINITIALIZED) => {
                 JS_ThrowReferenceErrorUninitialized(ctx, prop);
                 JSValue::EXCEPTION
             }
-            JSProperty::Value(v) => v.clone(),
+            JSProperty::Normal(v) => v.clone(),
             _ => {
                 unreachable!()
             }
@@ -253,7 +253,7 @@ pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -
 
         if flag != 1 {
             match pr {
-                JSProperty::Value(JSValue::UNINITIALIZED) => {
+                JSProperty::Normal(JSValue::UNINITIALIZED) => {
                     JS_ThrowReferenceErrorUninitialized(ctx, prop);
                     return -1;
                 }
@@ -269,7 +269,7 @@ pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -
             }
         }
 
-        *pr = JSProperty::Value(val.clone());
+        *pr = JSProperty::Normal(val.clone());
         return 0;
     } else {
         // not exist

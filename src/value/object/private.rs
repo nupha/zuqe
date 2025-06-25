@@ -21,7 +21,7 @@ impl JSObject {
         {
             if let Some((idx, _)) = home_obj.find_own_property(JS_ATOM_Private_brand) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
-                    JSProperty::Value(sym @ JSValue::Symbol(_)) => {
+                    JSProperty::Normal(sym @ JSValue::Symbol(_)) => {
                         Ok(self.has_own_property(js_symbol_to_atom(ctx, &sym)))
                     }
                     _ => {
@@ -50,7 +50,7 @@ impl JSObject {
         let prop = js_symbol_to_atom(ctx, name);
 
         if let Some((idx, _)) = self.find_own_property(prop) {
-            self.0.prop_values.borrow_mut()[idx] = JSProperty::Value(val);
+            self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
             Ok(())
         } else {
             JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
@@ -65,7 +65,7 @@ impl JSObject {
         } else {
             let prop = js_symbol_to_atom(ctx, &name);
             if let Some((idx, _)) = self.find_own_property(prop) {
-                if let JSProperty::Value(val) = self.0.prop_values.borrow().get(idx).unwrap() {
+                if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
                     Ok(val.clone())
                 } else {
                     unreachable!()
@@ -120,7 +120,7 @@ impl JSObject {
             Err(-1)
         } else {
             self.add_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
-                *pr = JSProperty::Value(val);
+                *pr = JSProperty::Normal(val);
             })
         }
     }
@@ -143,7 +143,7 @@ impl JSValue {
         if let JSValue::Object(home) = home_obj {
             let brand: JSValue =
                 if let Some((idx, _)) = home.find_own_property(JS_ATOM_Private_brand) {
-                    if let JSProperty::Value(val) = home.0.prop_values.borrow().get(idx).unwrap() {
+                    if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
                         val.clone()
                     } else {
                         unreachable!()
@@ -155,7 +155,7 @@ impl JSValue {
                             .check_exception()?
                     };
                     home.add_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
-                        *pr = JSProperty::Value(br.clone());
+                        *pr = JSProperty::Normal(br.clone());
                     })?;
                     br
                 };
@@ -169,7 +169,7 @@ impl JSValue {
                     Err(-1)
                 } else {
                     let r = p1.add_property_then(ctx, brand_atom, JS_PROP_C_W_E, |pr| {
-                        *pr = JSProperty::Value(JSValue::UNDEFINED);
+                        *pr = JSProperty::Normal(JSValue::UNDEFINED);
                     });
                     JS_FreeAtom(ctx, brand_atom);
                     r

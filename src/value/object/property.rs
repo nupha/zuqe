@@ -187,22 +187,16 @@ impl JSPropertyDescriptor {
     }
 }
 
+/// the property value
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum JSProperty {
-    /// JS_PROP_NORMAL
-    Value(JSValue),
-
-    /// JS_PROP_GETSET
+    Normal(JSValue),
     GetSet {
         getter: Option<JSObject>,
         setter: Option<JSObject>,
     },
-
-    /// JS_PROP_VARREF
     VarRef(JSVarRef),
-
-    /// JS_PROP_AUTOINIT
     /// TODO: use Box<PropertyInit> instead
     AutoInit {
         realm: JSContext,
@@ -213,7 +207,7 @@ pub enum JSProperty {
 
 impl Default for JSProperty {
     fn default() -> Self {
-        Self::Value(JSValue::UNDEFINED)
+        Self::Normal(JSValue::UNDEFINED)
     }
 }
 
@@ -221,10 +215,10 @@ impl JSProperty {
     /// get property value
     pub fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSValue {
         match self {
-            Self::Value(val) => val.clone(),
+            Self::Normal(val) => val.clone(),
             Self::GetSet { getter, .. } => {
-                if let Some(f) = getter {
-                    JS_Call(ctx, &JSValue::Object(f.clone()), this_obj, &[])
+                if let Some(fun) = getter {
+                    JS_Call(ctx, &JSValue::Object(fun.clone()), this_obj, &[])
                 } else {
                     JSValue::UNDEFINED
                 }
@@ -234,78 +228,9 @@ impl JSProperty {
         }
     }
 
-    #[deprecated(note = "use JSObject::internal_assign_prop_value() instead")]
-    pub(super) fn set_value(
-        &mut self,
-        prs_flags: u32,
-        ctx: &JSContext,
-        prop: JSAtom,
-        value: JSValue,
-        this_val: &JSValue,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        let this_obj = unsafe { this_val.object_unchecked() };
-
-        if prs_flags & JS_PROP_LENGTH != 0 {
-            // special prop: length
-            // use to set .length property of an array object
-            debug_assert_eq!(this_obj.class_id(), JS_CLASS_ARRAY);
-            debug_assert_eq!(prop, JS_ATOM_length);
-            return this_obj.set_array_length(ctx, value, flags);
-        }
-
-        match self {
-            Self::Value(v) => {
-                if prs_flags & JS_PROP_WRITABLE == 0 {
-                    return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    };
-                }
-
-                *v = value;
-                Ok(true)
-            }
-            Self::GetSet { setter, .. } => call_setter(
-                ctx,
-                setter.as_ref(),
-                &JSValue::Object(this_obj.clone()),
-                value,
-                flags,
-            ),
-            Self::VarRef(vref) => {
-                // JS_PROP_WRITABLE is always true for variable references,
-                // but they are write protected in module name spaces.
-                if this_obj.class_id() == JS_CLASS_MODULE_NS {
-                    if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    }
-                } else {
-                    vref.set_value(value);
-                    Ok(true)
-                }
-            }
-            Self::AutoInit { .. } => {
-                if prs_flags & JS_PROP_WRITABLE == 0 {
-                    return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    };
-                }
-
-                let val = self.instantiate(this_obj, prop)?;
-                std::mem::replace(self, JSProperty::Value(val));
-                Ok(true)
-            }
-        }
-    }
-
-    /// get auto init property realm. for other property types, returns None.
-    pub(crate) fn realm(&self) -> Option<JSContext> {
+    /// get realm of an auto init property.
+    /// for other property types, returns None.
+    pub(crate) fn auto_init_realm(&self) -> Option<JSContext> {
         if let JSProperty::AutoInit { realm, .. } = self {
             Some(realm.clone())
         } else {
@@ -410,7 +335,7 @@ impl JSObject {
     #[inline]
     pub fn has_own_property(&self, prop: JSAtom) -> bool {
         self.shape()
-            .map_or(false, |sh| sh.0.borrow().props.get(&prop.0).is_some())
+            .map_or(false, |sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
     }
 
     /// Find own property by prop atom.
@@ -420,7 +345,7 @@ impl JSObject {
     pub fn find_own_property(&self, prop: JSAtom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.0.borrow()
-                .props
+                .prop_defs
                 .get_full(&prop.0)
                 .map(|(i, _, pr)| (i, pr.flags()))
         })
@@ -468,7 +393,7 @@ impl JSObject {
                         JSProperty::default(),
                     );
                     desc.value = pr.instantiate(self, prop)?;
-                    debug_assert!(matches!(pr, JSProperty::Value(_)));
+                    debug_assert!(matches!(pr, JSProperty::Normal(_)));
                     self.0.prop_values.borrow_mut()[idx] = pr;
                 }
                 _ => {}
