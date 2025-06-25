@@ -1,10 +1,12 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{consts::*, JSAtom},
-    bytecode::{opcodes, OpCode},
+    atom::{JSAtom, consts::*},
+    bytecode::{OpCode, opcodes},
     context::JSContext,
     error::JS_THROW_VAR_RO,
-    function::{JSFunctionDef, JSVarKindEnum, ARGUMENT_VAR_OFFSET, ARG_SCOPE_END},
-    utils::{push_vec_u16, push_vec_u32, push_vec_u8},
+    function::{ARG_SCOPE_END, ARGUMENT_VAR_OFFSET, JSFunctionDef, JSVarKindEnum},
+    utils::{push_vec_u8, push_vec_u16, push_vec_u32},
 };
 
 use super::optimize::{
@@ -20,7 +22,7 @@ impl JSFunctionDef {
     /// Handles local, closure, and global variable resolution
     pub fn resolve_scope_var(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         var_name: JSAtom,
         scope: i32,
         op: u8,
@@ -59,7 +61,7 @@ impl JSFunctionDef {
                 if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
                     if item.vd.is_const() {
                         push_vec_u8(bc, opcodes::OP_throw_error);
-                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                         push_vec_u8(bc, JS_THROW_VAR_RO);
                         done!(label_done);
                     }
@@ -175,7 +177,7 @@ impl JSFunctionDef {
                     ) {
                         if item.vd.is_const() {
                             push_vec_u8(bc, opcodes::OP_throw_error);
-                            push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                            push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                             push_vec_u8(bc, JS_THROW_VAR_RO);
                             done!(label_done);
                         }
@@ -477,7 +479,7 @@ impl JSFunctionDef {
     /// acccess found vardef: for a var or arg
     fn resolve_scope_var_vardef(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         var_name: JSAtom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -497,7 +499,7 @@ impl JSFunctionDef {
             // in case assigning a function expression name in strict mode.
             // this is not allowed.
             push_vec_u8(bc, opcodes::OP_throw_error);
-            push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+            push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
             // op_scope_put_var_init is only used to initialize a
@@ -518,9 +520,9 @@ impl JSFunctionDef {
                         push_vec_u8(bc, opcodes::OP_get_loc);
                         push_vec_u16(bc, var_id as u16);
                         push_vec_u8(bc, opcodes::OP_define_field);
-                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                         push_vec_u8(bc, opcodes::OP_push_atom_value);
-                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                     } else if label_done.is_none() && can_optimize_put_ref_value(bc_buf, label.pos)
                     {
                         let get_op = if var_id & ARGUMENT_VAR_OFFSET != 0 {
@@ -540,11 +542,11 @@ impl JSFunctionDef {
                         // a reference to the local variable
                         if var_id & ARGUMENT_VAR_OFFSET != 0 {
                             push_vec_u8(bc, opcodes::OP_make_arg_ref);
-                            push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                            push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                             push_vec_u16(bc, (var_id - ARGUMENT_VAR_OFFSET) as _);
                         } else {
                             push_vec_u8(bc, opcodes::OP_make_loc_ref);
-                            push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                            push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                             push_vec_u16(bc, var_id as u16);
                         }
                     }
@@ -636,7 +638,7 @@ impl JSFunctionDef {
     /// Generates appropriate bytecode for closure variable access
     fn resolve_scope_var_closure(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         var_name: JSAtom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -659,7 +661,7 @@ impl JSFunctionDef {
             )
         {
             push_vec_u8(bc, opcodes::OP_throw_error);
-            push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+            push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
             match op as u8 {
@@ -674,9 +676,9 @@ impl JSFunctionDef {
                         push_vec_u8(bc, opcodes::OP_get_var_ref);
                         push_vec_u16(bc, idx as _);
                         push_vec_u8(bc, opcodes::OP_define_field);
-                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                         push_vec_u8(bc, opcodes::OP_push_atom_value);
-                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                     } else if label_done.is_none() && can_optimize_put_ref_value(bc_buf, label.pos)
                     {
                         pos_next = optimize_scope_make_ref(
@@ -695,7 +697,7 @@ impl JSFunctionDef {
                         // Create a dummy object with a named slot that is
                         // a reference to the closure variable
                         push_vec_u8(bc, opcodes::OP_make_var_ref_ref);
-                        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                         push_vec_u16(bc, idx as _);
                     }
                 }
@@ -763,7 +765,7 @@ impl JSFunctionDef {
     /// Handles special cases for variable initialization and deletion
     fn resolve_scope_var_global(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         var_name: JSAtom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -790,7 +792,7 @@ impl JSFunctionDef {
                     ) as _;
                 } else {
                     push_vec_u8(bc, opcodes::OP_make_var_ref);
-                    push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                    push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
                 }
             }
             opcodes::op_scope_get_ref => {
@@ -798,7 +800,7 @@ impl JSFunctionDef {
                 // a reference to the global variable
                 push_vec_u8(bc, opcodes::OP_undefined);
                 push_vec_u8(bc, opcodes::OP_get_var);
-                push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
             }
             opcodes::op_scope_get_var_undef
             | opcodes::op_scope_get_var
@@ -807,15 +809,15 @@ impl JSFunctionDef {
                     bc,
                     opcodes::OP_get_var_undef + (op as u8 - opcodes::op_scope_get_var_undef),
                 );
-                push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
             }
             opcodes::op_scope_put_var_init => {
                 push_vec_u8(bc, opcodes::OP_put_var_init);
-                push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
             }
             opcodes::op_scope_delete_var => {
                 push_vec_u8(bc, opcodes::OP_delete_var);
-                push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+                push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
             }
             _ => {}
         }
@@ -831,7 +833,7 @@ impl JSFunctionDef {
     /// Resolves special pseudo variables (this, new.target, etc.)
     /// Returns the variable definition index if found.
     /// Returns None if the variable is not a pseudo variable
-    fn resolve_pseudo_var(&mut self, ctx: &mut JSContext, var_name: JSAtom) -> Option<u16> {
+    fn resolve_pseudo_var(&mut self, ctx: &JSContext, var_name: JSAtom) -> Option<u16> {
         if !self.has_this_binding {
             return None;
         }
@@ -876,7 +878,7 @@ impl JSFunctionDef {
     /// Returns the original label_done or new created label for label_done
     fn var_object_test(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         var_name: JSAtom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -893,7 +895,7 @@ impl JSFunctionDef {
                 opcodes::OP_with_get_var + (op as u8 - opcodes::op_scope_get_var)
             },
         );
-        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
         push_vec_u32(bc, label);
         push_vec_u8(bc, is_with as u8);
 
@@ -913,11 +915,11 @@ impl JSFunctionDef {
 /// Returns None if the variable is not a pseudo variable
 #[deprecated(note = "use JSFunctionDef::resolve_pseudo_var() instead")]
 pub unsafe fn resolve_pseudo_var(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     s: *mut JSFunctionDef,
     var_name: JSAtom,
 ) -> Option<u16> {
-    (*s).resolve_pseudo_var(ctx.as_mut().unwrap(), var_name)
+    (*s).resolve_pseudo_var(ctx, var_name)
 }
 
 // pub fn get_with_scope_opcode(op: u8) -> u8 {
@@ -933,7 +935,7 @@ pub unsafe fn resolve_pseudo_var(
 // If argument `label_done` is None, new label will be created.
 #[deprecated(note = "use JSFunctionDef::var_object_test() instead")]
 pub unsafe fn var_object_test(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     s: *mut JSFunctionDef,
     var_name: JSAtom,
     op: u8,
@@ -941,12 +943,5 @@ pub unsafe fn var_object_test(
     label_done: &mut Option<u32>,
     is_with: bool,
 ) {
-    label_done.replace((*s).var_object_test(
-        ctx.as_mut().unwrap(),
-        var_name,
-        op,
-        bc,
-        *label_done,
-        is_with,
-    ));
+    label_done.replace((*s).var_object_test(ctx, var_name, op, bc, *label_done, is_with));
 }

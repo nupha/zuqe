@@ -416,7 +416,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
 
 #[deprecated(note = "use f64_stringify() instead")]
 pub unsafe fn js_dtoa(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     d: f64,
     radix: i32,
     n_digits: i32,
@@ -424,7 +424,7 @@ pub unsafe fn js_dtoa(
 ) -> JSValue {
     let mut buf: [u8; JS_DTOA_BUF_SIZE] = [0; JS_DTOA_BUF_SIZE];
     js_dtoa1(buf.as_mut_ptr(), d, radix, n_digits, flags);
-    (*ctx).create_string(CStr::from_ptr(buf.as_ptr().cast()).to_str().unwrap())
+    ctx.create_string(CStr::from_ptr(buf.as_ptr().cast()).to_str().unwrap())
 }
 
 /* buf1 contains the printf result */

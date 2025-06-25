@@ -1,12 +1,12 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::Deref};
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
-    bytecode::{opcodes, OpCode, OpCodeTemp},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    bytecode::{OpCode, OpCodeTemp, opcodes},
     error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
     parse::token::CHAR_SLASH,
-    value::{JS_FreeValue, JS_TAG_INT, JS_VALUE_GET_INT},
+    value::{JS_FreeValue, JSValue},
 };
 
 use super::{
@@ -14,8 +14,8 @@ use super::{
     class::js_parse_class,
     destructing::js_parse_destructuring_element,
     emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_label_raw, emit_op, emit_op_temp,
-        emit_push_const, emit_u16, emit_u32, emit_u8, get_prev_opcode, OPSpecialObjectEnum,
+        OPSpecialObjectEnum, emit_atom_dup, emit_goto, emit_label, emit_label_raw, emit_op,
+        emit_op_temp, emit_push_const, emit_u8, emit_u16, emit_u32, get_prev_opcode,
     },
     error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
@@ -26,12 +26,12 @@ use super::{
     regexp::js_parse_regexp,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
     token::{
-        peek_token, token_is_pseudo_keyword, CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA,
-        CHAR_CURLY_L, CHAR_EQUAL, CHAR_SQUARE_L, TOK_ARROW, TOK_CLASS, TOK_DIV_ASSIGN,
-        TOK_DOUBLE_QUESTION_MARK_ASSIGN, TOK_FALSE, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT,
-        TOK_LAND_ASSIGN, TOK_LOR_ASSIGN, TOK_MUL_ASSIGN, TOK_NEW, TOK_NULL, TOK_NUMBER,
-        TOK_POW_ASSIGN, TOK_QUESTION_MARK_DOT, TOK_STRING, TOK_SUPER, TOK_TEMPLATE, TOK_THIS,
-        TOK_TRUE, TOK_YIELD,
+        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_EQUAL, CHAR_SQUARE_L,
+        TOK_ARROW, TOK_CLASS, TOK_DIV_ASSIGN, TOK_DOUBLE_QUESTION_MARK_ASSIGN, TOK_FALSE,
+        TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LAND_ASSIGN, TOK_LOR_ASSIGN, TOK_MUL_ASSIGN,
+        TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_POW_ASSIGN, TOK_QUESTION_MARK_DOT, TOK_STRING,
+        TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD, peek_token,
+        token_is_pseudo_keyword,
     },
 };
 
@@ -44,7 +44,7 @@ impl<'s> JSParseState<'s> {
 
         // name0 is used to check for OP_set_name pattern, not duplicated
         let name0 = if self.token.val == TOK_IDENT {
-            self.token.u.ident.atom
+            self.token.data.ident_atom().unwrap()
         } else {
             JS_ATOM_NULL
         };
@@ -71,7 +71,7 @@ impl<'s> JSParseState<'s> {
                 )?;
 
                 if self.parse_assign_expr2(parse_flags).is_err() {
-                    JS_FreeAtom(self.ctx.as_ptr(), name);
+                    JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
 
@@ -138,7 +138,7 @@ impl<'s> JSParseState<'s> {
                 emit_op(self, OpCode::DROP);
 
                 if self.parse_assign_expr2(parse_flags).is_err() {
-                    JS_FreeAtom(self.ctx.as_ptr(), name);
+                    JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
 
@@ -243,10 +243,10 @@ impl<'s> JSParseState<'s> {
 
         match self.token.val {
             TOK_NUMBER => {
-                let val = self.token.u.num.val;
-                if val.tag() == JS_TAG_INT {
+                let val = self.token.data.number().unwrap().clone();
+                if let JSValue::Int(i) = val {
                     emit_op(self, OpCode::PUSH_I32);
-                    emit_u32(self, JS_VALUE_GET_INT(val) as _);
+                    emit_u32(self, i as u32);
                 } else {
                     if emit_push_const(self, val, false) < 0 {
                         return Err(-1);
@@ -259,7 +259,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_template(false, core::ptr::null_mut())?;
             }
             TOK_STRING => {
-                if emit_push_const(self, self.token.u.str.str, true) != 0 {
+                if emit_push_const(self, self.token.data.string().unwrap().clone(), true) != 0 {
                     return Err(-1);
                 }
                 self.next_token()?;
@@ -271,18 +271,19 @@ impl<'s> JSParseState<'s> {
                     .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 });
 
                 // parse_regexp:
-                if let Some(cb) = self.ctx.compile_regexp {
+                let compile_regexp = self.ctx.0.borrow().compile_regexp;
+                if let Some(cb) = compile_regexp {
                     /* the previous token is '/' or '/=', so no need to free */
                     if js_parse_regexp(self) != 0 {
                         return Err(-1);
                     }
 
-                    emit_push_const(self, self.token.u.regexp.body, false);
+                    emit_push_const(self, self.token.data.regexp_body().unwrap().clone(), false);
 
                     let str = cb(
-                        self.ctx.as_ptr(),
-                        self.token.u.regexp.body,
-                        self.token.u.regexp.flags,
+                        &self.ctx,
+                        self.token.data.regexp_body().unwrap().clone(),
+                        self.token.data.regexp_flags().unwrap().clone(),
                     );
                     if str.is_exception() {
                         // add the line number info
@@ -293,9 +294,9 @@ impl<'s> JSParseState<'s> {
                                 0
                             };
 
-                        let exc = self.ctx.rt().current_exception;
+                        let exc = self.ctx.exception();
                         self.ctx.build_backtrace_to(
-                            exc,
+                            &exc,
                             Some((self.filename, self.token.line_num)),
                             backtrace_flags,
                         );
@@ -304,7 +305,6 @@ impl<'s> JSParseState<'s> {
                     }
 
                     let ret = emit_push_const(self, str, false);
-                    JS_FreeValue(self.ctx.as_ptr(), str);
                     if ret != 0 {
                         return Err(-1);
                     }
@@ -315,7 +315,7 @@ impl<'s> JSParseState<'s> {
                     emit_op(self, OpCode::REGEXP);
                     self.next_token()?;
                 } else {
-                    self.throw_syntax_error(c"RegExp are not supported");
+                    self.throw_syntax_error("RegExp are not supported");
                     return Err(-1);
                 }
             }
@@ -375,7 +375,7 @@ impl<'s> JSParseState<'s> {
             }
             TOK_IDENT => {
                 let name: JSAtom;
-                if self.token.u.ident.is_reserved {
+                if self.token.data.is_reserved() {
                     return if js_parse_error_reserved_identifier(self) < 0 {
                         Err(-1)
                     } else {
@@ -411,7 +411,7 @@ impl<'s> JSParseState<'s> {
                             && js_parse_skip_parens_token(self, core::ptr::null_mut(), true)
                                 == TOK_ARROW)
                         || (self.token.val == TOK_IDENT
-                            && !self.token.u.ident.is_reserved
+                            && !self.token.data.is_reserved()
                             && peek_token(self, true) == TOK_ARROW)
                     {
                         self.parse_function_decl(
@@ -422,25 +422,25 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else {
-                        name = JS_ATOM_async.dup(self.ctx.rt());
+                        name = JS_ATOM_async.dup(self.ctx.rt().deref());
                         emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                         emit_u32(self, name.0);
                         emit_u16(self, self.cur_func().scope_level as _);
                     }
                 } else {
-                    if self.token.u.ident.atom == JS_ATOM_arguments
+                    if self.token.data.ident_atom().unwrap() == JS_ATOM_arguments
                         && !self.cur_func().arguments_allowed
                     {
                         self.throw_syntax_error(
-                            c"'arguments' identifier is not allowed in class field initializer",
+                            "'arguments' identifier is not allowed in class field initializer",
                         );
                         return Err(-1);
                     }
 
-                    name = self.token.u.ident.atom.dup(self.ctx.rt());
+                    name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
 
                     if self.next_token().is_err() {
-                        JS_FreeAtom(self.ctx.as_ptr(), name);
+                        JS_FreeAtom(&self.ctx, name);
                         return Err(-1);
                     }
 
@@ -482,11 +482,11 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if !token_is_pseudo_keyword(self, JS_ATOM_target) {
-                        self.throw_syntax_error(c"expecting target");
+                        self.throw_syntax_error("expecting target");
                         return Err(-1);
                     }
                     if !self.cur_func().new_target_allowed {
-                        self.throw_syntax_error(c"new.target only allowed within functions");
+                        self.throw_syntax_error("new.target only allowed within functions");
                         return Err(-1);
                     }
 
@@ -514,14 +514,14 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == b'(' as i32 {
                     if !self.cur_func().super_call_allowed {
                         self.throw_syntax_error(
-                            c"super() is only valid in a derived class constructor",
+                            "super() is only valid in a derived class constructor",
                         );
                         return Err(-1);
                     }
                     call_type = FuncCallType::FUNC_CALL_SUPER_CTOR;
                 } else if self.token.val == b'.' as i32 || self.token.val == b'[' as i32 {
                     if !self.cur_func().super_allowed {
-                        self.throw_syntax_error(c"'super' is only valid in a method");
+                        self.throw_syntax_error("'super' is only valid in a method");
                         return Err(-1);
                     }
 
@@ -533,7 +533,7 @@ impl<'s> JSParseState<'s> {
                     emit_u16(self, 0);
                     emit_op(self, OpCode::GET_SUPER);
                 } else {
-                    self.throw_syntax_error(c"invalid use of 'super'");
+                    self.throw_syntax_error("invalid use of 'super'");
                     return Err(-1);
                 }
             }
@@ -542,11 +542,11 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == b'.' as i32 {
                     self.next_token()?;
                     if !token_is_pseudo_keyword(self, JS_ATOM_meta) {
-                        self.throw_syntax_error(c"meta expected");
+                        self.throw_syntax_error("meta expected");
                         return Err(-1);
                     }
                     if !self.is_module {
-                        self.throw_syntax_error(c"import.meta only valid in module code");
+                        self.throw_syntax_error("import.meta only valid in module code");
                         return Err(-1);
                     }
                     self.next_token()?;
@@ -559,7 +559,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_expect(CHAR_BRACKET_L)?;
                     if !accept_lparen {
-                        self.throw_syntax_error(c"invalid use of 'import()'");
+                        self.throw_syntax_error("invalid use of 'import()'");
                         return Err(-1);
                     }
                     self.parse_assign_expr()?;
@@ -570,11 +570,11 @@ impl<'s> JSParseState<'s> {
             _ => {
                 let len = self.buf_ptr as usize - self.token.ptr as usize;
                 let msg = format!(
-                    "unexpected token in expression: '{:.1$?}'\0",
-                    CStr::from_ptr(self.token.ptr.cast()),
+                    "unexpected token in expression: '{:.1$?}'",
+                    CStr::from_ptr(self.token.ptr.cast()).to_string_lossy(),
                     len
                 );
-                self.throw_syntax_error(CStr::from_ptr(msg.as_ptr().cast()));
+                self.throw_syntax_error(&msg);
                 return Err(-1);
             }
         }
@@ -617,7 +617,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token.val == TOK_TEMPLATE && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
                 if optional_chaining_label >= 0 {
-                    self.throw_syntax_error(c"template literal cannot appear in an optional chain");
+                    self.throw_syntax_error("template literal cannot appear in an optional chain");
                     return Err(-1);
                 }
 

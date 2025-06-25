@@ -34,7 +34,7 @@ pub const fn to_digit(c: u8) -> i32 {
 }
 
 pub unsafe fn js_atof(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     str: *const u8,
     pp: *mut *const u8,
     mut radix: i32,
@@ -48,7 +48,7 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            return JSValue::NAN;
+            return JSValue::Float64(f64::NAN);
         };
     }
 
@@ -208,7 +208,7 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            return ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
+            return ctx.JS_ThrowOutOfMemory();
         }
     }
 
@@ -276,7 +276,7 @@ pub unsafe fn js_atof(
         }
         ATOD_TYPE_BIG_INT => {
             // fail!();
-            (*ctx).JS_ThrowError(JSErrorEnum::Syntax, c"big int is not supported");
+            ctx.JS_ThrowError(JSErrorEnum::Syntax, "big int is not supported");
             if !pp.is_null() {
                 *pp = p;
             }

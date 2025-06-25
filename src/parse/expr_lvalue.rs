@@ -1,6 +1,6 @@
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
-    bytecode::{opcodes, OpCode, OpCodeTemp},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     utils::read_from_ptr,
 };
@@ -39,11 +39,11 @@ impl<'s> JSParseState<'s> {
         macro_rules! throw_error {
             () => {
                 self.throw_syntax_error(match tok {
-                    TOK_FOR => c"invalid for in/of left hand-side",
-                    TOK_INC | TOK_DEC => c"invalid increment/decrement operand",
+                    TOK_FOR => "invalid for in/of left hand-side",
+                    TOK_INC | TOK_DEC => "invalid increment/decrement operand",
                     // 91='[', 123='{'
-                    91 | 123 => c"invalid destructuring target",
-                    _ => c"invalid assignment left-hand side",
+                    91 | 123 => "invalid destructuring target",
+                    _ => "invalid assignment left-hand side",
                 });
             };
         }
@@ -78,7 +78,7 @@ impl<'s> JSParseState<'s> {
                     JS_ATOM_arguments | JS_ATOM_eval
                         if self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 =>
                     {
-                        self.throw_syntax_error(c"invalid lvalue in strict mode");
+                        self.throw_syntax_error("invalid lvalue in strict mode");
                         return Err(-1);
                     }
                     JS_ATOM_this | JS_ATOM_new_target => {
@@ -245,7 +245,7 @@ impl<'s> JSParseState<'s> {
             opcodes::OP_get_array_el | opcodes::OP_get_ref_value => {
                 // depth = 2
                 if opcode == opcodes::OP_get_ref_value as i32 {
-                    JS_FreeAtom(self.ctx.as_ptr(), name);
+                    JS_FreeAtom(&self.ctx, name);
                     emit_label(self, label);
                 }
                 match special {

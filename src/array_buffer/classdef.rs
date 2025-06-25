@@ -1,36 +1,30 @@
 use crate::{
+    JS_CFUNC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
+    JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
     array_buffer::js_array_buffer_constructor2,
     class::JSClassID,
     context::JSContext,
-    error::{JSResult, JS_ThrowTypeErrorDetachedArrayBuffer},
-    function::{CallArgs, JSCFunctionListEntry, JS_CallConstructor},
+    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    function::{CallContext, JS_CallConstructor, JSCFunctionListEntry},
     js_core::js_get_this,
     value::{
-        object::{JS_SpeciesConstructor, JS_PROP_CONFIGURABLE},
-        JSValue, JSValueRc, JS_FreeValue, JS_ToInt64Clamp,
+        JS_ToInt64Clamp, JSValue,
+        object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     },
-    JS_CFUNC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
-    JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
 };
 
-pub unsafe fn js_array_buffer_isView(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
+pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res = false;
-    if (*argv.offset(0)).is_object() {
-        let p = (*argv.offset(0)).object_unchecked();
+    if let JSValue::Object(p) = cc.arg(0) {
         if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id()) {
             res = true;
         }
     }
-    res.into()
+    Ok(JSValue::Bool(res))
 }
 
 pub const js_array_buffer_funcs: [JSCFunctionListEntry; 2] = [
-    JS_CFUNC_DEF!(c"isView", 1, js_array_buffer_isView),
+    JS_CFUNC_NATIVE_DEF!(c"isView", 1, js_array_buffer_isView, 0),
     JS_CGETSET_DEF!(c"[Symbol.species]", js_get_this, NONE),
 ];
 
@@ -42,13 +36,15 @@ pub const js_shared_array_buffer_funcs: [JSCFunctionListEntry; 1] =
 //
 
 pub unsafe fn js_array_buffer_get_byteLength(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     this_val: JSValue,
     class_id: i32,
 ) -> JSValue {
     this_val
         .object_unchecked()
-        .isa()
+        .0
+        .isa
+        .borrow()
         .array_buffer()
         .map_or(
             JSValue::EXCEPTION,
@@ -56,16 +52,19 @@ pub unsafe fn js_array_buffer_get_byteLength(
         )
 }
 
-pub fn js_array_buffer_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let abuf = unsafe {
-        args.this_raw()
+        cc.this()
             .object_unchecked()
-            .isa()
+            .0
+            .isa
+            .borrow()
             .array_buffer()
+            .cloned()
             .ok_or(-1)?
     };
 
-    if abuf.detached {
+    if abuf.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
@@ -73,69 +72,69 @@ pub fn js_array_buffer_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let len = abuf.byte_length() as i64;
 
     let mut start: i64 = 0;
-    if unsafe { JS_ToInt64Clamp(ctx, &mut start, args.get_raw(0), 0, len, len) } != 0 {
+    if unsafe { JS_ToInt64Clamp(ctx, &mut start, &cc.get_raw(0), 0, len, len) } != 0 {
         return Err(-1);
     }
 
     let mut end = len;
-    if !args.get_raw(1).is_undefined() {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut end, args.get_raw(1), 0, len, len) } != 0 {
+    if !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt64Clamp(ctx, &mut end, &cc.get_raw(1), 0, len, len) } != 0 {
             return Err(-1);
         }
     }
 
     let new_len = std::cmp::max(end - start, 0);
-    let ctor = unsafe {
-        JS_SpeciesConstructor(ctx, args.this_raw(), JSValue::UNDEFINED).check_exception()?
-    };
+    let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
 
-    let new_obj: JSValueRc = if ctor.is_undefined() {
+    let new_obj = if ctor.is_undefined() {
         unsafe {
             js_array_buffer_constructor2(
                 ctx,
-                JSValue::UNDEFINED,
+                &JSValue::UNDEFINED,
                 new_len as usize,
-                args.magic as JSClassID,
+                cc.magic() as JSClassID,
             )
         }
     } else {
-        let mut args = [JSValue::from(new_len)];
-        let o = unsafe { JS_CallConstructor(ctx, ctor, 1, args.as_mut_ptr()) };
-        JS_FreeValue(ctx, ctor);
-        JS_FreeValue(ctx, args[0]);
-        o
+        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)])
     }
-    .check_exception()?
-    .into_rc(ctx.rt());
+    .check_exception()?;
 
-    if new_obj.is_same(args.this_raw()) {
-        ctx.JS_ThrowTypeError(c"cannot use identical ArrayBuffer");
+    if new_obj.is_same(cc.this()) {
+        ctx.JS_ThrowTypeError("cannot use identical ArrayBuffer");
         return Err(-1);
     }
 
-    let new_abuf = unsafe {
-        if new_obj.object_unchecked().isa().class_id() != args.magic as JSClassID {
-            return Err(-1);
-        }
-        new_obj
-            .object_unchecked()
-            .isa_mut()
-            .array_buffer_mut()
-            .ok_or(-1)?
-    };
+    if unsafe { new_obj.object_unchecked() }
+        .0
+        .isa
+        .borrow()
+        .class_id()
+        != cc.magic() as JSClassID
+    {
+        return Err(-1);
+    }
 
-    if new_abuf.detached {
+    let mut new_abuf = unsafe { new_obj.object_unchecked() }
+        .0
+        .isa
+        .borrow()
+        .array_buffer()
+        .cloned()
+        .ok_or(-1)?;
+
+    if new_abuf.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
 
     if new_abuf.byte_length() < new_len as usize {
-        ctx.JS_ThrowTypeError(c"new ArrayBuffer is too small");
+        ctx.JS_ThrowTypeError("new ArrayBuffer is too small");
         return Err(-1);
     }
 
     // must test again because of side effects
-    if abuf.detached {
+    if abuf.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }

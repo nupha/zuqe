@@ -1,58 +1,30 @@
 use crate::{
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::consts::*,
     context::JSContext,
     error::JSResult,
     function::{
-        js_class_has_bytecode, js_function_apply, CallArgs, JSBoundFunction, JSCFunctionListEntry,
-        JSFunctionBytecode, JSFunctionKindEnum, JS_Call, JS_GetFunctionBytecode,
+        CallContext, JS_Call, JSBoundFunction, JSCFunctionListEntry, JSFunctionKindEnum,
+        js_function_apply,
     },
-    gc::{GCObject, RefCounted},
     value::{
-        object::{JSObjectIsa, JS_GetOwnProperty, JS_OrdinaryIsInstanceOf, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JS_ConcatString3, JS_FreeValue, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT,
-        JS_VALUE_GET_NORM_TAG, JS_VALUE_GET_PTR,
+        JS_ConcatString3, JSValue,
+        object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
     },
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BOUND_FUNCTION,
 };
 
-pub fn js_function_call(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let r = if args.length() == 0 {
-        unsafe {
-            JS_Call(
-                ctx,
-                args.this_value,
-                JSValue::UNDEFINED,
-                args.length() as _,
-                std::ptr::null_mut(),
-            )
-        }
-    } else {
-        unsafe {
-            JS_Call(
-                ctx,
-                args.this_value,
-                args.get_raw(0),
-                args.length() as i32 - 1,
-                args.arguments_raw().as_ptr().add(1) as _,
-            )
-        }
-    };
-
-    if r.is_exception() {
-        Err(-1)
-    } else {
-        Ok(r)
-    }
+pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
+    JS_Call(ctx, &args.this_raw(), &JSValue::UNDEFINED, args.arguments()).check_exception()
 }
 
-pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
+    let this_val = args.this();
 
     this_val.ensure_callable(ctx)?;
 
     let mut bf = Box::new(JSBoundFunction {
-        func_obj: this_val.dup(),
-        this_val: args.get_raw(0).dup(), // argument #0 is for `this`
+        func_obj: this_val.clone(),
+        this_val: args.arg(0).clone(), // argument #0 is for `this`
         bind_args: Vec::new(),
     });
 
@@ -66,47 +38,37 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             ctx.JS_ThrowOutOfMemory();
             return Err(-1);
         }
-        for a in &args.arguments_raw()[1..] {
-            bf.bind_args.push(a.dup());
+        for a in &args.arguments()[1..] {
+            bf.bind_args.push(a.clone());
         }
     }
 
-    let func_obj = {
-        let bf_ptr = Box::into_raw(bf);
-        ctx.create_instance_from_proto(ctx.function_proto, JSObjectIsa::BOUND_FUNCTION(bf_ptr))
-            .map_err(|_| {
-                let mut bf = unsafe { Box::from_raw(bf_ptr) };
-                JS_FreeValue(ctx, bf.func_obj);
-                JS_FreeValue(ctx, this_val);
-                for a in bf.bind_args.drain(..) {
-                    JS_FreeValue(ctx, a);
-                }
-                -1
-            })?
-    };
+    let func_obj = ctx
+        .create_instance_from_proto(
+            &ctx.0.borrow().function_proto,
+            JSObjectIsa::BOUND_FUNCTION(bf),
+        )
+        .map_err(|_| -1)?;
 
     let p = unsafe { func_obj.object_unchecked() };
-    p.detailed.set_constructor(this_val.is_constructor());
+
+    unsafe {
+        (*p.0.detailed.as_ptr()).set_constructor(this_val.is_constructor());
+    }
 
     unsafe {
         /* XXX: the spec could be simpler by only using GetOwnProperty */
-        let ret = JS_GetOwnProperty(ctx, std::ptr::null_mut(), args.this_raw(), JS_ATOM_length);
-        if ret < 0 {
-            JS_FreeValue(ctx, func_obj);
-            return Err(-1);
-        }
-
-        let len_val = if ret == 0 {
-            JSValue::ZERO
+        let len_val = if args
+            .this_raw()
+            .get_own_property_descr(ctx, JS_ATOM_length)?
+            .is_none()
+        {
+            JSValue::Int(0)
         } else {
             let len = this_val.get_property(ctx, JS_ATOM_length);
-            match len.tag_norm() {
-                JSTag::Int => {
-                    let n = JS_VALUE_GET_INT(len);
-                    JSValue::from_i32(std::cmp::max(0, n - arg_count as i32))
-                }
-                JSTag::Float64 => {
-                    let mut d = JS_VALUE_GET_FLOAT64(len);
+            match len {
+                JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
+                JSValue::Float64(mut d) => {
                     if d.is_nan() {
                         d = 0.0;
                     } else {
@@ -117,16 +79,12 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                             d -= arg_count as f64; /* also converts -0 to +0 */
                         }
                     }
-                    JSValue::from_f64(d)
+                    JSValue::Float64(d)
                 }
-                JSTag::Exception => {
-                    JS_FreeValue(ctx, func_obj);
+                JSValue::EXCEPTION => {
                     return Err(-1);
                 }
-                _ => {
-                    JS_FreeValue(ctx, len);
-                    JSValue::ZERO
-                }
+                _ => JSValue::Int(0),
             }
         };
 
@@ -134,45 +92,39 @@ pub fn js_function_bind(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
             .unwrap();
 
-        let mut name = args.this_value.get_property(ctx, JS_ATOM_name);
-        if name.is_exception() {
-            JS_FreeValue(ctx, func_obj);
-            return Err(-1);
-        }
+        let mut name = args
+            .this_raw()
+            .get_property(ctx, JS_ATOM_name)
+            .check_exception()?;
+
         if !name.is_string() {
-            JS_FreeValue(ctx, name);
             name = JS_ATOM_empty_string.to_value(ctx, true);
         }
 
         // make bound function name.
-        let bf_name = JS_ConcatString3(ctx, c"bound ", name, c"");
-        if bf_name.is_exception() {
-            JS_FreeValue(ctx, func_obj);
-            return Err(-1);
-        }
+        let bf_name = JS_ConcatString3(ctx, c"bound ", name, c"").check_exception()?;
 
-        func_obj
-            .define_property_value(ctx, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE)
-            .unwrap();
+        func_obj.define_property_value(ctx, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE)?;
 
         Ok(func_obj)
     }
 }
 
-pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    args.this_value.ensure_callable(ctx)?;
+pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
+    let this_val = args.this_raw();
 
-    let p = unsafe { args.this_value.object_unchecked() };
+    this_val.ensure_callable(ctx)?;
+    let p = unsafe { this_val.object_unchecked() };
 
-    let func_kind = if let Some(func) = p.isa().func() {
+    let func_kind = if let Some(func) = p.0.isa.borrow().func() {
         unsafe {
-            let b = func.function_bytecode;
-            if (*b).has_debug {
-                if let Some(s) = (*b).debug.source.as_deref() {
+            let b = func.function_bytecode.as_ref().unwrap();
+            if b.0.borrow().has_debug {
+                if let Some(s) = b.0.borrow().debug.source.as_deref() {
                     return ctx.create_string(s).check_exception();
                 }
             }
-            (*b).func_kind
+            b.0.borrow().func_kind
         }
     } else {
         JSFunctionKindEnum::JS_FUNC_NORMAL
@@ -185,45 +137,54 @@ pub fn js_function_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         _ => c"function ",
     };
     let suff = c"() {\n    [native code]\n}";
-    let mut name = args.this_value.get_property(ctx, JS_ATOM_name);
+    let mut name = this_val.get_property(ctx, JS_ATOM_name);
     if name.is_undefined() {
         name = JS_ATOM_empty_string.to_value(ctx, true);
     }
 
-    let rv = unsafe { JS_ConcatString3(ctx, pref, name, suff) };
-    if rv.is_exception() {
-        Err(-1)
+    unsafe { JS_ConcatString3(ctx, pref, name, suff).check_exception() }
+}
+
+pub fn js_function_hasInstance(ctx: &JSContext, args: CallContext) -> JSResult {
+    Ok(JSValue::Bool(
+        args.this_raw()
+            .ordinary_instance_of(ctx, &args.get_raw(0))?,
+    ))
+}
+
+pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
+    if let Some(b) = args.this_raw().object().and_then(|o| {
+        o.0.isa
+            .borrow()
+            .func()
+            .and_then(|f| f.function_bytecode.clone())
+    }) {
+        let b = b.0.borrow();
+        if b.has_debug {
+            b.debug.filename.to_value(ctx, true).check_exception()
+        } else {
+            Ok(JSValue::UNDEFINED)
+        }
     } else {
-        Ok(rv)
+        Ok(JSValue::UNDEFINED)
     }
 }
 
-pub fn js_function_hasInstance(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = unsafe { JS_OrdinaryIsInstanceOf(ctx, args.get_raw(0), args.this_value)? };
-    Ok(if b { JSValue::TRUE } else { JSValue::FALSE })
-}
-
-pub fn js_function_proto_fileName(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = unsafe { JS_GetFunctionBytecode(args.this_value) };
-
-    unsafe {
-        if !b.is_null() && (*b).has_debug {
-            (*b).debug.filename.to_value(ctx, true).check_exception()
+pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
+    if let Some(b) = args.this_raw().object().and_then(|o| {
+        o.0.isa
+            .borrow()
+            .func()
+            .and_then(|f| f.function_bytecode.clone())
+    }) {
+        let b = b.0.borrow();
+        if b.has_debug {
+            Ok(JSValue::Int(b.debug.line_num as i32))
         } else {
             Ok(JSValue::UNDEFINED)
         }
-    }
-}
-
-pub fn js_function_proto_lineNumber(_: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = unsafe { JS_GetFunctionBytecode(args.this_value) };
-
-    unsafe {
-        if !b.is_null() && (*b).has_debug {
-            Ok(JSValue::from_i32((*b).debug.line_num as _))
-        } else {
-            Ok(JSValue::UNDEFINED)
-        }
+    } else {
+        Ok(JSValue::UNDEFINED)
     }
 }
 

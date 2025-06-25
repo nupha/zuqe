@@ -81,8 +81,8 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Function",
             "C_FUNCTION",
             Some("crate::function::JSObjectCFunc"),
-            Some("crate::function::NativeFunctionValue::hook_finalizer"),
-            Some("crate::function::NativeFunctionValue::hook_mark")
+            Some("crate::function::JSObjectCFunc::hook_finalizer"),
+            Some("crate::function::JSObjectCFunc::hook_mark")
         ),
         class_def!(
             "Function",
@@ -94,14 +94,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Function",
             "BOUND_FUNCTION",
-            Some("*mut crate::function::JSBoundFunction"),
+            Some("Box<crate::function::JSBoundFunction>"),
             Some("crate::function::BoundFunctionValue::hook_finalizer"),
             Some("crate::function::BoundFunctionValue::hook_mark")
         ),
         class_def!(
             "Function",
             "C_FUNCTION_DATA",
-            Some("*mut crate::callable::JSCFunctionDataRecord"),
+            Some("Box<crate::callable::JSCFunctionDataRecord>"),
             Some("crate::callable::CallableValue::hook_finalizer"),
             Some("crate::callable::CallableValue::hook_mark")
         ),
@@ -115,28 +115,28 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "ForInIterator",
             "FOR_IN_ITERATOR",
-            Some("*mut crate::iterator::JSForInIterator"),
+            Some("Box<crate::iterator::JSForInIterator>"),
             Some("crate::iterator::js_for_in_iterator_finalizer"),
             Some("crate::iterator::js_for_in_iterator_mark")
         ),
         class_def!(
             "RegExp",
             "REGEXP",
-            Some("*mut crate::regexp::JSRegExp"),
+            Some("Box<crate::regexp::JSRegExp>"),
             Some("crate::regexp::js_regexp_finalizer"),
             None
         ),
         class_def!(
             "ArrayBuffer",
             "ARRAY_BUFFER",
-            Some("*mut crate::array_buffer::JSArrayBuffer"),
+            Some("crate::array_buffer::JSArrayBuffer"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
         class_def!(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
-            Some("*mut crate::array_buffer::JSArrayBuffer"),
+            Some("crate::array_buffer::JSArrayBuffer"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
@@ -146,77 +146,77 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int8Array",
             "INT8_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint8Array",
             "UINT8_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int16Array",
             "INT16_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint16Array",
             "UINT16_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int32Array",
             "INT32_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint32Array",
             "UINT32_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Float32Array",
             "FLOAT32_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Float64Array",
             "FLOAT64_ARRAY",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
@@ -224,7 +224,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "DataView",
             "DATAVIEW",
-            Some("*mut crate::typed_array::JSTypedArray"),
+            Some("Box<crate::typed_array::JSTypedArray>"),
             None,
             None
         ),
@@ -241,70 +241,70 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Map",
             "MAP",
-            Some("*mut crate::map::JSMapState"),
+            Some("Box<crate::map::JSMapState>"),
             Some("crate::map::JSMapState::hook_finalizer"),
             Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "Set",
             "SET",
-            Some("*mut crate::map::JSMapState"),
+            Some("Box<crate::map::JSMapState>"),
             Some("crate::map::JSMapState::hook_finalizer"),
             Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "WeakMap",
             "WEAKMAP",
-            Some("*mut crate::map::JSMapState"),
+            Some("Box<crate::map::JSMapState>"),
             Some("crate::map::JSMapState::hook_finalizer"),
             Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "WeakSet",
             "WEAKSET",
-            Some("*mut crate::map::JSMapState"),
+            Some("Box<crate::map::JSMapState>"),
             Some("crate::map::JSMapState::hook_finalizer"),
             Some("crate::map::JSMapState::hook_mark")
         ),
         class_def!(
             "Map_Iterator",
             "MAP_ITERATOR",
-            Some("*mut crate::iterator::JSMapIteratorData"),
+            Some("Box<crate::iterator::JSMapIteratorData>"),
             Some("crate::map::js_map_iterator_finalizer"),
             Some("crate::map::js_map_iterator_mark")
         ),
         class_def!(
             "Set_Iterator",
             "SET_ITERATOR",
-            Some("*mut crate::iterator::JSMapIteratorData"),
+            Some("Box<crate::iterator::JSMapIteratorData>"),
             Some("crate::map::js_map_iterator_finalizer"),
             Some("crate::map::js_map_iterator_mark")
         ),
         class_def!(
             "Array_Iterator",
             "ARRAY_ITERATOR",
-            Some("*mut crate::iterator::JSArrayIteratorData"),
+            Some("Box<crate::iterator::JSArrayIteratorData>"),
             Some("crate::iterator::JSArrayIteratorData::hook_finalizer"),
             Some("crate::iterator::JSArrayIteratorData::hook_mark")
         ),
         class_def!(
             "String_Iterator",
             "STRING_ITERATOR",
-            Some("*mut crate::iterator::JSArrayIteratorData"),
+            Some("Box<crate::iterator::JSArrayIteratorData>"),
             Some("crate::iterator::JSArrayIteratorData::hook_finalizer"),
             Some("crate::iterator::JSArrayIteratorData::hook_mark")
         ),
         class_def!(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
-            Some("*mut crate::regexp::JSRegExpStringIteratorData"),
+            Some("Box<crate::regexp::JSRegExpStringIteratorData>"),
             Some("crate::regexp::js_regexp_iterator_finalizer"),
             Some("crate::regexp::js_regexp_iterator_mark")
         ),
         class_def!(
             "Generator",
             "GENERATOR",
-            Some("*mut crate::generator::JSGeneratorData"),
+            Some("crate::generator::JSGeneratorData"),
             Some("crate::generator::js_generator_finalizer"),
             Some("crate::generator::js_generator_mark")
         ),
@@ -314,7 +314,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Proxy",
             "PROXY",
-            Some("*mut crate::proxy::JSProxyData"),
+            Some("Box<crate::proxy::JSProxyData>"),
             Some("crate::proxy::js_proxy_finalizer"),
             Some("crate::proxy::js_proxy_mark")
         ),
@@ -324,21 +324,21 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Promise",
             "PROMISE",
-            Some("*mut crate::promise::JSPromiseData"),
+            Some("Box<crate::promise::JSPromiseData>"),
             Some("crate::promise::PromiseValue::hook_finalizer"),
             Some("crate::promise::PromiseValue::hook_mark")
         ),
         class_def!(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
-            Some("*mut crate::promise::JSPromiseFunctionData"),
+            Some("crate::promise::JSPromiseFunctionData"),
             Some("crate::promise::PromiseResolvingFuncValue::hook_finalizer"),
             Some("crate::promise::PromiseResolvingFuncValue::hook_mark")
         ),
         class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
-            Some("*mut crate::promise::JSPromiseFunctionData"),
+            Some("crate::promise::JSPromiseFunctionData"),
             Some("crate::promise::PromiseResolvingFuncValue::hook_finalizer"),
             Some("crate::promise::PromiseResolvingFuncValue::hook_mark")
         ),
@@ -352,21 +352,21 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
-            Some("*mut crate::function::JSAsyncFunctionState"),
+            Some("crate::function::JSAsyncFunctionState"),
             Some("crate::function::JSAsyncFunctionState::hook_finalizer"),
             Some("crate::function::JSAsyncFunctionState::hook_mark")
         ),
         class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
-            Some("*mut crate::function::JSAsyncFunctionState"),
+            Some("crate::function::JSAsyncFunctionState"),
             Some("crate::function::JSAsyncFunctionState::hook_finalizer"),
             Some("crate::function::JSAsyncFunctionState::hook_mark")
         ),
         class_def!(
             "empty_string", // JS_ATOM_empty_string
             "ASYNC_FROM_SYNC_ITERATOR",
-            Some("*mut crate::iterator::JSAsyncFromSyncIteratorData"),
+            Some("crate::iterator::JSAsyncFromSyncIteratorData"),
             Some("crate::iterator::js_async_from_sync_iterator_finalizer"),
             Some("crate::iterator::js_async_from_sync_iterator_mark")
         ),
@@ -380,7 +380,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
-            Some("*mut crate::generator::JSAsyncGeneratorData"),
+            Some("Option<Box<crate::generator::JSAsyncGeneratorData>>"),
             Some("crate::generator::AsyncGeneratorValue::hook_finalizer"),
             Some("crate::generator::AsyncGeneratorValue::hook_mark")
         ),

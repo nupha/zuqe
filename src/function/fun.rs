@@ -1,23 +1,24 @@
-use std::{borrow::Cow, pin::Pin, ptr::NonNull};
+use std::ops::Deref;
 
 use crate::{
-    atom::{consts::*, JSAtom},
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    atom::{JSAtom, consts::*},
     class::JSClassID,
     context::JSContext,
-    error::{JSResult, JS_ThrowTypeErrorRevokedProxy},
+    error::{JS_ThrowTypeErrorRevokedProxy, JSResult},
     function::JSVarRef,
     gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
-        object::{JSObject, JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK},
-        JSTag, JSValue, JSValueConst, JS_FreeValueRT, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
-        JS_VALUE_GET_TAG,
+        JSValue, JSValueConst,
+        object::{
+            JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSObjectIsa, JSProperty,
+        },
     },
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_MKPTR,
 };
 
-use super::{CallArgs, JSFunctionBytecode};
+use super::{CallContext, JSFunctionBytecode};
 
 /// Special index for argument scope.
 /// This is same to `JSFunctionDef::body_scope`, which was automatically pushed
@@ -60,44 +61,27 @@ pub enum FuncCallType {
     FUNC_CALL_TEMPLATE,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct JSObjectFunc {
-    pub function_bytecode: *mut JSFunctionBytecode,
+    pub function_bytecode: Option<JSFunctionBytecode>,
 
     /// closure variable refrences
-    pub var_refs: Vec<NonNull<Pin<JSVarRef>>>,
+    pub var_refs: Vec<JSVarRef>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
-    pub home_object: *mut JSObject,
-}
-
-impl Default for JSObjectFunc {
-    fn default() -> Self {
-        Self {
-            function_bytecode: std::ptr::null_mut(),
-            var_refs: Vec::new(),
-            home_object: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[cfg(debug_assertions)]
-impl Drop for JSObjectFunc {
-    fn drop(&mut self) {
-        debug_assert!(self.var_refs.is_empty());
-    }
+    pub home_object: Option<JSObject>,
 }
 
 impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_callable(self, ctx: &mut JSContext) -> Result<Self, i32> {
-        if self.is_callable(ctx) {
+    pub fn ensure_callable(&self, ctx: &JSContext) -> Result<&Self, i32> {
+        if self.is_callable() {
             Ok(self)
         } else {
-            ctx.JS_ThrowTypeError(c"not a function");
+            ctx.JS_ThrowTypeError("not a function");
             Err(-1)
         }
     }
@@ -105,21 +89,8 @@ impl JSValue {
 
 /* return NULL without exception if not a function or no bytecode */
 #[deprecated(note = "use JSObjectIsa::func() to get JSFunctionBytecode")]
-pub fn JS_GetFunctionBytecode(val: JSValueConst) -> *mut JSFunctionBytecode {
-    val.object()
-        .and_then(|o| o.isa().func())
-        .map(|f| f.function_bytecode)
-        .unwrap_or(std::ptr::null_mut())
-
-    // if JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT {
-    //     return std::ptr::null_mut();
-    // }
-
-    // let p = val.object_unchecked();
-    // if !js_class_has_bytecode(p.class_id()) {
-    //     return std::ptr::null_mut();
-    // }
-    // p.u.func.function_bytecode
+pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut JSFunctionBytecode {
+    unreachable!("unused");
 }
 
 pub const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
@@ -132,131 +103,126 @@ pub const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
     )
 }
 
-// warning: the refcount of the context is not incremented. Return
-// NULL in case of exception (case of revoked proxy only)
-pub unsafe fn JS_GetFunctionRealm(ctx: *mut JSContext, func_obj: JSValueConst) -> *mut JSContext {
-    if JS_VALUE_GET_TAG(func_obj) != JS_TAG_OBJECT {
-        return ctx;
+pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<JSContext, i32> {
+    if !func_obj.is_object() {
+        return Ok(ctx.clone());
     }
 
-    let realm: *mut JSContext;
+    let realm: JSContext;
+    let p = unsafe { func_obj.object_unchecked() };
 
-    let p = func_obj.object_unchecked();
-
-    match p.isa() {
+    match p.0.isa.borrow().deref() {
         JSObjectIsa::C_FUNCTION(cfunc) => {
-            realm = cfunc.realm;
+            realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
         }
         JSObjectIsa::BYTECODE_FUNCTION(func)
         | JSObjectIsa::GENERATOR_FUNCTION(func)
         | JSObjectIsa::ASYNC_FUNCTION(func)
         | JSObjectIsa::ASYNC_GENERATOR_FUNCTION(func) => {
-            realm = (*func.function_bytecode).realm;
+            realm = func
+                .function_bytecode
+                .as_ref()
+                .unwrap()
+                .0
+                .borrow()
+                .realm
+                .upgrade()
+                .unwrap_or(ctx.clone());
         }
-        JSObjectIsa::PROXY(proxy) => {
-            let s = *proxy;
-            if s.is_null() {
-                return ctx;
-            }
-            if (*s).is_revoked {
+        JSObjectIsa::PROXY(s) => {
+            if s.is_revoked {
                 JS_ThrowTypeErrorRevokedProxy(ctx);
-                return std::ptr::null_mut();
+                return Err(-1);
             } else {
-                realm = JS_GetFunctionRealm(ctx, (*s).target);
+                realm = JS_GetFunctionRealm(ctx, &s.target)?;
             }
         }
         JSObjectIsa::BOUND_FUNCTION(bfunc) => {
-            realm = JS_GetFunctionRealm(ctx, (*(*bfunc)).func_obj);
+            realm = JS_GetFunctionRealm(ctx, &bfunc.func_obj)?;
         }
         _ => {
-            realm = ctx;
+            realm = ctx.clone();
         }
     }
 
-    return realm;
+    Ok(realm)
 }
 
-pub unsafe fn get_func_name<'a>(ctx: *mut JSContext, func: JSValueConst) -> Option<Cow<'a, str>> {
+pub fn get_func_name(func: &JSValue) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
-    if JS_VALUE_GET_TAG(func) == JSTag::Object as i32 {
-        if let Some((prs, pr)) = (*JS_VALUE_GET_OBJ(func)).find_own_property(JS_ATOM_name) {
-            if prs.flags() & JS_PROP_TMASK == JS_PROP_NORMAL {
-                let val = pr.u.value;
-                if JS_VALUE_GET_TAG(val) == JSTag::String as i32 {
-                    return val.coerce_to_utf8(ctx.into()).ok();
+    if let Some(obj) = func.object() {
+        if let Some((idx, prs_flags)) = obj.find_own_property(JS_ATOM_name) {
+            if prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL {
+                if let Some(JSProperty::Value(JSValue::String(s))) =
+                    obj.0.prop_values.borrow().get(idx)
+                {
+                    return Some(s.content().to_str().into_owned());
+                } else {
+                    unreachable!()
                 }
             }
         }
-    }
 
-    None
+        None
+    } else {
+        None
+    }
 }
 
 /// define `length`, `name` properties on func_obj
 pub unsafe fn js_function_set_properties(
-    ctx: *mut JSContext,
-    func_obj: JSValueConst,
+    ctx: &JSContext,
+    func_obj: &JSValueConst,
     name: JSAtom,
     len: i32,
 ) {
     let _ = func_obj.define_property_value(
-        ctx.as_mut().unwrap(),
+        ctx,
         JS_ATOM_length,
         JSValue::from_i32(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non compatible with ES5.1: length is configurable
     );
 
     let _ = func_obj.define_property_value(
-        ctx.as_mut().unwrap(),
+        ctx,
         JS_ATOM_name,
-        name.to_value(ctx.as_mut().unwrap(), true),
+        name.to_value(ctx, true),
         JS_PROP_CONFIGURABLE,
     );
 }
 
-pub fn js_function_proto(_: &mut JSContext, _: CallArgs) -> JSResult {
+pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
 #[deprecated(note = "use JSValue::ensure_callable() instead")]
-pub unsafe fn check_function(ctx: *mut JSContext, obj: JSValueConst) -> Result<(), i32> {
-    obj.ensure_callable(ctx.as_mut().unwrap())?;
+pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i32> {
+    obj.ensure_callable(ctx)?;
     Ok(())
 }
 
-pub unsafe fn js_bytecode_function_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    let p = JS_VALUE_GET_OBJ(val);
-    let func = (*p).isa_mut().func_mut().unwrap();
-    let p1 = func.home_object;
-    if !p1.is_null() {
-        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, p1.cast()));
-    }
-
-    let b = func.function_bytecode;
-    if !b.is_null() {
-        for vr in func.var_refs.drain(..) {
-            JSVarRef::free(rt, vr.cast());
-        }
-        JS_FreeValueRT(rt, JS_MKPTR!(JSTag::FunctionBytecode, b.cast()));
-    }
-}
+pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
 pub unsafe fn js_bytecode_function_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
-    let p = JS_VALUE_GET_OBJ(val);
-    let func = (*p).isa_mut().func_mut().unwrap();
-    let b = func.function_bytecode;
+    let p = val.object_unchecked();
+    let (bf, home_obj) =
+        p.0.isa
+            .borrow()
+            .func()
+            .map(|f| (f.function_bytecode.clone(), f.home_object.clone()))
+            .unwrap();
 
-    if !func.home_object.is_null() {
-        (*rt).gc_mark_value(JS_MKPTR!(JSTag::Object, func.home_object.cast()), mark_func);
+    if let Some(ho) = home_obj {
+        (*rt).gc_mark_value(&JSValue::Object(ho), mark_func);
     }
 
-    if !b.is_null() {
-        for vr in func.var_refs.iter() {
-            mark_func(rt, vr.cast::<JSVarRef>().as_ptr());
-        }
+    if let Some(b) = bf {
+        // for vr in func.var_refs.iter() {
+        //     mark_func(rt, vr);
+        // }
 
         // must mark the function bytecode because template objects may be part of a cycle
-        (*rt).gc_mark_value(JS_MKPTR!(JSTag::FunctionBytecode, b.cast()), mark_func);
+        (*rt).gc_mark_value(&JSValue::FunctionBytecode(b), mark_func);
     }
 }

@@ -2,15 +2,14 @@ use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     context::JSContext,
-    error::{is_backtrace_needed, JS_IsUncatchableError},
-    function::JSVarRef,
+    error::{JS_IsUncatchableError, is_backtrace_needed},
+    function::{JSAsyncFunctionStateWeakref, JSVarRef},
     iterator::JS_IteratorClose,
-    runtime::JSRuntime,
-    value::{JSValue, JS_FreeValue, JS_TAG_CATCH_OFFSET, JS_VALUE_GET_INT},
+    value::JSValue,
 };
 
 /// Represents a stack frame in the JavaScript execution context
-#[repr(C)]
+#[derive(Debug)]
 pub struct JSStackFrame {
     /// NULL if first stack frame
     pub prev_frame: *mut Pin<Self>,
@@ -44,10 +43,14 @@ pub struct JSStackFrame {
     pub cur_sp_offset: i32,
 
     /// registered var refs in stack frame
-    pub var_ref_list: Vec<NonNull<Pin<JSVarRef>>>,
+    pub var_ref_list: Vec<JSVarRef>,
 
     /// for C functions, only JS_MODE_MATH may be set
     pub js_mode: i32,
+
+    /// if the stack frame is decicated for an async function,
+    /// this field hold a weakref of async function state.
+    pub async_func: JSAsyncFunctionStateWeakref,
 
     pub _mark: PhantomPinned,
 }
@@ -66,15 +69,9 @@ impl Default for JSStackFrame {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: 0,
+            async_func: JSAsyncFunctionStateWeakref::new(),
             _mark: PhantomPinned,
         }
-    }
-}
-
-#[cfg(debug_assertions)]
-impl Drop for JSStackFrame {
-    fn drop(&mut self) {
-        debug_assert!(self.var_ref_list.is_empty());
     }
 }
 
@@ -106,41 +103,57 @@ impl JSStackFrame {
     /// return value:
     /// - Some((pc, sp)): exception was catched, continue execution with updated (pc, sp);
     /// - None: exception is unrecovable, abort execution
-    pub unsafe fn handle_exception(
+    pub fn handle_exception(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
-        if is_backtrace_needed(ctx.rt().current_exception) {
+        if is_backtrace_needed(&ctx.rt().current_exception) {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-            ctx.build_backtrace_to(ctx.rt().current_exception, None, 0);
+            ctx.build_backtrace_to(&ctx.rt().current_exception, None, 0);
         }
 
-        if !JS_IsUncatchableError(ctx, ctx.rt().current_exception) {
+        if unsafe { !JS_IsUncatchableError(&ctx.exception()) } {
             let sp_base = self.stack_base_ptr().as_ptr();
 
             // find catch offset
             while sp > 0 {
                 sp -= 1;
-                let val = *sp_base.add(sp);
-                JS_FreeValue(ctx, val);
-
-                if val.tag() == JS_TAG_CATCH_OFFSET {
-                    let pos = JS_VALUE_GET_INT(val);
+                let val = unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) };
+                if let JSValue::CatchOffset(pos) = val {
                     if pos == 0 {
                         // enumerator: close it with a throw
-                        JS_FreeValue(ctx, *sp_base.add(sp - 1)); // drop the `next` method
+                        let iter =
+                            unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
+                        unsafe {
+                            JS_IteratorClose(ctx, &iter, true).unwrap();
+                        }
                         sp -= 1;
-                        JS_IteratorClose(ctx, *sp_base.add(sp - 1), true).unwrap();
                     } else {
-                        *sp_base.add(sp) = ctx.rt_mut().current_exception.replace(JSValue::NULL);
+                        unsafe {
+                            std::ptr::replace(sp_base.add(sp), ctx.take_exception());
+                        }
                         sp += 1;
                         return Some((pos as usize, sp));
                     }
                 }
+
+                // if val.tag() == JS_TAG_CATCH_OFFSET {
+                //     let pos = JS_VALUE_GET_INT(val);
+                //     if pos == 0 {
+                //         // enumerator: close it with a throw
+                //         JS_FreeValue(ctx, *sp_base.add(sp - 1)); // drop the `next` method
+                //         sp -= 1;
+                //         JS_IteratorClose(ctx, *sp_base.add(sp - 1), true).unwrap();
+                //     } else {
+                //         *sp_base.add(sp) = ctx.rt_mut().current_exception.replace(JSValue::NULL);
+                //         sp += 1;
+                //         return Some((pos as usize, sp));
+                //     }
+                // }
             }
         }
 
@@ -148,13 +161,7 @@ impl JSStackFrame {
     }
 
     /// clean-ups before exit
-    pub unsafe fn handle_exit(
-        &mut self,
-        ctx: &mut JSContext,
-        pc: usize,
-        sp: usize,
-        is_generator: bool,
-    ) {
+    pub fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_generator: bool) {
         if is_generator {
             // the local variables are freed by the caller in the generator
             // case. Hence the label 'done' should never be reached in a generator function.
@@ -169,11 +176,13 @@ impl JSStackFrame {
 
             // free local buf to stack top (sp)
             if !self.local_buf.is_empty() {
-                let mut pval = self.local_buf.as_ptr();
-                let end_ptr = self.stack_base_ptr().add(sp).as_ptr();
+                let mut pval = self.local_buf.as_mut_ptr();
+                let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
                 while pval < end_ptr {
-                    JS_FreeValue(ctx, *pval);
-                    pval = pval.add(1);
+                    unsafe {
+                        drop(std::ptr::replace(pval, JSValue::UNDEFINED));
+                        pval = pval.add(1);
+                    }
                 }
             }
         }
@@ -181,10 +190,9 @@ impl JSStackFrame {
         ctx.rt_mut().current_stack_frame = self.prev_frame;
     }
 
-    /// perform clean up before drop
-    pub fn finalize(&mut self, rt: &mut JSRuntime) {
-        for vr in self.var_ref_list.drain(..) {
-            JSVarRef::free(rt, vr.cast())
-        }
+    pub fn finalize(&mut self) {
+        self.cur_func = JSValue::UNDEFINED;
+        self.local_buf.clear();
+        self.var_ref_list.clear();
     }
 }

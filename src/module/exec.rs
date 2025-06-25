@@ -1,119 +1,127 @@
 use crate::{
     context::JSContext,
-    error::{JSResult, JS_ThrowStackOverflow},
-    function::{js_async_function_call, CallArgs, JS_Call},
-    mem::{js_free, js_resize_array},
-    module::JSModuleStatus,
-    promise::{js_promise_then, JSPromiseStateEnum, PromiseValue},
+    error::{JS_ThrowStackOverflow, JSResult},
+    function::{CallContext, JS_Call, js_async_function_call},
+    module::{JSModuleDefInner, JSModuleStatus},
+    promise::{JSPromiseStateEnum, PromiseValue, js_promise_then},
     runtime::js_check_stack_overflow,
     utils::UncheckedInto,
-    value::{JSValue, JS_FreeValue, JS_VALUE_GET_PTR},
+    value::JSValue,
 };
 
-use super::{JSModuleDef, JS_NewModuleValue};
+use super::JSModuleDef;
+
+impl JSModuleDefInner {
+    /// set module status to `evaluated`
+    pub fn set_evaluated(&mut self, ctx: &JSContext) {
+        self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+        if !self.promise.is_undefined() {
+            debug_assert_eq!(self.cycle_root.as_ref().unwrap().id(), self.id());
+
+            JS_Call(
+                ctx,
+                &self.resolving_funcs[0],
+                &JSValue::UNDEFINED,
+                &[JSValue::UNDEFINED],
+            );
+        }
+    }
+}
 
 impl JSModuleDef {
     /// Run the <eval> function of the module and of all its requested modules.
     /// Return a promise or an exception.
-    pub fn eval(&mut self, ctx: &mut JSContext) -> JSValue {
-        let m = match self.status {
-            JSModuleStatus::JS_MODULE_STATUS_LINKED => self,
+    pub fn eval(&self, ctx: &JSContext) -> JSValue {
+        let m = match self.0.borrow().status {
+            JSModuleStatus::JS_MODULE_STATUS_LINKED => self.clone(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => unsafe {
-                self.cycle_root.as_mut().unwrap()
-            },
+            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
+                self.0.borrow().cycle_root.clone().unwrap()
+            }
             _ => {
                 unreachable!()
             }
         };
 
         // a promise may be created only on the cycle_root of a cycle
-        if !m.promise.is_undefined() {
-            return m.promise.dup();
+        if !m.0.borrow().promise.is_undefined() {
+            return m.0.borrow().promise.clone();
         }
 
-        if let Ok((promise, rr)) = ctx.create_promise(JSValue::UNDEFINED) {
-            m.resolving_funcs = rr;
-            m.promise = promise.into();
+        if let Ok((promise, rr)) = ctx.create_promise(&JSValue::UNDEFINED) {
+            m.0.borrow_mut().resolving_funcs = rr;
+            m.0.borrow_mut().promise = promise.into();
         } else {
             return JSValue::EXCEPTION;
         }
 
-        let mut stack_top = std::ptr::null_mut::<JSModuleDef>();
+        let mut stack_top: Option<JSModuleDef> = None;
 
-        match unsafe { m.do_eval(ctx, 0, &mut stack_top) } {
+        match m.do_eval(ctx, 0, &mut stack_top) {
             Ok(_) => {
                 debug_assert!(matches!(
-                    m.status,
+                    m.0.borrow().status,
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                debug_assert!(!m.eval_has_exception);
+                debug_assert!(!m.0.borrow().eval_has_exception);
 
-                if !m.async_evaluation {
-                    debug_assert_eq!(m.status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-                    let mut value = JSValue::UNDEFINED;
-                    let ret_val = unsafe {
-                        JS_Call(
-                            ctx,
-                            m.resolving_funcs[0], // resolve func
-                            JSValue::UNDEFINED,
-                            1,
-                            &mut value,
-                        )
-                    };
+                if !m.0.borrow().async_evaluation {
+                    debug_assert_eq!(
+                        m.0.borrow().status,
+                        JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+                    );
 
-                    unsafe {
-                        JS_FreeValue(ctx, ret_val);
-                    }
+                    JS_Call(
+                        ctx,
+                        &m.0.borrow().resolving_funcs[0], // resolve func
+                        &JSValue::UNDEFINED,
+                        &[JSValue::UNDEFINED],
+                    );
                 }
-                debug_assert!(stack_top.is_null());
+                debug_assert!(stack_top.is_none());
             }
             Err(result) => {
-                while !stack_top.is_null() {
-                    let m1 = stack_top;
+                while let Some(m1) = stack_top.take() {
+                    let mut m1 = m1.0.borrow_mut();
 
-                    unsafe {
-                        debug_assert_eq!((*m1).status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
+                    debug_assert_eq!(m1.status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
 
-                        (*m1).status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
-                        (*m1).eval_has_exception = true;
-                        (*m1).eval_exception = result.dup();
-                        (*m1).cycle_root = m; // spec bug: should be present
-                        stack_top = (*m1).stack_prev;
-                    }
+                    m1.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+                    m1.eval_has_exception = true;
+                    m1.eval_exception = result.clone();
+                    m1.cycle_root = Some(m.clone()); // spec bug: should be present
+
+                    stack_top = m1.stack_prev.take();
                 }
 
-                unsafe {
-                    JS_FreeValue(ctx, result);
+                debug_assert_eq!(
+                    m.0.borrow().status,
+                    JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+                );
+                debug_assert!(m.0.borrow().eval_has_exception);
 
-                    debug_assert_eq!(m.status, JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-                    debug_assert!(m.eval_has_exception);
-
-                    let ret_val = JS_Call(
-                        ctx,
-                        m.resolving_funcs[1], // reject
-                        JSValue::UNDEFINED,
-                        1,
-                        &mut m.eval_exception,
-                    );
-                    JS_FreeValue(ctx, ret_val);
-                }
+                JS_Call(
+                    ctx,
+                    &m.0.borrow().resolving_funcs[1], // reject
+                    &JSValue::UNDEFINED,
+                    &[m.0.borrow().eval_exception.clone()],
+                );
             }
         }
 
-        m.promise.dup()
+        m.0.borrow().promise.clone()
     }
 
     /// InnerModuleEvaluation, returns depth index or Err.
     /// `index`: depth index
-    unsafe fn do_eval(
-        &mut self,
-        ctx: &mut JSContext,
+    fn do_eval(
+        &self,
+        ctx: &JSContext,
         index: i32,
-        pstack_top: *mut *mut JSModuleDef,
+        pstack_top: &mut Option<JSModuleDef>,
     ) -> Result<i32, JSValue> {
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if unsafe { js_check_stack_overflow(&ctx.rt(), 0) } {
             JS_ThrowStackOverflow(ctx);
             return Err(ctx.take_exception());
         }
@@ -132,11 +140,11 @@ impl JSModuleDef {
             );
         }
 
-        match self.status {
+        match self.0.borrow().status {
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
-                return if self.eval_has_exception {
-                    Err(self.eval_exception.dup())
+                return if self.0.borrow().eval_has_exception {
+                    Err(self.0.borrow().eval_exception.clone())
                 } else {
                     Ok(index)
                 };
@@ -150,97 +158,100 @@ impl JSModuleDef {
             }
         }
 
-        self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATING;
-        self.dfs_index = index;
-        self.dfs_ancestor_index = index;
-        self.pending_async_dependencies = 0;
+        {
+            let mut m = self.0.borrow_mut();
+            m.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATING;
+            m.dfs_index = index;
+            m.dfs_ancestor_index = index;
+            m.pending_async_dependencies = 0;
+
+            // push 'm' on stack
+            m.stack_prev = pstack_top.take();
+            pstack_top.replace(self.clone());
+        }
 
         let mut index = index + 1;
 
-        // push 'm' on stack
-        self.stack_prev = *pstack_top;
-        *pstack_top = self;
+        for i in 0..self.0.borrow().req_module_entries_count {
+            let rme = unsafe { self.0.borrow().req_module_entries.offset(i as isize) };
+            let mut m1 = unsafe { (*rme).module.clone().unwrap() };
 
-        let req_module_entries_count = self.req_module_entries_count;
-        for i in 0..req_module_entries_count {
-            let rme = self.req_module_entries.offset(i as isize);
-            let mut m1 = (*rme).module;
-            index = (*m1).do_eval(ctx, index, pstack_top)?;
+            index = m1.do_eval(ctx, index, pstack_top)?;
 
             debug_assert!(matches!(
-                (*m1).status,
+                m1.0.borrow().status,
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
             ));
 
-            if (*m1).status == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
-                self.dfs_ancestor_index =
-                    std::cmp::min(self.dfs_ancestor_index, (*m1).dfs_ancestor_index);
+            if m1.0.borrow_mut().status == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
+                self.0.borrow_mut().dfs_ancestor_index = std::cmp::min(
+                    self.0.borrow().dfs_ancestor_index,
+                    m1.0.borrow().dfs_ancestor_index,
+                );
             } else {
-                m1 = (*m1).cycle_root;
+                let root = m1.0.borrow().cycle_root.clone().unwrap();
+                m1 = root;
+
                 debug_assert!(matches!(
-                    (*m1).status,
+                    m1.0.borrow().status,
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                if (*m1).eval_has_exception {
-                    return Err((*m1).eval_exception.dup());
+                if m1.0.borrow().eval_has_exception {
+                    return Err(m1.0.borrow().eval_exception.clone());
                 }
             }
 
-            if (*m1).async_evaluation {
-                self.pending_async_dependencies += 1;
-                if js_resize_array(
-                    ctx,
-                    &mut (*m1).async_parent_modules as *mut _ as *mut *mut _,
-                    std::mem::size_of::<*mut JSModuleDef>() as _,
-                    &mut (*m1).async_parent_modules_size,
-                    (*m1).async_parent_modules_count + 1,
-                ) != 0
-                {
-                    return Err((*ctx).take_exception());
-                }
+            if m1.0.borrow().async_evaluation {
+                self.0.borrow_mut().pending_async_dependencies += 1;
 
-                *(*m1)
-                    .async_parent_modules
-                    .offset((*m1).async_parent_modules_count as isize) = self;
-                (*m1).async_parent_modules_count += 1;
+                let lst = &mut m1.0.borrow_mut().async_parent_modules;
+                if lst.len() == lst.capacity() {
+                    if lst.try_reserve(8).is_err() {
+                        ctx.JS_ThrowOutOfMemory();
+                        return Err(ctx.take_exception());
+                    }
+                }
+                lst.push(self.clone());
             }
         }
 
-        if self.pending_async_dependencies > 0 {
-            debug_assert!(!self.async_evaluation);
-            self.async_evaluation = true;
-            self.async_evaluation_timestamp = ctx.rt().module_async_evaluation_next_timestamp;
+        if self.0.borrow().pending_async_dependencies > 0 {
+            debug_assert!(!self.0.borrow().async_evaluation);
+            self.0.borrow_mut().async_evaluation = true;
+            self.0.borrow_mut().async_evaluation_timestamp =
+                ctx.rt().module_async_evaluation_next_timestamp;
             ctx.rt_mut().module_async_evaluation_next_timestamp += 1;
-        } else if self.has_tla {
-            debug_assert!(!self.async_evaluation);
-            self.async_evaluation = true;
-            self.async_evaluation_timestamp = ctx.rt().module_async_evaluation_next_timestamp;
+        } else if self.0.borrow().has_tla {
+            debug_assert!(!self.0.borrow().async_evaluation);
+            self.0.borrow_mut().async_evaluation = true;
+            self.0.borrow_mut().async_evaluation_timestamp =
+                ctx.rt().module_async_evaluation_next_timestamp;
             ctx.rt_mut().module_async_evaluation_next_timestamp += 1;
             self.execute_async(ctx).unwrap();
         } else {
             self.execute_sync(ctx)?;
         }
 
-        debug_assert!(self.dfs_ancestor_index <= self.dfs_index);
+        debug_assert!(self.0.borrow().dfs_ancestor_index <= self.0.borrow().dfs_index);
 
-        if self.dfs_index == self.dfs_ancestor_index {
+        if self.0.borrow().dfs_index == self.0.borrow().dfs_ancestor_index {
             loop {
                 // pop m1 from stack
-                let m1 = *pstack_top;
-                *pstack_top = (*m1).stack_prev;
+                let m1 = pstack_top.take().unwrap();
+                *pstack_top = m1.0.borrow_mut().stack_prev.take();
 
-                (*m1).status = if !(*m1).async_evaluation {
+                m1.0.borrow_mut().status = if !m1.0.borrow().async_evaluation {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 } else {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                 };
 
                 // spec bug: cycle_root must be assigned before the test
-                (*m1).cycle_root = self;
-                if m1 == self {
+                m1.0.borrow_mut().cycle_root.replace(self.clone());
+                if m1.id() == self.id() {
                     break;
                 }
             }
@@ -250,18 +261,12 @@ impl JSModuleDef {
     }
 
     /// execute module async
-    pub unsafe fn execute_async(&mut self, ctx: &mut JSContext) -> Result<(), i32> {
-        let promise = js_async_function_call(
-            ctx,
-            self.func_obj,
-            JSValue::UNDEFINED,
-            0,
-            std::ptr::null_mut(),
-            0,
-        )
-        .check_exception()?;
+    pub fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
+        let promise =
+            js_async_function_call(ctx, &self.0.borrow().func_obj, &JSValue::UNDEFINED, &[], 0)?;
 
-        let data = [JS_NewModuleValue(ctx, self)];
+        let data = [JSValue::Module(self.clone())];
+
         let resolve_funcs: [JSValue; 2] = [
             ctx.create_native_callable_object(
                 JSModuleDef::execute_async_resolve_callback,
@@ -276,243 +281,168 @@ impl JSModuleDef {
                 &data,
             )?,
         ];
-        JS_FreeValue(ctx, data[0]);
 
-        let cc = CallArgs::new(ctx.handle(), promise, &resolve_funcs, 0, None);
+        let cc = CallContext::new(ctx, promise, &resolve_funcs, 0, None);
+
         // TODO: use PromiseValue::then()
-        let ret = js_promise_then(ctx, cc);
+        js_promise_then(ctx, cc)?;
 
-        JS_FreeValue(ctx, resolve_funcs[0]);
-        JS_FreeValue(ctx, resolve_funcs[1]);
-        JS_FreeValue(ctx, promise);
-
-        if let Ok(ret_val) = ret {
-            JS_FreeValue(ctx, ret_val);
-            Ok(())
-        } else {
-            Err(-1)
-        }
+        Ok(())
     }
 
     /// async module execution resolve callback
-    pub fn execute_async_resolve_callback(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-        let module = unsafe {
-            JS_VALUE_GET_PTR(args.data_raw(0))
-                .cast::<JSModuleDef>()
-                .as_mut()
-                .unwrap()
+    pub fn execute_async_resolve_callback(ctx: &JSContext, args: CallContext) -> JSResult {
+        let module = if let JSValue::Module(m) = args.data_raw(0) {
+            m
+        } else {
+            unreachable!()
         };
 
-        if module.status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-            debug_assert!(module.eval_has_exception);
-            return Ok(JSValue::UNDEFINED);
-        }
-
-        debug_assert_eq!(
-            module.status,
-            JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-        );
-        debug_assert!(!module.eval_has_exception);
-        debug_assert!(module.async_evaluation);
-
-        let mut exec_list_s = ExecModuleList {
-            tab: std::ptr::null_mut(),
-            count: 0,
-            size: 0,
-        };
-        let exec_list = &mut exec_list_s;
-
-        module.async_evaluation = false;
-        module.set_evaluated(ctx);
-
-        if unsafe { gather_available_ancestors(ctx, module, exec_list) } < 0 {
-            unsafe {
-                js_free(ctx, exec_list.tab.cast());
+        let mut exec_list = match module.with_mut(|md| -> Result<(), JSValue> {
+            if md.status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
+                debug_assert!(md.eval_has_exception);
+                return Err(JSValue::UNDEFINED);
             }
-            return Err(-1);
-        }
 
-        unsafe {
-            // sort by increasing async_evaluation timestamp
-            let md_lst = std::slice::from_raw_parts_mut(exec_list.tab, exec_list.size as usize);
-            md_lst.sort_by(|m1, m2| {
-                let t1 = (*(*m1)).async_evaluation_timestamp;
-                let t2 = (*(*m2)).async_evaluation_timestamp;
-                t1.cmp(&t2)
-            });
+            debug_assert_eq!(md.status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC);
+            debug_assert!(!md.eval_has_exception);
+            debug_assert!(md.async_evaluation);
 
-            for i in 0..exec_list.count {
-                let m = *exec_list.tab.offset(i as isize);
-                if (*m).status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-                    debug_assert!((*m).eval_has_exception);
-                } else if (*m).has_tla {
-                    (*m).execute_async(ctx).unwrap();
-                } else {
-                    match (*m).execute_sync(ctx) {
-                        Ok(_) => {
-                            (*m).set_evaluated(ctx);
-                        }
-                        Err(error) => {
-                            let arglist = [error];
-                            let mut data = [JS_NewModuleValue(ctx, m)];
-                            let cc = CallArgs::new(
-                                ctx.handle(),
-                                JSValue::UNDEFINED,
-                                &arglist,
-                                0,
-                                Some(&mut data),
-                            );
-                            Self::execute_async_reject_callback(ctx, cc).unwrap();
-                            JS_FreeValue(ctx, data[0]);
-                            JS_FreeValue(ctx, error);
-                        }
+            md.async_evaluation = false;
+            md.set_evaluated(ctx);
+            Ok(())
+        }) {
+            Ok(_) => {
+                let mut lst = Vec::<JSModuleDef>::with_capacity(8);
+                unsafe {
+                    gather_module_ancestors(ctx, &module, &mut lst)?;
+                }
+                lst
+            }
+            Err(v) => {
+                return Ok(v);
+            }
+        };
+
+        // sort by increasing async_evaluation timestamp
+        exec_list.sort_by(|m1, m2| {
+            let t1 = m1.0.borrow().async_evaluation_timestamp;
+            let t2 = m2.0.borrow().async_evaluation_timestamp;
+            t1.cmp(&t2)
+        });
+
+        for m in exec_list {
+            if m.0.borrow().status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
+                debug_assert!(m.0.borrow().eval_has_exception);
+            } else if m.0.borrow().has_tla {
+                m.execute_async(ctx)?;
+            } else {
+                match unsafe { m.execute_sync(ctx) } {
+                    Ok(_) => {
+                        m.0.borrow_mut().set_evaluated(ctx);
+                    }
+                    Err(e) => {
+                        let arglist = [e];
+                        let mut data = [JSValue::Module(m.clone())];
+                        let cc =
+                            CallContext::new(ctx, JSValue::UNDEFINED, &arglist, 0, Some(&mut data));
+                        Self::execute_async_reject_callback(ctx, cc)?;
                     }
                 }
             }
-
-            js_free(ctx, exec_list.tab.cast());
         }
 
         Ok(JSValue::UNDEFINED)
     }
 
     /// async module execution reject callback
-    pub fn execute_async_reject_callback(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-        let module = unsafe {
-            JS_VALUE_GET_PTR(args.data_raw(0))
-                .cast::<JSModuleDef>()
-                .as_mut()
-                .unwrap()
-        };
-        let mut err_val = args.get_raw(0);
-
-        if unsafe { js_check_stack_overflow(ctx.rt(), 0) } {
-            unsafe {
-                JS_ThrowStackOverflow(ctx);
-            }
+    pub fn execute_async_reject_callback(ctx: &JSContext, args: CallContext) -> JSResult {
+        if unsafe { js_check_stack_overflow(&ctx.rt(), 0) } {
+            JS_ThrowStackOverflow(ctx);
             return Err(-1);
         }
 
-        if module.status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-            debug_assert!(module.eval_has_exception);
+        let module = if let JSValue::Module(m) = args.data_raw(0) {
+            m
+        } else {
+            unreachable!()
+        };
+
+        let mut err_val = args.get_raw(0);
+
+        if module.0.borrow().status == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
+            debug_assert!(module.0.borrow().eval_has_exception);
             return Ok(JSValue::UNDEFINED);
         }
 
         debug_assert_eq!(
-            module.status,
+            module.0.borrow().status,
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
         );
-        debug_assert!(!module.eval_has_exception);
-        debug_assert!(module.async_evaluation);
+        debug_assert!(!module.0.borrow().eval_has_exception);
+        debug_assert!(module.0.borrow().async_evaluation);
 
-        module.eval_has_exception = true;
-        module.eval_exception = err_val.dup();
-        module.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
+        module.0.borrow_mut().eval_has_exception = true;
+        module.0.borrow_mut().eval_exception = err_val.clone();
+        module.0.borrow_mut().status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
 
-        let arglist = [err_val];
-
-        for i in 0..module.async_parent_modules_count {
-            unsafe {
-                let m = *module.async_parent_modules.offset(i as isize);
-                let mut data = [JS_NewModuleValue(ctx, m)];
-                let cc = CallArgs::new(
-                    ctx.handle(),
-                    JSValue::UNDEFINED,
-                    &arglist,
-                    0,
-                    Some(&mut data),
-                );
-                Self::execute_async_reject_callback(ctx, cc).unwrap();
-                JS_FreeValue(ctx, data[0]);
-            }
+        for m in module.0.borrow().async_parent_modules.iter() {
+            let mut data = [JSValue::Module(m.clone())];
+            let cc = CallContext::new(
+                ctx,
+                JSValue::UNDEFINED,
+                std::slice::from_ref(&err_val),
+                0,
+                Some(&mut data),
+            );
+            Self::execute_async_reject_callback(ctx, cc).unwrap();
         }
 
-        if !module.promise.is_undefined() {
+        if !module.0.borrow().promise.is_undefined() {
             debug_assert_eq!(
-                module.cycle_root as *mut JSModuleDef,
-                module as *mut JSModuleDef
+                module.0.borrow().cycle_root.as_ref().unwrap().id(),
+                module.id()
             );
 
-            unsafe {
-                let ret_val = JS_Call(
-                    ctx,
-                    module.resolving_funcs[1],
-                    JSValue::UNDEFINED,
-                    1,
-                    &mut err_val,
-                );
-                JS_FreeValue(ctx, ret_val);
-            }
+            JS_Call(
+                ctx,
+                &module.0.borrow().resolving_funcs[1],
+                &JSValue::UNDEFINED,
+                std::slice::from_ref(&err_val),
+            );
         }
 
         Ok(JSValue::UNDEFINED)
     }
 
     /// execute module in sync mode. returns error value on failure.
-    pub unsafe fn execute_sync(&mut self, ctx: &mut JSContext) -> Result<(), JSValue> {
-        if let Some(f) = self.init_func {
+    pub fn execute_sync(&self, ctx: &JSContext) -> Result<(), JSValue> {
+        if let Some(f) = self.0.borrow().init_func {
             // has native module init fn: no asynchronous execution
             if f(ctx, self) < 0 {
                 return Err(ctx.take_exception());
             }
         } else {
-            let promise: PromiseValue = js_async_function_call(
-                ctx,
-                self.func_obj,
-                JSValue::UNDEFINED,
-                0,
-                std::ptr::null_mut(),
-                0,
-            )
-            .check_exception()
-            .map_err(|_| ctx.take_exception())? // return Err with current exception
-            .unchecked_into(); // return val must be a Promise
+            let promise: PromiseValue = unsafe {
+                js_async_function_call(ctx, &self.0.borrow().func_obj, &JSValue::UNDEFINED, &[], 0)
+                    .map_err(|_| ctx.take_exception())? // return Err with current exception
+                    .unchecked_into()
+            }; // return val must be a Promise
 
             match promise.state().unwrap() {
-                JSPromiseStateEnum::JS_PROMISE_FULFILLED => {
-                    JS_FreeValue(ctx, promise.into());
-                }
+                JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
                 JSPromiseStateEnum::JS_PROMISE_REJECTED => {
                     let val = promise.result();
-                    JS_FreeValue(ctx, promise.into());
                     return Err(val);
                 }
                 JSPromiseStateEnum::JS_PROMISE_PENDING => {
-                    JS_FreeValue(ctx, promise.into());
-                    ctx.JS_ThrowTypeError(c"promise is pending");
+                    ctx.JS_ThrowTypeError("promise is pending");
                     return Err(ctx.take_exception());
                 }
             }
         }
 
         Ok(())
-    }
-
-    /// set module status to `evaluated`
-    pub fn set_evaluated(&mut self, ctx: &mut JSContext) {
-        self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
-
-        if !self.promise.is_undefined() {
-            debug_assert_eq!(
-                self.cycle_root as *const JSModuleDef,
-                self as *const JSModuleDef
-            );
-
-            let mut value = JSValue::UNDEFINED;
-            let ret_val = unsafe {
-                JS_Call(
-                    ctx,
-                    self.resolving_funcs[0],
-                    JSValue::UNDEFINED,
-                    1,
-                    &mut value,
-                )
-            };
-
-            unsafe {
-                JS_FreeValue(ctx, ret_val);
-            }
-        }
     }
 
     /// test if module `self` is in execution list `exec_list
@@ -528,15 +458,15 @@ impl JSModuleDef {
 }
 
 // spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1, exception)
-#[deprecated(note = "use JSModuleDef::eval_inner() instead")]
+#[deprecated(note = "use JSModuleDef::do_eval() instead")]
 pub unsafe fn js_inner_module_evaluation(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     m: *mut JSModuleDef,
     index: i32,
-    pstack_top: *mut *mut JSModuleDef,
+    pstack_top: &mut Option<JSModuleDef>,
     pvalue: *mut JSValue,
 ) -> i32 {
-    match (*m).do_eval(ctx.as_mut().unwrap(), index, pstack_top) {
+    match (*m).do_eval(ctx, index, pstack_top) {
         Ok(index) => {
             *pvalue = JSValue::UNDEFINED;
             return index;
@@ -549,17 +479,17 @@ pub unsafe fn js_inner_module_evaluation(
 }
 
 #[deprecated(note = "use JSModuleDef::execute_async() instead")]
-pub unsafe fn js_execute_async_module(ctx: *mut JSContext, m: *mut JSModuleDef) -> i32 {
-    (*m).execute_async(ctx.as_mut().unwrap()).map_or(-1, |_| -1)
+pub unsafe fn js_execute_async_module(ctx: &JSContext, m: *mut JSModuleDef) -> i32 {
+    (*m).execute_async(ctx).map_or(-1, |_| -1)
 }
 
 #[deprecated(note = "use JSModuleDef::execute_sync() instead")]
 pub unsafe fn js_execute_sync_module(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     m: *mut JSModuleDef,
     pvalue: *mut JSValue,
 ) -> i32 {
-    match (*m).execute_sync(ctx.as_mut().unwrap()) {
+    match (*m).execute_sync(ctx) {
         Ok(()) => {
             *pvalue = JSValue::UNDEFINED;
             0
@@ -572,7 +502,7 @@ pub unsafe fn js_execute_sync_module(
 }
 
 #[deprecated(note = "use JSModuleDef::execute_async_reject_callback() instead")]
-pub fn js_async_module_execution_rejected(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) -> JSResult {
     JSModuleDef::execute_async_reject_callback(ctx, args)
 
     // let module = unsafe {
@@ -583,7 +513,7 @@ pub fn js_async_module_execution_rejected(ctx: &mut JSContext, args: CallArgs) -
     // };
     // let mut error = args.get_raw(0);
 
-    // if unsafe { js_check_stack_overflow((*ctx).rt(), 0) } {
+    // if unsafe { js_check_stack_overflow(ctx.rt(), 0) } {
     //     unsafe {
     //         JS_ThrowStackOverflow(ctx);
     //     }
@@ -611,7 +541,7 @@ pub fn js_async_module_execution_rejected(ctx: &mut JSContext, args: CallArgs) -
     //         let m = *module.async_parent_modules.offset(i as isize);
     //         let arglist = [error];
     //         let mut data = [JS_NewModuleValue(ctx, m)];
-    //         let cc = CallArgs::new(
+    //         let cc = CallContext::new(
     //             NonNull::new_unchecked(ctx),
     //             JSValue::UNDEFINED,
     //             &arglist,
@@ -651,7 +581,7 @@ pub struct ExecModuleList {
 }
 
 #[deprecated(note = "use JSModuleDef::execute_async_resolve_callback() instead")]
-pub fn js_async_module_execution_fulfilled(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_async_module_execution_fulfilled(ctx: &JSContext, args: CallContext) -> JSResult {
     JSModuleDef::execute_async_resolve_callback(ctx, args)
 
     // let module = unsafe {
@@ -712,7 +642,7 @@ pub fn js_async_module_execution_fulfilled(ctx: &mut JSContext, args: CallArgs) 
     //             if js_execute_sync_module(ctx, m, &mut error) < 0 {
     //                 let arglist = [error];
     //                 let mut data = [JS_NewModuleValue(ctx, m)];
-    //                 let cc = CallArgs::new(
+    //                 let cc = CallContext::new(
     //                     NonNull::new_unchecked(ctx),
     //                     JSValue::UNDEFINED,
     //                     &arglist,
@@ -735,56 +665,107 @@ pub fn js_async_module_execution_fulfilled(ctx: &mut JSContext, args: CallArgs) 
 }
 
 #[deprecated(note = "use JSModuleDef::set_evaluated() instead")]
-pub unsafe fn js_set_module_evaluated(ctx: *mut JSContext, m: *mut JSModuleDef) {
-    (*m).set_evaluated(ctx.as_mut().unwrap());
+pub unsafe fn js_set_module_evaluated(ctx: &JSContext, m: &JSModuleDef) {
+    m.0.borrow_mut().set_evaluated(ctx);
 }
 
-pub unsafe fn gather_available_ancestors(
-    ctx: *mut JSContext,
-    module: *mut JSModuleDef,
-    exec_list: &mut ExecModuleList,
-) -> i32 {
-    if js_check_stack_overflow((*ctx).rt(), 0) {
+fn gather_module_ancestors(
+    ctx: &JSContext,
+    module: &JSModuleDef,
+    result: &mut Vec<JSModuleDef>,
+) -> Result<(), i32> {
+    if js_check_stack_overflow(&ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx);
-        return -1;
+        return Err(-1);
     }
 
-    for i in 0..(*module).async_parent_modules_count {
-        let m = *(*module).async_parent_modules.offset(i as isize);
-        if unsafe { !(*m).in_execution_list(exec_list) } && !(*(*m).cycle_root).eval_has_exception {
+    for m in module.0.borrow().async_parent_modules.iter() {
+        if !result.iter().any(|x| x.id() == m.id())
+            && m.0
+                .borrow()
+                .cycle_root
+                .as_ref()
+                .map_or(false, |r| r.0.borrow().eval_has_exception)
+        {
             debug_assert_eq!(
-                (*m).status,
+                m.0.borrow().status,
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             );
-            debug_assert!(!(*m).eval_has_exception);
-            debug_assert!((*m).async_evaluation);
-            debug_assert!((*m).pending_async_dependencies > 0);
+            debug_assert!(!m.0.borrow().eval_has_exception);
+            debug_assert!(m.0.borrow().async_evaluation);
+            debug_assert!(m.0.borrow().pending_async_dependencies > 0);
 
-            (*m).pending_async_dependencies -= 1;
-            if (*m).pending_async_dependencies == 0 {
-                if js_resize_array(
-                    ctx,
-                    &mut exec_list.tab as *mut _ as *mut *mut _,
-                    std::mem::size_of::<*mut JSModuleDef>() as _,
-                    &mut exec_list.size,
-                    exec_list.count + 1,
-                ) != 0
-                {
-                    return -1;
-                }
-                *exec_list.tab.offset((*exec_list).count as isize) = m;
-                exec_list.count += 1;
+            m.0.borrow_mut().pending_async_dependencies -= 1;
 
-                if !(*m).has_tla {
-                    if gather_available_ancestors(ctx, m, exec_list) < 0 {
-                        return -1;
+            if m.0.borrow().pending_async_dependencies == 0 {
+                if result.len() == result.capacity() {
+                    if result.try_reserve(8).is_err() {
+                        ctx.JS_ThrowOutOfMemory();
+                        return Err(-1);
                     }
+                }
+
+                result.push(m.clone());
+
+                if !m.0.borrow().has_tla {
+                    gather_module_ancestors(ctx, m, result)?;
                 }
             }
         }
     }
 
-    0
+    Ok(())
+}
+
+#[deprecated(note = "use gather_module_ancestors() instead")]
+pub unsafe fn gather_available_ancestors(
+    ctx: &JSContext,
+    module: *mut JSModuleDef,
+    exec_list: &mut ExecModuleList,
+) -> i32 {
+    unreachable!("use gather_module_ancestors() instead");
+
+    // if js_check_stack_overflow(ctx.rt(), 0) {
+    //     JS_ThrowStackOverflow(ctx);
+    //     return -1;
+    // }
+
+    // for i in 0..(*module).async_parent_modules_count {
+    //     let m = *(*module).async_parent_modules.offset(i as isize);
+    //     if unsafe { !(*m).in_execution_list(exec_list) } && !(*(*m).cycle_root).eval_has_exception {
+    //         debug_assert_eq!(
+    //             (*m).status,
+    //             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+    //         );
+    //         debug_assert!(!(*m).eval_has_exception);
+    //         debug_assert!((*m).async_evaluation);
+    //         debug_assert!((*m).pending_async_dependencies > 0);
+
+    //         (*m).pending_async_dependencies -= 1;
+    //         if (*m).pending_async_dependencies == 0 {
+    //             if js_resize_array(
+    //                 ctx,
+    //                 &mut exec_list.tab as *mut _ as *mut *mut _,
+    //                 std::mem::size_of::<*mut JSModuleDef>() as _,
+    //                 &mut exec_list.size,
+    //                 exec_list.count + 1,
+    //             ) != 0
+    //             {
+    //                 return -1;
+    //             }
+    //             *exec_list.tab.offset((*exec_list).count as isize) = m;
+    //             exec_list.count += 1;
+
+    //             if !(*m).has_tla {
+    //                 if gather_available_ancestors(ctx, m, exec_list) < 0 {
+    //                     return -1;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    // 0
 }
 
 #[deprecated(note = "use JSModuleDef::in_execution_list() instead")]

@@ -3,11 +3,14 @@ use std::ops::DerefMut;
 use crate::{
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,
-    parse::emit::{emit_atom_dup, emit_op, emit_push_const, emit_u16},
-    unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
+    parse::{
+        emit::{emit_atom_dup, emit_op, emit_push_const, emit_u16},
+        token::TokenData,
+    },
+    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::{
-        object::{seal_template_obj, JS_PROP_ENUMERABLE, JS_PROP_THROW},
-        JSValue, JS_FreeValue, StringContent,
+        JS_FreeValue, JSValue, StringContent,
+        object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     },
 };
 
@@ -27,7 +30,7 @@ impl<'s> JSParseState<'s> {
         let mut c: char;
         loop {
             if p >= self.buf_end {
-                template_error!(c"unexpected end of string");
+                template_error!("unexpected end of string");
             }
 
             c = *p as char;
@@ -48,7 +51,7 @@ impl<'s> JSParseState<'s> {
                         -1
                     })?;
                     if p >= self.buf_end {
-                        template_error!(c"unexpected end of string");
+                        template_error!("unexpected end of string");
                     } else {
                         c = *p as char;
                         p = p.offset(1);
@@ -70,7 +73,7 @@ impl<'s> JSParseState<'s> {
                 let mut p_next = std::ptr::null::<u8>();
                 c = unicode_from_utf8(p.offset(-1), UTF8_CHAR_LEN_MAX as _, &mut p_next).map_err(
                     |_| {
-                        self.throw_syntax_error(c"invalid UTF-8 sequence");
+                        self.throw_syntax_error("invalid UTF-8 sequence");
                         -1
                     },
                 )?;
@@ -84,35 +87,35 @@ impl<'s> JSParseState<'s> {
         }
 
         self.token.val = TOK_TEMPLATE;
-        self.token.u.str.sep = c as _;
-        self.token.u.str.str = (*self.ctx).create_string_from_content(res_string);
+        self.token.data = TokenData::Str {
+            sep: c as _,
+            str: self.ctx.create_string_from_content(res_string),
+        };
         self.buf_ptr = p;
 
         Ok(())
     }
 
     pub unsafe fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<(), i32> {
-        let mut ctx = self.ctx;
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
 
         if call {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
-            template_object = ctx.create_array()?;
+            template_object = self.ctx.create_array()?;
 
-            let ret = emit_push_const(self, template_object, false);
-            JS_FreeValue(ctx.as_ptr(), template_object);
+            let ret = emit_push_const(self, template_object.clone(), false);
             if ret != 0 {
                 return Err(-1);
             }
 
-            raw_array = ctx.create_array()?;
+            raw_array = self.ctx.create_array()?;
 
             template_object.define_property_value(
-                ctx.deref_mut(),
+                &self.ctx,
                 JS_ATOM_raw,
-                raw_array,
+                raw_array.clone(),
                 JS_PROP_THROW,
             )?;
         }
@@ -120,13 +123,13 @@ impl<'s> JSParseState<'s> {
         let mut depth = 0;
         while self.token.val == TOK_TEMPLATE {
             let mut p = self.token.ptr.offset(1);
-            let mut cooked = self.token;
+            let mut cooked = self.token.clone();
 
             if call {
                 raw_array.define_property_value_u32(
-                    ctx.deref_mut(),
+                    &self.ctx,
                     depth as _,
-                    self.token.u.str.str.dup(),
+                    self.token.data.string().unwrap().clone(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
 
@@ -136,32 +139,39 @@ impl<'s> JSParseState<'s> {
                     .parse_string('`', false, p, Some(&mut cooked), &mut p)
                     .is_err()
                 {
-                    cooked.u.str.str = JSValue::UNDEFINED;
+                    // TODO: this is not nessecary, because ::drop() will handle string value free
+                    if let TokenData::Str { str, .. } = &mut cooked.data {
+                        *str = JSValue::UNDEFINED;
+                    }
                 }
 
                 template_object.define_property_value_u32(
-                    ctx.deref_mut(),
+                    &self.ctx,
                     depth as _,
-                    cooked.u.str.str,
+                    cooked.data.string().unwrap().clone(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
-                JS_FreeValue(ctx.as_ptr(), self.token.u.str.str);
-                self.token.u.str.str = JSValue::UNDEFINED;
+
+                // TODO: this is not nessecary, because ::drop() will handle string value free
+                if let TokenData::Str { str, .. } = &mut cooked.data {
+                    *str = JSValue::UNDEFINED;
+                }
 
                 self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
-                let str = cooked.u.str.str.string();
+                let str = cooked.data.string().unwrap().string_unchecked();
                 if depth == 0 || !str.is_empty() {
-                    let ret = emit_push_const(self, cooked.u.str.str, true);
-                    JS_FreeValue(self.ctx.as_ptr(), cooked.u.str.str);
+                    let ret = emit_push_const(self, JSValue::String(str.clone()), true);
+                    // emit_push_const(self, cooked.u.str.str.replace(JSValue::UNDEFINED), true);
+
                     if ret != 0 {
                         return Err(-1);
                     }
 
                     if depth == 0 {
-                        if self.token.u.str.sep == b'`' as i32 {
+                        if self.token.data.string_sep().unwrap() == b'`' as i32 {
                             return self.next_token();
                         }
                         emit_op(self, OpCode::GET_FIELD2);
@@ -169,15 +179,15 @@ impl<'s> JSParseState<'s> {
                     }
                     depth += 1;
                 } else {
-                    JS_FreeValue(self.ctx.as_ptr(), cooked.u.str.str);
+                    // cooked.u.str.str = JSValue::UNDEFINED;
                 }
             }
 
-            if self.token.u.str.sep == b'`' as i32 {
+            if self.token.data.string_sep().unwrap() == b'`' as i32 {
                 // template is done
                 if call {
-                    seal_template_obj(ctx.as_ptr(), raw_array);
-                    seal_template_obj(ctx.as_ptr(), template_object);
+                    seal_template_obj(&self.ctx, raw_array);
+                    seal_template_obj(&self.ctx, template_object);
                     *argc = depth + 1;
                 } else {
                     emit_op(self, OpCode::CALL_METHOD);
@@ -192,7 +202,7 @@ impl<'s> JSParseState<'s> {
 
             depth += 1;
             if self.token.val != b'}' as i32 {
-                self.throw_syntax_error(c"expected '}' after template expression");
+                self.throw_syntax_error("expected '}' after template expression");
                 return Err(-1);
             }
 

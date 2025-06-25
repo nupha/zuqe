@@ -8,6 +8,6 @@ pub mod string;
 
 use crate::{context::JSContext, value::JSValue};
 
-pub unsafe fn js_get_this(ctx: *mut JSContext, this_val: JSValue) -> JSValue {
-    this_val.dup()
+pub unsafe fn js_get_this(ctx: &JSContext, this_val: JSValue) -> JSValue {
+    this_val
 }

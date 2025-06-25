@@ -1,30 +1,71 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::Deref};
 
 use crate::{
     atom::JSAtom,
-    context::{is_strict_mode, JSContext},
+    context::{JSContext, is_strict_mode},
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
-    utils::unlikely,
     value::{
+        JSValue, JSValueConst,
         object::{
-            JSObject, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
-            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE,
-            JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_TMASK, JS_PROP_WRITABLE,
+            JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD,
+            JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE, JSObject,
+            JSProperty,
         },
-        set_value, JSValue, JSValueConst, JS_FreeValue, JS_IsUninitialized, JS_VALUE_GET_OBJ,
     },
 };
 
-// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
-// XXX: could support exotic global object.
-pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: u32) -> i32 {
-    let p = JS_VALUE_GET_OBJ((*ctx).global_obj);
+impl JSContext {
+    /// construct a reference to specified global variable
+    pub(crate) fn build_global_varref(
+        &self,
+        prop: JSAtom,
+    ) -> Result<Option<(JSValue, JSValue)>, i32> {
+        // no exotic behavior is possible in global_var_obj
+        let gvobj = self.global_var_obj();
 
-    if let Some(prs) = (*p).find_own_property1(prop) {
-        let prs_flags = prs.flags();
+        let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_own_property(prop) {
+            // check writable flag
+            if prs_flags & JS_PROP_WRITABLE == 0 {
+                return if self.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
+                    Err(-1)
+                } else {
+                    Ok(None)
+                };
+            }
 
+            // XXX: should handle JS_PROP_AUTOINIT properties?
+            // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
+            if let JSProperty::Value(JSValue::UNINITIALIZED) =
+                gvobj.0.prop_values.borrow().get(idx).unwrap()
+            {
+                JS_ThrowReferenceErrorUninitialized(self, prop);
+                return Err(-1);
+            }
+
+            JSValue::Object(gvobj.clone())
+        } else {
+            // prop does not exist
+            let gobj = self.global_obj();
+            if gobj.has_property(self, prop)? {
+                JSValue::Object(gobj.clone())
+            } else {
+                JSValue::UNDEFINED
+            }
+        };
+
+        let v1 = prop.to_value(self, false);
+        Ok(Some((v0, v1)))
+    }
+}
+
+/// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
+/// XXX: could support exotic global object.
+pub fn JS_CheckDefineGlobalVar(ctx: &JSContext, prop: JSAtom, flags: u32) -> i32 {
+    let gobj = ctx.global_obj();
+
+    if let Some((_, prs_flags)) = gobj.find_own_property(prop) {
         // XXX: should handle JS_PROP_AUTOINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             if prs_flags & JS_PROP_CONFIGURABLE == 0 {
@@ -32,11 +73,10 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
                 return -1;
             }
         } else {
-            if !(*p).detailed.extensible() {
-                (*ctx).JS_ThrowTypeError(CStr::from_ptr(
-                    format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
-                        .as_ptr()
-                        .cast(),
+            if !gobj.flags().extensible() {
+                ctx.JS_ThrowTypeError(&format!(
+                    "cannot define variable '{}' ",
+                    prop.to_str(ctx.rt())
                 ));
                 return -1;
             }
@@ -47,10 +87,9 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
                         || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                             != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                 {
-                    (*ctx).JS_ThrowTypeError(CStr::from_ptr(
-                        format!("cannot define variable '{}'\0", prop.to_str((*ctx).rt()))
-                            .as_ptr()
-                            .cast(),
+                    ctx.JS_ThrowTypeError(&format!(
+                        "cannot define variable '{}'",
+                        prop.to_str(ctx.rt())
                     ));
                     return -1;
                 }
@@ -59,8 +98,7 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
     }
 
     // check if there already is a lexical declaration
-    let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-    if (*p).find_own_property1(prop).is_some() {
+    if ctx.global_var_obj().has_own_property(prop) {
         JS_ThrowSyntaxErrorVarRedeclaration(ctx, prop);
         return -1;
     }
@@ -71,27 +109,31 @@ pub unsafe fn JS_CheckDefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, flags: 
 // def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
 //   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
 // XXX: could support exotic global object.
-pub unsafe fn JS_DefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, def_flags: u32) -> i32 {
-    let p: *mut JSObject;
+pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: JSAtom, def_flags: u32) -> i32 {
+    let p: JSObject;
     let val: JSValue;
     let flags: u32;
 
     if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
-        p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
+        p = ctx.global_var_obj();
         flags = JS_PROP_ENUMERABLE | (def_flags & JS_PROP_WRITABLE) | JS_PROP_CONFIGURABLE;
         val = JSValue::UNINITIALIZED;
     } else {
-        p = JS_VALUE_GET_OBJ((*ctx).global_obj);
+        p = ctx.global_obj();
         flags = JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | (def_flags & JS_PROP_CONFIGURABLE);
         val = JSValue::UNDEFINED;
     }
 
-    if (*p).find_own_property1(prop).is_some() {
-        return 0;
-    } else if !(*p).detailed.extensible() {
-        return 0;
-    } else if let Ok(pr) = (*p).add_property(ctx.as_mut().unwrap(), prop, flags) {
-        (*pr).u.value = val;
+    if p.has_own_property(prop) {
+        0
+    } else if !p.flags().extensible() {
+        0
+    } else if p
+        .add_property_then(ctx, prop, flags, |pr| {
+            *pr = JSProperty::Value(val);
+        })
+        .is_ok()
+    {
         0
     } else {
         -1
@@ -101,20 +143,22 @@ pub unsafe fn JS_DefineGlobalVar(ctx: *mut JSContext, prop: JSAtom, def_flags: u
 /// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
 /// `func` is not consumed.
 /// XXX: could support exotic global object.
-pub unsafe fn JS_DefineGlobalFunction(
-    ctx: *mut JSContext,
+pub fn JS_DefineGlobalFunction(
+    ctx: &JSContext,
     prop: JSAtom,
-    func: JSValueConst,
+    func: &JSValueConst,
     def_flags: u32,
 ) -> i32 {
-    let p = JS_VALUE_GET_OBJ((*ctx).global_obj);
+    let gobj = ctx.global_obj();
 
     let mut flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
 
-    if (*p).find_own_property1(prop).map_or(
-        true,                                          // not exists
-        |prs| prs.flags() & JS_PROP_CONFIGURABLE != 0, // writable
-    ) {
+    let writable = gobj
+        .find_own_property(prop)
+        .map(|(_, flags)| flags & JS_PROP_CONFIGURABLE != 0)
+        .unwrap_or(false);
+
+    if writable {
         flags |= JS_PROP_ENUMERABLE
             | JS_PROP_WRITABLE
             | def_flags
@@ -123,14 +167,13 @@ pub unsafe fn JS_DefineGlobalFunction(
             | JS_PROP_HAS_ENUMERABLE;
     }
 
-    if (*ctx)
-        .global_obj
+    if gobj
         .define_property(
-            ctx.as_mut().unwrap(),
+            ctx,
             prop,
             func,
-            JSValue::UNDEFINED,
-            JSValue::UNDEFINED,
+            &JSValue::UNDEFINED,
+            &JSValue::UNDEFINED,
             flags,
         )
         .is_err()
@@ -141,72 +184,56 @@ pub unsafe fn JS_DefineGlobalFunction(
     0
 }
 
-pub unsafe fn JS_GetGlobalVar(ctx: *mut JSContext, prop: JSAtom, throw_ref_error: bool) -> JSValue {
+pub fn JS_GetGlobalVar(ctx: &JSContext, prop: JSAtom, throw_ref_error: bool) -> JSValue {
     // no exotic behavior is possible in global_var_obj
-    if let Some((prs, pr)) = (*ctx)
-        .global_var_obj
-        .object_unchecked()
-        .find_own_property(prop)
-    {
+    let gvobj = ctx.global_var_obj();
+    if let Some((idx, _)) = gvobj.find_own_property(prop) {
+        // found prop in global var object
         // XXX: should handle JS_PROP_TMASK properties
-        if unlikely(JS_IsUninitialized(pr.u.value)) {
-            JS_ThrowReferenceErrorUninitialized(ctx, prs.atom)
-        } else {
-            pr.u.value.dup()
+        match gvobj.0.prop_values.borrow().get(idx).unwrap() {
+            JSProperty::Value(JSValue::UNINITIALIZED) => {
+                JS_ThrowReferenceErrorUninitialized(ctx, prop);
+                JSValue::EXCEPTION
+            }
+            JSProperty::Value(v) => v.clone(),
+            _ => {
+                unreachable!()
+            }
         }
     } else {
-        (*ctx).global_obj.get_property_internal(
-            ctx.as_mut().unwrap(),
+        // search global object
+        let gobj = ctx.global_obj();
+        gobj.get_property_in_shape_or_exotic(
+            ctx,
             prop,
-            (*ctx).global_obj,
+            &JSValue::Object(gobj.clone()),
             throw_ref_error,
         )
     }
 }
 
 // construct a reference to a global variable
-pub unsafe fn JS_GetGlobalVarRef(ctx: *mut JSContext, prop: JSAtom, sp: *mut JSValue) -> i32 {
-    // no exotic behavior is possible in global_var_obj
-    let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-
-    if let Some((prs, pr)) = (*p).find_own_property(prop) {
-        // XXX: should handle JS_PROP_AUTOINIT properties?
-        // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
-        if JS_IsUninitialized(pr.u.value) {
-            JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
-            return -1;
-        } else if prs.flags() & JS_PROP_WRITABLE == 0 {
-            return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
-                -1
-            } else {
-                0
-            };
+#[deprecated(note = "use JSContextInner::build_global_varref() instead")]
+pub unsafe fn JS_GetGlobalVarRef(ctx: &JSContext, prop: JSAtom, sp: *mut JSValue) -> i32 {
+    if let Ok(vs) = ctx.build_global_varref(prop) {
+        if let Some((v0, v1)) = vs {
+            std::ptr::replace(sp, v0);
+            std::ptr::replace(sp.add(1), v1);
         }
-        *sp.offset(0) = (*ctx).global_var_obj.dup();
+        0
     } else {
-        if let Ok(ret) = (*ctx).global_obj.has_property(ctx.as_mut().unwrap(), prop) {
-            *sp.offset(0) = if ret {
-                (*ctx).global_obj.dup()
-            } else {
-                JSValue::UNDEFINED
-            };
-        } else {
-            return -1;
-        }
+        -1
     }
-
-    *sp.offset(1) = prop.to_value(ctx.as_mut().unwrap(), false);
-    0
 }
 
 // use for strict variable access: test if the variable exists
-pub unsafe fn JS_CheckGlobalVar(ctx: *mut JSContext, prop: JSAtom) -> i32 {
+pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: JSAtom) -> i32 {
     // no exotic behavior is possible in global_var_obj
-    let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-    if (*p).find_own_property1(prop).is_some() {
+    let p = ctx.global_var_obj();
+    if p.has_own_property(prop) {
         1
     } else {
-        if let Ok(ret) = (*ctx).global_obj.has_property(ctx.as_mut().unwrap(), prop) {
+        if let Ok(ret) = ctx.global_obj().has_property(ctx, prop) {
             ret as i32
         } else {
             -1
@@ -217,39 +244,44 @@ pub unsafe fn JS_CheckGlobalVar(ctx: *mut JSContext, prop: JSAtom) -> i32 {
 // flag = 0: normal variable write
 // flag = 1: initialize lexical variable
 // flag = 2: normal variable write, strict check was done before
-pub unsafe fn JS_SetGlobalVar(ctx: *mut JSContext, prop: JSAtom, val: JSValue, flag: u32) -> i32 {
+pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -> i32 {
     // no exotic behavior is possible in global_var_obj
-    let p = JS_VALUE_GET_OBJ((*ctx).global_var_obj);
-
-    if let Some((prs, pr)) = (*p).find_own_property_mut(prop) {
+    let gvobj = ctx.global_var_obj();
+    if let Some((idx, prs_flags)) = gvobj.find_own_property(prop) {
         // XXX: should handle JS_PROP_AUTOINIT properties?
+        let pr = &mut gvobj.0.prop_values.borrow_mut()[idx];
+
         if flag != 1 {
-            if unlikely(JS_IsUninitialized(pr.u.value)) {
-                JS_FreeValue(ctx, val);
-                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
-                return -1;
-            }
-            if prs.flags() & JS_PROP_WRITABLE == 0 {
-                JS_FreeValue(ctx, val);
-                return if (*ctx).JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
-                    -1
-                } else {
-                    0
-                };
+            match pr {
+                JSProperty::Value(JSValue::UNINITIALIZED) => {
+                    JS_ThrowReferenceErrorUninitialized(ctx, prop);
+                    return -1;
+                }
+                _ => {
+                    if prs_flags & JS_PROP_WRITABLE == 0 {
+                        return if ctx.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
+                            -1
+                        } else {
+                            0
+                        };
+                    }
+                }
             }
         }
 
-        set_value(ctx, &mut pr.u.value, val);
+        *pr = JSProperty::Value(val.clone());
         return 0;
     } else {
+        // not exist
         let mut flags1 = JS_PROP_THROW_STRICT;
         if is_strict_mode(ctx) {
             flags1 |= JS_PROP_NO_ADD;
         }
 
-        (*ctx)
-            .global_obj
-            .set_property_internal(ctx.as_mut().unwrap(), prop, val, (*ctx).global_obj, flags1)
-            .map_or(-1, |b| b as i32)
+        let gobj = &ctx.0.borrow().global_obj;
+        unsafe {
+            JSValue::set_property_internal(ctx, gobj, prop, val, gobj, flags1)
+                .map_or(-1, |b| b as i32)
+        }
     }
 }

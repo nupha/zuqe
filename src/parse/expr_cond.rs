@@ -101,7 +101,7 @@ impl<'s> JSParseState<'s> {
 
                 if self.token.val != op {
                     if self.token.val == TOK_DOUBLE_QUESTION_MARK {
-                        self.throw_syntax_error(c"cannot mix ?? with && or ||");
+                        self.throw_syntax_error("cannot mix ?? with && or ||");
                         return Err(-1);
                     }
                     break;

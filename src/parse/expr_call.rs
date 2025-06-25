@@ -1,6 +1,6 @@
 use crate::{
-    atom::{consts::*, JSAtom},
-    bytecode::{opcodes, OpCode, OpCodeTemp},
+    atom::{JSAtom, consts::*},
+    bytecode::{OpCode, OpCodeTemp, opcodes},
     function::{FuncCallType, JSFunctionDef},
     utils::read_from_ptr,
 };
@@ -76,7 +76,7 @@ impl<'s> JSParseState<'s> {
 
         while self.token.val != ')' as i32 {
             if arg_count >= 65535 {
-                self.throw_syntax_error(c"Too many call arguments");
+                self.throw_syntax_error("Too many call arguments");
                 return Err(-1);
             }
             if self.token.val == TOK_ELLIPSIS {

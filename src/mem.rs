@@ -196,58 +196,58 @@ pub unsafe fn js_mallocz_rt(rt: *mut JSRuntime, nytes: usize) -> *mut c_void {
 }
 
 /* Throw out of memory in case of error */
-pub unsafe fn js_malloc(ctx: *mut JSContext, nbytes: usize) -> *mut c_void {
-    let ptr = js_malloc_rt((*ctx).rt_mut(), nbytes);
+pub unsafe fn js_malloc(ctx: &JSContext, nbytes: usize) -> *mut c_void {
+    let ptr = js_malloc_rt(ctx.rt_mut(), nbytes);
     if unlikely(ptr.is_null()) {
-        ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
+        ctx.JS_ThrowOutOfMemory();
         std::ptr::null_mut()
     } else {
         ptr
     }
 }
 
-pub unsafe fn js_mallocz(ctx: *mut JSContext, size: usize) -> *mut c_void {
-    let ptr = js_mallocz_rt((*ctx).rt_mut(), size);
+pub unsafe fn js_mallocz(ctx: &JSContext, size: usize) -> *mut c_void {
+    let ptr = js_mallocz_rt(ctx.rt_mut(), size);
     if unlikely(ptr.is_null()) {
-        ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
+        ctx.JS_ThrowOutOfMemory();
         return std::ptr::null_mut();
     }
     ptr
 }
 
-pub unsafe fn js_free(ctx: *mut JSContext, ptr: *mut c_void) {
-    js_free_rt((*ctx).rt_mut(), ptr);
+pub unsafe fn js_free(ctx: &JSContext, ptr: *mut c_void) {
+    js_free_rt(ctx.rt_mut(), ptr);
 }
 
-pub unsafe fn js_realloc(ctx: *mut JSContext, ptr: *mut c_void, size: usize) -> *mut c_void {
-    let ret = js_realloc_rt((*ctx).rt_mut(), ptr, size);
+pub unsafe fn js_realloc(ctx: &JSContext, ptr: *mut c_void, size: usize) -> *mut c_void {
+    let ret = js_realloc_rt(ctx.rt_mut(), ptr, size);
     if unlikely(ret.is_null() && size != 0) {
-        ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
+        ctx.JS_ThrowOutOfMemory();
         return std::ptr::null_mut();
     }
     ret
 }
 
 pub unsafe fn js_realloc2(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     ptr: *mut c_void,
     size: usize,
     pslack: *mut usize,
 ) -> *mut c_void {
-    let ret = js_realloc_rt((*ctx).rt_mut(), ptr, size);
+    let ret = js_realloc_rt(ctx.rt_mut(), ptr, size);
     if unlikely(ret.is_null() && size != 0) {
-        ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
+        ctx.JS_ThrowOutOfMemory();
         return std::ptr::null_mut();
     }
     if !pslack.is_null() {
-        let new_size = js_malloc_usable_size_rt((*ctx).rt_mut(), ret);
+        let new_size = js_malloc_usable_size_rt(ctx.rt_mut(), ret);
         *pslack = if new_size > size { new_size - size } else { 0 };
     }
     ret
 }
 
-pub unsafe fn js_malloc_usable_size(ctx: *mut JSContext, ptr: *const c_void) -> usize {
-    js_malloc_usable_size_rt((*ctx).rt_mut(), ptr)
+pub unsafe fn js_malloc_usable_size(ctx: &JSContext, ptr: *const c_void) -> usize {
+    js_malloc_usable_size_rt(ctx.rt_mut(), ptr)
 }
 
 //
@@ -284,19 +284,19 @@ pub unsafe fn js_malloc_rt_typed<T>(
 /// Throw out of memory in case of error
 #[inline(always)]
 pub unsafe fn js_malloc_typed<T>(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     count: usize,
     zeroed: bool,
 ) -> Option<NonNull<T>> {
-    let ptr = js_malloc_rt_typed::<T>((*ctx).rt_mut(), count, zeroed);
+    let ptr = js_malloc_rt_typed::<T>(ctx.rt_mut(), count, zeroed);
     if ptr.is_none() {
-        (*ctx).JS_ThrowOutOfMemory();
+        ctx.JS_ThrowOutOfMemory();
     }
     ptr
 }
 
 pub unsafe fn js_realloc_array(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     parray: *mut *mut c_void,
     elem_size: i32,
     psize: *mut i32,
@@ -320,7 +320,7 @@ pub unsafe fn js_realloc_array(
 }
 
 pub unsafe fn js_resize_array(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     parray: *mut *mut c_void,
     elem_size: i32,
     psize: *mut i32,
@@ -334,7 +334,7 @@ pub unsafe fn js_resize_array(
 }
 
 // pub unsafe fn ident_realloc(
-//     ctx: *mut JSContext,
+//     ctx: &JSContext,
 //     pbuf: *mut *mut u8,
 //     psize: *mut usize,
 //     static_buf: *mut u8,
@@ -376,8 +376,8 @@ pub mod alloca {
     type Callback = unsafe extern "C-unwind" fn(ptr: *mut MaybeUninit<u8>, data: *mut c_void);
 
     #[link(name = "alloca", kind = "static")]
-    extern "C-unwind" {
-        fn c_alloca_callback(size: usize, callback: Callback, opaque: *mut c_void);
+    unsafe extern "C-unwind" {
+        unsafe fn c_alloca_callback(size: usize, callback: Callback, opaque: *mut c_void);
     }
 
     unsafe extern "C-unwind" fn trampoline<F: FnOnce(*mut MaybeUninit<u8>)>(

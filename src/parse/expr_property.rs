@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 
 use crate::{
-    bytecode::{opcodes, OpCode, OpCodeTemp},
+    bytecode::{OpCode, OpCodeTemp, opcodes},
     function::JSFunctionDef,
     value::JS_FreeValue,
 };
@@ -9,7 +9,7 @@ use crate::{
 use super::{
     emit::{emit_atom_dup, emit_op, emit_op_temp, emit_push_const, emit_u16, get_prev_opcode},
     state::JSParseState,
-    token::{token_is_ident, CHAR_SQUARE_R, TOK_PRIVATE_NAME},
+    token::{CHAR_SQUARE_R, TOK_PRIVATE_NAME, token_is_ident},
 };
 
 impl<'s> JSParseState<'s> {
@@ -22,29 +22,28 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_PRIVATE_NAME {
             /* private class field */
             if get_prev_opcode(fd) == opcodes::OP_get_super {
-                self.throw_syntax_error(c"private class field forbidden after super");
+                self.throw_syntax_error("private class field forbidden after super");
                 return Err(-1);
             }
             if has_optional_chain {
                 self.optional_chain_test(optional_chaining_label, 1);
             }
             emit_op_temp(self, OpCodeTemp::SCOPE_GET_PRIVATE_FIELD);
-            emit_atom_dup(self, self.token.u.ident.atom);
+            emit_atom_dup(self, self.token.data.ident_atom().unwrap());
             emit_u16(self, self.cur_func().scope_level as _);
         } else {
             if !token_is_ident(self.token.val) {
-                self.throw_syntax_error(c"expecting field name");
+                self.throw_syntax_error("expecting field name");
                 return Err(-1);
             }
             if get_prev_opcode(fd) == opcodes::OP_get_super {
                 let val = self
                     .token
-                    .u
-                    .ident
-                    .atom
-                    .to_value(self.ctx.deref_mut(), false);
+                    .data
+                    .ident_atom()
+                    .unwrap()
+                    .to_value(&self.ctx, false);
                 let ret = emit_push_const(self, val, true);
-                JS_FreeValue(self.ctx.as_ptr(), val);
                 if ret != 0 {
                     return Err(-1);
                 }
@@ -54,7 +53,7 @@ impl<'s> JSParseState<'s> {
                     self.optional_chain_test(optional_chaining_label, 1);
                 }
                 emit_op(self, OpCode::GET_FIELD);
-                emit_atom_dup(self, self.token.u.ident.atom);
+                emit_atom_dup(self, self.token.data.ident_atom().unwrap());
             }
         }
 

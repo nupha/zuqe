@@ -1,34 +1,35 @@
-use std::{ops::DerefMut, ptr::NonNull};
+use std::{
+    cell::Cell,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 use crate::{
+    JS_CLASS_PROMISE,
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{js_function_set_properties, CallArgs, JS_Call, JS_CallConstructor},
+    function::{CallContext, JS_Call, JS_CallConstructor, js_function_set_properties},
     gc::GCMarkFunc,
     js_core::error::js_aggregate_error_constructor,
     list_entry,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     utils::{
-        init_list_head, list_del, list_foreach, list_foreach_safe, list_head, UncheckedFrom,
-        UncheckedInto,
+        UncheckedFrom, UncheckedInto, init_list_head, list_del, list_foreach, list_foreach_safe,
+        list_head,
     },
     value::{
-        object::{JSObjectIsa, JS_NewObject, JS_PROP_C_W_E},
-        set_value, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_NewString, JS_ToBool,
-        JS_ToInt32,
+        JS_NewString, JS_ToInt32, JSValue, JSValueConst,
+        object::{JS_PROP_C_W_E, JSObjectIsa},
+        set_value,
     },
-    JS_CLASS_PROMISE,
 };
 
-use super::{
-    job::promise_reaction_job, js_promise_resolve_function_free_resolved, JSPromiseFunctionData,
-    JSPromiseFunctionDataResolved,
-};
+use super::{JSPromiseFunctionData, job::promise_reaction_job};
 
-pub type JSHostPromiseRejectionTracker = unsafe fn(
-    ctx: *mut JSContext,
+pub type JSHostPromiseRejectionTracker = fn(
+    ctx: &JSContext,
     promise: PromiseValue,
     reason: JSValue,
     is_handled: ::core::ffi::c_int,
@@ -43,12 +44,12 @@ pub enum JSPromiseStateEnum {
     JS_PROMISE_REJECTED,
 }
 
+#[derive(Debug)]
 pub struct JSPromiseData {
     pub promise_state: JSPromiseStateEnum,
 
     /// list of JSPromiseReactionData.link: #0 for fulfill, #1 for reject.
-    /// TODO: use [Vec<Box<JSPromiseReactionData>>; 2]
-    pub promise_reactions: [list_head; 2],
+    pub promise_reactions: [Vec<Box<JSPromiseReactionData>>; 2],
 
     /// Note: will be freed in PromiseValue::hook_finalizer().
     pub promise_result: JSValue,
@@ -58,7 +59,7 @@ pub struct JSPromiseData {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PromiseValue(pub(super) JSValue);
 
 impl TryFrom<JSValue> for PromiseValue {
@@ -94,10 +95,10 @@ impl PromiseValue {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// Note:  `executor` is not consumed, and must be callable.
-    pub(super) unsafe fn new_with_executor(
-        ctx: &mut JSContext,
+    pub(super) fn new_with_executor(
+        ctx: &JSContext,
         executor: JSValue,
-        new_target: JSValue,
+        new_target: &JSValue,
     ) -> Result<Self, i32> {
         // debug_assert_eq!(
         //     executor.object_unchecked().class_id(),
@@ -107,50 +108,25 @@ impl PromiseValue {
         executor.ensure_callable(ctx)?;
 
         // make promise payload
-        let mut s = Box::new(JSPromiseData {
+        let s = Box::new(JSPromiseData {
             promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
-            promise_reactions: [list_head::default(); 2],
+            promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
             is_handled: false,
         });
 
-        init_list_head(&mut s.promise_reactions[0]);
-        init_list_head(&mut s.promise_reactions[1]);
-
         // create js object of promise class
-        let promise = match ctx
-            .create_instance_from_ctor(new_target, JSObjectIsa::PROMISE(Box::into_raw(s)))
-        {
-            Ok(o) => Self(o),
-            Err(isa) => {
-                if let JSObjectIsa::PROMISE(s) = isa {
-                    drop(Box::from_raw(s));
-                }
-                return Err(-1);
-            }
-        };
+        let promise = Self(
+            ctx.create_instance_from_ctor(new_target, JSObjectIsa::PROMISE(s))
+                .map_err(|_| -1)?,
+        );
 
-        let mut args = promise.create_resolving_functions(ctx).inspect_err(|_| {
-            JS_FreeValue(ctx, promise.0);
-        })?;
-
-        let ret = JS_Call(ctx, executor, JSValue::UNDEFINED, 2, args.as_mut_ptr());
+        let args = promise.create_resolving_functions(ctx)?;
+        let ret = JS_Call(ctx, &executor, &JSValue::UNDEFINED, &args);
         if ret.is_exception() {
-            let mut error = ctx.take_exception();
-            let ret2 = JS_Call(ctx, args[1], JSValue::UNDEFINED, 1, &mut error);
-            JS_FreeValue(ctx, error);
-            if ret2.is_exception() {
-                JS_FreeValue(ctx, args[0]);
-                JS_FreeValue(ctx, args[1]);
-                JS_FreeValue(ctx, promise.0);
-                return Err(-1);
-            }
-            JS_FreeValue(ctx, ret2);
+            let error = ctx.take_exception();
+            let ret2 = JS_Call(ctx, &args[1], &JSValue::UNDEFINED, &[error]).check_exception()?;
         }
-
-        JS_FreeValue(ctx, ret);
-        JS_FreeValue(ctx, args[0]);
-        JS_FreeValue(ctx, args[1]);
 
         Ok(promise)
     }
@@ -161,10 +137,10 @@ impl PromiseValue {
     ///  - when provised, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
     pub unsafe fn new(
-        ctx: &mut JSContext,
-        ctor: JSValue,
+        ctx: &JSContext,
+        ctor: &JSValue,
     ) -> Result<(PromiseValue, [JSValue; 2]), i32> {
-        let mut executor = ctx.create_native_callable_object(
+        let executor = ctx.create_native_callable_object(
             PromiseValue::hook_executor,
             2,
             0,
@@ -172,34 +148,21 @@ impl PromiseValue {
         )?;
 
         let result_promise = if ctor.is_undefined() {
-            Self::new_with_executor(ctx, executor, JSValue::UNDEFINED)
-                .map_or(JSValue::EXCEPTION, |p| p.0)
+            Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?.0
         } else {
-            JS_CallConstructor(ctx, ctor, 1, &mut executor)
+            JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor)).check_exception()?
         };
-        if result_promise.is_exception() {
-            JS_FreeValue(ctx, executor);
-            JS_FreeValue(ctx, result_promise);
-            return Err(-1);
-        }
 
-        if let JSObjectIsa::C_FUNCTION_DATA(s) = executor.object_unchecked().isa() {
-            let s = (*s).as_ref().unwrap();
-
+        if let JSObjectIsa::C_FUNCTION_DATA(s) = executor.object_unchecked().0.isa.borrow().deref()
+        {
             let data = s.data();
             debug_assert!(!data.is_empty());
 
             for item in data.iter().take(2) {
-                if item.ensure_callable(ctx).is_err() {
-                    JS_FreeValue(ctx, executor);
-                    JS_FreeValue(ctx, result_promise);
-                    return Err(-1);
-                }
+                item.ensure_callable(ctx)?;
             }
 
-            let resolving_funcs = [data[0].dup(), data[1].dup()];
-            JS_FreeValue(ctx, executor);
-
+            let resolving_funcs = [data[0].clone(), data[1].clone()];
             Ok((result_promise.unchecked_into(), resolving_funcs))
         } else {
             unreachable!()
@@ -207,114 +170,50 @@ impl PromiseValue {
     }
 
     #[inline(always)]
-    pub const fn as_value(self) -> JSValue {
+    pub fn as_value(self) -> JSValue {
         self.0
-    }
-
-    #[inline(always)]
-    pub fn dup(self) -> Self {
-        Self(self.0.dup())
     }
 
     /// create [resolve, reject] function pairs for `self` promise object.
     /// Note: `self` is not consumed.
-    pub(super) fn create_resolving_functions(
-        self,
-        ctx: &mut JSContext,
-    ) -> Result<[JSValue; 2], i32> {
-        let mut sr_ptr = unsafe {
-            NonNull::new_unchecked(Box::into_raw(Box::new(JSPromiseFunctionDataResolved {
-                ref_count: 1,
-                already_resolved: false, // must be shared between the two functions
-            })))
-        };
-
+    pub(super) fn create_resolving_functions(&self, ctx: &JSContext) -> Result<[JSValue; 2], i32> {
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        for i in 0..2 {
-            let s = Box::new(JSPromiseFunctionData {
-                promise: self.dup(),
-                presolved: sr_ptr,
-            });
+        let resolved = Rc::new(Cell::new(false));
 
+        for i in 0..2 {
+            let s = JSPromiseFunctionData {
+                promise: self.clone(),
+                resolved: resolved.clone(), // shared between two functions
+            };
+
+            let function_proto = ctx.0.borrow().function_proto.clone();
             match ctx.create_instance_from_proto(
-                ctx.function_proto,
+                &function_proto,
                 if i == 0 {
-                    JSObjectIsa::PROMISE_RESOLVE_FUNCTION(Box::into_raw(s))
+                    JSObjectIsa::PROMISE_RESOLVE_FUNCTION(s)
                 } else {
-                    JSObjectIsa::PROMISE_REJECT_FUNCTION(Box::into_raw(s))
+                    JSObjectIsa::PROMISE_REJECT_FUNCTION(s)
                 },
             ) {
                 Ok(func_obj) => unsafe {
-                    sr_ptr.as_mut().ref_count += 1;
-                    js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, 1);
+                    js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, 1);
                     resolving_funcs[i as usize] = func_obj;
                 },
                 Err(isa) => {
-                    if let JSObjectIsa::PROMISE_REJECT_FUNCTION(s)
-                    | JSObjectIsa::PROMISE_RESOLVE_FUNCTION(s) = isa
-                    {
-                        let s = unsafe { Box::from_raw(s) };
-                        JS_FreeValue(ctx, s.promise.into());
-                    }
-
-                    if i != 0 {
-                        JS_FreeValue(ctx, resolving_funcs[0]);
-                    }
-
-                    // consume sr_ptr
-                    unsafe {
-                        js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
-                    }
-
                     return Err(-1);
                 }
             }
-
-            // let func_obj = if let Ok(o) ={
-            //     o
-            // } else {
-            //     if i != 0 {
-            //         JS_FreeValue(ctx, resolving_funcs[0]);
-            //     }
-
-            //     // consume sr_ptr
-            //     unsafe {
-            //         js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
-            //     }
-
-            //     return Err(-1);
-            // };
-
-            // unsafe {
-            //     sr_ptr.as_mut().ref_count += 1;
-            //     let s = Box::new(JSPromiseFunctionData {
-            //         promise: self.dup(),
-            //         presolved: sr_ptr,
-            //     });
-
-            //     func_obj
-            //         .object_unchecked()
-            //         .set_opaque(Box::into_raw(s).cast()); // <-- leak Box<JSPromiseFunctionData>
-
-            //     js_function_set_properties(ctx, func_obj, JS_ATOM_empty_string, 1);
-            // }
-
-            // resolving_funcs[i as usize] = func_obj;
-        }
-
-        unsafe {
-            js_promise_resolve_function_free_resolved(sr_ptr.as_ptr());
         }
 
         Ok(resolving_funcs)
     }
 
     /// get Promise meta data.
-    fn meta<'a>(self) -> Option<&'a JSPromiseData> {
+    fn with_meta<R>(&self, f: impl FnOnce(&JSPromiseData) -> R) -> Option<R> {
         unsafe {
-            if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().isa() {
-                (*p).as_ref()
+            if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().0.isa.borrow().deref() {
+                Some(f(p))
             } else {
                 None
             }
@@ -322,10 +221,12 @@ impl PromiseValue {
     }
 
     /// get Promise meta data.
-    fn meta_mut<'a>(self) -> Option<&'a mut JSPromiseData> {
+    fn with_meta_mut<R>(&self, f: impl FnOnce(&mut JSPromiseData) -> R) -> Option<R> {
         unsafe {
-            if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().isa() {
-                (*p).as_mut()
+            if let JSObjectIsa::PROMISE(p) =
+                self.0.object_unchecked().0.isa.borrow_mut().deref_mut()
+            {
+                Some(f(p))
             } else {
                 None
             }
@@ -334,78 +235,73 @@ impl PromiseValue {
 
     /// get Promise state.
     #[inline(always)]
-    pub fn state(self) -> Result<JSPromiseStateEnum, i32> {
-        self.meta().map(|s| s.promise_state).ok_or(-1)
+    pub fn state(&self) -> Result<JSPromiseStateEnum, i32> {
+        self.with_meta(|s| s.promise_state).ok_or(-1)
     }
 
     /// get Promise result.
     /// returned value is duplicated, caller must free it.
     #[inline(always)]
-    pub fn result(self) -> JSValue {
-        self.meta()
-            .map_or(JSValue::UNDEFINED, |s| s.promise_result.dup())
+    pub fn result(&self) -> JSValue {
+        self.with_meta(|s| s.promise_result.clone())
+            .unwrap_or(JSValue::UNDEFINED)
     }
 
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(self, ctx: &mut JSContext, value: JSValue, is_reject: bool) {
-        let s = self.meta_mut().unwrap();
-        debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
-
+    pub(super) fn fulfill_or_reject(self, ctx: &JSContext, value: JSValue, is_reject: bool) {
         #[cfg(DUMP_PROMISE)]
         {
             println!("fulfill_or_reject_promise: is_reject={}", is_reject);
         }
 
-        unsafe {
-            set_value(ctx, &mut s.promise_result, value.dup());
-        }
+        let (promise_state, is_handled) = self
+            .with_meta_mut(|s| {
+                debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
 
-        s.promise_state = if is_reject {
-            JSPromiseStateEnum::JS_PROMISE_REJECTED
-        } else {
-            JSPromiseStateEnum::JS_PROMISE_FULFILLED
-        };
+                s.promise_result = value.clone();
+                s.promise_state = if is_reject {
+                    JSPromiseStateEnum::JS_PROMISE_REJECTED
+                } else {
+                    JSPromiseStateEnum::JS_PROMISE_FULFILLED
+                };
 
-        if s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
+                (s.promise_state, s.is_handled)
+            })
+            .unwrap();
+
+        if promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !is_handled {
             if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
-                unsafe {
-                    cb(
-                        ctx,
-                        self,
-                        value,
-                        0,
-                        ctx.rt().host_promise_rejection_tracker_opaque,
-                    );
-                }
+                cb(
+                    ctx,
+                    self.clone(),
+                    value.clone(),
+                    0,
+                    ctx.rt().host_promise_rejection_tracker_opaque,
+                );
             }
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
-        unsafe {
-            list_foreach_safe(&mut s.promise_reactions[is_reject as usize], |el| {
-                let rd = list_entry!(el, JSPromiseReactionData, link);
+        let mut rd_list = self
+            .with_meta_mut(|s| {
+                std::mem::replace(&mut s.promise_reactions[is_reject as usize], Vec::new())
+            })
+            .unwrap();
 
-                ctx.enqueue_job(
-                    promise_reaction_job,
-                    &[
-                        (*rd).resolving_funcs[0],
-                        (*rd).resolving_funcs[1],
-                        (*rd).handler,
-                        if is_reject {
-                            JSValue::TRUE
-                        } else {
-                            JSValue::FALSE
-                        },
-                        value,
-                    ],
-                )
-                .unwrap();
-
-                list_del(&mut (*rd).link);
-                Box::from_raw(rd).dispose(ctx.rt_mut());
-            });
+        for rd in rd_list.drain(..) {
+            ctx.enqueue_job(
+                promise_reaction_job,
+                &[
+                    rd.resolving_funcs[0].clone(),
+                    rd.resolving_funcs[1].clone(),
+                    rd.handler,
+                    JSValue::Bool(is_reject),
+                    value.clone(),
+                ],
+            )
+            .unwrap();
         }
     }
 }
@@ -415,10 +311,7 @@ impl JSContext {
     /// returns Promise object and [resolve, reject] functions.
     /// this is just a shortcut for `PromiseValue::new(ctx, ctor)`.
     #[inline(always)]
-    pub fn create_promise(
-        &mut self,
-        ctor: JSValueConst,
-    ) -> Result<(PromiseValue, [JSValue; 2]), i32> {
+    pub fn create_promise(&self, ctor: &JSValueConst) -> Result<(PromiseValue, [JSValue; 2]), i32> {
         unsafe { PromiseValue::new(self, ctor) }
     }
 }
@@ -428,61 +321,48 @@ impl JSContext {
 //
 impl PromiseValue {
     /// the native callback for Promise constructor function
-    pub unsafe fn hook_constructor(
-        ctx: *mut JSContext,
-        new_target: JSValueConst,
-        argc: i32,
-        argv: *mut JSValueConst,
-    ) -> JSValue {
-        let executor = *argv.offset(0);
-        PromiseValue::new_with_executor(ctx.as_mut().unwrap(), executor, new_target)
-            .map_or(JSValue::EXCEPTION, |p| p.0)
+    pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+        let executor = cc.arg(0).clone();
+        PromiseValue::new_with_executor(ctx, executor, cc.this()).map(|p| p.0)
     }
 
     /// callback to execute a promise:
     /// setting resolve and reject functions as attaching data of 'executor'.
     /// arg#0: resolve function, arg#1: reject function
-    fn hook_executor(ctx: &mut JSContext, mut args: CallArgs) -> JSResult {
+    fn hook_executor(ctx: &JSContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
-            if !args.data_raw(i).is_undefined() {
-                ctx.JS_ThrowTypeError(c"resolving function already set");
+            if !cc.data_raw(i).is_undefined() {
+                ctx.JS_ThrowTypeError("resolving function already set");
                 return Err(-1);
             } else {
-                let _ = args.replace_data(i, args.get_raw(i).dup());
+                let _ = cc.replace_data(i, cc.arg(i).clone());
             }
         }
         Ok(JSValue::UNDEFINED)
     }
 
-    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        if let JSObjectIsa::PROMISE(s) = val.object_unchecked().isa() {
-            let s = *s;
-
-            for i in 0..2 {
-                list_foreach_safe(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
-                    let rd = list_entry!(el, JSPromiseReactionData, link);
-                    Box::from_raw(rd).dispose(rt.as_mut().unwrap());
-                });
-            }
-            JS_FreeValueRT(rt, s.as_mut().unwrap().promise_result);
-            drop(Box::from_raw(s));
-        }
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+        // if let JSObjectIsa::PROMISE(s) = isa {
+        //     for i in 0..2 {
+        //         list_foreach_safe(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
+        //             let rd = list_entry!(el, JSPromiseReactionData, link);
+        //             Box::from_raw(rd).dispose(rt.as_mut().unwrap());
+        //         });
+        //     }
+        // }
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        if let JSObjectIsa::PROMISE(s) = val.object_unchecked().isa() {
-            let s = *s;
-
+        if let JSObjectIsa::PROMISE(s) = val.object_unchecked().0.isa.borrow().deref() {
             for i in 0..2 {
-                list_foreach(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
-                    let rd = list_entry!(el, JSPromiseReactionData, link);
-                    (*rt).gc_mark_value((*rd).resolving_funcs[0], mark_func);
-                    (*rt).gc_mark_value((*rd).resolving_funcs[1], mark_func);
-                    (*rt).gc_mark_value((*rd).handler, mark_func);
-                });
+                for rd in s.promise_reactions[i].iter() {
+                    (*rt).gc_mark_value(&rd.resolving_funcs[0], mark_func);
+                    (*rt).gc_mark_value(&rd.resolving_funcs[1], mark_func);
+                    (*rt).gc_mark_value(&rd.handler, mark_func);
+                }
             }
 
-            (*rt).gc_mark_value(s.as_mut().unwrap().promise_result, mark_func);
+            (*rt).gc_mark_value(&(*s).promise_result, mark_func);
         }
     }
 }
@@ -491,8 +371,8 @@ pub const PROMISE_MAGIC_all: i32 = 0;
 pub const PROMISE_MAGIC_allSettled: i32 = 1;
 pub const PROMISE_MAGIC_any: i32 = 2;
 
-pub unsafe fn remainingElementsCount_add(
-    ctx: &mut JSContext,
+pub fn remainingElementsCount_add(
+    ctx: &JSContext,
     resolve_element_env: JSValue,
     addend: i32,
 ) -> Result<i32, i32> {
@@ -508,26 +388,25 @@ pub unsafe fn remainingElementsCount_add(
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
 }
 
-pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -> JSResult {
-    let resolve_type = args.magic & 3;
-    let is_reject = args.magic & 4;
+pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> JSResult {
+    let resolve_type = cc.magic() & 3;
+    let is_reject = cc.magic() & 4;
 
-    let alreadyCalled = unsafe { JS_ToBool(ctx, args.data_raw(0))? };
-    let mut values = args.data_raw(2);
-    let resolve = args.data_raw(3);
-    let resolve_element_env = args.data_raw(4);
-    let index = unsafe { JS_ToInt32(ctx, args.data_raw(1))? };
+    let alreadyCalled = cc.data_raw(0).coerce_to_bool(ctx)?;
+    let values = cc.data_raw(2);
+    let resolve = cc.data_raw(3);
+    let resolve_element_env = cc.data_raw(4);
+    let index = unsafe { JS_ToInt32(ctx, &cc.data_raw(1))? };
 
     if alreadyCalled {
         return Ok(JSValue::UNDEFINED);
     }
 
-    let _ = args.replace_data(0, JSValue::TRUE);
+    let _ = cc.replace_data(0, JSValue::Bool(true));
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
+        let ob = ctx.create_base_object()?;
         unsafe {
-            let ob = JS_NewObject(ctx).check_exception()?.into_rc(ctx.rt());
-
             let str = JS_NewString(
                 ctx,
                 if is_reject != 0 {
@@ -546,37 +425,32 @@ pub fn js_promise_all_resolve_element(ctx: &mut JSContext, mut args: CallArgs) -
                 } else {
                     JS_ATOM_value
                 },
-                args.get_raw(0).dup(),
+                cc.arg(0).clone(),
                 JS_PROP_C_W_E,
             )?;
 
             ob.into()
         }
     } else {
-        args.get(0).dup()
+        cc.arg(0).clone()
     };
 
     values.define_property_value_u32(ctx, index as u32, obj, JS_PROP_C_W_E)?;
 
-    match unsafe { remainingElementsCount_add(ctx, resolve_element_env, -1)? } {
+    match remainingElementsCount_add(ctx, resolve_element_env, -1)? {
         1 => {
-            if resolve_type == PROMISE_MAGIC_any {
-                let mut error = js_aggregate_error_constructor(ctx, values)
-                    .check_exception()?
-                    .into_rc(ctx.rt());
-
-                unsafe {
-                    JS_Call(ctx, resolve, JSValue::UNDEFINED, 1, error.deref_mut())
-                        .check_exception()?
-                        .into_rc(ctx.rt())
-                }
-            } else {
-                unsafe {
-                    JS_Call(ctx, resolve, JSValue::UNDEFINED, 1, &mut values)
-                        .check_exception()?
-                        .into_rc(ctx.rt())
-                }
-            };
+            JS_Call(
+                ctx,
+                &resolve,
+                &JSValue::UNDEFINED,
+                std::slice::from_ref(&if resolve_type == PROMISE_MAGIC_any {
+                    let error = js_aggregate_error_constructor(ctx, values).check_exception()?;
+                    error
+                } else {
+                    values
+                }),
+            )
+            .check_exception()?;
         }
         0 => {}
         _ => {

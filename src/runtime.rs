@@ -7,29 +7,31 @@ use std::{
 };
 
 use crate::{
-    array_buffer::JSSharedArrayBufferFunctions,
-    atom::{JSAtomStruct, JS_FreeAtomRT},
-    callable::CallableValue,
-    class::{js_arguments_exotic_methods, JSClass},
-    context::JSContextHandle,
-    function::{
-        js_async_function_call, js_async_function_resolve_call, BoundFunctionValue,
-        NativeFunctionValue,
-    },
-    gc::{GCObjectNodeData, JSGCPhaseEnum},
-    generator::{js_generator_function_call, AsyncGeneratorValue},
-    list_entry,
-    mem::{JSMallocFunctions, JSMallocState, JS_DEFAULT_STACK_SIZE},
-    module::{js_module_ns_exotic_methods, JSModuleLoaderFunc, JSModuleNormalizeFunc},
-    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
-    stack_frame::JSStackFrame,
-    utils::{init_list_head, js_get_stack_pointer, list_foreach_safe, list_head, NodeList},
-    value::{js_string_exotic_methods, object::JSShapeHandle, JSValue, JS_FreeValueRT},
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     JS_CLASS_STRING, STD_CLASS_DEFS,
+    array_buffer::JSSharedArrayBufferFunctions,
+    atom::{JS_FreeAtomRT, JSAtomStruct},
+    callable::CallableValue,
+    class::{JSClass, js_arguments_exotic_methods},
+    context::JSContext,
+    function::{
+        BoundFunctionValue, JSObjectCFunc, js_async_function_call, js_async_function_resolve_call,
+    },
+    gc::JSGCPhaseEnum,
+    generator::{AsyncGeneratorValue, js_generator_function_call},
+    list_entry,
+    mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
+    module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
+    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
+    stack_frame::JSStackFrame,
+    utils::{init_list_head, js_get_stack_pointer, list_foreach_safe, list_head},
+    value::{
+        JS_FreeValueRT, JSStringInner, JSValue, js_string_exotic_methods,
+        object::{GCObjectWeakref, JSShapeWeakref},
+    },
 };
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
@@ -46,10 +48,11 @@ pub struct JSRuntime {
     pub rt_info: *const c_char,
 
     /// atom description slots list.
-    /// each element is a atom description Rc<JSAtomStruct>, None indicates the slot is unused.
-    /// when an atom is duplicated, the Rc<> is cloned.
+    /// each element is a raw pointer of Rc<JSStringInner>,
+    /// null indicates the slot is unused.
+    /// when an atom is duplicated, the JSAtomStruct is cloned.
     /// index 0 is reserved not for use; index 1 is for atom 1; index 2 is for atom 2, ...
-    pub(super) atom_slots: Vec<Option<Rc<JSAtomStruct>>>,
+    pub(super) atom_slots: Vec<*const JSStringInner>,
     /// JSString hash to atom vec dict.
     /// Value is a list of atom index. Note: JSString hash may have collison.
     pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
@@ -57,18 +60,17 @@ pub struct JSRuntime {
     /// registered classes
     pub class_array: Vec<JSClass>,
 
-    /// context list pointer (weak, maybe disposed)
-    /// TODO: use strong pointer holding one ref count? XXX
-    pub context_list: Vec<JSContextHandle>,
+    /// context list
+    pub context_list: Vec<JSContext>,
 
     pub gc_phase: JSGCPhaseEnum,
     /// List of allocated GC objects (used by garbage collector)
-    pub gc_obj_list: NodeList<GCObjectNodeData>,
+    pub gc_obj_list: Vec<GCObjectWeakref>,
     /// Used during JS_FreeValueRT()
-    pub gc_zero_ref_count_list: NodeList<GCObjectNodeData>,
+    pub gc_zero_ref_count_list: Vec<GCObjectWeakref>,
     /// used during GC
-    pub tmp_obj_list: NodeList<GCObjectNodeData>,
-    //pub gc_list: Vec<NonNull<dyn GCObject>>,
+    pub tmp_obj_list: Vec<GCObjectWeakref>,
+
     pub malloc_gc_threshold: usize,
 
     #[cfg(feature = "dump_leaks")]
@@ -106,8 +108,9 @@ pub struct JSRuntime {
     /// callbacks to allocate, free and clone SharedArrayBuffers
     pub sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
-    /// shapes hash table, use Vec<> to hold conflicted key values.
-    pub shape_registry: HashMap<u32, Vec<JSShapeHandle>>,
+    /// shapes weakref registry.
+    /// use Vec<> to hold conflicted key values.
+    pub shape_registry: HashMap<u32, Vec<JSShapeWeakref>>,
 
     pub user_opaque: *mut c_void,
 }
@@ -131,7 +134,7 @@ impl JSRuntime {
             atom_hash_lut: HashMap::with_capacity(256),
             atom_slots: {
                 let mut lst = Vec::with_capacity(256);
-                lst.push(None); // element #0 is reserved, not for use.
+                lst.push(std::ptr::null()); // element #0 is reserved not for use.
                 lst
             },
 
@@ -145,9 +148,9 @@ impl JSRuntime {
             context_list: Vec::with_capacity(1),
             gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
             // gc_list: Vec::with_capacity(128),
-            gc_obj_list: NodeList::new(),
-            gc_zero_ref_count_list: NodeList::new(),
-            tmp_obj_list: NodeList::new(),
+            gc_obj_list: Vec::new(),
+            gc_zero_ref_count_list: Vec::new(),
+            tmp_obj_list: Vec::new(),
             malloc_gc_threshold: 256 * 1024,
 
             stack_size: JS_DEFAULT_STACK_SIZE,
@@ -196,7 +199,7 @@ impl JSRuntime {
 
             rt.class_array[JS_CLASS_C_FUNCTION as usize]
                 .call
-                .replace(NativeFunctionValue::hook_call);
+                .replace(JSObjectCFunc::hook_call);
             rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
                 .replace(CallableValue::hook_call);
@@ -237,9 +240,13 @@ impl Drop for JSRuntime {
 }
 
 #[inline(always)]
-pub unsafe fn js_check_stack_overflow(rt: *const JSRuntime, alloca_size: usize) -> bool {
-    let sp = js_get_stack_pointer() - alloca_size;
-    sp < (*rt).stack_limit
+pub fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> bool {
+    let sp = js_get_stack_pointer() as usize - alloca_size;
+    if rt.stack_limit > 0 {
+        sp < rt.stack_limit
+    } else {
+        false
+    }
 }
 
 pub unsafe fn update_stack_limit(rt: *mut JSRuntime) {
@@ -257,19 +264,17 @@ pub unsafe fn JS_SetMaxStackSize(rt: *mut JSRuntime, stack_size: usize) {
 
 pub fn JS_UpdateStackTop(rt: *mut JSRuntime) {
     unsafe {
-        (*rt).stack_top = js_get_stack_pointer();
+        (*rt).stack_top = js_get_stack_pointer() as usize;
         update_stack_limit(rt);
     }
 }
 
 unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
-    JS_FreeValueRT(rt, rt.current_exception);
-
     // free jobs
     list_foreach_safe(&mut rt.job_list, |el| {
         let job_ent = list_entry!(el, JSJobEntry, link);
         for i in 0..(*job_ent).argc {
-            JS_FreeValueRT(rt, (*job_ent).args[i as usize]);
+            JS_FreeValueRT(rt, &(*job_ent).args[i as usize]);
         }
         drop(Box::from_raw(job_ent));
     });
@@ -277,35 +282,39 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 
     rt.gc();
 
-    #[cfg(feature = "dump_leaks")]
+    // #[cfg(feature = "dump_leaks")]
+    // {
+    //     // leaking objects
+
+    //     // remove the internal refcounts to display only the object referenced externally
+    //     for node in rt.gc_obj_list.iter_mut() {
+    //         node.set_gc_mark(0);
+    //     }
+    //     rt.gc_decref();
+
+    //     let mut header_done = false;
+    //     for node in rt.gc_obj_list.iter() {
+    //         if node.ref_count() != 0 {
+    //             if !header_done {
+    //                 println!("Object leaks:\n");
+    //                 crate::gc::JS_DumpObjectHeader();
+    //                 header_done = true;
+    //             }
+    //             node.gc_dump(rt);
+    //         }
+    //     }
+
+    //     let count = rt.gc_obj_list.iter().filter(|n| n.ref_count() == 0).count();
+    //     if count != 0 {
+    //         println!("Secondary object leaks: {}", count);
+    //     }
+    // }
+
+    #[cfg(debug_assertions)]
     {
-        // leaking objects
-
-        // remove the internal refcounts to display only the object referenced externally
-        for node in rt.gc_obj_list.iter_mut() {
-            node.set_gc_mark(0);
-        }
-        rt.gc_decref();
-
-        let mut header_done = false;
-        for node in rt.gc_obj_list.iter() {
-            if node.ref_count() != 0 {
-                if !header_done {
-                    println!("Object leaks:\n");
-                    crate::gc::JS_DumpObjectHeader();
-                    header_done = true;
-                }
-                node.gc_dump(rt);
-            }
-        }
-
-        let count = rt.gc_obj_list.iter().filter(|n| n.ref_count() == 0).count();
-        if count != 0 {
-            println!("Secondary object leaks: {}", count);
-        }
+        rt.gc_obj_list.retain(|w| w.upgrade().is_some());
+        debug_assert!(rt.gc_obj_list.is_empty(), "{:?}", rt.gc_obj_list);
     }
-
-    debug_assert!(rt.gc_obj_list.is_empty());
 
     // free classes
     while let Some(cls) = rt.class_array.pop() {
@@ -374,10 +383,13 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     //     }
     // }
 
-    // free atoms
+    // free atom descriptions
     rt.atom_hash_lut.clear();
-    for mut a in rt.atom_slots.drain(..) {
-        if let Some(p) = a.take() {
+    for a in rt.atom_slots.drain(..) {
+        if !a.is_null() {
+            let s = Rc::from_raw(a);
+            drop(s);
+
             // println!(
             //     "[O.o] atom {}, rc={}",
             //     p.content().to_str(),

@@ -1,72 +1,68 @@
-use std::rc::Rc;
+use std::hash::Hash;
 
 use crate::{
-    atom::JS_FreeAtomStruct,
+    JS_CLASS_ERROR,
+    atom::{JSAtom, JSAtomStruct, JSAtomTypeHint, consts::*},
     context::JSContext,
     error::JS_ThrowRangeError,
-    function::JSFunctionBytecode,
-    gc::{GCObject, JSGCPhaseEnum},
+    function::{JSAsyncFunctionState, JSFunctionBytecode},
+    module::JSModuleDef,
     runtime::JSRuntime,
-    utils::Node,
-    JS_MKVAL,
+    value::JS_FreeValueRT,
 };
 
-use super::{
-    object::{JSObject, JSObjectIsa},
-    string::JSString,
-    JSFloat64Union, JS_ToInt64Sat, MAX_SAFE_INTEGER,
-};
+use super::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER, object::JSObject, string::JSString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(i32)]
-pub enum JSTag {
-    BigDecimal = -11,
-    BigInt = -10,
-    BigFloat = -9,
-    Symbol = -8,
-    String = -7,
-    Module = -3,
-    FunctionBytecode = -2,
-    Object = -1,
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+// #[repr(i32)]
+// pub enum JSTag {
+//     BigDecimal = -11,
+//     BigInt = -10,
+//     BigFloat = -9,
+//     Symbol = -8,
+//     String = -7,
+//     Module = -3,
+//     FunctionBytecode = -2,
+//     Object = -1,
 
-    //
-    // these types are not ref counted
-    //
-    Int = 0,
-    Bool = 1,
-    Null = 2,
-    Undefined = 3,
-    Uninitialized = 4,
-    CatchOffset = 5,
-    Exception = 6,
-    Float64 = 7,
-}
+//     //
+//     // these types are not ref counted
+//     //
+//     Int = 0,
+//     Bool = 1,
+//     Null = 2,
+//     Undefined = 3,
+//     Uninitialized = 4,
+//     CatchOffset = 5,
+//     Exception = 6,
+//     Float64 = 7,
+// }
 
-impl Default for JSTag {
-    fn default() -> Self {
-        Self::Int
-    }
-}
+// impl Default for JSTag {
+//     fn default() -> Self {
+//         Self::Int
+//     }
+// }
 
-pub const JS_TAG_BIG_DECIMAL: i32 = JSTag::BigDecimal as i32;
-pub const JS_TAG_BIG_INT: i32 = JSTag::BigInt as i32;
-pub const JS_TAG_BIG_FLOAT: i32 = JSTag::BigFloat as i32;
-pub const JS_TAG_SYMBOL: i32 = JSTag::Symbol as i32;
-pub const JS_TAG_STRING: i32 = JSTag::String as i32;
-pub const JS_TAG_MODULE: i32 = JSTag::Module as i32;
-pub const JS_TAG_FUNCTION_BYTECODE: i32 = JSTag::FunctionBytecode as i32;
-pub const JS_TAG_OBJECT: i32 = JSTag::Object as i32;
-pub const JS_TAG_INT: i32 = JSTag::Int as i32;
-pub const JS_TAG_BOOL: i32 = JSTag::Bool as i32;
-pub const JS_TAG_NULL: i32 = JSTag::Null as i32;
-pub const JS_TAG_UNDEFINED: i32 = JSTag::Undefined as i32;
-pub const JS_TAG_UNINITIALIZED: i32 = JSTag::Uninitialized as i32;
-pub const JS_TAG_CATCH_OFFSET: i32 = JSTag::CatchOffset as i32;
-pub const JS_TAG_EXCEPTION: i32 = JSTag::Exception as i32;
-pub const JS_TAG_FLOAT64: i32 = JSTag::Float64 as i32;
+// pub const JS_TAG_BIG_DECIMAL: i32 = JSTag::BigDecimal as i32;
+// pub const JS_TAG_BIG_INT: i32 = JSTag::BigInt as i32;
+// pub const JS_TAG_BIG_FLOAT: i32 = JSTag::BigFloat as i32;
+// pub const JS_TAG_SYMBOL: i32 = JSTag::Symbol as i32;
+// pub const JS_TAG_STRING: i32 = JSTag::String as i32;
+// pub const JS_TAG_MODULE: i32 = JSTag::Module as i32;
+// pub const JS_TAG_FUNCTION_BYTECODE: i32 = JSTag::FunctionBytecode as i32;
+// pub const JS_TAG_OBJECT: i32 = JSTag::Object as i32;
+// pub const JS_TAG_INT: i32 = JSTag::Int as i32;
+// pub const JS_TAG_BOOL: i32 = JSTag::Bool as i32;
+// pub const JS_TAG_NULL: i32 = JSTag::Null as i32;
+// pub const JS_TAG_UNDEFINED: i32 = JSTag::Undefined as i32;
+// pub const JS_TAG_UNINITIALIZED: i32 = JSTag::Uninitialized as i32;
+// pub const JS_TAG_CATCH_OFFSET: i32 = JSTag::CatchOffset as i32;
+// pub const JS_TAG_EXCEPTION: i32 = JSTag::Exception as i32;
+// pub const JS_TAG_FLOAT64: i32 = JSTag::Float64 as i32;
 
-pub const JS_TAG_FIRST: i32 = JSTag::BigDecimal as i32;
-pub const JS_TAG_LAST: i32 = JSTag::Float64 as i32;
+// pub const JS_TAG_FIRST: i32 = JSTag::BigDecimal as i32;
+// pub const JS_TAG_LAST: i32 = JSTag::Float64 as i32;
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {
@@ -147,196 +143,153 @@ mod nb_value {
     pub fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
         tag - super::JS_TAG_FIRST >= super::JS_TAG_FLOAT64 - super::JS_TAG_FIRST
     }
-
-    #[inline(always)]
-    pub fn JS_VALUE_GET_PTR(v: JSValue) -> *mut c_void {
-        (v & 0xFFFF_FFFF) as *mut c_void
-    }
 }
 
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::*;
 
-#[cfg(not(feature = "nan_boxing"))]
-mod nnb_value {
-    use std::ffi::c_void;
+#[repr(u8)]
+#[derive(Debug, Clone)]
+pub enum JSValue {
+    UNDEFINED,
+    NULL,
+    Bool(bool),
+    Int(i32),
+    UNINITIALIZED,
+    CatchOffset(i32),
+    EXCEPTION,
+    Float64(f64),
+    String(JSString),
+    Symbol(JSAtomStruct),
+    Module(JSModuleDef),
+    Object(JSObject),
+    FunctionBytecode(JSFunctionBytecode),
 
-    #[derive(Debug, Copy, Clone, Default)]
-    pub struct JSValue {
-        /// type tag
-        pub tag: super::JSTag,
-        /// payload
-        pub u: JSValueUnion,
-    }
+    /// Special: for async_function_resume() only
+    AsyncFuncResume(JSAsyncFunctionState),
+}
 
-    #[derive(Copy, Clone)]
-    #[repr(C)]
-    pub union JSValueUnion {
-        pub int32: i32,
-        pub float64: f64,
-        pub ptr: *mut c_void,
-    }
-
-    impl Default for JSValueUnion {
-        fn default() -> Self {
-            Self {
-                ptr: std::ptr::null_mut(),
+impl PartialEq for JSValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::UNDEFINED, Self::UNDEFINED)
+            | (Self::NULL, Self::NULL)
+            | (Self::EXCEPTION, Self::EXCEPTION)
+            | (Self::UNINITIALIZED, Self::UNINITIALIZED) => true,
+            (Self::Bool(b0), Self::Bool(b1)) => *b0 == *b1,
+            (Self::Int(i0), Self::Int(i1)) => *i0 == *i1,
+            (Self::String(s0), Self::String(s1)) | (Self::Symbol(s0), Self::Symbol(s1)) => {
+                s0.content() == s1.content()
             }
+            (Self::Float64(f0), Self::Float64(f1)) => f0.eq(f1),
+            (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
+            (Self::FunctionBytecode(l0), Self::FunctionBytecode(r0)) => l0.id() == r0.id(),
+            (Self::Module(m0), Self::Module(m1)) => m0.id() == m1.id(),
+            (Self::CatchOffset(a), Self::CatchOffset(b)) => *a == *b,
+            _ => false,
         }
-    }
-
-    impl std::fmt::Debug for JSValueUnion {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            unsafe {
-                f.debug_struct("JSValueUnion")
-                    .field("i32", &self.int32)
-                    .field("f64", &self.float64)
-                    .field("ptr", &self.ptr)
-                    .finish()
-            }
-        }
-    }
-
-    #[macro_export]
-    macro_rules! JS_MKVAL {
-        ($tag:expr, $val:expr) => {
-            crate::value::JSValue {
-                tag: $tag,
-                u: crate::value::JSValueUnion { int32: $val },
-            }
-        };
-    }
-
-    #[macro_export]
-    macro_rules! JS_MKPTR {
-        ($tag:expr, $ptr:expr) => {{
-            crate::value::JSValue {
-                tag: $tag,
-                u: crate::value::JSValueUnion { ptr: $ptr },
-            }
-        }};
-    }
-
-    impl JSValue {
-        pub const NAN: Self = Self {
-            tag: super::JSTag::Float64,
-            u: JSValueUnion { float64: f64::NAN },
-        };
-
-        /// get value tag as int
-        #[inline(always)]
-        pub const fn tag(self) -> i32 {
-            self.tag as i32
-        }
-    }
-
-    #[deprecated(note = "use JSValue::NAN instead")]
-    pub const JS_NAN: JSValue = JSValue {
-        tag: super::JSTag::Float64,
-        u: JSValueUnion { float64: f64::NAN },
-    };
-
-    #[inline(always)]
-    pub fn JS_VALUE_IS_NAN(v: JSValue) -> bool {
-        union _U {
-            d: f64,
-            u64: u64,
-        }
-        if v.tag != super::JSTag::Float64 {
-            false
-        } else {
-            unsafe {
-                let u = _U { d: v.u.float64 };
-                (u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub const fn JS_VALUE_GET_FLOAT64(v: JSValue) -> f64 {
-        unsafe { v.u.float64 }
-    }
-
-    #[inline(always)]
-    pub const fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
-        tag == super::JS_TAG_FLOAT64
-    }
-
-    #[inline(always)]
-    pub const fn JS_VALUE_GET_PTR(v: JSValue) -> *mut c_void {
-        unsafe { v.u.ptr }
     }
 }
 
-#[cfg(not(feature = "nan_boxing"))]
-pub use nnb_value::*;
+// #[cfg(not(feature = "nan_boxing"))]
+// mod nnb_value {
+//     use std::{ffi::c_void, mem::ManuallyDrop};
+
+//     #[derive(Debug, Clone, Default)]
+//     pub struct JSValue {
+//         pub tag: super::JSTag,
+//         pub u: JSValueUnion,
+//     }
+
+//     #[derive(Clone)]
+//     pub union JSValueUnion {
+//         pub int32: i32,
+//         pub float64: f64,
+//         /// for values need ref count which have a payload
+//         pub payload: ManuallyDrop<ValuePayload>,
+//     }
+
+//     impl Default for JSValueUnion {
+//         fn default() -> Self {
+//             Self { int32: 0 }
+//         }
+//     }
+
+//     impl std::fmt::Debug for JSValueUnion {
+//         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//             unsafe {
+//                 f.debug_struct("JSValueUnion")
+//                     .field("i32", &self.int32)
+//                     .field("f64", &self.float64)
+//                     .field("ptr", &self.ptr)
+//                     .finish()
+//             }
+//         }
+//     }
+
+//     impl JSValue {
+//         pub const NAN: Self = Self {
+//             tag: super::JSTag::Float64,
+//             u: JSValueUnion { float64: f64::NAN },
+//         };
+
+//         /// get value tag as int
+//         #[inline(always)]
+//         pub const fn tag(self) -> i32 {
+//             self.tag as i32
+//         }
+//     }
+
+//     #[deprecated(note = "use JSValue::NAN instead")]
+//     pub const JS_NAN: JSValue = JSValue {
+//         tag: super::JSTag::Float64,
+//         u: JSValueUnion { float64: f64::NAN },
+//     };
+
+//     #[inline(always)]
+//     pub fn JS_VALUE_IS_NAN(v: JSValue) -> bool {
+//         union _U {
+//             d: f64,
+//             u64: u64,
+//         }
+//         if v.tag != super::JSTag::Float64 {
+//             false
+//         } else {
+//             unsafe {
+//                 let u = _U { d: v.u.float64 };
+//                 (u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000
+//             }
+//         }
+//     }
+
+//     #[inline(always)]
+//     pub const fn JS_VALUE_GET_FLOAT64(v: JSValue) -> f64 {
+//         unsafe { v.u.float64 }
+//     }
+
+//     #[inline(always)]
+//     pub const fn JS_TAG_IS_FLOAT64(tag: i32) -> bool {
+//         tag == super::JS_TAG_FLOAT64
+//     }
+// }
+
+// #[cfg(not(feature = "nan_boxing"))]
+// pub use nnb_value::*;
 
 pub type JSValueConst = JSValue;
 
-#[inline(always)]
-pub const fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
-    v.tag()
-}
+// #[inline(always)]
+// pub const fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
+//     v.tag()
+// }
 
-/// same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing
-#[inline(always)]
-pub fn JS_VALUE_GET_NORM_TAG(v: JSValue) -> JSTag {
-    v.tag_norm()
-}
-
-//
-// CONSTANT VALUES
-//
-#[deprecated(note = "use JSValue::NULL instead")]
-pub const JS_NULL: JSValue = JSValue::NULL;
-#[deprecated(note = "use JSValue::UNDEFINED instead")]
-pub const JS_UNDEFINED: JSValue = JS_MKVAL!(JSTag::Undefined, 0);
-#[deprecated(note = "use JSValue::FLASE instead")]
-pub const JS_FALSE: JSValue = JS_MKVAL!(JSTag::Bool, 0);
-#[deprecated(note = "use JSValue::TRUE instead")]
-pub const JS_TRUE: JSValue = JS_MKVAL!(JSTag::Bool, 1);
-#[deprecated(note = "use JSValue::EXCEPTION instead")]
-pub const JS_EXCEPTION: JSValue = JS_MKVAL!(JSTag::Exception, 0);
-
-// Property definition types
-pub const JS_DEF_CFUNC: u8 = 0;
-pub const JS_DEF_CGETSET: u8 = 1;
-pub const JS_DEF_CGETSET_MAGIC: u8 = 2;
-pub const JS_DEF_PROP_STRING: u8 = 3;
-pub const JS_DEF_PROP_INT32: u8 = 4;
-pub const JS_DEF_PROP_INT64: u8 = 5;
-pub const JS_DEF_PROP_DOUBLE: u8 = 6;
-pub const JS_DEF_PROP_UNDEFINED: u8 = 7;
-pub const JS_DEF_OBJECT: u8 = 8;
-pub const JS_DEF_ALIAS: u8 = 9;
+// /// same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing
+// #[inline(always)]
+// pub fn JS_VALUE_GET_NORM_TAG(v: JSValue) -> JSTag {
+//     v.tag_norm()
+// }
 
 impl JSValue {
-    //
-    // CONSTANT JS VALUES
-    //
-    pub const NULL: JSValue = JS_MKVAL!(JSTag::Null, 0);
-    pub const UNDEFINED: JSValue = JS_MKVAL!(JSTag::Undefined, 0);
-    pub const FALSE: JSValue = JS_MKVAL!(JSTag::Bool, 0);
-    pub const TRUE: JSValue = JS_MKVAL!(JSTag::Bool, 1);
-    pub const EXCEPTION: JSValue = JS_MKVAL!(JSTag::Exception, 0);
-    pub const ZERO: JSValue = JS_MKVAL!(JSTag::Int, 0);
-    pub(crate) const UNINITIALIZED: JSValue = JS_MKVAL!(JSTag::Uninitialized, 0);
-
-    /// same as ::tag(), but return JS_TAG_FLOAT64 with NaN boxing
-    #[inline(always)]
-    pub fn tag_norm(self) -> JSTag {
-        let tag = self.tag();
-        if JS_TAG_IS_FLOAT64(tag) {
-            JSTag::Float64
-        } else {
-            debug_assert!(
-                (JS_TAG_FIRST..JS_TAG_LAST).contains(&tag),
-                "unknown value tag {tag}"
-            );
-            unsafe { std::mem::transmute::<i32, JSTag>(tag) }
-        }
-    }
-
     /// set new value and returns the old value.
     #[inline(always)]
     pub const fn replace(&mut self, new_val: JSValue) -> JSValue {
@@ -347,79 +300,108 @@ impl JSValue {
     #[inline(always)]
     pub fn replace_free(&mut self, rt: *mut JSRuntime, new_val: JSValue) {
         let v0 = std::mem::replace(self, new_val);
-        unsafe {
-            JS_FreeValueRT(rt, v0);
+        JS_FreeValueRT(rt, &v0);
+    }
+
+    #[inline(always)]
+    pub const fn is_exception(&self) -> bool {
+        matches!(self, Self::EXCEPTION)
+    }
+
+    #[inline(always)]
+    pub const fn is_null(&self) -> bool {
+        matches!(self, Self::NULL)
+    }
+
+    #[inline(always)]
+    pub const fn is_undefined(&self) -> bool {
+        matches!(self, Self::UNDEFINED)
+    }
+
+    #[inline(always)]
+    pub const fn is_undefined_or_null(&self) -> bool {
+        matches!(self, Self::UNDEFINED | Self::NULL)
+    }
+
+    #[inline(always)]
+    pub const fn is_object(&self) -> bool {
+        matches!(self, Self::Object(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_string(&self) -> bool {
+        matches!(self, Self::String(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_symbol(&self) -> bool {
+        matches!(self, Self::Symbol(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_bool(&self) -> bool {
+        matches!(self, Self::Bool(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_int(&self) -> bool {
+        matches!(self, Self::Int(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_float64(&self) -> bool {
+        matches!(self, Self::Float64(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_number(&self) -> bool {
+        matches!(self, Self::Int(_) | Self::Float64(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_module(&self) -> bool {
+        matches!(self, Self::Module(_))
+    }
+
+    #[inline(always)]
+    pub const fn is_uninitialized(&self) -> bool {
+        matches!(self, Self::UNINITIALIZED)
+    }
+
+    #[inline]
+    pub fn is_htmldda(&self) -> bool {
+        if let Self::Object(obj) = self {
+            obj.flags().is_htmldda()
+        } else {
+            false
         }
     }
 
-    #[inline(always)]
-    pub const fn is_exception(self) -> bool {
-        self.tag() == JS_TAG_EXCEPTION
-    }
-
-    #[inline(always)]
-    pub const fn is_null(self) -> bool {
-        self.tag() == JS_TAG_NULL
-    }
-
-    #[inline(always)]
-    pub const fn is_undefined(self) -> bool {
-        self.tag() == JS_TAG_UNDEFINED
-    }
-
-    #[inline(always)]
-    pub const fn is_undefined_or_null(self) -> bool {
-        matches!(self.tag(), JS_TAG_UNDEFINED | JS_TAG_NULL)
-    }
-
-    #[inline(always)]
-    pub const fn is_object(self) -> bool {
-        self.tag() == JS_TAG_OBJECT
-    }
-
-    #[inline(always)]
-    pub const fn is_string(self) -> bool {
-        self.tag() == JS_TAG_STRING
-    }
-
-    #[inline(always)]
-    pub const fn is_int(self) -> bool {
-        self.tag() == JS_TAG_INT
-    }
-
-    #[inline(always)]
-    pub const fn is_bool(self) -> bool {
-        self.tag() == JS_TAG_BOOL
-    }
-
-    /// Determine if value `self` can be called like a function, that means value is a:
+    /// Test if value `self` can be called like a function, that means value is a:
     ///
     /// - Compiled bytecode functions
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
-    pub fn is_callable(self, ctx: &JSContext) -> bool {
-        if self.tag() != JS_TAG_OBJECT {
-            false
+    pub fn is_callable(&self) -> bool {
+        if let Self::Object(ob) = self {
+            ob.is_callable()
         } else {
-            let p = unsafe { self.object_unchecked() };
-            match p.isa() {
-                JSObjectIsa::BYTECODE_FUNCTION(_) => true,
-                JSObjectIsa::PROXY(proxy) => unsafe { (**proxy).is_func },
-                s => {
-                    // check if class proto is callable
-                    ctx.rt()
-                        .class_array
-                        .get(s.class_id() as usize)
-                        .and_then(|c| c.call)
-                        .is_some()
-                }
-            }
+            false
+        }
+    }
+
+    #[inline]
+    pub fn is_error(&self) -> bool {
+        if let JSValue::Object(o) = self {
+            o.class_id() == JS_CLASS_ERROR
+        } else {
+            false
         }
     }
 
     /// check if self is an exception. returns Err if yes, otherwise returns Ok(value)
-    #[inline(always)]
-    pub const fn check_exception(self) -> Result<Self, i32> {
+    #[inline]
+    pub fn check_exception(self) -> Result<Self, i32> {
         if self.is_exception() {
             Err(-1)
         } else {
@@ -427,275 +409,76 @@ impl JSValue {
         }
     }
 
-    /// calc hash for jsvalue
-    pub fn hash(self) -> u32 {
-        let tag = self.tag_norm();
-        let h: u32 = match tag {
-            JSTag::Bool => JS_VALUE_GET_INT(self) as u32,
-            JSTag::String => unsafe {
-                self.string()
-                    .content()
-                    .calc_hash(crate::atom::JSAtomTypeHint::String)
-            },
-            JSTag::Object | JSTag::Symbol => (JS_VALUE_GET_PTR(self) as usize * 3163) as u32,
-            JSTag::Int => {
-                let d = (JS_VALUE_GET_INT(self) as f64) * 3163.0;
-                let u = JSFloat64Union { d };
+    #[inline(always)]
+    pub(crate) const fn id_to_hash(id: usize) -> u32 {
+        (id * 3163) as u32
+    }
+
+    /// calculate hash for jsvalue
+    pub fn hash(&self) -> u32 {
+        let h: u32 = match self {
+            Self::Object(o) => Self::id_to_hash(o.id()),
+            Self::Int(d) => {
+                let u = JSFloat64Union { u64: *d as u64 };
                 unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
             }
-            JSTag::Float64 => {
-                let mut d = JS_VALUE_GET_FLOAT64(self);
+            Self::String(s) | Self::Symbol(s) => unsafe {
+                s.content().calc_hash(JSAtomTypeHint::String)
+            },
+            Self::Float64(d) => {
+                let mut d = *d;
                 if d.is_nan() {
                     d = f64::NAN;
                 }
                 let u = JSFloat64Union { d };
                 unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
             }
-            _ => {
-                0 // bignum is not support
+            Self::UNDEFINED | Self::NULL | Self::UNINITIALIZED | Self::EXCEPTION => 0,
+            Self::Bool(b) => *b as u32,
+            Self::FunctionBytecode(f) => Self::id_to_hash(f.id()),
+            Self::Module(m) => Self::id_to_hash(m.id()),
+            Self::CatchOffset(i) => {
+                let u = JSFloat64Union { u64: *i as u64 };
+                unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
             }
+            Self::AsyncFuncResume(f) => Self::id_to_hash(f.id()),
         };
 
+        let tag = unsafe { *<*const _>::from(self).cast::<u8>() };
         h ^ (tag as u32) // XOR
     }
-}
-
-#[inline(always)]
-pub const fn JS_VALUE_HAS_REF_COUNT(v: JSValue) -> bool {
-    v.tag() as u32 >= JS_TAG_FIRST as u32
-    // JS_VALUE_GET_TAG(v) < 0
-}
-
-#[deprecated(note = "use JSValue::string() instead")]
-#[inline(always)]
-pub(crate) unsafe fn JS_VALUE_GET_STRING(v: JSValue) -> *mut JSString {
-    v.string() as *const JSString as _
-}
-
-#[deprecated(note = "use JSValue::object() instead")]
-#[inline(always)]
-pub unsafe fn JS_VALUE_GET_OBJ(v: JSValue) -> *mut JSObject {
-    v.object_unchecked() as *const JSObject as _
-}
-
-#[cfg(feature = "nan_boxing")]
-#[inline(always)]
-pub const fn JS_VALUE_GET_INT(v: JSValue) -> i32 {
-    v as i32
-}
-
-#[cfg(not(feature = "nan_boxing"))]
-#[inline(always)]
-pub const fn JS_VALUE_GET_INT(v: JSValue) -> i32 {
-    unsafe { v.u.int32 }
-}
-
-#[inline(always)]
-pub const fn JS_VALUE_GET_BOOL(v: JSValue) -> bool {
-    JS_VALUE_GET_INT(v) != 0
-}
-
-#[inline(always)]
-pub fn JS_FreeValue(ctx: *mut JSContext, v: JSValue) {
-    unsafe { JS_FreeValueRT((*ctx).rt_mut(), v) }
-}
-
-#[inline]
-pub unsafe fn JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
-    if JS_VALUE_HAS_REF_COUNT(v) {
-        let mut gcobj = match v.tag() {
-            JS_TAG_OBJECT => v.object_unchecked().gc_node_ptr(),
-            JS_TAG_FUNCTION_BYTECODE => {
-                (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_node_ptr()
-            }
-            JS_TAG_STRING | JS_TAG_SYMBOL => {
-                let s = Rc::from_raw(v.string());
-                if Rc::strong_count(&s) == 1 {
-                    // rc is about to drop, drop atom description too
-                    if let Some(at) = s.atom_info() {
-                        JS_FreeAtomStruct(rt, at.atom());
-                    }
-                }
-                return;
-            }
-            _ => return,
-        };
-
-        debug_assert!(gcobj.as_ref().ref_count() > 0);
-        if gcobj.as_mut().dec_ref() == 0 {
-            __JS_FreeValueRT(rt, v);
-        }
-    }
-}
-
-/* called with the ref_count of 'v' reaches zero. */
-#[inline(always)]
-pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, v: JSValue) {
-    let tag = v.tag();
-
-    #[cfg(feature = "dump_free")]
-    {
-        print!("Freeing ({tag:2}) ");
-        if tag == JS_TAG_OBJECT {
-            v.object_unchecked().dump(rt.as_ref().unwrap());
-        } else {
-            print!("{}", v.repr(rt.as_ref().unwrap()));
-            println!();
-        }
-    }
-
-    match tag {
-        JS_TAG_OBJECT => {
-            if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                let node = v.object_unchecked().gc_node_ptr();
-                debug_assert_eq!(node.as_ref().ref_count(), 0);
-
-                Node::unlink(node);
-                (*rt).gc_zero_ref_count_list.push_raw(node);
-
-                if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
-                    (*rt).gc_free_zeroed();
-                }
-            }
-        }
-        JS_TAG_FUNCTION_BYTECODE => {
-            if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                let node = (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_node_ptr();
-                debug_assert_eq!(node.as_ref().ref_count(), 0);
-
-                Node::unlink(node);
-                (*rt).gc_zero_ref_count_list.push_raw(node);
-
-                if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
-                    (*rt).gc_free_zeroed();
-                }
-            }
-        }
-        JS_TAG_STRING | JS_TAG_SYMBOL => {
-            unreachable!("never freed here");
-        }
-        JS_TAG_MODULE => {
-            unreachable!("never freed here");
-        }
-        JS_TAG_BIG_INT | JS_TAG_BIG_FLOAT | JS_TAG_BIG_DECIMAL => {
-            unimplemented!()
-        }
-        _ => {
-            panic!("__JS_FreeValue: unknown tag={}", tag);
-        }
-    }
-}
-
-// #[inline(always)]
-// pub unsafe fn __JS_FreeValue(ctx: &mut JSContext, v: JSValue) {
-//     __JS_FreeValueRT(ctx.rt_mut(), v);
-// }
-
-#[inline]
-pub const fn JS_IsNumber(v: JSValueConst) -> bool {
-    let tag = v.tag();
-    (tag == JS_TAG_INT || JS_TAG_IS_FLOAT64(tag)) as _
-}
-
-#[inline]
-#[allow(unused_variables)]
-pub const fn JS_IsBigInt(ctx: *mut JSContext, v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_BIG_INT
-}
-
-#[inline]
-pub const fn JS_IsBigFloat(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_BIG_FLOAT
-}
-
-#[inline]
-pub const fn JS_IsBigDecimal(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_BIG_DECIMAL
-}
-
-#[inline]
-pub const fn JS_IsBool(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_BOOL
-}
-
-#[deprecated(note = "use JSValue::is_null() instead")]
-pub fn JS_IsNull(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_NULL
-}
-
-#[deprecated(note = "use JSValue::is_undefined() instead")]
-pub fn JS_IsUndefined(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_UNDEFINED
-}
-
-#[deprecated(note = "use JSValue::is_exception() instead")]
-pub fn JS_IsException(v: JSValueConst) -> bool {
-    v.is_exception()
-}
-
-#[inline]
-pub const fn JS_IsUninitialized(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_UNINITIALIZED
-}
-
-#[deprecated(note = "use JSValue::is_string() instead")]
-#[inline]
-pub const fn JS_IsString(v: JSValueConst) -> bool {
-    v.is_string()
-}
-
-#[inline]
-pub const fn JS_IsSymbol(v: JSValueConst) -> bool {
-    v.tag() == JS_TAG_SYMBOL
-}
-
-#[deprecated(note = "use JSValue::is_object() instead")]
-#[inline]
-pub const fn JS_IsObject(v: JSValueConst) -> bool {
-    v.is_object()
-}
-
-#[inline]
-pub fn JS_IsHTMLDDA(obj: JSValueConst) -> bool {
-    if obj.tag() != JS_TAG_OBJECT {
-        false
-    } else {
-        unsafe { obj.object_unchecked().detailed.is_htmldda() }
-    }
-}
-
-#[deprecated(note = "use JSValue::inc_ref_count() instead")]
-#[inline(always)]
-pub fn JS_DupValueRT(rt: *mut JSRuntime, v: JSValueConst) -> JSValue {
-    v.dup()
-}
-
-#[deprecated(note = "use JSValue::dup() instead")]
-pub unsafe fn JS_DupValue(_ctx: *mut JSContext, v: JSValueConst) -> JSValue {
-    v.dup()
 }
 
 /// set new value and free the old value.
 /// (freeing the value can reallocate the object data)
 #[deprecated(note = "use JSValue::replace_free() instead")]
 #[inline(always)]
-pub unsafe fn set_value(ctx: *mut JSContext, pval: *mut JSValue, new_val: JSValue) {
-    (*pval).replace_free((*ctx).rt_mut(), new_val);
+pub unsafe fn set_value(ctx: &JSContext, pval: *mut JSValue, new_val: JSValue) {
+    (*pval).replace_free(ctx.rt_mut(), new_val);
 }
 
-pub unsafe fn JS_ToIndex(ctx: *mut JSContext, plen: *mut u64, val: JSValueConst) -> i32 {
+pub unsafe fn JS_ToIndex(ctx: &JSContext, plen: *mut u64, val: &JSValueConst) -> i32 {
     let mut v: i64 = 0;
     if JS_ToInt64Sat(ctx, &mut v as *mut i64, val) != 0 {
         return -1;
     }
     if !(0..=MAX_SAFE_INTEGER).contains(&v) {
-        JS_ThrowRangeError(ctx, c"invalid array index");
+        JS_ThrowRangeError(ctx, "invalid array index");
         *plen = 0;
         return -1;
     }
     *plen = v as u64;
     0
 }
+
+//
+// constants values
+//
+pub const VALUE_UNDEFINED: JSValue = JSValue::UNDEFINED;
+pub const VALUE_NULL: JSValue = JSValue::NULL;
+pub const VALUE_TRUE: JSValue = JSValue::Bool(true);
+pub const VALUE_FALSE: JSValue = JSValue::Bool(false);
+pub const VALUE_ZERO: JSValue = JSValue::Int(0);
 
 pub const HINT_STRING: i32 = 0;
 pub const HINT_NUMBER: i32 = 1;

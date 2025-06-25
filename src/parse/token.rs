@@ -1,15 +1,15 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, mem::ManuallyDrop};
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom},
+    atom::{JS_FreeAtom, JSAtom, consts::*},
     context::JS_MODE_STRICT,
     function::JSFunctionKindEnum,
     regexp::is_digit,
     runtime::js_check_stack_overflow,
-    unicode::{unicode_from_utf8, UTF8_CHAR_LEN_MAX},
+    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::{
-        js_atof, JSValue, JS_FreeValue, ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL,
-        ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES, JS_VALUE_IS_NAN,
+        ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
+        JSValue, js_atof,
     },
 };
 
@@ -45,56 +45,139 @@ pub const CHAR_CR: i32 = '\r' as i32;
 pub const CHAR_BACK_SLASH: i32 = '\\' as i32;
 pub const CHAR_BACKTICK: i32 = '`' as i32;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct JSToken {
     pub val: i32,
     pub line_num: i32, // line number of token start
     pub ptr: *const u8,
-    pub u: JSTokenUnion,
+    pub data: TokenData,
 }
 
-pub union JSTokenUnion {
-    pub str: JSTokenStr,
-    pub num: JSTokenNum,
-    pub ident: JSTokenIdent,
-    pub regexp: JSTokenRegexp,
+#[derive(Debug, Clone)]
+pub enum TokenData {
+    Str {
+        str: JSValue,
+        sep: i32,
+    },
+    Num(JSValue),
+    Ident {
+        atom: JSAtom,
+        has_escape: bool,
+        is_reserved: bool,
+    },
+    Regexp {
+        body: JSValue,
+        flags: JSValue,
+    },
 }
 
-impl Clone for JSTokenUnion {
-    fn clone(&self) -> Self {
-        *self
+impl TokenData {
+    /// if data is ident type, returns atom.
+    /// Returned atom is not duplicated. Caller must dup if need to reference it.
+    pub fn ident_atom(&self) -> Option<JSAtom> {
+        if let Self::Ident { atom, .. } = self {
+            Some(*atom) // not duplicated here!
+        } else {
+            None
+        }
+    }
+
+    /// token data is ident type, and is reserved key word.
+    pub fn is_reserved(&self) -> bool {
+        if let Self::Ident { is_reserved, .. } = self {
+            *is_reserved
+        } else {
+            false
+        }
+    }
+
+    /// token data is ident type, and has escape.
+    pub fn ident_has_escape(&self) -> bool {
+        if let Self::Ident { has_escape, .. } = self {
+            *has_escape
+        } else {
+            false
+        }
+    }
+
+    /// if data is string type, returns string value.
+    pub fn string(&self) -> Option<&JSValue> {
+        if let Self::Str { str, .. } = self {
+            Some(str)
+        } else {
+            None
+        }
+    }
+
+    pub fn string_sep(&self) -> Option<i32> {
+        if let Self::Str { sep, .. } = self {
+            Some(*sep)
+        } else {
+            None
+        }
+    }
+
+    /// if data is number type, returns number value.
+    pub fn number(&self) -> Option<&JSValue> {
+        if let Self::Num(n) = self {
+            Some(n)
+        } else {
+            None
+        }
+    }
+
+    pub fn regexp_body(&self) -> Option<&JSValue> {
+        if let Self::Regexp { body, .. } = self {
+            Some(body)
+        } else {
+            None
+        }
+    }
+    pub fn regexp_flags(&self) -> Option<&JSValue> {
+        if let Self::Regexp { flags, .. } = self {
+            Some(flags)
+        } else {
+            None
+        }
     }
 }
-impl Copy for JSTokenUnion {}
 
-#[derive(Debug, Clone, Copy)]
-pub struct JSTokenStr {
-    pub str: JSValue,
-    pub sep: i32,
-}
+// #[derive(Clone)]
+// pub union JSTokenUnion {
+//     pub str: JSTokenStr,
+//     pub num: JSTokenNum,
+//     pub ident: JSTokenIdent,
+//     pub regexp: JSTokenRegexp,
+// }
 
-#[derive(Debug, Clone, Copy)]
-pub struct JSTokenNum {
-    pub val: JSValue,
-}
+// #[derive(Debug, Clone)]
+// pub struct JSTokenStr {
+//     pub str: JSValue,
+//     pub sep: i32,
+// }
 
-#[derive(Debug, Clone, Copy)]
-pub struct JSTokenIdent {
-    pub atom: JSAtom,
-    pub has_escape: bool,
-    pub is_reserved: bool,
-}
+// #[derive(Debug, Clone)]
+// pub struct JSTokenNum {
+//     pub val: JSValue,
+// }
 
-#[derive(Debug, Clone, Copy)]
-pub struct JSTokenRegexp {
-    pub body: JSValue,
-    pub flags: JSValue,
-}
+// #[derive(Debug, Clone, Copy)]
+// pub struct JSTokenIdent {
+//     pub atom: JSAtom,
+//     pub has_escape: bool,
+//     pub is_reserved: bool,
+// }
+
+// #[derive(Debug, Clone)]
+// pub struct JSTokenRegexp {
+//     pub body: JSValue,
+//     pub flags: JSValue,
+// }
 
 impl<'s> JSParseState<'s> {
     pub unsafe fn next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(self.ctx.rt(), 0) {
-            self.throw_syntax_error(c"stack overflow");
+        if js_check_stack_overflow(&self.ctx.rt(), 0) {
+            self.throw_syntax_error("stack overflow");
             return Err(-1);
         }
 
@@ -163,7 +246,7 @@ impl<'s> JSParseState<'s> {
                             p = p.offset(2);
                             'comment_loop: loop {
                                 if *p == 0 && p >= self.buf_end {
-                                    self.throw_syntax_error(c"unexpected end of comment");
+                                    self.throw_syntax_error("unexpected end of comment");
                                     self.token.val = TOK_ERROR;
                                     return Err(-1);
                                 }
@@ -222,11 +305,11 @@ impl<'s> JSParseState<'s> {
                                 state = Some(State::HasIdent(c1));
                             } else {
                                 // syntax error?
-                                self.throw_syntax_error(c"syntax error");
+                                self.throw_syntax_error("syntax error");
                                 return Err(-1);
                             }
                         } else {
-                            self.throw_syntax_error(c"syntax error");
+                            self.throw_syntax_error("syntax error");
                             return Err(-1);
                         }
                     }
@@ -252,12 +335,16 @@ impl<'s> JSParseState<'s> {
                     };
 
                     if !Self::is_ident_first(c1) {
-                        self.throw_syntax_error(c"invalid first charactor of private name");
+                        self.throw_syntax_error("invalid first charactor of private name");
                         state = Some(State::Fail);
                     } else {
                         p = p1;
-                        if let Ok((atom, _)) = self.parse_ident(&mut p, c1, true) {
-                            self.token.u.ident.atom = atom;
+                        if let Ok((a, _)) = self.parse_ident(&mut p, c1, true) {
+                            if let TokenData::Ident { atom, .. } = &mut self.token.data {
+                                *atom = a;
+                            } else {
+                                unreachable!()
+                            };
                             self.token.val = TOK_PRIVATE_NAME;
                         } else {
                             state = Some(State::Fail);
@@ -277,7 +364,7 @@ impl<'s> JSParseState<'s> {
                 '0' => {
                     // in strict mode, octal literals are not accepted
                     if is_digit(*p.add(1)) && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
-                        self.throw_syntax_error(c"octal literals are deprecated in strict mode");
+                        self.throw_syntax_error("octal literals are deprecated in strict mode");
                         state = Some(State::Fail);
                     } else {
                         state = Some(State::ParseNumber);
@@ -495,7 +582,7 @@ impl<'s> JSParseState<'s> {
                             } else if JSParseState::is_ident_first(code) {
                                 state = Some(State::HasIdent(code));
                             } else {
-                                self.throw_syntax_error(c"unexpected character");
+                                self.throw_syntax_error("unexpected character");
                                 state = Some(State::Fail);
                             }
                         }
@@ -516,9 +603,11 @@ impl<'s> JSParseState<'s> {
                     State::HasIdent(first_char) => {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
-                            self.token.u.ident.atom = atom;
-                            self.token.u.ident.has_escape = has_escape;
-                            self.token.u.ident.is_reserved = false;
+                            self.token.data = TokenData::Ident {
+                                atom,
+                                has_escape,
+                                is_reserved: false,
+                            };
                             self.token.val = TOK_IDENT;
                             // check if ident is a reserved word token.
                             // if yes convert token value to TOK_XXX
@@ -568,30 +657,30 @@ impl<'s> JSParseState<'s> {
             | ATOD_ACCEPT_UNDERSCORES
             | ATOD_ACCEPT_SUFFIX;
 
-        let ret = js_atof(self.ctx.as_ptr(), *p, p, 0, flags);
+        let ret = js_atof(&self.ctx, *p, p, 0, flags);
         if ret.is_exception() {
             let exc_obj = self.ctx.take_exception();
             self.throw(exc_obj);
             return Err(-1);
-        } else if JS_VALUE_IS_NAN(ret) {
-            JS_FreeValue(self.ctx.as_ptr(), ret);
-            self.throw_syntax_error(c"invalid number literal");
-            return Err(-1);
+        } else if let JSValue::Float64(d) = ret {
+            if d.is_nan() {
+                self.throw_syntax_error("invalid number literal");
+                return Err(-1);
+            }
         }
 
         // reject `10instanceof Number`
         if let Some(c) = CStr::from_ptr(*p.cast())
             .to_str()
             .map_err(|_| {
-                self.throw_syntax_error(c"invalid UTF-8 sequence");
+                self.throw_syntax_error("invalid UTF-8 sequence");
                 -1
             })?
             .chars()
             .next()
         {
             if Self::is_ident_next(c) {
-                JS_FreeValue(self.ctx.as_ptr(), ret);
-                self.throw_syntax_error(c"invalid number literal");
+                self.throw_syntax_error("invalid number literal");
                 return Err(-1);
             }
         }
@@ -603,7 +692,7 @@ impl<'s> JSParseState<'s> {
         // }
 
         self.token.val = TOK_NUMBER;
-        self.token.u.num.val = ret;
+        self.token.data = TokenData::Num(ret);
 
         Ok(())
     }
@@ -640,36 +729,43 @@ impl<'s> JSParseState<'s> {
         self.next_token()
     }
 
-    /// free current token (jsvalue, atom)
-    pub unsafe fn free_token(&mut self) {
-        let token = &mut self.token;
-
-        match token.val {
-            TOK_NUMBER => {
-                JS_FreeValue(self.ctx.as_ptr(), token.u.num.val);
+    /// free current token data values
+    pub fn free_token(&mut self) {
+        match &mut self.token.data {
+            TokenData::Ident { atom, .. } => {
+                JS_FreeAtom(&self.ctx, *atom);
             }
-            TOK_STRING | TOK_TEMPLATE => {
-                JS_FreeValue(self.ctx.as_ptr(), token.u.str.str);
+            TokenData::Str { str, .. } => *str = JSValue::UNDEFINED,
+            TokenData::Num(n) => *n = JSValue::UNDEFINED,
+            TokenData::Regexp { body, flags } => {
+                *body = JSValue::UNDEFINED;
+                *flags = JSValue::UNDEFINED;
             }
-            TOK_REGEXP => {
-                JS_FreeValue(self.ctx.as_ptr(), token.u.regexp.body);
-                JS_FreeValue(self.ctx.as_ptr(), token.u.regexp.flags);
-            }
-            TOK_IDENT | TOK_PRIVATE_NAME | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
-                JS_FreeAtom(self.ctx.as_ptr(), token.u.ident.atom);
-            }
-            _ => {}
         }
+
+        // let token = &mut self.token;
+        // match token.val {
+        //     TOK_NUMBER => {
+        //         //token.u.num.val = JSValue::UNDEFINED;
+        //     }
+        //     TOK_STRING | TOK_TEMPLATE => {
+        //         //token.u.str.str = JSValue::UNDEFINED;
+        //     }
+        //     TOK_REGEXP => {
+        //         //token.u.regexp.body = JSValue::UNDEFINED;
+        //         //token.u.regexp.flags = JSValue::UNDEFINED;
+        //     }
+        //     TOK_IDENT | TOK_PRIVATE_NAME | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
+        //         JS_FreeAtom(&self.ctx, token.data.ident_atom().unwrap());
+        //     }
+        //     _ => {}
+        // }
     }
 }
 
 #[deprecated(note = "use JSParseState::next_token() instead")]
 pub unsafe fn next_token(s: *mut JSParseState) -> i32 {
-    if (*s).next_token().is_err() {
-        -1
-    } else {
-        0
-    }
+    if (*s).next_token().is_err() { -1 } else { 0 }
 }
 
 #[deprecated(note = "use JSParseState::free_token() instead")]
@@ -685,7 +781,9 @@ pub unsafe fn token_is_ident(tok: i32) -> bool {
 
 #[inline(always)]
 pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: JSAtom) -> bool {
-    (*s).token.val == TOK_IDENT && (*s).token.u.ident.atom == atom && !(*s).token.u.ident.has_escape
+    (*s).token.val == TOK_IDENT
+        && (*s).token.data.ident_atom().unwrap() == atom
+        && !(*s).token.data.ident_has_escape()
 }
 
 /* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
@@ -806,7 +904,7 @@ pub unsafe fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i3
 // convert a TOK_IDENT to a keyword when needed
 pub unsafe fn update_token_ident(s: &mut JSParseState) {
     // don't change match arm order
-    let is_keyword: bool = match s.token.u.ident.atom {
+    let is_keyword: bool = match s.token.data.ident_atom().unwrap() {
         JS_ATOM_yield => {
             let fd = s.cur_func();
             matches!(
@@ -844,12 +942,19 @@ pub unsafe fn update_token_ident(s: &mut JSParseState) {
     };
 
     if is_keyword {
-        if s.token.u.ident.has_escape {
-            s.token.u.ident.is_reserved = true;
-            s.token.val = TOK_IDENT;
-        } else {
-            // The keywords atoms are pre allocated
-            s.token.val = s.token.u.ident.atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
+        if let TokenData::Ident {
+            atom,
+            has_escape,
+            is_reserved,
+        } = &mut s.token.data
+        {
+            if *has_escape {
+                *is_reserved = true;
+                s.token.val = TOK_IDENT;
+            } else {
+                // The keywords atoms are pre allocated
+                s.token.val = atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
+            }
         }
     }
 }

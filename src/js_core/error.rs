@@ -1,21 +1,21 @@
 use crate::{
+    JS_CLASS_ERROR,
     atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
-    context::{JSContext, JS_GetActiveFunction},
-    error::{JSErrorEnum, JSResult, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL},
-    function::{CallArgs, JS_GetFunctionRealm},
+    context::{JS_GetActiveFunction, JSContext},
+    error::{JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSErrorEnum, JSResult},
+    function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
     value::{
-        object::{JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-        JSValue, JS_FreeValue,
+        JSValue,
+        object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObjectIsa},
     },
-    JS_CLASS_ERROR,
 };
 
-pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let mut new_target = args.this_value;
+pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let mut new_target = cc.this().clone();
 
     if new_target.is_undefined() {
-        new_target = unsafe { JS_GetActiveFunction(ctx) };
+        new_target = unsafe { JS_GetActiveFunction(ctx).clone() };
     }
 
     let mut proto = new_target
@@ -23,114 +23,71 @@ pub fn js_error_constructor(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         .check_exception()?;
 
     if !proto.is_object() {
-        JS_FreeValue(ctx, proto);
-
-        let realm = unsafe { JS_GetFunctionRealm(ctx, new_target) };
-        if realm.is_null() {
-            return Err(-1);
-        }
-        let realm = unsafe { realm.as_mut().unwrap() };
-
-        let proto1 = if args.magic < 0 {
-            realm.class_proto[JS_CLASS_ERROR as usize]
+        let realm = unsafe { JS_GetFunctionRealm(ctx, &new_target)? };
+        proto = if cc.magic() < 0 {
+            realm.0.borrow().class_proto[JS_CLASS_ERROR as usize].clone()
         } else {
-            realm.native_error_proto[args.magic as usize]
+            realm.0.borrow().native_error_proto[cc.magic() as usize].clone()
         };
-
-        proto = proto1.dup();
     }
 
     let obj = ctx
-        .create_instance_from_proto(proto, JSObjectIsa::ERROR)
-        .map_err(|_| {
-            JS_FreeValue(ctx, proto);
-            -1
-        })?;
+        .create_instance_from_proto(&proto, JSObjectIsa::ERROR)
+        .map_err(|_| -1)?;
 
-    JS_FreeValue(ctx, proto);
-
-    let mut arg_index = if args.magic == JSErrorEnum::Aggregate as i32 {
+    let mut arg_index = if cc.magic() == JSErrorEnum::Aggregate as i32 {
         1
     } else {
         0
     };
-    let message = args.get_raw(arg_index as usize);
+    let message = cc.arg(arg_index as usize);
     arg_index += 1;
 
     if !message.is_undefined() {
-        if let Ok(msg) = message.coerce_to_string_value(ctx) {
-            let _ = obj.define_property_value(
-                ctx,
-                JS_ATOM_message,
-                msg,
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            );
-        } else {
-            unsafe {
-                JS_FreeValue(ctx, obj);
-            }
-            return Err(-1);
-        }
+        let msg = message.coerce_to_string_value(ctx)?;
+        obj.define_property_value(
+            ctx,
+            JS_ATOM_message,
+            msg,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )?;
     }
 
-    if arg_index < args.length() {
-        let options = args.get_raw(arg_index as usize);
+    if arg_index < cc.length() {
+        let options = cc.arg(arg_index as usize);
         if options.is_object() {
-            let present = if let Ok(b) = options.has_property(ctx, JS_ATOM_cause) {
-                b
-            } else {
-                unsafe {
-                    JS_FreeValue(ctx, obj);
-                }
-                return Err(-1);
-            };
-
-            if present {
-                let cause = options.get_property(ctx, JS_ATOM_cause);
-                if cause.is_exception() {
-                    unsafe {
-                        JS_FreeValue(ctx, obj);
-                    }
-                    return Err(-1);
-                }
-
-                let _ = obj.define_property_value(
+            if options.has_property(ctx, JS_ATOM_cause)? {
+                let cause = options.get_property(ctx, JS_ATOM_cause).check_exception()?;
+                obj.define_property_value(
                     ctx,
                     JS_ATOM_cause,
                     cause,
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                );
+                )?;
             }
         }
     }
 
-    if args.magic == JSErrorEnum::Aggregate as i32 {
-        let error_list = unsafe { iterator_to_array(ctx, args.get_raw(0)) };
-        if error_list.is_exception() {
-            unsafe {
-                JS_FreeValue(ctx, obj);
-            }
-            return Err(-1);
-        }
-
-        let _ = obj.define_property_value(
+    if cc.magic() == JSErrorEnum::Aggregate as i32 {
+        let error_list = unsafe { iterator_to_array(ctx, cc.arg(0)).check_exception()? };
+        obj.define_property_value(
             ctx,
             JS_ATOM_errors,
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        );
+        )?;
     }
 
     // skip the Error() function in the backtrace
-    ctx.build_backtrace_to(obj, None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
+    ctx.build_backtrace_to(&obj, None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
 
     Ok(obj)
 }
 
 /// `errors` value is not consumed.
-pub fn js_aggregate_error_constructor(ctx: &mut JSContext, errors: JSValue) -> JSValue {
+pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
     let obj = if let Ok(o) = ctx.create_instance_from_proto(
-        ctx.native_error_proto[JSErrorEnum::Aggregate as usize],
+        &ctx.0.borrow().native_error_proto[JSErrorEnum::Aggregate as usize],
         JSObjectIsa::ERROR,
     ) {
         o
@@ -141,7 +98,7 @@ pub fn js_aggregate_error_constructor(ctx: &mut JSContext, errors: JSValue) -> J
     obj.define_property_value(
         ctx,
         JS_ATOM_errors,
-        errors.dup(),
+        errors,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
     )
     .unwrap();

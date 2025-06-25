@@ -29,7 +29,7 @@ pub struct LabelSlot {
 }
 
 impl LabelSlot {
-    pub fn add_reloc(&mut self, ctx: &mut JSContext, addr: usize, size: i32) -> Result<(), i32> {
+    pub fn add_reloc(&mut self, ctx: &JSContext, addr: usize, size: i32) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity() {
             if self.pending_relocs.try_reserve_exact(4).is_err() {
                 ctx.JS_ThrowOutOfMemory();

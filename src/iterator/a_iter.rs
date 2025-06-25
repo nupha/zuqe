@@ -1,21 +1,19 @@
+use std::ops::Deref;
+
 use crate::{
+    JS_CFUNC_NATIVE_DEF,
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{CallArgs, JSCFunctionListEntry, JS_Call},
+    function::{CallContext, JS_Call, JSCFunctionListEntry},
     gc::GCMarkFunc,
-    mem::js_malloc_typed,
-    promise::{js_promise_resolve, PromiseValue},
+    promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
-    value::{
-        object::JSObjectIsa, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_FreeValueRT,
-        JS_ToBool,
-    },
-    JS_CFUNC_MAGIC_DEF,
+    value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
 
-use super::{js_create_iterator_result, JS_IteratorGetCompleteValue, JS_IteratorNext2};
+use super::{JS_IteratorGetCompleteValue, JS_IteratorNext2, js_create_iterator_result};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {
@@ -39,218 +37,186 @@ pub const GEN_MAGIC_THROW: i32 = 2;
 impl JSContext {
     /// Create an AsyncIterator from a SyncIterator.
     ///  `sync_iter` is not consumed.
-    pub fn create_async_from_sync_iterator(&mut self, sync_iter: JSValue) -> JSResult {
+    pub fn create_async_from_sync_iterator(&self, sync_iter: JSValue) -> JSResult {
         let next_method = sync_iter
             .get_property(self, JS_ATOM_next)
             .check_exception()?;
 
-        let s = if let Some(p) =
-            unsafe { js_malloc_typed::<JSAsyncFromSyncIteratorData>(self, 1, false) }
-        {
-            unsafe {
-                p.write(JSAsyncFromSyncIteratorData {
-                    sync_iter: sync_iter.dup(),
-                    next_method,
-                });
-            }
-            p
-        } else {
-            return Err(-1);
+        let s = JSAsyncFromSyncIteratorData {
+            sync_iter,
+            next_method,
         };
 
-        match self.create_instance(JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s.as_ptr())) {
-            Ok(o) => Ok(o),
-            Err(isa) => {
-                if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s) = isa {
-                    let s = unsafe { Box::from_raw(s) };
-                    JS_FreeValue(self, s.sync_iter);
-                    JS_FreeValue(self, s.next_method);
-                }
-                return Err(-1);
-            }
-        }
+        self.create_instance(JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s))
+            .map_err(|_| -1)
     }
 }
 
 #[deprecated(note = "use JSContext::create_async_from_sync_iterator() instead")]
-pub unsafe fn JS_CreateAsyncFromSyncIterator(
-    ctx: *mut JSContext,
-    sync_iter: JSValueConst,
-) -> JSValue {
-    (*ctx)
-        .create_async_from_sync_iterator(sync_iter)
+pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValueConst) -> JSValue {
+    ctx.create_async_from_sync_iterator(sync_iter)
         .unwrap_or(JSValue::EXCEPTION)
 }
 
-pub fn js_async_from_sync_iterator_unwrap(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    unsafe {
-        let done = JS_ToBool(ctx, args.data_raw(0))?;
-        js_create_iterator_result(ctx, args.get_raw(0).dup(), done).check_exception()
-    }
+pub fn js_async_from_sync_iterator_unwrap(ctx: &JSContext, args: CallContext) -> JSResult {
+    let done = args.data_raw(0).coerce_to_bool(ctx)?;
+    js_create_iterator_result(ctx, args.arg(0).clone(), done)
 }
 
 pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     done: bool,
 ) -> JSValue {
     ctx.create_native_callable_object(
         js_async_from_sync_iterator_unwrap,
         1,
         0,
-        &[if done { JSValue::TRUE } else { JSValue::FALSE }],
+        &[JSValue::Bool(done)],
     )
     .unwrap_or(JSValue::EXCEPTION)
 }
 
-pub unsafe fn js_async_from_sync_iterator_next(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
+pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     let done_resolve =
-        |rr: [JSValueRc; 2], mut err: JSValue, is_reject: usize, promise: JSValueRc| -> JSValue {
-            let res2 = JS_Call(
-                ctx.as_mut().unwrap(),
-                *rr[is_reject],
-                JSValue::UNDEFINED,
-                1,
-                &mut err,
-            );
-            JS_FreeValue(ctx, err);
-            JS_FreeValue(ctx, res2);
-            return promise.into();
+        |rr: [JSValue; 2], mut err: JSValue, is_reject: usize, promise: JSValue| -> JSValue {
+            let res2 = JS_Call(ctx, &rr[is_reject], &JSValue::UNDEFINED, &[err]);
+            return promise;
         };
 
-    let (promise, resolving_funcs) = if let Ok((pr, rr)) = (*ctx).create_promise(JSValue::UNDEFINED)
-    {
-        (
-            pr.as_value().into_rc((*ctx).rt()),
-            [rr[0].into_rc((*ctx).rt()), rr[1].into_rc((*ctx).rt())],
-        )
-    } else {
-        return JSValue::EXCEPTION;
-    };
+    let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+    let this_val = cc.this();
 
-    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = this_val.object_unchecked().isa() {
-        let p = (*p).as_ref().unwrap();
-        let method: JSValueRc;
-
-        if magic == GEN_MAGIC_NEXT {
-            method = p.next_method.dup().into_rc((*ctx).rt());
+    let p = unsafe { this_val.object_unchecked() };
+    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.isa.borrow().deref() {
+        let method = if cc.magic() == GEN_MAGIC_NEXT {
+            p.next_method.clone()
         } else {
-            method = p
-                .sync_iter
-                .get_property(
-                    ctx.as_mut().unwrap(),
-                    if magic == GEN_MAGIC_RETURN {
-                        JS_ATOM_return
-                    } else {
-                        JS_ATOM_throw
-                    },
-                )
-                .into_rc((*ctx).rt());
-
-            if method.is_exception() {
-                return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
-            } else if method.is_undefined_or_null() {
-                let (err, is_reject) = if magic == GEN_MAGIC_RETURN {
-                    (
-                        js_create_iterator_result(
-                            ctx.as_mut().unwrap(),
-                            (*argv.offset(0)).dup(),
-                            true,
-                        ),
-                        0,
-                    )
+            let fval = p.sync_iter.get_property(
+                ctx,
+                if cc.magic() == GEN_MAGIC_RETURN {
+                    JS_ATOM_return
                 } else {
-                    ((*argv.offset(0)).dup(), 1)
-                };
-                return done_resolve(resolving_funcs, err, is_reject, promise);
+                    JS_ATOM_throw
+                },
+            );
+
+            if fval.is_exception() {
+                return Ok(done_resolve(
+                    resolving_funcs,
+                    ctx.take_exception(),
+                    1,
+                    promise.into(),
+                ));
             }
-        }
+
+            if fval.is_undefined_or_null() {
+                let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
+                    (js_create_iterator_result(ctx, cc.arg(0).clone(), true)?, 0)
+                } else {
+                    (cc.arg(0).clone(), 1)
+                };
+                return Ok(done_resolve(
+                    resolving_funcs,
+                    err,
+                    is_reject,
+                    promise.into(),
+                ));
+            }
+
+            fval
+        };
 
         let mut done = 0;
-        let mut value = JS_IteratorNext2(
-            ctx,
-            (*p).sync_iter,
-            *method,
-            if argc >= 1 { 1 } else { 0 },
-            argv,
-            &mut done,
-        )
-        .into_rc((*ctx).rt());
+        let mut value = unsafe {
+            JS_IteratorNext2(
+                ctx,
+                &p.sync_iter,
+                &method,
+                if cc.length() == 0 {
+                    &[]
+                } else {
+                    &cc.arguments()[0..1]
+                },
+                &mut done,
+            )
+        };
 
         if value.is_exception() {
-            return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
+            return Ok(done_resolve(
+                resolving_funcs,
+                ctx.take_exception(),
+                1,
+                promise.into(),
+            ));
         }
 
         if done == 2 {
             let obj = value;
             let mut _done = false;
-            value = JS_IteratorGetCompleteValue(ctx, *obj, &mut _done).into_rc((*ctx).rt());
+            value = unsafe { JS_IteratorGetCompleteValue(ctx, &obj, &mut _done) };
             if value.is_exception() {
-                let err = (*ctx).take_exception();
-                return done_resolve(resolving_funcs, err, 1, promise);
+                let err = ctx.take_exception();
+                return Ok(done_resolve(resolving_funcs, err, 1, promise.into()));
             }
             done = _done as i32;
         }
 
         if value.is_exception() {
-            return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
+            return Ok(done_resolve(
+                resolving_funcs,
+                ctx.take_exception(),
+                1,
+                promise.into(),
+            ));
         }
 
-        let value_wrapper_promise: JSValueRc = {
-            let a = [*value];
-            let cc = CallArgs::new(ctx, (*ctx).promise_ctor, &a, 0, None);
-            if let Ok(r) = js_promise_resolve(ctx.as_mut().unwrap(), cc) {
-                r.into_rc((*ctx).rt())
+        let value_wrapper_promise: JSValue = {
+            let cc = CallContext::new(
+                ctx,
+                ctx.0.borrow().promise_ctor.clone(),
+                std::slice::from_ref(&value),
+                0,
+                None,
+            );
+            if let Ok(r) = js_promise_resolve(ctx, cc) {
+                r
             } else {
-                return done_resolve(resolving_funcs, (*ctx).take_exception(), 1, promise);
+                return Ok(done_resolve(
+                    resolving_funcs,
+                    ctx.take_exception(),
+                    1,
+                    promise.into(),
+                ));
             }
         };
 
-        let resolve_reject: [JSValueRc; 2] = [
-            {
-                let f = js_async_from_sync_iterator_unwrap_func_create(
-                    ctx.as_mut().unwrap(),
-                    done != 0,
-                )
-                .into_rc((*ctx).rt());
-                if f.is_exception() {
-                    return JSValue::EXCEPTION;
-                }
-                f
+        let resolve_reject: [JSValue; 2] = [
+            unsafe {
+                js_async_from_sync_iterator_unwrap_func_create(ctx, done != 0).check_exception()?
             },
-            JSValueRc::undefined((*ctx).rt()),
+            JSValue::UNDEFINED,
         ];
 
-        let res = UncheckedInto::<PromiseValue>::unchecked_into(*value_wrapper_promise).reaction(
-            ctx.as_mut().unwrap(),
-            &[*resolve_reject[0], *resolve_reject[1]],
-            &[*resolving_funcs[0], *resolving_funcs[1]],
-        );
-        if res.is_err() {
-            return JSValue::EXCEPTION;
-        }
+        unsafe {
+            UncheckedInto::<PromiseValue>::unchecked_into(value_wrapper_promise).reaction(
+                ctx,
+                &resolve_reject,
+                &resolving_funcs,
+            )?
+        };
 
-        promise.into()
+        Ok(promise.into())
     } else {
-        (*ctx).JS_ThrowTypeError(c"not an Async-from-Sync Iterator");
-        let err = (*ctx).take_exception();
-        return done_resolve(resolving_funcs, err, 1, promise);
+        ctx.JS_ThrowTypeError("not an Async-from-Sync Iterator");
+        let err = ctx.take_exception();
+        Ok(done_resolve(resolving_funcs, err, 1, promise.into()))
     }
 }
 
-pub unsafe fn js_async_from_sync_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
-        let p = *p;
-        JS_FreeValueRT(rt, p.as_mut().unwrap().sync_iter);
-        JS_FreeValueRT(rt, p.as_mut().unwrap().next_method);
-
-        drop(Box::from_raw(p));
-    }
+pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+    // if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
+    //     drop(Box::from_raw(p));
+    // }
 }
 
 pub unsafe fn js_async_from_sync_iterator_mark(
@@ -258,27 +224,27 @@ pub unsafe fn js_async_from_sync_iterator_mark(
     val: JSValueConst,
     mark_func: GCMarkFunc,
 ) {
-    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
-        let p = *p;
-        (*rt).gc_mark_value((*p).sync_iter, mark_func);
-        (*rt).gc_mark_value((*p).next_method, mark_func);
-    }
+    todo!();
+    // if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
+    //     (*rt).gc_mark_value(p.sync_iter, mark_func);
+    //     (*rt).gc_mark_value(p.next_method, mark_func);
+    // }
 }
 
 pub const js_async_from_sync_iterator_proto_funcs: [JSCFunctionListEntry; 3] = [
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"next",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_NEXT as _
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"return",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_RETURN as _
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"throw",
         1,
         js_async_from_sync_iterator_next,

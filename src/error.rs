@@ -1,20 +1,25 @@
-use std::{borrow::Cow, ffi::CStr, io::Write};
+use std::{
+    borrow::Cow,
+    ffi::CStr,
+    io::Write,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
-    atom::{consts::*, JSAtom, ATOM_GET_STR_BUF_SIZE, JS_ATOM_NULL},
+    JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
+    atom::{ATOM_GET_STR_BUF_SIZE, JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
-    context::{is_strict_mode, JSContext},
-    function::{get_func_name, JSCFunctionListEntry, JSFunctionBytecode, JS_GetFunctionBytecode},
+    context::{JSContext, is_strict_mode},
+    function::{CallContext, JSCFunctionListEntry, JSFunctionBytecode, get_func_name},
+    runtime::JSRuntime,
     stack_frame::JSStackFrame,
     value::{
+        JS_ConcatString, JS_ConcatString3, JS_IsEmptyString, JSValue, JSValueConst,
         object::{
-            JSObjectIsa, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_WRITABLE,
+            JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            JSObjectIsa,
         },
-        JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_FreeValue,
-        JS_IsEmptyString, JS_ToStringFree, JS_TAG_OBJECT, JS_VALUE_GET_OBJ,
     },
-    JS_CFUNC_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,12 +57,12 @@ pub const JS_THROW_VAR_UNINITIALIZED: u8 = 2;
 pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
-impl JSContext {
+impl JSRuntime {
     /// set new obj to current_exception, returns the old exception value.
     /// Note: returnd value should be freed by caller
     #[inline(always)]
     pub fn set_exception(&mut self, obj: JSValue) -> JSValue {
-        self.rt_mut().current_exception.replace(obj)
+        self.current_exception.replace(obj)
     }
 
     /// get current exception value, then reset current_exception to null.
@@ -66,27 +71,35 @@ impl JSContext {
     pub fn take_exception(&mut self) -> JSValue {
         self.set_exception(JSValue::NULL)
     }
+}
+
+impl JSContext {
+    /// set new obj to current_exception, returns the old exception value.
+    /// Note: returnd value should be freed by caller
+    #[inline(always)]
+    pub fn set_exception(&self, obj: JSValue) -> JSValue {
+        self.rt_mut().set_exception(obj)
+    }
+
+    /// get current exception value, then reset current_exception to null.
+    /// Note: returnd value should be freed by caller
+    #[inline(always)]
+    pub fn take_exception(&self) -> JSValue {
+        self.rt_mut().take_exception()
+    }
 
     /// put `obj` to current_exception, free old exception.
-    /// returns JSValue::EXCEPTION.
     /// Note: `obj` is consumed.
-    pub fn throw(&mut self, obj: JSValue) -> JSValue {
-        let old = self.rt_mut().current_exception.replace(obj);
-        // free old exception
-        JS_FreeValue(self, old);
-        JSValue::EXCEPTION
+    #[inline(always)]
+    pub fn throw(&self, obj: JSValue) {
+        self.set_exception(obj);
     }
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
-    pub fn throw_error_ex(
-        &mut self,
-        error_num: JSErrorEnum,
-        message: &CStr,
-        add_backtrace: bool,
-    ) -> JSValue {
+    pub fn throw_error_ex(&self, error_num: JSErrorEnum, message: &str, add_backtrace: bool) {
         let obj = if let Ok(o) = self.create_instance_from_proto(
-            self.native_error_proto[error_num as usize],
+            &self.0.borrow().native_error_proto[error_num as usize],
             JSObjectIsa::ERROR,
         ) {
             o
@@ -95,7 +108,7 @@ impl JSContext {
             JSValue::NULL
         };
 
-        let s = self.create_string(message.to_string_lossy().as_ref());
+        let s = self.create_string(message);
         let _ = obj.define_property_value(
             self,
             JS_ATOM_message,
@@ -104,58 +117,66 @@ impl JSContext {
         );
 
         if add_backtrace {
-            self.build_backtrace_to(obj, None, 0);
+            self.build_backtrace_to(&obj, None, 0);
         }
 
-        self.throw(obj)
+        self.throw(obj);
     }
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
-    pub fn JS_ThrowError(&mut self, error_num: JSErrorEnum, message: &CStr) -> JSValue {
+    pub fn JS_ThrowError(&self, error_num: JSErrorEnum, message: &str) {
         let rt = self.rt();
 
         // the backtrace is added later if called from a bytecode function
         let sf = rt.current_stack_frame.cast::<JSStackFrame>();
         let add_backtrace = !rt.in_out_of_memory
-            && (sf.is_null() || unsafe { JS_GetFunctionBytecode((*sf).cur_func).is_null() });
+            && (sf.is_null()
+                || unsafe {
+                    (*sf)
+                        .cur_func
+                        .object()
+                        .and_then(|o| {
+                            o.0.isa
+                                .borrow()
+                                .func()
+                                .and_then(|f| f.function_bytecode.clone())
+                        })
+                        .is_none()
+                });
 
-        self.throw_error_ex(error_num, message, add_backtrace)
+        self.throw_error_ex(error_num, message, add_backtrace);
+    }
+
+    // pub fn JS_ThrowError(&self, error_num: JSErrorEnum, message: &str) {}
+
+    #[inline]
+    pub fn JS_ThrowInternalError(&self, message: &str) {
+        self.JS_ThrowError(JSErrorEnum::Internal, message);
     }
 
     #[inline]
-    pub fn JS_ThrowInternalError(&mut self, message: &CStr) -> JSValue {
-        self.JS_ThrowError(JSErrorEnum::Internal, message)
+    pub fn JS_ThrowTypeError(&self, message: &str) {
+        self.JS_ThrowError(JSErrorEnum::Type, message);
     }
 
     #[inline]
-    pub fn JS_ThrowTypeError(&mut self, message: &CStr) -> JSValue {
-        self.JS_ThrowError(JSErrorEnum::Type, message)
+    pub fn JS_ThrowTypeErrorNotAnObject(&self) {
+        self.JS_ThrowTypeError("not an object");
     }
 
     #[inline]
-    pub fn JS_ThrowTypeErrorNotAnObject(&mut self) -> JSValue {
-        self.JS_ThrowTypeError(c"not an object")
+    pub fn JS_ThrowTypeErrorNotASymbol(&self) {
+        self.JS_ThrowTypeError("not a symbol");
     }
 
-    #[inline]
-    pub fn JS_ThrowTypeErrorNotASymbol(&mut self) -> JSValue {
-        self.JS_ThrowTypeError(c"not a symbol")
-    }
-
-    pub fn JS_ThrowTypeErrorInvalidClass(&mut self, class_id: JSClassID) -> JSValue {
+    pub fn JS_ThrowTypeErrorInvalidClass(&self, class_id: JSClassID) {
         let name = self.rt().class_array[class_id as usize].class_name;
-        self.JS_ThrowTypeError(unsafe {
-            CStr::from_ptr(
-                format!("{} object expected\0", name.to_str(self.rt()))
-                    .as_ptr()
-                    .cast(),
-            )
-        })
+        self.JS_ThrowTypeError(&format!("{} object expected", name.to_str(self.rt())))
     }
 
     /// returns: true=exception raised; false=no exception raised
-    pub fn JS_ThrowTypeErrorOrFalse(&mut self, flags: u32, message: &CStr) -> bool {
+    pub fn JS_ThrowTypeErrorOrFalse(&self, flags: u32, message: &str) -> bool {
         if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
         {
             self.JS_ThrowTypeError(message);
@@ -167,21 +188,15 @@ impl JSContext {
 
     /// flags: 1=raise exception; 0=don't raise exception
     /// returns: true=exception raised; false=no exception raised
-    pub fn JS_ThrowTypeErrorReadOnly(&mut self, flags: u32, atom: JSAtom) -> bool {
-        self.JS_ThrowTypeErrorOrFalse(flags, unsafe {
-            CStr::from_ptr(
-                format!("'{}' is read-only\0", atom.to_str(self.rt()))
-                    .as_ptr()
-                    .cast(),
-            )
-        })
+    pub fn JS_ThrowTypeErrorReadOnly(&self, flags: u32, atom: JSAtom) -> bool {
+        self.JS_ThrowTypeErrorOrFalse(flags, &format!("'{}' is read-only", atom.to_str(self.rt())))
     }
 
     /// raise out of memory exception
-    pub fn JS_ThrowOutOfMemory(&mut self) -> JSValue {
+    pub fn JS_ThrowOutOfMemory(&self) -> JSValue {
         if !self.rt().in_out_of_memory {
             self.rt_mut().in_out_of_memory = true;
-            self.JS_ThrowInternalError(&CStr::from_bytes_with_nul(b"out of memory\0").unwrap());
+            self.JS_ThrowInternalError("out of memory");
             self.rt_mut().in_out_of_memory = false;
         }
         JSValue::EXCEPTION
@@ -193,28 +208,27 @@ pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
 #[deprecated(note = "use JSContext::take_exception() instead")]
-pub unsafe fn JS_GetException(ctx: *mut JSContext) -> JSValue {
-    (*ctx).take_exception()
+pub unsafe fn JS_GetException(ctx: &JSContext) -> JSValue {
+    ctx.take_exception()
 }
 
 /* Note: it is important that no exception is returned by this function */
-pub unsafe fn is_backtrace_needed(obj: JSValueConst) -> bool {
-    if obj.tag() != JSTag::Object as i32 {
-        false
-    } else {
-        let p = obj.object_unchecked();
+pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
+    if let JSValue::Object(p) = obj {
         if p.class_id() != JS_CLASS_ERROR {
             false
         } else {
-            p.find_own_property1(JS_ATOM_stack).is_none()
+            !p.has_own_property(JS_ATOM_stack)
         }
+    } else {
+        false
     }
 }
 
 impl JSContext {
-    fn inner_build_backtrace(
-        &mut self,
-        error_obj: JSValueConst,
+    fn do_build_backtrace(
+        &self,
+        error_obj: &JSValue,
         file_line: Option<(&str, i32)>, // filename and line number
         mut backtrace_flags: i32,
     ) -> Result<String, i32> {
@@ -253,13 +267,13 @@ impl JSContext {
                 continue;
             }
 
-            let str1 = unsafe { get_func_name(self, (*sf).cur_func) }.map_or(
+            let str1 = get_func_name(unsafe { &(*sf).cur_func }).map_or(
                 Cow::Borrowed("<anonymous>"),
                 |x| {
                     if x.len() == 0 {
                         Cow::Borrowed("<anonymous>")
                     } else {
-                        x
+                        Cow::Owned(x)
                     }
                 },
             );
@@ -268,30 +282,36 @@ impl JSContext {
 
             let mut backtrace_barrier = false;
 
-            if let Some(func) = unsafe { (*sf).cur_func.object_unchecked().isa().func() } {
-                unsafe {
-                    let b = func.function_bytecode;
-                    backtrace_barrier = (*b).backtrace_barrier;
+            if let Some(b) = unsafe {
+                (*sf)
+                    .cur_func
+                    .object_unchecked()
+                    .0
+                    .isa
+                    .borrow()
+                    .func()
+                    .and_then(|f| f.function_bytecode.clone())
+            } {
+                backtrace_barrier = b.0.borrow().backtrace_barrier;
 
-                    if (*b).has_debug {
-                        let line_num1 = (*b).find_line_num(
-                            ((*sf).cur_pc_offset as u32).wrapping_sub(1), // be u32::MAX when (*sf).cur_pc_offset==0
-                        );
+                if b.0.borrow().has_debug {
+                    let line_num1 = b.find_line_num(
+                        unsafe { ((*sf).cur_pc_offset as u32).wrapping_sub(1) }, // be u32::MAX when (*sf).cur_pc_offset==0
+                    );
 
-                        // let atom_str = JS_AtomToCString(ctx, (*b).debug.filename);
-                        let atom_str = (*b)
+                    let atom_str =
+                        b.0.borrow()
                             .debug
                             .filename
-                            .to_utf8_string(self.handle())
-                            .unwrap_or(Cow::Borrowed("<null>"));
+                            .to_utf8_string(self)
+                            .unwrap_or("<null>".to_string());
 
-                        dbuf.write_fmt(format_args!(" ({}", atom_str.as_ref()))
-                            .map_err(|_| -1)?;
-                        if let Some(n) = line_num1 {
-                            dbuf.write_fmt(format_args!(":{n}")).map_err(|e| -1)?;
-                        }
-                        dbuf.write_all(b")").map_err(|_| -1)?;
+                    dbuf.write_fmt(format_args!(" ({}", atom_str))
+                        .map_err(|_| -1)?;
+                    if let Some(n) = line_num1 {
+                        dbuf.write_fmt(format_args!(":{n}")).map_err(|_| -1)?;
                     }
+                    dbuf.write_all(b")").map_err(|_| -1)?;
                 }
             } else {
                 dbuf.write_all(b" (native)").map_err(|_| -1)?;
@@ -313,17 +333,16 @@ impl JSContext {
     /// if filename/line number is provided, they are defined as property of `error_obj` too.
     /// `error_obj` is not consumed.
     pub fn build_backtrace_to(
-        &mut self,
-        error_obj: JSValueConst,
+        &self,
+        error_obj: &JSValue,
         file_line: Option<(&str, i32)>,
         backtrace_flags: i32,
     ) {
-        let tb_val =
-            if let Ok(s) = self.inner_build_backtrace(error_obj, file_line, backtrace_flags) {
-                self.create_string_from_utf8(s.into_bytes())
-            } else {
-                JSValue::NULL
-            };
+        let tb_val = if let Ok(s) = self.do_build_backtrace(error_obj, file_line, backtrace_flags) {
+            self.create_string_from_utf8(s.into_bytes())
+        } else {
+            JSValue::NULL
+        };
 
         let _ = error_obj.define_property_value(
             self,
@@ -334,190 +353,124 @@ impl JSContext {
     }
 }
 
-// never use it directly
-pub unsafe fn __JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-    let mut buf: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-
-    libc::snprintf(
-        buf.as_mut_ptr() as *mut libc::c_char,
-        buf.len(),
-        fmt.as_ptr() as *const libc::c_char,
-        atom.to_str((*ctx).rt()),
-    );
-    JS_ThrowSyntaxError(ctx, CStr::from_bytes_with_nul(buf.as_slice()).unwrap())
-}
-
-pub fn JS_ThrowSyntaxErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-    unsafe { __JS_ThrowSyntaxErrorAtom(ctx, fmt, atom) }
-}
-
-// #[deprecated(note = "use JSContext::JS_ThrowTypeErr()")]
-// pub unsafe fn JS_ThrowTypeErrorAtom(ctx: *mut JSContext, fmt: &CStr, atom: JSAtom) -> JSValue {
-//     __JS_ThrowTypeErrorAtom(ctx, fmt, atom)
-// }
-
-pub unsafe fn JS_ThrowReferenceErrorUninitialized(ctx: *mut JSContext, name: JSAtom) -> JSValue {
+pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: JSAtom) {
     if name == JS_ATOM_NULL {
-        JS_ThrowReferenceError(ctx, c"lexical variable is not initialized")
+        JS_ThrowReferenceError(ctx, "lexical variable is not initialized");
     } else {
         JS_ThrowReferenceError(
             ctx,
-            CStr::from_bytes_with_nul(
-                format!("{} is not initialized\0", name.to_str((*ctx).rt())).as_bytes(),
-            )
-            .unwrap(),
-        )
+            &format!("{} is not initialized", name.to_str(&ctx.rt())),
+        );
     }
 }
 
-pub unsafe fn JS_ThrowReferenceError(ctx: *mut JSContext, message: &CStr) -> JSValue {
-    ctx.as_mut()
-        .unwrap()
-        .JS_ThrowError(JSErrorEnum::Reference, message)
+pub fn JS_ThrowReferenceError(ctx: &JSContext, message: &str) {
+    ctx.JS_ThrowError(JSErrorEnum::Reference, message)
 }
 
-pub unsafe fn JS_ThrowReferenceErrorNotDefined(ctx: *mut JSContext, name: JSAtom) -> JSValue {
-    JS_ThrowReferenceError(
-        ctx,
-        CStr::from_bytes_with_nul(
-            format!("'{}' is not defined\0", name.to_str((*ctx).rt())).as_bytes(),
-        )
-        .unwrap(),
-    )
+pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
+    JS_ThrowReferenceError(ctx, &format!("'{}' is not defined", name.to_str(ctx.rt())))
 }
 
-pub unsafe fn JS_ThrowReferenceErrorUninitialized2(
-    ctx: *mut JSContext,
-    b: *const JSFunctionBytecode,
+pub fn JS_ThrowReferenceErrorUninitialized2(
+    ctx: &JSContext,
+    b: &JSFunctionBytecode,
     idx: u16,
     is_ref: bool,
-) -> JSValue {
+) {
     let atom = if is_ref {
-        (*b).get_closure_var(idx).map(|c| c.var_name)
+        b.with_closure_var(idx, |c| c.var_name)
     } else {
         // not present if the function is stripped and contains no eval()
-        (*b).get_vardef(idx, false).map(|vd| vd.var_name)
+        b.with_vardef(idx, false, |vd| vd.var_name)
     }
     .unwrap_or(JS_ATOM_NULL);
 
-    JS_ThrowReferenceErrorUninitialized(ctx, atom)
+    JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }
 
-pub unsafe fn JS_ThrowTypeErrorRevokedProxy(ctx: *mut JSContext) -> JSValue {
-    ctx.as_mut().unwrap().JS_ThrowTypeError(c"revoked proxy")
+pub fn JS_ThrowTypeErrorRevokedProxy(ctx: &JSContext) {
+    ctx.JS_ThrowTypeError("revoked proxy");
 }
 
-pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: *mut JSContext) -> JSValue {
-    unsafe {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"ArrayBuffer is detached")
-    }
+pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &JSContext) {
+    ctx.JS_ThrowTypeError("ArrayBuffer is detached");
 }
 
-pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: *mut JSContext, atom: JSAtom) -> JSValue {
-    unsafe {
-        (*ctx).JS_ThrowTypeError(CStr::from_ptr(
-            format!(
-                "private class field '{}' does not exist\0",
-                atom.to_str((*ctx).rt())
-            )
-            .as_ptr()
-            .cast(),
-        ))
-    }
+pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
+    ctx.JS_ThrowTypeError(&format!(
+        "private class field '{}' does not exist",
+        atom.to_str(ctx.rt())
+    ));
 }
 
-pub fn JS_ThrowRangeError(ctx: *mut JSContext, message: &CStr) -> JSValue {
-    unsafe {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowError(JSErrorEnum::Range, message)
-    }
+pub fn JS_ThrowRangeError(ctx: &JSContext, message: &str) {
+    ctx.JS_ThrowError(JSErrorEnum::Range, message);
 }
 
-pub fn JS_ThrowSyntaxError(ctx: *mut JSContext, message: &CStr) -> JSValue {
-    unsafe {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowError(JSErrorEnum::Syntax, message)
-    }
+pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
+    ctx.JS_ThrowError(JSErrorEnum::Syntax, message);
 }
 
-pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: *mut JSContext, prop: JSAtom) -> JSValue {
-    JS_ThrowSyntaxErrorAtom(ctx, c"redeclaration of '%s'", prop)
+pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {
+    JS_ThrowSyntaxError(
+        ctx,
+        &format!("redeclaration of '{}'", prop.to_str(ctx.rt())),
+    );
 }
 
-pub unsafe fn JS_ThrowStackOverflow(ctx: *mut JSContext) -> JSValue {
-    ctx.as_mut()
-        .unwrap()
-        .JS_ThrowInternalError(c"stack overflow")
+pub fn JS_ThrowStackOverflow(ctx: &JSContext) {
+    ctx.JS_ThrowInternalError("stack overflow");
 }
 
 /// used to avoid catching interrupt exceptions
-pub unsafe fn JS_IsUncatchableError(ctx: *const JSContext, val: JSValueConst) -> bool {
-    if val.tag() != JSTag::Object as i32 {
+pub unsafe fn JS_IsUncatchableError(val: &JSValue) -> bool {
+    if let JSValue::Object(p) = val {
+        p.class_id() == JS_CLASS_ERROR && p.flags().is_uncatchable_error()
+    } else {
         false
-    } else {
-        let p = JS_VALUE_GET_OBJ(val);
-        (*p).class_id() == JS_CLASS_ERROR && (*p).detailed.is_uncatchable_error()
     }
 }
 
-pub unsafe fn JS_SetUncatchableError(ctx: *mut JSContext, val: JSValueConst, flag: bool) {
-    if val.tag() != JS_TAG_OBJECT {
-        return;
-    }
-    let p = JS_VALUE_GET_OBJ(val);
-    if (*p).class_id() == JS_CLASS_ERROR {
-        (*p).detailed.set_uncatchable_error(flag);
+pub fn JS_SetUncatchableError(val: &JSValue, flag: bool) {
+    if let JSValue::Object(p) = val {
+        if p.class_id() == JS_CLASS_ERROR {
+            unsafe {
+                (*p.0.detailed.as_ptr()).set_uncatchable_error(flag);
+            }
+        }
     }
 }
 
-pub unsafe fn js_error_toString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if !this_val.is_object() {
-        return ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+    if !cc.this().is_object() {
+        ctx.JS_ThrowTypeErrorNotAnObject();
+        return Err(-1);
     }
 
-    let mut name = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_name);
+    let mut name = cc.this().get_property(ctx, JS_ATOM_name);
     name = if name.is_undefined() {
-        JS_ATOM_Error.to_value(ctx.as_mut().unwrap(), true)
+        JS_ATOM_Error.to_value(ctx, true)
     } else {
-        JS_ToStringFree(ctx, name)
+        name.coerce_to_string_value(ctx)?
     };
-    if name.is_exception() {
-        return JSValue::EXCEPTION;
-    }
 
-    let mut msg = this_val.get_property(ctx.as_mut().unwrap(), JS_ATOM_message);
-    if msg.is_undefined() {
-        msg = JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true);
+    let mut msg = cc.this().get_property(ctx, JS_ATOM_message);
+    msg = if msg.is_undefined() {
+        JS_ATOM_empty_string.to_value(ctx, true)
     } else {
-        let s = msg
-            .coerce_to_string_value(ctx.as_mut().unwrap())
-            .unwrap_or(JSValue::EXCEPTION);
-        JS_FreeValue(ctx, msg);
-        msg = s;
-    }
-    if msg.is_exception() {
-        JS_FreeValue(ctx, name);
-        return JSValue::EXCEPTION;
+        msg.coerce_to_string_value(ctx)?
+    };
+
+    if !JS_IsEmptyString(&name) && !JS_IsEmptyString(&msg) {
+        name = unsafe { JS_ConcatString3(ctx, c"", name, c": ").check_exception()? };
     }
 
-    if !JS_IsEmptyString(name) && !JS_IsEmptyString(msg) {
-        name = JS_ConcatString3(ctx, c"", name, c": ");
-    }
-
-    return JS_ConcatString(ctx, name, msg);
+    unsafe { JS_ConcatString(ctx, name, msg).check_exception() }
 }
 
 pub const js_error_proto_funcs: [JSCFunctionListEntry; 3] = [
-    JS_CFUNC_DEF!(c"toString", 0, js_error_toString),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_error_toString, 0),
     JS_PROP_STRING_DEF!(c"name", c"Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     JS_PROP_STRING_DEF!(c"message", c"", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];

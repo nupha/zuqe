@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 
 use crate::{
-    bytecode::{opcode_info_final, opcodes, OpCode, OP_COUNT_FINAL},
+    bytecode::{OP_COUNT_FINAL, OpCode, opcode_info_final, opcodes},
     context::JSContext,
     runtime::JS_STACK_SIZE_MAX,
     utils::read_from_ptr,
@@ -20,8 +20,8 @@ struct StackSizeState {
 }
 
 // 'op' is only used for error indication
-unsafe fn ss_check(
-    ctx: &mut JSContext,
+fn ss_check(
+    ctx: &JSContext,
     s: &mut StackSizeState,
     pos: usize,
     op: u8,
@@ -29,22 +29,14 @@ unsafe fn ss_check(
     catch_pos: i32,
 ) -> Result<(), i32> {
     if pos >= s.bc_len {
-        ctx.JS_ThrowInternalError(CStr::from_ptr(
-            format!("bytecode buffer overflow 1 (op={op}, pc={pos})\0")
-                .as_ptr()
-                .cast(),
-        ));
+        ctx.JS_ThrowInternalError(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})"));
         return Err(-1);
     }
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
         if s.stack_len_max > JS_STACK_SIZE_MAX as u16 {
-            ctx.JS_ThrowInternalError(CStr::from_ptr(
-                format!("stack overflow (op={op}, pc={pos})\0")
-                    .as_ptr()
-                    .cast(),
-            ));
+            ctx.JS_ThrowInternalError(&format!("stack overflow (op={op}, pc={pos})\0"));
             return Err(-1);
         }
     }
@@ -52,23 +44,15 @@ unsafe fn ss_check(
     if s.stack_level_tab[pos] != 0xffff {
         // already explored: check that the stack size is consistent
         return if s.stack_level_tab[pos] != stack_len {
-            ctx.JS_ThrowInternalError(CStr::from_ptr(
-                format!(
-                    "inconsistent stack size: {} {} (pc={pos})\0",
-                    s.stack_level_tab[pos], stack_len
-                )
-                .as_ptr()
-                .cast(),
+            ctx.JS_ThrowInternalError(&format!(
+                "inconsistent stack size: {} {} (pc={pos})",
+                s.stack_level_tab[pos], stack_len
             ));
             Err(-1)
         } else if s.catch_pos_tab[pos] != catch_pos {
-            ctx.JS_ThrowInternalError(CStr::from_ptr(
-                format!(
-                    "inconsistent catch position: {} {} (pc={pos})\n",
-                    s.catch_pos_tab[pos], catch_pos
-                )
-                .as_ptr()
-                .cast(),
+            ctx.JS_ThrowInternalError(&format!(
+                "inconsistent catch position: {} {} (pc={pos})",
+                s.catch_pos_tab[pos], catch_pos
             ));
             Err(-1)
         } else {
@@ -92,7 +76,7 @@ unsafe fn ss_check(
 }
 
 impl JSFunctionDef {
-    pub unsafe fn compute_stack_size(&mut self, ctx: &mut JSContext) -> Result<u16, i32> {
+    pub unsafe fn compute_stack_size(&mut self, ctx: &JSContext) -> Result<u16, i32> {
         let bc_len = self.byte_code.len();
         let bc_buf = self.byte_code.as_ptr();
 
@@ -121,11 +105,7 @@ impl JSFunctionDef {
             let op = *bc_buf.add(pos);
 
             if op == 0 || op >= OP_COUNT_FINAL {
-                ctx.JS_ThrowInternalError(CStr::from_ptr(
-                    format!("invalid opcode (op={op}, pc={pos})\0")
-                        .as_ptr()
-                        .cast(),
-                ));
+                ctx.JS_ThrowInternalError(&format!("invalid opcode (op={op}, pc={pos})"));
                 return Err(-1);
             }
 
@@ -142,10 +122,8 @@ impl JSFunctionDef {
 
             let mut pos_next = pos + (*oi).size as usize;
             if pos_next > (*s).bc_len {
-                ctx.JS_ThrowInternalError(CStr::from_ptr(
-                    format!("bytecode buffer overflow 2 (op={op}, pc={pos})\0")
-                        .as_ptr()
-                        .cast(),
+                ctx.JS_ThrowInternalError(&format!(
+                    "bytecode buffer overflow 2 (op={op}, pc={pos})"
                 ));
                 return Err(-1);
             }
@@ -163,10 +141,8 @@ impl JSFunctionDef {
             }
 
             if stack_len < n_pop {
-                ctx.JS_ThrowInternalError(CStr::from_ptr(
-                    format!("bytecode buffer overflow 3 (op={op}, pc={pos})\0")
-                        .as_ptr()
-                        .cast(),
+                ctx.JS_ThrowInternalError(&format!(
+                    "bytecode buffer overflow 3 (op={op}, pc={pos})"
                 ));
                 return Err(-1);
             }
@@ -175,11 +151,7 @@ impl JSFunctionDef {
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
                 if s.stack_len_max > JS_STACK_SIZE_MAX {
-                    ctx.JS_ThrowInternalError(CStr::from_ptr(
-                        format!("stack overflow (op={op}, pc={pos})\0")
-                            .as_ptr()
-                            .cast(),
-                    ));
+                    ctx.JS_ThrowInternalError(&format!("stack overflow (op={op}, pc={pos})"));
                     return Err(-1);
                 }
             }
@@ -323,11 +295,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_nip_catch => {
                     if catch_pos < 0 {
-                        ctx.JS_ThrowInternalError(CStr::from_ptr(
-                            format!("nip_catch: no catch op (pc={pos})\0")
-                                .as_ptr()
-                                .cast(),
-                        ));
+                        ctx.JS_ThrowInternalError(&format!("nip_catch: no catch op (pc={pos})"));
                         return Err(-1);
                     }
                     stack_len = s.stack_level_tab[catch_pos as usize];
@@ -349,6 +317,6 @@ impl JSFunctionDef {
 }
 
 #[deprecated(note = "use JSFunctionDef::compute_stack_size() instead")]
-pub unsafe fn compute_stack_size(ctx: *mut JSContext, fd: *mut JSFunctionDef) -> Result<u16, i32> {
-    (*fd).compute_stack_size(ctx.as_mut().unwrap())
+pub unsafe fn compute_stack_size(ctx: &JSContext, fd: *mut JSFunctionDef) -> Result<u16, i32> {
+    (*fd).compute_stack_size(ctx)
 }

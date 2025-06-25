@@ -1,25 +1,17 @@
-use std::{
-    ffi::{c_char, c_void, CStr},
-    marker::PhantomPinned,
-    ops::Deref,
-};
+use std::{ffi::CStr, ops::Deref, ptr::NonNull};
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_NewAtomString},
-    context::{JSContext, JSContextHandle, JS_FreeContext},
-    error::{JSResult, JS_ThrowStackOverflow},
+    JS_CLASS_C_FUNCTION,
+    atom::JS_FreeAtom,
+    context::{JSContext, JSContextWeakref},
+    defer,
+    error::{JS_ThrowStackOverflow, JSResult},
     function::JS_CALL_FLAG_CONSTRUCTOR,
     gc::GCMarkFunc,
     iterator::js_create_iterator_result,
-    runtime::{js_check_stack_overflow, JSRuntime},
+    runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
-    value::{
-        object::{JSAutoInitIDEnum, JSObject, JSObjectIsa, JS_NewObject, JS_PROP_CONFIGURABLE},
-        JSValue, JSValueConst, JSValueRc, JS_ToFloat64, JS_DEF_ALIAS, JS_DEF_CFUNC, JS_DEF_CGETSET,
-        JS_DEF_CGETSET_MAGIC, JS_DEF_OBJECT, JS_DEF_PROP_DOUBLE, JS_DEF_PROP_INT32,
-        JS_DEF_PROP_INT64, JS_DEF_PROP_STRING, JS_DEF_PROP_UNDEFINED, JS_TAG_OBJECT,
-    },
-    JS_CLASS_ARRAY, JS_CLASS_C_FUNCTION,
+    value::{JS_ToFloat64, JSValue, JSValueConst, object::JSObjectIsa},
 };
 
 use super::js_function_set_properties;
@@ -33,6 +25,7 @@ pub enum JSCFunctionEnum {
     ConstructorMagic,
     ConstructorOrFunc,
     ConstructorOrFuncMagic,
+
     FF,
     FFF,
     Getter,
@@ -46,36 +39,44 @@ pub enum JSCFunctionEnum {
     NativeConstructorOrFunc,
     NativeSetter,
     NativeGetter,
+    NativeIteratorNext,
 }
 
-// TODO: rename to CallContext
-pub struct CallArgs<'a> {
-    ctx: JSContextHandle,
+pub struct CallContext<'a> {
+    ctx: &'a JSContext,
 
-    pub this_value: JSValue,
-    pub args: &'a [JSValue],
-    pub magic: i32,
+    this_value: JSValue,
+    args: &'a [JSValue],
+    magic: i32,
 
     /// additional binding values
-    pub data: Option<&'a mut [JSValue]>,
+    data: Option<&'a mut [JSValue]>,
 }
 
-impl<'a> CallArgs<'a> {
+impl<'a> CallContext<'a> {
     /// `this_value` is not consumed, `args` values are not consumed, `data` values are not consumed.
-    pub(crate) fn new<X: Into<JSContextHandle>>(
-        ctx: X,
+    pub(crate) fn new(
+        ctx: &'a JSContext,
         this_value: JSValue,
         args: &'a [JSValue],
         magic: i32,
         data: Option<&'a mut [JSValue]>,
     ) -> Self {
         Self {
-            ctx: ctx.into(),
+            ctx,
             this_value,
             args,
             magic,
             data,
         }
+    }
+
+    pub fn ctx(&self) -> &JSContext {
+        self.ctx
+    }
+
+    pub fn magic(&self) -> i32 {
+        self.magic
     }
 
     /// get arguments count
@@ -84,47 +85,49 @@ impl<'a> CallArgs<'a> {
         self.args.len()
     }
 
-    /// get `this` raw value
+    /// get `this` value ref
+    pub fn this(&self) -> &JSValue {
+        &self.this_value
+    }
+
+    /// get `this` value, cloned
     pub fn this_raw(&self) -> JSValue {
-        self.this_value
+        self.this_value.clone()
     }
 
-    /// set this value.
-    /// Note: `this_val` is not consumed, caller should free it.
-    pub fn set_this_raw(&mut self, this_val: JSValue) {
-        self.this_value.replace(this_val);
+    /// set new `this` value, drop old `this`.
+    /// Note: `this_val` is consumed.
+    pub fn set_this(&mut self, this_val: JSValue) {
+        self.this_value = this_val;
     }
 
-    /// get nth argument raw value
+    /// get nth argument value ref
+    #[inline(always)]
+    pub fn arg(&self, nth: usize) -> &JSValue {
+        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
+    }
+
+    /// get nth argument value, cloned
     #[inline(always)]
     pub fn get_raw(&self, nth: usize) -> JSValue {
-        self.args.get(nth).copied().unwrap_or(JSValue::UNDEFINED)
+        self.args.get(nth).cloned().unwrap_or(JSValue::UNDEFINED)
     }
 
-    /// get argument raw values slice
+    /// get argument values slice
     #[inline(always)]
-    pub fn arguments_raw(&self) -> &[JSValue] {
+    pub fn arguments(&self) -> &[JSValue] {
         self.args
-    }
-
-    /// get nth argument, dup and wrap into value rc
-    #[inline(always)]
-    pub fn get(&self, nth: usize) -> JSValueRc {
-        if let Some(v) = self.args.get(nth) {
-            v.dup().into_rc(self.ctx.deref().rt())
-        } else {
-            JSValue::UNDEFINED.into_rc(self.ctx.deref().rt())
-        }
     }
 
     /// get nth extra data value.
     /// if you are referencing the value, must dup it by yourself.
+    /// returned value is cloned.
     #[inline(always)]
     pub fn data_raw(&self, nth: usize) -> JSValue {
         self.data
             .as_deref()
             .and_then(|d| d.get(nth))
-            .copied()
+            .cloned()
             .unwrap_or(JSValue::UNDEFINED)
     }
 
@@ -146,43 +149,48 @@ impl<'a> CallArgs<'a> {
     }
 }
 
-pub type JSNativeCallback = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
-pub type JSNativeGetter = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
-pub type JSNativeSetter = for<'a> fn(&'a mut JSContext, CallArgs<'a>) -> JSResult;
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IteratorState {
+    /// iterator is not done
+    HasMore,
+    /// iterator is done
+    Done,
+    /// iterator object is not parsed
+    Uninitialized,
+}
 
-pub type JSCFunction = unsafe fn(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: ::core::ffi::c_int,
-    argv: *mut JSValue,
-) -> JSValue;
+pub type JSNativeCallback = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
+pub type JSNativeGetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
+pub type JSNativeSetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
+pub type JSNativeIteratorNext =
+    fn(ctx: &JSContext, cc: CallContext, state: &mut IteratorState) -> JSResult;
+
+pub type JSCFunction = unsafe fn(ctx: &JSContext, this_val: JSValue, args: &[JSValue]) -> JSValue;
 pub type JSCFunctionMagic = unsafe fn(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     this_val: JSValue,
-    argc: ::core::ffi::c_int,
-    argv: *mut JSValue,
+    args: &[JSValue],
     magic: ::core::ffi::c_int,
 ) -> JSValue;
 
-pub type JSCFunctionGetter = unsafe fn(*mut JSContext, JSValueConst) -> JSValue;
+pub type JSCFunctionGetter = unsafe fn(&JSContext, JSValue) -> JSValue;
 pub type JSCFunctionGetterMagic =
-    unsafe fn(ctx: *mut JSContext, this_val: JSValue, magic: i32) -> JSValue;
+    unsafe fn(ctx: &JSContext, this_val: JSValue, magic: i32) -> JSValue;
 
-pub type JSCFunctionSetter = unsafe fn(*mut JSContext, JSValueConst, JSValueConst) -> JSValue;
-pub type JSCFunctionSetterMagic =
-    unsafe fn(*mut JSContext, JSValueConst, JSValueConst, i32) -> JSValue;
+pub type JSCFunctionSetter = unsafe fn(&JSContext, JSValue, JSValue) -> JSValue;
+pub type JSCFunctionSetterMagic = unsafe fn(&JSContext, JSValue, JSValue, i32) -> JSValue;
 
 pub type JSCFunctionData = unsafe fn(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
+    args: &[JSValue],
     magic: i32,
-    func_data: *mut JSValue,
+    func_data: &mut [JSValue],
 ) -> JSValue;
 
 pub type JSCFunctionIteratorNext =
-    unsafe fn(*mut JSContext, JSValueConst, i32, *const JSValueConst, *mut i32, i32) -> JSValue;
+    fn(ctx: &JSContext, this: JSValue, args: &[JSValue], done: &mut i32, magic: i32) -> JSValue;
 
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
@@ -192,6 +200,7 @@ pub union JSCFunctionType {
     pub native_callback: JSNativeCallback,
     pub native_getter: JSNativeGetter,
     pub native_setter: JSNativeSetter,
+    pub native_iterator_next: JSNativeIteratorNext,
 
     //
     pub generic: JSCFunction,
@@ -214,164 +223,110 @@ impl std::fmt::Debug for JSCFunctionType {
     }
 }
 
-#[repr(C)]
-pub struct JSCFunctionListEntry {
-    pub name: &'static CStr,
-    pub prop_flags: u8,
-    pub def_type: u8,
-    pub magic: i16,
-    pub u: JSCFunctionListEntryUnion,
-}
-
-#[repr(C)]
-pub union JSCFunctionListEntryUnion {
-    pub func: JSCFunctionListEntryFunc,
-    pub getset: JSCFunctionListEntryGetSet,
-    pub alias: JSCFunctionListEntryAlias,
-    pub prop_list: JSCFunctionListEntryPropList,
-    pub str: &'static CStr,
-    pub i32: i32,
-    pub i64: i64,
-    pub f64: f64,
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct JSCFunctionListEntryFunc {
-    pub length: u8,
-    pub cproto: JSCFunctionEnum,
-    pub cfunc: JSCFunctionType,
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct JSCFunctionListEntryGetSet {
-    pub get: Option<JSCFunctionType>,
-    pub set: Option<JSCFunctionType>,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct JSCFunctionListEntryAlias {
-    pub name: &'static CStr,
-    pub base: i32,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct JSCFunctionListEntryPropList {
-    pub tab: *const JSCFunctionListEntry,
-    pub len: i32,
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct JSObjectCFunc {
-    pub realm: *mut JSContext,
+    pub realm: JSContextWeakref,
     pub c_function: JSCFunctionType,
     pub length: u8,
     pub cproto: JSCFunctionEnum,
     pub magic: i16,
 }
 
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct NativeFunctionValue(JSValue);
-
-impl JSValue {
-    #[inline(always)]
-    pub unsafe fn as_native_function_unchecked(self) -> NativeFunctionValue {
-        debug_assert_eq!(self.tag(), JS_TAG_OBJECT);
-        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
-        std::mem::transmute(self)
-    }
-}
-
-impl NativeFunctionValue {
-    pub unsafe fn hook_call(
-        ctx: &mut JSContext,
-        func_obj: JSValueConst,
-        mut this_obj: JSValueConst,
-        argc: i32,
-        argv: *const JSValueConst,
+impl JSObjectCFunc {
+    pub fn hook_call(
+        ctx: &JSContext,
+        func_obj: &JSValue,
+        mut this_obj: &JSValue,
+        args: &[JSValue],
         flags: i32,
-    ) -> JSValue {
-        let rt = ctx.rt.as_mut();
+    ) -> JSResult {
+        let rt = ctx.rt_mut();
 
-        let p = func_obj.object_unchecked();
-        let cfunc = if let JSObjectIsa::C_FUNCTION(c) = p.isa() {
-            c
+        let (callback, cproto, arg_length, magic, realm) = if let JSObjectIsa::C_FUNCTION(c) =
+            unsafe { func_obj.object_unchecked() }
+                .0
+                .isa
+                .borrow()
+                .deref()
+        {
+            (c.c_function, c.cproto, c.length, c.magic, c.realm.upgrade())
         } else {
             unreachable!()
         };
 
-        let cproto = cfunc.cproto;
-        let arg_length = cfunc.length;
+        // let cfunc = if let JSObjectIsa::C_FUNCTION(c) =
+        //     unsafe { func_obj.object_unchecked() }.isa().deref()
+        // {
+        //     c
+        // } else {
+        //     unreachable!()
+        // };
+        // let cproto = cfunc.cproto;
+        // let arg_length = cfunc.length;
+        // let func = &cfunc.c_function;
+        // let realm = cfunc.realm.upgrade();
+
+        let realm = realm.as_ref().unwrap_or(ctx); // change the current realm
 
         // better to always check stack overflow
-        if js_check_stack_overflow(
-            rt,
-            std::mem::size_of::<JSValueConst>() * arg_length as usize,
-        ) {
-            return JS_ThrowStackOverflow(ctx);
+        if js_check_stack_overflow(rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
+            JS_ThrowStackOverflow(ctx);
+            return Err(-1);
         }
 
-        let mut sf_s: JSStackFrame = JSStackFrame {
+        // build new stack frame, alloc on stack.
+        let mut new_frame = JSStackFrame {
             prev_frame: rt.current_stack_frame,
-            cur_func: func_obj,
-            local_buf: Vec::new(),
-            arg_base_ptr: std::ptr::null_mut(),
-            arg_count: 0,
-            var_base_ptr: std::ptr::null_mut(),
-            var_count: 0,
-            cur_pc_offset: 0,
-            cur_sp_offset: 0,
-            var_ref_list: Vec::new(),
-            js_mode: 0,
-            _mark: PhantomPinned,
+            cur_func: func_obj.clone(),
+            ..Default::default()
         };
+        let sf = &mut new_frame;
 
-        let sf = &mut sf_s;
+        // switch current stack frame to new.
+        // switch back to original when exit
+        let orig_frame = rt.current_stack_frame;
         rt.current_stack_frame = (sf as *mut JSStackFrame).cast();
 
-        let realm = cfunc.realm.as_mut().unwrap(); // change the current realm
+        // NOTE: switch back to original frame when exit.
+        let mut rt_ptr = unsafe { NonNull::new_unchecked(rt) };
+        defer!(unsafe {
+            rt_ptr.as_mut().current_stack_frame = orig_frame;
+        });
 
-        if argc < arg_length as i32 {
+        if args.len() < arg_length as usize {
             // copy arguments to local buffer
-            if sf.local_buf.try_reserve_exact(arg_length as usize).is_err() {
-                ctx.JS_ThrowOutOfMemory();
-                return JSValue::EXCEPTION;
-            };
+            sf.local_buf
+                .try_reserve_exact(arg_length as usize)
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
 
-            // copy argv values
-            for i in 0..argc {
-                sf.local_buf.push(*argv.offset(i as isize)); // no value dup
-            }
+            // copy pass in args, cloned
+            sf.local_buf.extend(args.iter().map(|v| v.clone()));
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
-                arg_length as usize - argc as usize,
+                arg_length as usize - args.len(),
             ));
             debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
 
             sf.arg_count = arg_length as _;
             sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
         } else {
-            sf.arg_count = argc as _;
-            sf.arg_base_ptr = argv as *mut JSValue;
+            sf.arg_count = args.len() as _;
+            sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 
-        macro_rules! exit {
-            ($retval:expr) => {
-                rt.current_stack_frame = sf.prev_frame;
-                return $retval;
+        macro_rules! fail {
+            () => {
+                // this is done in defer!()
+                // rt.current_stack_frame = sf.prev_frame;
+                return Err(-1);
             };
         }
 
-        let arg_buf = sf.arg_base_ptr;
-        let func = &cfunc.c_function;
-        let mut ret_val: JSValue;
-
-        match cproto {
+        let ret_val: JSValue = match cproto {
             JSCFunctionEnum::NativeFunc
             | JSCFunctionEnum::NativeConstructor
             | JSCFunctionEnum::NativeConstructorOrFunc => {
@@ -381,47 +336,43 @@ impl NativeFunctionValue {
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         if cproto == JSCFunctionEnum::NativeConstructor {
-                            exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                            realm.JS_ThrowTypeError("must be called with new");
+                            fail!();
                         } else {
-                            this_obj = JSValue::UNDEFINED;
+                            this_obj = &JSValue::UNDEFINED;
                         }
                     }
                 }
 
-                let cc = CallArgs::new(
-                    cfunc.realm,
-                    this_obj,
-                    sf.args_slice(),
-                    cfunc.magic as _,
-                    None,
-                );
-                ret_val = (func.native_callback)(realm, cc).unwrap_or(JSValue::EXCEPTION);
+                let cc =
+                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                unsafe { (callback.native_callback)(realm, cc).unwrap_or(JSValue::EXCEPTION) }
             }
             JSCFunctionEnum::NativeGetter => {
                 debug_assert_eq!(sf.arg_count, 0);
-                let cc = CallArgs::new(
-                    realm.handle(),
-                    this_obj,
-                    sf.args_slice(),
-                    cfunc.magic as _,
-                    None,
-                );
-                ret_val = (func.native_getter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
+                let cc =
+                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                unsafe { (callback.native_getter)(realm, cc).unwrap_or(JSValue::EXCEPTION) }
             }
             JSCFunctionEnum::NativeSetter => {
                 debug_assert_eq!(sf.arg_count, 1);
-                let cc = CallArgs::new(
-                    realm.handle(),
-                    this_obj,
-                    sf.args_slice(),
-                    cfunc.magic as _,
-                    None,
-                );
-                ret_val = (func.native_setter)(realm, cc).unwrap_or(JSValue::EXCEPTION);
+                let cc =
+                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                unsafe { (callback.native_setter)(realm, cc).unwrap_or(JSValue::EXCEPTION) }
+            }
+            JSCFunctionEnum::NativeIteratorNext => {
+                let cc =
+                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                let mut state = IteratorState::HasMore;
+                let mut r = unsafe { (callback.native_iterator_next)(realm, cc, &mut state) };
+                if !r.is_err() && state != IteratorState::Uninitialized {
+                    r = js_create_iterator_result(realm, r.unwrap(), state == IteratorState::Done);
+                }
+                r.unwrap_or(JSValue::EXCEPTION)
             }
 
             //
-            //
+            // LEGACIES
             //
             JSCFunctionEnum::Constructor
             | JSCFunctionEnum::ConstructorOrFunc
@@ -432,13 +383,14 @@ impl NativeFunctionValue {
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         if cproto == JSCFunctionEnum::Constructor {
-                            exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                            realm.JS_ThrowTypeError("must be called with new");
+                            fail!();
                         } else {
-                            this_obj = JSValue::UNDEFINED;
+                            this_obj = &JSValue::UNDEFINED;
                         }
                     }
                 }
-                ret_val = (func.generic)(realm, this_obj, sf.arg_count as _, arg_buf);
+                unsafe { (callback.generic)(realm, this_obj.clone(), sf.args_slice()) }
             }
             JSCFunctionEnum::ConstructorMagic
             | JSCFunctionEnum::ConstructorOrFuncMagic
@@ -449,100 +401,130 @@ impl NativeFunctionValue {
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         if cproto == JSCFunctionEnum::ConstructorMagic {
-                            exit!(realm.JS_ThrowTypeError(c"must be called with new"));
+                            realm.JS_ThrowTypeError("must be called with new");
+                            fail!();
                         } else {
-                            this_obj = JSValue::UNDEFINED;
+                            this_obj = &JSValue::UNDEFINED;
                         }
                     }
                 }
-                ret_val = (func.generic_magic)(
+                unsafe {
+                    (callback.generic_magic)(realm, this_obj.clone(), sf.args_slice(), magic as i32)
+                }
+            }
+            JSCFunctionEnum::Getter => unsafe { (callback.getter)(realm, this_obj.clone()) },
+            JSCFunctionEnum::Setter => unsafe {
+                (callback.setter)(realm, this_obj.clone(), sf.args_slice()[0].clone())
+            },
+            JSCFunctionEnum::GetterMagic => unsafe {
+                (callback.getter_magic)(realm, this_obj.clone(), magic as _)
+            },
+            JSCFunctionEnum::SetterMagic => unsafe {
+                (callback.setter_magic)(
                     realm,
-                    this_obj,
-                    sf.arg_count as _,
-                    arg_buf,
-                    cfunc.magic as i32,
-                );
-            }
-            JSCFunctionEnum::Getter => {
-                ret_val = (func.getter)(realm, this_obj);
-            }
-            JSCFunctionEnum::Setter => {
-                ret_val = (func.setter)(realm, this_obj, *arg_buf);
-            }
-            JSCFunctionEnum::GetterMagic => {
-                ret_val = (func.getter_magic)(realm, this_obj, cfunc.magic as _);
-            }
-            JSCFunctionEnum::SetterMagic => {
-                ret_val = (func.setter_magic)(realm, this_obj, *arg_buf, cfunc.magic as _);
-            }
-            JSCFunctionEnum::FF => {
+                    this_obj.clone(),
+                    sf.args_slice().first().cloned().unwrap(),
+                    magic as _,
+                )
+            },
+            JSCFunctionEnum::FF => unsafe {
                 let mut d1: f64 = 0.0;
-                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf) != 0 {
+                if JS_ToFloat64(realm, &mut d1, &sf.args_slice()[0]) != 0 {
                     JSValue::EXCEPTION
                 } else {
-                    JSValue::from_f64((func.f_f)(d1))
-                };
-            }
-            JSCFunctionEnum::FFF => {
+                    JSValue::from((callback.f_f)(d1))
+                }
+            },
+            JSCFunctionEnum::FFF => unsafe {
                 let mut d1: f64 = 0.0;
                 let mut d2: f64 = 0.0;
-                ret_val = if JS_ToFloat64(realm, &mut d1, *arg_buf) != 0
-                    || JS_ToFloat64(realm, &mut d2, *arg_buf.offset(1)) != 0
+                let args = sf.args_slice();
+                if JS_ToFloat64(realm, &mut d1, &args[0]) != 0
+                    || JS_ToFloat64(realm, &mut d2, &args[1]) != 0
                 {
                     JSValue::EXCEPTION
                 } else {
-                    JSValue::from_f64((func.f_f_f)(d1, d2))
-                };
-            }
-            JSCFunctionEnum::IteratorNext => {
-                let mut done = 0;
-                ret_val = (func.iterator_next)(
-                    realm,
-                    this_obj,
-                    sf.arg_count as _,
-                    arg_buf,
-                    &mut done,
-                    cfunc.magic as _,
-                );
-                if !ret_val.is_exception() && done != 2 {
-                    ret_val = js_create_iterator_result(realm, ret_val, done != 0);
+                    JSValue::from((callback.f_f_f)(d1, d2))
                 }
-            }
-        }
+            },
+            JSCFunctionEnum::IteratorNext => unsafe {
+                let mut done = 0;
+                let mut r = (callback.iterator_next)(
+                    realm,
+                    this_obj.clone(),
+                    sf.args_slice(),
+                    &mut done,
+                    magic as _,
+                );
+                if !r.is_exception() && done != 2 {
+                    r = js_create_iterator_result(realm, r, done != 0)
+                        .unwrap_or(JSValue::EXCEPTION);
+                }
+                r
+            },
+        };
 
-        rt.current_stack_frame = sf.prev_frame;
-        ret_val
+        // THIS IS DONE in defer!()
+        //rt.current_stack_frame = sf.prev_frame;
+
+        Ok(ret_val)
     }
 
-    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().isa_mut() {
-            if !cfunc.realm.is_null() {
-                JS_FreeContext(cfunc.realm);
-            }
-        }
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+        debug_assert!(matches!(isa, JSObjectIsa::C_FUNCTION(_)));
     }
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
-        if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().isa() {
-            if !cfunc.realm.is_null() {
-                mark_func(rt, cfunc.realm);
-            }
+        if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().0.isa.borrow().deref() {
+            println!("[O.o] TODO cfunction mark");
+            // mark_func(rt, &cfunc.realm);
         }
     }
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct NativeFunctionValue(JSValue);
+
+impl JSValue {
+    #[inline(always)]
+    pub unsafe fn as_native_function_unchecked(self) -> NativeFunctionValue {
+        debug_assert!(self.is_object());
+        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
+        std::mem::transmute(self)
+    }
+
+    /// Checks if a JSValue is native function of specific type.
+    /// Matches both the callback pointer and magic.
+    pub fn match_native_callback(&self, callback: fn(), magic: i32) -> bool {
+        self.object().is_some_and(|o| {
+            if let JSObjectIsa::C_FUNCTION(cfunc) = o.0.isa.borrow().deref() {
+                unsafe {
+                    // let ptr1 = std::mem::transmute::<_, *const c_void>(cfunc.c_function.generic);
+                    // let ptr2 = std::mem::transmute::<_, *const c_void>(callback);
+                    // ptr1 == ptr2 && cfunc.magic == magic as i16
+
+                    std::ptr::fn_addr_eq(cfunc.c_function.generic, callback)
+                        && cfunc.magic == magic as i16
+                }
+            } else {
+                false
+            }
+        })
+    }
+}
+
 impl JSContext {
-    /// Create new function object with native callback and speficied proto object.
+    /// Create new function object with native callback and shape of speficied prototype.
     /// at least `length` arguments will be readable in arguments.
-    /// `proto_val` is not consumed.
-    pub fn create_native_function_with_proto(
-        &mut self,
+    pub fn create_native_function_from_proto(
+        &self,
         callback: JSNativeCallback,
         name: &str,
         length: u8,
         cproto: JSCFunctionEnum,
         magic: i16,
-        proto_val: JSValue,
+        proto_val: &JSValue,
     ) -> JSResult {
         debug_assert!(matches!(
             cproto,
@@ -551,13 +533,11 @@ impl JSContext {
                 | JSCFunctionEnum::NativeConstructorOrFunc
         ));
 
-        let mut realm = self.handle();
-
         let func_obj = self
             .create_instance_from_proto(
                 proto_val,
                 JSObjectIsa::C_FUNCTION(JSObjectCFunc {
-                    realm: realm.dup().into(),
+                    realm: self.downgrade(),
                     c_function: JSCFunctionType {
                         native_callback: callback,
                     },
@@ -566,27 +546,23 @@ impl JSContext {
                     magic,
                 }),
             )
-            .map_err(|isa| unsafe {
-                if let JSObjectIsa::C_FUNCTION(cfunc) = isa {
-                    JS_FreeContext(cfunc.realm);
-                }
-                -1
-            })?;
+            .map_err(|_| -1)?;
 
         let ob = unsafe { func_obj.object_unchecked() };
 
-        ob.detailed.set_constructor(matches!(
-            cproto,
-            JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
-        ));
+        unsafe {
+            (*ob.0.detailed.as_ptr()).set_constructor(matches!(
+                cproto,
+                JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+            ));
+        }
 
         // define properties length and name on function.
         let name_atom = self.create_atom(name).unwrap();
-
         unsafe {
-            js_function_set_properties(self, func_obj, name_atom, length as i32);
-            JS_FreeAtom(self, name_atom);
+            js_function_set_properties(self, &func_obj, name_atom, length as i32);
         }
+        JS_FreeAtom(self, name_atom);
 
         Ok(func_obj)
     }
@@ -595,20 +571,20 @@ impl JSContext {
     /// at least `length` arguments will be readable in arguments.
     #[inline(always)]
     pub fn create_native_function(
-        &mut self,
+        &self,
         callback: JSNativeCallback,
         name: &str,
         length: u8,
         cproto: JSCFunctionEnum,
         magic: i16,
     ) -> JSResult {
-        self.create_native_function_with_proto(
+        self.create_native_function_from_proto(
             callback,
             name,
             length,
             cproto,
             magic,
-            self.function_proto,
+            &self.0.borrow().function_proto,
         )
     }
 }
@@ -616,7 +592,7 @@ impl JSContext {
 // Note: at least 'length' arguments will be readable in 'argv'
 #[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
 pub unsafe fn JS_NewCFunction3(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     func: JSCFunction,
     name: &CStr,
     length: u8,
@@ -624,12 +600,10 @@ pub unsafe fn JS_NewCFunction3(
     magic: i16,
     proto_val: JSValueConst,
 ) -> JSValue {
-    let mut realm = JSContextHandle::from(ctx);
-
-    match (*ctx).create_instance_from_proto(
-        proto_val,
+    match ctx.create_instance_from_proto(
+        &proto_val,
         JSObjectIsa::C_FUNCTION(JSObjectCFunc {
-            realm: realm.dup().into(),
+            realm: ctx.downgrade(),
             c_function: JSCFunctionType { generic: func },
             length,
             cproto,
@@ -637,263 +611,67 @@ pub unsafe fn JS_NewCFunction3(
         }),
     ) {
         Ok(func_obj) => {
-            let p = func_obj.object_unchecked();
-            p.detailed.set_constructor(matches!(
-                cproto,
-                JSCFunctionEnum::Constructor
-                    | JSCFunctionEnum::ConstructorMagic
-                    | JSCFunctionEnum::ConstructorOrFunc
-                    | JSCFunctionEnum::ConstructorOrFuncMagic
-            ));
+            unsafe {
+                (*func_obj.object_unchecked().0.detailed.as_ptr()).set_constructor(matches!(
+                    cproto,
+                    JSCFunctionEnum::Constructor
+                        | JSCFunctionEnum::ConstructorMagic
+                        | JSCFunctionEnum::ConstructorOrFunc
+                        | JSCFunctionEnum::ConstructorOrFuncMagic
+                ));
+            }
 
             // define propperties on func_obj: length and name.
-            let name_atom = (*ctx).create_atom(name.to_string_lossy().as_ref()).unwrap();
+            let name_atom = ctx.create_atom(name.to_string_lossy().as_ref()).unwrap();
 
-            js_function_set_properties(ctx, func_obj, name_atom, length as i32);
+            js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
             JS_FreeAtom(ctx, name_atom);
 
             func_obj
         }
-        Err(isa) => unsafe {
-            if let JSObjectIsa::C_FUNCTION(cfunc) = isa {
-                JS_FreeContext(cfunc.realm);
-            }
-            JSValue::EXCEPTION
-        },
+        Err(_) => JSValue::EXCEPTION,
     }
 }
 
 /* Note: at least 'length' arguments will be readable in 'argv' */
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
 #[inline(always)]
-pub unsafe fn JS_NewCFunction2(
-    ctx: *mut JSContext,
+pub fn JS_NewCFunction2(
+    ctx: &JSContext,
     func: JSCFunction,
     name: &CStr,
     length: u8,
     cproto: JSCFunctionEnum,
     magic: i16,
 ) -> JSValue {
-    JS_NewCFunction3(
-        ctx,
-        func,
-        name,
-        length,
-        cproto,
-        magic,
-        (*ctx).function_proto,
-    )
+    unsafe {
+        JS_NewCFunction3(
+            ctx,
+            func,
+            name,
+            length,
+            cproto,
+            magic,
+            ctx.0.borrow().function_proto.clone(),
+        )
+    }
 }
 
 #[inline(always)]
-pub unsafe fn JS_NewCFunction(
-    ctx: *mut JSContext,
-    func: JSCFunction,
-    name: &CStr,
-    length: u8,
-) -> JSValue {
-    JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0)
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
+pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &CStr, length: u8) -> JSValue {
+    unsafe { JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0) }
 }
 
 #[inline(always)]
-pub unsafe fn JS_NewCFunctionMagic(
-    ctx: *mut JSContext,
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
+pub fn JS_NewCFunctionMagic(
+    ctx: &JSContext,
     func: JSCFunctionMagic,
     name: &CStr,
     length: u8,
     cproto: JSCFunctionEnum,
     magic: i16,
 ) -> JSValue {
-    JS_NewCFunction2(ctx, std::mem::transmute(func), name, length, cproto, magic)
-}
-
-pub unsafe fn JS_SetPropertyFunctionList(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    tab: *const JSCFunctionListEntry,
-    len: usize,
-) {
-    for i in 0..len {
-        let e = tab.add(i);
-        let atom = (*ctx)
-            .create_atom((*e).name.to_string_lossy().as_ref())
-            .expect("TODO");
-
-        JS_InstantiateFunctionListItem(ctx, obj, atom, e);
-        JS_FreeAtom(ctx, atom);
-    }
-}
-
-pub unsafe fn JS_InstantiateFunctionListItem(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    atom: JSAtom,
-    e: *const JSCFunctionListEntry,
-) -> i32 {
-    let val: JSValue;
-    let mut prop_flags = (*e).prop_flags;
-
-    match (*e).def_type {
-        JS_DEF_ALIAS => {
-            // using autoinit for aliases is not safe
-            let atom1 = (*ctx)
-                .create_atom((*e).u.alias.name.to_string_lossy().as_ref())
-                .expect("TODO");
-
-            val = match (*e).u.alias.base {
-                -1 => obj.get_property(ctx.as_mut().unwrap(), atom1),
-                0 => (*ctx).global_obj.get_property(ctx.as_mut().unwrap(), atom1),
-                1 => (*ctx).class_proto[JS_CLASS_ARRAY as usize]
-                    .get_property(ctx.as_mut().unwrap(), atom1),
-                _ => {
-                    unreachable!();
-                }
-            };
-            JS_FreeAtom(ctx, atom1);
-
-            if atom == JS_ATOM_Symbol_toPrimitive {
-                // Symbol.toPrimitive functions are not writable
-                prop_flags = JS_PROP_CONFIGURABLE as u8;
-            } else if atom == JS_ATOM_Symbol_hasInstance {
-                // Function.prototype[Symbol.hasInstance] is not writable nor configurable
-                prop_flags = 0;
-            }
-        }
-        JS_DEF_CFUNC => {
-            if atom == JS_ATOM_Symbol_toPrimitive {
-                // Symbol.toPrimitive functions are not writable
-                prop_flags = JS_PROP_CONFIGURABLE as u8;
-            } else if atom == JS_ATOM_Symbol_hasInstance {
-                // Function.prototype[Symbol.hasInstance] is not writable nor configurable
-                prop_flags = 0;
-            }
-            obj.define_auto_init_property(
-                ctx.as_mut().unwrap(),
-                atom,
-                JSAutoInitIDEnum::JS_AUTOINIT_ID_PROP,
-                e as *mut c_void,
-                prop_flags as _,
-            )
-            .unwrap();
-            return 0;
-        }
-        JS_DEF_CGETSET | JS_DEF_CGETSET_MAGIC => {
-            // XXX: use autoinit again ?
-            let mut buf: [c_char; 64] = [0; 64];
-
-            let getter = if let Some(f) = (*e).u.getset.get {
-                libc::snprintf(
-                    buf.as_mut_ptr(),
-                    std::mem::size_of::<[c_char; 64]>(),
-                    c"get %s".as_ptr(),
-                    (*e).name,
-                );
-                JS_NewCFunction2(
-                    ctx,
-                    f.generic,
-                    CStr::from_ptr(buf.as_ptr()),
-                    0,
-                    if (*e).def_type == JS_DEF_CGETSET_MAGIC {
-                        JSCFunctionEnum::GetterMagic
-                    } else {
-                        JSCFunctionEnum::Getter
-                    },
-                    (*e).magic,
-                )
-            } else {
-                JSValue::UNDEFINED
-            };
-
-            let setter = if let Some(t) = (*e).u.getset.set {
-                libc::snprintf(
-                    buf.as_mut_ptr(),
-                    std::mem::size_of::<[c_char; 64]>(),
-                    c"set %s".as_ptr(),
-                    (*e).name,
-                );
-                JS_NewCFunction2(
-                    ctx,
-                    t.generic,
-                    CStr::from_ptr(buf.as_ptr()),
-                    1,
-                    if (*e).def_type == JS_DEF_CGETSET_MAGIC {
-                        JSCFunctionEnum::SetterMagic
-                    } else {
-                        JSCFunctionEnum::Setter
-                    },
-                    (*e).magic,
-                )
-            } else {
-                JSValue::UNDEFINED
-            };
-
-            obj.define_property_getset(
-                ctx.as_mut().unwrap(),
-                atom,
-                getter,
-                setter,
-                prop_flags as _,
-            )
-            .unwrap();
-
-            return 0;
-        }
-        JS_DEF_PROP_INT32 => {
-            val = JSValue::from_i32((*e).u.i32);
-        }
-        JS_DEF_PROP_INT64 => {
-            val = JSValue::from_i64((*e).u.i64);
-        }
-        JS_DEF_PROP_DOUBLE => {
-            val = JSValue::from_f64_as_is((*e).u.f64);
-        }
-        JS_DEF_PROP_UNDEFINED => {
-            val = JSValue::UNDEFINED;
-        }
-        JS_DEF_PROP_STRING | JS_DEF_OBJECT => {
-            obj.define_auto_init_property(
-                ctx.as_mut().unwrap(),
-                atom,
-                JSAutoInitIDEnum::JS_AUTOINIT_ID_PROP,
-                e as *mut c_void,
-                prop_flags as _,
-            )
-            .unwrap();
-            return 0;
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-
-    let _ = obj.define_property_value(ctx.as_mut().unwrap(), atom, val, prop_flags as _);
-
-    0
-}
-
-pub unsafe fn JS_InstantiateFunctionListItem2(
-    ctx: *mut JSContext,
-    p: *mut JSObject,
-    atom: JSAtom,
-    opaque: *mut c_void,
-) -> JSValue {
-    let e = opaque.cast::<JSCFunctionListEntry>();
-    match (*e).def_type {
-        JS_DEF_CFUNC => JS_NewCFunction2(
-            ctx,
-            (*e).u.func.cfunc.generic,
-            (*e).name,
-            (*e).u.func.length,
-            (*e).u.func.cproto,
-            (*e).magic,
-        ),
-        JS_DEF_PROP_STRING => JS_NewAtomString(ctx, (*e).u.str),
-        JS_DEF_OBJECT => {
-            let val = JS_NewObject(ctx);
-            JS_SetPropertyFunctionList(ctx, val, (*e).u.prop_list.tab, (*e).u.prop_list.len as _);
-            val
-        }
-        t => {
-            unreachable!("invalid def_type {t}");
-        }
-    }
+    unsafe { JS_NewCFunction2(ctx, std::mem::transmute(func), name, length, cproto, magic) }
 }

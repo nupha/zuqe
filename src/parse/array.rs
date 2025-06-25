@@ -1,5 +1,5 @@
 use crate::{
-    atom::{consts::JS_ATOM_length, JSAtom},
+    atom::{JSAtom, consts::JS_ATOM_length},
     bytecode::OpCode,
 };
 
@@ -57,7 +57,7 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
                 return -1;
             }
             emit_op(s, OpCode::DEFINE_FIELD);
-            emit_u32(s, JSAtom::from_u32(idx).0);
+            emit_u32(s, JSAtom::new_u32(idx).0);
             need_length = false;
         }
         idx += 1;

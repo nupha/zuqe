@@ -1,45 +1,37 @@
 use std::{
+    cell::{RefCell, RefMut},
+    ffi::c_void,
     ops::{Deref, DerefMut},
     ptr::NonNull,
+    rc::{Rc, Weak},
 };
 
 use indexmap::IndexMap;
 
 use crate::{
-    atom::{consts::JS_ATOM_length, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
-    context::JSContext,
-    gc::{
-        js_trigger_gc, GCMarkFunc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType,
-        RefCounted,
-    },
-    mem::js_malloc_typed,
+    atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
+    context::{JSContext, JSContextInner},
+    gc::{GCMarkFunc, GCObjectHeader},
     runtime::JSRuntime,
-    utils::{init_list_head, Node},
     value::{
-        object::{JSObjectFlags, JSObjectIsa},
-        JSTag, JSValue, JS_FreeValueRT,
+        JSValue,
+        object::{GCObject, GCObjectWeakref, JSObjectIsa},
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
-    JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
-    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
-    JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
 use super::{
-    obj::{JSObject, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE},
-    property::{JSProperty, JSPropertyUnion, JS_PROP_LENGTH, JS_PROP_WRITABLE},
-    JSShapeHandle,
+    JSObjectInner,
+    obj::{JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE, JSObject},
+    property::JS_PROP_LENGTH,
 };
 
 /// Property defination in shape
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JSShapeProperty {
     // flags:   6 bits: JS_PROP_XXX
     // hash_next:  26 bits: 0 if last in list
     bitfield: u32,
 
-    #[deprecated(note = "use Hash key instead")]
     pub atom: JSAtom,
 }
 
@@ -53,177 +45,144 @@ impl JSShapeProperty {
     }
 
     #[inline]
-    pub const fn set_flags(&mut self, f: u32) {
+    pub fn set_flags(&mut self, f: u32) {
         self.bitfield = (self.bitfield & !Self::FLAGS_MASK) | ((f & 0x3f) << 26);
     }
 }
 
-#[repr(C)]
-pub struct JSShape {
+#[derive(Debug)]
+pub(crate) struct JSShapeInner {
     /// hash table of size hash_mask + 1 before the start of the structure (see prop_hash_end()).
     pub header: GCObjectHeader,
-
-    /// true if the shape is inserted in the shape hash table. If not, JSShape.hash is not valid
-    pub is_hashed: bool,
 
     /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
     /// If false, the shape is guaranteed not to have small array index properties
     pub has_small_array_index: bool,
 
-    /// current hash value
+    /// current hash value.
+    /// TODO: use Option<u32>, remove is_hashed
     pub hash: u32,
+    pub is_hashed: bool,
 
-    /// in JSRuntime.shape_hash[h] list
-    #[deprecated]
-    pub shape_hash_next: *mut JSShape,
-
-    pub proto: *mut JSObject,
+    pub proto: Option<JSObject>,
 
     /// shape property definations
-    pub props: IndexMap<JSAtom, JSShapeProperty>,
+    pub props: IndexMap<u32, JSShapeProperty>,
 }
 
-impl RefCounted for JSShape {
-    fn ref_count(&self) -> i32 {
-        self.header.ref_count
-    }
-
-    fn inc_ref(&mut self) -> i32 {
-        self.header.ref_count += 1;
-        self.header.ref_count
-    }
-
-    fn dec_ref(&mut self) -> i32 {
-        self.header.ref_count -= 1;
-        self.header.ref_count
+impl Drop for JSShapeInner {
+    fn drop(&mut self) {
+        self.finalize();
     }
 }
 
-impl GCObject for JSShape {
-    fn gc_type(&self) -> GCObjectType {
-        GCObjectType::Shape(NonNull::from(self))
+impl JSShapeInner {
+    /// create a new empty shape with prototype 'proto' and given capacity.
+    /// Note: `proto` is not consumed.
+    fn new(
+        ctx: &JSContext,
+        proto: Option<JSObject>,
+        props: IndexMap<u32, JSShapeProperty>,
+    ) -> Result<Self, i32> {
+        Ok(Self {
+            header: GCObjectHeader::new(ctx.rt_mut(), 1),
+            has_small_array_index: false,
+            hash: shape_initial_hash(proto.as_ref().map_or(0, |p| p.id())),
+            is_hashed: true,
+            proto,
+            props,
+        })
     }
 
-    fn gc_mark(&self) -> u8 {
-        self.header.gc_mark()
+    #[inline(always)]
+    pub fn id(&self) -> usize {
+        self as *const Self as usize
     }
 
-    fn set_gc_mark(&mut self, mark: u8) {
-        self.header.set_gc_mark(mark);
+    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+        self.header.rt_ptr()
     }
 
-    fn finalize(&mut self, rt: &mut JSRuntime) {
-        if self.is_hashed {
-            rt.unregister_shape(self.into());
-            self.is_hashed = false;
-        }
-
-        if !self.proto.is_null() {
-            unsafe {
-                debug_assert!(self.proto.is_aligned());
-                JS_FreeValueRT(rt, JS_MKPTR!(JSTag::Object, self.proto.cast()));
-            }
-            self.proto = std::ptr::null_mut();
-        }
+    fn finalize(&mut self) {
+        let rt = unsafe { self.rt_ptr().as_mut() };
 
         // free prop key atoms
         for (_, prs) in self.props.drain(..) {
             JS_FreeAtomRT(rt, prs.atom);
         }
-    }
 
-    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-        if !self.proto.is_null() {
-            unsafe {
-                mark_func(rt, self.proto);
-            }
+        if self.is_hashed {
+            rt.unregister_shape(self.id(), self.hash);
         }
     }
 
     fn gc_dump(&self, rt: &JSRuntime) {
-        println!(
-            "{:14p} {:4} [shape {:12x}]",
-            self,
-            self.ref_count(),
-            self.hash
-        );
+        println!("{:14p} [shape {:12x}]", self, self.hash);
     }
 
-    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
-        debug_assert!(!self.header.list_node.is_null());
-        unsafe { NonNull::new_unchecked(self.header.list_node) }
+    fn gc_mark(&self) -> bool {
+        self.header.gc_mark()
+    }
+
+    fn set_gc_mark(&mut self, mark: bool) {
+        self.header.set_gc_mark(mark);
+    }
+
+    // fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+    //     if let Some(p) = self.proto {
+    //         unsafe {
+    //             mark_func(rt, p);
+    //         }
+    //     }
+    // }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct JSShape(pub(crate) Rc<RefCell<JSShapeInner>>);
+
+impl PartialEq for JSShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
     }
 }
 
-#[cfg(debug_assertions)]
-impl Drop for JSShape {
-    fn drop(&mut self) {
-        debug_assert_eq!(self.ref_count(), 0);
-        debug_assert!(!self.is_hashed);
-        debug_assert!(self.proto.is_null());
-        debug_assert!(self.props.is_empty());
+impl From<JSShape> for GCObject {
+    fn from(value: JSShape) -> Self {
+        Self::Shape(value)
     }
 }
 
 impl JSShape {
-    /// create a new empty shape with prototype 'proto' and given capacity.
+    /// create a new empty shape with prototype 'proto' and given property slots capacity.
+    /// new shape is not registered,
+    /// new shape is added to gc list.
     /// Note: `proto` is not consumed.
-    #[inline(never)]
     pub fn with_capacity(
-        ctx: &mut JSContext,
-        proto: Option<&mut JSObject>,
+        ctx: &JSContext,
+        proto: Option<&JSObject>,
         hash_size: usize,
         prop_size: i32,
-    ) -> Result<JSShapeHandle, i32> {
-        let rt = ctx.rt_mut();
-
-        // resize the shape hash table if necessary
-        if rt.shape_registry.len() == rt.shape_registry.capacity() {
-            if rt.shape_registry.try_reserve(hash_size).is_err() {
-                ctx.JS_ThrowOutOfMemory();
-                return Err(-1);
-            }
-        }
-
-        // alloc for prop defination
-        let mut props = IndexMap::<JSAtom, JSShapeProperty>::new();
-        if props.try_reserve_exact(prop_size as _).is_err() {
+    ) -> Result<Self, i32> {
+        let mut prop_slots = IndexMap::<u32, JSShapeProperty>::new();
+        prop_slots.try_reserve_exact(prop_size as _).map_err(|_| {
             ctx.JS_ThrowOutOfMemory();
-            return Err(-1);
-        }
+            -1
+        })?;
 
-        let proto_ptr = proto.map_or(std::ptr::null_mut(), |p| p as *mut JSObject);
-
-        if !proto_ptr.is_null() {
-            JS_MKPTR!(JSTag::Object, proto_ptr.cast()).dup();
-        }
-
-        let mut shape = Box::new(Self {
-            header: GCObjectHeader::new(1),
-            has_small_array_index: false,
-            hash: shape_initial_hash(proto_ptr),
-            is_hashed: true,
-            shape_hash_next: std::ptr::null_mut(),
-            proto: proto_ptr,
-            props,
-        });
-
-        debug_assert_eq!(
-            shape.as_ref() as *const JSShape as usize,
-            std::ptr::addr_of!(shape.header) as usize
-        );
-
-        let sh_ptr = JSShapeHandle::from(NonNull::from(shape.as_mut()).as_ptr());
-        rt.gc_add_object(shape);
-        rt.register_shape(sh_ptr);
-
-        Ok(sh_ptr)
+        let shape = Self(Rc::new(RefCell::new(JSShapeInner::new(
+            ctx,
+            proto.cloned(),
+            prop_slots,
+        )?)));
+        ctx.rt_mut().gc_add_object(shape.downgrade().into());
+        Ok(shape)
     }
 
     /// create a new empty shape with prototype 'proto'.
     /// Note: `proto` is not consumed.
     #[inline(always)]
-    pub fn new(ctx: &mut JSContext, proto: Option<&mut JSObject>) -> Result<JSShapeHandle, i32> {
+    pub fn new(ctx: &JSContext, proto: Option<&JSObject>) -> Result<Self, i32> {
         Self::with_capacity(
             ctx,
             proto,
@@ -232,128 +191,138 @@ impl JSShape {
         )
     }
 
-    /// Append property defination to shape.
-    /// `obj` is an JSObject that uses the shape,
-    /// if provided, should ensure this object has enough property value slots capacity.
-    ///
-    /// Note: `atom`, `obj` are not consumed.
-    /// TODO: rename to add_property_defination
-    pub fn add_shape_property(
-        &mut self,
-        ctx: &mut JSContext,
-        mut obj: Option<&mut JSObject>,
-        atom: JSAtom,
-        prop_flags: u32,
-    ) -> Result<(), i32> {
-        debug_assert_eq!(self.ref_count(), 1);
+    /// Clone to a new shape from this shape by coping property definations.
+    /// The new shape is not registered. The new shape is added to gc object list.
+    pub fn clone_to_new(&self, ctx: &JSContext) -> Result<Self, i32> {
+        // clone properties
+        let mut props = IndexMap::<u32, JSShapeProperty>::new();
+        {
+            let props0 = &self.0.borrow().props;
 
-        let new_shape_hash = if self.is_hashed {
+            props.try_reserve(props0.len()).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+
+            for (id, pr) in props0.iter() {
+                props.insert(
+                    *id,
+                    JSShapeProperty {
+                        bitfield: pr.bitfield,
+                        atom: pr.atom.dup(&ctx.rt()),
+                    },
+                );
+            }
+        }
+
+        let mut sh = JSShapeInner::new(ctx, self.0.borrow().proto.clone(), props)?;
+        sh.hash = self.0.borrow().hash;
+        sh.is_hashed = true;
+        let shape = Self(Rc::new(RefCell::new(sh)));
+
+        ctx.rt_mut().gc_add_object(shape.downgrade().into());
+
+        Ok(shape)
+    }
+
+    pub fn id(&self) -> usize {
+        self.0.borrow().id()
+    }
+
+    pub fn strong_count(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
+
+    pub fn with<R>(&self, f: impl FnOnce(&JSShapeInner) -> R) -> R {
+        f(&self.0.borrow())
+    }
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSShapeInner) -> R) -> R {
+        f(&mut self.0.borrow_mut())
+    }
+
+    pub fn is_hashed(&self) -> bool {
+        self.0.borrow().is_hashed
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.borrow().props.len()
+    }
+
+    /// Append property defination to shape.
+    /// After append shape property, the shape is guaranteed to be registered.
+    /// Note: `atom` is not consumed.
+    pub fn add_shape_property(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        prop_flags: u32,
+    ) -> Result<usize, i32> {
+        debug_assert!(
+            matches!(self.strong_count(), 1 | 2),
+            "shape must not be shared"
+        );
+
+        let (is_hashed, prop_len) = {
+            let s = self.0.borrow();
+            (s.is_hashed, s.props.len())
+        };
+
+        let new_shape_hash = if is_hashed {
             // Recalc shape hash
-            ctx.rt_mut().unregister_shape(self.into());
-            shape_hasher_u32(shape_hasher_u32(self.hash, atom.0), prop_flags)
+            let (shape_id, hash) = {
+                let s = self.0.borrow();
+                (s.id(), s.hash)
+            };
+            ctx.rt_mut().unregister_shape(shape_id, hash);
+            shape_hasher_u32(shape_hasher_u32(self.0.borrow().hash, prop.0), prop_flags)
         } else {
             0
         };
 
-        if let Some(o) = obj.as_deref_mut() {
-            // ensure object's prop values slot capacity
-            if o.grow_prop_value_slots(self.props.len() + 1).is_err() {
-                // in case of error, restore the shape into registration.
-                // shape is still valid if resize failed
-                if self.is_hashed {
-                    ctx.rt_mut().register_shape(self.into());
-                }
+        if is_hashed {
+            self.0.borrow_mut().hash = new_shape_hash;
+            ctx.rt_mut().register_shape(self).inspect_err(|_| {
                 ctx.JS_ThrowOutOfMemory();
-                return Err(-1);
-            }
-        }
-
-        if self.is_hashed {
-            self.hash = new_shape_hash;
-            ctx.rt_mut().register_shape(self.into());
+            })?;
         }
 
         let mut pr = JSShapeProperty {
             bitfield: 0,
-            atom: atom.dup(ctx.rt_mut()),
+            atom: prop.dup(ctx.rt_mut()),
         };
         pr.set_flags(prop_flags);
-        self.props.insert(atom, pr);
 
-        self.has_small_array_index |= atom.is_int_type();
+        self.with_mut(|s| {
+            s.props.insert(prop.0, pr);
+            s.has_small_array_index |= prop.is_int_type();
 
-        #[cfg(debug_assertions)]
-        {
+            #[cfg(debug_assertions)]
             if prop_flags & JS_PROP_LENGTH != 0 {
-                debug_assert_eq!(self.props.len(), 1, "length property must be indexed 0")
+                debug_assert_eq!(s.props.len(), 1, "length property must be indexed 0")
             }
-            if let Some(o) = obj.as_deref() {
-                debug_assert_eq!(self.props.len(), o.prop_values.len())
-            }
-        }
 
-        Ok(())
+            Ok(prop_len + 1)
+        })
     }
 
-    /// Clone to a new shape from this coping property definations.
-    /// The new shape is not inserted in the shape hash table, and not added to gc object list.
-    fn clone_to_new(&self, ctx: &mut JSContext) -> Result<Box<Self>, i32> {
-        // clone properties
-        let mut props = IndexMap::<JSAtom, JSShapeProperty>::new();
-        if props.try_reserve(self.props.len()).is_err() {
-            ctx.JS_ThrowOutOfMemory();
-            return Err(-1);
-        }
-
-        let rt = ctx.rt();
-        for (key, pr) in self.props.iter() {
-            props.insert(
-                *key,
-                JSShapeProperty {
-                    bitfield: pr.bitfield,
-                    atom: pr.atom.dup(rt),
-                },
-            );
-        }
-
-        let sh2 = Box::new(Self {
-            header: GCObjectHeader::new(1),
-            is_hashed: false,
-            has_small_array_index: self.has_small_array_index,
-            hash: self.hash,
-            shape_hash_next: self.shape_hash_next,
-            proto: self.proto,
-            props,
-        });
-
-        if !sh2.proto.is_null() {
-            JS_MKPTR!(JSTag::Object, sh2.proto.cast()).dup();
-        }
-
-        Ok(sh2)
+    pub fn downgrade(&self) -> JSShapeWeakref {
+        JSShapeWeakref(Rc::downgrade(&self.0))
     }
+}
 
-    /// Clone to a new shape. The new shape is not inserted in the shape hash table
-    pub fn clone(&mut self, ctx: &mut JSContext) -> Result<JSShapeHandle, i32> {
-        let mut sh = self.clone_to_new(ctx)?;
-        let sh_ptr = sh.as_mut() as *mut JSShape;
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct JSShapeWeakref(Weak<RefCell<JSShapeInner>>);
 
-        (*ctx).rt_mut().gc_add_object(sh);
-        Ok(sh_ptr.into())
+impl JSShapeWeakref {
+    pub fn upgrade(&self) -> Option<JSShape> {
+        self.0.upgrade().map(JSShape)
     }
+}
 
-    /// decrement ref count of `shape`, if ref count reaches 0, dispose it.
-    pub fn free(rt: &mut JSRuntime, mut sh: JSShapeHandle) {
-        debug_assert!(sh.ref_count() > 0);
-        if sh.dec_ref() == 0 {
-            // clear up and drop the shape
-            let mut node = sh.deref().gc_node_ptr();
-            unsafe {
-                Node::unlink(node);
-                node.as_mut().finalize(rt);
-                drop(Box::from_raw(node.as_ptr()));
-            }
-        }
+impl From<JSShapeWeakref> for GCObjectWeakref {
+    fn from(value: JSShapeWeakref) -> Self {
+        Self::Shape(value)
     }
 }
 
@@ -362,158 +331,58 @@ impl JSContext {
     /// when fail, isa is returned back in Err, caller should free it.
     /// Note: `shape` is consumed.
     pub fn create_instance_from_shape(
-        &mut self,
-        shape: JSShapeHandle,
+        &self,
+        shape: JSShape,
         isa: JSObjectIsa,
     ) -> Result<JSValue, JSObjectIsa> {
-        js_trigger_gc(self.rt_mut(), std::mem::size_of::<JSObject>());
-
-        // alloc prop value slots, initializing with default value
-        let mut prop_values = Vec::<JSProperty>::new();
-        let prop_count = shape.props.len();
-        if prop_values
-            .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
-            .is_err()
-        {
-            JSShape::free(self.rt_mut(), shape);
-            self.JS_ThrowOutOfMemory();
-            return Err(isa);
-        }
-
-        for _ in 0..prop_count {
-            prop_values.push(JSProperty {
-                u: JSPropertyUnion {
-                    value: JSValue::UNDEFINED,
-                },
-            })
-        }
-
-        // alloc JSObject
-        let mut obj = if let Some(p) = unsafe { js_malloc_typed::<JSObject>(self, 1, false) } {
-            let mut b = unsafe {
-                p.write(JSObject {
-                    header: GCObjectHeader::new(1),
-                    detailed: {
-                        let mut flags = JSObjectFlags::default();
-                        flags.set_extensible(true);
-                        flags.set_free_mark(false);
-                        flags.set_exotic(false);
-                        flags.set_fast_array(false);
-                        flags.set_constructor(false);
-                        flags.set_uncatchable_error(false);
-                        flags.set_tmp_mark(false);
-                        flags.set_htmldda(false);
-                        flags
-                    },
-                    shape: shape.as_ptr(),
-                    prop_values,
-                    first_weak_ref: std::ptr::null_mut(),
-                    isa,
-                });
-                Box::from_raw(p.as_ptr())
-            };
-
-            b
-        } else {
-            JSShape::free(self.rt_mut(), shape);
-            return Err(isa);
-        };
-
-        match obj.class_id() {
-            JS_CLASS_OBJECT => {}
-
-            JS_CLASS_BYTECODE_FUNCTION
-            | JS_CLASS_GENERATOR_FUNCTION
-            | JS_CLASS_ASYNC_FUNCTION
-            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {}
-
-            JS_CLASS_ARRAY => {
-                obj.detailed.set_exotic(true);
-                obj.detailed.set_fast_array(true);
-
-                // Array: the length property is always at index 0
-                let pr0: *mut JSProperty = if shape.as_ptr() == self.array_shape {
-                    obj.prop_values.first_mut().unwrap()
-                } else {
-                    // only used for the fast array, cannot fail
-                    obj.add_property(self, JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)
-                        .unwrap()
-                };
-                unsafe {
-                    (*pr0).u.value = JSValue::ZERO;
-                }
-            }
-            JS_CLASS_ARGUMENTS | JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                obj.detailed.set_exotic(true);
-                obj.detailed.set_fast_array(true);
-            }
-            JS_CLASS_DATAVIEW => {}
-
-            class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
-            | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
-                if !self.rt().class_array[class_id as usize].exotic.is_null() {
-                    obj.detailed.set_exotic(true);
-                }
-            }
-
-            JS_CLASS_C_FUNCTION => {}
-
-            JS_CLASS_REGEXP => {
-                unimplemented!("JS_CLASS_REGEXP");
-                // *(*p).u.regexp.pattern = std::ptr::null_mut();
-                // (*p).u.regexp.bytecode = std::ptr::null_mut();
-                // if !(*(*ctx).rt)
-                //     .class_array
-                //     .wrapping_add(class_id as usize)
-                //     .as_mut()
-                //     .unwrap()
-                //     .exotic
-                //     .is_null()
-                // {
-                //     (*p). detailed.set_exotic(true);
-                // }
-            }
-
-            class_id => {
-                if !self.rt().class_array[class_id as usize].exotic.is_null() {
-                    obj.detailed.set_exotic(true);
-                }
-            }
-        }
-
-        // take ownership of object
-        let p = obj.as_mut() as *mut JSObject;
-        self.rt_mut().gc_add_object(obj);
-
-        Ok(JS_MKPTR!(JSTag::Object, p.cast()))
+        let inner = JSObjectInner::new(self, Some(shape), isa)?;
+        let obj = JSObject(Rc::new(inner));
+        self.rt_mut().gc_add_object(obj.downgrade().into());
+        Ok(JSValue::Object(obj))
     }
 }
 
 impl JSRuntime {
     /// register a shape
-    pub fn register_shape(&mut self, sh: JSShapeHandle) {
-        debug_assert!(sh.is_hashed);
+    pub fn register_shape(&mut self, shape: &JSShape) -> Result<(), i32> {
+        debug_assert!(shape.0.borrow().is_hashed);
+
+        // resize the shape hash table
+        if self.shape_registry.len() == self.shape_registry.capacity() {
+            if self
+                .shape_registry
+                .try_reserve(JS_PROP_INITIAL_HASH_SIZE)
+                .is_err()
+            {
+                return Err(-1);
+            }
+        }
+
+        let hash = shape.0.borrow().hash;
+        let weak = shape.downgrade();
 
         self.shape_registry
-            .entry(sh.hash)
+            .entry(hash)
             .and_modify(|lst| {
-                debug_assert!(!lst.contains(&sh));
-                lst.push(sh);
+                lst.push(weak.clone());
             })
-            .or_insert_with(|| vec![sh]);
+            .or_insert_with(|| vec![weak]);
+
+        Ok(())
     }
 
     /// unregister a shape
-    pub fn unregister_shape(&mut self, sh: JSShapeHandle) {
-        debug_assert!(sh.is_hashed);
-
-        let h = sh.hash;
-
-        if let Some(lst) = self.shape_registry.get_mut(&h) {
-            lst.retain(|s| !sh.eq(s));
-
+    pub fn unregister_shape(&mut self, shape_id: usize, hash: u32) {
+        if let Some(lst) = self.shape_registry.get_mut(&hash) {
+            lst.retain(|s| {
+                if let Some(sh) = s.upgrade() {
+                    sh.id() != shape_id
+                } else {
+                    false
+                }
+            });
             if lst.is_empty() {
-                self.shape_registry.remove(&h);
+                self.shape_registry.remove(&hash);
             }
         }
     }
@@ -521,16 +390,24 @@ impl JSRuntime {
     /// find a registered empty shape matching given prototype.
     /// Return None if not found.
     /// `proto` is not consumed.
-    pub fn find_shape_by_proto(&self, proto: *mut JSObject) -> Option<JSShapeHandle> {
-        let h = shape_initial_hash(proto);
+    pub fn find_shape_by_proto(&self, proto: Option<&JSObject>) -> Option<JSShape> {
+        let h = shape_initial_hash(proto.map_or(0, |o| o.id()));
 
         self.shape_registry.get(&h).and_then(|lst| {
-            lst.iter()
-                .find(|s| {
-                    debug_assert_eq!(s.hash, h);
-                    s.proto == proto && s.props.is_empty()
-                })
-                .copied()
+            lst.iter().find_map(|w| {
+                if let Some(s) = w.upgrade() {
+                    if s.with(|s| {
+                        debug_assert_eq!(s.hash, h);
+                        s.proto.as_ref().eq(&proto) && s.props.is_empty()
+                    }) {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
         })
     }
 
@@ -538,34 +415,46 @@ impl JSRuntime {
     /// Return None if not found
     pub fn find_shape_with_prop(
         &self,
-        base_shape: JSShapeHandle,
-        atom: JSAtom,
+        base_shape: &JSShape,
+        prop: JSAtom,
         prop_flags: u32,
-    ) -> Option<JSShapeHandle> {
+    ) -> Option<JSShape> {
+        let base_shape = base_shape.0.borrow();
+
         // calc hash for base_shape + (atom, prop_flags)
         let mut h = base_shape.hash;
-        h = shape_hasher_u32(h, atom.0);
+        h = shape_hasher_u32(h, prop.0);
         h = shape_hasher_u32(h, prop_flags);
 
+        let expect_len = base_shape.props.len() + 1;
+
         if let Some(found) = self.shape_registry.get(&h).and_then(|lst| {
-            lst.iter()
-                .find(|s| {
-                    debug_assert_eq!(s.hash, h);
-                    s.proto == base_shape.proto && s.props.len() == base_shape.props.len() + 1
-                })
-                .copied()
+            lst.iter().find_map(|w| {
+                if let Some(sh) = w.upgrade() {
+                    let s = sh.0.borrow();
+                    if s.proto == base_shape.proto && s.props.len() == expect_len {
+                        Some(sh.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
         }) {
             if base_shape
                 .props
                 .iter()
-                .zip(found.props.iter())
+                .zip(found.0.borrow().props.iter())
                 .all(|(a, b)| a.0 == b.0 && a.1.atom == b.1.atom && a.1.flags() == b.1.flags())
             {
                 // all prop defs are match
                 if found
+                    .0
+                    .borrow()
                     .props
                     .last()
-                    .map(|(k, pr)| *k == atom && pr.flags() == prop_flags)
+                    .map(|(_, pr)| pr.atom == prop && pr.flags() == prop_flags)
                     .unwrap_or(false)
                 {
                     // last prop (atom, prop_flags) is match too
@@ -585,65 +474,147 @@ const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
-pub fn shape_initial_hash(proto: *mut JSObject) -> u32 {
-    let mut h = shape_hasher_u32(1, proto as u32);
-    if std::mem::size_of::<*mut JSObject>() > 4 {
-        h = shape_hasher_u32(h, ((proto as u64) >> 32) as u32);
+pub fn shape_initial_hash(proto_id: usize) -> u32 {
+    let mut h = shape_hasher_u32(1, proto_id as u32);
+    if std::mem::size_of::<usize>() > 4 {
+        h = shape_hasher_u32(h, ((proto_id as u64) >> 32) as u32);
     }
     h
 }
 
-// // Truncate the shape hash to 'hash_bits' bits
-// pub const fn shape_hash_trim(h: u32, hash_bits: i32) -> u32 {
-//     h >> (32 - hash_bits)
-// }
+impl JSObjectInner {
+    /// ensure that the shape can be safely modified.
+    /// if object's shape is changed, returns true.
+    /// after calling, object's shape is guaranteed to be exclusive, and not registered.
+    fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
+        let b = self.shape.borrow();
+        let b = b.as_ref().unwrap();
+
+        let changed = if b.is_hashed() {
+            if b.strong_count() != 1 {
+                // shape is shared: clone and use a new shape (the new shape is not registered)
+                let sh1 = self.shape.borrow().as_ref().unwrap().clone_to_new(ctx)?;
+                self.shape.borrow_mut().replace(sh1);
+                true
+            } else {
+                // already exclusive: unregister
+                let (shape_id, hash) = {
+                    let s = b.0.borrow();
+                    (s.id(), s.hash)
+                };
+                ctx.rt_mut().unregister_shape(shape_id, hash);
+                false
+            }
+        } else {
+            false
+        };
+
+        Ok(changed)
+    }
+
+    /// Updates flag of object's shape property.
+    /// if object's shape was changed, returns true
+    pub fn js_update_property_flags(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let cur_flags = self
+            .shape
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .0
+            .borrow()
+            .props
+            .get(&prop.0)
+            .map(|p| p.flags())
+            .unwrap();
+
+        if cur_flags != flags {
+            let changed = self.shape_prepare_update(ctx)?;
+
+            self.shape
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .0
+                .borrow_mut()
+                .props
+                .get_mut(&prop.0)
+                .unwrap()
+                .set_flags(flags);
+
+            Ok(changed)
+        } else {
+            Ok(false)
+        }
+    }
+}
 
 impl JSObject {
     /// ensure that the shape can be safely modified.
-    pub unsafe fn shape_prepare_update(
-        &mut self,
-        ctx: *mut JSContext,
-        pprs: *mut *mut JSShapeProperty,
-    ) -> i32 {
-        let mut sh = JSShapeHandle::from(self.shape);
-
-        if sh.is_hashed {
-            if sh.ref_count() != 1 {
-                let atom: JSAtom = if !pprs.is_null() {
-                    (*(*pprs)).atom
-                } else {
-                    JS_ATOM_NULL
-                };
-
-                // clone the shape (the resulting one is no longer hashed)
-                match sh.deref_mut().clone(ctx.as_mut().unwrap()) {
-                    Ok(mut sh1) => {
-                        // free old shape, and use new one
-                        JSShape::free((*ctx).rt_mut(), sh);
-                        self.shape = sh1.into();
-                        if !pprs.is_null() {
-                            *pprs = sh1.props.get_mut(&atom).unwrap();
-                        }
-                    }
-                    Err(_) => {
-                        return -1;
-                    }
-                }
-            } else {
-                (*ctx).rt_mut().unregister_shape(sh);
-                sh.is_hashed = false;
-            }
-        }
-
-        0
+    /// if object's shape is changed, returns true.
+    /// after calling, object's shape is guaranteed to be exclusive, and not registered.
+    pub fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
+        self.0.shape_prepare_update(ctx)
     }
+
+    /// Updates flag of object's shape property.
+    /// if object's shape was changed, returns true
+    pub fn js_update_property_flags(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.0.js_update_property_flags(ctx, prop, flags)
+    }
+
+    // /// ensure that the shape can be safely modified.
+    // /// after calling, object's shape is guaranteed to be exclusive, and not registered.
+    // pub fn shape_prepare_update(&self, ctx: &JSContext, pprs: *mut *mut JSShapeProperty) -> i32 {
+    //     let sh = self.shape().unwrap();
+
+    //     if sh.0.borrow().is_hashed {
+    //         if sh.strong_count() != 1 {
+    //             // shape is shared
+    //             let atom: JSAtom = if !pprs.is_null() {
+    //                 unsafe { (*(*pprs)).atom }
+    //             } else {
+    //                 JS_ATOM_NULL
+    //             };
+
+    //             // clone to a new shape (the new shape is not registered)
+    //             match sh.clone_to_new(ctx) {
+    //                 Ok(sh1) => {
+    //                     if !pprs.is_null() {
+    //                         unsafe {
+    //                             *pprs = sh1.0.borrow_mut().props.get_mut(&atom).unwrap();
+    //                         }
+    //                     }
+    //                     self.0.borrow_mut().shape.replace(sh1); // change shape
+    //                 }
+    //                 Err(_) => {
+    //                     return -1;
+    //                 }
+    //             }
+    //         } else {
+    //             // already exclusive
+    //             ctx.rt_mut().unregister_shape(sh.0.borrow_mut().deref_mut());
+    //         }
+    //     }
+
+    //     0
+    // }
 }
 
 #[deprecated(note = "use JSObject::shape_prepare_update() instead")]
 pub unsafe fn js_shape_prepare_update(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     p: *mut JSObject,
     pprs: *mut *mut JSShapeProperty,
 ) -> i32 {
-    (*p).shape_prepare_update(ctx, pprs)
+    unreachable!("unused");
 }

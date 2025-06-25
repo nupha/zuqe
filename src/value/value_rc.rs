@@ -6,7 +6,6 @@ use std::{
 
 use crate::{
     function::JSFunctionBytecode,
-    gc::RefCounted,
     module::JSModuleDef,
     runtime::JSRuntime,
     value::{JS_TAG_BIG_DECIMAL, JS_TAG_BIG_FLOAT, JS_TAG_BIG_INT},
@@ -14,96 +13,8 @@ use crate::{
 
 use super::{
     JSValue, JS_FreeValueRT, JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE, JS_TAG_OBJECT, JS_TAG_STRING,
-    JS_TAG_SYMBOL, JS_VALUE_GET_PTR,
+    JS_TAG_SYMBOL,
 };
-
-impl RefCounted for JSValue {
-    fn ref_count(&self) -> i32 {
-        match self.tag() {
-            JS_TAG_OBJECT => unsafe { self.object_unchecked().ref_count() },
-            JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
-                let p = Rc::from_raw(self.string());
-                let r = Rc::strong_count(&p);
-                let _ = Rc::into_raw(p);
-                r as i32
-            },
-            JS_TAG_FUNCTION_BYTECODE => unsafe {
-                (*JS_VALUE_GET_PTR(*self).cast::<JSFunctionBytecode>()).ref_count()
-            },
-            JS_TAG_MODULE => unsafe {
-                (*JS_VALUE_GET_PTR(*self).cast::<JSModuleDef>()).ref_count()
-            },
-            JS_TAG_BIG_DECIMAL | JS_TAG_BIG_FLOAT | JS_TAG_BIG_INT => {
-                unimplemented!()
-            }
-            _ => 1,
-        }
-    }
-
-    fn inc_ref(&mut self) -> i32 {
-        match self.tag() {
-            JS_TAG_OBJECT => unsafe { self.object_unchecked().inc_ref() },
-            JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
-                let s = self.string();
-                Rc::increment_strong_count(s);
-                let p = Rc::from_raw(s);
-                let r = Rc::strong_count(&p);
-                let _ = Rc::into_raw(p);
-                r as i32
-            },
-            JS_TAG_FUNCTION_BYTECODE => unsafe {
-                (*JS_VALUE_GET_PTR(*self).cast::<JSFunctionBytecode>()).inc_ref()
-            },
-            JS_TAG_MODULE => unsafe { (*JS_VALUE_GET_PTR(*self).cast::<JSModuleDef>()).inc_ref() },
-            JS_TAG_BIG_DECIMAL | JS_TAG_BIG_FLOAT | JS_TAG_BIG_INT => {
-                unimplemented!()
-            }
-            _ => 1,
-        }
-    }
-
-    fn dec_ref(&mut self) -> i32 {
-        match self.tag() {
-            JS_TAG_OBJECT => unsafe { self.object_unchecked().dec_ref() },
-            JS_TAG_FUNCTION_BYTECODE => unsafe {
-                (*JS_VALUE_GET_PTR(*self).cast::<JSFunctionBytecode>()).inc_ref()
-            },
-            JS_TAG_MODULE => unsafe { (*JS_VALUE_GET_PTR(*self).cast::<JSModuleDef>()).inc_ref() },
-            JS_TAG_STRING | JS_TAG_SYMBOL => {
-                unreachable!("don't call ::def_ref() on a string value");
-            }
-            JS_TAG_BIG_DECIMAL | JS_TAG_BIG_FLOAT | JS_TAG_BIG_INT => {
-                unimplemented!()
-            }
-            _ => 1,
-        }
-    }
-}
-
-impl JSValue {
-    /// increase value ref_count, and returns the value
-    #[inline(always)]
-    pub fn dup(&self) -> Self {
-        let mut v = *self;
-
-        // if JS_VALUE_HAS_REF_COUNT(v) {
-        //     match v.tag() {
-        //         JS_TAG_STRING | JS_TAG_SYMBOL => unsafe {
-        //             Rc::increment_strong_count(v.string());
-        //         },
-        //         _ => {
-        //             let p = JS_VALUE_GET_PTR(v).cast::<JSRefCountHeader>();
-        //             unsafe {
-        //                 p.as_mut().unwrap().ref_count += 1;
-        //             }
-        //         }
-        //     }
-        // }
-
-        v.inc_ref();
-        v
-    }
-}
 
 /// A reference-counted wrapper for JSValue that provides automatic memory management
 /// and safe access to the underlying JSValue.

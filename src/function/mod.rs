@@ -5,6 +5,7 @@ mod bytecode;
 mod call;
 mod clousure;
 mod cpool;
+mod entries;
 mod fdef;
 mod fun;
 mod label;
@@ -20,7 +21,7 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, bound::*, bytecode::*, call::*, clousure::*, fdef::*, fun::*, label::*,
-    native::*, optimize::*, resolve_labels::*, resolve_vars::*, scope::*, stack::*, var::*,
-    var_ref::*,
+    afun::*, argument::*, bound::*, bytecode::*, call::*, clousure::*, entries::*, fdef::*, fun::*,
+    label::*, native::*, optimize::*, resolve_labels::*, resolve_vars::*, scope::*, stack::*,
+    var::*, var_ref::*,
 };

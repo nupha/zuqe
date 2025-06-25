@@ -1,4 +1,4 @@
 mod agen;
-mod gen;
+mod sgen;
 
-pub use {agen::*, gen::*};
+pub use {agen::*, sgen::*};

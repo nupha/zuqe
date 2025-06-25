@@ -1,14 +1,14 @@
 use crate::{
-    atom::{consts::JS_ATOM___proto__, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::JS_ATOM___proto__},
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
     function::JSFunctionKindEnum,
     parse::{
+        JSParseFunctionEnum,
         class::js_parse_property_name,
-        emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u16, emit_u8},
+        emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u8, emit_u16},
         obj::{set_object_name, set_object_name_computed},
         token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
-        JSParseFunctionEnum,
     },
     value::object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_SET, PROP_TYPE_STAR,
@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
             let mut name: JSAtom = JS_ATOM_NULL;
             let prop_type = js_parse_property_name(self, &mut name, true, true, false);
             if prop_type < 0 {
-                JS_FreeAtom(self.ctx.as_ptr(), name);
+                JS_FreeAtom(&self.ctx, name);
                 return Err(-1);
             };
 
@@ -105,7 +105,7 @@ impl<'s> JSParseState<'s> {
                     .parse_function_decl(func_type, func_kind, JS_ATOM_NULL, start_ptr, start_line)
                     .is_err()
                 {
-                    JS_FreeAtom(self.ctx.as_ptr(), name);
+                    JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
 
@@ -118,11 +118,11 @@ impl<'s> JSParseState<'s> {
                 emit_u8(self, op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
             } else {
                 if self.parse_expect(CHAR_COLON).is_err() {
-                    JS_FreeAtom(self.ctx.as_ptr(), name);
+                    JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
                 if self.parse_assign_expr().is_err() {
-                    JS_FreeAtom(self.ctx.as_ptr(), name);
+                    JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
 
@@ -132,8 +132,8 @@ impl<'s> JSParseState<'s> {
                     emit_op(self, OpCode::DROP);
                 } else if name == JS_ATOM___proto__ {
                     if has_proto {
-                        self.throw_syntax_error(c"\"duplicate __proto__ property name\"");
-                        JS_FreeAtom(self.ctx.as_ptr(), name);
+                        self.throw_syntax_error("duplicate __proto__ property name");
+                        JS_FreeAtom(&self.ctx, name);
                         return Err(-1);
                     }
                     emit_op(self, OpCode::SET_PROTO);
@@ -145,7 +145,7 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            JS_FreeAtom(self.ctx.as_ptr(), name);
+            JS_FreeAtom(&self.ctx, name);
 
             // next
             if self.token.val != ',' as i32 {

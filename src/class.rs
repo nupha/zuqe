@@ -1,23 +1,25 @@
-use std::ffi::{c_int, c_void, CStr};
+use std::ffi::CStr;
 
 use crate::{
     array::convert_fast_array_to_array,
     atom::{
+        __JS_FindAtom, JS_ATOM_NULL, JSAtom, JSAtomTypeHint,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
-        JSAtom, JSAtomTypeHint, JS_AtomIsArrayIndex, __JS_FindAtom, JS_ATOM_NULL,
     },
-    context::JSContext,
+    context::{JSContext, JSContextInner},
+    error::JSResult,
     function::{
-        JSCFunction, JSCFunctionEnum, JSFunctionDef, JS_GetFunctionRealm, JS_NewCFunction2,
+        JS_GetFunctionRealm, JS_NewCFunction2, JSCFunction, JSCFunctionEnum, JSFunctionDef,
+        JSNativeCallback,
     },
-    gc::{set_cycle_flag, GCMarkFunc},
+    gc::{GCMarkFunc, set_cycle_flag},
     runtime::JSRuntime,
     value::{
+        JSValue, JSValueConst,
         object::{
-            JSObject, JSObjectIsa, JSPropertyDescriptor, JS_NewObject, PropertyEnum,
-            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObjectIsa,
+            JSPropertyDescriptor, PropertyEnum,
         },
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_TAG_NULL, JS_VALUE_GET_OBJ,
     },
     *,
 };
@@ -31,42 +33,41 @@ pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
 
 pub type JSClassID = u32;
 
-pub type JSClassFinalizer = unsafe fn(rt: *mut JSRuntime, val: JSValue);
+/// instance finalizer callback, obj is the object payload.
+pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize);
+
 pub type JSClassGCMark = unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc);
 
 /// class native constructor callback func
-pub type JSClassCall = unsafe fn(
-    ctx: &mut JSContext,
-    func_obj: JSValue,
-    this_val: JSValue,
-    argc: ::core::ffi::c_int,
-    argv: *const JSValue,
-    flags: ::core::ffi::c_int,
-) -> JSValue;
+pub type JSClassCall = fn(
+    ctx: &JSContext,
+    func_obj: &JSValue,
+    this_val: &JSValue,
+    args: &[JSValue],
+    flags: i32,
+) -> JSResult;
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct JSClassExoticMethods {
     pub get_own_property:
-        Option<unsafe fn(*mut JSContext, *mut JSPropertyDescriptor, JSValue, JSAtom) -> c_int>,
+        Option<fn(&JSContext, JSValue, JSAtom) -> Result<Option<JSPropertyDescriptor>, i32>>,
 
     pub get_own_property_names:
-        Option<unsafe fn(*mut JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> c_int>,
+        Option<unsafe fn(&JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> i32>,
 
-    pub delete_property: Option<unsafe fn(*mut JSContext, JSValue, JSAtom) -> c_int>,
+    pub delete_property: Option<fn(&JSContext, JSValue, JSAtom) -> Result<bool, i32>>,
 
     /// both JSValue(s), JSAtom should not be consumed.
-    pub define_own_property: Option<
-        unsafe fn(*mut JSContext, JSValue, JSAtom, JSValue, JSValue, JSValue, c_int) -> c_int,
-    >,
+    pub define_own_property:
+        Option<unsafe fn(&JSContext, &JSValue, JSAtom, &JSValue, &JSValue, &JSValue, i32) -> i32>,
 
-    pub has_property: Option<unsafe fn(*mut JSContext, JSValue, JSAtom) -> c_int>,
+    pub has_property: Option<unsafe fn(&JSContext, JSValue, JSAtom) -> i32>,
 
-    pub get_property: Option<unsafe fn(*mut JSContext, JSValue, JSAtom, JSValue) -> JSValue>,
+    pub get_property: Option<unsafe fn(&JSContext, JSValue, JSAtom, JSValue) -> JSValue>,
 
-    /// returns 0,1,-1
     pub set_property:
-        Option<unsafe fn(*mut JSContext, JSValue, JSAtom, JSValue, JSValue, c_int) -> c_int>,
+        Option<fn(&JSContext, JSValue, JSAtom, JSValue, JSValue, i32) -> Result<bool, i32>>,
 }
 
 #[repr(C)]
@@ -77,7 +78,6 @@ pub struct JSClassShortDef {
 }
 
 #[derive(Copy, Clone)]
-#[repr(C)]
 pub struct JSClassDef {
     pub class_name: *const i8,
     pub finalizer: Option<JSClassFinalizer>,
@@ -146,9 +146,10 @@ impl JSRuntime {
                 let grow = class_id as usize - self.class_array.len() + 1;
 
                 // grow context class prototype array
-                for mut ctx in self.context_list.iter().copied() {
-                    ctx.class_proto.try_reserve(grow).map_err(|_| -1)?;
-                    ctx.class_proto
+                for mut ctx in self.context_list.iter() {
+                    let mut cx = ctx.0.borrow_mut();
+                    cx.class_proto.try_reserve(grow).map_err(|_| -1)?;
+                    cx.class_proto
                         .extend(std::iter::repeat_n(JSValue::NULL, grow));
                 }
 
@@ -184,13 +185,12 @@ impl JSRuntime {
         let cstr = unsafe { CStr::from_ptr(class_def.class_name) };
         let str = cstr.to_string_lossy();
 
-        let name =
-            if let Some(a) = unsafe { __JS_FindAtom(self, str.as_ref(), JSAtomTypeHint::String) } {
-                a
-            } else {
-                self.add_atom_str(str.as_ref(), JSAtomTypeHint::String)?
-            }
-            .into_rc(self);
+        let name = if let Some(a) = __JS_FindAtom(self, str.as_ref(), JSAtomTypeHint::String) {
+            a
+        } else {
+            self.register_atom_str(str.as_ref(), JSAtomTypeHint::String)?
+        }
+        .into_rc(self);
 
         unsafe { self.add_class_internal(class_id, class_def, *name) }
     }
@@ -227,127 +227,191 @@ impl JSContext {
     /// if class proto object is not initialized in this context, returns JS_NULL.
     /// returned proto value is duplicated. caller should free it.
     pub fn get_class_proto(&self, class_id: JSClassID) -> JSValue {
-        debug_assert!((class_id as usize) < self.class_proto.len());
-        self.class_proto[class_id as usize].dup()
+        debug_assert!((class_id as usize) < self.0.borrow().class_proto.len());
+        self.0.borrow().class_proto[class_id as usize].clone()
     }
 
     /// Note: `proto_obj` is consumed, old proto object will be consumed.
-    pub fn set_class_proto(&mut self, class_id: JSClassID, proto_obj: JSValue) {
-        debug_assert!(class_id < self.class_proto.len() as JSClassID);
-        debug_assert_eq!(self.class_proto[class_id as usize].tag(), JS_TAG_NULL);
+    pub fn set_class_proto(&self, class_id: JSClassID, proto_obj: JSValue) {
+        debug_assert!(class_id < self.0.borrow().class_proto.len() as JSClassID);
+        debug_assert!(self.0.borrow().class_proto[class_id as usize].is_null());
 
-        let old = self.class_proto[class_id as usize].replace(proto_obj);
-        unsafe {
-            JS_FreeValue(self, old);
-        }
+        self.0.borrow_mut().class_proto[class_id as usize].replace(proto_obj);
     }
 
     /// make function `func_obj` to be a constructor, set `proto` as its prototype,
     /// then add it to global namespace as `name`.
     /// Note:: both `func_obj` and `proto` are  **NOT CONSUMED**.
-    pub fn add_global_constructor(&mut self, name: &str, func_obj: JSValue, proto: JSValue) {
-        self.global_obj
+    pub fn add_global_constructor(&self, name: &str, func_obj: &JSValue, proto: &JSValue) {
+        self.0
+            .borrow()
+            .global_obj
             .define_property_value_str(
                 self,
                 name,
-                func_obj.dup(),
+                func_obj.clone(),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
 
-        unsafe {
-            JS_SetConstructor(self, func_obj, proto);
-            JS_FreeValue(self, func_obj);
-        }
+        JS_SetConstructor(self, func_obj, proto);
     }
 
     /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
-    pub(crate) fn create_global_constructor_ex(
-        &mut self,
+    pub(crate) fn create_global_native_constructor_ex(
+        &self,
         name: &CStr,
-        func: JSCFunction,
+        callback: JSNativeCallback,
         length: i32,
-        proto: JSValue,
+        proto: &JSValue,
         cproto: JSCFunctionEnum,
-    ) -> JSValue {
+        magic: i32,
+    ) -> JSResult {
         debug_assert!(matches!(
             cproto,
-            JSCFunctionEnum::ConstructorOrFunc | JSCFunctionEnum::Constructor
+            JSCFunctionEnum::NativeConstructorOrFunc | JSCFunctionEnum::NativeConstructor
         ));
 
-        let func_obj = unsafe { JS_NewCFunction2(self, func, name, length as _, cproto, 0) };
-        self.add_global_constructor(name.to_str().unwrap(), func_obj, proto);
-        func_obj
+        let name = name.to_str().unwrap();
+        let func_obj =
+            self.create_native_function(callback, name, length as _, cproto, magic as _)?;
+        self.add_global_constructor(name, &func_obj, proto);
+        Ok(func_obj)
     }
 
     /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
-    pub fn create_global_constructor(
-        &mut self,
+    pub fn create_global_native_constructor(
+        &self,
         name: &CStr,
-        func: JSCFunction,
+        callback: JSNativeCallback,
         length: i32,
-        proto: JSValue,
-    ) -> JSValue {
-        self.create_global_constructor_ex(
+        proto: &JSValue,
+    ) -> JSResult {
+        self.create_global_native_constructor_ex(
             name,
-            func,
+            callback,
             length,
             proto,
-            JSCFunctionEnum::ConstructorOrFunc,
+            JSCFunctionEnum::NativeConstructorOrFunc,
+            0,
         )
     }
 
     /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
-    pub fn create_global_constructor_only(
-        &mut self,
+    pub fn create_global_native_constructor_only(
+        &self,
         name: &CStr,
-        func: JSCFunction,
+        callback: JSNativeCallback,
         length: i32,
-        proto: JSValue,
-    ) -> JSValue {
-        self.create_global_constructor_ex(name, func, length, proto, JSCFunctionEnum::Constructor)
+        proto: &JSValue,
+    ) -> JSResult {
+        self.create_global_native_constructor_ex(
+            name,
+            callback,
+            length,
+            proto,
+            JSCFunctionEnum::NativeConstructor,
+            0,
+        )
+    }
+
+    /// create a new native constructor, add it to global namespace.
+    /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    /// returns new constructor function.
+    fn do_create_global_constructor(
+        &self,
+        name: &str,
+        callback: JSNativeCallback,
+        length: i32,
+        proto: &JSValue,
+        cproto: JSCFunctionEnum,
+        magic: i16,
+    ) -> JSResult {
+        debug_assert!(matches!(
+            cproto,
+            JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+        ));
+
+        let func_obj = self.create_native_function(callback, name, length as _, cproto, magic)?;
+        self.add_global_constructor(name, &func_obj, proto);
+
+        Ok(func_obj)
+    }
+
+    /// create a new native constructor, add it to global namespace.
+    /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    /// returns new constructor function.
+    #[inline(always)]
+    pub fn create_global_constructor(
+        &self,
+        name: &str,
+        callback: JSNativeCallback,
+        length: i32,
+        proto: &JSValue,
+        magic: i16,
+    ) -> JSResult {
+        self.do_create_global_constructor(
+            name,
+            callback,
+            length,
+            proto,
+            JSCFunctionEnum::NativeConstructorOrFunc,
+            magic,
+        )
+    }
+
+    /// create a new native constructor, add it to global namespace.
+    /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    /// returns new constructor function.
+    #[inline(always)]
+    pub fn create_global_constructor_only(
+        &self,
+        name: &str,
+        callback: JSNativeCallback,
+        length: i32,
+        proto: &JSValue,
+        magic: i16,
+    ) -> JSResult {
+        self.do_create_global_constructor(
+            name,
+            callback,
+            length,
+            proto,
+            JSCFunctionEnum::NativeConstructor,
+            magic,
+        )
     }
 }
 
 /// set `proto` to func_obj.prototype property; set `func_obj`  to proto.constructor property.
 /// Note: 'func_obj' is not necessarily a constructor
 /// Note: both `func_obj` and `proto` are not consumed.
-pub unsafe fn JS_SetConstructor2(
-    ctx: *mut JSContext,
-    func_obj: JSValueConst,
-    proto: JSValueConst,
+pub fn JS_SetConstructor2(
+    ctx: &JSContext,
+    func_obj: &JSValue,
+    proto: &JSValue,
     proto_flags: u32,
     ctor_flags: u32,
 ) {
     func_obj
-        .define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_prototype,
-            proto.dup(),
-            proto_flags,
-        )
+        .define_property_value(ctx, JS_ATOM_prototype, proto.clone(), proto_flags)
         .unwrap();
 
     proto
-        .define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_constructor,
-            func_obj.dup(),
-            ctor_flags,
-        )
+        .define_property_value(ctx, JS_ATOM_constructor, func_obj.clone(), ctor_flags)
         .unwrap();
 
     set_cycle_flag(ctx, func_obj);
     set_cycle_flag(ctx, proto);
 }
 
-pub unsafe fn JS_SetConstructor(ctx: *mut JSContext, func_obj: JSValueConst, proto: JSValueConst) {
+pub fn JS_SetConstructor(ctx: &JSContext, func_obj: &JSValue, proto: &JSValue) {
     JS_SetConstructor2(
         ctx,
         func_obj,
@@ -379,80 +443,41 @@ impl Default for ClassFieldsDef {
     }
 }
 
-pub unsafe fn js_instantiate_prototype(
-    ctx: *mut JSContext,
-    p: *mut JSObject,
-    atom: JSAtom,
-    opaque: *mut c_void,
-) -> JSValue {
-    let this_val = JS_MKPTR!(JSTag::Object, (p as *mut JSObject).cast());
-    let obj = JS_NewObject(ctx);
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    set_cycle_flag(ctx, obj);
-    set_cycle_flag(ctx, this_val);
-
-    if obj
-        .define_property_value(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_constructor,
-            this_val.dup(),
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        )
-        .is_ok()
-    {
-        obj
-    } else {
-        JS_FreeValue(ctx, obj);
-        JSValue::EXCEPTION
-    }
-}
-
 impl JSContext {
     /// create new instance based on class constructor `ctor` and isa payload data.
     /// `ctor` is not consumed.
     pub fn create_instance_from_ctor(
-        &mut self,
-        ctor: JSValue,
+        &self,
+        ctor: &JSValue,
         isa: JSObjectIsa,
     ) -> Result<JSValue, JSObjectIsa> {
         let class_id = isa.class_id();
 
         let proto = if ctor.is_undefined() {
-            self.class_proto[class_id as usize].dup()
+            self.0.borrow().class_proto[class_id as usize].clone()
         } else {
-            let p = ctor.get_property(self, JS_ATOM_prototype);
-            if p.is_exception() {
-                return Err(isa);
-            }
-            if !p.is_object() {
-                JS_FreeValue(self, p);
-                let realm = unsafe { JS_GetFunctionRealm(self, ctor) };
-                if realm.is_null() {
-                    return Err(isa);
+            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype).check_exception() {
+                if !p.is_object() {
+                    if let Ok(realm) = JS_GetFunctionRealm(self, &ctor) {
+                        realm.0.borrow().class_proto[class_id as usize].clone()
+                    } else {
+                        return Err(isa);
+                    }
+                } else {
+                    p
                 }
-                unsafe { (*realm).class_proto[class_id as usize].dup() }
             } else {
-                p
+                return Err(isa);
             }
         };
 
-        let obj = self
-            .create_instance_from_proto(proto, isa)
-            .inspect_err(|_| {
-                JS_FreeValue(self, proto);
-            })?;
-
-        JS_FreeValue(self, proto);
-        Ok(obj)
+        self.create_instance_from_proto(&proto, isa)
     }
 }
 
 #[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
 pub unsafe fn js_create_from_ctor(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     ctor: JSValueConst,
     class_id: JSClassID,
 ) -> JSValue {
@@ -460,21 +485,21 @@ pub unsafe fn js_create_from_ctor(
 }
 
 unsafe fn js_arguments_define_own_property(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
+    ctx: &JSContext,
+    this_obj: &JSValueConst,
     prop: JSAtom,
-    val: JSValueConst,
-    getter: JSValueConst,
-    setter: JSValueConst,
-    flags: c_int,
-) -> c_int {
-    let p = JS_VALUE_GET_OBJ(this_obj);
-    let mut idx: u32 = 0;
+    val: &JSValueConst,
+    getter: &JSValueConst,
+    setter: &JSValueConst,
+    flags: i32,
+) -> i32 {
+    let p = this_obj.object_unchecked();
 
     /* convert to normal array when redefining an existing numeric field */
-    if (*p).detailed.fast_array()
-        && JS_AtomIsArrayIndex(ctx, &mut idx, prop)
-        && idx < (*p).array_length_unchecked() as u32
+    if p.flags().fast_array()
+        && prop
+            .to_array_index(ctx.rt())
+            .map_or(false, |i| i < p.array_length_unchecked())
     {
         if convert_fast_array_to_array(ctx, p) != 0 {
             return -1;
@@ -484,7 +509,7 @@ unsafe fn js_arguments_define_own_property(
     /* run the default define own property */
     this_obj
         .define_property(
-            ctx.as_mut().unwrap(),
+            ctx,
             prop,
             val,
             getter,

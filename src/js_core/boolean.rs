@@ -1,73 +1,57 @@
 use crate::{
+    JS_CFUNC_NATIVE_DEF,
     atom::consts::{JS_ATOM_false, JS_ATOM_true},
     context::JSContext,
-    function::JSCFunctionListEntry,
-    value::{
-        object::JSObjectIsa, JSValue, JSValueConst, JS_IsException, JS_ToBool, JS_VALUE_GET_BOOL,
-    },
-    JS_CFUNC_DEF,
+    error::JSResult,
+    function::{CallContext, JSCFunctionListEntry},
+    value::{JSValue, object::JSObjectIsa},
 };
 
-pub unsafe fn js_boolean_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val = JS_ToBool(ctx, *argv.offset(0)).unwrap_or(true).into();
+pub fn js_boolean_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = JSValue::Bool(cc.arg(0).coerce_to_bool(ctx).unwrap_or(true));
+
+    let new_target = cc.this();
     if !new_target.is_undefined() {
-        (*ctx)
-            .create_instance_from_ctor(new_target, JSObjectIsa::BOOLEAN(val))
-            .unwrap_or(JSValue::EXCEPTION)
+        ctx.create_instance_from_ctor(new_target, JSObjectIsa::BOOLEAN(val))
+            .map_err(|_| -1)
     } else {
-        val
+        Ok(val)
     }
 }
 
-pub unsafe fn js_thisBooleanValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
+pub fn js_thisBooleanValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     if this_val.is_bool() {
-        this_val.dup()
+        Ok(this_val)
     } else if let Some(d) = this_val
         .object()
-        .and_then(|p| p.isa().value())
+        .and_then(|p| p.0.isa.borrow().value().cloned())
         .and_then(|x| if x.is_bool() { Some(x) } else { None })
     {
-        d.dup()
+        Ok(d.clone())
     } else {
-        (*ctx).JS_ThrowTypeError(c"not a boolean");
-        JSValue::EXCEPTION
+        ctx.JS_ThrowTypeError("not a boolean");
+        Err(-1)
     }
 }
 
-pub unsafe fn js_boolean_toString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val: JSValue = js_thisBooleanValue(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
+pub fn js_boolean_toString(ctx: &JSContext, args: CallContext) -> JSResult {
+    match js_thisBooleanValue(ctx, args.this_raw())? {
+        JSValue::Bool(true) => JS_ATOM_true,
+        JSValue::Bool(false) => JS_ATOM_false,
+        _ => {
+            ctx.JS_ThrowTypeError("not a boolean");
+            return Err(-1);
+        }
     }
-
-    if JS_VALUE_GET_BOOL(val) {
-        JS_ATOM_true
-    } else {
-        JS_ATOM_false
-    }
-    .to_value(ctx.as_mut().unwrap(), true)
+    .to_value(ctx, true)
+    .check_exception()
 }
 
-pub unsafe fn js_boolean_valueOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    return js_thisBooleanValue(ctx, this_val);
+pub fn js_boolean_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
+    js_thisBooleanValue(ctx, args.this_raw())
 }
 
 pub const js_boolean_proto_funcs: [JSCFunctionListEntry; 2] = [
-    JS_CFUNC_DEF!(c"toString", 0, js_boolean_toString),
-    JS_CFUNC_DEF!(c"valueOf", 0, js_boolean_valueOf),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_boolean_toString, 0),
+    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_boolean_valueOf, 0),
 ];

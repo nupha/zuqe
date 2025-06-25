@@ -1,40 +1,40 @@
 use crate::{
+    JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
     context::JSContext,
-    error::{JSResult, JS_ThrowRangeError},
-    function::{CallArgs, JSCFunctionListEntry},
-    js_core::global::{js_global_isNaN_isFinite, MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN},
+    error::{JS_ThrowRangeError, JSResult},
+    function::{CallContext, JSCFunctionListEntry},
+    js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     utils::skip_spaces,
     value::{
-        is_safe_integer, object::JSObjectIsa, JSValue, JSValueConst, JS_IsNumber, JS_ToFloat64,
-        JS_ToInt32Sat, JS_ToNumeric, JS_DTOA_FORCE_EXP, JS_TAG_BIG_INT,
+        JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, JS_ToNumeric, JSValue, JSValueConst,
+        is_safe_integer, object::JSObjectIsa,
     },
-    JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
 };
 
-use super::{f64_stringify, js_atof, JS_ToInt32, ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY};
+use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_ToInt32, f64_stringify, js_atof};
 
-pub fn js_thisNumberValue(ctx: &mut JSContext, this_val: JSValue) -> JSResult {
-    if JS_IsNumber(this_val) {
-        Ok(this_val.dup())
-    } else if let Some(d) = this_val
-        .object()
-        .and_then(|p| p.isa().value())
-        .and_then(|x| if JS_IsNumber(x) { Some(x) } else { None })
-    {
-        Ok(d.dup())
+pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
+    if this_val.is_number() {
+        Ok(this_val)
     } else {
-        ctx.JS_ThrowTypeError(c"not a number");
-        Err(-1)
+        this_val
+            .object()
+            .and_then(|p| p.0.isa.borrow().value().cloned())
+            .and_then(|x| if x.is_number() { Some(x) } else { None })
+            .ok_or_else(|| {
+                ctx.JS_ThrowTypeError("not a number");
+                -1
+            })
     }
 }
 
-pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let radix: i32 = unsafe { JS_ToInt32(ctx, args.get_raw(1))? };
+pub fn js_parseInt(ctx: &JSContext, args: CallContext) -> JSResult {
+    let radix: i32 = unsafe { JS_ToInt32(ctx, args.arg(1))? };
 
     let ret = if radix != 0 && !(2..=36).contains(&radix) {
-        JSValue::NAN
+        JSValue::Float64(f64::NAN)
     } else {
-        let str = args.get_raw(0).coerce_to_utf8(ctx.handle())?;
+        let str = args.arg(0).coerce_to_utf8(ctx)?;
         let mut p = str.as_ptr();
 
         unsafe {
@@ -54,8 +54,8 @@ pub fn js_parseInt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     Ok(ret)
 }
 
-pub fn js_parseFloat(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let str = args.get_raw(0).coerce_to_utf8(ctx.handle())?;
+pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
+    let str = args.arg(0).coerce_to_utf8(ctx)?;
     let mut p = str.as_ptr();
 
     let skip_spaces_result = unsafe { skip_spaces(p) };
@@ -65,17 +65,17 @@ pub fn js_parseFloat(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 }
 
-pub fn js_number_valueOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
     js_thisNumberValue(ctx, args.this_raw())
 }
 
-pub unsafe fn js_get_radix(ctx: *mut JSContext, val: JSValueConst) -> i32 {
+pub unsafe fn js_get_radix(ctx: &JSContext, val: &JSValueConst) -> i32 {
     let mut radix: i32 = 0;
     if JS_ToInt32Sat(ctx, &mut radix, val) != 0 {
         return -1;
     }
     if !(2..=36).contains(&radix) {
-        JS_ThrowRangeError(ctx, c"radix must be between 2 and 36");
+        JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
         return -1;
     }
     radix
@@ -87,7 +87,7 @@ const FMT_TO_EXPONENTIAL: i32 = 3;
 const FMT_TO_STRING: i32 = 4;
 const FMT_TO_LOCALE_STRING: i32 = 5;
 
-// pub fn js_number_toString(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+// pub fn js_number_toString(ctx: &JSContext, args: CallContext) -> JSResult {
 //     let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
 //     let base = if args.magic != 0 || args.get_raw(0).is_undefined() {
@@ -113,7 +113,7 @@ const FMT_TO_LOCALE_STRING: i32 = 5;
 //     }
 // }
 
-// pub fn js_number_toExponential(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+// pub fn js_number_toExponential(ctx: &JSContext, args: CallContext) -> JSResult {
 //     let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
 
 //     let mut d: f64 = 0.0;
@@ -142,15 +142,15 @@ const FMT_TO_LOCALE_STRING: i32 = 5;
 //         .check_exception()
 // }
 
-pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
+pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = js_thisNumberValue(ctx, cc.this_raw())?;
 
     let mut d: f64 = 0.0;
-    if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+    if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
         return Err(-1);
     }
 
-    let a0 = args.get_raw(0);
+    let a0 = cc.arg(0);
     let a = if a0.is_undefined() {
         None
     } else {
@@ -171,7 +171,7 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         }
         .to_string()
     } else {
-        match args.magic {
+        match cc.magic() {
             m @ (FMT_TO_STRING | FMT_TO_LOCALE_STRING) => {
                 let base = if m == FMT_TO_LOCALE_STRING {
                     10
@@ -180,13 +180,13 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                 };
                 if !(2..=36).contains(&base) {
                     unsafe {
-                        JS_ThrowRangeError(ctx, c"radix must be between 2 and 36");
+                        JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
                     }
                     return Err(-1);
                 }
 
                 let mut d: f64 = 0.0;
-                if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
+                if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
                     return Err(-1);
                 }
 
@@ -196,7 +196,7 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             FMT_TO_FIXED => {
                 let f = a.unwrap_or(0);
                 if !(0..=20).contains(&f) {
-                    JS_ThrowRangeError(ctx, c"invalid number of digits");
+                    JS_ThrowRangeError(ctx, "invalid number of digits");
                     return Err(-1);
                 }
                 let scale = 10_f64.powf(f as f64);
@@ -216,7 +216,7 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                 if let Some(p) = a {
                     if !(1..=100).contains(&p) {
                         unsafe {
-                            JS_ThrowRangeError(ctx, c"invalid number of digits");
+                            JS_ThrowRangeError(ctx, "invalid number of digits");
                         }
                         return Err(-1);
                     }
@@ -231,7 +231,7 @@ pub fn js_number_fmt(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             FMT_TO_EXPONENTIAL => if let Some(f) = a {
                 if !(0..=20).contains(&f) {
                     unsafe {
-                        JS_ThrowRangeError(ctx, c"invalid number of digits");
+                        JS_ThrowRangeError(ctx, "invalid number of digits");
                     }
                     return Err(-1);
                 }
@@ -270,23 +270,23 @@ pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
     JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_number_valueOf, 0),
 ];
 
-pub fn js_number_isNaN_isFinite(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    if !JS_IsNumber(args.get_raw(0)) {
-        Ok(JSValue::FALSE)
+pub fn js_number_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult {
+    if !args.arg(0).is_number() {
+        Ok(JSValue::Bool(false))
     } else {
         js_global_isNaN_isFinite(ctx, args)
     }
 }
 
-pub fn js_number_isInteger(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let b = args.get_raw(0).is_integer(ctx)?;
+pub fn js_number_isInteger(ctx: &JSContext, args: CallContext) -> JSResult {
+    let b = args.arg(0).is_integer(ctx)?;
     Ok(b.into())
 }
 
-pub fn js_number_isSafeInteger(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let val = args.get_raw(0);
-    if !JS_IsNumber(val) {
-        return Ok(JSValue::FALSE);
+pub fn js_number_isSafeInteger(ctx: &JSContext, args: CallContext) -> JSResult {
+    let val = args.arg(0);
+    if !val.is_number() {
+        return Ok(JSValue::Bool(false));
     }
 
     let mut d: f64 = 0.0;
@@ -320,37 +320,18 @@ pub const js_number_funcs: [JSCFunctionListEntry; 14] = [
     JS_PROP_DOUBLE_DEF!(c"MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
-pub unsafe fn js_number_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val: JSValue;
-    if argc == 0 {
-        val = JSValue::ZERO;
+pub fn js_number_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = if cc.length() == 0 {
+        JSValue::Int(0)
     } else {
-        val = JS_ToNumeric(ctx, *argv.offset(0));
-        if val.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-        if val.tag() == JS_TAG_BIG_INT {
-            (*ctx).JS_ThrowTypeError(c"BigInt is not supported");
-            return JSValue::EXCEPTION;
-        }
-    }
+        cc.arg(0).coerce_to_numeric(ctx)?
+    };
 
+    let new_target = cc.this();
     if !new_target.is_undefined() {
-        (*ctx)
-            .create_instance_from_ctor(new_target, JSObjectIsa::NUMBER(val))
-            .unwrap_or(JSValue::EXCEPTION)
-
-        // let obj = js_create_from_ctor(ctx, new_target, JS_CLASS_NUMBER);
-        // if !obj.is_exception() {
-        //     JS_SetObjectData(ctx, obj, val);
-        // }
-        // obj
+        ctx.create_instance_from_ctor(new_target, JSObjectIsa::NUMBER(val))
+            .map_err(|_| -1)
     } else {
-        val
+        Ok(val)
     }
 }

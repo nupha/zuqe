@@ -1,9 +1,11 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{consts::*, JSAtom, JSAtomTypeHint, JS_ATOM_NULL},
-    bytecode::{opcodes, OpCode, OpCodeTemp},
+    atom::{JS_ATOM_NULL, JSAtom, JSAtomTypeHint, consts::*},
+    bytecode::{OpCode, OpCodeTemp, opcodes},
     function::{JSFunctionDef, JSFunctionKindEnum},
-    utils::{push_vec_u16, push_vec_u32, push_vec_u8},
-    value::{JSValueConst, JS_TAG_STRING},
+    utils::{push_vec_u8, push_vec_u16, push_vec_u32},
+    value::{JSValue, JSValueConst},
 };
 
 use super::state::JSParseState;
@@ -34,7 +36,8 @@ impl JSFunctionDef {
 
     /// emit an atom, increase ref_count
     pub fn emit_atom_dup(&mut self, name: JSAtom) {
-        self.emit_u32(name.dup(self.ctx.rt()).0);
+        let name = name.dup(&self.ctx.rt());
+        self.emit_u32(name.0);
     }
 
     fn emit_op_u8(&mut self, op: u8, last_line_num: i32) {
@@ -204,14 +207,14 @@ impl JSFunctionDef {
     }
 
     /// Note: `val` keep ref_count unchanged after calling this function
-    pub fn emit_push_const(&mut self, val: JSValueConst, as_atom: bool, last_line_num: i32) -> i32 {
-        if val.tag() == JS_TAG_STRING && as_atom {
+    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool, last_line_num: i32) -> i32 {
+        if val.is_string() && as_atom {
             // Note: converting to atom will consume the string,
             // so clone the string description to keep val's refcount
             if let Ok(atom) = self
                 .ctx
                 .rt_mut()
-                .add_atom_jsstring(val.with_string(|s| s.clone()), JSAtomTypeHint::String)
+                .register_atom_jsstring(val.string().unwrap().clone(), JSAtomTypeHint::String)
             {
                 if !atom.is_int_type() {
                     self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
@@ -221,7 +224,7 @@ impl JSFunctionDef {
             }
         }
 
-        if let Ok(idx) = self.cpool_add(self.ctx, val.dup()) {
+        if let Ok(idx) = self.cpool_add(val) {
             self.emit_op(OpCode::PUSH_CONST, last_line_num);
             self.emit_u32(idx as u32);
             0
@@ -540,12 +543,12 @@ pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) 
 
     (*s).throw_syntax_error(if name == JS_ATOM_NULL {
         if is_continue {
-            c"continue must be inside loop"
+            "continue must be inside loop"
         } else {
-            c"break must be inside loop or switch"
+            "break must be inside loop or switch"
         }
     } else {
-        c"break/continue label not found"
+        "break/continue label not found"
     });
 
     -1

@@ -1,19 +1,20 @@
+use std::ops::{Deref, DerefMut};
+
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtomRT},
+    atom::{JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
-    function::{js_poll_interrupts, JSCFunctionEnum, JS_Call, JS_CallFree},
+    error::JSResult,
+    function::{JS_Call, JSCFunctionEnum, js_poll_interrupts},
     gc::GCMarkFunc,
-    map::JSMapRecord,
+    map::MapKV,
     mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
+        JS_FreeValue, JSValue, JSValueConst,
         object::{
-            JSObjectIsa, JS_GetPrototypeFree, JS_NewObject, JS_ToObjectFree, PropertyEnum,
             JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW,
+            JS_PROP_ENUMERABLE, JS_PROP_THROW, JSObjectIsa, PropertyEnum,
         },
-        JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT, JS_ToBoolFree, JS_TAG_NULL,
-        JS_TAG_OBJECT, JS_TAG_UNDEFINED,
     },
 };
 
@@ -25,12 +26,14 @@ pub enum JSIteratorKindEnum {
     JS_ITERATOR_KIND_KEY_AND_VALUE,
 }
 
+#[derive(Debug)]
 pub struct JSMapIteratorData {
     pub obj: JSValue,
     pub kind: JSIteratorKindEnum,
-    pub cur_record: *mut JSMapRecord,
+    pub cur_record: MapKV,
 }
 
+#[derive(Debug)]
 pub struct JSForInIterator {
     pub obj: JSValue,
     pub idx: u32,
@@ -41,147 +44,103 @@ pub struct JSForInIterator {
 }
 
 /// create an Object with two properties: `value` and `done`.
-/// Note: `val` is consumed.
-pub unsafe fn js_create_iterator_result(ctx: &mut JSContext, val: JSValue, done: bool) -> JSValue {
-    let obj = JS_NewObject(ctx);
-    if obj.is_exception() {
-        JS_FreeValue(ctx, val);
-        return obj;
-    }
-
-    if obj
-        .define_property_value(ctx, JS_ATOM_value, val, JS_PROP_C_W_E)
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    if obj
-        .define_property_value(
-            ctx,
-            JS_ATOM_done,
-            if done { JSValue::TRUE } else { JSValue::FALSE },
-            JS_PROP_C_W_E,
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    obj
+pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) -> JSResult {
+    let obj = ctx.create_base_object()?;
+    obj.define_property_value(ctx, JS_ATOM_value, value, JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, JS_ATOM_done, JSValue::Bool(done), JS_PROP_C_W_E)?;
+    Ok(obj)
 }
 
-pub unsafe fn JS_GetIterator2(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    method: JSValueConst,
-) -> JSValue {
-    let enum_obj = JS_Call(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut());
+pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueConst) -> JSValue {
+    let enum_obj = JS_Call(ctx, method, obj, &[]);
     if enum_obj.is_exception() {
         return enum_obj;
     }
 
     if !enum_obj.is_object() {
-        JS_FreeValue(ctx, enum_obj);
-        return (*ctx).JS_ThrowTypeErrorNotAnObject();
+        ctx.JS_ThrowTypeErrorNotAnObject();
+        return JSValue::EXCEPTION;
     }
 
     return enum_obj;
 }
 
-pub unsafe fn JS_GetIterator(ctx: *mut JSContext, obj: JSValueConst, is_async: bool) -> JSValue {
+pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JSValue {
     let method = if is_async {
-        let mut val = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_asyncIterator);
+        let mut val = obj.get_property(ctx, JS_ATOM_Symbol_asyncIterator);
         if val.is_exception() {
             return JSValue::EXCEPTION;
         }
 
         if val.is_undefined_or_null() {
-            val = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_iterator);
+            val = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
             if val.is_exception() {
                 return val;
             }
 
-            let sync_iter = JS_GetIterator2(ctx, obj, val);
-            JS_FreeValue(ctx, val);
+            let sync_iter = JS_GetIterator2(ctx, obj, &val);
             if sync_iter.is_exception() {
                 return JSValue::EXCEPTION;
             }
 
-            let ret = (*ctx)
+            let ret = ctx
                 .create_async_from_sync_iterator(sync_iter)
                 .unwrap_or(JSValue::EXCEPTION);
 
-            JS_FreeValue(ctx, sync_iter);
             return ret;
         }
 
         val
     } else {
-        let v = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_iterator);
+        let v = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
         if v.is_exception() {
             return JSValue::EXCEPTION;
         }
         v
     };
 
-    if !method.is_callable(ctx.as_ref().unwrap()) {
-        JS_FreeValue(ctx, method);
-        return (*ctx).JS_ThrowTypeError(c"value is not iterable");
+    if !method.is_callable() {
+        ctx.JS_ThrowTypeError("value is not iterable");
+        return JSValue::EXCEPTION;
     }
 
-    let ret = JS_GetIterator2(ctx, obj, method);
-    JS_FreeValue(ctx, method);
-
-    ret
+    JS_GetIterator2(ctx, obj, &method)
 }
 
 /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
-pub unsafe fn JS_IteratorNext2(
-    ctx: *mut JSContext,
-    enum_obj: JSValueConst,
-    method: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    pdone: *mut i32,
+pub fn JS_IteratorNext2(
+    ctx: &JSContext,
+    enum_obj: &JSValue,
+    method: &JSValue,
+    args: &[JSValue],
+    pdone: &mut i32,
 ) -> JSValue {
     // fast path for the built-in iterators (avoid creating the
     // intermediate result object)
-    if method.is_object() {
-        let p = method.object_unchecked();
-
-        if let JSObjectIsa::C_FUNCTION(cfunc) = p.isa() {
+    if let JSValue::Object(p) = method {
+        if let JSObjectIsa::C_FUNCTION(cfunc) = p.0.isa.borrow().deref() {
             if cfunc.cproto == JSCFunctionEnum::IteratorNext {
-                let ret = (cfunc.c_function.iterator_next)(
-                    ctx,
-                    enum_obj,
-                    argc,
-                    if argc == 0 {
-                        [JSValue::UNDEFINED].as_mut_ptr()
-                    } else {
-                        argv
-                    },
-                    pdone,
-                    cfunc.magic as _,
-                );
+                let ret = unsafe {
+                    (cfunc.c_function.iterator_next)(
+                        ctx,
+                        enum_obj.clone(),
+                        args,
+                        pdone,
+                        cfunc.magic as _,
+                    )
+                };
                 return ret;
             }
         }
     }
 
-    let obj = JS_Call(ctx.as_mut().unwrap(), method, enum_obj, argc, argv);
+    let obj = JS_Call(ctx, method, enum_obj, args);
     if obj.is_exception() {
         *pdone = 0;
         return JSValue::EXCEPTION;
     }
     if !obj.is_object() {
-        JS_FreeValue(ctx, obj);
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"iterator must return an object");
-
+        ctx.JS_ThrowTypeError("iterator must return an object");
         *pdone = 0;
         return JSValue::EXCEPTION;
     }
@@ -190,16 +149,15 @@ pub unsafe fn JS_IteratorNext2(
     obj
 }
 
-pub unsafe fn JS_IteratorNext(
-    ctx: *mut JSContext,
-    enum_obj: JSValueConst,
-    method: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    pdone: *mut bool,
+pub fn JS_IteratorNext(
+    ctx: &JSContext,
+    enum_obj: &JSValue,
+    method: &JSValue,
+    args: &[JSValue],
+    pdone: &mut bool,
 ) -> JSValue {
     let mut done: i32 = 0;
-    let obj = JS_IteratorNext2(ctx, enum_obj, method, argc, argv, &mut done);
+    let obj = unsafe { JS_IteratorNext2(ctx, enum_obj, method, args, &mut done) };
     if obj.is_exception() {
         *pdone = false;
         return JSValue::EXCEPTION;
@@ -208,85 +166,71 @@ pub unsafe fn JS_IteratorNext(
     if done != 2 {
         *pdone = done != 0;
         return obj;
-    } else {
-        let done_val = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_done);
-        if done_val.is_exception() {
-            JS_FreeValue(ctx, obj);
-            *pdone = false;
-            return JSValue::EXCEPTION;
-        }
-        *pdone = JS_ToBoolFree(ctx, done_val).unwrap_or(true);
+    }
 
-        let value = if !*pdone {
-            obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_value)
-        } else {
-            JSValue::UNDEFINED
-        };
-        JS_FreeValue(ctx, obj);
-        return value;
+    let done_val = obj.get_property(ctx, JS_ATOM_done);
+    if done_val.is_exception() {
+        *pdone = false;
+        return JSValue::EXCEPTION;
+    }
+
+    *pdone = done_val.coerce_to_bool(ctx).unwrap_or(true);
+    if !*pdone {
+        obj.get_property(ctx, JS_ATOM_value)
+    } else {
+        JSValue::UNDEFINED
     }
 }
 
-pub unsafe fn JS_IteratorClose(
-    ctx: *mut JSContext,
-    enum_obj: JSValueConst,
+pub fn JS_IteratorClose(
+    ctx: &JSContext,
+    enum_obj: &JSValueConst,
     is_exception_pending: bool,
 ) -> Result<(), i32> {
     let (exc_obj, mut res) = if is_exception_pending {
-        let exc = (*ctx).rt_mut().current_exception.replace(JSValue::NULL);
+        let exc = ctx.take_exception();
         (exc, -1)
     } else {
         (JSValue::UNDEFINED, 0)
     };
 
-    let method = enum_obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_return);
+    let method = enum_obj.get_property(ctx, JS_ATOM_return);
     if method.is_exception() {
         res = -1;
     } else {
         if !method.is_undefined_or_null() {
-            let ret = JS_CallFree(
-                ctx.as_mut().unwrap(),
-                method,
-                enum_obj,
-                0,
-                std::ptr::null_mut(),
-            );
+            let ret = JS_Call(ctx, &method, enum_obj, &[]);
             if !is_exception_pending {
                 if ret.is_exception() {
                     res = -1;
                 } else if !ret.is_object() {
-                    ctx.as_mut().unwrap().JS_ThrowTypeErrorNotAnObject();
+                    ctx.JS_ThrowTypeErrorNotAnObject();
                     res = -1;
                 }
             }
-            JS_FreeValue(ctx, ret);
         }
     }
 
     if is_exception_pending {
-        ctx.as_mut().unwrap().throw(exc_obj);
+        ctx.throw(exc_obj);
     }
 
-    if res == -1 {
-        Err(-1)
-    } else {
-        Ok(())
-    }
+    if res == -1 { Err(-1) } else { Ok(()) }
 }
 
 pub unsafe fn JS_IteratorGetCompleteValue(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
+    ctx: &JSContext,
+    obj: &JSValueConst,
     pdone: *mut bool,
 ) -> JSValue {
-    let done_val = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_done);
+    let done_val = obj.get_property(ctx, JS_ATOM_done);
     if done_val.is_exception() {
         *pdone = false;
         return JSValue::EXCEPTION;
     }
-    let done = JS_ToBoolFree(ctx, done_val).unwrap();
+    let done = done_val.coerce_to_bool(ctx).unwrap();
 
-    let value = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_value);
+    let value = obj.get_property(ctx, JS_ATOM_value);
     if value.is_exception() {
         *pdone = false;
         return JSValue::EXCEPTION;
@@ -295,60 +239,47 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     value
 }
 
-pub unsafe fn js_for_in_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
-    if let JSObjectIsa::FOR_IN_ITERATOR(p) = val.object_unchecked().isa_mut() {
-        let it = *p;
-
-        JS_FreeValueRT(rt, (*it).obj);
-
-        if !(*it).is_array {
-            for x in (*it).tab_atom.iter() {
+pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+    if let JSObjectIsa::FOR_IN_ITERATOR(it) = isa {
+        if !it.is_array {
+            for x in it.tab_atom.iter() {
                 JS_FreeAtomRT(rt, x.atom);
             }
         }
-
-        drop(Box::from_raw(it));
     }
 }
 
 pub unsafe fn js_for_in_iterator_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
-    if let JSObjectIsa::FOR_IN_ITERATOR(p) = val.object_unchecked().isa() {
-        let it = *p;
-        (*rt).gc_mark_value((*it).obj, mark_func);
+    if let JSObjectIsa::FOR_IN_ITERATOR(it) = val.object_unchecked().0.isa.borrow().deref() {
+        (*rt).gc_mark_value(&it.obj, mark_func);
     }
 }
 
 /// `obj` is consumed.
-pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValue {
-    let tag = obj.tag();
-    let obj = if !matches!(tag, JS_TAG_OBJECT | JS_TAG_NULL | JS_TAG_UNDEFINED) {
-        JS_ToObjectFree(ctx, obj)
+pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
+    let obj = if !matches!(obj, JSValue::Object(_) | JSValue::NULL | JSValue::UNDEFINED) {
+        obj.coerce_to_object(ctx).unwrap_or(JSValue::EXCEPTION)
     } else {
         obj
     };
 
-    let mut it = if let Some(p) = js_malloc_typed::<JSForInIterator>(ctx, 1, false) {
-        p.write(JSForInIterator {
-            obj,
-            idx: 0,
-            atom_count: 0,
-            in_prototype_chain: false,
-            is_array: false,
-            tab_atom: Box::new([]),
-        });
-        Box::from_raw(p.as_ptr())
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+    let mut it = Box::new(JSForInIterator {
+        obj: obj.clone(),
+        idx: 0,
+        atom_count: 0,
+        in_prototype_chain: false,
+        is_array: false,
+        tab_atom: Box::new([]),
+    });
 
-    if tag == JS_TAG_OBJECT {
-        let ob = obj.object_unchecked();
-        if ob.detailed.fast_array() {
+    if let JSValue::Object(ob) = obj {
+        if ob.flags().fast_array() {
             // check that there are no enumerable normal fields
             if !ob
                 .shape()
                 .unwrap()
+                .0
+                .borrow()
                 .props
                 .iter()
                 .any(|(_, prs)| prs.flags() & JS_PROP_ENUMERABLE != 0)
@@ -362,10 +293,9 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
 
         if !it.is_array {
             // not an array - get own property names list
-            if let Ok(names) = ob.get_own_property_names_internal(
-                ctx.as_mut().unwrap(),
-                JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-            ) {
+            if let Ok(names) =
+                ob.get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+            {
                 it.atom_count = names.len() as _;
                 it.tab_atom = names;
             } else {
@@ -374,84 +304,76 @@ pub unsafe fn build_for_in_iterator(ctx: *mut JSContext, obj: JSValue) -> JSValu
         }
     }
 
-    let it_ptr = Box::into_raw(it);
-    if let Ok(o) =
-        (*ctx).create_instance_from_proto(JSValue::NULL, JSObjectIsa::FOR_IN_ITERATOR(it_ptr))
+    if let Ok(o) = ctx.create_instance_from_proto(&JSValue::NULL, JSObjectIsa::FOR_IN_ITERATOR(it))
     {
         o
     } else {
-        drop(Box::from_raw(it_ptr));
-        JS_FreeValue(ctx, obj);
         JSValue::EXCEPTION
     }
 }
 
 // return -1 if exception, 0 if slow case, 1 if the enumeration is finished
 pub unsafe fn js_for_in_prepare_prototype_chain_enum(
-    ctx: *mut JSContext,
-    enum_obj: JSValueConst,
+    ctx: &JSContext,
+    enum_obj: &JSValueConst,
 ) -> i32 {
-    let it = if let JSObjectIsa::FOR_IN_ITERATOR(p) = enum_obj.object_unchecked().isa() {
-        *p
+    let mut isa = enum_obj.object_unchecked().0.isa.borrow_mut();
+    let it = if let JSObjectIsa::FOR_IN_ITERATOR(p) = isa.deref_mut() {
+        p
     } else {
         unreachable!()
     };
 
     // check if there are enumerable properties in the prototype chain (fast path)
-    let mut obj1 = (*it).obj.dup();
+    let mut obj1 = it.obj.clone();
 
     loop {
-        obj1 = JS_GetPrototypeFree(ctx, obj1);
+        match obj1.prototype(ctx) {
+            Ok(JSValue::NULL) => {
+                break;
+            }
+            Ok(v) => {
+                obj1 = v;
 
-        if obj1.is_null() {
-            break;
-        } else if obj1.is_exception() {
-            JS_FreeValue(ctx, obj1);
-            return -1;
-        }
+                // count own property names
+                let mut props_count: u32 = 0;
+                let r = obj1.object_unchecked().own_property_names_foreach(
+                    ctx,
+                    JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
+                    |_, _| {
+                        props_count += 1;
+                        Ok(())
+                    },
+                );
+                if r.is_err() {
+                    return -1;
+                }
 
-        // count own property names
-        let mut props_count: u32 = 0;
-        let r = obj1.object_unchecked().own_property_names_foreach(
-            ctx.as_mut().unwrap(),
-            JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
-            |_, _| {
-                props_count += 1;
-                Ok(())
-            },
-        );
-        if r.is_err() {
-            JS_FreeValue(ctx, obj1);
-            return -1;
-        }
+                if props_count != 0 {
+                    break;
+                }
 
-        if props_count != 0 {
-            JS_FreeValue(ctx, obj1);
-            break;
-        }
-
-        // must check for timeout to avoid infinite loop
-        if js_poll_interrupts(ctx.as_mut().unwrap()) != 0 {
-            JS_FreeValue(ctx, obj1);
-            return -1;
+                // must check for timeout to avoid infinite loop
+                if js_poll_interrupts(ctx) != 0 {
+                    return -1;
+                }
+            }
+            Err(_) => {
+                return -1;
+            }
         }
     } // loop
 
-    JS_FreeValue(ctx, obj1);
-
     // slow_path
-    if (*it).is_array {
-        if let Ok(names) = (*it)
+    if it.is_array {
+        if let Ok(names) = it
             .obj
             .object_unchecked()
-            .get_own_property_names_internal(
-                ctx.as_mut().unwrap(),
-                JS_GPN_STRING_MASK | JS_GPN_SET_ENUM,
-            )
+            .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
         {
-            (*it).is_array = false;
-            (*it).atom_count = names.len() as _;
-            (*it).tab_atom = names;
+            it.is_array = false;
+            it.atom_count = names.len() as _;
+            it.tab_atom = names;
         } else {
             return -1;
         }
@@ -459,12 +381,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
 
     for name in (*it).tab_atom.iter() {
         if enum_obj
-            .define_property_value(
-                ctx.as_mut().unwrap(),
-                name.atom,
-                JSValue::NULL,
-                JS_PROP_ENUMERABLE,
-            )
+            .define_property_value(ctx, name.atom, JSValue::NULL, JS_PROP_ENUMERABLE)
             .is_err()
         {
             return -1;
@@ -474,28 +391,24 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     0
 }
 
-pub unsafe fn iterator_to_array(ctx: *mut JSContext, items: JSValueConst) -> JSValue {
+pub unsafe fn iterator_to_array(ctx: &JSContext, items: &JSValueConst) -> JSValue {
     let iter = JS_GetIterator(ctx, items, false);
     if iter.is_exception() {
         return JSValue::EXCEPTION;
     }
 
-    let next_method = iter.get_property(ctx.as_mut().unwrap(), JS_ATOM_next);
+    let next_method = iter.get_property(ctx, JS_ATOM_next);
     if next_method.is_exception() {
-        JS_FreeValue(ctx, iter);
         return JSValue::EXCEPTION;
     }
 
-    if let Ok(r) = (*ctx).create_array() {
+    if let Ok(r) = ctx.create_array() {
         let mut k = 0;
         loop {
             let mut done = false;
-            let v = JS_IteratorNext(ctx, iter, next_method, 0, std::ptr::null_mut(), &mut done);
+            let v = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
             if v.is_exception() {
-                JS_IteratorClose(ctx, iter, true);
-                JS_FreeValue(ctx, next_method);
-                JS_FreeValue(ctx, iter);
-                JS_FreeValue(ctx, r);
+                JS_IteratorClose(ctx, &iter, true);
                 return JSValue::EXCEPTION;
             }
 
@@ -503,58 +416,43 @@ pub unsafe fn iterator_to_array(ctx: *mut JSContext, items: JSValueConst) -> JSV
                 break;
             }
 
-            if r.define_property_value(
-                ctx.as_mut().unwrap(),
-                JSAtom(k),
-                v,
-                JS_PROP_C_W_E | JS_PROP_THROW,
-            )
-            .is_err()
+            if r.define_property_value(ctx, JSAtom(k), v, JS_PROP_C_W_E | JS_PROP_THROW)
+                .is_err()
             {
-                JS_IteratorClose(ctx, iter, true);
-                JS_FreeValue(ctx, next_method);
-                JS_FreeValue(ctx, iter);
-                JS_FreeValue(ctx, r);
+                JS_IteratorClose(ctx, &iter, true);
                 return JSValue::EXCEPTION;
             }
 
             k += 1;
         }
 
-        JS_FreeValue(ctx, next_method);
-        JS_FreeValue(ctx, iter);
         r
     } else {
-        JS_FreeValue(ctx, next_method);
-        JS_FreeValue(ctx, iter);
         JSValue::EXCEPTION
     }
 }
 
 pub unsafe fn js_array_from_iterator(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     plen: *mut u32,
     obj: JSValueConst,
     method: JSValueConst,
 ) -> JSValue {
     *plen = 0;
 
-    let arr = if let Ok(a) = (*ctx).create_array() {
+    let arr = if let Ok(a) = ctx.create_array() {
         a
     } else {
         return JSValue::EXCEPTION;
     };
 
-    let iter = JS_GetIterator2(ctx, obj, method);
+    let iter = JS_GetIterator2(ctx, &obj, &method);
     if iter.is_exception() {
-        JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
     }
 
-    let next_method = iter.get_property(ctx.as_mut().unwrap(), JS_ATOM_next);
+    let next_method = iter.get_property(ctx, JS_ATOM_next);
     if next_method.is_exception() {
-        JS_FreeValue(ctx, iter);
-        JS_FreeValue(ctx, arr);
         return JSValue::EXCEPTION;
     }
 
@@ -562,34 +460,24 @@ pub unsafe fn js_array_from_iterator(
 
     loop {
         let mut done = false;
-        let val = JS_IteratorNext(ctx, iter, next_method, 0, std::ptr::null_mut(), &mut done);
+        let val = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
         if val.is_exception() {
-            JS_FreeValue(ctx, next_method);
-            JS_FreeValue(ctx, iter);
-            JS_FreeValue(ctx, arr);
             return JSValue::EXCEPTION;
         }
 
         if done {
-            JS_FreeValue(ctx, val);
             break;
         }
 
         if arr
-            .create_data_property_u32(ctx.as_mut().unwrap(), k, val, JS_PROP_THROW)
+            .create_data_property_u32(ctx, k, val, JS_PROP_THROW)
             .is_err()
         {
-            JS_FreeValue(ctx, next_method);
-            JS_FreeValue(ctx, iter);
-            JS_FreeValue(ctx, arr);
             return JSValue::EXCEPTION;
         }
 
         k += 1;
     }
-
-    JS_FreeValue(ctx, next_method);
-    JS_FreeValue(ctx, iter);
 
     *plen = k as u32;
     arr

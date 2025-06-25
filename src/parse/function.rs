@@ -1,11 +1,11 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, ARGUMENT_VAR_OFFSET},
+    function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::JSExportTypeEnum,
     parse::token::{CHAR_EQUAL, CHAR_STAR},
     value::JSValue,
@@ -18,14 +18,14 @@ use super::{
         emit_return, emit_u16, emit_u32, js_is_live_code,
     },
     error::js_parse_error_reserved_identifier,
-    esm::{add_export_entry, JSParseExportEnum},
+    esm::{JSParseExportEnum, add_export_entry},
     obj::set_object_name,
     parse::{js_parse_skip_parens_token, reparse_ident_token},
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
-        peek_token, token_is_pseudo_keyword, CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA,
-        CHAR_CURLY_L, CHAR_CURLY_R, TOK_ARROW, TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET,
-        TOK_VAR, TOK_YIELD,
+        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, TOK_ARROW,
+        TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR, TOK_YIELD, peek_token,
+        token_is_pseudo_keyword,
     },
     var::define_var,
 };
@@ -65,7 +65,7 @@ impl<'s> JSParseState<'s> {
         let fd0 = self.cur_func_ptr;
 
         let mut sub_fd = JSFunctionDef::new(
-            self.ctx.deref_mut(),
+            &self.ctx,
             fd0,
             false,
             is_expr,
@@ -136,7 +136,7 @@ impl<'s> JSParseState<'s> {
         macro_rules! fail {
             () => {
                 self.cur_func_ptr = fd0; // restore original cur_func
-                sub_fd.dispose(self.ctx.deref_mut()); // clean up and drop new fd
+                // sub_fd.dispose(self.ctx.deref_mut()); // clean up and drop new fd
                 return Err(-1);
             };
         }
@@ -163,13 +163,13 @@ impl<'s> JSParseState<'s> {
         let mut has_opt_arg = false;
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
-            if self.token.u.ident.is_reserved {
+            if self.token.data.is_reserved() {
                 js_parse_error_reserved_identifier(self);
                 fail!();
             }
 
-            let name = self.token.u.ident.atom;
-            if fd1.add_arg(self.ctx.deref_mut(), name).is_err() {
+            let name = self.token.data.ident_atom().unwrap();
+            if fd1.add_arg(&self.ctx, name).is_err() {
                 fail!();
             };
             fd1.defined_arg_count = 1;
@@ -216,9 +216,7 @@ impl<'s> JSParseState<'s> {
                         emit_u16(self, fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
-                        let idx = fd1
-                            .add_arg(self.ctx.deref_mut(), JS_ATOM_NULL)
-                            .expect("TODO") as i32;
+                        let idx = fd1.add_arg(&self.ctx, JS_ATOM_NULL).expect("TODO") as i32;
                         emit_op(self, OpCode::GET_ARG);
                         emit_u16(self, idx as _);
                     }
@@ -245,12 +243,12 @@ impl<'s> JSParseState<'s> {
                         fd1.defined_arg_count += 1;
                     }
                 } else if self.token.val == TOK_IDENT {
-                    if self.token.u.ident.is_reserved {
+                    if self.token.data.is_reserved() {
                         js_parse_error_reserved_identifier(self);
                         fail!();
                     }
 
-                    let name = self.token.u.ident.atom;
+                    let name = self.token.data.ident_atom().unwrap();
                     if name == JS_ATOM_yield
                         && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
@@ -264,7 +262,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     /* XXX: could avoid allocating an argument if rest is true */
-                    let idx = if let Ok(id) = fd1.add_arg(self.ctx.deref_mut(), name) {
+                    let idx = if let Ok(id) = fd1.add_arg(&self.ctx, name) {
                         id as i32
                     } else {
                         fail!();
@@ -337,7 +335,7 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                 } else {
-                    self.throw_syntax_error(c"missing formal parameter");
+                    self.throw_syntax_error("missing formal parameter");
                     fail!();
                 }
 
@@ -357,7 +355,7 @@ impl<'s> JSParseState<'s> {
             if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && !fd1.args.is_empty())
                 || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.args.len() != 1)
             {
-                self.throw_syntax_error(c"invalid number of arguments for getter or setter");
+                self.throw_syntax_error("invalid number of arguments for getter or setter");
                 fail!();
             }
         }
@@ -379,7 +377,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if fd1.find_var(var_name).is_none() {
-                    if fd1.add_var(self.ctx.deref_mut(), var_name).is_err() {
+                    if fd1.add_var(&self.ctx, var_name).is_err() {
                         fail!();
                     }
 
@@ -537,7 +535,6 @@ impl<'s> JSParseState<'s> {
         export_flag: JSParseExportEnum,
         pfd: *mut *mut JSFunctionDef,
     ) -> Result<(), i32> {
-        let mut ctx = self.ctx;
         let is_expr = !matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
@@ -571,11 +568,11 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if self.token.val == TOK_IDENT {
-                    if self.token.u.ident.is_reserved
-                        || (self.token.u.ident.atom == JS_ATOM_yield
+                    if self.token.data.is_reserved()
+                        || (self.token.data.ident_atom().unwrap() == JS_ATOM_yield
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                             && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                        || (self.token.u.ident.atom == JS_ATOM_await
+                        || (self.token.data.ident_atom().unwrap() == JS_ATOM_await
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                                 && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
                                     != 0)
@@ -592,21 +589,21 @@ impl<'s> JSParseState<'s> {
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
-                    func_name = self.token.u.ident.atom.dup(ctx.rt());
+                    func_name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
                     if self.next_token().is_err() {
-                        JS_FreeAtom(ctx.as_ptr(), func_name);
+                        JS_FreeAtom(&self.ctx, func_name);
                         return Err(-1);
                     }
                 } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                     && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
                 {
-                    self.throw_syntax_error(c"function name expected");
+                    self.throw_syntax_error("function name expected");
                     return Err(-1);
                 }
             }
             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {}
             _ => {
-                func_name = func_name.dup(ctx.rt());
+                func_name = func_name.dup(&self.ctx.rt());
             }
         }
 
@@ -621,9 +618,9 @@ impl<'s> JSParseState<'s> {
             if let Some(v) = fd0.find_global_var(func_name) {
                 if v.scope_level == fd0.scope_level {
                     self.throw_syntax_error(
-                        c"invalid redefinition of global identifier in module code",
+                        "invalid redefinition of global identifier in module code",
                     );
-                    JS_FreeAtom(ctx.as_ptr(), func_name);
+                    JS_FreeAtom(&self.ctx, func_name);
                     return Err(-1);
                 }
             }
@@ -651,8 +648,8 @@ impl<'s> JSParseState<'s> {
                 if let Some(hf) = fd0.find_global_var(func_name) {
                     /* XXX: should check scope chain */
                     if hf.scope_level == fd0.scope_level {
-                        self.throw_syntax_error(c"invalid redefinition of global identifier");
-                        JS_FreeAtom(ctx.as_ptr(), func_name);
+                        self.throw_syntax_error("invalid redefinition of global identifier");
+                        JS_FreeAtom(&self.ctx, func_name);
                         return Err(-1);
                     }
                 }
@@ -670,7 +667,7 @@ impl<'s> JSParseState<'s> {
                     },
                 );
                 if lexical_func_idx < 0 {
-                    JS_FreeAtom(ctx.as_ptr(), func_name);
+                    JS_FreeAtom(&self.ctx, func_name);
                     return Err(-1);
                 }
             }
@@ -700,7 +697,7 @@ impl<'s> JSParseState<'s> {
             // the real object will be set at the end of the compilation
             let cp_idx = self
                 .cur_func_mut()
-                .cpool_add(ctx, JSValue::NULL)
+                .cpool_add(JSValue::NULL)
                 .map_or(-1, |x| x as i32);
 
             fd1.parent_cpool_idx = cp_idx;
@@ -729,9 +726,11 @@ impl<'s> JSParseState<'s> {
                     if self.cur_func().is_global_var {
                         // the global variable must be defined at the start of the function
                         let js_mode = self.cur_func().js_mode;
-                        let hf = self
-                            .cur_func_mut()
-                            .add_global_var(ctx.deref_mut(), func_name)?;
+
+                        let hf = {
+                            let ctx = self.ctx.clone();
+                            self.cur_func_mut().add_global_var(&ctx, func_name)?
+                        };
 
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
@@ -747,7 +746,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(func_name).is_none() {
-                            self.cur_func_mut().add_var(ctx.deref_mut(), func_name)?;
+                            let ctx = self.ctx.clone();
+                            self.cur_func_mut().add_var(&ctx, func_name)?;
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
@@ -799,16 +799,20 @@ impl<'s> JSParseState<'s> {
                         func_name
                     };
 
-                    /* the variable will be assigned at the top of the function */
-                    let hf = self
-                        .cur_func_mut()
-                        .add_global_var(ctx.deref_mut(), func_var_name)?;
-                    hf.cpool_idx = cp_idx;
+                    // the variable will be assigned at the top of the function
+                    {
+                        let ctx = self.ctx.clone();
+                        self.cur_func_mut()
+                            .add_global_var(&ctx, func_var_name)?
+                            .cpool_idx = cp_idx;
+                    }
 
                     if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
-                        if add_export_entry(
+                        let md = self.cur_func().module.clone().unwrap();
+
+                        add_export_entry(
                             self,
-                            self.cur_func().module,
+                            &md,
                             func_var_name,
                             if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
                                 func_var_name
@@ -819,11 +823,7 @@ impl<'s> JSParseState<'s> {
                                 var_idx: u16::MAX,
                                 var_ref: None,
                             },
-                        )
-                        .is_null()
-                        {
-                            return Err(-1);
-                        }
+                        )?;
                     }
                 }
             }
@@ -864,12 +864,12 @@ impl<'s> JSParseState<'s> {
 pub unsafe fn js_parse_check_duplicate_parameter(s: *mut JSParseState, name: JSAtom) -> i32 {
     // Check for duplicate parameter names
     if (*s).cur_func().args.iter().any(|vd| vd.var_name == name) {
-        (*s).throw_syntax_error(c"duplicate parameter names not allowed in this context");
+        (*s).throw_syntax_error("duplicate parameter names not allowed in this context");
         return -1;
     }
 
     if (*s).cur_func().vars.iter().any(|vd| vd.var_name == name) {
-        (*s).throw_syntax_error(c"duplicate parameter names not allowed in this context");
+        (*s).throw_syntax_error("duplicate parameter names not allowed in this context");
         return -1;
     }
 
@@ -884,12 +884,12 @@ pub unsafe fn js_parse_function_check_names(
     if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
         if !(*fd).has_simple_parameter_list && (*fd).has_use_strict {
             (*s).throw_syntax_error(
-                c"\"use strict\" not allowed in function with default or destructuring parameter",
+                "'use strict' not allowed in function with default or destructuring parameter",
             );
             return -1;
         }
         if func_name == JS_ATOM_eval || func_name == JS_ATOM_arguments {
-            (*s).throw_syntax_error(c"invalid function name in strict code");
+            (*s).throw_syntax_error("invalid function name in strict code");
             return -1;
         }
 
@@ -898,7 +898,7 @@ pub unsafe fn js_parse_function_check_names(
             .iter()
             .any(|vd| matches!(vd.var_name, JS_ATOM_eval | JS_ATOM_arguments))
         {
-            (*s).throw_syntax_error(c"invalid argument name in strict code");
+            (*s).throw_syntax_error("invalid argument name in strict code");
             return -1;
         }
     }
@@ -921,7 +921,7 @@ pub unsafe fn js_parse_function_check_names(
             }
         }) {
             if (*fd).args.iter().take(idx).any(|d| d.var_name == name) {
-                (*s).throw_syntax_error(c"duplicate argument names not allowed in this context");
+                (*s).throw_syntax_error("duplicate argument names not allowed in this context");
                 return -1;
             }
 
@@ -932,7 +932,7 @@ pub unsafe fn js_parse_function_check_names(
                 .iter()
                 .any(|d| d.var_name == name && d.scope_level == 0)
             {
-                (*s).throw_syntax_error(c"duplicate argument names not allowed in this context");
+                (*s).throw_syntax_error("duplicate argument names not allowed in this context");
                 return -1;
             }
         }

@@ -1,35 +1,37 @@
+use std::ops::Deref;
+
 use crate::{
-    array::{js_get_fast_array, JS_CopySubArray, JS_IsArray, JS_ToArrayLengthFree},
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_NATIVE_ITERATOR_NEXT_DEF,
+    JS_PROP_STRING_DEF,
+    array::{JS_CopySubArray, JS_ToArrayLengthFree},
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
     },
     bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
     context::JSContext,
-    error::{JS_ThrowRangeError, JS_ThrowStackOverflow},
+    error::{JS_ThrowRangeError, JS_ThrowStackOverflow, JSResult},
     function::{
-        CallArgs, JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree,
-        JS_GetFunctionRealm, JS_Invoke,
+        CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke,
+        JSCFunctionListEntry,
     },
     iterator::{
-        js_array_iterator_next, js_create_array_iterator, JSIteratorKindEnum, JS_IteratorClose,
-        JS_IteratorNext,
+        JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_array_iterator_next,
+        js_create_array_iterator,
     },
     js_core::{js_get_this, object::js_object_toString},
     runtime::js_check_stack_overflow,
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::{
+        JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat, JSString, JSValue, MAX_SAFE_INTEGER,
+        StringContent,
         object::{
-            js_get_length64, JSObjectIsa, JS_ToObject, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-            JS_PROP_THROW,
+            JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObjectIsa, js_get_length64,
         },
-        JSString, JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_IsException,
-        JS_IsNumber, JS_IsUndefined, JS_ToBoolFree, JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat,
-        JS_ToLocaleStringFree, JS_ToStringFree, StringContent, JS_VALUE_GET_OBJ, MAX_SAFE_INTEGER,
     },
-    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CGETSET_DEF, JS_ITERATOR_NEXT_DEF,
-    JS_PROP_STRING_DEF,
 };
+
+use super::JSObjectArray;
 
 pub const special_find: i32 = 0;
 pub const special_findIndex: i32 = 1;
@@ -50,96 +52,53 @@ pub const special_TA: i32 = 8;
 pub const special_reduce: i32 = 0;
 pub const special_reduceRight: i32 = 1;
 
-pub unsafe fn js_array_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = if let Ok(o) =
-        (*ctx).create_instance_from_ctor(new_target, JSObjectIsa::ARRAY(JSObjectArray::default()))
-    {
-        o
-    } else {
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let new_target = cc.this();
 
-    if argc == 1 && JS_IsNumber(*argv.offset(0)) {
-        let len = if let Ok(l) = JS_ToArrayLengthFree(ctx, (*argv.offset(0)).dup(), true) {
-            l
-        } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
+    let obj_val = ctx
+        .create_instance_from_ctor(new_target, JSObjectIsa::ARRAY(JSObjectArray::default()))
+        .map_err(|_| -1)?;
 
-        if obj
-            .set_property(
-                ctx.as_mut().unwrap(),
-                JS_ATOM_length,
-                JSValue::from_u32(len),
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+    if cc.length() == 1 && cc.arg(0).is_number() {
+        let len = unsafe { JS_ToArrayLengthFree(ctx, cc.arg(0).clone(), true)? };
+        obj_val.set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
     } else {
-        for i in 0..argc {
-            if obj
-                .set_property_u32(
-                    ctx.as_mut().unwrap(),
-                    i as u32,
-                    (*argv.offset(i as isize)).dup(),
-                )
-                .is_err()
-            {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+        for (i, a) in cc.arguments().iter().enumerate() {
+            obj_val.set_property_u32(ctx, i as u32, a.clone())?;
         }
     }
 
-    obj
+    Ok(obj_val)
 }
 
-pub unsafe fn JS_ArraySpeciesCreate(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    len_val: JSValueConst,
-) -> JSValue {
-    let res = if let Ok(b) = JS_IsArray(ctx, obj) {
+pub fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: JSValue) -> JSResult {
+    let res = {
+        let b = obj.is_array(ctx)?;
         if !b {
-            return js_array_constructor(ctx, JSValue::UNDEFINED, 1, [len_val].as_mut_ptr());
+            return js_array_constructor(
+                ctx,
+                CallContext::new(ctx, JSValue::UNDEFINED, &[len_val], 0, None),
+            );
         }
         b
-    } else {
-        return JSValue::EXCEPTION;
     };
 
-    let mut ctor = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_constructor);
-    if ctor.is_exception() {
-        return ctor;
-    }
+    let mut ctor = obj
+        .get_property(ctx, JS_ATOM_constructor)
+        .check_exception()?;
 
     if ctor.is_constructor() {
         // legacy web compatibility
-        let realm = JS_GetFunctionRealm(ctx, ctor);
-        if realm.is_null() {
-            JS_FreeValue(ctx, ctor);
-            return JSValue::EXCEPTION;
-        }
-        if realm != ctx && ctor.is_same((*realm).array_ctor) {
-            JS_FreeValue(ctx, ctor);
+        let realm = JS_GetFunctionRealm(ctx, &ctor)?;
+        if !realm.eq(ctx) && ctor.is_same(&realm.0.borrow().array_ctor) {
             ctor = JSValue::UNDEFINED;
         }
     }
 
     if ctor.is_object() {
-        let species = ctor.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_species);
-        JS_FreeValue(ctx, ctor);
-        if species.is_exception() {
-            return species;
-        }
+        let species = ctor
+            .get_property(ctx, JS_ATOM_Symbol_species)
+            .check_exception()?;
         ctor = species;
         if ctor.is_null() {
             ctor = JSValue::UNDEFINED;
@@ -147,51 +106,39 @@ pub unsafe fn JS_ArraySpeciesCreate(
     }
 
     if ctor.is_undefined() {
-        js_array_constructor(ctx, JSValue::UNDEFINED, 1, [len_val].as_mut_ptr())
+        js_array_constructor(
+            ctx,
+            CallContext::new(ctx, JSValue::UNDEFINED, &[len_val], 0, None),
+        )
     } else {
-        let ret = JS_CallConstructor(ctx.as_mut().unwrap(), ctor, 1, [len_val].as_mut_ptr());
-        JS_FreeValue(ctx, ctor);
-        ret
+        JS_CallConstructor(ctx, &ctor, &[len_val]).check_exception()
     }
 }
 
-pub unsafe fn JS_isConcatSpreadable(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
+pub unsafe fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     if !obj.is_object() {
         return Ok(false);
     }
 
-    let tmp = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_isConcatSpreadable);
-    if tmp.is_exception() {
-        return Err(-1);
-    }
+    let tmp = obj
+        .get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)
+        .check_exception()?;
 
     if !tmp.is_undefined() {
-        JS_ToBoolFree(ctx, tmp)
+        tmp.coerce_to_bool(ctx)
     } else {
-        JS_IsArray(ctx, obj)
+        obj.is_array(ctx)
     }
 }
 
-pub unsafe fn js_array_at(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
+pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut idx: i64 = 0;
-    let mut count: u32 = 0;
 
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
-    if JS_ToInt64Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
 
     if idx < 0 {
@@ -199,49 +146,35 @@ pub unsafe fn js_array_at(
     }
 
     let ret: JSValue = if idx < 0 {
-        // bad index
-        JSValue::UNDEFINED
-    } else if let Some(lst) = obj.fast_array_values().and_then(|a| {
-        if a.len() == len as usize {
-            Some(a)
-        } else {
-            None
-        }
-    }) {
-        // fast array
-        lst[idx as usize].dup()
+        JSValue::UNDEFINED // bad index
+    } else if let Some(val) = obj
+        .with_fast_array_values(|a| {
+            if a.len() == len as usize {
+                Some(a[idx as usize].clone())
+            } else {
+                None
+            }
+        })
+        .flatten()
+    {
+        // fast array element
+        val
     } else {
         // slow array
-        match obj.try_get_property_i64(ctx.as_mut().unwrap(), idx) {
-            Ok(Some(r)) => r,
-            Ok(None) => JSValue::UNDEFINED,
-            Err(_) => JSValue::EXCEPTION,
-        }
+        obj.try_get_property_i64(ctx, idx)?
+            .unwrap_or(JSValue::UNDEFINED)
     };
 
-    JS_FreeValue(ctx, obj);
-    ret
+    Ok(ret)
 }
 
-pub unsafe fn js_array_with(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut idx: i64 = 0;
-    if JS_ToInt64Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-        // C2RS: goto exception replaced with early return logic
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
 
     if idx < 0 {
@@ -249,362 +182,172 @@ pub unsafe fn js_array_with(
     }
 
     if idx < 0 || idx >= len {
-        JS_ThrowRangeError(ctx, c"out of bound");
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+        JS_ThrowRangeError(ctx, "out of bound");
+        return Err(-1);
     }
 
-    let arr = (*ctx).create_fast_array(std::cmp::max(len, 0) as usize);
-    if JS_IsException(arr) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    let arr = ctx.create_fast_array(std::cmp::max(len, 0) as usize)?;
 
-    let p = JS_VALUE_GET_OBJ(arr);
-    let dest = (*p).fast_array_values_mut_unchecked();
+    unsafe { arr.object_unchecked() }
+        .with_fast_array_values_mut(|dst| -> Result<(), i32> {
+            if obj
+                .with_fast_array_values(|src| {
+                    if src.len() == len as usize {
+                        // fast array
+                        for v in &src[0..(idx as usize)] {
+                            dst.push(v.clone());
+                        }
 
-    if let Some(src) = obj.fast_array_values().and_then(|a| {
-        if a.len() == len as usize {
-            Some(a)
-        } else {
-            None
-        }
-    }) {
-        // fast array
-        for v in &src[0..(idx as usize)] {
-            dest.push(v.dup());
-        }
+                        // the modified element
+                        dst.push(cc.arg(1).clone());
 
-        // the changed element
-        dest.push((*argv.offset(1)).dup());
+                        for v in &src[idx as usize..] {
+                            dst.push(v.clone());
+                        }
 
-        for v in &src[idx as usize..] {
-            dest.push(v.dup());
-        }
-    } else {
-        // slow array
-        // 0..idx
-        for i in 0..idx {
-            match obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
-                Ok(Some(v)) => {
-                    dest.push(v.dup());
-                }
-                Ok(None) => {
-                    dest.push(JSValue::UNDEFINED);
-                }
-                Err(_) => {
-                    // fill rest with undefined
-                    for _ in i..len {
-                        dest.push(JSValue::UNDEFINED);
+                        Some(())
+                    } else {
+                        None
                     }
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
+                })
+                .flatten()
+                .is_none()
+            {
+                // slow array
+                // 0..idx
+                for i in 0..idx {
+                    match obj.try_get_property_i64(ctx, i) {
+                        Ok(Some(v)) => {
+                            dst.push(v);
+                        }
+                        Ok(None) => {
+                            dst.push(JSValue::UNDEFINED);
+                        }
+                        Err(_) => {
+                            // fill rest with undefined
+                            for _ in i..len {
+                                dst.push(JSValue::UNDEFINED);
+                            }
+                            return Err(-1);
+                        }
+                    }
+                }
+
+                // updated value
+                dst.push(cc.arg(1).clone());
+
+                // idx..end
+                for i in idx..len {
+                    match obj.try_get_property_i64(ctx, i) {
+                        Ok(Some(v)) => {
+                            dst.push(v);
+                        }
+                        Ok(None) => {
+                            dst.push(JSValue::UNDEFINED);
+                        }
+                        Err(_) => {
+                            // fill rest with undefined
+                            for _ in i..len {
+                                dst.push(JSValue::UNDEFINED);
+                            }
+                            return Err(-1);
+                        }
+                    }
                 }
             }
-        }
 
-        // updated value
-        dest.push((*argv.offset(1)).dup());
+            Ok(())
+        })
+        .unwrap()?;
 
-        // idx..end
-        for i in idx..len {
-            match obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
-                Ok(Some(v)) => {
-                    dest.push(v.dup());
-                }
-                Ok(None) => {
-                    dest.push(JSValue::UNDEFINED);
-                }
-                Err(_) => {
-                    // fill rest with undefined
-                    for _ in i..len {
-                        dest.push(JSValue::UNDEFINED);
-                    }
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-            }
-        }
-    }
-
-    // if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 as i64 == len {
-    //     let mut i = 0;
-    //     while i < idx {
-    //         *pval = (*arrp.offset(i as isize)).dup();
-    //         i += 1;
-    //         pval = pval.offset(1);
-    //     }
-
-    //     *pval = (*argv.offset(1)).dup();
-
-    //     i += 1;
-    //     pval = pval.offset(1);
-
-    //     while i < len {
-    //         *pval = (*arrp.offset(i as isize)).dup();
-    //         i += 1;
-    //         pval = pval.offset(1);
-    //     }
-    // } else {
-    //     let mut i = 0;
-    //     while i < idx {
-    //         match JS_TryGetPropertyInt64(ctx, obj, i) {
-    //             Ok(Some(r)) => {
-    //                 *pval = r;
-    //             }
-    //             Ok(None) => {
-    //                 *pval = JSValue::UNDEFINED;
-    //             }
-    //             Err(_) => {
-    //                 while i < len {
-    //                     *pval = JSValue::UNDEFINED;
-    //                     i += 1;
-    //                     pval = pval.offset(1);
-    //                 }
-    //                 JS_FreeValue(ctx, obj);
-    //                 return JSValue::EXCEPTION;
-    //             }
-    //         }
-    //     }
-
-    //     *pval = (*argv.offset(1)).dup();
-    //     i += 1;
-    //     pval = pval.offset(1);
-    //     while i < len {
-    //         match JS_TryGetPropertyInt64(ctx, obj, i) {
-    //             Ok(Some(r)) => {
-    //                 *pval = r;
-    //             }
-    //             Ok(None) => {
-    //                 *pval = JSValue::UNDEFINED;
-    //             }
-    //             Err(_) => {
-    //                 while i < len {
-    //                     *pval = JSValue::UNDEFINED;
-    //                     i += 1;
-    //                     pval = pval.offset(1);
-    //                 }
-    //                 JS_FreeValue(ctx, obj);
-    //                 return JSValue::EXCEPTION;
-    //             }
-    //         }
-    //     }
-    // }
-
-    if arr
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_i64(len),
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    arr
+    arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(len))?;
+    Ok(arr)
 }
 
-pub unsafe fn js_array_concat(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    if JS_IsException(obj) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    let arr = JS_ArraySpeciesCreate(ctx, obj, JSValue::ZERO);
-    if JS_IsException(arr) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let arr = unsafe { JS_ArraySpeciesCreate(ctx, &obj, JSValue::Int(0))? };
 
     let mut n = 0;
 
-    for i in -1..argc {
-        let e = if i < 0 { obj } else { *argv.offset(i as isize) };
-        let spreadable = if let Ok(b) = JS_isConcatSpreadable(ctx, e) {
-            b
-        } else {
-            JS_FreeValue(ctx, arr);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
+    for i in -1..cc.length() as i32 {
+        let e = if i < 0 { &obj } else { cc.arg(i as usize) };
+        let spreadable = unsafe { JS_isConcatSpreadable(ctx, e)? };
 
         if spreadable {
-            let len = if let Ok(l) = js_get_length64(ctx, e) {
-                l
-            } else {
-                JS_FreeValue(ctx, arr);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            };
+            let len = js_get_length64(ctx, &e)?;
 
             if n + len > MAX_SAFE_INTEGER {
-                (*ctx).JS_ThrowTypeError(c"Array loo long");
-                // C2RS: goto exception replaced with early return logic
-                JS_FreeValue(ctx, arr);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+                ctx.JS_ThrowTypeError("Array loo long");
+                return Err(-1);
             }
 
             for k in 0..len {
-                match e.try_get_property_i64(ctx.as_mut().unwrap(), k) {
-                    Ok(Some(val)) => {
-                        if arr
-                            .define_property_value_i64(
-                                ctx.as_mut().unwrap(),
-                                n,
-                                val,
-                                JS_PROP_C_W_E | JS_PROP_THROW,
-                            )
-                            .is_err()
-                        {
-                            JS_FreeValue(ctx, arr);
-                            JS_FreeValue(ctx, obj);
-                            return JSValue::EXCEPTION;
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        JS_FreeValue(ctx, arr);
-                        JS_FreeValue(ctx, obj);
-                        return JSValue::EXCEPTION;
-                    }
-                };
-
+                if let Some(val) = e.try_get_property_i64(ctx, k)? {
+                    arr.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                }
                 n += 1;
             }
         } else {
             if n >= MAX_SAFE_INTEGER {
-                (*ctx).JS_ThrowTypeError(c"Array loo long");
-                // C2RS: goto exception replaced with early return logic
-                JS_FreeValue(ctx, arr);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+                ctx.JS_ThrowTypeError("Array loo long");
+                return Err(-1);
             }
 
-            if arr
-                .define_property_value_i64(
-                    ctx.as_mut().unwrap(),
-                    n,
-                    e.dup(),
-                    JS_PROP_C_W_E | JS_PROP_THROW,
-                )
-                .is_err()
-            {
-                JS_FreeValue(ctx, arr);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-
+            arr.define_property_value_i64(ctx, n, e.clone(), JS_PROP_C_W_E | JS_PROP_THROW)?;
             n += 1;
         }
     }
 
-    if arr
-        .set_property(ctx.as_mut().unwrap(), JS_ATOM_length, JSValue::from_i64(n))
-        .is_err()
-    {
-        JS_FreeValue(ctx, arr);
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    JS_FreeValue(ctx, obj);
-    arr
+    arr.set_property(ctx, JS_ATOM_length, JSValue::from(n))?;
+    Ok(arr)
 }
 
-pub unsafe fn js_array_every(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    special: i32,
-) -> JSValue {
+pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let special = cc.magic();
+
     let obj: JSValue;
     let len: i64;
 
     if special & special_TA as i32 != 0 {
-        obj = this_val.dup();
-        len = if let Ok(l) = js_typed_array_get_length_internal(ctx.as_mut().unwrap(), obj) {
-            l as i64
-        } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+        obj = cc.this().clone();
+        len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? } as i64;
     } else {
-        obj = JS_ToObject(ctx, this_val);
-        len = if let Ok(l) = js_get_length64(ctx, obj) {
-            l
-        } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
+        obj = cc.this().coerce_to_object(ctx)?;
+        len = js_get_length64(ctx, &obj)?;
     }
 
-    let func = *argv.offset(0);
-    let this_arg = if argc > 1 {
-        *argv.offset(1)
+    let func = cc.arg(0);
+    let this_arg = if cc.length() > 1 {
+        cc.arg(1)
     } else {
-        JSValue::UNDEFINED
+        &JSValue::UNDEFINED
     };
-
-    if func.ensure_callable(ctx.as_mut().unwrap()).is_err() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    func.ensure_callable(ctx)?;
 
     let mut ret: JSValue;
-
     match special {
         s if s == special_every || s == special_every | special_TA => {
-            ret = JSValue::TRUE;
+            ret = JSValue::Bool(true);
         }
         s if s == special_some || s == special_some | special_TA => {
-            ret = JSValue::FALSE;
+            ret = JSValue::Bool(false);
         }
         special_map => {
-            ret = JS_ArraySpeciesCreate(ctx, obj, JSValue::from_i64(len));
-            if JS_IsException(ret) {
-                JS_FreeValue(ctx, ret);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, JSValue::from_i64(len))? };
         }
         special_filter => {
-            ret = JS_ArraySpeciesCreate(ctx, obj, JSValue::ZERO);
-            if JS_IsException(ret) {
-                JS_FreeValue(ctx, ret);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, JSValue::Int(0))? };
         }
         s if s == special_map | special_TA => {
             ret = js_typed_array___speciesCreate(
                 ctx,
-                JSValue::UNDEFINED,
-                2,
-                [obj, JSValue::from_i32(len as i32)].as_mut_ptr(),
-            );
-            if JS_IsException(ret) {
-                JS_FreeValue(ctx, ret);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+                &JSValue::UNDEFINED,
+                &[obj.clone(), JSValue::from(len as i32)],
+            )?;
         }
         s if s == special_filter | special_TA => {
-            ret = if let Ok(a) = (*ctx).create_array() {
-                a
-            } else {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            };
+            ret = ctx.create_array()?;
         }
         _ => {
             ret = JSValue::UNDEFINED;
@@ -615,199 +358,103 @@ pub unsafe fn js_array_every(
     let mut present: bool;
 
     for k in 0..len {
-        let mut val: JSValueRc = JSValue::UNDEFINED.into_rc((*ctx).rt());
+        let mut val = JSValue::UNDEFINED;
 
         if special & special_TA as i32 != 0 {
-            val = obj
-                .get_property_i64(ctx.as_mut().unwrap(), k)
-                .into_rc((*ctx).rt());
-            if val.is_exception() {
-                JS_FreeValue(ctx, ret);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            val = obj.get_property_i64(ctx, k).check_exception()?;
             present = true;
         } else {
-            match obj.try_get_property_i64(ctx.as_mut().unwrap(), k) {
-                Ok(Some(r)) => {
-                    val = r.into_rc((*ctx).rt());
+            match obj.try_get_property_i64(ctx, k)? {
+                Some(r) => {
+                    val = r;
                     present = true;
                 }
-                Ok(None) => {
+                None => {
                     present = false;
-                }
-                Err(_) => {
-                    JS_FreeValue(ctx, ret);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
                 }
             }
         }
 
         if present {
-            let index_val = JSValue::from_i64(k);
-            if JS_IsException(index_val) {
-                JS_FreeValue(ctx, ret);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-
-            let mut args: [JSValue; 3] = [*val, index_val, obj];
-            let res = JS_Call(ctx.as_mut().unwrap(), func, this_arg, 3, args.as_mut_ptr());
-            JS_FreeValue(ctx, index_val);
-            if JS_IsException(res) {
-                JS_FreeValue(ctx, ret);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            let index_val = JSValue::from_i64(k).check_exception()?;
+            let res = JS_Call(
+                ctx,
+                &func,
+                &this_arg,
+                &[val.clone(), index_val, obj.clone()],
+            )
+            .check_exception()?;
 
             match special {
                 s if s == special_every || s == special_every | special_TA => {
-                    if JS_ToBoolFree(ctx, res) == Ok(false) {
-                        ret = JSValue::FALSE;
+                    if let Ok(false) = res.coerce_to_bool(ctx) {
+                        ret = JSValue::Bool(false);
                         break;
                     }
                 }
                 s if s == special_some || s == special_some | special_TA => {
-                    if JS_ToBoolFree(ctx, res).unwrap_or(true) {
-                        ret = JSValue::TRUE;
+                    if res.coerce_to_bool(ctx).unwrap_or(true) {
+                        ret = JSValue::Bool(true);
                         break;
                     }
                 }
                 special_map => {
-                    if ret
-                        .define_property_value_i64(
-                            ctx.as_mut().unwrap(),
-                            k,
-                            res,
-                            JS_PROP_C_W_E | JS_PROP_THROW,
-                        )
-                        .is_err()
-                    {
-                        JS_FreeValue(ctx, ret);
-                        JS_FreeValue(ctx, obj);
-                        return JSValue::EXCEPTION;
-                    }
+                    ret.define_property_value_i64(ctx, k, res, JS_PROP_C_W_E | JS_PROP_THROW)?;
                 }
                 s if s == special_map | special_TA => {
-                    if ret
-                        .set_property_value(
-                            ctx.as_mut().unwrap(),
-                            JSValue::from_i32(k as i32),
-                            res,
-                            JS_PROP_THROW,
-                        )
-                        .is_err()
-                    {
-                        JS_FreeValue(ctx, ret);
-                        JS_FreeValue(ctx, obj);
-                        return JSValue::EXCEPTION;
-                    }
+                    ret.set_property_value(ctx, &JSValue::Int(k as i32), res, JS_PROP_THROW)?;
                 }
                 s if s == special_filter || s == special_filter | special_TA => {
-                    if JS_ToBoolFree(ctx, res).unwrap_or(true) {
-                        if ret
-                            .define_property_value_i64(
-                                ctx.as_mut().unwrap(),
-                                n,
-                                val.dup(),
-                                JS_PROP_C_W_E | JS_PROP_THROW,
-                            )
-                            .is_err()
-                        {
-                            JS_FreeValue(ctx, ret);
-                            JS_FreeValue(ctx, obj);
-                            return JSValue::EXCEPTION;
-                        }
+                    if res.coerce_to_bool(ctx).unwrap_or(true) {
+                        ret.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
                         n += 1;
                     }
                 }
-                _ => {
-                    JS_FreeValue(ctx, res);
-                }
+                _ => {}
             }
         }
     }
 
     if special == (special_filter | special_TA) as i32 {
-        let mut args: [JSValue; 2] = [obj, JSValue::from_i32(n as i32)];
-        let arr = js_typed_array___speciesCreate(ctx, JSValue::UNDEFINED, 2, args.as_mut_ptr());
-        if JS_IsException(arr) {
-            JS_FreeValue(ctx, ret);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-
-        args[0] = ret;
-        let res = JS_Invoke(
-            ctx.as_mut().unwrap(),
-            arr,
-            JS_ATOM_set,
-            1,
-            args.as_mut_ptr(),
-        )
-        .into_rc((*ctx).rt());
-
-        if res.is_exception() {
-            JS_FreeValue(ctx, ret);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-
-        JS_FreeValue(ctx, ret);
+        let arr = js_typed_array___speciesCreate(
+            ctx,
+            &JSValue::UNDEFINED,
+            &[obj, JSValue::Int(n as i32)],
+        )?;
+        let res =
+            JS_Invoke(ctx, &arr, JS_ATOM_set, &[ret, JSValue::Int(n as i32)]).check_exception()?;
         ret = arr;
     }
 
-    JS_FreeValue(ctx, obj);
-    ret
+    Ok(ret)
 }
 
-pub unsafe fn js_array_reduce(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    special: i32,
-) -> JSValue {
+pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let special = cc.magic();
+
     let obj: JSValue;
     let len: i64;
-
     if special & special_TA as i32 != 0 {
-        obj = this_val.dup();
-        len = if let Ok(l) = js_typed_array_get_length_internal(ctx.as_mut().unwrap(), obj) {
-            l as _
-        } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
+        obj = cc.this().clone();
+        len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? as i64 };
     } else {
-        obj = JS_ToObject(ctx, this_val);
-        len = if let Ok(l) = js_get_length64(ctx, obj) {
-            l
-        } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
+        obj = cc.this().coerce_to_object(ctx)?;
+        len = js_get_length64(ctx, &obj)?;
     }
 
-    let func = *argv.offset(0);
-    if func.ensure_callable(ctx.as_mut().unwrap()).is_err() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    let func = cc.arg(0);
+    func.ensure_callable(ctx)?;
 
     let mut acc = JSValue::UNDEFINED;
     let mut k = 0;
 
-    if argc > 1 {
-        acc = (*argv.offset(1)).dup();
+    if cc.length() > 1 {
+        acc = cc.arg(1).clone();
     } else {
         loop {
             if k >= len {
-                (*ctx).JS_ThrowTypeError(c"empty array");
-                JS_FreeValue(ctx, acc);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+                ctx.JS_ThrowTypeError("empty array");
+                return Err(-1);
             }
 
             let k1 = if special & special_reduceRight != 0 {
@@ -818,25 +465,15 @@ pub unsafe fn js_array_reduce(
             k += 1;
 
             if special & special_TA as i32 != 0 {
-                acc = obj.get_property_i64(ctx.as_mut().unwrap(), k1);
-                if acc.is_exception() {
-                    JS_FreeValue(ctx, acc);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                acc = obj.get_property_i64(ctx, k1).check_exception()?;
                 break;
             } else {
-                match obj.try_get_property_i64(ctx.as_mut().unwrap(), k1) {
-                    Ok(Some(r)) => {
+                match obj.try_get_property_i64(ctx, k1)? {
+                    Some(r) => {
                         acc = r;
                         break;
                     }
-                    Ok(None) => {}
-                    Err(_) => {
-                        JS_FreeValue(ctx, acc);
-                        JS_FreeValue(ctx, obj);
-                        return JSValue::EXCEPTION;
-                    }
+                    None => {}
                 }
             }
         }
@@ -852,136 +489,74 @@ pub unsafe fn js_array_reduce(
         k += 1;
 
         let present = if special & special_TA as i32 != 0 {
-            val = obj.get_property_i64(ctx.as_mut().unwrap(), k1);
-            if val.is_exception() {
-                JS_FreeValue(ctx, acc);
-                JS_FreeValue(ctx, val);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            val = obj.get_property_i64(ctx, k1).check_exception()?;
             true
         } else {
-            match obj.try_get_property_i64(ctx.as_mut().unwrap(), k1) {
-                Ok(Some(r)) => {
+            match obj.try_get_property_i64(ctx, k1)? {
+                Some(r) => {
                     val = r;
                     true
                 }
-                Ok(None) => false,
-                Err(_) => {
-                    JS_FreeValue(ctx, acc);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                None => false,
             }
         };
 
         if present {
-            let index_val = JSValue::from_i64(k1 as _);
-            if JS_IsException(index_val) {
-                JS_FreeValue(ctx, acc);
-                JS_FreeValue(ctx, val);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-
+            let index_val = JSValue::from(k1 as i64).check_exception()?;
             let acc1 = JS_Call(
-                ctx.as_mut().unwrap(),
-                func,
-                JSValue::UNDEFINED,
-                4,
-                [acc, val, index_val, obj].as_mut_ptr(),
-            );
-            JS_FreeValue(ctx, index_val);
-            JS_FreeValue(ctx, val);
-            val = JSValue::UNDEFINED;
-            if JS_IsException(acc1) {
-                JS_FreeValue(ctx, acc);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-            JS_FreeValue(ctx, acc);
+                ctx,
+                &func,
+                &JSValue::UNDEFINED,
+                &[acc, val.clone(), index_val, obj.clone()],
+            )
+            .check_exception()?;
             acc = acc1;
         }
     }
 
-    JS_FreeValue(ctx, obj);
-    acc
+    Ok(acc)
 }
 
-pub unsafe fn js_array_fill(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l as i64
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut start = 0_i64;
-    if argc > 1 && !JS_IsUndefined(*argv.offset(1)) {
-        if JS_ToInt64Clamp(ctx, &mut start, *argv.offset(1), 0, len, len) != 0 {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+    if cc.length() > 1 && !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt64Clamp(ctx, &mut start, cc.arg(1), 0, len, len) } != 0 {
+            return Err(-1);
         }
     }
 
     let mut end = len;
-    if argc > 2 && !JS_IsUndefined(*argv.offset(2)) {
-        if JS_ToInt64Clamp(ctx, &mut end, *argv.offset(2), 0, len, len) != 0 {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+    if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        if unsafe { JS_ToInt64Clamp(ctx, &mut end, cc.arg(2), 0, len, len) } != 0 {
+            return Err(-1);
         }
     }
 
     // XXX: should special case fast arrays
     while start < end {
-        if obj
-            .set_property_i64(ctx.as_mut().unwrap(), start, (*argv.offset(0)).dup())
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+        obj.set_property_i64(ctx, start, cc.arg(0).clone())?;
         start += 1;
     }
 
-    return obj;
+    Ok(obj)
 }
 
-use std::ptr::NonNull;
+pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let mode = cc.magic();
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
-use super::JSObjectArray;
+    let func = cc.arg(0);
+    func.ensure_callable(ctx)?;
 
-pub unsafe fn js_array_find(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    mode: i32,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l as i64
+    let this_val = cc.this();
+    let this_arg = if cc.length() > 1 {
+        &cc.arg(1)
     } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
-
-    let func = *argv.offset(0);
-    if func.ensure_callable(ctx.as_mut().unwrap()).is_err() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    let mut this_arg = if argc > 1 {
-        *argv.offset(1)
-    } else {
-        JSValue::UNDEFINED
+        &JSValue::UNDEFINED
     };
 
     let mut k: i64;
@@ -998,343 +573,184 @@ pub unsafe fn js_array_find(
         end = len;
     }
 
-    // TODO(bnoordhuis) add fast path for fast arrays
+    // TODO: add fast path for fast arrays
     while k != end {
-        let index_val = JSValue::from_i64(k);
-        if index_val.is_exception() {
-            JS_FreeValue(ctx, index_val);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-
-        let val = obj.get_property_value(ctx.as_mut().unwrap(), index_val);
-        if val.is_exception() {
-            JS_FreeValue(ctx, index_val);
-            JS_FreeValue(ctx, val);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-
+        let index_val = JSValue::from(k);
+        let val = obj.get_property_value(ctx, &index_val).check_exception()?;
         let res = JS_Call(
-            ctx.as_mut().unwrap(),
+            ctx,
             func,
             this_arg,
-            3,
-            [val, index_val, this_val].as_mut_ptr(),
-        );
-        if res.is_exception() {
-            JS_FreeValue(ctx, index_val);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+            &[val.clone(), index_val.clone(), this_val.clone()],
+        )
+        .check_exception()?;
+
+        if res.coerce_to_bool(ctx)? {
+            // found
+            return if matches!(mode, special_findIndex | special_findLastIndex) {
+                Ok(index_val)
+            } else {
+                Ok(val)
+            };
         }
 
-        if JS_ToBoolFree(ctx, res).unwrap_or(true) {
-            if matches!(mode, special_findIndex | special_findLastIndex) {
-                JS_FreeValue(ctx, val);
-                JS_FreeValue(ctx, obj);
-                return index_val;
-            } else {
-                JS_FreeValue(ctx, index_val);
-                JS_FreeValue(ctx, obj);
-                return val;
-            }
-        }
-        JS_FreeValue(ctx, val);
-        JS_FreeValue(ctx, index_val);
         k += dir;
     }
-    JS_FreeValue(ctx, obj);
 
-    if matches!(mode, special_findIndex | special_findLastIndex) {
-        JSValue::from_i32(-1)
-    } else {
-        JSValue::UNDEFINED
-    }
+    Ok(
+        if matches!(mode, special_findIndex | special_findLastIndex) {
+            JSValue::Int(-1)
+        } else {
+            JSValue::UNDEFINED
+        },
+    )
 }
 
-pub unsafe fn js_array_indexOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut res = -1;
     if len > 0 {
         let mut n = 0;
-        if argc > 1 {
-            if JS_ToInt64Clamp(ctx, &mut n, *argv.offset(1), 0, len, len) != 0 {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+        if cc.length() > 1 {
+            if unsafe { JS_ToInt64Clamp(ctx, &mut n, cc.arg(1), 0, len, len) } != 0 {
+                return Err(-1);
             }
         }
 
-        let mut arrp = std::ptr::null_mut::<JSValue>();
-        let mut count = 0;
-        if js_get_fast_array(ctx, obj, &mut arrp, &mut count) {
-            let mut idx = n as usize;
+        let target = cc.arg(0).clone();
 
-            while (idx as i64) < (count as i64) {
-                if (*argv.offset(0)).strict_eq_with_mode(
-                    *arrp.offset(idx as isize),
-                    JSStrictEqModeEnum::JS_EQ_STRICT,
-                ) {
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::from(idx as i64);
-                }
-
-                // if js_strict_eq2(
-                //     ctx,
-                //     (*argv.offset(0)).dup(),
-                //     (*arrp.offset(idx as isize)).dup(),
-                //     JSStrictEqModeEnum::JS_EQ_STRICT,
-                // ) {
-                //     JS_FreeValue(ctx, obj);
-                //     return JSValue::from_i64(idx as i64);
-                // }
-
-                idx += 1;
-            }
-        }
-
-        while n < len {
-            match obj.try_get_property_i64(ctx.as_mut().unwrap(), n) {
-                Ok(Some(v)) => {
-                    let b =
-                        (*argv.offset(0)).strict_eq_with_mode(v, JSStrictEqModeEnum::JS_EQ_STRICT);
-                    JS_FreeValue(ctx, v);
-                    if b {
-                        res = n;
-                        break;
+        // try fast array
+        let found = obj
+            .with_fast_array_values(|lst| {
+                let start = n as usize;
+                for (i, el) in lst[start..].iter().enumerate() {
+                    if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_STRICT) {
+                        return Some(start + i); // found
                     }
-                    // if js_strict_eq2(
-                    //     ctx,
-                    //     (*argv.offset(0)).dup(),
-                    //     v,
-                    //     JSStrictEqModeEnum::JS_EQ_STRICT,
-                    // ) {
-                    //     res = n;
-                    //     break;
-                    // }
                 }
-                Ok(None) => {}
-                Err(_) => {
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
+                None
+            })
+            .flatten();
+
+        if let Some(i) = found {
+            return Ok(JSValue::from(i as i64));
+        }
+
+        // try properties
+        while n < len {
+            if let Some(v) = obj.try_get_property_i64(ctx, n)? {
+                let b = target.strict_eq_with_mode(&v, JSStrictEqModeEnum::JS_EQ_STRICT);
+                if b {
+                    res = n;
+                    break;
                 }
             }
-
             n += 1;
         }
     }
 
-    JS_FreeValue(ctx, obj);
-    JSValue::from_i64(res)
+    Ok(JSValue::from(res))
 }
 
-pub unsafe fn js_array_lastIndexOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
+    let target = cc.arg(0);
 
     let mut res: i64 = -1;
 
     if len > 0 {
-        let cnt = if argc > 1 {
+        let cnt = if cc.length() > 1 {
             let mut i = 0;
-            if JS_ToInt64Clamp(ctx, &mut i, *argv.offset(1), -1, len - 1, len) != 0 {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+            if unsafe { JS_ToInt64Clamp(ctx, &mut i, cc.arg(1), -1, len - 1, len) } != 0 {
+                return Err(-1);
             }
             i
         } else {
             len - 1
         };
 
-        // XXX: should special case fast arrays
+        // TODO: should special case fast arrays
         for n in (0..=cnt).rev() {
-            match obj.try_get_property_i64(ctx.as_mut().unwrap(), n) {
-                Ok(Some(v)) => {
-                    let b =
-                        (*argv.offset(0)).strict_eq_with_mode(v, JSStrictEqModeEnum::JS_EQ_STRICT);
-                    JS_FreeValue(ctx, v);
-                    if b {
-                        res = n;
-                        break;
-                    }
-
-                    // if js_strict_eq2(
-                    //     ctx,
-                    //     (*argv.offset(0)).dup(),
-                    //     v,
-                    //     JSStrictEqModeEnum::JS_EQ_STRICT,
-                    // ) {
-                    //     res = n;
-                    //     break;
-                    // }
-                }
-                Ok(None) => {}
-                Err(_) => {
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
+            if let Some(v) = obj.try_get_property_i64(ctx, n)? {
+                let b = target.strict_eq_with_mode(&v, JSStrictEqModeEnum::JS_EQ_STRICT);
+                if b {
+                    res = n;
+                    break;
                 }
             }
         }
     }
 
-    JS_FreeValue(ctx, obj);
-    JSValue::from_i64(res)
+    Ok(JSValue::from(res))
 }
 
-pub unsafe fn js_array_includes(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
+    let target = cc.arg(0);
 
     let mut res = false;
+
     if len > 0 {
-        let mut n = if argc > 1 {
+        let mut n = if cc.length() > 1 {
             let mut i = 0;
-            if JS_ToInt64Clamp(ctx, &mut i, *argv.offset(1), 0, len, len) != 0 {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+            if unsafe { JS_ToInt64Clamp(ctx, &mut i, cc.arg(1), 0, len, len) } != 0 {
+                return Err(-1);
             }
             i
         } else {
             0
         };
 
-        let mut arrp = std::ptr::null_mut::<JSValue>();
-        let mut count: u32 = 0;
-
-        if js_get_fast_array(ctx, obj, &mut arrp, &mut count) {
-            let mut idx = n;
-            while idx < count as i64 {
-                if (*argv.offset(0)).strict_eq_with_mode(
-                    *arrp.offset(idx as isize),
-                    JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
-                ) {
-                    res = true;
-                    break;
+        if let Some(found) = obj.with_fast_array_values(|lst| {
+            let start = n as usize;
+            for el in &lst[start..] {
+                if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO) {
+                    return true;
                 }
-
-                // if js_strict_eq2(
-                //     ctx,
-                //     (*argv.offset(0)).dup(),
-                //     (*arrp.offset(idx as isize)).dup(),
-                //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
-                // ) {
-                //     res = true;
-                //     break;
-                // }
-
-                idx += 1;
             }
+            false
+        }) {
+            // is fast array
+            return Ok(JSValue::Bool(found));
         }
 
+        // try properties
         while n < len {
-            let val = obj.get_property_i64(ctx.as_mut().unwrap(), n);
-            if val.is_exception() {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
-
-            let b = (*argv.offset(0))
-                .strict_eq_with_mode(val, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO);
-            JS_FreeValue(ctx, val);
+            let val = obj.get_property_i64(ctx, n).check_exception()?;
+            let b = target.strict_eq_with_mode(&val, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO);
             if b {
                 res = true;
                 break;
             }
-
-            // if js_strict_eq2(
-            //     ctx,
-            //     (*argv.offset(0)).dup(),
-            //     val,
-            //     JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO,
-            // ) {
-            //     res = true;
-            //     break;
-            // }
-
             n += 1;
         }
     }
 
-    JS_FreeValue(ctx, obj);
-    res.into()
+    Ok(JSValue::Bool(res))
 }
 
-pub unsafe fn js_array_join(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    toLocaleString: i32,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let n = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let toLocaleString = cc.magic();
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let n = js_get_length64(ctx, &obj)?;
 
     let mut c = ',' as i32; // default separator
     let mut sep = JSValue::UNDEFINED;
-    let mut p: *const JSString = std::ptr::null();
+    let mut p: Option<&JSString> = None;
 
-    if toLocaleString == 0 && argc > 0 && !(*argv.offset(0)).is_undefined() {
-        if let Ok(s) = (*argv.offset(0)).coerce_to_string_value(ctx.as_mut().unwrap()) {
-            sep = s;
-            p = sep.string() as *const _;
-            c = if (*p).len() == 1 && !(*p).is_wide_char() {
-                (*p).content().as_bytes()[0] as i32
-            } else {
-                -1
-            };
+    if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
+        sep = cc.arg(0).coerce_to_string_value(ctx)?;
+        let ss = unsafe { sep.string_unchecked() };
+        c = if ss.len() == 1 && !ss.is_wide_char() {
+            ss.content().as_bytes()[0] as i32
         } else {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-
-        // sep = JS_ToString(ctx, *argv.offset(0));
-        // if sep.is_exception() {
-        //     JS_FreeValue(ctx, obj);
-        //     return JSValue::EXCEPTION;
-        // }
-
-        // p = sep.string() as *const _;
-        // c = if (*p).len() == 1 && !(*p).is_wide_char() {
-        //     (*p).content().as_bytes()[0] as i32
-        // } else {
-        //     -1
-        // };
+            -1
+        };
+        p.replace(ss);
     }
 
     let mut content = StringContent::Empty;
@@ -1345,90 +761,46 @@ pub unsafe fn js_array_join(
             if c >= 0 {
                 let _ = content.push_u8(c as u8);
             } else {
-                debug_assert!(!p.is_null());
-                let _ = content.push((*p).content());
+                let _ = content.push(p.unwrap().content());
             }
         }
 
-        let mut el = obj
-            .get_property_u32(ctx.as_mut().unwrap(), i as u32)
-            .into_rc((*ctx).rt());
-        if el.is_exception() {
-            JS_FreeValue(ctx, sep);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-
+        let mut el = obj.get_property_u32(ctx, i as u32).check_exception()?;
         if !el.is_undefined_or_null() {
             if toLocaleString != 0 {
-                el = JS_ToLocaleStringFree(ctx, el.into()).into_rc((*ctx).rt());
+                el = el.to_locale_string(ctx)?;
+            } else if !el.is_string() {
+                el = el.coerce_to_string_value(ctx)?;
             }
 
-            if (*el).tag() != JSTag::String as i32 {
-                el = JS_ToStringFree(ctx, el.into()).into_rc((*ctx).rt());
-                if el.is_exception() {
-                    JS_FreeValue(ctx, sep);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-            }
-
-            if content.push(el.string().content()).is_err() {
-                JS_FreeValue(ctx, sep);
-                JS_FreeValue(ctx, obj);
-                (*ctx).JS_ThrowOutOfMemory();
-                return JSValue::EXCEPTION;
-            }
+            content
+                .push(unsafe { el.string_unchecked().content() })
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?
         }
     }
 
-    JS_FreeValue(ctx, sep);
-    JS_FreeValue(ctx, obj);
-
-    (*ctx).create_string_from_content(content)
+    ctx.create_string_from_content(content).check_exception()
 }
 
-pub unsafe fn js_array_toString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
-    }
+pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let method = obj.get_property(ctx, JS_ATOM_join).check_exception()?;
 
-    let method = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_join);
-    let ret = if method.is_exception() {
-        JSValue::EXCEPTION
-    } else if !method.is_callable(ctx.as_ref().unwrap()) {
+    if !method.is_callable() {
         // Use intrinsic Object.prototype.toString
-        JS_FreeValue(ctx, method);
-        js_object_toString(ctx.as_mut().unwrap(), CallArgs::new(ctx, obj, &[], 0, None))
-            .unwrap_or(JSValue::EXCEPTION)
+        js_object_toString(ctx, CallContext::new(ctx, obj, &[], 0, None))
     } else {
-        JS_CallFree(ctx.as_mut().unwrap(), method, obj, 0, std::ptr::null_mut())
-    };
-
-    JS_FreeValue(ctx, obj);
-    ret
+        JS_Call(ctx, &method, &obj, &[]).check_exception()
+    }
 }
 
-pub unsafe fn js_array_pop(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    shift: i32,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let shift = cc.magic();
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut res = JSValue::UNDEFINED;
     let mut new_len = 0;
@@ -1436,495 +808,272 @@ pub unsafe fn js_array_pop(
     if len > 0 {
         new_len = len - 1;
 
-        if let Some(lst) = obj.fast_array_values_mut().and_then(|a| {
-            if a.len() == len as usize {
-                Some(a)
+        if let Some(r) = obj.with_fast_array_values_mut(|lst| {
+            if lst.len() == len as usize {
+                Some(if shift != 0 {
+                    lst.remove(0)
+                } else {
+                    lst.pop().unwrap()
+                })
             } else {
                 None
             }
         }) {
-            // fast array
-            res = if shift != 0 {
-                lst.remove(0)
-            } else {
-                lst.pop().unwrap()
-            };
+            // is fast array
+            res = r.unwrap_or(JSValue::UNDEFINED);
         } else {
+            // slow array
             if shift != 0 {
-                res = obj.get_property_i64(ctx.as_mut().unwrap(), 0);
-                if res.is_exception() {
-                    JS_FreeValue(ctx, res);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-                if JS_CopySubArray(ctx, obj, 0, 1, len as usize - 1, 1).is_err() {
-                    JS_FreeValue(ctx, res);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                res = obj.get_property_i64(ctx, 0).check_exception()?;
+                JS_CopySubArray(ctx, &obj, 0, 1, len as usize - 1, 1)?;
             } else {
-                res = obj.get_property_i64(ctx.as_mut().unwrap(), new_len);
-                if res.is_exception() {
-                    JS_FreeValue(ctx, res);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                res = obj.get_property_i64(ctx, new_len).check_exception()?;
             }
-            if obj
-                .delete_property_i64(ctx.as_mut().unwrap(), new_len, JS_PROP_THROW)
-                .is_err()
-            {
-                JS_FreeValue(ctx, res);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
         }
     }
 
-    if obj
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_i64(new_len),
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, res);
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    obj.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
 
-    JS_FreeValue(ctx, obj);
-    res
+    Ok(res)
 }
 
-pub unsafe fn js_array_push(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    unshift: i32,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let unshift = cc.magic();
 
-    let newLen = len + argc as i64;
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
+
+    let newLen = len + cc.length() as i64;
     if newLen > MAX_SAFE_INTEGER {
-        (*ctx).JS_ThrowTypeError(c"Array loo long");
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+        ctx.JS_ThrowTypeError("Array loo long");
+        return Err(-1);
     }
 
     let mut from = len;
-    if unshift != 0 && argc > 0 {
-        if JS_CopySubArray(ctx, obj, argc as _, 0, len as usize, -1).is_err() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+    if unshift != 0 && cc.length() > 0 {
+        JS_CopySubArray(ctx, &obj, cc.length() as _, 0, len as usize, -1)?;
         from = 0;
     }
 
-    for i in 0..argc {
-        if obj
-            .set_property_i64(
-                ctx.as_mut().unwrap(),
-                from + i as i64,
-                (*argv.offset(i as isize)).dup(),
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+    for i in 0..cc.length() {
+        obj.set_property_i64(ctx, from + i as i64, cc.arg(i).clone())?;
     }
 
-    if obj
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_i64(newLen),
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    obj.set_property(ctx, JS_ATOM_length, JSValue::from_i64(newLen))?;
 
-    JS_FreeValue(ctx, obj);
-    JSValue::from_i64(newLen)
+    Ok(JSValue::from(newLen))
 }
 
-pub unsafe fn js_array_reverse(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
-    if len == 0 {
-        JS_FreeValue(ctx, obj);
-        return obj;
+pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
+
+    if len <= 1 {
+        return Ok(obj);
     }
 
-    let mut arrp: *mut JSValue = std::ptr::null_mut();
-    let mut count32: u32 = 0;
-
-    /* Special case fast arrays */
-    if js_get_fast_array(ctx, obj, &mut arrp, &mut count32) && count32 == len as u32 {
-        let mut ll: u32 = 0;
-        let mut hh: u32 = count32 - 1;
-
-        if count32 > 1 {
-            while ll < hh {
-                let v = *arrp.offset(ll as isize);
-                *arrp.offset(ll as isize) = *arrp.offset(hh as isize);
-                *arrp.offset(hh as isize) = v;
-                ll += 1;
-                hh -= 1;
+    // try fast array
+    let done = obj
+        .with_fast_array_values_mut(|lst| {
+            if lst.len() == len as usize {
+                lst.reverse();
+                true
+            } else {
+                false
             }
-        }
-        return obj;
+        })
+        .unwrap_or(false);
+    if done {
+        return Ok(obj); // fast array, done
     }
 
+    // slow array
     let mut l = 0;
     let mut h = len - 1;
     let mut lval = JSValue::UNDEFINED;
     let mut hval = JSValue::UNDEFINED;
 
     while l < h {
-        let l_present = match obj.try_get_property_i64(ctx.as_mut().unwrap(), l) {
-            Ok(Some(v)) => {
+        let l_present = match obj.try_get_property_i64(ctx, l)? {
+            Some(v) => {
                 lval = v;
                 true
             }
-            Ok(None) => false,
-            Err(_) => {
-                JS_FreeValue(ctx, lval);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            None => false,
         };
 
-        let h_present = match obj.try_get_property_i64(ctx.as_mut().unwrap(), h) {
-            Ok(Some(v)) => {
+        let h_present = match obj.try_get_property_i64(ctx, h)? {
+            Some(v) => {
                 hval = v;
                 true
             }
-            Ok(None) => false,
-            Err(_) => {
-                JS_FreeValue(ctx, lval);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            None => false,
         };
 
         if h_present {
-            if obj
-                .set_property_i64(ctx.as_mut().unwrap(), l, hval)
-                .is_err()
-            {
-                JS_FreeValue(ctx, lval);
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            obj.set_property_i64(ctx, l, hval.clone())?;
 
             if l_present {
-                if obj
-                    .set_property_i64(ctx.as_mut().unwrap(), h, lval)
-                    .is_err()
-                {
-                    // XXX: why not free lval?
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                obj.set_property_i64(ctx, h, lval)?;
                 lval = JSValue::UNDEFINED;
             } else {
-                if obj
-                    .delete_property_i64(ctx.as_mut().unwrap(), h, JS_PROP_THROW)
-                    .is_err()
-                {
-                    JS_FreeValue(ctx, lval);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                obj.delete_property_i64(ctx, h, JS_PROP_THROW)?;
             }
         } else {
             if l_present {
-                if obj
-                    .delete_property_i64(ctx.as_mut().unwrap(), l, JS_PROP_THROW)
-                    .is_err()
-                {
-                    JS_FreeValue(ctx, lval);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-                if obj
-                    .set_property_i64(ctx.as_mut().unwrap(), h, lval)
-                    .is_err()
-                {
-                    // XXX: why not free lval?
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
+                obj.delete_property_i64(ctx, l, JS_PROP_THROW)?;
+                obj.set_property_i64(ctx, h, lval)?;
                 lval = JSValue::UNDEFINED;
             }
         }
+
         l += 1;
         h -= 1;
     }
 
-    return obj;
+    Ok(obj)
 }
 
-pub unsafe fn js_array_toReversed(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let new_len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let new_len = js_get_length64(ctx, &obj)?;
 
-    let res_arr = (*ctx).create_fast_array(std::cmp::max(new_len, 0) as _);
-    if JS_IsException(res_arr) {
-        JS_FreeValue(ctx, res_arr);
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    let res_arr = ctx.create_fast_array(std::cmp::max(new_len, 0) as _)?;
 
     if new_len > 0 {
-        let p = JS_VALUE_GET_OBJ(res_arr);
-        let dest = (*p).fast_array_values_mut_unchecked();
-
-        if let Some(src) = obj.fast_array_values().and_then(|a| {
-            if a.len() == new_len as usize {
-                Some(a)
-            } else {
-                None
-            }
-        }) {
-            // Fast path: fast array values
-            for v in src.iter().rev() {
-                dest.push(v.dup());
-            }
-        } else {
-            // slow array
-            // Query order is observable; test262 expects descending order.
-            let mut i = new_len - 1;
-            while i >= 0 {
-                if let Ok(v) = obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
-                    if let Some(v) = v {
-                        dest.push(v);
+        let a = unsafe { res_arr.object_unchecked() };
+        a.with_fast_array_values_mut(|dst| {
+            let fast_done = obj
+                .with_fast_array_values(|src| {
+                    if src.len() == new_len as usize {
+                        for v in src.iter().rev() {
+                            dst.push(v.clone());
+                        }
+                        true
+                    } else {
+                        false
                     }
-                } else {
-                    // Exception; initialize remaining elements.
-                    while i >= 0 {
-                        dest.push(JSValue::UNDEFINED);
-                        i -= 1;
-                    }
+                })
+                .unwrap_or(false);
 
-                    JS_FreeValue(ctx, res_arr);
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
+            let mut has_err = false;
+            if !fast_done {
+                // slow array
+                // Query order is observable; test262 expects descending order.
+                for i in (0..new_len).rev() {
+                    if has_err {
+                        // Exception: set remaining elements to undefined.
+                        dst.push(JSValue::UNDEFINED);
+                    } else if let Ok(v) = obj.try_get_property_i64(ctx, i) {
+                        dst.push(v.unwrap_or(JSValue::UNDEFINED));
+                    } else {
+                        dst.push(JSValue::UNDEFINED);
+                        has_err = true;
+                    }
                 }
-                i -= 1;
             }
-        }
 
-        if res_arr
-            .set_property(
-                ctx.as_mut().unwrap(),
-                JS_ATOM_length,
-                JSValue::from_i64(new_len),
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, res_arr);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+            if has_err { Err(-1) } else { Ok(()) }
+        })
+        .unwrap()?;
+
+        res_arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
     }
 
-    JS_FreeValue(ctx, obj);
-    res_arr
+    Ok(res_arr)
 }
 
-pub unsafe fn js_array_sort(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    (*ctx).JS_ThrowInternalError(c"sort is not implemented yet");
-    JSValue::EXCEPTION
+pub fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
+    ctx.JS_ThrowInternalError("sort is not implemented yet");
+    Err(-1)
 }
 
-pub unsafe fn js_array_toSorted(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    (*ctx).JS_ThrowInternalError(c"toSorted is not implemented yet");
-    JSValue::EXCEPTION
+pub fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
+    ctx.JS_ThrowInternalError("toSorted is not implemented yet");
+    Err(-1)
 }
 
-pub unsafe fn js_array_slice(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    splice: i32,
-) -> JSValue {
-    // let mut val: JSValue = mem::zeroed();
-    // let mut len_val: JSValue = mem::zeroed();
-    // let mut del_count: i64 = 0;
-    // let mut new_len: i64 = 0;
-    // let mut k_present: i32 = 0;
-    // let mut count32: u32 = 0;
-    // let mut i: u32 = 0;
-
-    let mut obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let splice = cc.magic();
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut start = 0_i64;
 
-    if JS_ToInt64Clamp(ctx, &mut start, *argv.offset(0), 0, len, len) != 0 {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt64Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
+        return Err(-1);
     }
 
     let item_count: u32;
     let mut del_count: i64 = 0;
 
     let count = if splice != 0 {
-        if argc == 0 {
+        if cc.length() == 0 {
             item_count = 0;
             del_count = 0;
-        } else if argc == 1 {
+        } else if cc.length() == 1 {
             item_count = 0;
             del_count = len - start;
         } else {
-            item_count = (argc - 2) as u32;
-            if JS_ToInt64Clamp(ctx, &mut del_count, *argv.offset(1), 0, len - start, 0) != 0 {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+            item_count = (cc.length() - 2) as u32;
+            if unsafe { JS_ToInt64Clamp(ctx, &mut del_count, cc.arg(1), 0, len - start, 0) } != 0 {
+                return Err(-1);
             }
         }
         if len + item_count as i64 - del_count > MAX_SAFE_INTEGER {
-            (*ctx).JS_ThrowTypeError(c"Array loo long");
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+            ctx.JS_ThrowTypeError("Array loo long");
+            return Err(-1);
         }
         del_count
     } else {
         item_count = 0; /* avoid warning */
         let mut final_ = len;
-        if !(*argv.offset(1)).is_undefined() {
-            if JS_ToInt64Clamp(ctx, &mut final_, *argv.offset(1), 0, len, len) != 0 {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+        if !cc.arg(1).is_undefined() {
+            if unsafe { JS_ToInt64Clamp(ctx, &mut final_, cc.arg(1), 0, len, len) } != 0 {
+                return Err(-1);
             }
         }
         std::cmp::max(final_ - start, 0)
     };
 
     let len_val = JSValue::from_i64(count);
-    let arr = JS_ArraySpeciesCreate(ctx, obj, len_val);
-    if arr.is_exception() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    let arr = JS_ArraySpeciesCreate(ctx, &obj, len_val)?;
 
     let final_ = start + count;
     let mut k = start;
     let mut n = 0;
 
-    if let Some(lst) = obj.fast_array_values() {
+    obj.with_fast_array_values(|lst| -> Result<(), i32> {
         // in case of fast array
         // XXX: should share code with fast array constructor
         while k < final_ && k < lst.len() as i64 {
-            if arr
-                .create_data_property_u32(
-                    ctx.as_mut().unwrap(),
-                    n as _,
-                    lst[k as usize].dup(),
-                    JS_PROP_THROW,
-                )
-                .is_err()
-            {
-                JS_FreeValue(ctx, obj);
-                JS_FreeValue(ctx, arr);
-                return JSValue::EXCEPTION;
-            }
-
+            arr.create_data_property_u32(ctx, n as _, lst[k as usize].clone(), JS_PROP_THROW)?;
             k += 1;
             n += 1;
         }
-    }
+        Ok(())
+    })
+    .unwrap()?;
 
     // Copy the remaining elements if any (handle case of inherited properties)
     while k < final_ {
-        match obj.try_get_property_i64(ctx.as_mut().unwrap(), k) {
-            Ok(Some(v)) => {
-                if arr
-                    .create_data_property_u32(ctx.as_mut().unwrap(), n as _, v, JS_PROP_THROW)
-                    .is_err()
-                {
-                    JS_FreeValue(ctx, obj);
-                    JS_FreeValue(ctx, arr);
-                    return JSValue::EXCEPTION;
-                }
-            }
-            Ok(None) => {}
-            Err(_) => {
-                JS_FreeValue(ctx, obj);
-                JS_FreeValue(ctx, arr);
-                return JSValue::EXCEPTION;
-            }
+        if let Some(v) = obj.try_get_property_i64(ctx, k)? {
+            arr.create_data_property_u32(ctx, n as _, v, JS_PROP_THROW)?;
         }
-
         k += 1;
         n += 1;
     }
 
-    if arr
-        .set_property(ctx.as_mut().unwrap(), JS_ATOM_length, JSValue::from_i64(n))
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        JS_FreeValue(ctx, arr);
-        return JSValue::EXCEPTION;
-    }
+    arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(n))?;
 
     if splice != 0 {
         let new_len = len + item_count as i64 - del_count;
 
         if item_count as i64 != del_count {
-            if JS_CopySubArray(
+            JS_CopySubArray(
                 ctx,
-                obj,
+                &obj,
                 start as usize + item_count as usize,
                 start as usize + del_count as usize,
                 len as usize - (start + del_count) as usize,
@@ -1933,230 +1082,150 @@ pub unsafe fn js_array_slice(
                 } else {
                     -1
                 },
-            )
-            .is_err()
-            {
-                JS_FreeValue(ctx, obj);
-                JS_FreeValue(ctx, arr);
-                return JSValue::EXCEPTION;
-            }
+            )?;
 
             while k > new_len {
                 k -= 1;
-                if obj
-                    .delete_property_i64(ctx.as_mut().unwrap(), k, JS_PROP_THROW)
-                    .is_err()
-                {
-                    JS_FreeValue(ctx, obj);
-                    JS_FreeValue(ctx, arr);
-                    return JSValue::EXCEPTION;
-                }
+                obj.delete_property_i64(ctx, k, JS_PROP_THROW)?;
             }
         }
 
         for i in 0..item_count {
-            if obj
-                .set_property_i64(
-                    ctx.as_mut().unwrap(),
-                    start + i as i64,
-                    (*argv.offset((i + 2) as isize)).dup(),
-                )
-                .is_err()
-            {
-                JS_FreeValue(ctx, obj);
-                JS_FreeValue(ctx, arr);
-                return JSValue::EXCEPTION;
-            }
+            obj.set_property_i64(ctx, start + i as i64, cc.arg(i as usize + 2).clone())?;
         }
 
-        if obj
-            .set_property(
-                ctx.as_mut().unwrap(),
-                JS_ATOM_length,
-                JSValue::from_i64(new_len),
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            JS_FreeValue(ctx, arr);
-            return JSValue::EXCEPTION;
-        }
+        obj.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
     }
 
-    JS_FreeValue(ctx, obj);
-    return arr;
+    Ok(arr)
 }
 
-pub unsafe fn js_array_toSpliced(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut start = 0;
-    if argc > 0 {
-        if JS_ToInt64Clamp(ctx, &mut start, *argv.offset(0), 0, len, len) != 0 {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+    if cc.length() > 0 {
+        if unsafe { JS_ToInt64Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
+            return Err(-1);
         }
     }
 
     let mut del = 0;
-    if argc > 0 {
+    if cc.length() > 0 {
         del = len - start;
     }
-    if argc > 1 {
-        if JS_ToInt64Clamp(ctx, &mut del, *argv.offset(1), 0, del, 0) != 0 {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+    if cc.length() > 1 {
+        if unsafe { JS_ToInt64Clamp(ctx, &mut del, cc.arg(1), 0, del, 0) } != 0 {
+            return Err(-1);
         }
     }
 
     let mut add = 0_i64;
-    if argc > 2 {
-        add = argc as i64 - 2;
+    if cc.length() > 2 {
+        add = cc.length() as i64 - 2;
     }
 
     let new_len = len + add - del;
     if new_len > MAX_SAFE_INTEGER {
-        (*ctx).JS_ThrowTypeError(c"invalid array length");
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+        ctx.JS_ThrowTypeError("invalid array length");
+        return Err(-1);
     }
 
     // create result array
-    let res_arr = (*ctx).create_fast_array(std::cmp::max(new_len, 0) as _);
-    if res_arr.is_exception() {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    let res_arr = ctx.create_fast_array(std::cmp::max(new_len, 0) as _)?;
     if new_len <= 0 {
-        JS_FreeValue(ctx, obj);
-        return res_arr;
+        return Ok(res_arr);
     }
 
-    let p = JS_VALUE_GET_OBJ(res_arr);
-    let new_lst = (*p).fast_array_values_mut_unchecked();
-
-    macro_rules! exception {
-        ($i:expr) => {
-            // fill rest with undefined, because array finalizer will free elements too.
-            for _ in $i..new_len {
-                new_lst.push(JSValue::UNDEFINED);
+    unsafe { res_arr.object_unchecked() }
+        .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
+            macro_rules! error {
+                ($i:expr) => {
+                    // fill rest with undefined, because array finalizer will free elements too.
+                    for _ in $i..new_len {
+                        new_lst.push(JSValue::UNDEFINED);
+                    }
+                    return Err(-1);
+                };
             }
-            JS_FreeValue(ctx, res_arr);
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        };
-    }
 
-    if let Some(src) = obj.fast_array_values().and_then(|a| {
-        if a.len() == len as usize {
-            Some(a)
-        } else {
-            None
-        }
-    }) {
-        // src fast array values
-        for v in &src[..start as usize] {
-            new_lst.push(v.dup());
-        }
+            let fast_done = obj
+                .with_fast_array_values(|src| {
+                    if src.len() == len as usize {
+                        for v in &src[..start as usize] {
+                            new_lst.push(v.clone());
+                        }
+                        for j in 0..add {
+                            new_lst.push(cc.arg((2 + j) as usize).clone());
+                        }
+                        for v in &src[(start + del) as usize..] {
+                            new_lst.push(v.clone());
+                        }
 
-        for j in 0..add {
-            new_lst.push((*argv.offset((2 + j) as isize)).dup());
-        }
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
 
-        for v in &src[(start + del) as usize..] {
-            new_lst.push(v.dup());
-        }
-    } else {
-        // slow array
-        for i in 0..start {
-            if let Ok(val) = obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
-                if let Some(v) = val {
-                    new_lst.push(v);
+            if !fast_done {
+                // slow array
+                for i in 0..start {
+                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
+                        new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
+                    } else {
+                        error!(i);
+                    }
                 }
-            } else {
-                exception!(i);
-            }
-        }
 
-        for j in 0..add {
-            new_lst.push((*argv.offset((2 + j) as isize)).dup());
-        }
-
-        for i in (start + del)..len {
-            if let Ok(val) = obj.try_get_property_i64(ctx.as_mut().unwrap(), i) {
-                if let Some(v) = val {
-                    new_lst.push(v);
+                for j in 0..add {
+                    new_lst.push(cc.arg((2 + j) as usize).clone());
                 }
-            } else {
-                exception!(i);
+
+                for i in (start + del)..len {
+                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
+                        new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
+                    } else {
+                        error!(i);
+                    }
+                }
             }
-        }
-    }
 
-    if res_arr
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_i64(new_len),
-        )
-        .is_err()
-    {
-        exception!(new_len);
-    }
+            Ok(())
+        })
+        .unwrap()?;
 
-    JS_FreeValue(ctx, obj);
-    res_arr
+    res_arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
+
+    Ok(res_arr)
 }
 
-pub unsafe fn js_array_copyWithin(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let len = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = cc.this().coerce_to_object(ctx)?;
+    let len = js_get_length64(ctx, &obj)?;
 
     let mut from: i64 = 0;
     let mut to: i64 = 0;
-    if JS_ToInt64Clamp(ctx, &mut to, *argv.offset(0), 0, len, len) != 0 {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt64Clamp(ctx, &mut to, cc.arg(0), 0, len, len) } != 0 {
+        return Err(-1);
     }
-    if JS_ToInt64Clamp(ctx, &mut from, *argv.offset(1), 0, len, len) != 0 {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt64Clamp(ctx, &mut from, cc.arg(1), 0, len, len) } != 0 {
+        return Err(-1);
     }
 
     let mut final_ = len;
-    if argc > 2 && !JS_IsUndefined(*argv.offset(2)) {
-        if JS_ToInt64Clamp(ctx, &mut final_, *argv.offset(2), 0, len, len) != 0 {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
+    if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        if unsafe { JS_ToInt64Clamp(ctx, &mut final_, cc.arg(2), 0, len, len) } != 0 {
+            return Err(-1);
         }
     }
 
     let count = std::cmp::min(final_ - from, len - to);
-
-    if JS_CopySubArray(
+    JS_CopySubArray(
         ctx,
-        obj,
+        &obj,
         to as _,
         from as _,
         count as _,
@@ -2165,249 +1234,187 @@ pub unsafe fn js_array_copyWithin(
         } else {
             1
         },
-    )
-    .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    )?;
 
-    return obj;
+    Ok(obj)
 }
 
-pub unsafe fn js_array_flatten(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    map: i32,
-) -> JSValue {
-    let obj = JS_ToObject(ctx, this_val);
-    let sourceLen = if let Ok(l) = js_get_length64(ctx, obj) {
-        l
-    } else {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    };
+pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let map = cc.magic();
 
-    let mut depthNum = 1;
-    let mut mapperFunction = JSValue::UNDEFINED;
-    let mut thisArg = JSValue::UNDEFINED;
+    let source = cc.this().coerce_to_object(ctx)?;
+    let source_len = js_get_length64(ctx, &source)?;
+
+    let mut depth = 1;
+    let mut mapper_func = &JSValue::UNDEFINED;
+    let mut this_arg = &JSValue::UNDEFINED;
 
     if map != 0 {
-        mapperFunction = *argv.offset(0);
-        if argc > 1 {
-            thisArg = *argv.offset(1);
+        mapper_func = cc.arg(0);
+        if cc.length() > 1 {
+            this_arg = cc.arg(1);
         }
-        if mapperFunction
-            .ensure_callable(ctx.as_mut().unwrap())
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+        mapper_func.ensure_callable(ctx)?;
     } else {
-        if argc > 0 && !(*argv.offset(0)).is_undefined() {
-            if JS_ToInt32Sat(ctx, &mut depthNum, *argv.offset(0)) < 0 {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
+        if cc.length() > 0 && !cc.arg(0).is_undefined() {
+            if unsafe { JS_ToInt32Sat(ctx, &mut depth, cc.arg(0)) } < 0 {
+                return Err(-1);
             }
         }
     }
 
-    let arr = JS_ArraySpeciesCreate(ctx, obj, JSValue::ZERO);
-    if JS_IsException(arr) {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+    let res_arr = JS_ArraySpeciesCreate(ctx, &source, JSValue::Int(0))?;
 
-    if JS_FlattenIntoArray(
+    JS_FlattenIntoArray(
         ctx,
-        arr,
-        obj,
-        sourceLen,
+        &res_arr,
+        &source,
+        source_len,
         0,
-        depthNum as _,
-        mapperFunction,
-        thisArg,
-    ) < 0
-    {
-        JS_FreeValue(ctx, arr);
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
+        depth as _,
+        mapper_func,
+        this_arg,
+    )?;
 
-    JS_FreeValue(ctx, obj);
-    arr
+    Ok(res_arr)
 }
 
-unsafe fn JS_FlattenIntoArray(
-    ctx: *mut JSContext,
-    target: JSValueConst,
-    source: JSValueConst,
-    sourceLen: i64,
-    mut targetIndex: i64,
+fn JS_FlattenIntoArray(
+    ctx: &JSContext,
+    target: &JSValue,
+    source: &JSValue,
+    source_len: i64,
+    mut target_index: i64,
     depth: i32,
-    mapperFunction: JSValueConst,
-    thisArg: JSValueConst,
-) -> i64 {
-    if js_check_stack_overflow((*ctx).rt(), 0) {
+    mapper_func: &JSValue,
+    this_arg: &JSValue,
+) -> Result<i64, i32> {
+    if js_check_stack_overflow(ctx.rt().deref(), 0) {
         JS_ThrowStackOverflow(ctx);
-        return -1;
+        return Err(-1);
     }
 
     let mut sourceIndex: i64 = 0;
 
-    while sourceIndex < sourceLen {
-        match source.try_get_property_i64(ctx.as_mut().unwrap(), sourceIndex) {
-            Ok(Some(mut element)) => {
-                if !mapperFunction.is_undefined() {
-                    let mut args = [element, JSValue::from_i64(sourceIndex), source];
-                    element = JS_Call(
-                        ctx.as_mut().unwrap(),
-                        mapperFunction,
-                        thisArg,
-                        3,
-                        args.as_mut_ptr(),
-                    );
-                    JS_FreeValue(ctx, args[0]);
-                    JS_FreeValue(ctx, args[1]);
-                    if element.is_exception() {
-                        return -1;
-                    }
+    while sourceIndex < source_len {
+        match source.try_get_property_i64(ctx, sourceIndex)? {
+            Some(mut el) => {
+                if !mapper_func.is_undefined() {
+                    el = JS_Call(
+                        ctx,
+                        mapper_func,
+                        this_arg,
+                        &[el, JSValue::from(sourceIndex), source.clone()],
+                    )
+                    .check_exception()?;
                 }
 
                 if depth > 0 {
-                    if let Ok(is_array) = JS_IsArray(ctx, element) {
-                        if is_array {
-                            let elementLen = if let Ok(l) = js_get_length64(ctx, element) {
-                                l
-                            } else {
-                                JS_FreeValue(ctx, element);
-                                return -1;
-                            };
+                    if el.is_array(ctx)? {
+                        let el_len = js_get_length64(ctx, &el)?;
+                        let new_targetIndex = JS_FlattenIntoArray(
+                            ctx,
+                            target,
+                            &el,
+                            el_len,
+                            target_index,
+                            depth - 1,
+                            &JSValue::UNDEFINED,
+                            &JSValue::UNDEFINED,
+                        )?;
 
-                            let new_targetIndex = JS_FlattenIntoArray(
-                                ctx,
-                                target,
-                                element,
-                                elementLen,
-                                targetIndex,
-                                depth - 1,
-                                JSValue::UNDEFINED,
-                                JSValue::UNDEFINED,
-                            );
-                            if new_targetIndex < 0 {
-                                JS_FreeValue(ctx, element);
-                                return -1;
-                            }
-
-                            targetIndex = new_targetIndex;
-                            JS_FreeValue(ctx, element);
-                            sourceIndex += 1;
-                            continue;
-                        }
-                    } else {
-                        JS_FreeValue(ctx, element);
-                        return -1;
+                        target_index = new_targetIndex;
+                        sourceIndex += 1;
+                        continue;
                     }
                 }
 
-                if targetIndex >= MAX_SAFE_INTEGER {
-                    (*ctx).JS_ThrowTypeError(c"Array too long");
-                    JS_FreeValue(ctx, element);
-                    return -1;
+                if target_index >= MAX_SAFE_INTEGER {
+                    ctx.JS_ThrowTypeError("Array too long");
+                    return Err(-1);
                 }
 
-                if target
-                    .define_property_value_i64(
-                        ctx.as_mut().unwrap(),
-                        targetIndex,
-                        element,
-                        JS_PROP_C_W_E | JS_PROP_THROW,
-                    )
-                    .is_err()
-                {
-                    return -1;
-                }
+                target.define_property_value_i64(
+                    ctx,
+                    target_index,
+                    el,
+                    JS_PROP_C_W_E | JS_PROP_THROW,
+                )?;
 
-                targetIndex += 1;
+                target_index += 1;
                 sourceIndex += 1;
             }
 
-            Ok(None) => {
+            None => {
                 sourceIndex += 1;
                 continue;
-            }
-            Err(_) => {
-                return -1;
             }
         }
     }
 
-    targetIndex
+    Ok(target_index)
 }
 
 pub const js_array_proto_funcs: [JSCFunctionListEntry; 39] = [
-    JS_CFUNC_DEF!(c"at", 1, js_array_at),
-    JS_CFUNC_DEF!(c"with", 2, js_array_with),
-    JS_CFUNC_DEF!(c"concat", 1, js_array_concat),
-    JS_CFUNC_MAGIC_DEF!(c"every", 1, js_array_every, special_every as i16),
-    JS_CFUNC_MAGIC_DEF!(c"some", 1, js_array_every, special_some as i16),
-    JS_CFUNC_MAGIC_DEF!(c"forEach", 1, js_array_every, special_forEach as i16),
-    JS_CFUNC_MAGIC_DEF!(c"map", 1, js_array_every, special_map as i16),
-    JS_CFUNC_MAGIC_DEF!(c"filter", 1, js_array_every, special_filter as i16),
-    JS_CFUNC_MAGIC_DEF!(c"reduce", 1, js_array_reduce, special_reduce as i16),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"at", 1, js_array_at, 0),
+    JS_CFUNC_NATIVE_DEF!(c"with", 2, js_array_with, 0),
+    JS_CFUNC_NATIVE_DEF!(c"concat", 1, js_array_concat, 0),
+    JS_CFUNC_NATIVE_DEF!(c"every", 1, js_array_every, special_every as i16),
+    JS_CFUNC_NATIVE_DEF!(c"some", 1, js_array_every, special_some as i16),
+    JS_CFUNC_NATIVE_DEF!(c"forEach", 1, js_array_every, special_forEach as i16),
+    JS_CFUNC_NATIVE_DEF!(c"map", 1, js_array_every, special_map as i16),
+    JS_CFUNC_NATIVE_DEF!(c"filter", 1, js_array_every, special_filter as i16),
+    JS_CFUNC_NATIVE_DEF!(c"reduce", 1, js_array_reduce, special_reduce as i16),
+    JS_CFUNC_NATIVE_DEF!(
         c"reduceRight",
         1,
         js_array_reduce,
         special_reduceRight as i16
     ),
-    JS_CFUNC_DEF!(c"fill", 1, js_array_fill),
-    JS_CFUNC_MAGIC_DEF!(c"find", 1, js_array_find, special_find as i16),
-    JS_CFUNC_MAGIC_DEF!(c"findIndex", 1, js_array_find, special_findIndex as i16),
-    JS_CFUNC_MAGIC_DEF!(c"findLast", 1, js_array_find, special_findLast as i16),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"fill", 1, js_array_fill, 0),
+    JS_CFUNC_NATIVE_DEF!(c"find", 1, js_array_find, special_find as i16),
+    JS_CFUNC_NATIVE_DEF!(c"findIndex", 1, js_array_find, special_findIndex as i16),
+    JS_CFUNC_NATIVE_DEF!(c"findLast", 1, js_array_find, special_findLast as i16),
+    JS_CFUNC_NATIVE_DEF!(
         c"findLastIndex",
         1,
         js_array_find,
         special_findLastIndex as i16
     ),
-    JS_CFUNC_DEF!(c"indexOf", 1, js_array_indexOf),
-    JS_CFUNC_DEF!(c"lastIndexOf", 1, js_array_lastIndexOf),
-    JS_CFUNC_DEF!(c"includes", 1, js_array_includes),
-    JS_CFUNC_MAGIC_DEF!(c"join", 1, js_array_join, 0),
-    JS_CFUNC_DEF!(c"toString", 0, js_array_toString),
-    JS_CFUNC_MAGIC_DEF!(c"toLocaleString", 0, js_array_join, 1),
-    JS_CFUNC_MAGIC_DEF!(c"pop", 0, js_array_pop, 0),
-    JS_CFUNC_MAGIC_DEF!(c"push", 1, js_array_push, 0),
-    JS_CFUNC_MAGIC_DEF!(c"shift", 0, js_array_pop, 1),
-    JS_CFUNC_MAGIC_DEF!(c"unshift", 1, js_array_push, 1),
-    JS_CFUNC_DEF!(c"reverse", 0, js_array_reverse),
-    JS_CFUNC_DEF!(c"toReversed", 0, js_array_toReversed),
-    JS_CFUNC_DEF!(c"sort", 1, js_array_sort),
-    JS_CFUNC_DEF!(c"toSorted", 1, js_array_toSorted),
-    JS_CFUNC_MAGIC_DEF!(c"slice", 2, js_array_slice, 0),
-    JS_CFUNC_MAGIC_DEF!(c"splice", 2, js_array_slice, 1),
-    JS_CFUNC_DEF!(c"toSpliced", 2, js_array_toSpliced),
-    JS_CFUNC_DEF!(c"copyWithin", 2, js_array_copyWithin),
-    JS_CFUNC_MAGIC_DEF!(c"flatMap", 1, js_array_flatten, 1),
-    JS_CFUNC_MAGIC_DEF!(c"flat", 0, js_array_flatten, 0),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"indexOf", 1, js_array_indexOf, 0),
+    JS_CFUNC_NATIVE_DEF!(c"lastIndexOf", 1, js_array_lastIndexOf, 0),
+    JS_CFUNC_NATIVE_DEF!(c"includes", 1, js_array_includes, 0),
+    JS_CFUNC_NATIVE_DEF!(c"join", 1, js_array_join, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_array_toString, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_array_join, 1),
+    JS_CFUNC_NATIVE_DEF!(c"pop", 0, js_array_pop, 0),
+    JS_CFUNC_NATIVE_DEF!(c"push", 1, js_array_push, 0),
+    JS_CFUNC_NATIVE_DEF!(c"shift", 0, js_array_pop, 1),
+    JS_CFUNC_NATIVE_DEF!(c"unshift", 1, js_array_push, 1),
+    JS_CFUNC_NATIVE_DEF!(c"reverse", 0, js_array_reverse, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toReversed", 0, js_array_toReversed, 0),
+    JS_CFUNC_NATIVE_DEF!(c"sort", 1, js_array_sort, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toSorted", 1, js_array_toSorted, 0),
+    JS_CFUNC_NATIVE_DEF!(c"slice", 2, js_array_slice, 0),
+    JS_CFUNC_NATIVE_DEF!(c"splice", 2, js_array_slice, 1),
+    JS_CFUNC_NATIVE_DEF!(c"toSpliced", 2, js_array_toSpliced, 0),
+    JS_CFUNC_NATIVE_DEF!(c"copyWithin", 2, js_array_copyWithin, 0),
+    JS_CFUNC_NATIVE_DEF!(c"flatMap", 1, js_array_flatten, 1),
+    JS_CFUNC_NATIVE_DEF!(c"flat", 0, js_array_flatten, 0),
+    JS_CFUNC_NATIVE_DEF!(
         c"values",
         0,
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16
     ),
     JS_ALIAS_DEF!(c"[Symbol.iterator]", c"values"),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"keys",
         0,
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"entries",
         0,
         js_create_array_iterator,
@@ -2416,7 +1423,7 @@ pub const js_array_proto_funcs: [JSCFunctionListEntry; 39] = [
 ];
 
 pub const js_array_iterator_proto_funcs: [JSCFunctionListEntry; 2] = [
-    JS_ITERATOR_NEXT_DEF!(c"next", 0, js_array_iterator_next, 0),
+    JS_NATIVE_ITERATOR_NEXT_DEF!(c"next", 0, js_array_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         c"[Symbol.toStringTag]",
         c"Array Iterator",
@@ -2428,112 +1435,76 @@ pub const js_array_iterator_proto_funcs: [JSCFunctionListEntry; 2] = [
 // static array functions
 //
 
-pub unsafe fn js_array_from(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
+pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     // from(items, mapfn = void 0, this_arg = void 0)
 
-    let items = *argv.offset(0);
+    let items = cc.arg(0);
     let mut mapping = false;
-    let mut mapfn = JSValue::UNDEFINED;
-    let mut this_arg = JSValue::UNDEFINED;
+    let mut mapfn = &JSValue::UNDEFINED;
+    let mut this_arg = &JSValue::UNDEFINED;
 
-    if argc > 1 {
-        mapfn = *argv.offset(1);
+    if cc.length() > 1 {
+        mapfn = cc.arg(1);
         if !mapfn.is_undefined() {
-            if mapfn.ensure_callable(ctx.as_mut().unwrap()).is_err() {
-                return JSValue::EXCEPTION;
-            }
-
+            mapfn.ensure_callable(ctx)?;
             mapping = true;
-            if argc > 2 {
-                this_arg = *argv.offset(2);
+            if cc.length() > 2 {
+                this_arg = cc.arg(2);
             }
         }
     }
 
-    let iter = items.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_iterator);
-    if iter.is_exception() {
-        return JSValue::EXCEPTION;
-    }
+    let iter = items
+        .get_property(ctx, JS_ATOM_Symbol_iterator)
+        .check_exception()?;
 
     let mut stack = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-    let r: JSValueRc;
     let mut k: i64 = 0;
+    let res: JSValue;
 
     macro_rules! exception_close {
         () => {
             if !stack[0].is_undefined() {
-                JS_IteratorClose(ctx, stack[0], true).unwrap();
+                unsafe {
+                    JS_IteratorClose(ctx, &stack[0], true).unwrap();
+                }
             }
-            exception!();
-        };
-    }
-    macro_rules! exception {
-        () => {
-            JS_FreeValue(ctx, stack[0]);
-            JS_FreeValue(ctx, stack[1]);
-            return JSValue::EXCEPTION;
+            return Err(-1);
         };
     }
 
     if !iter.is_undefined() {
-        JS_FreeValue(ctx, iter);
-
-        r = if this_val.is_constructor() {
-            JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 0, std::ptr::null_mut())
+        res = if cc.this().is_constructor() {
+            JS_CallConstructor(ctx, cc.this(), &[]).check_exception()?
         } else {
-            (*ctx).create_array().unwrap_or(JSValue::EXCEPTION)
-        }
-        .into_rc((*ctx).rt());
+            ctx.create_array()?
+        };
 
-        if r.is_exception() {
-            exception!();
-        }
+        stack[0] = items.clone();
 
-        stack[0] = items.dup();
-
-        if js_for_of_start(ctx.as_mut().unwrap(), &mut stack[1], false) != 0 {
-            exception!();
+        if unsafe { js_for_of_start(ctx, &mut stack[1], false) } != 0 {
+            return Err(-1);
         }
 
         loop {
             let mut done = false;
-            let mut v =
-                JS_IteratorNext(ctx, stack[0], stack[1], 0, std::ptr::null_mut(), &mut done);
-            if JS_IsException(v) {
+            let mut v = JS_IteratorNext(ctx, &stack[0], &stack[1], &[], &mut done);
+            if v.is_exception() {
                 exception_close!();
             }
-
             if done {
                 break;
             }
 
             if mapping {
-                let v2 = JS_Call(
-                    ctx.as_mut().unwrap(),
-                    mapfn,
-                    this_arg,
-                    2,
-                    [v, JSValue::from_i32(k as i32)].as_mut_ptr(),
-                );
-                JS_FreeValue(ctx, v);
-                v = v2;
+                v = JS_Call(ctx, mapfn, this_arg, &[v, JSValue::Int(k as i32)]);
                 if v.is_exception() {
                     exception_close!();
                 }
             }
 
-            if (*r)
-                .define_property_value_i64(
-                    ctx.as_mut().unwrap(),
-                    k,
-                    v,
-                    JS_PROP_C_W_E | JS_PROP_THROW,
-                )
+            if res
+                .define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)
                 .is_err()
             {
                 exception_close!();
@@ -2542,150 +1513,58 @@ pub unsafe fn js_array_from(
             k += 1;
         }
     } else {
-        let arrayLike = JS_ToObject(ctx, items).into_rc((*ctx).rt());
-        if arrayLike.is_exception() {
-            exception!();
-        }
+        let arrayLike = items.coerce_to_object(ctx)?;
+        let len = js_get_length64(ctx, &arrayLike)?;
 
-        let len = if let Ok(n) = js_get_length64(ctx, *arrayLike) {
-            n
+        res = if cc.this().is_constructor() {
+            JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).check_exception()?
         } else {
-            exception!();
+            js_array_constructor(
+                ctx,
+                CallContext::new(ctx, JSValue::UNDEFINED, &[JSValue::from(len)], 0, None),
+            )?
         };
 
-        let mut args = [JSValue::from_i64(len)];
-        r = if this_val.is_constructor() {
-            JS_CallConstructor(ctx.as_mut().unwrap(), this_val, 1, args.as_mut_ptr())
-        } else {
-            js_array_constructor(ctx, JSValue::UNDEFINED, 1, args.as_mut_ptr())
-        }
-        .into_rc((*ctx).rt());
-
-        JS_FreeValue(ctx, args[0]);
-        if r.is_exception() {
-            exception!();
-        }
-
         for i in 0..len {
-            let mut v = (*arrayLike).get_property_i64(ctx.as_mut().unwrap(), i);
-            if v.is_exception() {
-                exception!();
-            }
-
+            let mut v = arrayLike.get_property_i64(ctx, i).check_exception()?;
             if mapping {
-                let v2 = JS_Call(
-                    ctx.as_mut().unwrap(),
-                    mapfn,
-                    this_arg,
-                    2,
-                    [v, JSValue::from_i32(i as i32)].as_mut_ptr(),
-                );
-                JS_FreeValue(ctx, v);
-                v = v2;
-                if v.is_exception() {
-                    exception!();
-                }
+                v = JS_Call(ctx, mapfn, this_arg, &[v, JSValue::Int(i as i32)])
+                    .check_exception()?;
             }
-
-            if (*r)
-                .define_property_value_i64(
-                    ctx.as_mut().unwrap(),
-                    i,
-                    v,
-                    JS_PROP_C_W_E | JS_PROP_THROW,
-                )
-                .is_err()
-            {
-                exception!();
-            }
+            res.define_property_value_i64(ctx, i, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
 
         k = len;
     }
 
-    if (*r)
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_u32(k as u32),
-        )
-        .is_err()
-    {
-        exception!();
-    }
+    res.set_property(ctx, JS_ATOM_length, JSValue::from(k as u32))?;
 
-    JS_FreeValue(ctx, stack[0]);
-    JS_FreeValue(ctx, stack[1]);
-
-    JSValue::from(r)
+    Ok(res)
 }
 
-pub unsafe fn js_array_of(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = if this_val.is_constructor() {
-        JS_CallConstructor(
-            ctx.as_mut().unwrap(),
-            this_val,
-            1,
-            [JSValue::from_i32(argc)].as_mut_ptr(),
-        )
+pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = if cc.this().is_constructor() {
+        JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).check_exception()?
     } else {
-        (*ctx).create_array().unwrap_or(JSValue::EXCEPTION)
+        ctx.create_array()?
     };
-    if obj.is_exception() {
-        return JSValue::EXCEPTION;
+
+    for i in 0..cc.length() {
+        obj.create_data_property_u32(ctx, i as _, cc.arg(i).clone(), JS_PROP_THROW)?;
     }
 
-    for i in 0..argc {
-        if obj
-            .create_data_property_u32(
-                ctx.as_mut().unwrap(),
-                i as _,
-                (*argv.offset(i as isize)).dup(),
-                JS_PROP_THROW,
-            )
-            .is_err()
-        {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
-    }
+    obj.set_property(ctx, JS_ATOM_length, JSValue::from(cc.length() as u32))?;
 
-    if obj
-        .set_property(
-            ctx.as_mut().unwrap(),
-            JS_ATOM_length,
-            JSValue::from_u32(argc as u32),
-        )
-        .is_err()
-    {
-        JS_FreeValue(ctx, obj);
-        return JSValue::EXCEPTION;
-    }
-
-    obj
+    Ok(obj)
 }
 
-pub unsafe fn js_array_isArray(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if let Ok(b) = JS_IsArray(ctx, *argv.offset(0)) {
-        b.into()
-    } else {
-        JSValue::EXCEPTION
-    }
+pub fn js_array_isArray(ctx: &JSContext, cc: CallContext) -> JSResult {
+    Ok(JSValue::Bool(cc.arg(0).is_array(ctx)?))
 }
 
 pub const js_array_funcs: [JSCFunctionListEntry; 4] = [
-    JS_CFUNC_DEF!(c"isArray", 1, js_array_isArray),
-    JS_CFUNC_DEF!(c"from", 1, js_array_from),
-    JS_CFUNC_DEF!(c"of", 0, js_array_of),
+    JS_CFUNC_NATIVE_DEF!(c"isArray", 1, js_array_isArray, 0),
+    JS_CFUNC_NATIVE_DEF!(c"from", 1, js_array_from, 0),
+    JS_CFUNC_NATIVE_DEF!(c"of", 0, js_array_of, 0),
     JS_CGETSET_DEF!(c"[Symbol.species]", js_get_this, NONE),
 ];

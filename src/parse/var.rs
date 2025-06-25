@@ -1,10 +1,10 @@
-use std::ops::DerefMut;
+use std::ops::Deref;
 
 use crate::{
-    atom::{consts::JS_ATOM_arguments, JSAtom},
+    atom::{JSAtom, consts::JS_ATOM_arguments},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{JSFunctionDef, JSVarDefEnum, JSVarKindEnum, GLOBAL_VAR_OFFSET},
+    function::{GLOBAL_VAR_OFFSET, JSFunctionDef, JSVarDefEnum, JSVarKindEnum},
 };
 
 use super::state::JSParseState;
@@ -18,25 +18,25 @@ pub unsafe fn define_var(
     macro_rules! goto_redef_lex_error {
         () => {
             // redefining a scoped var in the same scope: error
-            (*s).throw_syntax_error(c"invalid redefinition of lexical identifier");
+            (*s).throw_syntax_error("invalid redefinition of lexical identifier");
             return -1;
         };
     }
     macro_rules! goto_invalid_lexical_redefinition {
         () => {
             // error to redefine a var that inside a lexical scope
-            (*s).throw_syntax_error(c"invalid redefinition of lexical identifier");
+            (*s).throw_syntax_error("invalid redefinition of lexical identifier");
             return -1;
         };
     }
 
-    let mut ctx = (*s).ctx;
+    let mut ctx = &(*s).ctx;
     let mut vid: i32;
 
     match var_def_type {
         JSVarDefEnum::JS_VAR_DEF_WITH => {
             vid = (*fd)
-                .add_scope_var(ctx.deref_mut(), name, JSVarKindEnum::JS_VAR_NORMAL)
+                .add_scope_var(ctx, name, JSVarKindEnum::JS_VAR_NORMAL)
                 .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_LET
@@ -74,7 +74,7 @@ pub unsafe fn define_var(
                 && (*fd).find_arg(name).is_some()
             {
                 // lexical variable redefines a parameter name
-                (*s).throw_syntax_error(c"invalid redefinition of parameter name");
+                (*s).throw_syntax_error("invalid redefinition of parameter name");
                 return -1;
             }
 
@@ -82,14 +82,14 @@ pub unsafe fn define_var(
                 .find_var_in_child_scope(name, (*fd).scope_level)
                 .is_some()
             {
-                (*s).throw_syntax_error(c"invalid redefinition of a variable");
+                (*s).throw_syntax_error("invalid redefinition of a variable");
                 return -1;
             }
 
             if (*fd).is_global_var {
                 if let Some(hf) = (*fd).find_global_var(name) {
                     if (*fd).is_child_scope(hf.scope_level, (*fd).scope_level) {
-                        (*s).throw_syntax_error(c"invalid redefinition of global identifier");
+                        (*s).throw_syntax_error("invalid redefinition of global identifier");
                         return -1;
                     }
                 }
@@ -99,7 +99,7 @@ pub unsafe fn define_var(
                 && matches!((*fd).eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
                 && (*fd).scope_level == (*fd).body_scope
             {
-                if let Ok(hf) = (*fd).add_global_var(ctx.deref_mut(), name) {
+                if let Ok(hf) = (*fd).add_global_var(ctx, name) {
                     hf.set_is_lexical(true);
                     hf.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                     vid = GLOBAL_VAR_OFFSET;
@@ -115,7 +115,7 @@ pub unsafe fn define_var(
                     JSVarKindEnum::JS_VAR_NORMAL
                 };
                 vid = (*fd)
-                    .add_scope_var(ctx.deref_mut(), name, var_kind)
+                    .add_scope_var(ctx, name, var_kind)
                     .map_or(-1, |x| x as i32);
                 if vid >= 0 {
                     let vd = (*fd).vars.get_mut(vid as usize).unwrap();
@@ -126,7 +126,7 @@ pub unsafe fn define_var(
         }
         JSVarDefEnum::JS_VAR_DEF_CATCH => {
             vid = (*fd)
-                .add_scope_var(ctx.deref_mut(), name, JSVarKindEnum::JS_VAR_CATCH)
+                .add_scope_var(ctx, name, JSVarKindEnum::JS_VAR_CATCH)
                 .map_or(-1, |x| x as i32);
         }
         JSVarDefEnum::JS_VAR_DEF_VAR => {
@@ -147,19 +147,19 @@ pub unsafe fn define_var(
                     }
                 }
 
-                if (*fd).add_global_var(ctx.deref_mut(), name).is_ok() {
+                if (*fd).add_global_var(ctx, name).is_ok() {
                     vid = GLOBAL_VAR_OFFSET;
                 } else {
                     return -1;
                 }
             } else {
                 #[cfg(debug_assertions)]
-                let _name_refcnt = name.ref_count(ctx.rt());
+                let _name_refcnt = name.ref_count(ctx.rt().deref());
 
                 vid = if let Some(id) = (*fd).find_var(name) {
                     // the variable already exists, don't add it again
                     id as i32
-                } else if let Ok(id) = (*fd).add_var(ctx.deref_mut(), name) {
+                } else if let Ok(id) = (*fd).add_var(ctx, name) {
                     if name == JS_ATOM_arguments && (*fd).has_arguments_binding {
                         (*fd).arguments_var_idx.replace(id);
                     }

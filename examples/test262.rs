@@ -1,54 +1,49 @@
 #![allow(non_snake_case)]
 
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     io::Write,
-    ops::DerefMut,
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
 use zhuque::{
     array_buffer::JS_DetachArrayBuffer,
-    atom::{consts::JS_ATOM_stack, JS_FreeAtom},
-    context::{JSContext, JSContextHandle, JS_FreeContext},
-    error::{JSResult, JS_ThrowReferenceError},
+    atom::{JS_FreeAtom, consts::JS_ATOM_stack},
+    context::JSContext,
+    error::{JS_ThrowReferenceError, JSResult},
     eval::{
         JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE,
     },
-    function::{CallArgs, JSCFunctionEnum},
+    function::{CallContext, JSCFunctionEnum},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
-    module::{JSModuleDef, JS_SetModuleLoaderFunc},
-    promise::{JSPromiseStateEnum, PromiseValue},
+    module::{JS_SetModuleLoaderFunc, JSModuleDef},
     runtime::JSRuntime,
-    value::{
-        object::JS_PROP_C_W_E, JSValue, JSValueConst, JSValueRc, JS_FreeValue, StringContent,
-        JS_TAG_EXCEPTION, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_UNDEFINED, JS_VALUE_GET_PTR,
-    },
+    value::{JS_FreeValue, JSValue, StringContent, object::JS_PROP_C_W_E},
 };
 
-fn js_print(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
     for i in 0..args.length() {
         if i > 0 {
             print!(" ");
         }
         let arg = args.get_raw(i);
-        print!("{}", arg.coerce_to_utf8(ctx.handle())?);
+        print!("{}", arg.coerce_to_utf8(ctx)?);
     }
     println!();
 
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_detachArrayBuffer(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
     unsafe {
-        JS_DetachArrayBuffer(ctx, args.get_raw(0));
+        JS_DetachArrayBuffer(ctx, cc.arg(0));
     }
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_evalScript(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let script = args.get_raw(0).coerce_to_utf8(ctx.handle())?;
+fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let script = cc.arg(0).coerce_to_utf8(ctx)?;
     ctx.eval(
         CString::new(script.as_ref()).unwrap().as_c_str(),
         "<evalScript>",
@@ -57,9 +52,9 @@ fn js_evalScript(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     .check_exception()
 }
 
-fn js_string_codePointRange(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let mut start = args.get_raw(0).coerce_to_i32(ctx)? as u32;
-    let end = std::cmp::min(args.get_raw(1).coerce_to_i32(ctx)? as u32, 0x10ffff + 1);
+fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let mut start = cc.arg(0).coerce_to_i32(ctx)? as u32;
+    let end = std::cmp::min(cc.arg(1).coerce_to_i32(ctx)? as u32, 0x10ffff + 1);
     if start > end {
         start = end;
     }
@@ -84,19 +79,13 @@ fn js_string_codePointRange(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     ctx.create_string_from_content(cc).check_exception()
 }
 
-fn js_createRealm(ctx: &mut JSContext, _: CallArgs) -> JSResult {
+fn js_createRealm(ctx: &JSContext, _: CallContext) -> JSResult {
     let ctx1 = ctx.rt_mut().create_context()?;
-    let ret = setup_ctx_helpers(ctx1);
-    unsafe {
-        // ctx1 has a refcount so it stays alive
-        JS_FreeContext(ctx1.as_ptr());
-    }
-    ret
+    setup_ctx_helpers(&ctx1)
 }
 
-fn setup_ctx_helpers(mut ctx: JSContextHandle) -> Result<JSValue, i32> {
-    let ctx = ctx.deref_mut();
-    let global = ctx.global_object_dup().check_exception()?;
+fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
+    let global = JSValue::Object(ctx.global_obj());
 
     {
         let s = ctx.create_native_function(js_print, "print", 1, JSCFunctionEnum::NativeFunc, 0)?;
@@ -150,113 +139,104 @@ fn setup_ctx_helpers(mut ctx: JSContextHandle) -> Result<JSValue, i32> {
         obj262.set_property_str(ctx, "createRealm", f)?;
     }
 
-    obj262.set_property_str(ctx, "global", global.dup())?;
-    global.set_property_str(ctx, "$262", obj262.dup())?;
+    obj262.set_property_str(ctx, "global", global.clone())?;
+    global.set_property_str(ctx, "$262", obj262.clone())?;
 
-    JS_FreeValue(ctx, global);
+    JS_FreeValue(ctx, &global);
     Ok(obj262)
 }
 
 pub fn js_module_loader(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     module_name: &str,
     opaque: *mut std::ffi::c_void,
-) -> *mut JSModuleDef {
+) -> Result<JSModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
             // compile the module
-            let func_val = ctx.eval(
-                CString::new(buf).unwrap().as_c_str(),
-                module_name,
-                JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
-            );
-            if func_val.is_exception() {
-                return std::ptr::null_mut();
-            }
+            let func_val = ctx
+                .eval(
+                    CString::new(buf).unwrap().as_c_str(),
+                    module_name,
+                    JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
+                )
+                .check_exception()?;
 
             // XXX: could propagate the exception
             unsafe {
-                js_module_set_import_meta(ctx, func_val, true as i32, false);
+                js_module_set_import_meta(ctx, &func_val, true as i32, false);
             }
 
-            // the module is already referenced, so we must free it
-            let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
-            unsafe {
-                JS_FreeValue(ctx, func_val);
+            if let JSValue::Module(m) = func_val {
+                Ok(m)
+            } else {
+                unreachable!()
             }
-
-            m
         }
         Err(_) => {
-            unsafe {
-                JS_ThrowReferenceError(
-                    ctx,
-                    CStr::from_ptr(
-                        format!("could not load module filename '{module_name}\0'")
-                            .as_ptr()
-                            .cast(),
-                    ),
-                );
-            }
-            std::ptr::null_mut()
+            JS_ThrowReferenceError(
+                ctx,
+                &format!("could not load module filename '{module_name}'"),
+            );
+            Err(-1)
         }
     }
 }
 
 pub unsafe fn js_module_set_import_meta(
-    ctx: *mut JSContext,
-    func_val: JSValueConst,
+    ctx: &JSContext,
+    func_val: &JSValue,
     use_realpath: i32,
     is_main: bool,
 ) -> i32 {
-    debug_assert_eq!(func_val.tag(), JS_TAG_MODULE);
+    if let JSValue::Module(m) = func_val {
+        // make module name to absolute url
+        let module_name_atom = m.module_name_atom().dup(&ctx.rt());
+        let module_name = module_name_atom.to_utf8_string(ctx);
+        JS_FreeAtom(ctx, module_name_atom);
+        if module_name.is_err() {
+            return -1;
+        }
+        let module_name = module_name.unwrap();
 
-    let m = JS_VALUE_GET_PTR(func_val).cast::<JSModuleDef>();
-
-    // make module name to absolute url
-    let module_name_atom = (*m).module_name.dup((*ctx).rt());
-    let module_name = module_name_atom.to_utf8_string(ctx.into());
-    JS_FreeAtom(ctx, module_name_atom);
-    if module_name.is_err() {
-        return -1;
-    }
-    let module_name = module_name.unwrap();
-
-    let p = PathBuf::from(module_name.as_ref());
-    let mut normalized = PathBuf::new();
-    for component in p.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            std::path::Component::CurDir => {}
-            _ => {
-                normalized.push(component.as_os_str());
+        let p = PathBuf::from(module_name);
+        let mut normalized = PathBuf::new();
+        for component in p.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    normalized.pop();
+                }
+                std::path::Component::CurDir => {}
+                _ => {
+                    normalized.push(component.as_os_str());
+                }
             }
         }
-    }
-    let aurl = format!("file://{}", normalized.display());
+        let aurl = format!("file://{}", normalized.display());
 
-    let meta_obj = if let Ok(m) = (*m).import_meta(ctx.as_mut().unwrap()) {
-        m
+        let meta_obj = if let Ok(m) = (*m).import_meta(ctx) {
+            m
+        } else {
+            return -1;
+        };
+
+        meta_obj
+            .define_property_value_str(
+                ctx,
+                "url",
+                ctx.create_string_from_utf8(aurl.into_bytes()),
+                JS_PROP_C_W_E,
+            )
+            .unwrap();
+
+        meta_obj
+            .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
+            .unwrap();
+
+        0
     } else {
-        return -1;
-    };
-
-    meta_obj
-        .define_property_value_str(
-            ctx.as_mut().unwrap(),
-            "url",
-            (*ctx).create_string_from_utf8(aurl.into_bytes()),
-            JS_PROP_C_W_E,
-        )
-        .unwrap();
-
-    meta_obj
-        .define_property_value_str(ctx.as_mut().unwrap(), "main", is_main.into(), JS_PROP_C_W_E)
-        .unwrap();
-
-    0
+        unreachable!()
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -277,7 +257,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(ctx: &mut JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue> {
+fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue> {
     for file in harness_files {
         let src = std::fs::read_to_string(&file).unwrap();
 
@@ -291,26 +271,24 @@ fn run_harness(ctx: &mut JSContext, harness_files: &[PathBuf]) -> Result<(), JSV
             return Err(ctx.take_exception());
         }
 
-        JS_FreeValue(ctx, r);
+        JS_FreeValue(ctx, &r);
     }
 
     Ok(())
 }
 
 fn run_test_content(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     content: &str,
     filename: &Path,
     eval_flags: u32,
     is_async: bool,
 ) -> Result<(), JSValue> {
-    let mut ret_val: JSValueRc = ctx
-        .eval(
-            CString::new(content).unwrap().as_c_str(),
-            filename.as_os_str().to_str().unwrap(),
-            eval_flags,
-        )
-        .into_rc(ctx.rt());
+    let mut ret_val = ctx.eval(
+        CString::new(content).unwrap().as_c_str(),
+        filename.as_os_str().to_str().unwrap(),
+        eval_flags,
+    );
 
     let ret_promise = is_async || eval_flags & JS_EVAL_TYPE_MODULE != 0;
     let async_done = 0; // counter of "Test262:AsyncTestComplete" messages
@@ -366,14 +344,14 @@ fn run_test_content(
     }
 }
 
-fn dump_error(ctx: &mut JSContext, err_val: JSValue, msg: &str, outf: &mut dyn Write) {
+fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Write) {
     writeln!(outf, "[MESSAGE] {msg}",).unwrap();
 
     let s = err_val.get_property(ctx, JS_ATOM_stack);
-    match s.tag() {
-        JS_TAG_EXCEPTION | JS_TAG_NULL | JS_TAG_UNDEFINED => {}
+    match s {
+        JSValue::EXCEPTION | JSValue::NULL | JSValue::UNDEFINED => {}
         _ => {
-            let ss = s.coerce_to_utf8(ctx.handle()).unwrap();
+            let ss = s.coerce_to_utf8(ctx).unwrap();
             writeln!(outf, "[STACK] {}", ss).unwrap();
         }
     }
@@ -423,19 +401,16 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
         JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
     }
     let mut ctx = rt.create_context().unwrap();
-    let obj262 = setup_ctx_helpers(ctx).unwrap();
-    JS_FreeValue(ctx.as_ptr(), obj262);
+    let obj262 = setup_ctx_helpers(&ctx).unwrap();
 
     let mut has_err = false;
 
     if !harness_files.is_empty() {
         // eval harness includes
-        if let Err(exc) = run_harness(ctx.deref_mut(), &harness_files) {
-            let msg = exc.coerce_to_utf8(ctx).unwrap();
+        if let Err(exc) = run_harness(&ctx, &harness_files) {
+            let msg = exc.coerce_to_utf8(&ctx).unwrap();
             writeln!(outf, "fail: '{}', can't eval harness", filename.display()).unwrap();
-            dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
-            // exc.object_unchecked().dump(rt);
-            JS_FreeValue(ctx.as_ptr(), exc);
+            dump_error(&ctx, &exc, msg.as_ref(), outf);
 
             has_err = true;
         }
@@ -479,13 +454,13 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
         .filter_map(|s| s)
         {
             if let Err(exc) = run_test_content(
-                ctx.deref_mut(),
+                &ctx,
                 content.as_str(),
                 &filename,
                 eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
                 is_async,
             ) {
-                let msg = exc.coerce_to_utf8(ctx.handle()).unwrap();
+                let msg = exc.coerce_to_utf8(&ctx).unwrap();
 
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {
@@ -501,17 +476,15 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                                 err_class
                             )
                             .unwrap();
-                            dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
+                            dump_error(&ctx, &exc, msg.as_ref(), outf);
                         }
                     } else {
                         writeln!(outf, "pass: '{}'", filename.display()).unwrap();
                     }
                 } else {
                     writeln!(outf, "fail: '{}'", filename.display()).unwrap();
-                    dump_error(ctx.deref_mut(), exc, msg.as_ref(), outf);
+                    dump_error(&ctx, &exc, msg.as_ref(), outf);
                 }
-
-                JS_FreeValue(ctx.as_ptr(), exc);
             } else {
                 if let Some(neg) = &negative {
                     writeln!(
@@ -535,14 +508,17 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     // JS_DumpGCObjects(js.as_mut());
     // JS_DumpAtoms(js.as_mut());
 
-    unsafe {
-        JS_FreeContext(ctx.as_ptr());
-    }
+    // unsafe {
+    //     JS_FreeContext(&ctx);
+    // }
+
     drop(rt);
 }
 
 fn main() {
-    std::env::set_var("RUST_LOG", "INFO");
+    unsafe {
+        std::env::set_var("RUST_LOG", "INFO");
+    }
     env_logger::init();
 
     let mut fp = std::fs::OpenOptions::new()
@@ -553,14 +529,14 @@ fn main() {
         .unwrap();
 
     run_test_file(
-          &Path::new(
+        &Path::new(
             //"/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
-            "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js", 
+            "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js",
             // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-incorrect-ctor.js",
-          ),
-          true,
-          &mut fp,
-      );
+        ),
+        true,
+        &mut fp,
+    );
     fp.flush().unwrap();
 
     // for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {

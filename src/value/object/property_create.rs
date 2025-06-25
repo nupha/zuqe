@@ -1,135 +1,225 @@
-use std::ops::{Deref, DerefMut};
-
 use crate::{
-    array::{add_fast_array_element, convert_fast_array_to_array},
-    atom::{JSAtom, JS_AtomIsArrayIndex, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*},
+    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    array::convert_fast_array_to_array,
+    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::JSContext,
-    gc::RefCounted,
-    value::object::{JSShape, JSShapeHandle},
-    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
+    value::object::JSObjectInner,
 };
 
 use super::{
-    super::{set_value, JSTag, JSValue, JS_ToUint32, JS_VALUE_GET_OBJ},
-    get_prop_flags, JSObject, JSProperty, JS_IsExtensible, JS_PROP_CONFIGURABLE, JS_PROP_C_W_E,
-    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-    JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+    super::JSValue, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
+    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+    JSObject, JSProperty, get_prop_flags,
 };
 
-impl JSObject {
+impl JSObjectInner {
+    /// Grows the property values array to accommodate more properties.
+    /// Takes a new length and extends the array with undefined values if needed.
+    /// Returns error if memory allocation fails.
+    pub(super) fn grow_prop_value_slots(&self, new_length: usize) -> Result<(), i32> {
+        let mut slots = self.prop_values.borrow_mut();
+
+        let len = slots.len();
+        if new_length > len {
+            let delta = new_length - len;
+            slots.try_reserve_exact(delta).map_err(|_| -1)?;
+            // init extended elements to undefined
+            for _ in 0..delta {
+                slots.push(JSProperty::Value(JSValue::UNDEFINED));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add a property to shape and prop value slots.
     /// Note: the property value is initialized to undefined. Returns Err if memory error.
-    /// `prop` keeps ref count unchanged after calling.
-    pub fn add_property(
-        &mut self,
-        ctx: &mut JSContext,
+    /// `prop` is not consumed.
+    fn do_add_property<R>(
+        &self,
+        ctx: &JSContext,
         prop: JSAtom,
         prop_flags: u32,
-    ) -> Result<*mut JSProperty, i32> {
-        let mut sh = JSShapeHandle::from(self.shape);
+        then: Option<impl FnOnce(&mut JSProperty) -> R>,
+    ) -> Result<Option<R>, i32> {
+        let mut shape = self.shape.borrow_mut().take().unwrap();
 
-        if sh.is_hashed {
+        if shape.is_hashed() {
             // try to find an existing shape
-            match ctx.rt().find_shape_with_prop(sh, prop, prop_flags) {
+            match ctx.rt().find_shape_with_prop(&shape, prop, prop_flags) {
                 Some(found) => {
-                    // matching shape found: use it
-                    let new_len = found.props.len();
-                    if new_len != sh.props.len() {
-                        debug_assert!(new_len > sh.props.len());
+                    // found matching shape
+                    let new_len = found.len();
+                    let len = shape.len();
+
+                    if new_len != len {
+                        debug_assert!(new_len > len);
                         self.grow_prop_value_slots(new_len).inspect_err(|_| {
                             ctx.JS_ThrowOutOfMemory();
                         })?;
                     }
 
-                    self.shape = unsafe {
-                        (*found.as_ptr()).inc_ref();
-                        found.into()
-                    };
-                    JSShape::free(ctx.rt_mut(), sh);
-                    return Ok(self.prop_values.get_mut(new_len - 1).unwrap());
+                    self.shape.borrow_mut().replace(found);
+
+                    if let Some(f) = then {
+                        return Ok(Some(f(self
+                            .prop_values
+                            .borrow_mut()
+                            .get_mut(new_len - 1)
+                            .unwrap())));
+                    } else {
+                        return Ok(None);
+                    }
                 }
                 None => {
-                    if sh.deref().ref_count() != 1 {
-                        // shape is shared, clone it
-                        let mut new_sh = sh.deref_mut().clone(ctx)?;
-                        // register the cloned shape
-                        new_sh.is_hashed = true;
-                        ctx.rt_mut().register_shape(new_sh);
+                    if shape.strong_count() != 1 {
+                        // shape is shared, clone and use new shape
+                        let new_sh = shape.clone_to_new(ctx)?;
+                        // register the new shape
+                        ctx.rt_mut().register_shape(&new_sh).inspect_err(|_| {
+                            ctx.JS_ThrowOutOfMemory();
+                        })?;
 
-                        // free current shape and use new cloned
-                        JSShape::free(ctx.rt_mut(), sh);
-                        self.shape = new_sh.into();
+                        shape = new_sh;
                     }
                 }
             };
         }
-        debug_assert_eq!(unsafe { (*self.shape).ref_count() }, 1);
 
-        unsafe {
-            (*self.shape).add_shape_property(ctx, Some(self), prop, prop_flags)?;
+        // add shape property
+        let len = shape
+            .add_shape_property(ctx, prop, prop_flags)
+            .inspect_err(|_| {
+                self.shape.borrow_mut().replace(shape.clone());
+            })?;
+
+        self.shape.borrow_mut().replace(shape.clone());
+
+        // ensure object's prop values slot have same length as shape's length
+        self.grow_prop_value_slots(len).inspect_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+        })?;
+
+        if let Some(f) = then {
+            Ok(Some(f(&mut self.prop_values.borrow_mut()[len - 1])))
+        } else {
+            Ok(None)
         }
-
-        let len = self.shape().unwrap().props.len();
-        Ok(self.prop_values.get_mut(len - 1).unwrap())
     }
 
-    /// A detailed version of add_property().
-    /// Both `prop`, `val`, `getter` and `setter` are not consumed.
-    pub unsafe fn create_property(
-        &mut self,
-        ctx: &mut JSContext,
+    /// Add a property to shape and prop value slots.
+    /// Note: the property value is initialized to undefined. Returns Err if memory error.
+    /// `prop` is not consumed.
+    #[inline(always)]
+    pub(super) fn add_property_then<R>(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        prop_flags: u32,
+        then: impl FnOnce(&mut JSProperty) -> R,
+    ) -> Result<R, i32> {
+        self.do_add_property(ctx, prop, prop_flags, Some(then))
+            .map(|r| r.unwrap())
+    }
+}
+
+impl JSObject {
+    /// Add a property to shape and prop value slots.
+    /// Note: the property value is initialized to undefined. Returns Err if memory error.
+    /// `prop` is not consumed.
+    #[inline]
+    pub fn add_property_then<R>(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        prop_flags: u32,
+        then: impl FnOnce(&mut JSProperty) -> R,
+    ) -> Result<R, i32> {
+        self.0.add_property_then(ctx, prop, prop_flags, then)
+    }
+
+    /// Add new property to shape and enlarge prop value slots.
+    ///
+    /// Note: the new property value is initialized to undefined. Returns Err if out of memory.
+    /// `prop` is not consumed.
+    #[inline]
+    pub fn add_property(&self, ctx: &JSContext, prop: JSAtom, prop_flags: u32) -> Result<(), i32> {
+        self.0
+            .do_add_property(
+                ctx,
+                prop,
+                prop_flags,
+                Option::<Box<dyn FnOnce(&mut JSProperty)>>::None,
+            )
+            .map(|r| r.unwrap())
+    }
+
+    /// Add property with value.
+    /// `prop` is not consumed.
+    /// `val`, `getter` and `setter` are consumed.
+    pub fn create_property(
+        &self,
+        ctx: &JSContext,
         prop: JSAtom,
         val: JSValue,
         getter: JSValue,
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        macro_rules! slow_array {
+        // O.o
+        debug_assert!(self.0.prop_values.try_borrow_mut().is_ok(), "O.o");
+
+        macro_rules! update_array_length {
             ($p:expr, $idx:expr) => {
-                /* update the length field */
-                let plen = (*$p).prop_values.first_mut().unwrap();
-                let mut len = JS_ToUint32(ctx, (*plen).u.value)?;
-                if ($idx + 1) > len {
+                let len = $p.0.prop_values.borrow()[0]
+                    .value(ctx, &JSValue::UNDEFINED)
+                    .coerce_to_i32_free(ctx)? as usize;
+
+                if ($idx as usize + 1) > len {
                     // prop #0 of Array is length
-                    let prop0_flags = (*(*$p).shape).props.first().unwrap().1.flags();
+                    let prop0_flags = $p
+                        .shape()
+                        .map(|sh| sh.0.borrow().props.first().unwrap().1.flags())
+                        .unwrap();
+
                     if prop0_flags & JS_PROP_WRITABLE == 0 {
-                        return if (*ctx).JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                        return if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
                             Ok(false)
                         } else {
                             Err(-1)
                         };
                     }
 
-                    /* XXX: should update the length after defining
-                    the property */
-                    len = $idx + 1;
-                    set_value(ctx, &mut (*plen).u.value, JSValue::from(len));
+                    $p.0.prop_values.borrow_mut()[0] =
+                        JSProperty::Value(JSValue::from($idx as u32 + 1))
                 }
             };
         }
 
         macro_rules! convert_to_array {
             ($p:expr, $idx:expr) => {
-                if convert_fast_array_to_array(ctx, $p) != 0 {
+                if unsafe { convert_fast_array_to_array(ctx, $p) } != 0 {
                     return Err(-1);
                 }
-                slow_array!($p, $idx);
+                update_array_length!($p, $idx);
             };
         }
 
         // add a new property or modify an existing exotic one
-        if self.detailed.is_exotic() {
+        let obj_flags = self.flags();
+        if obj_flags.is_exotic() {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     let mut idx: u32 = 0;
 
-                    if self.detailed.fast_array() {
+                    if obj_flags.fast_array() {
                         if prop.is_int_type() {
                             idx = __JS_AtomToUInt32(prop);
                             if idx == self.array_length_unchecked() as u32 {
-                                if !self.detailed.extensible() {
-                                    return if (*ctx).JS_ThrowTypeErrorOrFalse(
+                                if !self.flags().extensible() {
+                                    return if ctx.JS_ThrowTypeErrorOrFalse(
                                         flags as _,
-                                        c"object is not extensible",
+                                        "object is not extensible",
                                     ) {
                                         Err(-1)
                                     } else {
@@ -144,27 +234,28 @@ impl JSObject {
                                 if prop_flags != JS_PROP_C_W_E {
                                     convert_to_array!(self, idx);
                                 }
-                                return add_fast_array_element(ctx, self, val.dup(), flags);
+                                return self.add_fast_array_element(ctx, val, flags);
+                                //return add_fast_array_element(ctx, self, val.dup(), flags);
                             } else {
                                 convert_to_array!(self, idx);
                             }
-                        } else if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
-                            /* convert the fast array to normal array */
+                        } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                            // convert the fast array to normal array
                             convert_to_array!(self, idx);
                         }
-                    } else if JS_AtomIsArrayIndex(ctx, &mut idx, prop) {
-                        slow_array!(self, idx);
+                    } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                        update_array_length!(self, idx);
                     }
                 }
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                    let ret = JS_AtomIsNumericIndex(ctx, prop);
+                    let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
                     if ret != 0 {
                         if ret < 0 {
                             return Err(-1);
                         }
                         return if ctx.JS_ThrowTypeErrorOrFalse(
                             flags,
-                            c"cannot create numeric index in typed array",
+                            "cannot create numeric index in typed array",
                         ) {
                             Err(-1)
                         } else {
@@ -176,26 +267,25 @@ impl JSObject {
                     if (flags & JS_PROP_NO_EXOTIC) == 0 {
                         let em = ctx.rt().class_array[cid as usize].exotic;
                         if !em.is_null() {
-                            if let Some(cb) = (*em).define_own_property {
-                                let r = cb(
-                                    ctx,
-                                    JS_MKPTR!(JSTag::Object, (self as *mut JSObject).cast()),
-                                    prop,
-                                    val,
-                                    getter,
-                                    setter,
-                                    flags as _,
-                                );
+                            if let Some(cb) = unsafe { (*em).define_own_property } {
+                                let r = unsafe {
+                                    cb(
+                                        ctx,
+                                        &JSValue::Object(self.clone()),
+                                        prop,
+                                        &val,
+                                        &getter,
+                                        &setter,
+                                        flags as _,
+                                    )
+                                };
                                 return if r < 0 { Err(-1) } else { Ok(r != 0) };
                             }
 
-                            if !JS_IsExtensible(
-                                ctx,
-                                JS_MKPTR!(JSTag::Object, (self as *mut JSObject).cast()),
-                            )? {
+                            if !self.is_extensible(ctx)? {
                                 return if ctx.JS_ThrowTypeErrorOrFalse(
                                     flags as _,
-                                    c"object is not extensible",
+                                    "object is not extensible",
                                 ) {
                                     Err(-1)
                                 } else {
@@ -208,8 +298,8 @@ impl JSObject {
             }
         }
 
-        if !self.detailed.extensible() {
-            return if ctx.JS_ThrowTypeErrorOrFalse(flags, c"object is not extensible") {
+        if !obj_flags.extensible() {
+            return if ctx.JS_ThrowTypeErrorOrFalse(flags, "object is not extensible") {
                 Err(-1)
             } else {
                 Ok(false)
@@ -221,26 +311,31 @@ impl JSObject {
         } else {
             flags & JS_PROP_C_W_E
         };
-        let pr = self.add_property(ctx, prop, prop_flags)?;
 
-        if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-            // getset property
-            (*pr).u.getset.getter = std::ptr::null_mut();
-            if (flags & JS_PROP_HAS_GET) != 0 && getter.is_callable(ctx) {
-                (*pr).u.getset.getter = JS_VALUE_GET_OBJ(getter.dup());
-            }
-            (*pr).u.getset.setter = std::ptr::null_mut();
-            if (flags & JS_PROP_HAS_SET) != 0 && setter.is_callable(ctx) {
-                (*pr).u.getset.setter = JS_VALUE_GET_OBJ(setter.dup());
-            }
-        } else {
-            // normal property
-            (*pr).u.value = if (flags & JS_PROP_HAS_VALUE) != 0 {
-                val.dup()
+        self.add_property_then(ctx, prop, prop_flags, |pr| {
+            *pr = if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+                // getset property
+                JSProperty::GetSet {
+                    getter: if (flags & JS_PROP_HAS_GET) != 0 && getter.is_callable() {
+                        getter.object().cloned()
+                    } else {
+                        None
+                    },
+                    setter: if (flags & JS_PROP_HAS_SET) != 0 && setter.is_callable() {
+                        setter.object().cloned()
+                    } else {
+                        None
+                    },
+                }
             } else {
-                JSValue::UNDEFINED
+                // normal property
+                JSProperty::Value(if flags & JS_PROP_HAS_VALUE != 0 {
+                    val
+                } else {
+                    JSValue::UNDEFINED
+                })
             };
-        }
+        })?;
 
         Ok(true)
     }
@@ -249,13 +344,14 @@ impl JSObject {
 /// `val` is duplicated inside
 #[deprecated(note = "use JSObject::create_property() instead")]
 pub unsafe fn JS_CreateProperty(
-    ctx: *mut JSContext,
-    p: *mut JSObject,
+    ctx: &JSContext,
+    p: *mut JSValue,
     prop: JSAtom,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
     flags: u32,
 ) -> Result<bool, i32> {
-    (*p).create_property(ctx.as_mut().unwrap(), prop, val, getter, setter, flags)
+    (*p).object_unchecked()
+        .create_property(ctx, prop, val, getter, setter, flags)
 }

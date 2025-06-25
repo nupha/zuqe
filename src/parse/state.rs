@@ -1,8 +1,8 @@
 use std::ptr::NonNull;
 
-use crate::{context::JSContextHandle, function::JSFunctionDef, value::JSValue};
+use crate::{context::JSContext, function::JSFunctionDef, parse::token::TokenData, value::JSValue};
 
-use super::token::{JSToken, JSTokenNum, JSTokenUnion};
+use super::token::JSToken;
 
 // Parse flags for controlling expression parsing behavior
 /// Allow the 'in' binary operator
@@ -27,7 +27,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
-    pub ctx: JSContextHandle,
+    pub ctx: JSContext,
     /// Line number of the previously processed token
     pub last_line_num: i32,
     /// Current line number being processed
@@ -66,8 +66,8 @@ impl<'s> JSParseState<'s> {
     /// * `input` - Input buffer containing source code
     /// * `input_len` - Length of input buffer
     /// * `filename` - Name of source file
-    pub const fn new(
-        ctx: JSContextHandle,
+    pub fn new(
+        ctx: &JSContext,
         fd: NonNull<JSFunctionDef>,
         input: *const u8,
         input_len: usize,
@@ -77,7 +77,7 @@ impl<'s> JSParseState<'s> {
         // let mut fd = JSFunctionDef::new(ctx, std::ptr::null_mut(), false, false, filename, 1)?;
 
         Self {
-            ctx,
+            ctx: ctx.clone(),
             last_line_num: 0,
             line_num: 1,
             filename,
@@ -85,9 +85,7 @@ impl<'s> JSParseState<'s> {
                 val: ' ' as i32,
                 line_num: 1,
                 ptr: std::ptr::null(),
-                u: JSTokenUnion {
-                    num: JSTokenNum { val: JSValue::ZERO },
-                },
+                data: TokenData::Num(JSValue::Int(0)),
             },
             buf_ptr: input,
             buf_end: unsafe { input.add(input_len) },
@@ -104,15 +102,15 @@ impl<'s> JSParseState<'s> {
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub const unsafe fn cur_func(&self) -> &JSFunctionDef {
-        self.cur_func_ptr.as_ref().unwrap()
+    pub const fn cur_func(&self) -> &JSFunctionDef {
+        unsafe { self.cur_func_ptr.as_ref().unwrap() }
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub const unsafe fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
-        self.cur_func_ptr.as_mut().unwrap()
+    pub const fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
+        unsafe { self.cur_func_ptr.as_mut().unwrap() }
     }
 
     /// Run closure with cur_func mut ref.

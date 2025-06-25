@@ -8,11 +8,11 @@ use std::{
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 use widestring::{
-    ustr::{CharIndicesLossyUtf16, CharsLossyUtf16},
     U16Str,
+    ustr::{CharIndicesLossyUtf16, CharsLossyUtf16},
 };
 
-use crate::atom::JSAtomTypeHint;
+use crate::{atom::JSAtomTypeHint, runtime::JSRuntime};
 
 use super::string::JS_STRING_LEN_MAX;
 
@@ -61,7 +61,10 @@ impl StringContent {
         } else {
             let mut u = Vec::<u16>::new();
             u.try_reserve_exact(data.len() / 2).map_err(|_| -1)?;
-            u.extend(unsafe { String::from_utf8_unchecked(data).encode_utf16() });
+
+            let s = unsafe { String::from_utf8_unchecked(data) };
+            u.extend(s.encode_utf16());
+
             u.shrink_to_fit();
             Ok(Self::Utf16(u))
         }
@@ -504,7 +507,7 @@ impl StringContent {
 
     /// calc hash for string content
     #[inline]
-    pub unsafe fn calc_hash(&self, atom_type: JSAtomTypeHint) -> u32 {
+    pub fn calc_hash(&self, atom_type: JSAtomTypeHint) -> u32 {
         let mut h = if atom_type == JSAtomTypeHint::GlobalSymbol {
             JSAtomTypeHint::String
         } else {
@@ -528,11 +531,10 @@ impl StringContent {
         }
     }
 
-    /// calc hash value of str
+    /// calc hash value for str
     #[inline(always)]
-    pub unsafe fn calc_hash_str(str: &str, atom_type: JSAtomTypeHint) -> u32 {
+    pub(crate) fn calc_hash_for_str(str: &str, atom_type: JSAtomTypeHint) -> u32 {
         let mut h = atom_type as u32;
-
         for c in str.encode_utf16() {
             h = hash_char(c as u32, h);
         }
@@ -568,7 +570,7 @@ impl StringContent {
     }
 
     /// find index of `needle` occurance in haystack `self`, starting at index `from`.
-    pub unsafe fn find(&self, needle: &Self, from: usize) -> Option<usize> {
+    pub fn find(&self, needle: &Self, from: usize) -> Option<usize> {
         let len1 = self.len();
         if !(0..len1).contains(&from) {
             return None;
@@ -597,7 +599,7 @@ impl StringContent {
     }
 
     /// find index of ch occurance in self, starting at from.
-    pub unsafe fn find_char(&self, ch: char, from: u16) -> Option<u16> {
+    pub fn find_char(&self, ch: char, from: u16) -> Option<u16> {
         let len1 = self.len() as u16;
         if !(0..len1).contains(&from) {
             None
@@ -624,6 +626,25 @@ impl StringContent {
                 ranges: range.start..end,
             }
         }
+    }
+
+    pub fn dump(&self) {
+        let sep = '\"';
+        print!("{sep}");
+
+        for c in self.chars() {
+            match c {
+                '\'' | '"' if c == sep => print!("\\{c}"),
+                '\n' => print!("\\n"),
+                '\r' => print!("\\r"),
+                '\t' => print!("\\t"),
+                '\\' => print!("\\\\"),
+                ' '..='~' => print!("{c}"),
+                _ => print!("\\u{:04x}", c as u32),
+            }
+        }
+
+        print!("{sep}");
     }
 }
 

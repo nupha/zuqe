@@ -1,13 +1,13 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     atom::{
+        JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JSAtom,
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
-        JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL,
     },
-    bytecode::{opcodes, OpCode, OpCodeTemp},
+    bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
-    function::{pop_break_entry, push_break_entry, BlockEnv},
+    function::{BlockEnv, pop_break_entry, push_break_entry},
     parse::token::{CHAR_COMMA, CHAR_CURLY_R},
     value::object::PROP_TYPE_IDENT,
 };
@@ -15,7 +15,7 @@ use crate::{
 use super::{
     class::js_parse_property_name,
     emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u16, emit_u32, emit_u8,
+        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u8, emit_u16, emit_u32,
         js_emit_spread_code,
     },
     expr_lvalue::PutLValueEnum,
@@ -34,7 +34,7 @@ pub unsafe fn js_parse_destructuring_element(
     mut has_ellipsis: i32,
     allow_initializer: bool,
 ) -> i32 {
-    let ctx = (*s).ctx.deref_mut();
+    let ctx = &(*s).ctx;
 
     let mut label_parse: i32 = 0;
     let mut label_assign: i32 = 0;
@@ -204,7 +204,7 @@ pub unsafe fn js_parse_destructuring_element(
         while (*s).token.val != '}' as i32 {
             if (*s).token.val == TOK_ELLIPSIS {
                 if has_ellipsis == 0 {
-                    ctx.JS_ThrowInternalError(c"unexpected ellipsis token");
+                    ctx.JS_ThrowInternalError("unexpected ellipsis token");
                     return -1;
                 }
                 if (*s).next_token().is_err() {
@@ -241,7 +241,7 @@ pub unsafe fn js_parse_destructuring_element(
                 }
 
                 if (*s).token.val != '}' as i32 {
-                    (*s).throw_syntax_error(c"assignment rest property must be last");
+                    (*s).throw_syntax_error("assignment rest property must be last");
                     var_error!();
                 }
                 emit_op(s, OpCode::OBJECT);
@@ -380,7 +380,7 @@ pub unsafe fn js_parse_destructuring_element(
                 if (*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
                     && (prop_name == JS_ATOM_eval || prop_name == JS_ATOM_arguments)
                 {
-                    (*s).throw_syntax_error(c"invalid destructuring target");
+                    (*s).throw_syntax_error("invalid destructuring target");
                     prop_error!();
                 }
                 if has_ellipsis != 0 {
@@ -463,7 +463,7 @@ pub unsafe fn js_parse_destructuring_element(
                     return -1;
                 }
                 if (*s).token.val == ',' as i32 || (*s).token.val == ']' as i32 {
-                    (*s).throw_syntax_error(c"missing binding pattern...");
+                    (*s).throw_syntax_error("missing binding pattern...");
                     return -1;
                 }
                 has_spread = true;
@@ -484,7 +484,7 @@ pub unsafe fn js_parse_destructuring_element(
             {
                 if has_spread {
                     if tok1 == '=' as i32 {
-                        (*s).throw_syntax_error(c"rest element cannot have a default value");
+                        (*s).throw_syntax_error("rest element cannot have a default value");
                         return -1;
                     }
                     js_emit_spread_code(s, 0);
@@ -579,7 +579,7 @@ pub unsafe fn js_parse_destructuring_element(
                 break;
             }
             if has_spread {
-                (*s).throw_syntax_error(c"rest element must be the last one");
+                (*s).throw_syntax_error("rest element must be the last one");
                 return -1;
             }
             /* accept a trailing comma before the ']' */
@@ -596,7 +596,7 @@ pub unsafe fn js_parse_destructuring_element(
             return -1;
         }
     } else {
-        (*s).throw_syntax_error(c"invalid assignment syntax");
+        (*s).throw_syntax_error("invalid assignment syntax");
         return -1;
     }
 
@@ -620,7 +620,7 @@ pub unsafe fn js_parse_destructuring_element(
         js_parse_skip_parens_token() was wrong in the parsing */
         //        assert(hasval);
         if !hasval {
-            (*s).throw_syntax_error(c"too complicated destructuring expression");
+            (*s).throw_syntax_error("too complicated destructuring expression");
             return -1;
         }
 
@@ -635,22 +635,24 @@ pub unsafe fn js_parse_destructuring_element(
 }
 
 pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
-    if ((*s).token.val != TOK_IDENT || (*s).token.u.ident.is_reserved)
+    if ((*s).token.val != TOK_IDENT || (*s).token.data.is_reserved())
         || ((*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
-            && ((*s).token.u.ident.atom == JS_ATOM_eval
-                || (*s).token.u.ident.atom == JS_ATOM_arguments))
+            && matches!(
+                (*s).token.data.ident_atom().unwrap(),
+                JS_ATOM_eval | JS_ATOM_arguments
+            ))
     {
-        (*s).throw_syntax_error(c"invalid destructuring target");
+        (*s).throw_syntax_error("invalid destructuring target");
         return JS_ATOM_NULL;
     }
 
-    let name = (*s).token.u.ident.atom.dup((*s).ctx.rt());
+    let name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
     if is_arg && js_parse_check_duplicate_parameter(s, name) != 0 {
-        JS_FreeAtom((*s).ctx.as_ptr(), name);
+        JS_FreeAtom(&(*s).ctx, name);
         return JS_ATOM_NULL;
     }
     if (*s).next_token().is_err() {
-        JS_FreeAtom((*s).ctx.as_ptr(), name);
+        JS_FreeAtom(&(*s).ctx, name);
         return JS_ATOM_NULL;
     }
 

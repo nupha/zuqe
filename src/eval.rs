@@ -1,35 +1,26 @@
 use std::{
     ffi::{CStr, CString},
-    ops::DerefMut,
-    pin::Pin,
+    ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 
 use crate::{
     atom::consts::JS_ATOM__eval_,
-    context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
     function::{
-        add_closure_variables, js_closure, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
-        JSVarRef, JS_CallFree,
+        JS_Call, JSFunctionDef, JSFunctionKindEnum, JSVarRef, add_closure_variables, js_closure,
     },
-    gc::RefCounted,
-    module::{
-        js_create_module_function, js_free_module_def, js_link_module, js_resolve_module,
-        JSModuleDef, JS_NewModuleValue,
-    },
-    parse::{skip_shebang, JSParseState, JS_DetectModule},
+    module::{JSModuleDef, js_create_module_function, js_link_module},
+    parse::{JS_DetectModule, JSParseState, skip_shebang},
     stack_frame::JSStackFrame,
-    value::{
-        JSValue, JSValueConst, JS_FreeValue, JS_TAG_FUNCTION_BYTECODE, JS_TAG_MODULE,
-        JS_TAG_OBJECT, JS_VALUE_GET_PTR,
-    },
+    value::{JSValue, JSValueConst, object::JSObject},
 };
 
 /// Native function to handle `eval`, returns eval result.
 /// `input` is script source with zero-terminated (\0) byte indicating end.
 /// `this_obj` must not be consumed.
 pub type EvalFunc = fn(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     this_obj: JSValue,
     input: &CStr,
     filename: &str,
@@ -50,48 +41,50 @@ pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 impl JSContext {
+    /// evaluate source script `input`.
     pub unsafe fn eval_internal(
-        &mut self,
-        this_obj: JSValueConst,
+        &self,
+        this_obj: JSValue,
         input: &CStr,
         filename: &str,
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
-        macro_rules! fail1 {
-            ($m:expr) => {
-                /* XXX: should free all the unresolved dependencies */
-                if !$m.is_null() {
-                    js_free_module_def(self, $m);
-                }
-                return JSValue::EXCEPTION;
-            };
-        }
         macro_rules! fail {
             ($s:expr, $fd:expr, $m:expr) => {
                 $s.free_token();
-                $fd.dispose(self);
-                fail1!($m);
+                // $fd.dispose(self);
+                return JSValue::EXCEPTION;
             };
         }
 
         let eval_type = flags & JS_EVAL_TYPE_MASK;
-        let mut m: *mut JSModuleDef = std::ptr::null_mut();
-        let mut b: *mut JSFunctionBytecode = std::ptr::null_mut();
+
         let mut sf: *mut JSStackFrame = std::ptr::null_mut();
-        let mut var_refs: &[NonNull<Pin<JSVarRef>>] = &[];
+        let mut func_obj: Option<JSObject> = None;
         let mut js_mode: u32 = 0;
 
-        if eval_type == JS_EVAL_TYPE_DIRECT {
+        // get bytecode, module
+        let (bc, md) = if eval_type == JS_EVAL_TYPE_DIRECT {
             sf = self.rt().current_stack_frame.cast::<JSStackFrame>();
             debug_assert!(!sf.is_null());
-            debug_assert!((*sf).cur_func.tag() == JS_TAG_OBJECT);
+            debug_assert!((*sf).cur_func.is_object());
 
-            let ob = (*sf).cur_func.object_unchecked();
-            let func = ob.isa().func().expect("expect bytecode object");
-            b = func.function_bytecode;
-            var_refs = func.var_refs.as_slice();
-            js_mode = (*b).js_mode as _;
+            func_obj = Some((*sf).cur_func.object_unchecked().clone());
+
+            let b = func_obj
+                .as_ref()
+                .unwrap()
+                .0
+                .isa
+                .borrow()
+                .func()
+                .unwrap()
+                .function_bytecode
+                .clone();
+
+            js_mode = b.as_ref().unwrap().0.borrow().js_mode as _;
+            (b, None)
         } else {
             if flags & JS_EVAL_FLAG_STRICT != 0 {
                 js_mode |= JS_MODE_STRICT as u32;
@@ -99,41 +92,34 @@ impl JSContext {
             if flags & JS_EVAL_FLAG_STRIP != 0 {
                 js_mode |= JS_MODE_STRIP as u32;
             }
+
             if eval_type == JS_EVAL_TYPE_MODULE {
                 let module_name = if let Ok(a) = self.create_atom(filename) {
                     a
                 } else {
                     return JSValue::EXCEPTION;
                 };
-
-                m = if let Ok(p) = JSModuleDef::new(self, module_name) {
-                    Box::into_raw(p)
-                } else {
-                    return JSValue::EXCEPTION;
-                };
-
                 js_mode |= JS_MODE_STRICT as u32;
+                (None, Some(JSModuleDef::new(self, module_name)))
+            } else {
+                (None, None)
             }
-        }
+        };
 
         // create root function def.
-        let mut root_fd = if let Ok(mut fd) = JSFunctionDef::new(
-            self.handle(),
-            std::ptr::null_mut(),
-            true,
-            false,
-            filename,
-            1,
-        ) {
+        let mut root_fd = if let Ok(mut fd) =
+            JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)
+        {
             fd.eval_type = eval_type;
             fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
             fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
 
             if eval_type == JS_EVAL_TYPE_DIRECT {
-                fd.new_target_allowed = (*b).new_target_allowed;
-                fd.super_call_allowed = (*b).super_call_allowed;
-                fd.super_allowed = (*b).super_allowed;
-                fd.arguments_allowed = (*b).arguments_allowed;
+                let b = bc.as_ref().unwrap().0.borrow();
+                fd.new_target_allowed = b.new_target_allowed;
+                fd.super_call_allowed = b.super_call_allowed;
+                fd.super_allowed = b.super_allowed;
+                fd.arguments_allowed = b.arguments_allowed;
             } else {
                 fd.new_target_allowed = false;
                 fd.super_call_allowed = false;
@@ -143,15 +129,14 @@ impl JSContext {
             fd.js_mode = js_mode as u8;
             fd.func_name = JS_ATOM__eval_.dup(self.rt());
 
-            if !b.is_null() {
-                if add_closure_variables(self, fd.deref_mut(), b, scope_idx).is_err() {
-                    fd.dispose(self);
-                    fail1!(m);
+            if let Some(b) = bc {
+                if add_closure_variables(self, fd.deref_mut(), &b, scope_idx).is_err() {
+                    return JSValue::EXCEPTION;
                 }
             }
 
-            fd.module = m;
-            if !m.is_null() || flags & JS_EVAL_FLAG_ASYNC != 0 {
+            fd.module = md.clone();
+            if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
                 fd.in_function_body = true;
                 fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
             }
@@ -162,20 +147,19 @@ impl JSContext {
             fd.body_scope = if let Ok(scope) = fd.push_scope(0) {
                 scope as i32
             } else {
-                fd.dispose(self);
-                fail1!(m);
+                return JSValue::EXCEPTION;
             };
             debug_assert_eq!(fd.body_scope, 1);
 
             fd
         } else {
-            fail1!(m);
+            return JSValue::EXCEPTION;
         };
 
         {
             // create parse state with root fd
             let mut ps = JSParseState::new(
-                self.handle(),
+                self,
                 NonNull::new_unchecked(root_fd.as_mut()),
                 input.as_ptr().cast(),
                 input.count_bytes(),
@@ -185,8 +169,8 @@ impl JSContext {
                 ps.cur_func_mut() as *mut JSFunctionDef,
                 root_fd.deref_mut() as *mut JSFunctionDef
             );
-            ps.is_module = !m.is_null();
-            ps.allow_html_comments = m.is_null();
+            ps.is_module = md.as_ref().is_some();
+            ps.allow_html_comments = md.is_none();
 
             // begin parsing
             skip_shebang(&mut ps.buf_ptr, ps.buf_end);
@@ -195,35 +179,49 @@ impl JSContext {
             }
         }
 
-        if !m.is_null() {
-            (*m).has_tla = root_fd.has_await;
+        if let Some(m) = md.as_ref() {
+            m.0.borrow_mut().has_tla = root_fd.has_await;
         }
 
-        // create the function object and all the enclosed functions.
-        let mut fun_obj = root_fd.make_function(self);
-        if fun_obj.is_exception() {
-            fail1!(m);
-        }
+        // create the bytecode object and all the enclosed functions.
+        let mut bc_obj = if let Ok(bc) = root_fd.make_function_bytecode(self) {
+            bc
+        } else {
+            return JSValue::EXCEPTION;
+        };
 
         // Could add a flag to avoid resolution if necessary
-        if !m.is_null() {
-            (*m).func_obj = fun_obj;
-            if js_resolve_module(self, m) < 0 {
-                fail1!(m);
+        if let Some(m) = md.as_ref() {
+            m.0.borrow_mut().func_obj = bc_obj;
+            if self.resolve_module(&m).is_err() {
+                return JSValue::EXCEPTION;
             }
-            fun_obj = JS_NewModuleValue(self, m);
+            bc_obj = JSValue::Module(m.clone());
         }
+
+        // O.o
+        println!("[O.o] bc  obj: {:?}", bc_obj.repr(self.rt()));
+        println!(
+            "[O.o] func  obj: {:?}",
+            func_obj.as_ref().map(|v| v.dump(self.rt()))
+        );
 
         // returns compiled or evaluated
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            fun_obj
+            bc_obj
         } else {
-            JS_EvalFunctionInternal(self, fun_obj, this_obj, var_refs, sf)
+            if let Some(f) = func_obj.as_ref() {
+                let isa = f.0.isa.borrow();
+                let var_refs = isa.func().unwrap().var_refs.as_slice();
+                JS_EvalFunctionInternal(self, bc_obj, &this_obj, var_refs, sf)
+            } else {
+                JS_EvalFunctionInternal(self, bc_obj, &this_obj, &[], sf)
+            }
         }
     }
 
     // pub fn eval_hook(
-    //     ctx: &mut JSContext,
+    //     ctx: &JSContext,
     //     this_obj: JSValueConst,
     //     input: &[u8],
     //     filename: &str,
@@ -235,8 +233,8 @@ impl JSContext {
 
     #[inline(always)]
     pub fn eval_this(
-        &mut self,
-        this_obj: JSValueConst,
+        &self,
+        this_obj: JSValue,
         input: &CStr,
         filename: &str,
         flags: u32,
@@ -249,12 +247,13 @@ impl JSContext {
     }
 
     #[inline(always)]
-    pub fn eval(&mut self, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
-        self.eval_this(self.global_obj, input, filename, eval_flags)
+    pub fn eval(&self, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
+        let global = self.0.borrow().global_obj.clone();
+        self.eval_this(global, input, filename, eval_flags)
     }
 
     /// eval source script with auto detecting module or global mode. returns EXCEPTION when error.
-    pub fn eval_auto_detect(&mut self, source: &CStr, url: &str) -> JSValue {
+    pub fn eval_auto_detect(&self, source: &CStr, url: &str) -> JSValue {
         let eval_flags = if url.ends_with(".mjs") {
             JS_EVAL_TYPE_MODULE
         } else if unsafe { JS_DetectModule(source) } {
@@ -267,15 +266,19 @@ impl JSContext {
             // for the modules, we compile then run to be able to set import.meta
             let module_func = self.eval(source, url, eval_flags | JS_EVAL_FLAG_COMPILE_ONLY);
             if !module_func.is_exception() {
-                unsafe {
-                    debug_assert_eq!(module_func.tag(), JS_TAG_MODULE);
-
-                    let mdef = JS_VALUE_GET_PTR(module_func).cast::<JSModuleDef>();
-                    if (*mdef).set_import_meta(self, url, true).is_err() {
-                        JS_FreeValue(self, module_func);
-                    };
-
-                    JS_EvalFunction(self, module_func)
+                if let JSValue::Module(mdef) = &module_func {
+                    if mdef
+                        .0
+                        .borrow_mut()
+                        .set_import_meta(self, url, true)
+                        .is_err()
+                    {
+                        JSValue::EXCEPTION
+                    } else {
+                        unsafe { JS_EvalFunction(self, module_func) }
+                    }
+                } else {
+                    unreachable!()
                 }
             } else {
                 JSValue::EXCEPTION
@@ -294,16 +297,16 @@ impl JSValue {
     ///
     /// both `this_obj` and `self` are not consumed.
     pub fn eval_object(
-        self,
-        ctx: &mut JSContext,
-        this_obj: JSValueConst,
+        &self,
+        ctx: &JSContext,
+        this_obj: JSValue,
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
         if !self.is_string() {
-            self.dup() // as-is: dup and return val
+            self.clone()
         } else {
-            match self.coerce_to_utf8(ctx.handle()) {
+            match self.coerce_to_utf8(ctx) {
                 Ok(str) => unsafe {
                     ctx.eval_internal(
                         this_obj,
@@ -319,61 +322,43 @@ impl JSValue {
     }
 }
 
-/// 'input' must be zero terminated i.e. input[input_len] = '\0'.
-#[deprecated(note = "no use")]
-pub fn __JS_EvalInternal(
-    ctx: &mut JSContext,
-    this_obj: JSValueConst,
-    input: &CStr,
-    filename: &str,
-    flags: u32,
-    scope_idx: i32,
-) -> JSValue {
-    unsafe { ctx.eval_internal(this_obj, input, filename, flags, scope_idx) }
-}
-
 /// `fun_obj` is consumed, `this_obj` is not consumed.
+/// `fun_obj` could be Bytecode or Module.
 pub unsafe fn JS_EvalFunctionInternal(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     fun_obj: JSValue,
-    this_obj: JSValueConst,
-    var_refs: &[NonNull<Pin<JSVarRef>>],
+    this_obj: &JSValueConst,
+    var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {
-    match fun_obj.tag() {
-        JS_TAG_FUNCTION_BYTECODE => {
-            let fun_closure = js_closure(ctx, fun_obj, var_refs, sf);
-            JS_CallFree(
-                ctx.as_mut().unwrap(),
-                fun_closure,
-                this_obj,
-                0,
-                std::ptr::null_mut(),
-            )
+    match fun_obj {
+        JSValue::FunctionBytecode(bc) => {
+            let fun_closure = js_closure(ctx, &bc, var_refs, sf);
+            JS_Call(ctx, &fun_closure, &this_obj, &[])
         }
-        JS_TAG_MODULE => {
-            let m = JS_VALUE_GET_PTR(fun_obj).cast::<JSModuleDef>();
-            debug_assert!((*m).ref_count() >= 2, "the module refcount should be >= 2");
-
-            JS_FreeValue(ctx, fun_obj);
-            if js_create_module_function(ctx, m) < 0 {
+        JSValue::Module(m) => {
+            if js_create_module_function(ctx, &m) < 0 {
                 return JSValue::EXCEPTION;
             }
-            if js_link_module(ctx, m) < 0 {
+            if js_link_module(ctx, &m) < 0 {
                 return JSValue::EXCEPTION;
             }
-            (*m).eval(ctx.as_mut().unwrap())
+            m.eval(ctx)
         }
         _ => {
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"bytecode function expected");
+            ctx.JS_ThrowTypeError("bytecode function expected");
             JSValue::EXCEPTION
         }
     }
 }
 
 /// `fun_obj` is consumed.
-pub unsafe fn JS_EvalFunction(ctx: *mut JSContext, fun_obj: JSValue) -> JSValue {
-    return JS_EvalFunctionInternal(ctx, fun_obj, (*ctx).global_obj, &[], std::ptr::null_mut());
+pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: JSValue) -> JSValue {
+    return JS_EvalFunctionInternal(
+        ctx,
+        fun_obj,
+        &ctx.0.borrow().global_obj.clone(),
+        &[],
+        std::ptr::null_mut(),
+    );
 }

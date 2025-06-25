@@ -1,35 +1,41 @@
-use std::{marker::PhantomPinned, ptr::NonNull};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+    rc::{Rc, Weak},
+};
 
 use smallvec::SmallVec;
 
 use crate::{
-    atom::{consts::JS_ATOM_prototype, JSAtom, JS_FreeAtomRT, JS_ATOM_NULL},
+    JS_CLASS_BYTECODE_FUNCTION,
+    atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom, consts::JS_ATOM_prototype},
     bytecode::{opcode_info_final, opcode_info_intermediate, run_bytecodes},
-    context::{JSContext, JS_FreeContext},
+    context::{JSContext, JSContextWeakref},
+    error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
-    function::{func_kind_to_class_id, JSVarRef, JS_GetFunctionRealm, JS_CALL_FLAG_COPY_ARGV},
-    gc::{GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, RefCounted},
+    function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
+    gc::{GCMarkFunc, GCObjectHeader},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    utils::{get_leb128, get_sleb128, read_from_ptr, Node},
+    utils::{get_leb128, get_sleb128, read_from_ptr},
     value::{
-        object::JS_SetPrototypeInternal, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
-        JS_TAG_FUNCTION_BYTECODE, JS_TAG_OBJECT,
+        JSValue,
+        object::{GCObject, JS_SetPrototypeInternal},
     },
-    JS_CLASS_BYTECODE_FUNCTION,
 };
 
-use super::{clousure::JSClosureVar, var::JSVarDef, JSFunctionKindEnum};
+use super::{JSFunctionKindEnum, clousure::JSClosureVar, var::JSVarDef};
 
 #[derive(Debug)]
-pub struct JSFunctionBytecodeDebug {
+pub struct BytecodeDebugInfo {
     pub filename: JSAtom,
     pub line_num: i32,
     pub source: Option<String>,
     pub pc2line_buf: Option<Vec<u8>>,
 }
 
-impl Default for JSFunctionBytecodeDebug {
+impl Default for BytecodeDebugInfo {
     fn default() -> Self {
         Self {
             filename: JS_ATOM_NULL,
@@ -40,9 +46,19 @@ impl Default for JSFunctionBytecodeDebug {
     }
 }
 
+/* for the encoding of the pc2line table */
+pub const PC2LINE_BASE: i32 = -1;
+pub const PC2LINE_RANGE: i32 = 5;
+pub const PC2LINE_OP_FIRST: i32 = 1;
+pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
+
 #[repr(C)]
-pub struct JSFunctionBytecode {
-    pub header: GCObjectHeader, // must come first
+#[derive(Debug)]
+pub(crate) struct JSFunctionBytecodeInner {
+    pub header: GCObjectHeader,
+
+    pub func_name: JSAtom,
+    pub realm: JSContextWeakref, // function realm
 
     pub js_mode: u8,
     pub has_prototype: bool, // true if a prototype field is necessary
@@ -58,8 +74,6 @@ pub struct JSFunctionBytecode {
     pub read_only_bytecode: bool,
     pub is_direct_or_indirect_eval: bool, // used by JS_GetScriptOrModuleName()
 
-    pub func_name: JSAtom,
-    pub realm: *mut JSContext, // function realm
     pub stack_size: u16,
 
     pub cpool_count: u16,
@@ -70,7 +84,7 @@ pub struct JSFunctionBytecode {
     pub closure_var_count: u16,
 
     // TODO: use Option<JSFunctionBytecodeDebug>>
-    pub debug: JSFunctionBytecodeDebug,
+    pub debug: BytecodeDebugInfo,
     pub has_debug: bool,
 
     /// binary content
@@ -85,286 +99,16 @@ pub struct JSFunctionBytecode {
     pub bytecode_start: u32,
 }
 
-impl RefCounted for JSFunctionBytecode {
-    fn ref_count(&self) -> i32 {
-        self.header.ref_count
-    }
-
-    fn inc_ref(&mut self) -> i32 {
-        self.header.ref_count += 1;
-        self.header.ref_count
-    }
-
-    fn dec_ref(&mut self) -> i32 {
-        self.header.ref_count -= 1;
-        self.header.ref_count
+impl Drop for JSFunctionBytecodeInner {
+    fn drop(&mut self) {
+        self.finalize();
     }
 }
 
-impl GCObject for JSFunctionBytecode {
-    fn gc_type(&self) -> GCObjectType {
-        GCObjectType::FunctionBytecode(NonNull::from(self))
-    }
-
-    fn gc_mark(&self) -> u8 {
-        self.header.gc_mark()
-    }
-
-    fn set_gc_mark(&mut self, mark: u8) {
-        self.header.set_gc_mark(mark);
-    }
-
-    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: crate::gc::GCMarkFunc) {
-        // The template objects can be part of a cycle
-        if let Some(cpool) = self.cpools_slice() {
-            cpool.iter().for_each(|v| {
-                rt.gc_mark_value(*v, mark_func);
-            });
-        }
-
-        if !self.realm.is_null() {
-            unsafe {
-                mark_func(rt, self.realm);
-            }
-        }
-    }
-
-    fn gc_dump(&self, rt: &JSRuntime) {
-        println!("{:14p} {:4} [function bytecode]", self, self.ref_count());
-    }
-
-    fn finalize(&mut self, rt: &mut JSRuntime) {
-        free_bytecode_atoms(rt, &self.binary[self.bytecode_start as usize..], true);
-
-        // free const values
-        if let Some(consts) = self.cpools_slice() {
-            for v in consts {
-                unsafe {
-                    JS_FreeValueRT(rt, *v);
-                }
-            }
-        }
-
-        // free vardef var_name atom
-        if let Some(vds) = unsafe { self.vardefs_slice_mut() } {
-            for vd in vds {
-                JS_FreeAtomRT(rt, vd.var_name);
-            }
-        }
-
-        // free closure vars atom
-        if let Some(cvs) = self.closure_vars_slice_mut() {
-            for cv in cvs {
-                JS_FreeAtomRT(rt, cv.var_name);
-            }
-        }
-
-        if !self.realm.is_null() {
-            unsafe {
-                JS_FreeContext(self.realm);
-            }
-        }
-
-        JS_FreeAtomRT(rt, self.func_name);
-        self.func_name = JS_ATOM_NULL; // safe guard
-
-        if self.has_debug {
-            JS_FreeAtomRT(rt, self.debug.filename);
-            self.debug.filename = JS_ATOM_NULL;
-
-            // self.debug.pc2line_buf.take();
-            // drop(self.debug.source.take());
-        }
-    }
-
-    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
-        debug_assert!(!self.header.list_node.is_null());
-        unsafe { NonNull::new_unchecked(self.header.list_node) }
-    }
-}
-
-/* for the encoding of the pc2line table */
-pub const PC2LINE_BASE: i32 = -1;
-pub const PC2LINE_RANGE: i32 = 5;
-pub const PC2LINE_OP_FIRST: i32 = 1;
-pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
-
-impl JSFunctionBytecode {
-    /// get cpool values start pointer
-    pub unsafe fn cpools_ptr(&self) -> Option<NonNull<JSValue>> {
-        if self.cpool_start >= 0 {
-            debug_assert!(self.cpool_count > 0);
-            NonNull::new(
-                self.binary
-                    .as_ptr()
-                    .add(self.cpool_start as usize)
-                    .cast::<JSValue>() as _,
-            )
-        } else {
-            debug_assert_eq!(self.cpool_count, 0);
-            None
-        }
-    }
-
-    /// get vardefs (args+vars) starting pointer
-    pub unsafe fn vardefs_ptr(&mut self) -> Option<NonNull<JSVarDef>> {
-        if self.vardefs_start >= 0 {
-            debug_assert!(self.arg_count > 0 || self.var_count > 0);
-            NonNull::new(
-                self.binary
-                    .as_mut_ptr()
-                    .add(self.vardefs_start as usize)
-                    .cast::<JSVarDef>(),
-            )
-        } else {
-            None
-        }
-    }
-
-    /// get closure var starting pointer
-    pub unsafe fn closure_var_ptr(&mut self) -> Option<NonNull<JSClosureVar>> {
-        if self.closure_var_count > 0 {
-            debug_assert!(self.closure_var_start >= 0);
-            NonNull::new(
-                self.binary
-                    .as_mut_ptr()
-                    .add(self.closure_var_start as usize)
-                    .cast(),
-            )
-        } else {
-            debug_assert_eq!(self.closure_var_start, -1);
-            None
-        }
-    }
-
-    /// get bytecode starting pointer
-    pub unsafe fn bytecode_ptr(&mut self) -> NonNull<u8> {
-        NonNull::new(self.binary.as_mut_ptr().add(self.bytecode_start as usize)).unwrap()
-    }
-
-    /// get const pool values slice
-    pub fn cpools_slice(&self) -> Option<&[JSValue]> {
-        unsafe {
-            self.cpools_ptr()
-                .map(|p| std::slice::from_raw_parts(p.as_ptr(), self.cpool_count as usize))
-        }
-    }
-
-    /// get args slice
-    pub fn args_slice(&self) -> Option<&[JSVarDef]> {
-        if self.arg_count > 0 {
-            unsafe {
-                Some(std::slice::from_raw_parts(
-                    self.binary
-                        .as_ptr()
-                        .add(self.vardefs_start as usize)
-                        .cast::<JSVarDef>(),
-                    self.arg_count as usize,
-                ))
-            }
-        } else {
-            None
-        }
-    }
-
-    /// get vars slice
-    pub fn vars_slice(&self) -> Option<&[JSVarDef]> {
-        if self.var_count > 0 {
-            unsafe {
-                Some(std::slice::from_raw_parts(
-                    self.binary
-                        .as_ptr()
-                        .add(self.vardefs_start as usize)
-                        .cast::<JSVarDef>()
-                        .add(self.arg_count as usize),
-                    self.var_count as usize,
-                ))
-            }
-        } else {
-            None
-        }
-    }
-
-    pub unsafe fn closure_vars_slice(&self) -> &[JSClosureVar] {
-        if self.closure_var_count > 0 {
-            debug_assert!(self.closure_var_start >= 0);
-            debug_assert!(self.closure_var_count < u16::MAX);
-
-            std::slice::from_raw_parts(
-                self.binary
-                    .as_ptr()
-                    .add(self.closure_var_start as usize)
-                    .cast::<JSClosureVar>(),
-                self.closure_var_count as usize,
-            )
-        } else {
-            &[]
-        }
-    }
-
-    /// get args slice
-    pub fn args_slice_mut(&mut self) -> Option<&mut [JSVarDef]> {
-        if self.arg_count > 0 {
-            unsafe {
-                self.vardefs_ptr()
-                    .map(|p| std::slice::from_raw_parts_mut(p.as_ptr(), self.arg_count as usize))
-            }
-        } else {
-            None
-        }
-    }
-
-    /// get vars slice
-    pub fn vars_slice_mut<'a>(&'a mut self) -> Option<&'a mut [JSVarDef]> {
-        if self.var_count > 0 {
-            unsafe {
-                self.vardefs_ptr().map(|p| {
-                    std::slice::from_raw_parts_mut(
-                        p.as_ptr().add(self.arg_count as usize),
-                        self.var_count as usize,
-                    )
-                })
-            }
-        } else {
-            None
-        }
-    }
-
-    /// get args+vars slice. combination of args and vars slice.
-    pub unsafe fn vardefs_slice_mut<'a>(&'a mut self) -> Option<&'a mut [JSVarDef]> {
-        self.vardefs_ptr().map(|p| {
-            std::slice::from_raw_parts_mut(p.as_ptr(), (self.arg_count + self.var_count) as usize)
-        })
-    }
-
-    /// get closure-vars slice
-    pub fn closure_vars_slice_mut<'a>(&'a mut self) -> Option<&'a mut [JSClosureVar]> {
-        unsafe {
-            self.closure_var_ptr().map(|p| {
-                std::slice::from_raw_parts_mut(p.as_ptr(), self.closure_var_count as usize)
-            })
-        }
-    }
-
-    /// get bytecode opcodes slice
+impl JSFunctionBytecodeInner {
     #[inline(always)]
-    pub fn bytecode_slice(&self) -> &[u8] {
-        &self.binary[self.bytecode_start as usize..]
-    }
-
-    pub fn get_cpool(&self, idx: usize) -> Option<JSValue> {
-        if self.cpool_start >= 0 && idx < self.cpool_count as usize {
-            let p = unsafe {
-                self.binary
-                    .as_ptr()
-                    .add(self.cpool_start as usize)
-                    .cast::<JSValue>()
-            };
-
-            Some(unsafe { *p.add(idx) })
-        } else {
-            None
-        }
+    pub fn id(&self) -> usize {
+        self as *const Self as usize
     }
 
     /// get nth arg or var vardef. for example:
@@ -434,6 +178,191 @@ impl JSFunctionBytecode {
         }
     }
 
+    /// get args slice
+    pub fn args_slice(&self) -> &[JSVarDef] {
+        if self.arg_count > 0 {
+            debug_assert!(self.vardefs_start >= 0);
+            unsafe {
+                std::slice::from_raw_parts(
+                    self.binary
+                        .as_ptr()
+                        .add(self.vardefs_start as usize)
+                        .cast::<JSVarDef>(),
+                    self.arg_count as usize,
+                )
+            }
+        } else {
+            &[]
+        }
+    }
+
+    /// get vars slice
+    pub fn vars_slice(&self) -> &[JSVarDef] {
+        if self.var_count > 0 {
+            debug_assert!(self.vardefs_start >= 0);
+            unsafe {
+                std::slice::from_raw_parts(
+                    self.binary
+                        .as_ptr()
+                        .add(self.vardefs_start as usize)
+                        .cast::<JSVarDef>()
+                        .add(self.arg_count as usize),
+                    self.var_count as usize,
+                )
+            }
+        } else {
+            &[]
+        }
+    }
+
+    /// get args slice
+    pub fn args_slice_mut(&mut self) -> Option<&mut [JSVarDef]> {
+        if self.arg_count > 0 {
+            unsafe {
+                self.vardefs_ptr()
+                    .map(|p| std::slice::from_raw_parts_mut(p.as_ptr(), self.arg_count as usize))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// get vars slice
+    pub fn vars_slice_mut(&mut self) -> Option<&mut [JSVarDef]> {
+        if self.var_count > 0 {
+            unsafe {
+                self.vardefs_ptr().map(|p| {
+                    std::slice::from_raw_parts_mut(
+                        p.as_ptr().add(self.arg_count as usize),
+                        self.var_count as usize,
+                    )
+                })
+            }
+        } else {
+            None
+        }
+    }
+
+    /// get args+vars slice. combination of args and vars slice.
+    pub fn vardefs_slice(&self) -> &[JSVarDef] {
+        if self.vardefs_start >= 0 {
+            debug_assert!(self.arg_count > 0 || self.var_count > 0);
+            unsafe {
+                std::slice::from_raw_parts(
+                    self.binary
+                        .as_ptr()
+                        .add(self.vardefs_start as usize)
+                        .cast::<JSVarDef>(),
+                    (self.arg_count + self.var_count) as usize,
+                )
+            }
+        } else {
+            &[]
+        }
+    }
+
+    /// get args+vars slice. combination of args and vars slice.
+    pub fn vardefs_slice_mut(&mut self) -> Option<&mut [JSVarDef]> {
+        unsafe {
+            self.vardefs_ptr().map(|p| {
+                std::slice::from_raw_parts_mut(
+                    p.as_ptr(),
+                    (self.arg_count + self.var_count) as usize,
+                )
+            })
+        }
+    }
+
+    /// get vardefs (args+vars) starting pointer
+    unsafe fn vardefs_ptr(&mut self) -> Option<NonNull<JSVarDef>> {
+        if self.vardefs_start >= 0 {
+            debug_assert!(self.arg_count > 0 || self.var_count > 0);
+
+            NonNull::new(unsafe {
+                self.binary
+                    .as_mut_ptr()
+                    .add(self.vardefs_start as usize)
+                    .cast::<JSVarDef>()
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn closure_vars_slice(&self) -> &[JSClosureVar] {
+        if self.closure_var_count > 0 {
+            debug_assert!(self.closure_var_start >= 0);
+            debug_assert!(self.closure_var_count < u16::MAX);
+
+            unsafe {
+                std::slice::from_raw_parts(
+                    self.binary
+                        .as_ptr()
+                        .add(self.closure_var_start as usize)
+                        .cast::<JSClosureVar>(),
+                    self.closure_var_count as usize,
+                )
+            }
+        } else {
+            &[]
+        }
+    }
+
+    /// get closure-vars slice
+    pub fn closure_vars_slice_mut(&mut self) -> Option<&mut [JSClosureVar]> {
+        unsafe {
+            self.closure_var_ptr().map(|p| {
+                std::slice::from_raw_parts_mut(p.as_ptr(), self.closure_var_count as usize)
+            })
+        }
+    }
+
+    /// get closure var starting pointer
+    unsafe fn closure_var_ptr(&mut self) -> Option<NonNull<JSClosureVar>> {
+        if self.closure_var_count > 0 {
+            debug_assert!(self.closure_var_start >= 0);
+            NonNull::new(
+                self.binary
+                    .as_mut_ptr()
+                    .add(self.closure_var_start as usize)
+                    .cast(),
+            )
+        } else {
+            debug_assert_eq!(self.closure_var_start, -1);
+            None
+        }
+    }
+
+    /// get bytecode starting pointer
+    pub unsafe fn bytecode_ptr(&mut self) -> NonNull<u8> {
+        NonNull::new(unsafe { self.binary.as_mut_ptr().add(self.bytecode_start as usize) }).unwrap()
+    }
+
+    /// get bytecode opcodes slice
+    #[inline(always)]
+    pub fn bytecode_slice(&self) -> &[u8] {
+        &self.binary[self.bytecode_start as usize..]
+    }
+
+    /// get const pool values slice
+    pub fn cpools_slice(&self) -> &[JSValue] {
+        if self.cpool_start >= 0 {
+            debug_assert!(self.cpool_count > 0);
+            unsafe {
+                std::slice::from_raw_parts(
+                    self.binary
+                        .as_ptr()
+                        .add(self.cpool_start as usize)
+                        .cast::<JSValue>(),
+                    self.cpool_count as usize,
+                )
+            }
+        } else {
+            debug_assert_eq!(self.cpool_count, 0);
+            &[]
+        }
+    }
+
     pub unsafe fn find_line_num(&self, pc_value: u32) -> Option<i32> {
         if !self.has_debug || self.debug.pc2line_buf.is_none() {
             // function was stripped
@@ -486,18 +415,214 @@ impl JSFunctionBytecode {
 
         Some(line_num)
     }
+
+    fn finalize(&mut self) {
+        let rt = self.header.rt_mut() as *mut JSRuntime;
+
+        free_bytecode_atoms(rt, &self.binary[self.bytecode_start as usize..], true);
+
+        // free vardef var_name atom
+        for vd in self.vardefs_slice() {
+            JS_FreeAtomRT(rt, vd.var_name);
+        }
+
+        // free closure vars atom
+        for cv in self.closure_vars_slice() {
+            JS_FreeAtomRT(rt, cv.var_name);
+        }
+
+        // free func name atom
+        JS_FreeAtomRT(rt, self.func_name);
+        self.func_name = JS_ATOM_NULL;
+
+        if self.has_debug {
+            JS_FreeAtomRT(rt, self.debug.filename);
+            self.debug.filename = JS_ATOM_NULL;
+        }
+    }
+
+    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        // The template objects can be part of a cycle
+        self.cpools_slice().iter().for_each(|v| {
+            rt.gc_mark_value(v, mark_func);
+        });
+
+        if let Some(r) = self.realm.upgrade() {
+            // unsafe {
+            //     mark_func(rt, r);
+            // }
+        }
+    }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+pub struct JSFunctionBytecode(pub(crate) Rc<RefCell<JSFunctionBytecodeInner>>);
+
+impl From<JSFunctionBytecode> for GCObject {
+    fn from(value: JSFunctionBytecode) -> Self {
+        Self::FunctionBytecode(value)
+    }
+}
+
+impl JSFunctionBytecode {
+    pub fn with<R>(&self, f: impl FnOnce(&JSFunctionBytecodeInner) -> R) -> R {
+        f(self.0.borrow().deref())
+    }
+
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSFunctionBytecodeInner) -> R) -> R {
+        f(self.0.borrow_mut().deref_mut())
+    }
+
+    pub fn downgrade(&self) -> JSFunctionBytecodeWeakref {
+        JSFunctionBytecodeWeakref(Rc::downgrade(&self.0))
+    }
+
+    pub fn id(&self) -> usize {
+        self.0.borrow().id()
+    }
+
+    /// get const pool values slice
+    pub fn cpools_slice(&self) -> Ref<'_, [JSValue]> {
+        Ref::map(self.0.borrow(), |b| b.cpools_slice())
+    }
+
+    /// get a value by index in cpool
+    #[inline(always)]
+    pub fn get_cpool(&self, idx: usize) -> Option<JSValue> {
+        self.0.borrow().cpools_slice().get(idx).cloned()
+    }
+
+    /// get args slice
+    #[inline(always)]
+    pub fn args_slice(&self) -> Ref<'_, [JSVarDef]> {
+        Ref::map(self.0.borrow(), |b| b.args_slice())
+    }
+
+    /// get vars slice
+    #[inline(always)]
+    pub fn vars_slice(&self) -> Ref<'_, [JSVarDef]> {
+        Ref::map(self.0.borrow(), |b| b.vars_slice())
+    }
+
+    #[inline(always)]
+    pub fn closure_vars_slice(&self) -> Ref<'_, [JSClosureVar]> {
+        Ref::map(self.0.borrow(), |b| b.closure_vars_slice())
+    }
+
+    /// get args slice
+    #[inline]
+    pub fn args_slice_mut(&self) -> Option<RefMut<'_, [JSVarDef]>> {
+        let mut b = self.0.borrow_mut();
+        if b.args_slice_mut().is_some() {
+            Some(RefMut::map(b, |b| b.args_slice_mut().unwrap()))
+        } else {
+            None
+        }
+    }
+
+    /// get vars slice
+    #[inline]
+    pub fn vars_slice_mut(&self) -> Option<RefMut<'_, [JSVarDef]>> {
+        let mut b = self.0.borrow_mut();
+        if b.vars_slice_mut().is_some() {
+            Some(RefMut::map(b, |b| b.vars_slice_mut().unwrap()))
+        } else {
+            None
+        }
+    }
+
+    /// get args+vars slice. combination of args and vars slice.
+    #[inline]
+    pub fn vardefs_slice_mut(&self) -> Option<RefMut<'_, [JSVarDef]>> {
+        let mut b = self.0.borrow_mut();
+        if b.vardefs_slice_mut().is_some() {
+            Some(RefMut::map(b, |b| b.vardefs_slice_mut().unwrap()))
+        } else {
+            None
+        }
+    }
+
+    /// get closure-vars slice
+    #[inline]
+    pub fn closure_vars_slice_mut(&mut self) -> Option<RefMut<'_, [JSClosureVar]>> {
+        let mut b = self.0.borrow_mut();
+        if b.closure_vars_slice_mut().is_some() {
+            Some(RefMut::map(b, |b| b.closure_vars_slice_mut().unwrap()))
+        } else {
+            None
+        }
+    }
+
+    /// get bytecode opcodes slice
+    #[inline]
+    pub fn bytecode_slice(&self) -> Ref<'_, [u8]> {
+        Ref::map(self.0.borrow(), |b| b.bytecode_slice())
+    }
+
+    /// get nth arg or var vardef. for example:
+    /// get 2nd var def: (2, false)
+    /// get 3rd arg def: (3, true)
+    pub fn with_vardef<R>(
+        &self,
+        nth: u16,
+        is_arg: bool,
+        f: impl FnOnce(&JSVarDef) -> R,
+    ) -> Option<R> {
+        self.0.borrow().get_vardef(nth, is_arg).map(f)
+    }
+
+    #[inline(always)]
+    pub fn with_arg<R>(&self, nth: u16, f: impl FnOnce(&JSVarDef) -> R) -> Option<R> {
+        self.0.borrow().get_arg(nth).map(f)
+    }
+
+    #[inline(always)]
+    pub fn with_var<R>(&self, nth: u16, f: impl FnOnce(&JSVarDef) -> R) -> Option<R> {
+        self.0.borrow().get_vardef(nth, false).map(f)
+    }
+
+    /// get nth closure var def
+    pub fn with_closure_var<R>(&self, nth: u16, f: impl FnOnce(&JSClosureVar) -> R) -> Option<R> {
+        self.0.borrow().get_closure_var(nth).map(f)
+    }
+
+    /// get nth closure var def
+    pub fn with_closure_var_mut<R>(
+        &mut self,
+        nth: u16,
+        f: impl FnOnce(&mut JSClosureVar) -> R,
+    ) -> Option<R> {
+        self.0.borrow_mut().get_closure_var_mut(nth).map(f)
+    }
+
+    pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
+        unsafe { self.0.borrow().find_line_num(pc_value) }
+    }
+
+    fn gc_dump(&self, rt: &JSRuntime) {
+        println!("{:14x} [function bytecode]", self.id());
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct JSFunctionBytecodeWeakref(Weak<RefCell<JSFunctionBytecodeInner>>);
+
+impl JSFunctionBytecodeWeakref {
+    pub fn upgrade(&self) -> Option<JSFunctionBytecode> {
+        self.0.upgrade().map(JSFunctionBytecode)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone)]
 pub struct BytecodeFunctionValue(JSValue);
 
 impl JSValue {
     pub unsafe fn as_bytecode_function_unchecked(self) -> BytecodeFunctionValue {
-        debug_assert!(matches!(
-            self.tag(),
-            JS_TAG_FUNCTION_BYTECODE | JS_TAG_OBJECT
-        ));
+        // debug_assert!(matches!(self, Self::FunctionBytecode(_) | Self::Object(_)));
+        debug_assert!(self.is_object());
         debug_assert_eq!(
             self.object_unchecked().class_id(),
             JS_CLASS_BYTECODE_FUNCTION
@@ -509,45 +634,61 @@ impl JSValue {
 impl BytecodeFunctionValue {
     /// call bytecode function
     pub unsafe fn call_internal(
-        self,
-        caller_ctx: &mut JSContext,
+        &self,
+        caller_ctx: &JSContext,
         this_obj: JSValue,
         new_target: JSValue,
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        let func_obj = self.0;
-        let p = self.0.object_unchecked();
-        let func = p.isa().func().unwrap();
-        let bf = func.function_bytecode.as_ref().unwrap();
+        // O.o
+        {
+            println!(
+                "[O.o][call_internal] this_obj={:?}",
+                this_obj.repr(caller_ctx.rt())
+            );
+            debug_assert!(
+                this_obj
+                    .object()
+                    .map_or(true, |o| o.0.prop_values.try_borrow_mut().is_ok()),
+                "O.o"
+            );
+        }
+
+        let func_obj = &self.0;
+        let p = unsafe { self.0.object_unchecked() };
+
+        let (bc, home_obj) =
+            p.0.isa
+                .borrow()
+                .func()
+                .map(|f| (f.function_bytecode.clone().unwrap(), f.home_object.clone()))
+                .unwrap();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
         // `b.arg_count` is the length when defining the function
-        let arg_copy_num =
-            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bf.arg_count as usize {
-                std::cmp::max(args.len(), bf.arg_count as usize)
-            } else {
-                0
-            };
+        let arg_copy_num = if flags & JS_CALL_FLAG_COPY_ARGV != 0
+            || args.len() < bc.0.borrow().arg_count as usize
+        {
+            std::cmp::max(args.len(), bc.0.borrow().arg_count as usize)
+        } else {
+            0
+        };
 
         // how many bytes to allocate for local buf (args+vars+stack)?
-        let buf_values_count =
-            arg_copy_num as usize + bf.var_count as usize + bf.stack_size as usize;
+        let (buf_values_count, js_mode) = {
+            let b = bc.0.borrow();
+            (
+                arg_copy_num as usize + b.var_count as usize + b.stack_size as usize,
+                b.js_mode as i32,
+            )
+        };
 
         let mut sframe = JSStackFrame {
-            prev_frame: std::ptr::null_mut(),
-            cur_func: func_obj,
-            local_buf: Vec::<JSValue>::new(),
-            arg_base_ptr: std::ptr::null_mut(),
-            arg_count: 0,
-            var_base_ptr: std::ptr::null_mut(),
-            var_count: 0,
-            cur_pc_offset: 0,
-            cur_sp_offset: 0,
-            var_ref_list: Vec::new(),
-            js_mode: bf.js_mode as _,
-            _mark: PhantomPinned,
+            cur_func: func_obj.clone(),
+            js_mode,
+            ..Default::default()
         };
         let sf = &mut sframe;
 
@@ -565,11 +706,12 @@ impl BytecodeFunctionValue {
             return JSValue::EXCEPTION;
         }
 
+        // initialize args section
         if arg_copy_num != 0 {
             debug_assert!(arg_copy_num >= args.len());
 
             // copy actual arg values - duplicated
-            sf.local_buf.extend(args.iter().map(|x| x.dup()));
+            sf.local_buf.extend(args.iter().map(|x| x.clone()));
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
@@ -583,53 +725,63 @@ impl BytecodeFunctionValue {
             sf.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
         }
 
-        // initialize vars + stack section
-        sf.local_buf.extend(std::iter::repeat_n(
-            JSValue::UNDEFINED,
-            (bf.var_count + bf.stack_size) as usize,
-        ));
-        debug_assert_eq!(sf.local_buf.len(), buf_values_count);
+        // initialize (vars + stack) section
+        {
+            let b = bc.0.borrow();
 
-        sf.var_base_ptr = sf.local_buf.as_mut_ptr().add(arg_copy_num as usize);
-        sf.var_count = bf.var_count;
+            sf.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                (b.var_count + b.stack_size) as usize,
+            ));
+            debug_assert_eq!(sf.local_buf.len(), buf_values_count);
+
+            sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
+            sf.var_count = b.var_count;
+        }
 
         sf.prev_frame = caller_ctx.rt().current_stack_frame;
         caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
 
-        let retval = run_bytecodes(
-            bf,
-            func.home_object,
-            sf,
-            caller_ctx,
-            this_obj,
-            new_target,
-            &bf.binary[bf.bytecode_start as usize..],
-            0,
-            0,
-            func.var_refs.as_slice(),
-            args,
-            bf.js_mode as _,
-            false,
-        );
+        let retval = unsafe {
+            let b = bc.0.borrow();
+
+            run_bytecodes(
+                &bc,
+                home_obj.as_ref(),
+                sf,
+                caller_ctx,
+                this_obj,
+                new_target,
+                &b.binary[b.bytecode_start as usize..],
+                0,
+                0,
+                &p.0.isa.borrow().func().unwrap().var_refs,
+                args,
+                js_mode,
+                false,
+            )
+        };
 
         // stack frame is about to drop
-        sf.finalize(caller_ctx.rt_mut());
+        sf.finalize();
 
         retval
     }
 }
 
 impl BytecodeFunctionValue {
-    // XXX: add a specific eval mode so that Function("}), ({") is rejected
-    pub unsafe fn hook_constructor(
-        ctx: *mut JSContext,
-        new_target: JSValueConst,
-        argc: i32,
-        argv: *mut JSValueConst,
-        magic: i32,
-    ) -> JSValue {
-        debug_assert!((0..4).contains(&magic));
-        let func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(magic as u8);
+    /// handle `Function` constructor. For example:
+    ///
+    /// ```js
+    /// const f = new Function("a", "b", "return a+b")
+    /// ```
+    pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+        debug_assert!((0..4).contains(&cc.magic()));
+
+        // XXX: add a specific eval mode so that Function("}), ({") is rejected
+
+        let new_target = cc.this();
+        let func_kind = unsafe { std::mem::transmute::<u8, JSFunctionKindEnum>(cc.magic() as u8) };
 
         let mut buf = SmallVec::<[u8; 64]>::new();
         buf.push(b'(');
@@ -650,76 +802,56 @@ impl BytecodeFunctionValue {
         }
         buf.extend_from_slice(b" anonymous(");
 
-        let n = argc - 1;
-        for i in 0..n {
-            if i != 0 {
-                buf.push(b',');
+        // Note: the last argument is function body.
+        if let Some((last, arglist)) = cc.arguments().split_last() {
+            // args list
+            for (i, a) in arglist.iter().enumerate() {
+                if i != 0 {
+                    buf.push(b',');
+                }
+                let txt = a.coerce_to_utf8(ctx)?;
+                buf.extend_from_slice(txt.as_bytes());
             }
 
-            let v = *argv.offset(i as _);
-            if let Ok(sv) = v.coerce_to_utf8(ctx.into()) {
-                buf.extend_from_slice(sv.as_bytes());
-            } else {
-                return JSValue::EXCEPTION;
-            }
+            // function body
+            let txt = last.coerce_to_utf8(ctx)?;
+            buf.extend_from_slice(txt.as_bytes());
         }
 
-        buf.extend_from_slice(b") {\n");
-        if n >= 0 {
-            if let Ok(sv) = (*argv.offset(n as _)).coerce_to_utf8(ctx.into()) {
-                buf.extend_from_slice(sv.as_bytes());
-            } else {
-                return JSValue::EXCEPTION;
-            }
-        }
         buf.extend_from_slice(b"\n})");
 
         // create script string
-        let src = (*ctx).create_string_from_utf8(buf.into_vec());
-        if src.is_exception() {
-            return JSValue::EXCEPTION;
-        }
+        let src = ctx
+            .create_string_from_utf8(buf.into_vec())
+            .check_exception()?;
 
         // eval string `src`
-        let obj = src.eval_object(
-            ctx.as_mut().unwrap(),
-            (*ctx).global_obj,
-            JS_EVAL_TYPE_INDIRECT,
-            -1,
-        );
-        JS_FreeValue(ctx, src);
-
-        if obj.is_exception() {
-            JS_FreeValue(ctx, obj);
-            return JSValue::EXCEPTION;
-        }
+        let func_val = src
+            .eval_object(
+                ctx,
+                ctx.0.borrow().global_obj.clone(),
+                JS_EVAL_TYPE_INDIRECT,
+                -1,
+            )
+            .check_exception()?;
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target.get_property(ctx.as_mut().unwrap(), JS_ATOM_prototype);
-            if proto.is_exception() {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            let mut proto = new_target
+                .get_property(ctx, JS_ATOM_prototype)
+                .check_exception()?;
+
             if !proto.is_object() {
-                let realm = JS_GetFunctionRealm(ctx, new_target);
-                if realm.is_null() {
-                    JS_FreeValue(ctx, obj);
-                    return JSValue::EXCEPTION;
-                }
-                proto =
-                    (*realm).class_proto[func_kind_to_class_id[func_kind as usize] as usize].dup();
+                let realm = JS_GetFunctionRealm(ctx, &new_target)?;
+                proto = realm.0.borrow().class_proto
+                    [func_kind_to_class_id[func_kind as usize] as usize]
+                    .clone();
             }
 
-            let ret = JS_SetPrototypeInternal(ctx, obj, proto, true);
-            JS_FreeValue(ctx, proto);
-            if ret.is_err() {
-                JS_FreeValue(ctx, obj);
-                return JSValue::EXCEPTION;
-            }
+            JS_SetPrototypeInternal(ctx, &func_val, proto, true)?;
         }
 
-        obj
+        Ok(func_val)
     }
 }
 

@@ -1,196 +1,134 @@
+use std::ops::DerefMut;
+
 use {fallible_collections::FallibleVec, widestring::U16Str};
 
 use crate::{
-    atom::{consts::*, JSAtom, JSAtomStruct},
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_INT32_DEF,
+    JS_PROP_STRING_DEF,
+    atom::{JSAtom, consts::*},
     context::JSContext,
-    error::JS_ThrowRangeError,
-    function::{JSCFunctionListEntry, JS_Call, JS_CallConstructor, JS_CallFree, JS_InvokeFree},
-    iterator::{js_create_array_iterator, JSIteratorKindEnum},
+    error::{JS_ThrowRangeError, JSResult},
+    function::{
+        CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, JSCFunctionListEntry,
+    },
+    iterator::{JSIteratorKindEnum, js_create_array_iterator},
     regexp::js_is_regexp,
     value::{
-        object::{
-            js_get_length32, js_get_length64, JSObjectIsa, JS_ToObject, JS_ToObjectFree,
-            JS_PROP_CONFIGURABLE,
-        },
-        JSString, JSTag, JSValue, JSValueConst, JS_ConcatString, JS_ConcatString3, JS_DupValue,
-        JS_FreeValue, JS_IsException, JS_IsNull, JS_IsString, JS_IsSymbol, JS_IsUndefined,
-        JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat,
-        JS_ToStringCheckObject, JS_ToStringFree, JS_ToUint32, StringContent, JS_NAN,
-        JS_STRING_LEN_MAX, JS_TAG_INT, JS_VALUE_GET_INT, JS_VALUE_GET_PTR, JS_VALUE_GET_STRING,
+        JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToFloat64, JS_ToInt32,
+        JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat, JS_ToStringCheckObject, JS_ToUint32,
+        JSString, JSValue, JSValueConst, StringContent,
+        object::{JS_PROP_CONFIGURABLE, JSObjectIsa, js_get_length32, js_get_length64},
     },
-    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_ITERATOR_NEXT_DEF, JS_MKPTR,
-    JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
 };
 
-pub unsafe fn js_string_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let strval: JSValue = if argc == 0 {
-        JS_ATOM_empty_string.to_value(ctx.as_mut().unwrap(), true)
+pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let new_target = cc.this();
+
+    let str_val: JSValue = if cc.length() == 0 {
+        JS_ATOM_empty_string.to_value(ctx, true)
     } else {
-        if new_target.is_undefined() && JS_IsSymbol(*argv.offset(0)) {
-            let p = JS_VALUE_GET_PTR(*argv.offset(0)).cast::<JSAtomStruct>();
-            JS_ConcatString3(
-                ctx,
-                c"Symbol(",
-                (*p).atom_info()
-                    .unwrap()
-                    .atom()
-                    .to_value(ctx.as_mut().unwrap(), true),
-                c")",
-            )
+        if new_target.is_undefined() && cc.arg(0).is_symbol() {
+            if let JSValue::Symbol(p) = cc.arg(0) {
+                unsafe {
+                    JS_ConcatString3(
+                        ctx,
+                        c"Symbol(",
+                        p.atom_info().unwrap().atom().to_value(ctx, true),
+                        c")",
+                    )
+                    .check_exception()?
+                }
+            } else {
+                unreachable!()
+            }
         } else {
-            (*argv.offset(0))
-                .coerce_to_string_value(ctx.as_mut().unwrap())
-                .unwrap_or(JSValue::EXCEPTION)
+            cc.arg(0).coerce_to_string_value(ctx)?
         }
     };
-
-    if strval.is_exception() {
-        return JSValue::EXCEPTION;
-    }
 
     if !new_target.is_undefined() {
-        match (*ctx).create_instance_from_ctor(new_target, JSObjectIsa::STRING(strval)) {
-            Ok(obj) => obj,
-            Err(_) => {
-                // free str val
-                JS_FreeValue(ctx, strval);
-                JSValue::EXCEPTION
-            }
-        }
+        ctx.create_instance_from_ctor(new_target, JSObjectIsa::STRING(str_val))
+            .map_err(|_| -1)
     } else {
-        strval
+        Ok(str_val)
     }
 }
 
-pub unsafe fn js_string_charCodeAt(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
+pub fn js_string_charCodeAt(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { val.string_unchecked() };
 
-    let p = JS_VALUE_GET_STRING(val);
     let mut idx: i32 = 0;
-    if JS_ToInt32Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-        JS_FreeValue(ctx, val);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt32Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
 
-    let ret = if idx < 0 || idx >= (*p).len() as i32 {
-        JS_NAN
+    if idx < 0 || idx >= p.len() as i32 {
+        Ok(JSValue::Float64(f64::NAN))
     } else {
-        let c = (*p).content().chars().nth(idx as usize).unwrap();
-        JSValue::from_i32(c as i32)
-    };
-
-    JS_FreeValue(ctx, val);
-    ret
+        let c = p.content().chars().nth(idx as usize).unwrap();
+        Ok(JSValue::Int(c as i32))
+    }
 }
 
-pub unsafe fn js_string_charAt(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    is_at: i32,
-) -> JSValue {
-    let mut ret: JSValue;
+pub fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_at = cc.magic();
 
-    let mut c: i32;
+    let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { val.string_unchecked() };
 
-    let val = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
-
-    let p = JS_VALUE_GET_STRING(val);
     let mut idx: i32 = 0;
-    if JS_ToInt32Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-        JS_FreeValue(ctx, val);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt32Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
 
     if idx < 0 && is_at != 0 {
-        idx += (*p).len() as i32;
+        idx += p.len() as i32;
     }
 
-    let ret = if idx < 0 || idx >= (*p).len() as i32 {
+    if idx < 0 || idx >= (*p).len() as i32 {
         if is_at != 0 {
-            JSValue::UNDEFINED
+            Ok(JSValue::UNDEFINED)
         } else {
-            (*ctx).create_string("")
+            ctx.create_string("").check_exception()
         }
     } else {
-        let c = (*p).content().chars().nth(idx as usize).unwrap();
-        (*ctx).create_string_from_char(c)
-    };
-
-    JS_FreeValue(ctx, val);
-    ret
+        let c = p.content().chars().nth(idx as usize).unwrap();
+        ctx.create_string_from_char(c).check_exception()
+    }
 }
 
-pub unsafe fn js_string_codePointAt(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let val = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(val) {
-        return val;
-    }
+pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { val.string_unchecked() };
 
-    let p = JS_VALUE_GET_STRING(val);
     let mut idx: i32 = 0;
-    if JS_ToInt32Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-        JS_FreeValue(ctx, val);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt32Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
 
-    let ret = if idx < 0 || idx >= (*p).len() as i32 {
-        JSValue::UNDEFINED
+    if idx < 0 || idx >= (*p).len() as i32 {
+        Ok(JSValue::UNDEFINED)
     } else {
-        let c = (*p).content().chars().nth(idx as usize).unwrap();
-        JSValue::from_i32(c as u32 as i32)
-    };
-
-    JS_FreeValue(ctx, val);
-    ret
+        let c = p.content().chars().nth(idx as usize).unwrap();
+        Ok(JSValue::Int(c as u32 as i32))
+    }
 }
 
-pub unsafe fn js_string_concat(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    // XXX: Use more efficient method
-    // XXX: This method is OK if r has a single refcount
+pub fn js_string_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
+    // TODO: Use more efficient method
     // XXX: should use string_buffer?
-    let mut r = JS_ToStringCheckObject(ctx, this_val);
-    for i in 0..argc {
-        if JS_IsException(r) {
-            break;
-        }
-        r = JS_ConcatString(ctx, r, JS_DupValue(ctx, *argv.offset(i as isize)));
+    let mut r = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    for a in cc.arguments() {
+        r = unsafe { JS_ConcatString(ctx, r, a.clone()).check_exception()? };
     }
-
-    r
+    Ok(r)
 }
 
 // return the position of the first invalid character in the string or
 // -1 if none
-pub(crate) unsafe fn js_string_find_invalid_codepoint(p: *mut JSString) -> i32 {
-    if let StringContent::Utf16(ws) = (*p).content().as_ref() {
+pub(crate) unsafe fn js_string_find_invalid_codepoint(p: &JSString) -> i32 {
+    if let StringContent::Utf16(ws) = p.content().as_ref() {
         U16Str::from_slice(ws)
             .chars()
             .position(|c| c.is_err())
@@ -200,97 +138,50 @@ pub(crate) unsafe fn js_string_find_invalid_codepoint(p: *mut JSString) -> i32 {
     }
 }
 
-pub unsafe fn js_string_isWellFormed(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return JSValue::EXCEPTION;
-    }
-
-    let p = JS_VALUE_GET_STRING(str);
-    let ret = js_string_find_invalid_codepoint(p) < 0;
-    JS_FreeValue(ctx, str);
-
-    ret.into()
+pub fn js_string_isWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { str.string_unchecked() };
+    let ret = unsafe { js_string_find_invalid_codepoint(p) } < 0;
+    Ok(JSValue::Bool(ret))
 }
 
-pub unsafe fn js_string_toWellFormed(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return JSValue::EXCEPTION;
-    }
+pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { str.string_unchecked() };
 
-    let p = JS_VALUE_GET_STRING(str);
     // avoid reallocating the string if it is well-formed
-    let i = js_string_find_invalid_codepoint(p);
+    let i = unsafe { js_string_find_invalid_codepoint(p) };
     if i < 0 {
-        return str;
+        return Ok(str);
     }
 
-    if let StringContent::Utf16(ws) = (*p).content().as_ref() {
-        let ret = if let Ok(mut w) = Vec::<u16>::try_with_capacity(ws.len() * 3 / 2) {
+    if let StringContent::Utf16(ws) = p.content().as_ref() {
+        if let Ok(mut buf) = Vec::<u16>::try_with_capacity(ws.len() * 3 / 2) {
             for c in U16Str::from_slice(ws).chars_lossy() {
-                w.extend_from_slice(c.encode_utf16(&mut [0; 2]));
+                buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
             }
-            w.shrink_to_fit();
-            (*ctx).create_string_from_content(StringContent::Utf16(w))
-        } else {
-            JSValue::EXCEPTION
-        };
+            buf.shrink_to_fit();
 
-        JS_FreeValue(ctx, str);
-        ret
+            ctx.create_string_from_content(StringContent::Utf16(buf))
+                .check_exception()
+        } else {
+            Ok(JSValue::EXCEPTION)
+        }
     } else {
         unreachable!()
     }
 }
 
-pub unsafe fn js_string_indexOf(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    lastIndexOf: i32,
-) -> JSValue {
-    let str = if let Ok(s) = this_val.coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        return JSValue::EXCEPTION;
-    };
+pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let lastIndexOf = cc.magic();
 
-    let v = if let Ok(s) = (*argv.offset(0)).coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        JS_FreeValue(ctx, str);
-        return JSValue::EXCEPTION;
-    };
+    let str = cc.this().coerce_to_string_value(ctx)?;
+    let v = cc.arg(0).coerce_to_string_value(ctx)?;
 
-    // let str = JS_ToStringCheckObject(ctx, this_val);
-    // if JS_IsException(str) {
-    //     return str;
-    // }
-
-    // let v = JS_ToString(ctx, *argv.offset(0));
-    // if JS_IsException(v) {
-    //     // C2RS: goto fail; replaced with early return
-    //     JS_FreeValue(ctx, str);
-    //     JS_FreeValue(ctx, v);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    let p = JS_VALUE_GET_STRING(str);
-    let p1 = JS_VALUE_GET_STRING(v);
-    let len = (*p).len() as i32;
-    let v_len = (*p1).len() as i32;
+    let p = unsafe { str.string_unchecked() };
+    let p1 = unsafe { v.string_unchecked() };
+    let len = p.len() as i32;
+    let v_len = p1.len() as i32;
 
     let start: i32;
     let stop: i32;
@@ -298,13 +189,12 @@ pub unsafe fn js_string_indexOf(
 
     if lastIndexOf != 0 {
         let mut pos = len - v_len;
-        if argc > 1 {
+        if cc.length() > 1 {
             let mut d: f64 = 0.0;
-            if JS_ToFloat64(ctx, &mut d, *argv.offset(1)) != 0 {
-                JS_FreeValue(ctx, str);
-                JS_FreeValue(ctx, v);
-                return JSValue::EXCEPTION;
+            if unsafe { JS_ToFloat64(ctx, &mut d, cc.arg(1)) } != 0 {
+                return Err(-1);
             }
+
             if !d.is_nan() {
                 if d <= 0.0 {
                     pos = 0;
@@ -318,11 +208,9 @@ pub unsafe fn js_string_indexOf(
         inc = -1;
     } else {
         let mut pos = 0;
-        if argc > 1 {
-            if JS_ToInt32Clamp(ctx, &mut pos, *argv.offset(1), 0, len, 0) != 0 {
-                JS_FreeValue(ctx, str);
-                JS_FreeValue(ctx, v);
-                return JSValue::EXCEPTION;
+        if cc.length() > 1 {
+            if unsafe { JS_ToInt32Clamp(ctx, &mut pos, cc.arg(1), 0, len, 0) } != 0 {
+                return Err(-1);
             }
         }
         start = pos;
@@ -345,99 +233,58 @@ pub unsafe fn js_string_indexOf(
         }
     }
 
-    JS_FreeValue(ctx, str);
-    JS_FreeValue(ctx, v);
-
-    JSValue::from_i32(ret)
+    Ok(JSValue::Int(ret))
 }
 
-pub unsafe fn js_string_replace(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    is_replaceAll: i32,
-) -> JSValue {
+pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_replaceAll = cc.magic();
+
     // replace(rx, rep)
-    let O = this_val;
-    let searchValue = *argv.offset(0);
-    let replaceValue = *argv.offset(1);
-
-    let mut search_str = JSValue::UNDEFINED;
-    let mut replaceValue_str = JSValue::UNDEFINED;
-    let mut str = JSValue::UNDEFINED;
-
-    // let mut b_s: StringBuffer = std::mem::zeroed();
-    // let b = &mut b_s;
+    let O = cc.this().clone();
+    let searchValue = cc.arg(0);
+    let replaceValue = cc.arg(1);
 
     if O.is_undefined_or_null() {
-        return (*ctx).JS_ThrowTypeError(c"cannot convert to object");
-    }
-
-    macro_rules! exception {
-        () => {
-            //string_buffer_free(b);
-            JS_FreeValue(ctx, search_str);
-            JS_FreeValue(ctx, replaceValue_str);
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
-        };
+        ctx.JS_ThrowTypeError("cannot convert to object");
+        return Err(-1);
     }
 
     if !searchValue.is_undefined_or_null() {
         if is_replaceAll != 0 {
-            if check_regexp_g_flag(ctx, searchValue) < 0 {
-                return JSValue::EXCEPTION;
+            if check_regexp_g_flag(ctx, &searchValue) < 0 {
+                return Err(-1);
             }
         }
 
-        let replacer = searchValue.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_replace);
-        if replacer.is_exception() {
-            return JSValue::EXCEPTION;
-        } else if !replacer.is_undefined_or_null() {
-            return JS_CallFree(
-                ctx.as_mut().unwrap(),
-                replacer,
-                searchValue,
-                2,
-                [O, replaceValue].as_mut_ptr(),
-            );
+        let replacer = searchValue
+            .get_property(ctx, JS_ATOM_Symbol_replace)
+            .check_exception()?;
+
+        if !replacer.is_undefined_or_null() {
+            return JS_Call(ctx, &replacer, searchValue, &[O, replaceValue.clone()])
+                .check_exception();
         }
     }
 
-    //string_buffer_init(ctx, b, 0);
+    let str = O.coerce_to_string_value(ctx)?;
+    let search_str = searchValue.coerce_to_string_value(ctx)?;
 
-    str = if let Ok(s) = O.coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
+    let functionalReplace = replaceValue.is_callable();
+    let replaceValue_str = if !functionalReplace {
+        replaceValue.coerce_to_string_value(ctx)?
     } else {
-        exception!();
+        JSValue::UNDEFINED
     };
 
-    search_str = if let Ok(s) = searchValue.coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        exception!();
-    };
+    let sp = unsafe { str.string_unchecked() };
+    let searchp = unsafe { search_str.string_unchecked() };
 
-    let functionalReplace = replaceValue.is_callable(ctx.as_ref().unwrap());
-    if !functionalReplace {
-        replaceValue_str = if let Ok(s) = replaceValue.coerce_to_string_value(ctx.as_mut().unwrap())
-        {
-            s
-        } else {
-            exception!();
-        };
-    }
-
-    let sp = str.string();
-    let searchp = search_str.string();
     let mut is_first = true;
     let mut endOfLastMatch = 0_i32;
-
     let mut res_string = StringContent::Empty;
 
     loop {
-        let pos = if (*searchp).is_empty() {
+        let pos = if searchp.is_empty() {
             if is_first {
                 0
             } else if endOfLastMatch >= (*sp).len() as i32 {
@@ -446,78 +293,63 @@ pub unsafe fn js_string_replace(
                 endOfLastMatch + 1
             }
         } else {
-            (*sp)
-                .content()
-                .find((*searchp).content(), endOfLastMatch as _)
+            sp.content()
+                .find(searchp.content(), endOfLastMatch as _)
                 .map_or(-1, |i| i as i32)
         };
 
         if pos < 0 {
             if is_first {
-                //string_buffer_free(b);
-                JS_FreeValue(ctx, search_str);
-                JS_FreeValue(ctx, replaceValue_str);
-                return str;
+                return Ok(str);
             } else {
                 break;
             }
         }
 
         let repl_str = if functionalReplace {
-            JS_ToStringFree(
+            JS_Call(
                 ctx,
-                JS_Call(
-                    ctx.as_mut().unwrap(),
-                    replaceValue,
-                    JSValue::UNDEFINED,
-                    3,
-                    [search_str, JSValue::from_i32(pos), str].as_mut_ptr(),
-                ),
+                replaceValue,
+                &JSValue::UNDEFINED,
+                &[search_str.clone(), JSValue::Int(pos), str.clone()],
             )
+            .check_exception()
         } else {
             js_string___GetSubstitution(
                 ctx,
-                JSValue::UNDEFINED,
-                6,
-                [
-                    search_str,
-                    str,
-                    JSValue::from_i32(pos),
+                CallContext::new(
+                    ctx,
                     JSValue::UNDEFINED,
-                    JSValue::UNDEFINED,
-                    replaceValue_str,
-                ]
-                .as_mut_ptr(),
+                    &[
+                        search_str.clone(),
+                        str.clone(),
+                        JSValue::Int(pos),
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        replaceValue_str.clone(),
+                    ],
+                    0,
+                    None,
+                ),
             )
-        };
+        }?;
 
-        if JS_IsException(repl_str) {
-            exception!();
-        }
-        let repl_val = JS_ToStringFree(ctx, repl_str);
-        if JS_IsException(repl_val) {
-            exception!();
-        }
-        let repl = JS_VALUE_GET_STRING(repl_val);
+        let repl_val = repl_str.coerce_to_string_value(ctx)?;
+        let repl = unsafe { repl_val.string_unchecked() };
 
-        if res_string
-            .push_content_slice(&(*sp).content().slice(pos as usize..endOfLastMatch as usize))
-            .is_err()
-        {
-            JS_FreeValue(ctx, repl_val);
-            ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
-            exception!();
-        };
+        res_string
+            .push_content_slice(&sp.content().slice(pos as usize..endOfLastMatch as usize))
+            .map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
 
-        if res_string.push((*repl).content()).is_err() {
-            JS_FreeValue(ctx, repl_val);
-            ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
-            exception!();
-        };
+        res_string.push(repl.content()).map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?;
 
-        JS_FreeValue(ctx, repl_val);
-
-        endOfLastMatch = pos + (*searchp).len() as i32;
+        endOfLastMatch = pos + searchp.len() as i32;
         is_first = false;
         if is_replaceAll == 0 {
             break;
@@ -525,152 +357,90 @@ pub unsafe fn js_string_replace(
     }
 
     // remainder of src string
-    let rem_len = (*sp).len() - endOfLastMatch as usize;
+    let rem_len = sp.len() - endOfLastMatch as usize;
     if rem_len > 0 {
-        if res_string
+        res_string
             .push_chars_iter(
-                (*sp)
-                    .content()
+                sp.content()
                     .chars()
                     .skip(endOfLastMatch as usize)
                     .take(rem_len),
             )
-            .is_err()
-        {
-            ctx.as_mut().unwrap().JS_ThrowOutOfMemory();
-            exception!();
-        };
+            .map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
     }
 
-    JS_FreeValue(ctx, search_str);
-    JS_FreeValue(ctx, replaceValue_str);
-    JS_FreeValue(ctx, str);
-
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub unsafe fn js_string_split(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
+pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     // split(sep, limit)
-    let O = this_val;
+    let O = cc.this().clone();
 
-    if JS_IsUndefined(O) || JS_IsNull(O) {
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"cannot convert to object");
+    if O.is_undefined_or_null() {
+        ctx.JS_ThrowTypeError("cannot convert to object");
+        return Err(-1);
     }
 
-    let separator = *argv.offset(0);
-    let limit = *argv.offset(1);
-    let mut args: [JSValueConst; 2] = [JSValueConst::default(); 2];
+    let separator = cc.arg(0);
+    let limit = cc.arg(1);
+    let mut args = [const { JSValue::UNDEFINED }; 2];
     let mut lengthA: u32 = 0;
 
-    let mut S = JSValue::UNDEFINED;
-    let mut A = JSValue::UNDEFINED;
-    let mut R = JSValue::UNDEFINED;
-    let mut T = JSValue::UNDEFINED;
-
-    macro_rules! done {
-        () => {
-            JS_FreeValue(ctx, S);
-            JS_FreeValue(ctx, R);
-            return A;
-        };
-    }
-    macro_rules! exception {
-        () => {
-            JS_FreeValue(ctx, A);
-            JS_FreeValue(ctx, S);
-            JS_FreeValue(ctx, R);
-            return JSValue::EXCEPTION;
-        };
-    }
-
     if !separator.is_undefined_or_null() {
-        let splitter = separator.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_split);
-        if splitter.is_exception() {
-            return JSValue::EXCEPTION;
-        }
+        let splitter = separator
+            .get_property(ctx, JS_ATOM_Symbol_split)
+            .check_exception()?;
         if !splitter.is_undefined_or_null() {
             args[0] = O;
-            args[1] = limit;
-            return JS_CallFree(
-                ctx.as_mut().unwrap(),
-                splitter,
-                separator,
-                2,
-                args.as_mut_ptr(),
-            );
+            args[1] = limit.clone();
+            return JS_Call(ctx, &splitter, &separator, &args).check_exception();
         }
     }
 
-    S = if let Ok(s) = O.coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        exception!();
-    };
-    A = if let Ok(a) = (*ctx).create_array() {
-        a
-    } else {
-        exception!();
-    };
+    let S = O.coerce_to_string_value(ctx)?;
+    let sp = unsafe { S.string_unchecked() };
+    let s = sp.len() as i32;
 
-    lengthA = 0;
+    let A = ctx.create_array()?;
+    let mut lengthA = 0;
 
     let lim = if limit.is_undefined() {
         u32::MAX
     } else {
-        if let Ok(x) = JS_ToUint32(ctx, limit) {
-            x
-        } else {
-            exception!();
-        }
+        unsafe { JS_ToUint32(ctx, limit)? }
     };
 
-    let sp = S.string();
-    let s = sp.len() as i32;
-    R = if let Ok(s) = separator.coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        exception!();
-    };
-
-    let rp = R.string();
+    let R = separator.coerce_to_string_value(ctx)?;
+    let rp = unsafe { R.string_unchecked() };
     let r = rp.len() as i32;
-    let mut p = 0;
+
     if lim == 0 {
-        done!();
+        return Ok(A);
     }
+
+    let mut T = JSValue::UNDEFINED;
+    let mut p = 0;
 
     macro_rules! add_tail {
         () => {
-            T = js_sub_string(ctx, sp, p, s);
-            if T.is_exception() {
-                exception!();
-            } else if A
-                .create_data_property_u32(ctx.as_mut().unwrap(), lengthA as _, T, 0)
-                .is_err()
-            {
-                exception!();
-            } else {
-                done!();
-            }
+            T = sp.sub_string(ctx, p as usize, s as usize)?;
+            A.create_data_property_u32(ctx, lengthA as _, T, 0)?;
+            return Ok(A);
         };
     }
 
     if separator.is_undefined() {
         add_tail!();
     }
+
     if s == 0 {
         if r != 0 {
             add_tail!();
         }
-        done!();
+        return Ok(A);
     }
 
     let mut q = p;
@@ -679,25 +449,18 @@ pub unsafe fn js_string_split(
         q
     } <= s - r - if r == 0 { 1 } else { 0 }
     {
-        let e = if let Some(i) = (*sp).content().find((*rp).content(), q as _) {
+        let e = if let Some(i) = sp.content().find((*rp).content(), q as _) {
             i as i32
         } else {
             break;
         };
 
-        T = js_sub_string(ctx, sp, p, e);
-        if JS_IsException(T) {
-            exception!();
-        }
-        if A.create_data_property_u32(ctx.as_mut().unwrap(), lengthA as _, T, 0)
-            .is_err()
-        {
-            exception!();
-        }
+        T = sp.sub_string(ctx, p as usize, e as usize)?;
+        A.create_data_property_u32(ctx, lengthA as _, T, 0)?;
 
         lengthA += 1;
         if lengthA == lim {
-            done!();
+            return Ok(A);
         }
 
         p = e + r;
@@ -707,36 +470,24 @@ pub unsafe fn js_string_split(
     add_tail!();
 }
 
-pub unsafe fn js_string_substring(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if str.is_exception() {
-        return str;
-    }
-
-    let p = str.string();
+pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { str.string_unchecked() };
 
     let mut a = 0_i32;
-    if JS_ToInt32Clamp(ctx, &mut a, *argv.offset(0), 0, (*p).len() as i32, 0) != 0 {
-        JS_FreeValue(ctx, str);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt32Clamp(ctx, &mut a, cc.arg(0), 0, (*p).len() as i32, 0) } != 0 {
+        return Err(-1);
     }
 
-    let mut b = (*p).len() as i32;
-    if !JS_IsUndefined(*argv.offset(1)) {
-        if JS_ToInt32Clamp(ctx, &mut b, *argv.offset(1), 0, (*p).len() as i32, 0) != 0 {
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
+    let mut b = p.len() as i32;
+    if !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut b, cc.arg(1), 0, (*p).len() as i32, 0) } != 0 {
+            return Err(-1);
         }
     }
 
     let start: i32;
     let end: i32;
-
     if a < b {
         start = a;
         end = b;
@@ -745,330 +496,175 @@ pub unsafe fn js_string_substring(
         end = a;
     }
 
-    let ret = js_sub_string(ctx, p, start, end);
-    JS_FreeValue(ctx, str);
-    ret
+    p.sub_string(ctx, start as usize, end as usize)
 }
 
-pub unsafe fn js_string_substr(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let mut str = JSValue::default();
-    let mut ret = JSValue::default();
+pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { str.string_unchecked() };
+    let len = p.len() as i32;
     let mut a: i32 = 0;
-    let mut len: i32 = 0;
-    let mut n: i32 = 0;
-    let mut p: *mut JSString = std::ptr::null_mut();
 
-    str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return str;
+    if unsafe { JS_ToInt32Clamp(ctx, &mut a, cc.arg(0), 0, len, len) } != 0 {
+        return Err(-1);
     }
-    p = JS_VALUE_GET_STRING(str);
-    len = (*p).len() as i32;
-    if JS_ToInt32Clamp(ctx, &mut a, *argv.offset(0), 0, len, len) != 0 {
-        JS_FreeValue(ctx, str);
-        return JSValue::EXCEPTION;
-    }
-    n = len - a;
-    if !JS_IsUndefined(*argv.offset(1)) {
-        if JS_ToInt32Clamp(ctx, &mut n, *argv.offset(1), 0, len - a, 0) != 0 {
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
+
+    let mut n = len - a;
+    if !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut n, cc.arg(1), 0, len - a, 0) } != 0 {
+            return Err(-1);
         }
     }
-    ret = js_sub_string(ctx, p, a, a + n);
-    JS_FreeValue(ctx, str);
-    ret
+
+    p.sub_string(ctx, a as usize, (a + n) as usize)
 }
 
-pub unsafe fn js_string_slice(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return str;
-    }
-    let p = JS_VALUE_GET_STRING(str);
-    let len = (*p).len() as i32;
+pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { str.string_unchecked() };
+    let len = p.len() as i32;
 
     let mut start = 0_i32;
-    if JS_ToInt32Clamp(ctx, &mut start, *argv.offset(0), 0, len, len) != 0 {
-        JS_FreeValue(ctx, str);
-        return JSValue::EXCEPTION;
+    if unsafe { JS_ToInt32Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
+        return Err(-1);
     }
 
     let mut end = len;
-    if !JS_IsUndefined(*argv.offset(1)) {
-        if JS_ToInt32Clamp(ctx, &mut end, *argv.offset(1), 0, len, len) != 0 {
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
+    if !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut end, cc.arg(1), 0, len, len) } != 0 {
+            return Err(-1);
         }
     }
-    let ret = js_sub_string(ctx, p, start, std::cmp::max(end, start));
-    JS_FreeValue(ctx, str);
 
-    ret
+    p.sub_string(ctx, start as usize, std::cmp::max(end, start) as usize)
 }
 
-pub unsafe fn js_string_pad(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    padEnd: i32,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return JSValue::EXCEPTION;
-    }
+pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let padEnd = cc.magic();
 
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let mut v = JSValue::UNDEFINED;
-    // let mut b_s: StringBuffer = std::mem::zeroed();
-    // let b = &mut b_s;
     let mut c = ' ';
 
-    macro_rules! fail {
-        () => {
-            //string_buffer_free(b);
-            fail3!();
-        };
-    }
-    macro_rules! fail3 {
-        () => {
-            JS_FreeValue(ctx, v);
-            fail2!();
-        };
-    }
-    macro_rules! fail2 {
-        () => {
-            JS_FreeValue(ctx, str);
-            fail1!()
-        };
-    }
-    macro_rules! fail1 {
-        () => {
-            return JSValue::EXCEPTION;
-        };
-    }
-
     let mut n: i32 = 0;
-    if JS_ToInt32Sat(ctx, &mut n, *argv.offset(0)) != 0 {
-        fail2!();
+    if unsafe { JS_ToInt32Sat(ctx, &mut n, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
 
-    let p = JS_VALUE_GET_STRING(str);
-    let mut p1 = std::ptr::null_mut();
-
-    let len = (*p).len() as i32;
+    let mut p1: Option<&JSString> = None;
+    let p = unsafe { str.string_unchecked() };
+    let len = p.len() as i32;
     if len >= n {
-        return str;
+        return Ok(str);
     }
 
-    if argc > 1 && !(*argv.offset(1)).is_undefined() {
-        v = if let Ok(s) = (*argv.offset(1)).coerce_to_string_value(ctx.as_mut().unwrap()) {
-            s
-        } else {
-            fail2!();
-        };
-
-        p1 = JS_VALUE_GET_STRING(v);
-        if (*p1).is_empty() {
-            JS_FreeValue(ctx, v);
-            return str;
+    if cc.length() > 1 && !cc.arg(1).is_undefined() {
+        v = cc.arg(1).coerce_to_string_value(ctx)?;
+        let s = unsafe { v.string_unchecked() };
+        if s.is_empty() {
+            return Ok(str);
         }
-        if (*p1).len() == 1 {
-            c = (*p1).content().chars().next().unwrap();
-            p1 = std::ptr::null_mut();
+        if s.len() == 1 {
+            c = s.content().chars().next().unwrap();
+            p1 = None;
+        } else {
+            p1.replace(s);
         }
     }
 
     if n > JS_STRING_LEN_MAX as i32 {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowInternalError(c"string too long");
-        fail2!();
+        ctx.JS_ThrowInternalError("string too long");
+        return Err(-1);
     }
-    // if string_buffer_init(ctx, b, n as _) != 0 {
-    //     fail3!();
-    // }
 
     let mut res_string = if padEnd != 0 {
-        if let Ok(s) = (*p).content().copy_to_new() {
-            s
-        } else {
-            (*ctx).JS_ThrowOutOfMemory();
-            fail!();
-        }
+        p.content().copy_to_new().map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?
     } else {
         StringContent::Empty
     };
 
     n -= len;
 
-    let r = if !p1.is_null() {
+    if let Some(s) = p1 {
         res_string.push_chars_iter(
-            std::iter::repeat_n((*p1).content().chars(), (n as usize).div_ceil((*p1).len()))
-                .flatten(),
+            std::iter::repeat_n(s.content().chars(), (n as usize).div_ceil(s.len())).flatten(),
         )
     } else {
         res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
-    };
-    if r.is_err() {
-        (*ctx).JS_ThrowOutOfMemory();
-        fail!();
     }
+    .map_err(|_| {
+        ctx.JS_ThrowOutOfMemory();
+        -1
+    })?;
 
     if padEnd == 0 {
-        if res_string.push((*p).content()).is_err() {
-            (*ctx).JS_ThrowOutOfMemory();
-            fail!();
-        }
+        res_string.push(p.content()).map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?;
     }
 
-    JS_FreeValue(ctx, v);
-    JS_FreeValue(ctx, str);
-
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub unsafe fn js_string_repeat(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        JS_FreeValue(ctx, str);
-        return JSValue::EXCEPTION;
-    }
-
-    macro_rules! fail {
-        () => {
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
-        };
-    }
+pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
 
     let mut val: i64 = 0;
-    if JS_ToInt64Sat(ctx, &mut val, *argv.offset(0)) != 0 {
-        fail!();
+    if unsafe { JS_ToInt64Sat(ctx, &mut val, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
     if !(0..=2147483647).contains(&val) {
-        JS_ThrowRangeError(ctx, c"invalid repeat count");
-        fail!();
+        JS_ThrowRangeError(ctx, "invalid repeat count");
+        return Err(-1);
     }
 
     let n = val as usize;
-    let p = JS_VALUE_GET_STRING(str);
-    let len = (*p).len();
+    let p = unsafe { str.string_unchecked() };
+    let len = p.len();
     if len == 0 || n == 1 {
-        return str;
+        return Ok(str);
     }
     if val as usize * len > JS_STRING_LEN_MAX {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowInternalError(c"string too long");
-        fail!();
+        ctx.JS_ThrowInternalError("string too long");
+        return Err(-1);
     }
 
-    let mut res_string = if let Ok(s) = StringContent::with_capacity(n * len, (*p).is_wide_char()) {
-        s
-    } else {
-        fail!();
-    };
+    let mut res_string = StringContent::with_capacity(n * len, p.is_wide_char()).map_err(|_| {
+        ctx.JS_ThrowOutOfMemory();
+        -1
+    })?;
 
     res_string
-        .push_chars_iter(std::iter::repeat_n((*p).content().chars(), n).flatten())
+        .push_chars_iter(std::iter::repeat_n(p.content().chars(), n).flatten())
         .unwrap();
     res_string.shrink_to_fit();
 
-    JS_FreeValue(ctx, str);
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub unsafe fn js_sub_string(
-    ctx: *mut JSContext,
-    p: *const JSString,
-    start: i32,
-    end: i32,
-) -> JSValue {
-    let start = std::cmp::max(0, start);
-    let end = std::cmp::min(end, (*p).len() as i32);
+pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
 
-    if start == 0 && end == (*p).len() as i32 {
-        JS_MKPTR!(JSTag::String, (p as *mut JSString).cast()).dup()
-    } else {
-        let count = if end > start { end - start } else { 0 };
-        if count > 0 {
-            if let Ok(sub) = (*p)
-                .content()
-                .slice(start as usize..end as usize)
-                .to_owned()
-            {
-                (*ctx).create_string_from_content(sub)
-            } else {
-                (*ctx).JS_ThrowOutOfMemory();
-                JSValue::EXCEPTION
-            }
-        } else {
-            (*ctx).create_string_from_content(StringContent::Empty)
-        }
-    }
-}
-
-pub unsafe fn js_string_includes(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return str;
+    if js_is_regexp(ctx, cc.arg(0))? {
+        ctx.JS_ThrowTypeError("regex not supported");
+        return Err(-1);
     }
 
-    match js_is_regexp(ctx, *argv.offset(0)) {
-        Ok(false) => {}
-        Ok(true) => {
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"regex not supported");
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
-        }
-        Err(_) => {
-            JS_FreeValue(ctx, str);
-            return JSValue::EXCEPTION;
-        }
-    }
+    let v = cc.arg(0).coerce_to_string_value(ctx)?;
+    let p = unsafe { str.string_unchecked() };
+    let p1 = unsafe { v.string_unchecked() };
 
-    let v = if let Ok(s) = (*argv.offset(0)).coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        JS_FreeValue(ctx, str);
-        return JSValue::EXCEPTION;
-    };
+    let mut len = p.len() as i32;
+    let v_len = p1.len() as i32;
 
-    let p = JS_VALUE_GET_STRING(str);
-    let p1 = JS_VALUE_GET_STRING(v);
-    let mut len = (*p).len() as i32;
-    let v_len = (*p1).len() as i32;
-
-    let mut pos = if magic == 2 { len } else { 0 };
-    if argc > 1 && !JS_IsUndefined(*argv.offset(1)) {
-        if JS_ToInt32Clamp(ctx, &mut pos, *argv.offset(1), 0, len, 0) != 0 {
-            JS_FreeValue(ctx, str);
-            JS_FreeValue(ctx, v);
-            return JSValue::EXCEPTION;
+    let mut pos = if cc.magic() == 2 { len } else { 0 };
+    if cc.length() > 1 && !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut pos, cc.arg(1), 0, len, 0) } != 0 {
+            return Err(-1);
         }
     }
 
@@ -1076,17 +672,16 @@ pub unsafe fn js_string_includes(
 
     let mut ret = false;
     let mut pos: i32 = 0;
+
     let mut start: i32 = 0;
     let mut stop: i32 = 0;
-    if magic == 0 {
+    if cc.magic() == 0 {
         start = pos;
         stop = len;
     } else {
-        if magic == 1 {
+        if cc.magic() == 1 {
             if pos > len {
-                JS_FreeValue(ctx, str);
-                JS_FreeValue(ctx, v);
-                return ret.into();
+                return Ok(JSValue::Bool(ret));
             }
         } else {
             pos -= v_len;
@@ -1104,42 +699,36 @@ pub unsafe fn js_string_includes(
         }
     }
 
-    JS_FreeValue(ctx, str);
-    JS_FreeValue(ctx, v);
-
-    ret.into()
+    Ok(JSValue::Bool(ret))
 }
 
-pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> i32 {
-    let ret = if let Ok(b) = js_is_regexp(ctx, regexp) {
+pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
+    let ret = if let Ok(b) = js_is_regexp(ctx, &regexp) {
         b
     } else {
         return -1;
     };
 
     if ret {
-        let mut flags = regexp.get_property(ctx.as_mut().unwrap(), JS_ATOM_flags);
+        let mut flags = regexp.get_property(ctx, JS_ATOM_flags);
         if flags.is_exception() {
             return -1;
         }
         if flags.is_undefined_or_null() {
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"cannot convert to object");
+            ctx.JS_ThrowTypeError("cannot convert to object");
             return -1;
         }
 
-        flags = JS_ToStringFree(ctx, flags);
+        flags = flags
+            .coerce_to_string_value(ctx)
+            .unwrap_or(JSValue::EXCEPTION);
         if flags.is_exception() {
             return -1;
         }
 
-        let idx = flags.string().content().find_char('g', 0);
-        JS_FreeValue(ctx, flags);
+        let idx = unsafe { flags.string_unchecked().content().find_char('g', 0) };
         if idx.is_none() {
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"regexp must have the 'g' flag");
+            ctx.JS_ThrowTypeError("regexp must have the 'g' flag");
             return -1;
         }
     }
@@ -1147,134 +736,86 @@ pub unsafe fn check_regexp_g_flag(ctx: *mut JSContext, regexp: JSValueConst) -> 
     0
 }
 
-pub unsafe fn js_string_match(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    let mut O: JSValueConst = this_val;
-    let regexp: JSValueConst = *argv.offset(0);
-    let atom = JSAtom(magic as u32);
+pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let mut O = cc.this().clone();
+    let regexp = cc.arg(0);
+    let atom = JSAtom(cc.magic() as u32);
 
     if O.is_undefined_or_null() {
-        return ctx
-            .as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"cannot convert to object");
+        ctx.JS_ThrowTypeError("cannot convert to object");
+        return Err(-1);
     }
 
     if !regexp.is_undefined_or_null() {
-        let matcher = regexp.get_property(ctx.as_mut().unwrap(), atom);
-        if matcher.is_exception() {
-            return JSValue::EXCEPTION;
-        }
+        let matcher = regexp.get_property(ctx, atom).check_exception()?;
 
         if atom == JS_ATOM_Symbol_matchAll {
             if check_regexp_g_flag(ctx, regexp) < 0 {
-                JS_FreeValue(ctx, matcher);
-                return JSValue::EXCEPTION;
+                return Err(-1);
             }
         }
         if !matcher.is_undefined_or_null() {
-            return JS_CallFree(ctx.as_mut().unwrap(), matcher, regexp, 1, &mut O);
+            return JS_Call(ctx, &matcher, regexp, &[O]).check_exception();
         }
     }
 
-    let mut S = if let Ok(s) = O.coerce_to_string_value(ctx.as_mut().unwrap()) {
-        s
-    } else {
-        return JSValue::EXCEPTION;
-    };
+    let mut S = O.coerce_to_string_value(ctx)?;
 
     let mut args_len = 1;
-    let mut args: [JSValueConst; 2] = [JSValue::UNDEFINED; 2];
-    args[0] = regexp;
+    let mut args = [const { JSValue::UNDEFINED }; 2];
+    args[0] = regexp.clone();
 
     let mut str = JSValue::UNDEFINED;
 
     if atom == JS_ATOM_Symbol_matchAll {
-        str = (*ctx).create_string_from_char('g');
-        if str.is_exception() {
-            JS_FreeValue(ctx, S);
-            return JSValue::EXCEPTION;
-        }
+        str = ctx.create_string_from_char('g').check_exception()?;
         args[args_len as usize] = str;
         args_len += 1;
     }
 
     let rx = JS_CallConstructor(
-        ctx.as_mut().unwrap(),
-        (*ctx).regexp_ctor,
-        args_len,
-        args.as_mut_ptr(),
-    );
-    JS_FreeValue(ctx, str);
-    if rx.is_exception() {
-        JS_FreeValue(ctx, S);
-        return JSValue::EXCEPTION;
-    }
+        ctx,
+        &ctx.0.borrow().regexp_ctor,
+        &cc.arguments()[0..args_len],
+    )
+    .check_exception()?;
 
-    let result = JS_InvokeFree(ctx.as_mut().unwrap(), rx, atom, 1, &mut S);
-    JS_FreeValue(ctx, S);
-
-    result
+    JS_Invoke(ctx, &rx, atom, &[S]).check_exception()
 }
 
-pub unsafe fn js_string___GetSubstitution(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-) -> JSValue {
-    let matched = *argv.offset(0); // 匹配到的字符串。
-    let str = *argv.offset(1); // 原始字符串。
-    let captures = *argv.offset(3); // 捕获组，通常是正则表达式匹配的结果。
-    let namedCaptures = *argv.offset(4); // 命名捕获组。
-    let rep = *argv.offset(5); // 替换字符串或替换函数。
+pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let matched = cc.arg(0); // 匹配到的字符串。
+    let str = cc.arg(1); // 原始字符串。
+    let captures = cc.arg(3); // 捕获组，通常是正则表达式匹配的结果。
+    let namedCaptures = cc.arg(4); // 命名捕获组。
+    let rep = cc.arg(5); // 替换字符串或替换函数。
 
-    let sp = JS_VALUE_GET_STRING(str);
-    let rp = JS_VALUE_GET_STRING(rep);
+    let sp = unsafe { str.string_unchecked() };
+    let rp = unsafe { rep.string_unchecked() };
 
-    if !JS_IsString(rep) || !JS_IsString(str) {
-        return (*ctx).JS_ThrowTypeError(c"not a string");
+    if !rep.is_string() || !str.is_string() {
+        ctx.JS_ThrowTypeError("not a string");
+        return Err(-1);
     }
 
-    let captures_len = if !JS_IsUndefined(captures) {
-        if let Ok(n) = js_get_length32(ctx, captures) {
-            n
-        } else {
-            return JSValue::EXCEPTION;
-        }
+    let captures_len = if !captures.is_undefined() {
+        js_get_length32(ctx, captures)?
     } else {
         0
     };
 
-    let matched_len = if let Ok(n) = js_get_length32(ctx, matched) {
-        n
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
-    let position = if let Ok(n) = JS_ToUint32(ctx, *argv.offset(2)) {
-        n
-    } else {
-        return JSValue::EXCEPTION;
-    };
-
+    let matched_len = js_get_length32(ctx, matched)?;
+    let position = unsafe { JS_ToUint32(ctx, cc.arg(2))? };
     let mut res_string =
-        if let Ok(s) = StringContent::with_capacity((*sp).len(), (*sp).is_wide_char()) {
-            s
-        } else {
-            (*ctx).JS_ThrowOutOfMemory();
-            return JSValue::EXCEPTION;
-        };
+        StringContent::with_capacity(sp.len(), sp.is_wide_char()).map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?;
 
-    let len = (*rp).len();
+    let len = rp.len();
     let mut i = 0;
     loop {
-        let mut j = if let Some(x) = (*rp).content().find_char('$', i) {
+        let mut j = if let Some(x) = rp.content().find_char('$', i) {
             x
         } else {
             break;
@@ -1284,54 +825,52 @@ pub unsafe fn js_string___GetSubstitution(
             break;
         }
 
-        if res_string
-            .push_content_slice(&(*rp).content().slice(i as usize..j as usize))
-            .is_err()
-        {
-            (*ctx).JS_ThrowOutOfMemory();
-            return JSValue::EXCEPTION;
-        }
+        res_string
+            .push_content_slice(&rp.content().slice(i as usize..j as usize))
+            .map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
 
         let j0 = j;
         j += 1;
-        let c = (*rp).content().chars().nth(j as usize).unwrap();
+        let c = rp.content().chars().nth(j as usize).unwrap();
         j += 1;
+
         if c == '$' {
-            if res_string.push_char(c).is_err() {
-                return JSValue::EXCEPTION;
-            }
+            res_string.push_char(c).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
         } else if c == '&' {
-            let sval = JS_ToStringFree(ctx, matched);
-            if sval.is_exception() {
-                return JSValue::EXCEPTION;
-            }
-            let r = res_string.push((*JS_VALUE_GET_STRING(sval)).content());
-            JS_FreeValue(ctx, sval);
-            if r.is_err() {
-                return JSValue::EXCEPTION;
-            }
+            let sval = matched.coerce_to_string_value(ctx)?;
+            res_string
+                .push(unsafe { sval.string_unchecked().content() })
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
         } else if c == '`' {
-            if res_string
-                .push_content_slice(&(*sp).content().slice(0..position as usize))
-                .is_err()
-            {
-                return JSValue::EXCEPTION;
-            }
+            res_string
+                .push_content_slice(&sp.content().slice(0..position as usize))
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
         } else if c == '\'' {
-            if res_string
+            res_string
                 .push_content_slice(
-                    &(*sp)
-                        .content()
-                        .slice((position + matched_len) as usize..(*sp).len()),
+                    &sp.content()
+                        .slice((position + matched_len) as usize..sp.len()),
                 )
-                .is_err()
-            {
-                return JSValue::EXCEPTION;
-            }
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
         } else if c.is_ascii_digit() {
             let mut k = c as u32 - '0' as u32;
             if j < len as u16 {
-                let c1 = (*rp).content().chars().nth(j as usize).unwrap();
+                let c1 = rp.content().chars().nth(j as usize).unwrap();
                 if c1.is_ascii_digit() {
                     let k1 = k * 10 + (c1 as u32 - '0' as u32);
                     if k1 >= 1 && k1 < captures_len {
@@ -1342,107 +881,85 @@ pub unsafe fn js_string___GetSubstitution(
             }
 
             if k >= 1 && k < captures_len {
-                let s = captures.get_property_i64(ctx.as_mut().unwrap(), k as i64);
-                if s.is_exception() {
-                    return JSValue::EXCEPTION;
-                }
+                let s = captures.get_property_i64(ctx, k as i64).check_exception()?;
                 if !s.is_undefined() {
-                    let sval = JS_ToStringFree(ctx, s);
-                    if sval.is_exception() {
-                        return JSValue::EXCEPTION;
-                    }
-                    let r = res_string.push((*JS_VALUE_GET_STRING(sval)).content());
-                    JS_FreeValue(ctx, sval);
-                    if r.is_err() {
-                        return JSValue::EXCEPTION;
-                    }
+                    let sval = s.coerce_to_string_value(ctx)?;
+                    let r = res_string
+                        .push(unsafe { sval.string_unchecked().content() })
+                        .map_err(|_| {
+                            ctx.JS_ThrowOutOfMemory();
+                            -1
+                        })?;
                 }
             } else {
-                if res_string
-                    .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
-                    .is_err()
-                {
-                    return JSValue::EXCEPTION;
-                }
+                res_string
+                    .push_content_slice(&rp.content().slice(j0 as usize..j as usize))
+                    .map_err(|_| {
+                        ctx.JS_ThrowOutOfMemory();
+                        -1
+                    })?;
             }
         } else if c == '<' && !namedCaptures.is_undefined() {
-            if let Some(k) = (*rp).content().find_char('>', j as _) {
-                let name = js_sub_string(ctx, rp, j as _, k as _);
-                if name.is_exception() {
-                    return JSValue::EXCEPTION;
-                }
-
-                let capture = namedCaptures.get_property_value(ctx.as_mut().unwrap(), name);
-                if capture.is_exception() {
-                    return JSValue::EXCEPTION;
-                }
+            if let Some(k) = rp.content().find_char('>', j as _) {
+                let name = rp.sub_string(ctx, j as usize, k as usize)?;
+                let capture = namedCaptures
+                    .get_property_value(ctx, &name)
+                    .check_exception()?;
                 if !capture.is_undefined() {
-                    let sval = JS_ToStringFree(ctx, capture);
-                    if sval.is_exception() {
-                        return JSValue::EXCEPTION;
-                    }
-                    let r = res_string.push((*JS_VALUE_GET_STRING(sval)).content());
-                    JS_FreeValue(ctx, sval);
-                    if r.is_err() {
-                        return JSValue::EXCEPTION;
-                    }
+                    let sval = capture.coerce_to_string_value(ctx)?;
+                    res_string
+                        .push(unsafe { sval.string_unchecked().content() })
+                        .map_err(|_| {
+                            ctx.JS_ThrowOutOfMemory();
+                            -1
+                        })?;
                 }
                 j = k + 1;
             } else {
-                if res_string
+                res_string
                     .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
-                    .is_err()
-                {
-                    return JSValue::EXCEPTION;
-                }
+                    .map_err(|_| {
+                        ctx.JS_ThrowOutOfMemory();
+                        -1
+                    })?;
             }
         } else {
-            if res_string
+            res_string
                 .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
-                .is_err()
-            {
-                return JSValue::EXCEPTION;
-            }
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
         }
+
         i = j;
     }
 
-    if res_string
-        .push_content_slice(&(*rp).content().slice(i as usize..(*rp).len()))
-        .is_err()
-    {
-        return JSValue::EXCEPTION;
-    }
+    res_string
+        .push_content_slice(&rp.content().slice(i as usize..rp.len()))
+        .map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?;
 
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub unsafe fn js_string_trim(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    let str = JS_ToStringCheckObject(ctx, this_val);
-    if JS_IsException(str) {
-        return str;
-    }
+pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { str.string_unchecked() };
 
-    let p = JS_VALUE_GET_STRING(str);
-    if let Ok(mut s) = (*p).content().copy_to_new() {
-        JS_FreeValue(ctx, str);
-        s.trim(magic & 1 != 0, magic & 2 != 0);
-        (*ctx).create_string_from_content(s)
-    } else {
-        JS_FreeValue(ctx, str);
-        JSValue::EXCEPTION
-    }
+    let mut s = p.content().copy_to_new().map_err(|_| {
+        ctx.JS_ThrowOutOfMemory();
+        -1
+    })?;
+    s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
+    ctx.create_string_from_content(s).check_exception()
 }
 
-pub unsafe fn string_cmp(p1: *mut JSString, p2: *mut JSString, x1: i32, x2: i32, len: i32) -> i32 {
-    let mut it1 = (*p1).content().chars().skip(x1 as usize);
-    let mut it2 = (*p2).content().chars().skip(x2 as usize);
+pub fn string_cmp(p1: &JSString, p2: &JSString, x1: i32, x2: i32, len: i32) -> i32 {
+    let mut it1 = p1.content().chars().skip(x1 as usize);
+    let mut it2 = p2.content().chars().skip(x2 as usize);
 
     for _ in 0..len {
         match (it1.next(), it2.next()) {
@@ -1500,140 +1017,125 @@ pub unsafe fn string_indexof(p1: *mut JSString, p2: *mut JSString, from: i32) ->
 }
 
 /* also used for String.prototype.valueOf */
-pub unsafe fn js_string_toString(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    js_thisStringValue(ctx, this_val)
+pub fn js_string_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+    js_thisStringValue(ctx, cc.this().clone())
 }
 
-pub unsafe fn js_thisStringValue(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
+pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValueConst) -> JSResult {
     if this_val.is_string() {
-        this_val.dup()
+        Ok(this_val)
     } else if let Some(d) = this_val
         .object()
-        .and_then(|p| p.isa().value())
+        .and_then(|p| p.0.isa.borrow().value().cloned())
         .and_then(|x| if x.is_string() { Some(x) } else { None })
     {
-        d.dup()
+        Ok(d)
     } else {
-        (*ctx).JS_ThrowTypeError(c"not a string");
-        JSValue::EXCEPTION
+        ctx.JS_ThrowTypeError("not a string");
+        Err(-1)
     }
 }
 
-pub unsafe fn js_string_toLowerCase(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    to_lower: i32,
-) -> JSValue {
-    let val = JS_ToStringCheckObject(ctx, this_val); // val is duplicated inside. don't forget free it.
-    if JS_IsException(val) {
-        return val;
+pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let to_lower = cc.magic();
+
+    let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let p = unsafe { val.string_unchecked() };
+
+    if p.is_empty() {
+        return Ok(val);
     }
 
-    let p = JS_VALUE_GET_STRING(val);
-    if (*p).is_empty() {
-        return val;
-    }
-
-    let sc = match (*p).content().as_ref() {
+    let sc = match p.content().as_ref() {
         StringContent::Empty => unreachable!(),
         StringContent::Utf8(s) => {
-            if let Ok(mut d) = Vec::<u8>::try_with_capacity(s.len()) {
-                d.extend_from_slice(s);
-                if to_lower != 0 {
-                    d.make_ascii_lowercase();
-                } else {
-                    d.make_ascii_uppercase();
-                }
-                StringContent::Utf8(d)
+            let mut d = Vec::<u8>::try_with_capacity(s.len()).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+            d.extend_from_slice(s);
+            if to_lower != 0 {
+                d.make_ascii_lowercase();
             } else {
-                JS_FreeValue(ctx, val);
-                return JSValue::EXCEPTION;
+                d.make_ascii_uppercase();
             }
+            StringContent::Utf8(d)
         }
         StringContent::Utf16(s) => {
-            if let Ok(mut w) = Vec::<u16>::try_with_capacity(s.len() * 3 / 2) {
-                let it: Box<dyn Iterator<Item = char>> = if to_lower != 0 {
-                    Box::new(
-                        U16Str::from_slice(s)
-                            .chars_lossy()
-                            .flat_map(|c| c.to_lowercase()),
-                    )
-                } else {
-                    Box::new(
-                        U16Str::from_slice(s)
-                            .chars_lossy()
-                            .flat_map(|c| c.to_uppercase()),
-                    )
-                };
-                for c in it {
-                    w.extend_from_slice(c.encode_utf16(&mut [0; 2]));
-                }
+            let mut w = Vec::<u16>::try_with_capacity(s.len() * 3 / 2).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
 
-                w.shrink_to_fit();
-                StringContent::Utf16(w)
+            let it: Box<dyn Iterator<Item = char>> = if to_lower != 0 {
+                Box::new(
+                    U16Str::from_slice(s)
+                        .chars_lossy()
+                        .flat_map(|c| c.to_lowercase()),
+                )
             } else {
-                JS_FreeValue(ctx, val);
-                return JSValue::EXCEPTION;
+                Box::new(
+                    U16Str::from_slice(s)
+                        .chars_lossy()
+                        .flat_map(|c| c.to_uppercase()),
+                )
+            };
+            for c in it {
+                w.extend_from_slice(c.encode_utf16(&mut [0; 2]));
             }
+
+            w.shrink_to_fit();
+            StringContent::Utf16(w)
         }
     };
 
-    let sval = ctx.as_mut().unwrap().create_string_from_content(sc);
-    JS_FreeValue(ctx, val);
-    sval
+    ctx.create_string_from_content(sc).check_exception()
 }
 
 pub const js_string_proto_funcs: [JSCFunctionListEntry; 37] = [
     JS_PROP_INT32_DEF!(c"length", 0, JS_PROP_CONFIGURABLE),
-    JS_CFUNC_MAGIC_DEF!(c"at", 1, js_string_charAt, 1),
-    JS_CFUNC_DEF!(c"charCodeAt", 1, js_string_charCodeAt),
-    JS_CFUNC_MAGIC_DEF!(c"charAt", 1, js_string_charAt, 0),
-    JS_CFUNC_DEF!(c"concat", 1, js_string_concat),
-    JS_CFUNC_DEF!(c"codePointAt", 1, js_string_codePointAt),
-    JS_CFUNC_DEF!(c"isWellFormed", 0, js_string_isWellFormed),
-    JS_CFUNC_DEF!(c"toWellFormed", 0, js_string_toWellFormed),
-    JS_CFUNC_MAGIC_DEF!(c"indexOf", 1, js_string_indexOf, 0),
-    JS_CFUNC_MAGIC_DEF!(c"lastIndexOf", 1, js_string_indexOf, 1),
-    JS_CFUNC_MAGIC_DEF!(c"includes", 1, js_string_includes, 0),
-    JS_CFUNC_MAGIC_DEF!(c"endsWith", 1, js_string_includes, 2),
-    JS_CFUNC_MAGIC_DEF!(c"startsWith", 1, js_string_includes, 1),
-    JS_CFUNC_MAGIC_DEF!(c"match", 1, js_string_match, JS_ATOM_Symbol_match.0 as _),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"at", 1, js_string_charAt, 1),
+    JS_CFUNC_NATIVE_DEF!(c"charCodeAt", 1, js_string_charCodeAt, 0),
+    JS_CFUNC_NATIVE_DEF!(c"charAt", 1, js_string_charAt, 0),
+    JS_CFUNC_NATIVE_DEF!(c"concat", 1, js_string_concat, 0),
+    JS_CFUNC_NATIVE_DEF!(c"codePointAt", 1, js_string_codePointAt, 0),
+    JS_CFUNC_NATIVE_DEF!(c"isWellFormed", 0, js_string_isWellFormed, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toWellFormed", 0, js_string_toWellFormed, 0),
+    JS_CFUNC_NATIVE_DEF!(c"indexOf", 1, js_string_indexOf, 0),
+    JS_CFUNC_NATIVE_DEF!(c"lastIndexOf", 1, js_string_indexOf, 1),
+    JS_CFUNC_NATIVE_DEF!(c"includes", 1, js_string_includes, 0),
+    JS_CFUNC_NATIVE_DEF!(c"endsWith", 1, js_string_includes, 2),
+    JS_CFUNC_NATIVE_DEF!(c"startsWith", 1, js_string_includes, 1),
+    JS_CFUNC_NATIVE_DEF!(c"match", 1, js_string_match, JS_ATOM_Symbol_match.0 as _),
+    JS_CFUNC_NATIVE_DEF!(
         c"matchAll",
         1,
         js_string_match,
         JS_ATOM_Symbol_matchAll.0 as _
     ),
-    JS_CFUNC_MAGIC_DEF!(c"search", 1, js_string_match, JS_ATOM_Symbol_search.0 as _),
-    JS_CFUNC_DEF!(c"split", 2, js_string_split),
-    JS_CFUNC_DEF!(c"substring", 2, js_string_substring),
-    JS_CFUNC_DEF!(c"substr", 2, js_string_substr),
-    JS_CFUNC_DEF!(c"slice", 2, js_string_slice),
-    JS_CFUNC_DEF!(c"repeat", 1, js_string_repeat),
-    JS_CFUNC_MAGIC_DEF!(c"replace", 2, js_string_replace, 0),
-    JS_CFUNC_MAGIC_DEF!(c"replaceAll", 2, js_string_replace, 1),
-    JS_CFUNC_MAGIC_DEF!(c"padEnd", 1, js_string_pad, 1),
-    JS_CFUNC_MAGIC_DEF!(c"padStart", 1, js_string_pad, 0),
-    JS_CFUNC_MAGIC_DEF!(c"trim", 0, js_string_trim, 3),
-    JS_CFUNC_MAGIC_DEF!(c"trimEnd", 0, js_string_trim, 2),
+    JS_CFUNC_NATIVE_DEF!(c"search", 1, js_string_match, JS_ATOM_Symbol_search.0 as _),
+    JS_CFUNC_NATIVE_DEF!(c"split", 2, js_string_split, 0),
+    JS_CFUNC_NATIVE_DEF!(c"substring", 2, js_string_substring, 0),
+    JS_CFUNC_NATIVE_DEF!(c"substr", 2, js_string_substr, 0),
+    JS_CFUNC_NATIVE_DEF!(c"slice", 2, js_string_slice, 0),
+    JS_CFUNC_NATIVE_DEF!(c"repeat", 1, js_string_repeat, 0),
+    JS_CFUNC_NATIVE_DEF!(c"replace", 2, js_string_replace, 0),
+    JS_CFUNC_NATIVE_DEF!(c"replaceAll", 2, js_string_replace, 1),
+    JS_CFUNC_NATIVE_DEF!(c"padEnd", 1, js_string_pad, 1),
+    JS_CFUNC_NATIVE_DEF!(c"padStart", 1, js_string_pad, 0),
+    JS_CFUNC_NATIVE_DEF!(c"trim", 0, js_string_trim, 3),
+    JS_CFUNC_NATIVE_DEF!(c"trimEnd", 0, js_string_trim, 2),
     JS_ALIAS_DEF!(c"trimRight", c"trimEnd"),
-    JS_CFUNC_MAGIC_DEF!(c"trimStart", 0, js_string_trim, 1),
+    JS_CFUNC_NATIVE_DEF!(c"trimStart", 0, js_string_trim, 1),
     JS_ALIAS_DEF!(c"trimLeft", c"trimStart"),
-    JS_CFUNC_DEF!(c"toString", 0, js_string_toString),
-    JS_CFUNC_DEF!(c"valueOf", 0, js_string_toString),
+    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_string_toString, 0),
+    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_string_toString, 0),
     // JS_CFUNC_DEF!(c"localeCompare", 1, js_string_localeCompare),
-    JS_CFUNC_MAGIC_DEF!(c"toLowerCase", 0, js_string_toLowerCase, 1),
-    JS_CFUNC_MAGIC_DEF!(c"toUpperCase", 0, js_string_toLowerCase, 0),
-    JS_CFUNC_MAGIC_DEF!(c"toLocaleLowerCase", 0, js_string_toLowerCase, 1),
-    JS_CFUNC_MAGIC_DEF!(c"toLocaleUpperCase", 0, js_string_toLowerCase, 0),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"toLowerCase", 0, js_string_toLowerCase, 1),
+    JS_CFUNC_NATIVE_DEF!(c"toUpperCase", 0, js_string_toLowerCase, 0),
+    JS_CFUNC_NATIVE_DEF!(c"toLocaleLowerCase", 0, js_string_toLowerCase, 1),
+    JS_CFUNC_NATIVE_DEF!(c"toLocaleUpperCase", 0, js_string_toLowerCase, 0),
+    JS_CFUNC_NATIVE_DEF!(
         c"[Symbol.iterator]",
         0,
         js_create_array_iterator,
@@ -1655,40 +1157,35 @@ pub const js_string_proto_funcs: [JSCFunctionListEntry; 37] = [
     // JS_CFUNC_MAGIC_DEF("sup", 0, js_string_CreateHTML, magic_string_sup),
 ];
 
-unsafe fn js_string_iterator_next(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
-    pdone: *mut i32,
-    magic: i32,
-) -> JSValue {
-    if let JSObjectIsa::STRING_ITERATOR(p) = this_val.object_unchecked().isa() {
-        let it = (*p).as_mut().unwrap();
+pub fn js_string_iterator_next(
+    ctx: &JSContext,
+    cc: CallContext,
+    state: &mut IteratorState,
+) -> JSResult {
+    let mut isa = unsafe { cc.this().object_unchecked().0.isa.borrow_mut() };
 
-        let ss = it.obj.string();
+    if let JSObjectIsa::STRING_ITERATOR(it) = isa.deref_mut() {
+        let ss = unsafe { it.obj.string_unchecked() };
         let idx = it.idx;
 
         if idx >= ss.len() as u32 {
-            JS_FreeValue(ctx, it.obj);
             it.obj = JSValue::UNDEFINED;
-            *pdone = 1;
-            return JSValue::UNDEFINED;
+            *state = IteratorState::Done;
+            return Ok(JSValue::UNDEFINED);
         }
 
         let c = ss.content().chars().nth(idx as usize).unwrap();
         it.idx = idx;
-        *pdone = 0;
+        *state = IteratorState::HasMore;
 
-        (*ctx).create_string_from_char(c)
+        ctx.create_string_from_char(c).check_exception()
     } else {
-        *pdone = 0;
-        return JSValue::EXCEPTION;
+        Err(-1)
     }
 }
 
 pub const js_string_iterator_proto_funcs: [JSCFunctionListEntry; 2] = [
-    JS_ITERATOR_NEXT_DEF!(c"next", 0, js_string_iterator_next, 0),
+    JS_NATIVE_ITERATOR_NEXT_DEF!(c"next", 0, js_string_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         c"[Symbol.toStringTag]",
         c"String Iterator",
@@ -1696,135 +1193,90 @@ pub const js_string_iterator_proto_funcs: [JSCFunctionListEntry; 2] = [
     ),
 ];
 
-pub unsafe fn js_string_fromCharCode(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
+pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res_string = StringContent::Empty;
 
-    for i in 0..argc {
-        if let Ok(c) = JS_ToInt32(ctx, *argv.offset(i as isize)) {
-            if res_string.push_u16(c as u16).is_err() {
-                (*ctx).JS_ThrowOutOfMemory();
-                return JSValue::EXCEPTION;
-            }
-        } else {
-            return JSValue::EXCEPTION;
-        }
+    for a in cc.arguments() {
+        let c = unsafe { JS_ToInt32(ctx, a)? };
+        res_string.push_u16(c as u16).map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?;
     }
 
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub unsafe fn js_string_fromCodePoint(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
+pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     // XXX: could pre-compute string length if all arguments are JS_TAG_INT
     let mut res_string = StringContent::Empty;
 
-    for i in 0..argc {
-        let c: i32 = if (*argv.offset(i as isize)).tag() == JS_TAG_INT {
-            JS_VALUE_GET_INT(*argv.offset(i as isize))
+    for a in cc.arguments() {
+        let c: i32 = if let JSValue::Int(i) = a {
+            *i
         } else {
             let mut d: f64 = 0.0;
-            if JS_ToFloat64(ctx, &mut d, *argv.offset(i as isize)) != 0 {
-                return JSValue::EXCEPTION;
+            if unsafe { JS_ToFloat64(ctx, &mut d, a) } != 0 {
+                return Err(-1);
             }
             d as i32
         };
 
         if let Some(c) = char::from_u32(c as u32) {
-            if res_string.push_char(c).is_err() {
-                (*ctx).JS_ThrowOutOfMemory();
-                return JSValue::EXCEPTION;
-            }
+            res_string.push_char(c).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
         } else {
-            JS_ThrowRangeError(ctx, c"invalid code point");
-            return JSValue::EXCEPTION;
+            JS_ThrowRangeError(ctx, "invalid code point");
+            return Err(-1);
         }
     }
 
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub unsafe fn js_string_raw(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
+pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     // raw(temp,...a)
 
-    let cooked = JS_ToObject(ctx, *argv.offset(0));
-    if cooked.is_exception() {
-        return JSValue::EXCEPTION;
-    }
+    let cooked = cc.arg(0).coerce_to_object(ctx)?;
+    let raw = cooked
+        .get_property(ctx, JS_ATOM_raw)
+        .coerce_to_object(ctx)?;
 
-    let raw = JS_ToObjectFree(ctx, cooked.get_property(ctx.as_mut().unwrap(), JS_ATOM_raw));
-    if raw.is_exception() {
-        JS_FreeValue(ctx, cooked);
-        return JSValue::EXCEPTION;
-    }
-
-    let n = if let Ok(n) = js_get_length64(ctx, raw) {
-        n
-    } else {
-        JS_FreeValue(ctx, cooked);
-        JS_FreeValue(ctx, raw);
-        return JSValue::EXCEPTION;
-    };
-
+    let n = js_get_length64(ctx, &raw)?;
     let mut res_string = StringContent::Empty;
 
     for i in 0..n {
-        let tmp = JS_ToStringFree(ctx, raw.get_property_i64(ctx.as_mut().unwrap(), i));
-        if tmp.is_exception() {
-            JS_FreeValue(ctx, cooked);
-            JS_FreeValue(ctx, raw);
-            return JSValue::EXCEPTION;
-        }
+        let str = raw
+            .get_property_i64(ctx, i)
+            .check_exception()?
+            .coerce_to_string_value(ctx)?;
 
-        let r = res_string.push(tmp.string().content());
-        JS_FreeValue(ctx, tmp);
+        res_string
+            .push(unsafe { str.string_unchecked().content() })
+            .map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
 
-        if r.is_err() {
-            JS_FreeValue(ctx, cooked);
-            JS_FreeValue(ctx, raw);
-            return JSValue::EXCEPTION;
-        }
-
-        if i < n - 1 && i + 1 < argc as i64 {
-            let val = *argv.offset((i + 1) as isize);
-            let tmp = JS_ToStringFree(ctx, val);
-            if tmp.is_exception() {
-                JS_FreeValue(ctx, cooked);
-                JS_FreeValue(ctx, raw);
-                return JSValue::EXCEPTION;
-            }
-
-            let r = res_string.push(tmp.string().content());
-            JS_FreeValue(ctx, tmp);
-
-            if r.is_err() {
-                JS_FreeValue(ctx, cooked);
-                JS_FreeValue(ctx, raw);
-                return JSValue::EXCEPTION;
-            }
+        if i < n - 1 && i + 1 < cc.length() as i64 {
+            let val = cc.arg(i as usize + 1);
+            let s = val.coerce_to_string_value(ctx)?;
+            res_string
+                .push(unsafe { s.string_unchecked().content() })
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
         }
     }
 
-    JS_FreeValue(ctx, cooked);
-    JS_FreeValue(ctx, raw);
-    (*ctx).create_string_from_content(res_string)
+    ctx.create_string_from_content(res_string).check_exception()
 }
 
 pub const js_string_funcs: [JSCFunctionListEntry; 3] = [
-    JS_CFUNC_DEF!(c"fromCharCode", 1, js_string_fromCharCode),
-    JS_CFUNC_DEF!(c"fromCodePoint", 1, js_string_fromCodePoint),
-    JS_CFUNC_DEF!(c"raw", 1, js_string_raw),
+    JS_CFUNC_NATIVE_DEF!(c"fromCharCode", 1, js_string_fromCharCode, 0),
+    JS_CFUNC_NATIVE_DEF!(c"fromCodePoint", 1, js_string_fromCodePoint, 0),
+    JS_CFUNC_NATIVE_DEF!(c"raw", 1, js_string_raw, 0),
 ];

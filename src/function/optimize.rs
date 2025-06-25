@@ -1,13 +1,13 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Deref};
 
 use crate::{
-    atom::{JSAtom, JS_ATOM_NULL},
-    bytecode::{opcode_info_intermediate, opcodes, OpCode},
-    context::{JSContext, JS_MODE_STRICT},
-    function::{code_has_label, find_jump_target, JSFunctionDef, LabelSlot},
+    atom::{JS_ATOM_NULL, JSAtom},
+    bytecode::{OpCode, opcode_info_intermediate, opcodes},
+    context::{JS_MODE_STRICT, JSContext},
+    function::{JSFunctionDef, LabelSlot, code_has_label, find_jump_target},
     utils::{
-        push_vec_short_code, push_vec_short_int, push_vec_u16, push_vec_u32, push_vec_u8,
-        read_from_ptr, write_to_ptr, M2, M3,
+        M2, M3, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16, push_vec_u32,
+        read_from_ptr, write_to_ptr,
     },
 };
 
@@ -618,7 +618,7 @@ pub fn optimize_scope_make_ref(
 }
 
 pub fn optimize_scope_make_global_ref(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     js_mode: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
@@ -629,14 +629,14 @@ pub fn optimize_scope_make_global_ref(
     let is_strict = js_mode & JS_MODE_STRICT as u8 != 0;
     if is_strict {
         push_vec_u8(bc, opcodes::OP_check_var);
-        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
     } else {
         // XXX: need 2 extra OP_true if destructuring an array
     }
 
     if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, opcodes::OP_get_var);
-        push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+        push_vec_u32(bc, var_name.dup(ctx.rt().deref()).0);
     }
 
     let label_pos = label.pos as usize;
@@ -672,7 +672,7 @@ pub fn optimize_scope_make_global_ref(
         } else {
             opcodes::OP_put_var
         };
-        write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.dup(ctx.rt()).0);
+        write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.dup(ctx.rt().deref()).0);
     }
 
     pos += 5;

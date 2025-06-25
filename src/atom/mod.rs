@@ -4,6 +4,7 @@ mod registry;
 
 pub use {atom::*, atom_rc::*};
 
+/// the atom descriptor
 pub type JSAtomStruct = crate::value::JSString;
 
 pub mod consts {

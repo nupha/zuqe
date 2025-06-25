@@ -1,36 +1,27 @@
-use std::ops::DerefMut;
-
 use crate::{
+    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
     atom::consts::*,
     context::JSContext,
-    function::JS_CallFree,
+    function::JS_Call,
     gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
-        JSTag, JSValue, JSValueConst, JS_DupValue, JS_FreeValue, JS_FreeValueRT,
-        HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_TAG_BIG_INT, JS_TAG_BOOL,
-        JS_TAG_EXCEPTION, JS_TAG_INT, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING,
-        JS_TAG_UNDEFINED, JS_VALUE_GET_FLOAT64, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_TAG,
+        HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_FreeValueRT, JSValue, JSValueConst,
+        object::JSObjectIsa,
     },
-    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_MKVAL,
 };
 
 impl From<bool> for JSValue {
     #[inline]
     fn from(value: bool) -> Self {
-        if value {
-            JSValue::TRUE
-        } else {
-            JSValue::FALSE
-        }
+        JSValue::Bool(value)
     }
 }
 
 impl JSValue {
     /// Coerce `self` value to  primitive value.
     /// value `self` is not consumed
-    pub fn coerce_to_primitive(self, ctx: &mut JSContext, hint: i32) -> Result<JSValue, i32> {
+    pub fn coerce_to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
         let force_ordinary = hint & HINT_FORCE_ORDINARY != 0;
         let mut hint = hint & !HINT_FORCE_ORDINARY;
 
@@ -42,33 +33,26 @@ impl JSValue {
             /* ECMA says *If exoticToPrim is not undefined* but tests in
             test262 use null as a non callable converter */
             if !method.is_undefined_or_null() {
-                let mut hint_val = match hint {
+                let hint_val = match hint {
                     HINT_STRING => JS_ATOM_string,
                     HINT_NUMBER => JS_ATOM_number,
                     _ => JS_ATOM_default,
                 }
                 .to_value(ctx, true)
-                .check_exception()?
-                .into_rc(ctx.rt());
+                .check_exception()?;
 
-                let ret = unsafe {
-                    JS_CallFree(ctx, method, self, 1, hint_val.deref_mut()).check_exception()?
-                };
-
-                return if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
+                let ret = JS_Call(ctx, &method, self, &[hint_val]).check_exception()?;
+                return if !ret.is_object() {
                     Ok(ret)
                 } else {
-                    unsafe {
-                        JS_FreeValue(ctx, ret);
-                    }
-                    ctx.JS_ThrowTypeError(c"toPrimitive");
+                    ctx.JS_ThrowTypeError("toPrimitive");
                     Err(-1)
                 };
             }
         }
 
-        if JS_VALUE_GET_TAG(self) != JS_TAG_OBJECT {
-            return Ok(self.dup());
+        if !self.is_object() {
+            return Ok(self.clone());
         }
 
         if hint != HINT_STRING {
@@ -87,100 +71,57 @@ impl JSValue {
                 )
                 .check_exception()?;
 
-            if method.is_callable(ctx) {
-                let ret = unsafe { JS_CallFree(ctx, method, self, 0, std::ptr::null_mut()) }
-                    .check_exception()?;
-                if JS_VALUE_GET_TAG(ret) != JS_TAG_OBJECT {
+            if method.is_callable() {
+                let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
+                if !ret.is_object() {
                     return Ok(ret);
-                } else {
-                    unsafe {
-                        JS_FreeValue(ctx, ret);
-                    }
-                }
-            } else {
-                unsafe {
-                    JS_FreeValue(ctx, method);
                 }
             }
         }
 
-        ctx.JS_ThrowTypeError(c"toPrimitive");
+        ctx.JS_ThrowTypeError("toPrimitive");
         Err(-1)
     }
-}
 
-#[inline(always)]
-pub const fn JS_NewCatchOffset(val: i32) -> JSValue {
-    JS_MKVAL!(JSTag::CatchOffset, val)
-}
-
-/* Only works for primitive types, otherwise return JS_NULL. */
-pub unsafe fn JS_GetPrototypePrimitive(ctx: *const JSContext, val: JSValueConst) -> JSValueConst {
-    match JS_VALUE_GET_NORM_TAG(val) {
-        JSTag::BigFloat | JSTag::BigDecimal | JSTag::BigInt => {
-            unimplemented!()
+    pub fn coerce_to_bool(&self, ctx: &JSContext) -> Result<bool, i32> {
+        match self {
+            JSValue::NULL | JSValue::UNDEFINED => Ok(false),
+            JSValue::Int(i) => Ok(*i != 0),
+            JSValue::Bool(b) => Ok(*b),
+            JSValue::Object(o) => Ok(!o.flags().is_htmldda()),
+            JSValue::String(s) => Ok(!s.is_empty()),
+            JSValue::Float64(d) => Ok(!(*d).is_nan() && *d != 0.0),
+            JSValue::EXCEPTION => Err(-1),
+            _ => Ok(true),
         }
-        JSTag::Int | JSTag::Float64 => (*ctx).class_proto[JS_CLASS_NUMBER as usize],
-        JSTag::Bool => (*ctx).class_proto[JS_CLASS_BOOLEAN as usize],
-        JSTag::String => (*ctx).class_proto[JS_CLASS_STRING as usize],
-        JSTag::Symbol => (*ctx).class_proto[JS_CLASS_SYMBOL as usize],
-        JSTag::Object | JSTag::Null | JSTag::Undefined => JSValue::NULL,
+    }
+}
+
+/// Only works for primitive types, otherwise return JS_NULL.
+pub unsafe fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValue {
+    ctx.with_mut(|cx| match val {
+        JSValue::Int(_) | JSValue::Float64(_) => cx.class_proto[JS_CLASS_NUMBER as usize].clone(),
+        JSValue::Bool(_) => cx.class_proto[JS_CLASS_BOOLEAN as usize].clone(),
+        JSValue::String(_) => cx.class_proto[JS_CLASS_STRING as usize].clone(),
+        JSValue::Symbol(_) => cx.class_proto[JS_CLASS_SYMBOL as usize].clone(),
         _ => JSValue::NULL,
-    }
+    })
 }
 
-/// returns Err if val is an exception.
-/// `val` is consumed
-pub unsafe fn JS_ToBoolFree(ctx: *mut JSContext, val: JSValue) -> Result<bool, i32> {
-    match JS_VALUE_GET_TAG(val) {
-        JS_TAG_NULL | JS_TAG_UNDEFINED => Ok(false),
-        JS_TAG_INT | JS_TAG_BOOL => Ok(JS_VALUE_GET_INT(val) != 0),
-        JS_TAG_EXCEPTION => Err(-1),
-        JS_TAG_STRING => {
-            let ret = !val.string().is_empty();
-            JS_FreeValue(ctx, val);
-            Ok(ret)
-        }
-        JS_TAG_BIG_INT => {
-            // let p = JS_VALUE_GET_PTR(val) as *mut JSBigFloat;
-            // let ret;
-            // ret = (*p).num.expn != BF_EXP_ZERO && (*p).num.expn != BF_EXP_NAN;
-            // JS_FreeValue(ctx, val);
-            // ret as i32
-            unimplemented!()
-        }
-        JS_TAG_OBJECT => {
-            let ret = !val.object_unchecked().detailed.is_htmldda();
-            JS_FreeValue(ctx, val);
-            Ok(ret)
-        }
-        tag => {
-            if JS_TAG_IS_FLOAT64(tag) {
-                let d = JS_VALUE_GET_FLOAT64(val);
-                Ok(!d.is_nan() && d != 0.0)
-            } else {
-                JS_FreeValue(ctx, val);
-                Ok(true)
-            }
-        }
-    }
-}
-
-pub unsafe fn JS_ToBool(ctx: *mut JSContext, val: JSValueConst) -> Result<bool, i32> {
-    JS_ToBoolFree(ctx, JS_DupValue(ctx, val))
-}
-
-pub unsafe fn js_object_data_finalizer(rt: *mut JSRuntime, val: JSValue) {
+pub fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
     // free object data
-    JS_FreeValueRT(
-        rt,
-        val.object_unchecked()
-            .isa_mut()
-            .value_replace(rt.as_mut().unwrap(), JSValue::UNDEFINED)
-            .unwrap(),
-    );
+    // JS_FreeValueRT(
+    //     rt,
+    //     val.object_unchecked()
+    //         .isa_mut()
+    //         .value_replace(rt.as_mut().unwrap(), JSValue::UNDEFINED)
+    //         .unwrap(),
+    // );
 }
 
 pub unsafe fn js_object_data_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-    (*rt).gc_mark_value(val.object_unchecked().isa().value().unwrap(), mark_func);
+    (*rt).gc_mark_value(
+        val.object_unchecked().0.isa.borrow().value().unwrap(),
+        mark_func,
+    );
 }

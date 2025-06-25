@@ -2,15 +2,10 @@ use crate::{
     context::JSContext,
     error::JSResult,
     utils::skip_spaces,
-    value::{
-        JSTag, JSValue, JSValueConst, JSValueUnion, JS_DupValue, JS_FreeValue, JS_IsException,
-        JS_IsNumber, HINT_NUMBER, JS_TAG_IS_FLOAT64, JS_TAG_NULL, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-    },
-    JS_MKVAL,
+    value::{HINT_NUMBER, JS_FreeValue, JSValue, JSValueConst},
 };
 
-use super::{js_atof, ATOD_ACCEPT_BIN_OCT};
+use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
@@ -29,7 +24,7 @@ pub union JSFloat64Union {
 impl From<i32> for JSValue {
     #[inline(always)]
     fn from(val: i32) -> Self {
-        JS_MKVAL!(JSTag::Int, val)
+        Self::Int(val)
     }
 }
 
@@ -49,9 +44,9 @@ impl From<i64> for JSValue {
     fn from(val: i64) -> Self {
         let v32 = val as i32;
         if val == v32 as i64 {
-            v32.into()
+            Self::Int(v32)
         } else {
-            Self::from_f64_as_is(val as f64)
+            Self::Float64(val as f64)
         }
     }
 }
@@ -59,21 +54,16 @@ impl From<i64> for JSValue {
 impl From<f64> for JSValue {
     #[inline(always)]
     fn from(d: f64) -> Self {
-        union _U {
-            d: f64,
-            u: u64,
-        }
-
         let val = d as i32;
-        let u = _U { d };
-        let t = _U { d: val as f64 };
+        let u = JSFloat64Union { d };
+        let t = JSFloat64Union { d: val as f64 };
 
         unsafe {
             // -0 cannot be represented as integer, so we compare the bit representation
-            if u.u == t.u {
-                JS_MKVAL!(JSTag::Int, val)
+            if u.u64 == t.u64 {
+                Self::Int(val)
             } else {
-                Self::from_f64_as_is(d)
+                Self::Float64(d)
             }
         }
     }
@@ -82,7 +72,7 @@ impl From<f64> for JSValue {
 impl JSValue {
     #[inline(always)]
     pub const fn from_i32(val: i32) -> Self {
-        JS_MKVAL!(JSTag::Int, val)
+        Self::Int(val)
     }
 
     #[inline(always)]
@@ -107,10 +97,7 @@ impl JSValue {
     #[cfg(not(feature = "nan_boxing"))]
     #[inline(always)]
     pub const fn from_f64_as_is(d: f64) -> JSValue {
-        JSValue {
-            tag: JSTag::Float64,
-            u: JSValueUnion { float64: d },
-        }
+        JSValue::Float64(d)
     }
 
     /// to create f64 value as-is
@@ -134,29 +121,24 @@ impl JSValue {
 
     #[inline(always)]
     pub const fn from_f64(d: f64) -> JSValue {
-        union _U {
-            d: f64,
-            u: u64,
-        }
-
         let val = d as i32;
-        let u = _U { d };
-        let t = _U { d: val as f64 };
+        let u = JSFloat64Union { d };
+        let t = JSFloat64Union { d: val as f64 };
 
         unsafe {
             // -0 cannot be represented as integer, so we compare the bit representation
-            if u.u == t.u {
-                JS_MKVAL!(JSTag::Int, val)
+            if u.u64 == t.u64 {
+                Self::Int(val)
             } else {
-                Self::from_f64_as_is(d)
+                Self::Float64(d)
             }
         }
     }
 
     /// test if the value is an intergral number.
     /// returns Err if test has exception.
-    pub fn is_integer(self, ctx: &mut JSContext) -> Result<bool, i32> {
-        if !JS_IsNumber(self) {
+    pub fn is_integer(&self, ctx: &JSContext) -> Result<bool, i32> {
+        if !self.is_number() {
             Ok(false)
         } else {
             let mut d: f64 = 0.0;
@@ -170,77 +152,68 @@ impl JSValue {
 
     /// coerce `val` value to number value according to converting hint.
     /// Note: `val` is consumed.
-    unsafe fn do_coerce_to_number_free(
-        ctx: &mut JSContext,
-        val: JSValue,
+    fn do_coerce_to_number_free(
+        ctx: &JSContext,
+        mut val: JSValue,
         flag: JSToNumberHintEnum,
     ) -> JSResult {
-        let mut val = val.into_rc(ctx.rt());
-
         loop {
-            match JS_VALUE_GET_NORM_TAG(*val) {
-                JSTag::Int | JSTag::Float64 => {
-                    break Ok(val.into());
+            match val {
+                Self::Int(_) | Self::Float64(_) => {
+                    break Ok(val);
                 }
-                JSTag::Bool | JSTag::Null => {
-                    break Ok(JS_VALUE_GET_INT(val.into()).into());
+                Self::Bool(b) => break Ok(JSValue::Int(b as i32)),
+                Self::NULL => {
+                    break Ok(JSValue::Int(0));
                 }
-                JSTag::Undefined => {
-                    break Ok(JSValue::NAN);
+                Self::UNDEFINED => {
+                    break Ok(JSValue::Float64(f64::NAN));
                 }
-                JSTag::Object => {
-                    val = val.coerce_to_primitive(ctx, HINT_NUMBER)?.into_rc(ctx.rt());
+                Self::Object(_) => {
+                    val = val.coerce_to_primitive(ctx, HINT_NUMBER)?;
                     continue;
                 }
-                JSTag::String => {
+                Self::String(_) => {
                     let (str_ptr0, len) = {
-                        let str = val.coerce_to_utf8(ctx.handle())?;
+                        let str = val.coerce_to_utf8(ctx)?;
                         let len = str.len();
                         (str.as_ptr(), len)
                     };
 
-                    let mut p = str_ptr0.add(skip_spaces(str_ptr0));
+                    let mut p = unsafe { str_ptr0.add(skip_spaces(str_ptr0)) };
 
-                    let res = if p.offset_from(str_ptr0) as usize == len {
+                    let res: JSValue = if unsafe { p.offset_from(str_ptr0) as usize } == len {
                         // is empty or white space string
-                        JSValue::ZERO
+                        0.into()
                     } else {
-                        let mut r = js_atof(
-                            ctx as *mut JSContext,
-                            p.cast(),
-                            std::ptr::addr_of_mut!(p),
-                            0,
-                            ATOD_ACCEPT_BIN_OCT,
-                        )
-                        .check_exception()?;
+                        let mut r = unsafe {
+                            js_atof(
+                                ctx,
+                                p.cast(),
+                                std::ptr::addr_of_mut!(p),
+                                0,
+                                ATOD_ACCEPT_BIN_OCT,
+                            )
+                            .check_exception()?
+                        };
 
-                        p = p.add(skip_spaces(p.cast()));
-                        if p.offset_from(str_ptr0) as usize != len {
-                            JS_FreeValue(ctx, r);
-                            r = JSValue::NAN;
+                        p = unsafe { p.add(skip_spaces(p.cast())) };
+                        if unsafe { p.offset_from(str_ptr0) as usize } != len {
+                            r = JSValue::Float64(f64::NAN);
                         }
-
                         r
                     };
                     break Ok(res);
                 }
-                JSTag::Symbol => {
-                    ctx.JS_ThrowTypeError(c"cannot convert symbol to number");
+                Self::Symbol(_) => {
+                    ctx.JS_ThrowTypeError("cannot convert symbol to number");
                     break Err(-1);
                 }
-                JSTag::Exception => {
+                Self::EXCEPTION => {
                     break Err(-1);
-                }
-                JSTag::BigInt => {
-                    break if flag != JSToNumberHintEnum::TON_FLAG_NUMERIC {
-                        ctx.JS_ThrowTypeError(c"cannot convert bigint to number");
-                        Err(-1)
-                    } else {
-                        Ok(val.into())
-                    };
                 }
                 _ => {
-                    break Ok(JSValue::NAN);
+                    break Ok(JSValue::Float64(f64::NAN));
                 }
             }
         }
@@ -248,45 +221,46 @@ impl JSValue {
 
     /// Note: `self` is consumed regardless of success or failure.
     #[inline(always)]
-    pub fn coerce_to_number_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        unsafe { Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER) }
+    pub fn coerce_to_number_free(self, ctx: &JSContext) -> Result<JSValue, i32> {
+        Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
     /// Note: `self` is consumed regardless of success or failure.
     #[inline(always)]
-    pub fn coerce_to_numeric_free(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        unsafe { Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC) }
+    pub fn coerce_to_numeric_free(self, ctx: &JSContext) -> Result<JSValue, i32> {
+        Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
     /// Note: `self` is not consumed.
     #[inline(always)]
-    pub unsafe fn coerce_to_number(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        self.dup().coerce_to_number_free(ctx)
+    pub unsafe fn coerce_to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+        self.clone().coerce_to_number_free(ctx)
     }
 
     /// Note: `self` is not consumed.
     #[inline(always)]
-    pub fn coerce_to_numeric(self, ctx: &mut JSContext) -> Result<JSValue, i32> {
-        self.dup().coerce_to_numeric_free(ctx)
+    pub fn coerce_to_numeric(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+        self.clone().coerce_to_numeric_free(ctx)
     }
 
     /// coerce value to i32.
     /// Note: value `self` is consumed regardless of success or failure.
-    pub fn coerce_to_i32_free(self, ctx: &mut JSContext) -> Result<i32, i32> {
+    pub fn coerce_to_i32_free(self, ctx: &JSContext) -> Result<i32, i32> {
         let mut val = self;
 
         let ret: i32 = loop {
-            match JS_VALUE_GET_NORM_TAG(val) {
-                JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                    break JS_VALUE_GET_INT(val);
+            match val {
+                Self::UNDEFINED | Self::NULL => {
+                    break 0;
                 }
-                JSTag::Float64 => {
-                    union _U {
-                        d: f64,
-                        u64: u64,
-                    }
-                    let d = JS_VALUE_GET_FLOAT64(val);
-                    let u = _U { d };
+                Self::Int(i) => {
+                    break i;
+                }
+                Self::Bool(b) => {
+                    break b as i32;
+                }
+                Self::Float64(d) => {
+                    let u = JSFloat64Union { d };
 
                     // we avoid doing fmod(x, 2^32)
                     let e = unsafe { (u.u64 >> 52) & 0x7ff } as i32;
@@ -321,62 +295,60 @@ impl JSValue {
     /// coerce value to i32.
     /// Note: value `self` is not consumed
     #[inline(always)]
-    pub fn coerce_to_i32(self, ctx: &mut JSContext) -> Result<i32, i32> {
-        self.dup().coerce_to_i32_free(ctx)
+    pub fn coerce_to_i32(&self, ctx: &JSContext) -> Result<i32, i32> {
+        self.clone().coerce_to_i32_free(ctx)
     }
 }
 
 #[deprecated(note = "use JSValue::from_i32() instead")]
-pub fn JS_NewInt32(ctx: *mut JSContext, val: i32) -> JSValue {
+pub fn JS_NewInt32(ctx: &JSContext, val: i32) -> JSValue {
     JSValue::from_i32(val)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::from_u32() instead")]
-pub fn JS_NewUint32(ctx: *mut JSContext, val: u32) -> JSValue {
+pub fn JS_NewUint32(ctx: &JSContext, val: u32) -> JSValue {
     JSValue::from_u32(val)
 }
 
 #[deprecated(note = "use JSValue::from_i64() instead")]
 #[inline(always)]
-pub fn JS_NewInt64(ctx: *mut JSContext, val: i64) -> JSValue {
+pub fn JS_NewInt64(ctx: &JSContext, val: i64) -> JSValue {
     JSValue::from_i64(val)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::from_f64_as_is() instead")]
-pub fn __JS_NewFloat64(ctx: *const JSContext, d: f64) -> JSValue {
+pub fn __JS_NewFloat64(ctx: &JSContext, d: f64) -> JSValue {
     JSValue::from_f64_as_is(d)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::from_f64() instead")]
-pub fn JS_NewFloat64(ctx: *mut JSContext, d: f64) -> JSValue {
+pub fn JS_NewFloat64(ctx: &JSContext, d: f64) -> JSValue {
     JSValue::from_f64(d)
 }
 
 /* Note: can return an exception (-1) */
 #[deprecated(note = "use JSValue::is_integer() instead")]
-pub unsafe fn JS_NumberIsInteger(ctx: *mut JSContext, val: JSValueConst) -> i32 {
-    val.is_integer(ctx.as_mut().unwrap())
-        .map_or(-1, |b| b as i32)
+pub unsafe fn JS_NumberIsInteger(ctx: &JSContext, val: JSValueConst) -> i32 {
+    val.is_integer(ctx).map_or(-1, |b| b as i32)
 }
 
 /* return (<0, 0) in case of exception */
-#[deprecated(note = "use JSValue::to_i32_free() instead")]
-pub unsafe fn JS_ToInt32Free(ctx: *mut JSContext, pres: *mut i32, val: JSValue) -> i32 {
-    val.coerce_to_i32_free(ctx.as_mut().unwrap())
-        .map_or(-1, |v| {
-            *pres = v;
-            0
-        })
+#[deprecated(note = "use JSValue::coerce_to_i32_free() instead")]
+pub unsafe fn JS_ToInt32Free(ctx: &JSContext, pres: *mut i32, val: JSValue) -> i32 {
+    val.coerce_to_i32_free(ctx).map_or(-1, |v| {
+        *pres = v;
+        0
+    })
 }
 
 /// `val` is not consumed
 #[inline(always)]
-pub unsafe fn JS_ToInt32(ctx: *mut JSContext, val: JSValueConst) -> Result<i32, i32> {
+pub unsafe fn JS_ToInt32(ctx: &JSContext, val: &JSValueConst) -> Result<i32, i32> {
     let mut n = 0;
-    if JS_ToInt32Free(ctx, &mut n, JS_DupValue(ctx, val)) == -1 {
+    if JS_ToInt32Free(ctx, &mut n, val.clone()) == -1 {
         Err(-1)
     } else {
         Ok(n)
@@ -385,12 +357,12 @@ pub unsafe fn JS_ToInt32(ctx: *mut JSContext, val: JSValueConst) -> Result<i32, 
 
 /// `val` is not consumed
 #[inline(always)]
-pub unsafe fn JS_ToUint32(ctx: *mut JSContext, val: JSValueConst) -> Result<u32, i32> {
+pub unsafe fn JS_ToUint32(ctx: &JSContext, val: &JSValueConst) -> Result<u32, i32> {
     JS_ToInt32(ctx, val).map(|v| v as u32)
 }
 
 #[inline(always)]
-pub unsafe fn JS_ToUint32Free(ctx: *mut JSContext, val: JSValue) -> Result<u32, i32> {
+pub unsafe fn JS_ToUint32Free(ctx: &JSContext, val: JSValue) -> Result<u32, i32> {
     let mut n = 0;
     if JS_ToInt32Free(ctx, &mut n, val) == -1 {
         Err(-1)
@@ -399,17 +371,22 @@ pub unsafe fn JS_ToUint32Free(ctx: *mut JSContext, val: JSValue) -> Result<u32, 
     }
 }
 
-pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSValue) -> i32 {
+pub unsafe fn JS_ToUint8ClampFree(ctx: &JSContext, pres: *mut i32, val: JSValue) -> i32 {
     let res: i32;
     let mut val = val;
 
     'redo: loop {
-        match JS_VALUE_GET_NORM_TAG(val) {
-            JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                res = JS_VALUE_GET_INT(val).clamp(0, 255);
+        match val {
+            JSValue::NULL | JSValue::UNDEFINED => {
+                res = 0;
             }
-            JSTag::Float64 => {
-                let d = JS_VALUE_GET_FLOAT64(val);
+            JSValue::Int(i) => {
+                res = i.clamp(0, 255);
+            }
+            JSValue::Bool(b) => {
+                res = b as i32;
+            }
+            JSValue::Float64(d) => {
                 res = if d.is_nan() || d < 0.0 {
                     0
                 } else if d > 255.0 {
@@ -418,12 +395,12 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
                     f64::round_ties_even(d) as i32
                 };
             }
-            JSTag::Exception => {
+            JSValue::EXCEPTION => {
                 *pres = 0;
                 return -1;
             }
             _ => {
-                if let Ok(n) = val.coerce_to_number_free(ctx.as_mut().unwrap()) {
+                if let Ok(n) = val.coerce_to_number_free(ctx) {
                     val = n;
                     continue 'redo;
                 } else {
@@ -440,12 +417,16 @@ pub unsafe fn JS_ToUint8ClampFree(ctx: *mut JSContext, pres: *mut i32, val: JSVa
     0
 }
 
+pub unsafe fn JS_ToUint8Clamp(ctx: &JSContext, pres: *mut i32, val: &JSValue) -> i32 {
+    JS_ToUint8ClampFree(ctx, pres, val.clone())
+}
+
 /// Note: `val` is consumed
-pub unsafe fn __JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue) -> i32 {
-    if let Ok(v) = val.coerce_to_number_free(ctx.as_mut().unwrap()) {
-        let d: f64 = match JS_VALUE_GET_NORM_TAG(v) {
-            JSTag::Int => JS_VALUE_GET_INT(v) as f64,
-            JSTag::Float64 => JS_VALUE_GET_FLOAT64(v),
+pub unsafe fn __JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
+    if let Ok(v) = val.coerce_to_number_free(ctx) {
+        let d: f64 = match v {
+            JSValue::Int(v) => v as f64,
+            JSValue::Float64(v) => v,
             _ => {
                 unreachable!()
             }
@@ -459,22 +440,32 @@ pub unsafe fn __JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSVal
     }
 }
 
+/// val is consumed
 #[inline]
-pub unsafe fn JS_ToFloat64Free(ctx: *mut JSContext, pres: *mut f64, val: JSValue) -> i32 {
-    let tag = val.tag();
-    if tag <= JS_TAG_NULL {
-        *pres = JS_VALUE_GET_INT(val) as f64;
-        0
-    } else if JS_TAG_IS_FLOAT64(tag) {
-        *pres = JS_VALUE_GET_FLOAT64(val);
-        0
-    } else {
-        __JS_ToFloat64Free(ctx, pres, val)
+pub unsafe fn JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
+    match val {
+        JSValue::Int(i) => {
+            *pres = i as f64;
+            0
+        }
+        JSValue::Float64(n) => {
+            *pres = n;
+            0
+        }
+        JSValue::UNDEFINED => {
+            *pres = f64::NAN;
+            return -1; // Error
+        }
+        JSValue::NULL => {
+            *pres = 0.0;
+            0
+        }
+        _ => __JS_ToFloat64Free(ctx, pres, val),
     }
 }
 
-pub unsafe fn JS_ToFloat64(ctx: *mut JSContext, pres: *mut f64, val: JSValueConst) -> i32 {
-    JS_ToFloat64Free(ctx, pres, val.dup())
+pub unsafe fn JS_ToFloat64(ctx: &JSContext, pres: *mut f64, val: &JSValueConst) -> i32 {
+    JS_ToFloat64Free(ctx, pres, val.clone())
 }
 
 /// this hint is for BigInt only
@@ -488,58 +479,59 @@ pub enum JSToNumberHintEnum {
 /// returns value of int, float64, nan, exception
 #[deprecated(note = "use JSValue::do_coerce_number_free() instead")]
 pub unsafe fn JS_ToNumberHintFree(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     val: JSValue,
     flag: JSToNumberHintEnum,
 ) -> JSValue {
-    JSValue::do_coerce_to_number_free(ctx.as_mut().unwrap(), val, flag)
-        .unwrap_or(JSValue::EXCEPTION)
+    JSValue::do_coerce_to_number_free(ctx, val, flag).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_number_free() instead")]
-pub unsafe fn JS_ToNumberFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_number_free(ctx.as_mut().unwrap())
-        .unwrap_or(JSValue::EXCEPTION)
+pub unsafe fn JS_ToNumberFree(ctx: &JSContext, val: JSValue) -> JSValue {
+    val.coerce_to_number_free(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric_free() instead")]
-pub unsafe fn JS_ToNumericFree(ctx: *mut JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_numeric_free(ctx.as_mut().unwrap())
+pub unsafe fn JS_ToNumericFree(ctx: &JSContext, val: JSValue) -> JSValue {
+    val.coerce_to_numeric_free(ctx)
         .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric() instead")]
-pub unsafe fn JS_ToNumeric(ctx: *mut JSContext, val: JSValueConst) -> JSValue {
-    val.coerce_to_numeric(ctx.as_mut().unwrap())
-        .unwrap_or(JSValue::EXCEPTION)
+pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValueConst) -> JSValue {
+    val.coerce_to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 /* same as JS_ToNumber() but return 0 in case of NaN/Undefined */
-pub unsafe fn JS_ToIntegerFree(ctx: *mut JSContext, mut val: JSValue) -> JSValue {
+pub unsafe fn JS_ToIntegerFree(ctx: &JSContext, mut val: JSValue) -> JSValue {
     let ret: JSValue;
 
     loop {
-        let tag = JS_VALUE_GET_NORM_TAG(val);
-        match tag {
-            JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                ret = JSValue::from_i32(JS_VALUE_GET_INT(val));
+        match val {
+            JSValue::UNDEFINED | JSValue::NULL => {
+                ret = 0.into();
             }
-            JSTag::Float64 => {
-                let d = JS_VALUE_GET_FLOAT64(val);
+            JSValue::Bool(b) => {
+                ret = (0 as i32).into();
+            }
+            JSValue::Int(i) => {
+                ret = JSValue::Int(i);
+            }
+            JSValue::Float64(d) => {
                 if d.is_nan() {
-                    ret = JSValue::ZERO;
+                    ret = 0.into();
                 } else {
                     /* convert -0 to +0 */
                     let d = d.trunc() + 0.0;
-                    ret = JS_NewFloat64(ctx, d);
+                    ret = JSValue::Float64(d);
                 }
             }
-            JSTag::Exception => {
+            JSValue::EXCEPTION => {
                 ret = val;
             }
             _ => {
                 val = JS_ToNumberFree(ctx, val);
-                if JS_IsException(val) {
+                if val.is_exception() {
                     return val;
                 }
                 continue;
@@ -553,14 +545,19 @@ pub unsafe fn JS_ToIntegerFree(ctx: *mut JSContext, mut val: JSValue) -> JSValue
 }
 
 // Note: the integer value is saturated to 32 bits
-pub unsafe fn JS_ToInt32SatFree(ctx: *mut JSContext, pres: *mut i32, val: JSValue) -> i32 {
+pub unsafe fn JS_ToInt32SatFree(ctx: &JSContext, pres: *mut i32, mut val: JSValue) -> i32 {
     let ret: i32 = loop {
-        match JS_VALUE_GET_NORM_TAG(val) {
-            JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                break JS_VALUE_GET_INT(val);
+        match val {
+            JSValue::NULL | JSValue::UNDEFINED => {
+                break 0;
             }
-            JSTag::Float64 => {
-                let d: f64 = JS_VALUE_GET_FLOAT64(val);
+            JSValue::Int(i) => {
+                break i;
+            }
+            JSValue::Bool(b) => {
+                break b as i32;
+            }
+            JSValue::Float64(d) => {
                 break if d.is_nan() {
                     0
                 } else {
@@ -573,13 +570,13 @@ pub unsafe fn JS_ToInt32SatFree(ctx: *mut JSContext, pres: *mut i32, val: JSValu
                     }
                 };
             }
-            JSTag::Exception => {
+            JSValue::EXCEPTION => {
                 *pres = 0;
                 return -1;
             }
             _ => {
-                let val = JS_ToNumberFree(ctx, val);
-                if JS_IsException(val) {
+                val = JS_ToNumberFree(ctx, val);
+                if val.is_exception() {
                     *pres = 0;
                     return -1;
                 }
@@ -591,19 +588,21 @@ pub unsafe fn JS_ToInt32SatFree(ctx: *mut JSContext, pres: *mut i32, val: JSValu
     0
 }
 
-pub unsafe fn JS_ToInt32Sat(ctx: *mut JSContext, pres: *mut i32, val: JSValueConst) -> i32 {
-    JS_ToInt32SatFree(ctx, pres, JS_DupValue(ctx, val))
+/// val is not consumed
+pub unsafe fn JS_ToInt32Sat(ctx: &JSContext, pres: *mut i32, val: &JSValueConst) -> i32 {
+    JS_ToInt32SatFree(ctx, pres, val.clone())
 }
 
+/// val is not consumed
 pub unsafe fn JS_ToInt32Clamp(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     pres: *mut i32,
-    val: JSValueConst,
+    val: &JSValueConst,
     min: i32,
     max: i32,
     min_offset: i32,
 ) -> i32 {
-    let res = JS_ToInt32SatFree(ctx, pres, JS_DupValue(ctx, val));
+    let res = JS_ToInt32SatFree(ctx, pres, val.clone());
     if res == 0 {
         if *pres < min {
             *pres += min_offset;
@@ -619,40 +618,37 @@ pub unsafe fn JS_ToInt32Clamp(
     res
 }
 
-pub fn JS_NumberIsNegativeOrMinusZero(ctx: *mut JSContext, val: JSValueConst) -> bool {
-    match JS_VALUE_GET_NORM_TAG(val) {
-        JSTag::Int => {
-            let v = JS_VALUE_GET_INT(val);
-            v < 0
-        }
-        JSTag::Float64 => {
-            let mut u: JSFloat64Union = JSFloat64Union { u64: 0 };
-            u.d = JS_VALUE_GET_FLOAT64(val);
+pub fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
+    match val {
+        JSValue::Int(v) => *v < 0,
+        JSValue::Float64(d) => {
+            let u = JSFloat64Union { d: *d };
             unsafe { (u.u64 >> 63) != 0 }
-        }
-        JSTag::BigInt => {
-            // let p: *mut JSBigFloat = JS_VALUE_GET_PTR(val);
-            // // C2RS: Dereferencing raw pointer and accessing fields
-            // ((*(*p).num.sign) != 0 && !bf_is_zero(&(*p).num)) as BOOL
-            unimplemented!()
         }
         _ => false,
     }
 }
 
-pub unsafe fn JS_ToInt64SatFree(ctx: *mut JSContext, pres: *mut i64, mut val: JSValue) -> i32 {
+pub unsafe fn JS_ToInt64SatFree(ctx: &JSContext, pres: *mut i64, mut val: JSValue) -> i32 {
     loop {
-        match JS_VALUE_GET_NORM_TAG(val) {
-            JSTag::Int | JSTag::Bool | JSTag::Null | JSTag::Undefined => {
-                *pres = JS_VALUE_GET_INT(val) as i64;
+        match val {
+            JSValue::NULL | JSValue::UNDEFINED => {
+                *pres = 0;
                 return 0;
             }
-            JSTag::Exception => {
+            JSValue::Int(i) => {
+                *pres = i as i64;
+                return 0;
+            }
+            JSValue::Bool(b) => {
+                *pres = b as i64;
+                return 0;
+            }
+            JSValue::EXCEPTION => {
                 *pres = 0;
                 return -1;
             }
-            JSTag::Float64 => {
-                let d = JS_VALUE_GET_FLOAT64(val);
+            JSValue::Float64(d) => {
                 if d.is_nan() {
                     *pres = 0;
                 } else {
@@ -670,7 +666,7 @@ pub unsafe fn JS_ToInt64SatFree(ctx: *mut JSContext, pres: *mut i64, mut val: JS
             _ => {
                 // update val, then redo
                 val = JS_ToNumberFree(ctx, val);
-                if JS_IsException(val) {
+                if val.is_exception() {
                     *pres = 0;
                     return -1;
                 }
@@ -680,19 +676,21 @@ pub unsafe fn JS_ToInt64SatFree(ctx: *mut JSContext, pres: *mut i64, mut val: JS
     }
 }
 
-pub unsafe fn JS_ToInt64Sat(ctx: *mut JSContext, pres: *mut i64, val: JSValueConst) -> i32 {
-    JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val))
+/// val is not consumed
+pub unsafe fn JS_ToInt64Sat(ctx: &JSContext, pres: *mut i64, val: &JSValueConst) -> i32 {
+    JS_ToInt64SatFree(ctx, pres, val.clone())
 }
 
+/// val is not consumed
 pub unsafe fn JS_ToInt64Clamp(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     pres: *mut i64,
-    val: JSValueConst,
+    val: &JSValueConst,
     min: i64,
     max: i64,
     neg_offset: i64,
 ) -> i32 {
-    let res = JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val));
+    let res = JS_ToInt64SatFree(ctx, pres, val.clone());
     if res == 0 {
         if (*pres) < 0 {
             (*pres) += neg_offset;
@@ -707,13 +705,8 @@ pub unsafe fn JS_ToInt64Clamp(
 }
 
 /// convert a value to a length between 0 and MAX_SAFE_INTEGER.
-pub unsafe fn JS_ToLengthFree(ctx: *mut JSContext, val: JSValue) -> Result<i64, i32> {
+pub unsafe fn JS_ToLengthFree(ctx: &JSContext, val: JSValue) -> Result<i64, i32> {
     let mut len = 0;
-    let res = JS_ToInt64Clamp(ctx, &mut len, val, 0, MAX_SAFE_INTEGER, 0);
-    JS_FreeValue(ctx, val);
-    if res == -1 {
-        Err(-1)
-    } else {
-        Ok(len)
-    }
+    let res = JS_ToInt64Clamp(ctx, &mut len, &val, 0, MAX_SAFE_INTEGER, 0);
+    if res == -1 { Err(-1) } else { Ok(len) }
 }

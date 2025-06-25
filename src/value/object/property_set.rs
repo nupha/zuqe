@@ -1,46 +1,42 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, ops::Deref};
 
 use crate::{
-    array::add_fast_array_element,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
+    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
+    JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{
-        JSAtom, JS_AtomIsNumericIndex, __JS_AtomToUInt32, consts::*, JS_FreeAtom, JS_ValueToAtom,
-        JS_ATOM_NULL,
+        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom,
+        JSAtom, consts::JS_ATOM_length,
     },
-    context::JSContext,
+    context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
-    function::{call_setter, JSVarRef},
+    function::JS_Call,
     typed_array::{
-        Float32Array, Float64Array, Int16Array, Int32Array, Int8Array, Uint16Array, Uint32Array,
-        Uint8Array,
+        Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array,
+        Uint32Array,
     },
     utils::UncheckedInto,
-    value::{JS_TAG_INT, JS_TAG_OBJECT},
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
-    JS_CLASS_INT8_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT16_ARRAY,
-    JS_CLASS_UINT32_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT8_ARRAY, JS_MKPTR,
+    value::{
+        JS_ToFloat64, JS_ToUint8Clamp,
+        object::{JS_PROP_AUTOINIT, JS_PROP_LENGTH, JS_PROP_THROW_STRICT, JSProperty},
+    },
 };
 
 use super::{
-    super::{
-        set_value, JSTag, JSValue, JSValueConst, JS_FreeValue, JS_GetPrototypePrimitive,
-        JS_ToFloat64Free, JS_ToUint8ClampFree, JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
-        JS_VALUE_GET_OBJ,
-    },
-    obj::JSObject,
-    JSPropertyDescriptor, JS_AutoInitProperty, JS_GetOwnPropertyInternal, JS_PROP_AUTOINIT,
+    super::{JS_FreeValue, JS_GetPrototypePrimitive, JSValue},
     JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_THROW,
-    JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE,
+    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_WRITABLE,
+    obj::JSObject,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum SetPropState {
-    /// Try set or define property value
+    /// Try exotic set handler, and walk up through proto chain
     ExoticAndGoUp,
-    /// Property shape
-    SetterOrAutoInit,
-    /// Property not found on object and ancestors
+    /// Set property value or instantiate property
+    SetOrInit,
+    /// Add or update property
     Add,
     /// Create new property on object
     CreateProp,
@@ -50,336 +46,361 @@ enum SetPropState {
     ErrTypedArrayOOB,
 }
 
-impl JSObject {
-    #[inline(always)]
-    unsafe fn set_property_fast(
-        &mut self,
-        ctx: &mut JSContext,
-        prop: JSAtom,
-        val: JSValue,
-        this_obj: JSValue,
-        flags: u32,
-    ) -> Result<bool, Option<SetPropState>> {
-        let class_id = self.class_id();
-        let p = self as *mut JSObject;
-
-        loop {
-            if let Some((prs, pr)) = self.find_own_property_mut(prop) {
-                match prs.flags() {
-                    f if f & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH)
-                        == JS_PROP_WRITABLE =>
-                    {
-                        // fast case
-                        set_value(ctx, &mut pr.u.value, val);
-                        return Ok(true);
-                    }
-                    f if f & JS_PROP_LENGTH != 0 => {
-                        // set .length property of an array object
-                        debug_assert!(self.class_id() == JS_CLASS_ARRAY);
-                        debug_assert_eq!(prop, JS_ATOM_length);
-                        return self.set_array_length(ctx, val, flags).map_err(|_| None);
-                    }
-                    f if f & JS_PROP_TMASK == JS_PROP_GETSET => {
-                        return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
-                            0 => Ok(false),
-                            1 => Ok(true),
-                            -1 => Err(None),
-                            _ => unreachable!(),
-                        };
-                    }
-                    f if f & JS_PROP_TMASK == JS_PROP_VARREF => {
-                        /* JS_PROP_WRITABLE is always true for variable
-                        references, but they are write protected in module name
-                        spaces. */
-                        if class_id == JS_CLASS_MODULE_NS {
-                            return Err(Some(SetPropState::ErrReadOnly));
-                        }
-                        set_value(ctx, (*pr.u.var_ref).cast::<JSVarRef>().as_mut().pvalue, val);
-                        return Ok(true);
-                    }
-                    f if f & JS_PROP_TMASK == JS_PROP_AUTOINIT => {
-                        if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
-                            JS_FreeValue(ctx, val);
-                            return Err(None);
-                        }
-                        continue; // try again
-                    }
-                    _ => {
-                        return Err(Some(SetPropState::ErrReadOnly));
-                    }
-                }
-            } else {
-                return Err(Some(SetPropState::ExoticAndGoUp));
-            }
+pub(crate) fn call_setter(
+    ctx: &JSContext,
+    setter: Option<&JSObject>,
+    this_obj: &JSValue,
+    val: JSValue,
+    flags: u32,
+) -> Result<bool, i32> {
+    if let Some(func) = setter {
+        JS_Call(
+            ctx,
+            &JSValue::Object(func.clone()),
+            this_obj,
+            std::slice::from_ref(&val),
+        )
+        .check_exception()?;
+        Ok(true)
+    } else {
+        if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
+        {
+            ctx.JS_ThrowTypeError("no setter for property");
+            return Err(-1);
         }
-    }
-
-    #[inline(always)]
-    unsafe fn set_property_setter(
-        &mut self,
-        ctx: &mut JSContext,
-        prop: JSAtom,
-        val: JSValue,
-        this_obj: JSValue,
-        flags: u32,
-    ) -> Result<bool, Option<SetPropState>> {
-        let p = self as *mut JSObject;
-
-        loop {
-            if let Some((prs, pr)) = self.find_own_property_mut(prop) {
-                let pr_flags = prs.flags();
-                if pr_flags & JS_PROP_TMASK == JS_PROP_GETSET {
-                    return match call_setter(ctx, pr.u.getset.setter, this_obj, val, flags) {
-                        0 => Ok(false),
-                        1 => Ok(true),
-                        -1 => Err(None),
-                        _ => unreachable!(),
-                    };
-                } else if pr_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
-                    // Instantiate property and retry (potentially useless)
-                    if JS_AutoInitProperty(ctx, p, prop, pr, prs) != 0 {
-                        return Err(None);
-                    }
-                    continue; // try again
-                } else if pr_flags & JS_PROP_WRITABLE == 0 {
-                    return Err(Some(SetPropState::ErrReadOnly));
-                }
-            }
-
-            return Err(Some(SetPropState::ExoticAndGoUp));
-        }
+        Ok(false)
     }
 }
 
-impl JSValue {
-    /// Note: `val` is consumed; `self` and `this_obj` are not consumed.
-    /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
-    /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
-    /// If this_obj != self, then self must be an object (Reflect.set case).
-    pub(crate) unsafe fn set_property_internal(
-        self,
-        ctx: &mut JSContext,
+impl JSObject {
+    unsafe fn set_property_exotic(
+        &self,
+        ctx: &JSContext,
         prop: JSAtom,
         val: JSValue,
         this_obj: JSValue,
         flags: u32,
-    ) -> Result<bool, i32> {
-        let mut p_self: *mut JSObject;
-        let p_this: *mut JSObject;
-        let this_tag = JS_VALUE_GET_NORM_TAG(this_obj);
+    ) -> Result<bool, Option<SetPropState>> {
+        debug_assert!(self.flags().is_exotic());
 
-        let mut state = if this_tag != JSTag::Object {
-            if self.tag() == JS_TAG_OBJECT {
-                p_self = self.object_unchecked() as _;
-                p_this = std::ptr::null_mut();
-                SetPropState::SetterOrAutoInit
-            } else {
-                match this_tag {
-                    JSTag::Null => {
-                        JS_FreeValue(ctx, val);
-                        ctx.JS_ThrowTypeError(CStr::from_ptr(
-                            format!("cannot set property '{}' of null\0", prop.to_str(ctx.rt()))
-                                .as_ptr()
-                                .cast(),
-                        ));
-                        return Err(-1);
+        let mut new_state = SetPropState::ExoticAndGoUp;
+
+        if self.flags().fast_array() {
+            // set array element
+            if prop.is_int_type() {
+                let idx = __JS_AtomToUInt32(prop);
+                if idx < self.array_length_unchecked() as u32 {
+                    if this_obj.object().map_or(false, |o| o == self) {
+                        return this_obj
+                            .set_property_value(ctx, &JSValue::from_i32(idx as _), val, flags)
+                            .map_err(|_| None);
+                    } else {
+                        new_state = SetPropState::Add;
                     }
-                    JSTag::Undefined => {
-                        JS_FreeValue(ctx, val);
-                        ctx.JS_ThrowTypeError(CStr::from_ptr(
-                            format!(
-                                "cannot set property '{}' of undefined\0",
-                                prop.to_str(ctx.rt())
-                            )
-                            .as_ptr()
-                            .cast(),
-                        ));
-                        return Err(-1);
+                } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
+                    .contains(&self.class_id())
+                {
+                    new_state = SetPropState::ErrTypedArrayOOB;
+                }
+            } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
+                let ret = JS_AtomIsNumericIndex(ctx, prop);
+                if ret != 0 {
+                    if ret < 0 {
+                        return Err(None);
                     }
-                    _ => {
-                        // even on a primitive type we can have setters on the prototype
-                        p_this = std::ptr::null_mut();
-                        p_self = JS_VALUE_GET_OBJ(JS_GetPrototypePrimitive(ctx, self));
-                        if p_self.is_null() {
-                            SetPropState::Add
-                        } else {
-                            SetPropState::SetterOrAutoInit
-                        }
-                    }
+                    new_state = SetPropState::ErrTypedArrayOOB;
                 }
             }
         } else {
-            p_self = self.object_unchecked() as _;
-            p_this = this_obj.object_unchecked() as _;
-
-            if p_this == p_self {
-                match (*p_this).set_property_fast(ctx, prop, val, this_obj, flags) {
-                    Ok(b) => {
-                        return Ok(b);
-                    }
-                    Err(None) => {
-                        return Err(-1);
-                    }
-                    Err(Some(st)) => st,
-                }
-            } else {
-                SetPropState::SetterOrAutoInit
-            }
-        };
-
-        loop {
-            match state {
-                SetPropState::ExoticAndGoUp => {
-                    if (*p_self).detailed.is_exotic() {
-                        if (*p_self).detailed.fast_array() {
-                            // set array element
-                            if prop.is_int_type() {
-                                let idx = __JS_AtomToUInt32(prop);
-                                if idx < (*p_self).array_length_unchecked() as u32 {
-                                    if p_this == p_self {
-                                        return this_obj.set_property_value(
-                                            ctx,
-                                            JSValue::from_i32(idx as _),
-                                            val,
-                                            flags,
-                                        );
-                                    } else {
-                                        state = SetPropState::Add;
-                                        continue;
-                                    }
-                                } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                                    .contains(&(*p_self).class_id())
-                                {
-                                    state = SetPropState::ErrTypedArrayOOB;
-                                    continue;
-                                }
-                            } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                                .contains(&(*p_self).class_id())
-                            {
-                                let ret = JS_AtomIsNumericIndex(ctx, prop);
-                                if ret != 0 {
-                                    if ret < 0 {
-                                        JS_FreeValue(ctx, val);
-                                        return Err(-1);
-                                    }
-                                    state = SetPropState::ErrTypedArrayOOB;
-                                    continue;
-                                }
-                            }
+            // use exotic handler
+            let em = ctx.rt().class_array[self.class_id() as usize].exotic;
+            if !em.is_null() {
+                if let Some(cb) = (*em).set_property {
+                    return cb(
+                        ctx,
+                        JSValue::Object(self.clone()),
+                        prop,
+                        val,
+                        this_obj,
+                        flags as _,
+                    )
+                    .map_err(|_| None);
+                } else if let Some(cb) = (*em).get_own_property {
+                    // get_own_property can free the prototype
+                    if let Some(desc) =
+                        cb(ctx, JSValue::Object(self.clone()), prop).map_err(|_| None)?
+                    {
+                        if desc.flags & JS_PROP_GETSET != 0 {
+                            return call_setter(ctx, desc.setter.object(), &this_obj, val, flags)
+                                .map_err(|_| None);
                         } else {
-                            // use exotic handler
-                            let em = ctx.rt().class_array[(*p_self).class_id() as usize].exotic;
-                            if !em.is_null() {
-                                if let Some(cb) = (*em).set_property {
-                                    // set_property can free the prototype
-                                    let obj1 = JS_MKPTR!(JSTag::Object, p_self.cast()).dup();
-                                    let ret = cb(ctx, obj1, prop, val, this_obj, flags as _);
-                                    JS_FreeValue(ctx, obj1);
-                                    JS_FreeValue(ctx, val);
-                                    return match ret {
-                                        0 => Ok(false),
-                                        1 => Ok(true),
-                                        -1 => Err(-1),
-                                        _ => unreachable!(),
-                                    };
-                                } else if let Some(cb) = (*em).get_own_property {
-                                    // get_own_property can free the prototype
-                                    let obj1 = JS_MKPTR!(JSTag::Object, p_self.cast()).dup();
-                                    let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                                    let mut ret = cb(ctx, &mut desc, obj1, prop);
-                                    JS_FreeValue(ctx, obj1);
-                                    if ret < 0 {
-                                        JS_FreeValue(ctx, val);
-                                        return Err(-1);
-                                    }
-                                    if ret != 0 {
-                                        if desc.flags & JS_PROP_GETSET != 0 {
-                                            let setter: *mut JSObject =
-                                                if desc.setter.is_undefined() {
-                                                    std::ptr::null_mut()
-                                                } else {
-                                                    JS_VALUE_GET_OBJ(desc.setter)
-                                                };
-                                            ret = call_setter(ctx, setter, this_obj, val, flags);
-                                            JS_FreeValue(ctx, desc.getter);
-                                            JS_FreeValue(ctx, desc.setter);
-                                            return match ret {
-                                                0 => Ok(false),
-                                                1 => Ok(true),
-                                                -1 => Err(-1),
-                                                _ => unreachable!(),
-                                            };
-                                        } else {
-                                            JS_FreeValue(ctx, desc.value);
-                                            if desc.flags & JS_PROP_WRITABLE == 0 {
-                                                state = SetPropState::ErrReadOnly;
-                                                continue;
-                                            }
-
-                                            if p_this == p_self {
-                                                let ret = this_obj.define_property(
-                                                    ctx,
-                                                    prop,
-                                                    val,
-                                                    JSValue::UNDEFINED,
-                                                    JSValue::UNDEFINED,
-                                                    JS_PROP_HAS_VALUE,
-                                                );
-                                                JS_FreeValue(ctx, val);
-                                                return ret;
-                                            } else {
-                                                state = SetPropState::Add;
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                }
+                            if desc.flags & JS_PROP_WRITABLE == 0 {
+                                new_state = SetPropState::ErrReadOnly;
                             }
-                        }
-                    } // is_exotic()
 
-                    // walk up proto chain
-                    p_self = (*p_self).shape().unwrap().proto;
-                    state = if p_self.is_null() {
-                        SetPropState::Add
-                    } else {
-                        SetPropState::SetterOrAutoInit
-                    };
-                    continue;
-                }
-                SetPropState::SetterOrAutoInit => {
-                    match (*p_self).set_property_setter(ctx, prop, val, this_obj, flags) {
-                        Ok(b) => {
-                            return Ok(b);
-                        }
-                        Err(Some(st)) => {
-                            state = st;
-                            continue;
-                        }
-                        Err(None) => {
-                            return Err(-1);
+                            if this_obj.object().map_or(false, |o| o == self) {
+                                return this_obj
+                                    .define_property(
+                                        ctx,
+                                        prop,
+                                        &val,
+                                        &JSValue::UNDEFINED,
+                                        &JSValue::UNDEFINED,
+                                        JS_PROP_HAS_VALUE,
+                                    )
+                                    .map_err(|_| None);
+                            }
+
+                            new_state = SetPropState::Add;
                         }
                     }
                 }
+            }
+        }
 
-                SetPropState::Add => {
-                    if flags & JS_PROP_NO_ADD != 0 {
-                        JS_FreeValue(ctx, val);
-                        JS_ThrowReferenceErrorNotDefined(ctx, prop);
-                        return Err(-1);
-                    }
-                    if p_this.is_null() {
-                        JS_FreeValue(ctx, val);
-                        return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, c"not an object") {
+        Err(Some(new_state))
+    }
+
+    /// assign value to property at idx slot.
+    pub(super) fn internal_assign_prop_value(
+        &self,
+        ctx: &JSContext,
+        prs_flags: u32,
+        prop: JSAtom,
+        idx: usize,
+        value: JSValue,
+        this_val: &JSObject,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        if prs_flags & JS_PROP_LENGTH != 0 {
+            // special prop: length
+            // use to set .length property of an array object
+            debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
+            debug_assert_eq!(prop, JS_ATOM_length);
+            debug_assert_eq!(idx, 0, "length property must be indexed at 0");
+            return self.set_array_length(ctx, value, flags);
+        }
+
+        if prs_flags & JS_PROP_AUTOINIT != 0 {
+            // is auto init property
+            if prs_flags & JS_PROP_WRITABLE == 0 {
+                return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                    Err(-1)
+                } else {
+                    Ok(false)
+                };
+            }
+
+            let mut pr = std::mem::replace(
+                &mut self.0.prop_values.borrow_mut()[idx],
+                JSProperty::default(),
+            );
+            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }));
+            pr.instantiate(this_val, prop)?;
+            self.0.prop_values.borrow_mut()[idx] = pr;
+            Ok(true)
+        } else {
+            // normal, getter, setter
+            let pr = &mut self.0.prop_values.borrow_mut()[idx];
+
+            match pr {
+                JSProperty::Value(v) => {
+                    if prs_flags & JS_PROP_WRITABLE == 0 {
+                        return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                             Err(-1)
                         } else {
                             Ok(false)
                         };
                     }
-                    if !(*p_this).detailed.extensible() {
-                        JS_FreeValue(ctx, val);
+
+                    *v = value;
+                    Ok(true)
+                }
+                JSProperty::GetSet { setter, .. } => call_setter(
+                    ctx,
+                    setter.as_ref(),
+                    &JSValue::Object(self.clone()),
+                    value,
+                    flags,
+                ),
+                JSProperty::VarRef(vref) => {
+                    // JS_PROP_WRITABLE is always true for variable references,
+                    // but they are write protected in module name spaces.
+                    if self.class_id() == JS_CLASS_MODULE_NS {
+                        if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                            Err(-1)
+                        } else {
+                            Ok(false)
+                        }
+                    } else {
+                        vref.set_value(value);
+                        Ok(true)
+                    }
+                }
+                JSProperty::AutoInit { .. } => {
+                    #[cfg(debug_assertions)]
+                    unreachable!()
+                }
+            }
+        }
+    }
+}
+
+impl JSValue {
+    /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
+    /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
+    ///
+    /// **In most cases, obj==this_obj, except in case of Reflect.set(obj, val, [receiver]),
+    /// where obj (must be an object), and this_obj is for receiver.**
+    pub(crate) unsafe fn set_property_internal(
+        ctx: &JSContext,
+        obj: &JSValue,
+        prop: JSAtom,
+        val: JSValue,
+        this_obj: &JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let mut ob_obj: Option<JSObject>;
+        let ob_this: Option<&JSObject>;
+
+        // pre check
+        let mut state = match (obj, this_obj) {
+            (JSValue::Object(o), JSValue::Object(this)) => {
+                ob_obj = Some(o.clone());
+                ob_this = Some(this);
+
+                // O.o
+                debug_assert!(
+                    ob_this
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .prop_values
+                        .try_borrow_mut()
+                        .is_ok(),
+                    "O.o"
+                );
+
+                if o == this {
+                    if let Some((idx, prs_flags)) = this.find_own_property(prop) {
+                        return this.internal_assign_prop_value(
+                            ctx,
+                            prs_flags,
+                            prop,
+                            idx,
+                            val.clone(),
+                            this,
+                            flags,
+                        );
+                    }
+                    SetPropState::ExoticAndGoUp
+                } else {
+                    SetPropState::SetOrInit
+                }
+            }
+            (JSValue::NULL, _) | (_, JSValue::NULL) => {
+                ctx.JS_ThrowTypeError(&format!(
+                    "cannot set property '{}' of null",
+                    prop.to_str(ctx.rt())
+                ));
+                return Err(-1);
+            }
+            (JSValue::UNDEFINED, _) | (_, JSValue::UNDEFINED) => {
+                ctx.JS_ThrowTypeError(&format!(
+                    "cannot set property '{}' of undefined",
+                    prop.to_str(ctx.rt())
+                ));
+                return Err(-1);
+            }
+            _ => {
+                // even on a primitive type we can have setters on the prototype
+                ob_this = None;
+                if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, obj) {
+                    ob_obj = Some(p);
+                    SetPropState::SetOrInit
+                } else {
+                    ob_obj = None;
+                    SetPropState::Add
+                }
+            }
+        };
+
+        // process states
+        loop {
+            match state {
+                SetPropState::ExoticAndGoUp => {
+                    let target = ob_obj.clone().unwrap();
+
+                    if target.flags().is_exotic() {
+                        match target.set_property_exotic(
+                            ctx,
+                            prop,
+                            val.clone(),
+                            this_obj.clone(),
+                            flags,
+                        ) {
+                            Ok(b) => {
+                                return Ok(b);
+                            }
+                            Err(None) => {
+                                return Err(-1);
+                            }
+                            Err(Some(next_state)) => {
+                                state = next_state;
+                            }
+                        }
+                    } // is_exotic()
+
+                    if SetPropState::ExoticAndGoUp == state {
+                        // walk up proto chain
+                        state = if let Some(up) = target.shape().unwrap().0.borrow().proto.clone() {
+                            ob_obj = Some(up);
+                            SetPropState::SetOrInit
+                        } else {
+                            ob_obj = None;
+                            SetPropState::Add
+                        };
+                    }
+
+                    continue;
+                }
+                SetPropState::SetOrInit => {
+                    let target = ob_obj.as_ref().unwrap();
+                    if let Some((idx, prs_flags)) = target.find_own_property(prop) {
+                        return target.internal_assign_prop_value(
+                            ctx,
+                            prs_flags,
+                            prop,
+                            idx,
+                            val.clone(),
+                            ob_this.unwrap(),
+                            flags,
+                        );
+                    }
+
+                    state = SetPropState::ExoticAndGoUp;
+                    continue;
+                }
+
+                SetPropState::Add => {
+                    // to add or update a property on `this_obj`
+                    if flags & JS_PROP_NO_ADD != 0 {
+                        JS_ThrowReferenceErrorNotDefined(ctx, prop);
+                        return Err(-1);
+                    }
+                    if ob_this.is_none() {
+                        return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "not an object") {
+                            Err(-1)
+                        } else {
+                            Ok(false)
+                        };
+                    }
+
+                    let target = ob_this.unwrap();
+
+                    if !target.flags().extensible() {
                         return if ctx
-                            .JS_ThrowTypeErrorOrFalse(flags as _, c"object is not extensible")
+                            .JS_ThrowTypeErrorOrFalse(flags as _, "object is not extensible")
                         {
                             Err(-1)
                         } else {
@@ -387,82 +408,69 @@ impl JSValue {
                         };
                     }
 
-                    if p_this == JS_VALUE_GET_OBJ(self) {
-                        if (*p_this).detailed.is_exotic() {
-                            if (*p_this).class_id() == JS_CLASS_ARRAY
-                                && (*p_this).detailed.fast_array()
+                    if ob_this == ob_obj.as_ref() {
+                        if target.flags().is_exotic() {
+                            if target.class_id() == JS_CLASS_ARRAY
+                                && target.flags().fast_array()
                                 && prop.is_int_type()
                             {
+                                // fast array
                                 let idx = __JS_AtomToUInt32(prop);
-                                if idx == (*p_this).array_length_unchecked() as u32 {
-                                    return add_fast_array_element(ctx, p_this, val, flags);
-                                } else {
-                                    state = SetPropState::CreateProp;
-                                    continue;
+                                if idx == target.array_length_unchecked() as u32 {
+                                    return target.add_fast_array_element(ctx, val, flags);
                                 }
-                            } else {
-                                state = SetPropState::CreateProp;
-                                continue;
                             }
+
+                            state = SetPropState::CreateProp;
+                            continue;
                         } else {
-                            match (*p_this).add_property(ctx, prop, JS_PROP_C_W_E) {
-                                Ok(pr) => {
-                                    (*pr).u.value = val;
-                                    return Ok(true);
-                                }
-                                Err(_) => {
-                                    JS_FreeValue(ctx, val);
-                                    return Err(-1);
-                                }
-                            }
+                            target.add_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
+                                *pr = JSProperty::Value(val);
+                            })?;
+                            return Ok(true);
                         }
                     } else {
                         // generic case: modify the property in this_obj if it already exists
-                        let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-                        let ret = JS_GetOwnPropertyInternal(ctx, &mut desc, p_this, prop);
-                        if ret < 0 {
-                            JS_FreeValue(ctx, val);
-                            return Err(-1);
-                        }
-                        if ret != 0 {
-                            if desc.flags & JS_PROP_GETSET != 0 {
-                                JS_FreeValue(ctx, desc.getter);
-                                JS_FreeValue(ctx, desc.setter);
-                                JS_FreeValue(ctx, val);
-                                return if ctx
-                                    .JS_ThrowTypeErrorOrFalse(flags as _, c"setter is forbidden")
-                                {
-                                    Err(-1)
+                        match target.get_own_property_descr(ctx, prop)? {
+                            Some(desc) => {
+                                // already exists, update the value
+                                if desc.flags & JS_PROP_GETSET != 0 {
+                                    return if ctx
+                                        .JS_ThrowTypeErrorOrFalse(flags as _, "setter is forbidden")
+                                    {
+                                        Err(-1)
+                                    } else {
+                                        Ok(false)
+                                    };
                                 } else {
-                                    Ok(false)
-                                };
-                            } else {
-                                JS_FreeValue(ctx, desc.value);
-                                if desc.flags & JS_PROP_WRITABLE == 0
-                                    || (*p_this).class_id() == JS_CLASS_MODULE_NS
-                                {
-                                    state = SetPropState::ErrReadOnly;
-                                    continue;
+                                    if desc.flags & JS_PROP_WRITABLE == 0
+                                        || target.class_id() == JS_CLASS_MODULE_NS
+                                    {
+                                        state = SetPropState::ErrReadOnly;
+                                        continue;
+                                    }
                                 }
+
+                                return this_obj.define_property(
+                                    ctx,
+                                    prop,
+                                    &val,
+                                    &JSValue::UNDEFINED,
+                                    &JSValue::UNDEFINED,
+                                    JS_PROP_HAS_VALUE,
+                                );
                             }
-                            let ret = this_obj.define_property(
-                                ctx,
-                                prop,
-                                val,
-                                JSValue::UNDEFINED,
-                                JSValue::UNDEFINED,
-                                JS_PROP_HAS_VALUE,
-                            );
-                            JS_FreeValue(ctx, val);
-                            return ret;
-                        } else {
-                            state = SetPropState::CreateProp;
-                            continue;
+                            None => {
+                                // not exist, should create
+                                state = SetPropState::CreateProp;
+                                continue;
+                            }
                         }
                     }
                 }
                 SetPropState::CreateProp => {
-                    let ret = (*p_this).create_property(
+                    // create property on this_obj
+                    return ob_this.unwrap().create_property(
                         ctx,
                         prop,
                         val,
@@ -475,12 +483,10 @@ impl JSValue {
                             | JS_PROP_HAS_CONFIGURABLE
                             | JS_PROP_C_W_E,
                     );
-                    JS_FreeValue(ctx, val);
-                    return ret;
                 }
 
                 SetPropState::ErrReadOnly => {
-                    JS_FreeValue(ctx, val);
+                    JS_FreeValue(ctx, &val);
                     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                         Err(-1)
                     } else {
@@ -490,7 +496,7 @@ impl JSValue {
                 SetPropState::ErrTypedArrayOOB => {
                     // must convert the argument even if out of bound access
                     if matches!(
-                        (*p_self).class_id(),
+                        ob_obj.unwrap().class_id(),
                         JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
                     ) {
                         unimplemented!()
@@ -500,7 +506,6 @@ impl JSValue {
                         // }
                     } else {
                         let v = val.coerce_to_number_free(ctx)?; // consume val
-                        JS_FreeValue(ctx, v);
                     }
                     return Ok(true);
                 }
@@ -508,428 +513,313 @@ impl JSValue {
         }
     }
 
-    /// Note: `val` is consumed; `self` and `this_obj` keep ref count unchanged.
     #[inline(always)]
-    pub fn set_property(
-        self,
-        ctx: &mut JSContext,
-        prop: JSAtom,
-        val: JSValue,
-    ) -> Result<bool, i32> {
-        unsafe { self.set_property_internal(ctx, prop, val, self, JS_PROP_THROW) }
+    pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
+        unsafe { Self::set_property_internal(ctx, self, prop, val, self, JS_PROP_THROW) }
     }
 
-    /// Note: `val` is consumed
     pub fn set_property_value(
-        self,
-        ctx: &mut JSContext,
-        prop: JSValue,
+        &self,
+        ctx: &JSContext,
+        prop: &JSValue,
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        if self.tag() == JS_TAG_OBJECT && prop.tag() == JS_TAG_INT {
-            let p = unsafe { self.object_unchecked() };
-            let idx = JS_VALUE_GET_INT(prop);
-            let mut ta_out_of_bound = false;
+        match (self, prop) {
+            (JSValue::Object(p), JSValue::Int(idx)) => {
+                let idx = *idx;
+                let mut ta_out_of_bound = false;
 
-            // early return using fast path if possible
-            match p.class_id() {
-                JS_CLASS_ARRAY => {
-                    // fast path: is fast array
-                    if p.detailed.fast_array() && p.detailed.extensible() {
-                        let lst = unsafe { p.fast_array_values_mut_unchecked() };
-
-                        match idx.cmp(&(lst.len() as i32)) {
-                            std::cmp::Ordering::Less => {
-                                // update array element
-                                unsafe {
-                                    set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
-                                }
-                                return Ok(true);
-                            }
-                            std::cmp::Ordering::Equal => {
-                                // 检查原型链是否有数字属性
-                                let mut has_int_prop = false;
-                                let mut p1 = p.shape().unwrap().proto;
-                                unsafe {
-                                    while !p1.is_null() && !has_int_prop {
-                                        let sh1 = (*p1).shape().unwrap();
-                                        if (*p1).class_id() == JS_CLASS_ARRAY {
-                                            if !(*p1).detailed.fast_array() {
-                                                has_int_prop = true;
-                                            }
-                                        } else if (*p1).class_id() == JS_CLASS_OBJECT {
-                                            if sh1.has_small_array_index {
-                                                has_int_prop = true;
-                                            }
-                                        } else {
-                                            has_int_prop = true;
+                // early return using fast path if possible
+                match p.class_id() {
+                    JS_CLASS_ARRAY => {
+                        // fast path: fast array
+                        if p.flags().fast_array() && p.flags().extensible() {
+                            let r = p
+                                .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
+                                    match idx.cmp(&(lst.len() as i32)) {
+                                        std::cmp::Ordering::Less => {
+                                            // update array element
+                                            std::mem::replace(
+                                                lst.get_mut(idx as usize).unwrap(),
+                                                val.clone(),
+                                            );
+                                            return Ok(Some(true));
                                         }
-                                        p1 = sh1.proto;
+                                        std::cmp::Ordering::Equal => {
+                                            // 检查原型链是否有数字属性
+                                            let mut has_int_prop = false;
+                                            let mut p1 =
+                                                p.shape().unwrap().0.borrow().proto.clone();
+
+                                            while p1.is_some() && !has_int_prop {
+                                                let ob = p1.unwrap();
+                                                let sh1 = ob.shape().unwrap();
+
+                                                match ob.class_id() {
+                                                    JS_CLASS_ARRAY => {
+                                                        if !ob.flags().fast_array() {
+                                                            has_int_prop = true;
+                                                        }
+                                                    }
+                                                    JS_CLASS_OBJECT => {
+                                                        if sh1.0.borrow().has_small_array_index {
+                                                            has_int_prop = true;
+                                                        }
+                                                    }
+                                                    _ => {
+                                                        has_int_prop = true;
+                                                    }
+                                                }
+
+                                                p1 = sh1.0.borrow().proto.clone();
+                                            }
+
+                                            if !has_int_prop {
+                                                // append array element
+                                                return p
+                                                    .add_fast_array_element(ctx, val.clone(), flags)
+                                                    .map(|b| Some(b));
+                                            }
+                                        }
+                                        std::cmp::Ordering::Greater => {}
                                     }
 
-                                    if !has_int_prop {
-                                        // append array element
-                                        return add_fast_array_element(ctx, p, val, flags);
-                                    }
+                                    Ok(None)
+                                })
+                                .unwrap()?;
+
+                            match r {
+                                Some(b) => {
+                                    return Ok(b); // done
+                                }
+                                None => {
+                                    // handle with slow array
                                 }
                             }
-                            std::cmp::Ordering::Greater => {}
                         }
                     }
-                }
-                JS_CLASS_ARGUMENTS => {
-                    let lst = unsafe { p.fast_array_values_mut_unchecked() };
-                    if idx < lst.len() as i32 {
-                        unsafe {
-                            set_value(ctx, lst.get_mut(idx as usize).unwrap(), val);
+                    JS_CLASS_ARGUMENTS => {
+                        let done = p
+                            .with_fast_array_values_mut(|lst| -> bool {
+                                if idx < lst.len() as i32 {
+                                    std::mem::replace(
+                                        lst.get_mut(idx as usize).unwrap(),
+                                        val.clone(),
+                                    );
+                                    true
+                                } else {
+                                    false
+                                }
+                            })
+                            .unwrap();
+                        if done {
+                            return Ok(true); // done fast array
                         }
-                        return Ok(true);
-                    }
-                }
-
-                //
-                // typed array
-                //
-                JS_CLASS_UINT8C_ARRAY => {
-                    let mut v = 0;
-                    if unsafe { JS_ToUint8ClampFree(ctx, &mut v, val) } != 0 {
-                        return Err(-1);
                     }
 
-                    if unsafe { UncheckedInto::<Uint8Array>::unchecked_into(self) }
-                        .set_element(idx as _, v as _)
-                        .is_err()
-                    {
-                        ta_out_of_bound = true;
-                    } else {
-                        return Ok(true);
-                    }
+                    //
+                    // typed array
+                    //
+                    JS_CLASS_UINT8C_ARRAY => {
+                        let mut v = 0;
+                        if unsafe { JS_ToUint8Clamp(ctx, &mut v, &val) } != 0 {
+                            return Err(-1);
+                        }
 
-                    // original code
-                    // if idx >= p.array_length_unchecked() as i32 {
-                    //     ta_out_of_bound = true;
-                    // } else {
-                    //     p.as_typed_array_obj_unchecked()
-                    //         .with_data_mut_ptr::<u8, _>(|ptr| {
-                    //             *ptr.add(idx as usize) = v as u8;
-                    //         });
-                    //     return Ok(true);
-                    // }
-                }
-                cid @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY) => {
-                    let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
-                        n as u8
-                    } else {
-                        return Err(-1);
-                    };
-
-                    let r = unsafe {
-                        if cid == JS_CLASS_INT8_ARRAY {
-                            UncheckedInto::<Int8Array>::unchecked_into(self)
-                                .set_element(idx as _, v as _)
+                        if unsafe { UncheckedInto::<Uint8Array>::unchecked_into(self.clone()) }
+                            .set_element(idx as _, v as _)
+                            .is_err()
+                        {
+                            ta_out_of_bound = true;
                         } else {
-                            UncheckedInto::<Uint8Array>::unchecked_into(self)
-                                .set_element(idx as _, v as _)
+                            return Ok(true);
                         }
-                    };
-
-                    if r.is_err() {
-                        ta_out_of_bound = true;
-                    } else {
-                        return Ok(true);
                     }
-
-                    // original code
-                    // if idx >= p.array_length_unchecked() as i32 {
-                    //     ta_out_of_bound = true;
-                    // } else {
-                    //     p.as_typed_array_obj_unchecked()
-                    //         .with_data_mut_ptr::<u8, _>(|ptr| {
-                    //             *ptr.add(idx as usize) = v;
-                    //         });
-                    //     return Ok(true);
-                    // }
-                }
-                cid @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
-                    let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
-                        n as u16
-                    } else {
-                        return Err(-1);
-                    };
-
-                    let r = unsafe {
-                        if cid == JS_CLASS_INT16_ARRAY {
-                            UncheckedInto::<Int16Array>::unchecked_into(self)
-                                .set_element(idx as _, v as _)
+                    cid @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY) => {
+                        let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                            n as u8
                         } else {
-                            UncheckedInto::<Uint16Array>::unchecked_into(self)
-                                .set_element(idx as _, v as _)
-                        }
-                    };
+                            return Err(-1);
+                        };
 
-                    if r.is_err() {
-                        ta_out_of_bound = true;
-                    } else {
-                        return Ok(true);
-                    }
+                        let r = unsafe {
+                            if cid == JS_CLASS_INT8_ARRAY {
+                                UncheckedInto::<Int8Array>::unchecked_into(self.clone())
+                                    .set_element(idx as _, v as _)
+                            } else {
+                                UncheckedInto::<Uint8Array>::unchecked_into(self.clone())
+                                    .set_element(idx as _, v as _)
+                            }
+                        };
 
-                    // if idx >= p.array_length_unchecked() as i32 {
-                    //     ta_out_of_bound = true;
-                    // } else {
-                    //     p.as_typed_array_obj_unchecked()
-                    //         .with_data_mut_ptr::<u16, _>(|ptr| {
-                    //             *ptr.add(idx as usize) = v;
-                    //         });
-                    //     return Ok(true);
-                    // }
-                }
-                cid @ (JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY) => {
-                    let v = if let Ok(n) = val.coerce_to_i32_free(ctx) {
-                        n as u32
-                    } else {
-                        return Err(-1);
-                    };
-
-                    let r = unsafe {
-                        if cid == JS_CLASS_INT32_ARRAY {
-                            UncheckedInto::<Int32Array>::unchecked_into(self)
-                                .set_element(idx as _, v as _)
+                        if r.is_err() {
+                            ta_out_of_bound = true;
                         } else {
-                            UncheckedInto::<Uint32Array>::unchecked_into(self)
-                                .set_element(idx as _, v as _)
+                            return Ok(true);
                         }
-                    };
+                    }
+                    cid @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
+                        let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                            n as u16
+                        } else {
+                            return Err(-1);
+                        };
 
-                    if r.is_err() {
-                        ta_out_of_bound = true;
-                    } else {
-                        return Ok(true);
+                        let r = unsafe {
+                            if cid == JS_CLASS_INT16_ARRAY {
+                                UncheckedInto::<Int16Array>::unchecked_into(self.clone())
+                                    .set_element(idx as _, v as _)
+                            } else {
+                                UncheckedInto::<Uint16Array>::unchecked_into(self.clone())
+                                    .set_element(idx as _, v as _)
+                            }
+                        };
+
+                        if r.is_err() {
+                            ta_out_of_bound = true;
+                        } else {
+                            return Ok(true);
+                        }
+                    }
+                    cid @ (JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY) => {
+                        let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                            n as u32
+                        } else {
+                            return Err(-1);
+                        };
+
+                        let r = unsafe {
+                            if cid == JS_CLASS_INT32_ARRAY {
+                                UncheckedInto::<Int32Array>::unchecked_into(self.clone())
+                                    .set_element(idx as _, v as _)
+                            } else {
+                                UncheckedInto::<Uint32Array>::unchecked_into(self.clone())
+                                    .set_element(idx as _, v as _)
+                            }
+                        };
+
+                        if r.is_err() {
+                            ta_out_of_bound = true;
+                        } else {
+                            return Ok(true);
+                        }
+
+                        // if idx >= p.array_length_unchecked() as i32 {
+                        //     ta_out_of_bound = true;
+                        // } else {
+                        //     p.as_typed_array_obj_unchecked()
+                        //         .with_data_mut_ptr::<u32, _>(|ptr| {
+                        //             *ptr.add(idx as usize) = v;
+                        //         });
+                        //     return Ok(true);
+                        // }
+                    }
+                    JS_CLASS_FLOAT32_ARRAY => {
+                        let mut d = 0.0;
+                        if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
+                            return Err(-1);
+                        }
+
+                        let r = unsafe {
+                            UncheckedInto::<Float32Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, d as _)
+                        };
+
+                        if r.is_err() {
+                            ta_out_of_bound = true;
+                        } else {
+                            return Ok(true);
+                        }
+
+                        // original code
+                        // if idx >= p.array_length_unchecked() as i32 {
+                        //     ta_out_of_bound = true;
+                        // } else {
+                        //     p.as_typed_array_obj_unchecked()
+                        //         .with_data_mut_ptr::<f32, _>(|ptr| {
+                        //             *ptr.add(idx as usize) = d as f32;
+                        //         });
+                        //     return Ok(true);
+                        // }
+                    }
+                    JS_CLASS_FLOAT64_ARRAY => {
+                        let mut d = 0.0;
+                        if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
+                            return Err(-1);
+                        }
+
+                        let r = unsafe {
+                            UncheckedInto::<Float64Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, d)
+                        };
+                        if r.is_err() {
+                            ta_out_of_bound = true;
+                        } else {
+                            return Ok(true);
+                        }
+
+                        // original code
+                        // if idx >= p.array_length_unchecked() as i32 {
+                        //     ta_out_of_bound = true;
+                        // } else {
+                        //     p.as_typed_array_obj_unchecked()
+                        //         .with_data_mut_ptr::<f64, _>(|ptr| {
+                        //             *ptr.add(idx as usize) = d;
+                        //         });
+                        //     return Ok(true);
+                        // }
+                    }
+                    JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+                        unimplemented!()
                     }
 
-                    // if idx >= p.array_length_unchecked() as i32 {
-                    //     ta_out_of_bound = true;
-                    // } else {
-                    //     p.as_typed_array_obj_unchecked()
-                    //         .with_data_mut_ptr::<u32, _>(|ptr| {
-                    //             *ptr.add(idx as usize) = v;
-                    //         });
-                    //     return Ok(true);
-                    // }
+                    _ => {
+                        unreachable!()
+                    }
                 }
-                JS_CLASS_FLOAT32_ARRAY => {
-                    let mut d = 0.0;
-                    if unsafe { JS_ToFloat64Free(ctx, &mut d, val) } != 0 {
-                        return Err(-1);
-                    }
 
-                    let r = unsafe {
-                        UncheckedInto::<Float32Array>::unchecked_into(self)
-                            .set_element(idx as _, d as _)
-                    };
-
-                    if r.is_err() {
-                        ta_out_of_bound = true;
-                    } else {
-                        return Ok(true);
-                    }
-
-                    // original code
-                    // if idx >= p.array_length_unchecked() as i32 {
-                    //     ta_out_of_bound = true;
-                    // } else {
-                    //     p.as_typed_array_obj_unchecked()
-                    //         .with_data_mut_ptr::<f32, _>(|ptr| {
-                    //             *ptr.add(idx as usize) = d as f32;
-                    //         });
-                    //     return Ok(true);
-                    // }
-                }
-                JS_CLASS_FLOAT64_ARRAY => {
-                    let mut d = 0.0;
-                    if unsafe { JS_ToFloat64Free(ctx, &mut d, val) } != 0 {
-                        return Err(-1);
-                    }
-
-                    let r = unsafe {
-                        UncheckedInto::<Float64Array>::unchecked_into(self).set_element(idx as _, d)
-                    };
-                    if r.is_err() {
-                        ta_out_of_bound = true;
-                    } else {
-                        return Ok(true);
-                    }
-
-                    // original code
-                    // if idx >= p.array_length_unchecked() as i32 {
-                    //     ta_out_of_bound = true;
-                    // } else {
-                    //     p.as_typed_array_obj_unchecked()
-                    //         .with_data_mut_ptr::<f64, _>(|ptr| {
-                    //             *ptr.add(idx as usize) = d;
-                    //         });
-                    //     return Ok(true);
-                    // }
-                }
-                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                    unimplemented!()
-                }
-
-                _ => {
-                    unreachable!()
+                if ta_out_of_bound {
+                    return Ok(true);
                 }
             }
+            _ => {}
+        } // match
 
-            if ta_out_of_bound {
-                return Ok(true);
-            }
+        // fail safe: slow_path
+        let atom = JS_ValueToAtom(ctx, &prop);
+        if atom == JS_ATOM_NULL {
+            return Err(-1);
         }
-
-        unsafe {
-            // slow_path
-            let atom = JS_ValueToAtom(ctx, prop);
-            JS_FreeValue(ctx, prop);
-            if atom == JS_ATOM_NULL {
-                JS_FreeValue(ctx, val);
-                return Err(-1);
-            }
-
-            let ret = self.set_property_internal(ctx, atom, val, self, flags);
-            JS_FreeAtom(ctx, atom);
-            ret
-        }
+        let ret = unsafe { Self::set_property_internal(ctx, self, atom, val, self, flags) };
+        JS_FreeAtom(ctx, atom);
+        ret
     }
 
     #[inline(always)]
-    pub fn set_property_u32(
-        self,
-        ctx: &mut JSContext,
-        idx: u32,
-        val: JSValue,
-    ) -> Result<bool, i32> {
-        self.set_property_value(ctx, JSValue::from_u32(idx), val, JS_PROP_THROW)
+    pub fn set_property_u32(&self, ctx: &JSContext, idx: u32, val: JSValue) -> Result<bool, i32> {
+        self.set_property_value(ctx, &JSValue::from(idx), val, JS_PROP_THROW)
     }
 
-    pub fn set_property_i64(
-        self,
-        ctx: &mut JSContext,
-        idx: i64,
-        val: JSValue,
-    ) -> Result<bool, i32> {
+    pub fn set_property_i64(&self, ctx: &JSContext, idx: i64, val: JSValue) -> Result<bool, i32> {
         if (idx as u64) <= i32::MAX as u64 {
             // fast path for fast arrays
-            return self.set_property_value(ctx, JSValue::from_i32(idx as i32), val, JS_PROP_THROW);
+            return self.set_property_value(ctx, &JSValue::Int(idx as i32), val, JS_PROP_THROW);
         }
 
-        let prop = ctx.rt_mut().add_atom_i64(idx);
+        let prop = ctx.rt_mut().register_atom_i64(idx);
         if prop == JS_ATOM_NULL {
-            unsafe {
-                JS_FreeValue(ctx, val);
-            }
             return Err(-1);
         }
 
-        unsafe {
-            let res = self.set_property(ctx, prop, val);
-            JS_FreeAtom(ctx, prop);
-            res
-        }
+        self.set_property(ctx, prop, val)
     }
 
-    pub fn set_property_str(
-        self,
-        ctx: &mut JSContext,
-        prop: &str,
-        val: JSValue,
-    ) -> Result<bool, i32> {
-        unsafe {
-            let atom = ctx.create_atom(prop)?;
-            let ret = self.set_property_internal(ctx, atom, val, self, JS_PROP_THROW);
-            JS_FreeAtom(ctx, atom);
-            ret
-        }
+    #[inline]
+    pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
+        let atom = ctx.create_atom(prop)?;
+        let ret = self.set_property(ctx, atom, val);
+        JS_FreeAtom(ctx, atom);
+        ret
     }
-}
-
-/// Note: `val` is consumed
-#[deprecated(note = "use JSValue::set_property_internal() instead")]
-pub unsafe fn JS_SetPropertyInternal(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    prop: JSAtom,
-    val: JSValue,
-    this_obj: JSValueConst,
-    flags: u32,
-) -> i32 {
-    obj.set_property_internal(ctx.as_mut().unwrap(), prop, val, this_obj, flags)
-        .map_or(-1, |b| b as i32)
-}
-
-/// returns 0,1,-1
-/// Note: `val` is consumed
-#[deprecated(note = "use JSValue::set_property_value() instead")]
-pub unsafe fn JS_SetPropertyValue(
-    ctx: &mut JSContext,
-    this_obj: JSValue,
-    prop: JSValue,
-    val: JSValue,
-    flags: u32,
-) -> i32 {
-    this_obj
-        .set_property_value(ctx, prop, val, flags)
-        .map_or(-1, |b| b as i32)
-}
-
-#[deprecated(note = "use JSValue::set_property() instead")]
-#[inline(always)]
-pub unsafe fn JS_SetProperty(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    prop: JSAtom,
-    val: JSValue,
-) -> i32 {
-    this_obj
-        .set_property(ctx.as_mut().unwrap(), prop, val)
-        .map_or(-1, |b| b as i32)
-}
-
-#[deprecated(note = "use JSValue::set_property_u32() instead")]
-pub unsafe fn JS_SetPropertyUint32(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    idx: u32,
-    val: JSValue,
-) -> i32 {
-    this_obj
-        .set_property_u32(ctx.as_mut().unwrap(), idx, val)
-        .map_or(-1, |b| b as i32)
-}
-
-#[deprecated(note = "use JSValue::set_property_i64() instead")]
-pub unsafe fn JS_SetPropertyInt64(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    idx: i64,
-    val: JSValue,
-) -> i32 {
-    this_obj
-        .set_property_i64(ctx.as_mut().unwrap(), idx, val)
-        .map_or(-1, |b| b as i32)
-}
-
-#[deprecated(note = "use JSValue::set_property_str() instead")]
-pub unsafe fn JS_SetPropertyStr(
-    ctx: *mut JSContext,
-    this_obj: JSValueConst,
-    prop: &CStr,
-    val: JSValue,
-) -> i32 {
-    this_obj
-        .set_property_str(ctx.as_mut().unwrap(), prop.to_string_lossy().as_ref(), val)
-        .map_or(-1, |b| b as i32)
-
-    // let atom = JS_NewAtom(ctx, prop);
-    // let ret = JS_SetPropertyInternal(ctx, this_obj, atom, val, this_obj, JS_PROP_THROW);
-    // JS_FreeAtom(ctx, atom);
-    // ret
 }

@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{JSAtom, JS_FreeAtom},
-    bytecode::{opcodes, OpCode},
+    atom::{JS_FreeAtom, JSAtom},
+    bytecode::{OpCode, opcodes},
     utils::{read_from_ptr, write_to_ptr},
 };
 
@@ -37,12 +39,12 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
             let atom = JSAtom(read_from_ptr::<u32>(
                 fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
             ));
-            JS_FreeAtom((*s).ctx.as_ptr(), atom);
+            JS_FreeAtom(&(*s).ctx, atom);
             write_to_ptr::<u32>(
                 fd.byte_code
                     .as_mut_ptr()
                     .offset(define_class_pos as isize + 1),
-                name.dup((*s).ctx.rt()).0,
+                name.dup((*s).ctx.rt().deref()).0,
             );
             fd.last_opcode_pos = -1;
         }

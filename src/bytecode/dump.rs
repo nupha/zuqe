@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{JSAtom, JS_ATOM_NULL},
-    context::{JSContext, JS_MODE_ASYNC, JS_MODE_STRICT},
+    atom::{JS_ATOM_NULL, JSAtom},
+    context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
         JSClosureVar, JSFunctionBytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
@@ -10,15 +12,11 @@ use crate::{
 };
 
 use super::{
-    opcode_info_final, opcode_info_intermediate, opcodes, OP_COUNT_FINAL, OP_COUNT_INTERMEDIATE,
+    OP_COUNT_FINAL, OP_COUNT_INTERMEDIATE, opcode_info_final, opcode_info_intermediate, opcodes,
 };
 
 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-pub unsafe fn debug_dump_opcode_one(
-    ctx: &mut JSContext,
-    b: &JSFunctionBytecode,
-    pc: usize,
-) -> usize {
+pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc: usize) -> usize {
     use crate::utils::read_from_ptr;
 
     let mut pos = pc;
@@ -114,17 +112,17 @@ pub unsafe fn debug_dump_opcode_one(
             let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos));
             print!(
                 " {idx}:{}",
-                b.get_cpool(idx as usize).unwrap().repr(ctx.rt())
+                b.get_cpool(idx as usize).unwrap().repr(ctx.rt().deref())
             );
         }
         "atom" => {
             let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
-            print!(" {a}:{}", JSAtom(a).to_str((*ctx).rt()));
+            print!(" {a}:{}", JSAtom(a).to_str(ctx.rt().deref()));
         }
         f @ ("atom_u8" | "atom_u16") => {
             print!(
                 " {}, {}",
-                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt()),
+                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt().deref()),
                 if f == "atom_u8" {
                     tab[pos as usize + 4] as usize
                 } else {
@@ -135,7 +133,7 @@ pub unsafe fn debug_dump_opcode_one(
         f @ ("atom_label_u8" | "atom_label_u16") => {
             print!(
                 " {}",
-                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str((*ctx).rt())
+                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt().deref())
             );
 
             // addr = get_u32(tab.as_ptr().offset(pos as isize + 4)) as _;
@@ -170,8 +168,8 @@ pub unsafe fn debug_dump_opcode_one(
                 read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize
             };
 
-            if let Some(vi) = b.get_var(idx as _) {
-                print!(" {idx}:{}", vi.var_name.to_str(ctx.rt()));
+            if let Some(vi) = b.with_var(idx as _, |v| v.var_name) {
+                print!(" {idx}:{}", vi.to_str(ctx.rt().deref()));
             } else {
                 print!(" {idx}:?");
             }
@@ -189,8 +187,8 @@ pub unsafe fn debug_dump_opcode_one(
 
         "arg" => {
             let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
-            if let Some(vi) = b.get_arg(idx as _) {
-                print!(" {idx}:{}", vi.var_name.to_str(ctx.rt()));
+            if let Some(var_name) = b.with_arg(idx as _, |vi| vi.var_name) {
+                print!(" {idx}:{}", var_name.to_str(ctx.rt().deref()));
             } else {
                 print!(" {idx}:?");
             }
@@ -210,10 +208,9 @@ pub unsafe fn debug_dump_opcode_one(
             let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
             print!(
                 " {idx}:{}",
-                b.get_closure_var(idx as _)
+                b.with_closure_var(idx as _, |v| v.var_name)
                     .unwrap()
-                    .var_name
-                    .to_str((*ctx).rt())
+                    .to_str(ctx.rt().deref())
             );
         }
 
@@ -226,7 +223,7 @@ pub unsafe fn debug_dump_opcode_one(
 /// dump bytecode in pass 1,2,3
 #[cfg(feature = "dump_bytecode")]
 pub unsafe fn dump_byte_code(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     pass: i32,
     tab: &[u8],
     args: &[JSVarDef],
@@ -494,7 +491,7 @@ pub unsafe fn dump_byte_code(
                 let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos)) as usize;
                 print!(" {idx}:");
                 if let Some(v) = cpools.get(idx) {
-                    print!("{}", v.repr((*ctx).rt()));
+                    print!("{}", v.repr(ctx.rt()));
                 } else {
                     #[cfg(debug_assertions)]
                     unreachable!()
@@ -502,12 +499,12 @@ pub unsafe fn dump_byte_code(
             }
             "atom" => {
                 let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
-                print!(" {a}:{}", JSAtom(a).to_str((*ctx).rt()));
+                print!(" {a}:{}", JSAtom(a).to_str(ctx.rt()));
             }
             f @ ("atom_u8" | "atom_u16") => {
                 print!(
                     " {}, {}",
-                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str((*ctx).rt()),
+                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt()),
                     if f == "atom_u8" {
                         tab[pos as usize + 4] as usize
                     } else {
@@ -518,7 +515,8 @@ pub unsafe fn dump_byte_code(
             f @ ("atom_label_u8" | "atom_label_u16") => {
                 print!(
                     " {}",
-                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str((*ctx).rt())
+                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _)))
+                        .to_str(ctx.rt().deref())
                 );
 
                 let addr = read_from_ptr::<u32>(tab.as_ptr().offset(pos as isize + 4));
@@ -543,7 +541,7 @@ pub unsafe fn dump_byte_code(
                 // C2RS: goto has_loc replaced with inline logic
                 printf(" {}: ", idx);
                 if idx < var_count {
-                    print_atom((*ctx).rt, (*vars.offset(idx as isize)).var_name);
+                    print_atom(ctx.rt, (*vars.offset(idx as isize)).var_name);
                 }
             }
 
@@ -555,7 +553,7 @@ pub unsafe fn dump_byte_code(
                 };
                 print!(
                     " {idx}:{}",
-                    vars.get(idx).unwrap().var_name.to_str((*ctx).rt())
+                    vars.get(idx).unwrap().var_name.to_str(ctx.rt().deref())
                 );
             }
 
@@ -565,7 +563,7 @@ pub unsafe fn dump_byte_code(
                 // C2RS: goto has_arg replaced with inline logic
                 printf(" {}: ", idx);
                 if idx < arg_count {
-                    print_atom((*ctx).rt, (*args.offset(idx as isize)).var_name);
+                    print_atom(ctx.rt, (*args.offset(idx as isize)).var_name);
                 }
             }
 
@@ -573,7 +571,7 @@ pub unsafe fn dump_byte_code(
                 let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
-                    args.get(idx).unwrap().var_name.to_str((*ctx).rt())
+                    args.get(idx).unwrap().var_name.to_str(ctx.rt().deref())
                 );
             }
 
@@ -590,7 +588,11 @@ pub unsafe fn dump_byte_code(
                 let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
-                    closure_vars.get(idx).unwrap().var_name.to_str((*ctx).rt())
+                    closure_vars
+                        .get(idx)
+                        .unwrap()
+                        .var_name
+                        .to_str(ctx.rt().deref())
                 );
             }
 
@@ -610,47 +612,55 @@ pub unsafe fn dump_byte_code(
 }
 
 #[cfg(feature = "dump_bytecode")]
-pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionBytecode) {
-    if (*b).has_debug && (*b).debug.filename != JS_ATOM_NULL {
+pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
+    let b = bc.0.borrow();
+
+    if b.has_debug && b.debug.filename != JS_ATOM_NULL {
         print!(
             "{}:{}: ",
-            (*b).debug.filename.to_str((*ctx).rt()),
-            (*b).debug.line_num
+            b.debug.filename.to_str(ctx.rt().deref()),
+            b.debug.line_num
         );
     }
 
     println!(
         "function: {}{}",
-        if (*b).func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+        if b.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
             "*"
         } else {
             ""
         },
-        (*b).func_name.to_str((*ctx).rt()),
+        b.func_name.to_str(ctx.rt().deref()),
     );
 
-    if (*b).js_mode != 0 {
+    if b.js_mode != 0 {
         print!("  mode:");
-        if (*b).js_mode & JS_MODE_STRICT as u8 != 0 {
+        if b.js_mode & JS_MODE_STRICT as u8 != 0 {
             print!(" strict");
         }
-        if (*b).js_mode & JS_MODE_ASYNC as u8 != 0 {
+        if b.js_mode & JS_MODE_ASYNC as u8 != 0 {
             print!(" async");
         }
         println!();
     }
 
-    if let Some(args) = (*b).args_slice_mut() {
-        print!("  args:");
-        for arg in args {
-            print!(" {}", arg.var_name.to_str((*ctx).rt()));
+    {
+        let args = b.args_slice();
+        if !args.is_empty() {
+            print!("  args:");
+            for arg in args {
+                print!(" {}", arg.var_name.to_str(ctx.rt().deref()));
+            }
+            println!();
         }
-        println!();
     }
 
-    if let Some(vars) = (*b).vars_slice_mut() {
+    let vars = b.vars_slice();
+    if !vars.is_empty() {
         println!("  locals:");
         for (i, vd) in vars.iter().enumerate() {
+            use std::ops::Deref;
+
             let kind_str = match vd.var_kind() {
                 JSVarKindEnum::JS_VAR_CATCH => "catch",
                 JSVarKindEnum::JS_VAR_FUNCTION_DECL | JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL => {
@@ -669,20 +679,20 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
 
             print!(
                 "{i:5}: {kind_str} {}'{}",
-                vd.var_name.to_str((*ctx).rt()),
-                vd.var_name.ref_count((*ctx).rt()).unwrap_or(999)
+                vd.var_name.to_str(ctx.rt().deref()),
+                vd.var_name.ref_count(ctx.rt().deref()).unwrap_or(999)
             );
 
-            if (*vd).scope_level != 0 {
+            if vd.scope_level != 0 {
                 print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);
             }
             println!();
         }
     }
 
-    if let Some(cvars) = (*b).closure_vars_slice_mut() {
+    let cvars = b.closure_vars_slice();
+    if !cvars.is_empty() {
         println!("  closure vars:");
-
         for (i, cv) in cvars.iter().enumerate() {
             let var_type = if cv.is_local() { "local" } else { "parent" };
             let loc_type = if cv.is_arg() { "arg" } else { "loc" };
@@ -696,7 +706,7 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
 
             println!(
                 "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
-                cv.var_name.to_str((*ctx).rt()),
+                cv.var_name.to_str(ctx.rt().deref()),
                 cv.var_idx
             );
         }
@@ -705,27 +715,29 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
     println!("  stack_size: {}", (*b).stack_size);
     println!("  opcodes:");
 
-    dump_byte_code(
-        ctx,
-        3,
-        (*b).bytecode_slice(),
-        (*b).args_slice_mut().unwrap_or([].as_mut_slice()),
-        (*b).vars_slice_mut().unwrap_or([].as_mut_slice()),
-        (*b).closure_vars_slice_mut().unwrap_or([].as_mut_slice()),
-        (*b).cpools_slice().unwrap_or([].as_slice()),
-        if (*b).has_debug {
-            (*b).debug.source.as_deref()
-        } else {
-            None
-        },
-        if (*b).has_debug {
-            (*b).debug.line_num as _
-        } else {
-            -1
-        },
-        &[],
-        b,
-    );
+    unsafe {
+        dump_byte_code(
+            ctx,
+            3,
+            b.bytecode_slice(),
+            b.args_slice(),
+            b.vars_slice(),
+            b.closure_vars_slice(),
+            b.cpools_slice(),
+            if b.has_debug {
+                b.debug.source.as_deref()
+            } else {
+                None
+            },
+            if b.has_debug {
+                b.debug.line_num as _
+            } else {
+                -1
+            },
+            &[],
+            bc,
+        );
+    }
 
     // if (*b).has_debug {
     //     dump_pc2line(
@@ -742,7 +754,7 @@ pub unsafe fn js_dump_function_bytecode(ctx: *mut JSContext, b: *mut JSFunctionB
     println!();
 }
 
-pub unsafe fn dump_pc2line(ctx: *const JSContext, buf: *const u8, len: i32, mut line_num: i32) {
+pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_num: i32) {
     if len <= 0 {
         return;
     }

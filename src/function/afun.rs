@@ -1,31 +1,34 @@
-use std::{marker::PhantomPinned, ptr::NonNull};
+use std::{
+    cell::RefCell,
+    marker::PhantomPinned,
+    ops::Deref,
+    pin::Pin,
+    rc::{Rc, Weak},
+};
 
 use crate::{
-    context::{JSContext, JS_MODE_ASYNC},
-    error::JS_ThrowStackOverflow,
-    gc::{
-        GCMarkFunc, GCObject, GCObjectHeader, GCObjectNodeData, GCObjectType, JSGCPhaseEnum,
-        RefCounted,
-    },
-    mem::js_malloc_typed,
-    promise::{js_promise_resolve, PromiseValue},
-    runtime::{js_check_stack_overflow, JSRuntime},
+    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    context::{JS_MODE_ASYNC, JSContext},
+    error::{JS_ThrowStackOverflow, JSResult},
+    gc::{GCMarkFunc, GCObjectHeader, GCObjectStatus},
+    promise::{PromiseValue, js_promise_resolve},
+    runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
-    utils::{Node, UncheckedInto},
+    utils::UncheckedInto,
     value::{
-        object::{JSObjectIsa, JS_PROP_CONFIGURABLE},
-        JSTag, JSValue, JSValueConst, JS_FreeValue, JS_FreeValueRT,
+        JS_FreeValue, JSValue, JSValueConst,
+        object::{GCObjectWeakref, JS_PROP_CONFIGURABLE, JSObjectIsa},
     },
-    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_MKPTR, JS_PROP_STRING_DEF,
 };
 
 use super::{
-    call::{JS_CallInternal, JS_CALL_FLAG_GENERATOR},
-    CallArgs, JSCFunctionListEntry, JS_Call,
+    CallContext, JS_Call, JSCFunctionListEntry,
+    call::{JS_CALL_FLAG_GENERATOR, JS_CallInternal},
 };
 
+#[derive(Debug)]
 #[repr(C)]
-pub struct JSAsyncFunctionState {
+pub(crate) struct JSAsyncFunctionStateInner {
     pub header: GCObjectHeader,
 
     /// 'this' argument
@@ -43,44 +46,119 @@ pub struct JSAsyncFunctionState {
     pub resolving_funcs: [JSValue; 2],
 
     /// stack frame to run async function
-    pub frame: JSStackFrame,
+    pub frame: Box<JSStackFrame>,
 }
 
-impl RefCounted for JSAsyncFunctionState {
-    fn ref_count(&self) -> i32 {
-        self.header.ref_count
-    }
-
-    fn inc_ref(&mut self) -> i32 {
-        self.header.ref_count += 1;
-        self.header.ref_count
-    }
-
-    fn dec_ref(&mut self) -> i32 {
-        self.header.ref_count -= 1;
-        self.header.ref_count
+impl Drop for JSAsyncFunctionStateInner {
+    fn drop(&mut self) {
+        self.finalize();
     }
 }
 
-impl GCObject for JSAsyncFunctionState {
-    fn gc_type(&self) -> GCObjectType {
-        GCObjectType::AsyncFunction(NonNull::from(self))
+impl JSAsyncFunctionStateInner {
+    /// create new JSAsyncFunctionState.
+    /// `func_obj`, `this_obj`, `args` are not consumed.
+    pub fn new(
+        ctx: &JSContext,
+        func_obj: &JSValue,
+        this_obj: &JSValue,
+        args: &[JSValue],
+    ) -> Result<Self, i32> {
+        let isa = unsafe { func_obj.object_unchecked().0.isa.borrow() };
+        let bc = isa.func().unwrap().function_bytecode.clone().unwrap();
+        let b = bc.0.borrow();
+
+        // alloc local buf, set up arguments, variables and stack pointer
+        let arg_count = std::cmp::max(b.arg_count as usize, args.len());
+        let buf_len = arg_count + b.var_count as usize + b.stack_size as usize;
+        let mut local_buf = {
+            let mut lst = Vec::<JSValue>::new();
+            lst.try_reserve_exact(buf_len).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+            lst
+        };
+        for a in args {
+            local_buf.push(a.clone());
+        }
+        if buf_len > args.len() {
+            local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                buf_len - args.len() as usize,
+            ));
+        }
+        debug_assert_eq!(local_buf.len(), buf_len);
+
+        let o = Self {
+            header: GCObjectHeader::new(ctx.rt_mut(), 1),
+            argc: args.len() as _,
+            this_val: this_obj.clone(),
+            resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
+            throw_flag: false,
+            is_completed: false,
+
+            frame: Box::new(JSStackFrame {
+                js_mode: b.js_mode as i32 | JS_MODE_ASYNC,
+                cur_func: func_obj.clone(),
+                arg_base_ptr: local_buf.as_mut_ptr(),
+                arg_count: arg_count as _,
+                var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
+                var_count: b.var_count,
+                local_buf,
+                ..Default::default()
+            }),
+        };
+        Ok(o)
     }
 
-    fn gc_mark(&self) -> u8 {
-        self.header.gc_mark()
+    #[inline(always)]
+    pub fn id(&self) -> usize {
+        self as *const Self as usize
     }
 
-    fn set_gc_mark(&mut self, mark: u8) {
-        self.header.set_gc_mark(mark);
+    pub fn arg_slice(&self) -> &[JSValue] {
+        unsafe { std::slice::from_raw_parts(self.frame.arg_base_ptr, self.argc as usize) }
+    }
+
+    fn free_stack(&mut self, rt: &mut JSRuntime) {
+        // free values on async stack frame
+        if !self.frame.arg_base_ptr.is_null() {
+            debug_assert!(
+                self.frame.cur_sp_offset != -1,
+                "cannot free the function if it is running"
+            );
+
+            let mut p = self.frame.arg_base_ptr; // arg base is on local_buf
+            let end_p = self.frame.stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
+            while p < end_p {
+                unsafe {
+                    std::ptr::replace(p, JSValue::UNDEFINED);
+                    p = p.add(1);
+                }
+            }
+
+            self.frame.arg_base_ptr = std::ptr::null_mut();
+        }
+
+        // clean up var refs
+        self.frame.finalize();
+    }
+
+    fn finalize(&mut self) {
+        if !self.is_completed {
+            // cannot close the closure variables here because it would
+            // potentially modify the object graph
+            self.free_stack(unsafe { self.header.rt_ptr().as_mut() });
+        }
     }
 
     fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
         if !self.is_completed {
             let sf = &mut self.frame;
 
-            rt.gc_mark_value(sf.cur_func, mark_func);
-            rt.gc_mark_value(self.this_val, mark_func);
+            rt.gc_mark_value(&sf.cur_func, mark_func);
+            rt.gc_mark_value(&self.this_val, mark_func);
 
             // HINT:
             // cur_sp_offset != -1 if the function is running.
@@ -97,248 +175,190 @@ impl GCObject for JSAsyncFunctionState {
                 let end_ptr = sf.stack_cur_ptr().as_ptr();
                 while ptr < end_ptr {
                     unsafe {
-                        rt.gc_mark_value(*ptr, mark_func);
+                        rt.gc_mark_value(&*ptr, mark_func);
                         ptr = ptr.add(1);
                     }
                 }
             }
         }
 
-        rt.gc_mark_value(self.resolving_funcs[0], mark_func);
-        rt.gc_mark_value(self.resolving_funcs[1], mark_func);
-    }
-
-    fn gc_dump(&self, rt: &JSRuntime) {
-        println!("{:14p} {:4} [async_function]", self, self.ref_count());
-    }
-
-    fn finalize(&mut self, rt: &mut JSRuntime) {
-        if !self.is_completed {
-            // cannot close the closure variables here because it would
-            // potentially modify the object graph
-            self.free_frame(rt);
-        }
-
-        unsafe {
-            JS_FreeValueRT(rt, self.resolving_funcs[0]);
-            JS_FreeValueRT(rt, self.resolving_funcs[1]);
-        }
-    }
-
-    fn gc_node_ptr(&self) -> NonNull<Node<GCObjectNodeData>> {
-        debug_assert!(!self.header.list_node.is_null());
-        unsafe { NonNull::new_unchecked(self.header.list_node) }
+        rt.gc_mark_value(&self.resolving_funcs[0], mark_func);
+        rt.gc_mark_value(&self.resolving_funcs[1], mark_func);
     }
 }
 
-#[cfg(debug_assertions)]
-impl Drop for JSAsyncFunctionState {
-    fn drop(&mut self) {
-        debug_assert!(self.frame.var_ref_list.is_empty());
-    }
-}
+#[derive(Debug, Clone)]
+pub struct JSAsyncFunctionState(pub(crate) Rc<RefCell<Pin<Box<JSAsyncFunctionStateInner>>>>);
 
 impl JSAsyncFunctionState {
     /// make new JSAsyncFunctionState, register to gc tracking list.
     /// `func_obj`, `this_obj`, `args` are not consumed.
     pub fn new(
-        ctx: &mut JSContext,
-        func_obj: JSValue,
-        this_obj: JSValue,
+        ctx: &JSContext,
+        func_obj: &JSValue,
+        this_obj: &JSValue,
         args: &[JSValue],
-    ) -> Result<NonNull<JSAsyncFunctionState>, i32> {
-        let p = unsafe { func_obj.object_unchecked() };
-        let func = p.isa().func().unwrap();
-        let b = unsafe { func.function_bytecode.as_mut().unwrap() };
+    ) -> Result<JSAsyncFunctionState, i32> {
+        let inner = JSAsyncFunctionStateInner::new(ctx, func_obj, this_obj, args)?;
 
-        // alloc local buf, set up arguments, variables and stack pointer
-        let arg_count = std::cmp::max(b.arg_count as usize, args.len());
-        let buf_len = arg_count + b.var_count as usize + b.stack_size as usize;
-        let mut local_buf = {
-            let mut lst = Vec::<JSValue>::new();
-            lst.try_reserve_exact(buf_len).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
-                -1
-            })?;
-            lst
-        };
-        for a in args {
-            local_buf.push(a.dup());
-        }
-        if buf_len > args.len() {
-            local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                buf_len - args.len() as usize,
-            ));
-        }
-        debug_assert_eq!(local_buf.len(), buf_len);
-
-        let mut af = unsafe {
-            let p = js_malloc_typed::<Self>(ctx, 1, false).ok_or(-1)?;
-
-            p.write(Self {
-                header: GCObjectHeader::new(1),
-                argc: args.len() as _,
-                this_val: this_obj.dup(),
-                resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
-                throw_flag: false,
-                is_completed: false,
-                frame: JSStackFrame {
-                    js_mode: b.js_mode as i32 | JS_MODE_ASYNC,
-                    cur_func: func_obj.dup(),
-                    prev_frame: std::ptr::null_mut(),
-                    arg_base_ptr: local_buf.as_mut_ptr(),
-                    arg_count: arg_count as _,
-                    var_base_ptr: local_buf.as_mut_ptr().add(arg_count as usize),
-                    var_count: b.var_count,
-                    cur_pc_offset: 0,
-                    cur_sp_offset: 0,
-                    var_ref_list: Vec::new(),
-                    local_buf,
-                    _mark: PhantomPinned,
-                },
-            });
-            Box::from_raw(p.as_ptr())
-        };
-
-        let ptr = NonNull::from(af.as_mut());
-        ctx.rt_mut().gc_add_object(af);
-        Ok(ptr)
-    }
-
-    pub fn free(rt: &mut JSRuntime, s: *mut Self) {
-        debug_assert!(!s.is_null());
-        debug_assert!(unsafe { (*s).ref_count() > 0 });
-
+        // fix var_base_ptr field: it's self referenced
+        let mut pinned = Box::pin(inner);
         unsafe {
-            if (*s).dec_ref() == 0 {
-                if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-                    //(*s).frame.finalize(rt);
-
-                    let node = (*s).gc_node_ptr();
-
-                    Node::unlink(node);
-                    (*rt).gc_zero_ref_count_list.push_raw(node);
-
-                    if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
-                        (*rt).gc_free_zeroed();
-                    }
-                }
-            }
-        }
-    }
-
-    /// free values on async stack frame
-    pub fn free_frame(&mut self, rt: &mut JSRuntime) {
-        if !self.frame.arg_base_ptr.is_null() {
-            debug_assert!(
-                self.frame.cur_sp_offset != -1,
-                "cannot free the function if it is running"
-            );
-
-            let mut p = self.frame.arg_base_ptr; // arg base is on local_buf
-            let end_p = self.frame.stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
-            while p < end_p {
-                unsafe {
-                    JS_FreeValueRT(rt, *p);
-                    p = p.add(1);
-                }
-            }
-            self.frame.arg_base_ptr = std::ptr::null_mut();
+            let a = pinned.as_mut().get_unchecked_mut();
+            a.frame.var_base_ptr = a
+                .frame
+                .local_buf
+                .as_mut_ptr()
+                .add(a.frame.arg_count as usize);
         }
 
+        let s = Self(Rc::new(RefCell::new(pinned)));
+        let w = s.downgrade();
+
+        // associate stack frame with async state
         unsafe {
-            JS_FreeValueRT(rt, self.frame.cur_func);
-            JS_FreeValueRT(rt, self.this_val);
+            s.0.borrow_mut()
+                .as_mut()
+                .get_unchecked_mut()
+                .frame
+                .async_func = s.downgrade();
         }
 
-        // clean up var refs
-        self.frame.finalize(rt);
+        // register to gc
+        ctx.rt_mut().gc_obj_list.push(w.into());
+
+        Ok(s)
     }
 
-    pub unsafe fn hook_finalizer(rt: *mut JSRuntime, val: JSValue) {
-        if let Some(s) = val.object().map(|p| {
-            p.isa_mut()
-                .async_func_state_replace(std::ptr::null_mut())
-                .unwrap()
-        }) {
-            if !s.is_null() {
-                JSAsyncFunctionState::free(rt.as_mut().unwrap(), s);
-            }
+    pub fn downgrade(&self) -> JSAsyncFunctionStateWeakref {
+        JSAsyncFunctionStateWeakref(Rc::downgrade(&self.0))
+    }
+
+    pub fn id(&self) -> usize {
+        self.0.borrow().id()
+    }
+
+    pub fn set_throw_flag(&self, b: bool) {
+        unsafe {
+            self.0.borrow_mut().as_mut().get_unchecked_mut().throw_flag = b;
         }
     }
+
+    fn strong_count(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
+
+    // fn gc_mark(&self) -> bool {
+    //     self.0.borrow().header.gc_mark()
+    // }
+
+    // fn set_gc_mark(&self, mark: bool) {
+    //     self.0.borrow_mut().header.set_gc_mark(mark);
+    // }
+
+    // fn gc_status(&self) -> GCObjectStatus {
+    //     self.0.borrow().header.gc_status()
+    // }
+
+    // fn gc_set_status(&self, s: GCObjectStatus) {
+    //      self.0.borrow_mut().header.set_gc_mark(s);
+    // }
+
+    // fn gc_mark_children(&self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+    //     self.0.borrow_mut().gc_mark_children(rt, mark_func);
+    // }
+
+    fn gc_dump(&self, rt: &JSRuntime) {
+        println!("{:14p} {:4} [async_function]", self, self.strong_count());
+    }
+
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
     pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        if let Some(s) = val.object().map(|p| p.isa().async_func_state_ptr()) {
-            if !s.is_null() {
-                mark_func(rt, s);
-            }
-        }
+        //if let Some(s) = val.object().and_then(|p| p.isa().async_func_state()) {
+        // mark_func(rt, s);
+        //}
     }
 }
 
-pub unsafe fn async_func_resume(ctx: &mut JSContext, s: *mut JSAsyncFunctionState) -> JSValue {
-    debug_assert!(!(*s).is_completed);
+#[derive(Debug, Clone)]
+pub struct JSAsyncFunctionStateWeakref(Weak<RefCell<Pin<Box<JSAsyncFunctionStateInner>>>>);
 
-    // let sf = &mut (*s).frame;
+impl From<JSAsyncFunctionStateWeakref> for GCObjectWeakref {
+    fn from(value: JSAsyncFunctionStateWeakref) -> Self {
+        Self::AsyncFunction(value)
+    }
+}
 
-    let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
-        JS_ThrowStackOverflow(ctx)
+impl JSAsyncFunctionStateWeakref {
+    pub fn new() -> Self {
+        Self(Weak::new())
+    }
+
+    pub fn upgrade(&self) -> Option<JSAsyncFunctionState> {
+        self.0.upgrade().map(JSAsyncFunctionState)
+    }
+}
+
+pub fn async_func_resume(ctx: &JSContext, s: &JSAsyncFunctionState) -> JSValue {
+    debug_assert!(!s.0.borrow().is_completed);
+
+    let mut ret = if js_check_stack_overflow(ctx.rt().deref(), 0) {
+        JS_ThrowStackOverflow(ctx);
+        JSValue::EXCEPTION
     } else {
-        // the tag does not matter provided it is not an object
-        let func_obj = JS_MKPTR!(JSTag::Int, s.cast());
         JS_CallInternal(
             ctx,
-            func_obj,
-            (*s).this_val,
+            &JSValue::AsyncFuncResume(s.clone()), // <-- use special value type `::AsyncFuncResume`
+            &s.0.borrow().this_val,
             JSValue::UNDEFINED,
-            (*s).argc,
-            (*s).frame.arg_base_ptr,
+            s.0.borrow().arg_slice(),
             JS_CALL_FLAG_GENERATOR,
         )
     };
 
     if ret.is_exception() || ret.is_undefined() {
         if ret.is_undefined() {
-            debug_assert!((*s).frame.cur_sp_offset > 0);
-            let sp_base = (*s).frame.stack_base_ptr();
-            ret = sp_base
-                .add((*s).frame.cur_sp_offset as usize - 1)
-                .as_mut()
-                .replace(JSValue::UNDEFINED);
+            debug_assert!(s.0.borrow().frame.cur_sp_offset > 0);
+            let mut stack_ptr = s.0.borrow().frame.stack_cur_ptr();
+            ret = unsafe { stack_ptr.as_mut().replace(JSValue::UNDEFINED) };
         }
 
         // end of execution
-        (*s).is_completed = true;
-        // close the closure variables.
-        (*s).frame.close_var_refs(ctx);
-        (*s).free_frame(ctx.rt_mut());
+        {
+            let mut state = s.0.borrow_mut();
+            let state = unsafe { state.as_mut().get_unchecked_mut() };
+
+            state.is_completed = true;
+            // close the closure variables.
+            state.frame.close_var_refs(ctx);
+            // state.free_frame(ctx.rt_mut());
+        }
     }
 
     ret
 }
 
 pub unsafe fn js_async_function_resolve_create(
-    ctx: &mut JSContext,
-    s: *mut JSAsyncFunctionState,
+    ctx: &JSContext,
+    s: &JSAsyncFunctionState,
 ) -> Result<[JSValue; 2], i32> {
-    let mut resolving_funcs = [JSValue::UNDEFINED; 2];
+    let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
 
     for i in 0..2 {
         let func_obj = ctx
-            .create_instance_from_proto(ctx.function_proto, {
+            .create_instance_from_proto(&ctx.0.borrow().function_proto, {
                 if i == 0 {
-                    JSObjectIsa::ASYNC_FUNCTION_RESOLVE(s)
+                    JSObjectIsa::ASYNC_FUNCTION_RESOLVE(s.clone())
                 } else {
-                    JSObjectIsa::ASYNC_FUNCTION_REJECT(s)
+                    JSObjectIsa::ASYNC_FUNCTION_REJECT(s.clone())
                 }
             })
             .map_err(|_| {
-                JS_FreeValue(ctx, resolving_funcs[0]);
+                JS_FreeValue(ctx, &resolving_funcs[0]);
                 -1
             })?;
 
-        (*s).inc_ref();
         resolving_funcs[i] = func_obj;
     }
 
@@ -347,7 +367,7 @@ pub unsafe fn js_async_function_resolve_create(
 
 #[deprecated(note = "use JSAsyncFunctionState::free_frame() instead")]
 pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
-    (*s).free_frame(rt.as_mut().unwrap());
+    unreachable!("unused");
 
     // let sf = &mut (*s).frame;
 
@@ -367,179 +387,145 @@ pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionS
     // JS_FreeValueRT(rt, (*s).this_val);
 }
 
-pub unsafe fn js_async_function_resolve_call(
-    ctx: &mut JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
+pub fn js_async_function_resolve_call(
+    ctx: &JSContext,
+    func_obj: &JSValueConst,
+    this_obj: &JSValueConst,
+    args: &[JSValue],
     flags: i32,
-) -> JSValue {
-    let p = func_obj.object_unchecked();
+) -> JSResult {
+    let p = unsafe { func_obj.object_unchecked() };
+    let s = p.0.isa.borrow().async_func_state().cloned().unwrap();
     let is_reject = p.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
-    let s = p.isa().async_func_state_ptr();
-    debug_assert!(!s.is_null());
-
-    let arg = if argc > 0 {
-        *argv.offset(0)
+    let arg = if args.len() > 0 {
+        args[0].clone()
     } else {
         JSValue::UNDEFINED
     };
 
-    (*s).throw_flag = is_reject;
-    if is_reject {
-        ctx.throw(arg.dup());
-    } else {
-        // return value of await
-        debug_assert!((*s).frame.cur_sp_offset > 0);
-
-        *(*s)
-            .frame
-            .stack_base_ptr()
-            .as_ptr()
-            .add((*s).frame.cur_sp_offset as usize - 1) = arg.dup();
+    unsafe {
+        s.0.borrow_mut().as_mut().get_unchecked_mut().throw_flag = is_reject;
     }
 
-    js_async_function_resume(ctx, s);
-    JSValue::UNDEFINED
+    if is_reject {
+        ctx.throw(arg);
+    } else {
+        // return value of await
+        debug_assert!(s.0.borrow().frame.cur_sp_offset > 0);
+
+        let mut s = s.0.borrow_mut();
+        let s = unsafe { s.as_mut().get_unchecked_mut() };
+        unsafe {
+            *s.frame
+                .stack_base_ptr()
+                .as_ptr()
+                .add(s.frame.cur_sp_offset as usize - 1) = arg;
+        }
+    }
+
+    js_async_function_resume(ctx, &s);
+    Ok(JSValue::UNDEFINED)
 }
 
 /// call an async function
-pub unsafe fn js_async_function_call(
-    ctx: &mut JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    argc: i32,
-    argv: *const JSValueConst,
+pub fn js_async_function_call(
+    ctx: &JSContext,
+    func_obj: &JSValue,
+    this_obj: &JSValue,
+    args: &[JSValue],
     flags: i32,
-) -> JSValue {
-    let mut s = if let Ok(a) = JSAsyncFunctionState::new(
-        ctx,
-        func_obj,
-        this_obj,
-        if argc == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(argv, argc as usize)
-        },
-    ) {
-        a
-    } else {
-        return JSValue::EXCEPTION;
-    };
+) -> JSResult {
+    let s = JSAsyncFunctionState::new(ctx, func_obj, this_obj, args)?;
 
-    if let Ok((promise, resolving_funcs)) = ctx.create_promise(JSValue::UNDEFINED) {
-        s.as_mut().resolving_funcs = resolving_funcs;
-        js_async_function_resume(ctx, s.as_ptr());
-        JSAsyncFunctionState::free(ctx.rt_mut(), s.as_ptr());
-        promise.as_value()
-    } else {
-        JSAsyncFunctionState::free(ctx.rt_mut(), s.as_ptr());
-        JSValue::EXCEPTION
+    let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+    unsafe {
+        s.0.borrow_mut()
+            .as_mut()
+            .get_unchecked_mut()
+            .resolving_funcs = resolving_funcs;
     }
+
+    js_async_function_resume(ctx, &s);
+
+    Ok(promise.into())
 }
 
-pub unsafe fn js_async_function_resume(ctx: *mut JSContext, s: *mut JSAsyncFunctionState) {
-    let func_ret = async_func_resume(ctx.as_mut().unwrap(), s);
+pub fn js_async_function_resume(ctx: &JSContext, s: &JSAsyncFunctionState) {
+    let func_ret = async_func_resume(ctx, s);
 
-    if (*s).is_completed {
-        let ret2: JSValue;
-
-        if func_ret.is_exception() {
-            let error = (*ctx).take_exception();
-            ret2 = JS_Call(
-                ctx.as_mut().unwrap(),
-                (*s).resolving_funcs[1], // reject
-                JSValue::UNDEFINED,
-                1,
-                [error].as_mut_ptr(),
-            );
-            JS_FreeValue(ctx, error);
-            JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
+    if s.0.borrow().is_completed {
+        let ret2: JSValue = if func_ret.is_exception() {
+            let error = ctx.take_exception();
+            JS_Call(
+                ctx,
+                &s.0.borrow().resolving_funcs[1], // reject
+                &JSValue::UNDEFINED,
+                &[error],
+            )
         } else {
             // normal return
-            ret2 = JS_Call(
-                ctx.as_mut().unwrap(),
-                (*s).resolving_funcs[0], // resolve
-                JSValue::UNDEFINED,
-                1,
-                [func_ret].as_mut_ptr(),
-            );
-            JS_FreeValue(ctx, func_ret);
-            JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
-        }
+            JS_Call(
+                ctx,
+                &s.0.borrow().resolving_funcs[0], // resolve
+                &JSValue::UNDEFINED,
+                &[func_ret],
+            )
+        };
     } else {
-        let cur_sp = (*s)
-            .frame
-            .stack_base_ptr()
-            .as_ptr()
-            .add((*s).frame.cur_pc_offset);
-
-        let value = std::ptr::replace(cur_sp.offset(-1), JSValue::UNDEFINED);
-
-        // await
-        JS_FreeValue(ctx, func_ret); // not used
+        let cur_sp = s.0.borrow().frame.stack_cur_ptr();
+        let value = unsafe { std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED) };
 
         let promise = {
-            let a = [value];
-            let cc = CallArgs::new(ctx, (*ctx).promise_ctor, &a, 0, None);
-            js_promise_resolve(ctx.as_mut().unwrap(), cc).unwrap_or(JSValue::EXCEPTION)
-        };
-        JS_FreeValue(ctx, value);
-
-        if promise.is_exception() {
-            let mut error = (*ctx).take_exception();
-            let ret2 = JS_Call(
-                ctx.as_mut().unwrap(),
-                (*s).resolving_funcs[1],
-                JSValue::UNDEFINED,
-                1,
-                &mut error,
+            let cc = CallContext::new(
+                ctx,
+                ctx.0.borrow().promise_ctor.clone(),
+                std::slice::from_ref(&value),
+                0,
+                None,
             );
-            JS_FreeValue(ctx, error);
-            JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
+            js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+        };
+        if promise.is_exception() {
+            let mut error = ctx.take_exception();
+            let ret2 = JS_Call(
+                ctx,
+                &s.0.borrow().resolving_funcs[1],
+                &JSValue::UNDEFINED,
+                &[error],
+            );
         }
 
-        let resolving_funcs =
-            if let Ok(rr) = js_async_function_resolve_create(ctx.as_mut().unwrap(), s) {
-                rr
-            } else {
-                JS_FreeValue(ctx, promise);
-                let mut error = (*ctx).take_exception();
-                let ret2 = JS_Call(
-                    ctx.as_mut().unwrap(),
-                    (*s).resolving_funcs[1],
-                    JSValue::UNDEFINED,
-                    1,
-                    &mut error,
-                );
-                JS_FreeValue(ctx, error);
-                JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
-                [JSValue::UNDEFINED; 2]
-            };
-
-        let res = UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
-            ctx.as_mut().unwrap(),
-            &resolving_funcs,
-            // no need to create 'thrownawayCapability' as in the spec
-            &[JSValue::UNDEFINED; 2],
-        );
-
-        JS_FreeValue(ctx, promise);
-        JS_FreeValue(ctx, resolving_funcs[0]);
-        JS_FreeValue(ctx, resolving_funcs[1]);
-        if res.is_err() {
-            let mut error = (*ctx).take_exception();
-            let ret2 = JS_Call(
-                ctx.as_mut().unwrap(),
-                (*s).resolving_funcs[1],
-                JSValue::UNDEFINED,
-                1,
-                &mut error,
+        let resolving_funcs = if let Ok(rr) = unsafe { js_async_function_resolve_create(ctx, s) } {
+            rr
+        } else {
+            let error = ctx.take_exception();
+            JS_Call(
+                ctx,
+                &s.0.borrow().resolving_funcs[1],
+                &JSValue::UNDEFINED,
+                &[error],
             );
-            JS_FreeValue(ctx, error);
-            JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
+            [const { JSValue::UNDEFINED }; 2]
+        };
+
+        let res = unsafe {
+            UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
+                ctx,
+                &resolving_funcs,
+                // no need to create 'thrownawayCapability' as in the spec
+                &[const { JSValue::UNDEFINED }; 2],
+            )
+        };
+
+        if res.is_err() {
+            let error = ctx.take_exception();
+            JS_Call(
+                ctx,
+                &s.0.borrow().resolving_funcs[1],
+                &JSValue::UNDEFINED,
+                &[error],
+            );
         }
     }
 }

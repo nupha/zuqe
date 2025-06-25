@@ -1,15 +1,15 @@
-use std::{ffi::CStr, ops::DerefMut};
+use std::{ffi::CStr, ops::Deref};
 
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ValueToAtom, JS_ATOM_NULL},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
     bytecode::OpCodeTemp,
     context::JSContext,
-    error::JS_ThrowSyntaxErrorAtom,
+    error::JS_ThrowSyntaxError,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::js_resize_array,
     module::{
-        add_req_module_entry, find_export_entry, JSExportEntry, JSExportTypeEnum, JSImportEntry,
-        JSModuleDef,
+        JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleDef, add_req_module_entry,
+        find_export_entry,
     },
 };
 
@@ -22,9 +22,9 @@ use super::{
     parse::skip_shebang,
     state::JSParseState,
     token::{
-        peek_token, simple_next_token, token_is_ident, token_is_pseudo_keyword, CHAR_BRACKET_L,
-        CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT, TOK_EXPORT,
-        TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR,
+        CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
+        TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR, peek_token,
+        simple_next_token, token_is_ident, token_is_pseudo_keyword,
     },
     var::define_var,
 };
@@ -39,24 +39,24 @@ pub enum JSParseExportEnum {
 impl<'s> JSParseState<'s> {
     unsafe fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
         if !token_is_pseudo_keyword(self, JS_ATOM_from) {
-            self.throw_syntax_error(c"from clause expected");
+            self.throw_syntax_error("from clause expected");
             return Err(-1);
         }
 
         self.next_token()?;
 
         if self.token.val != TOK_STRING {
-            self.throw_syntax_error(c"string expected");
+            self.throw_syntax_error("string expected");
             return Err(-1);
         }
 
-        let module_name = JS_ValueToAtom(self.ctx.as_ptr(), self.token.u.str.str);
+        let module_name = JS_ValueToAtom(&self.ctx, &self.token.data.string().unwrap());
         if module_name == JS_ATOM_NULL {
             return Err(-1);
         }
 
         if self.next_token().is_err() {
-            JS_FreeAtom(self.ctx.as_ptr(), module_name);
+            JS_FreeAtom(&self.ctx, module_name);
             return Err(-1);
         }
 
@@ -65,38 +65,42 @@ impl<'s> JSParseState<'s> {
 
     /// parse import statement
     pub unsafe fn parse_import(&mut self) -> Result<(), i32> {
-        let ctx = self.ctx;
-        let m = self.cur_func().module;
+        let m = self.cur_func().module.clone().unwrap();
 
         self.next_token()?;
 
-        let first_import = (*m).import_entries_count;
+        let first_import = m.0.borrow().import_entries_count;
         let module_name: JSAtom;
 
         if self.token.val == TOK_STRING {
-            module_name = JS_ValueToAtom(ctx.as_ptr(), self.token.u.str.str);
+            module_name = JS_ValueToAtom(&self.ctx, &self.token.data.string().unwrap());
             if module_name == JS_ATOM_NULL {
                 return Err(-1);
             }
             if self.next_token().is_err() {
-                JS_FreeAtom(ctx.as_ptr(), module_name);
+                JS_FreeAtom(&self.ctx, module_name);
                 return Err(-1);
             }
         } else {
             'outer: loop {
                 if self.token.val == TOK_IDENT {
-                    if self.token.u.ident.is_reserved {
+                    if self.token.data.is_reserved() {
                         if js_parse_error_reserved_identifier(self) != 0 {
                             return Err(-1);
                         };
                     }
 
                     // "default" import
-                    let rt = ctx.rt();
-                    let local_name = self.token.u.ident.atom.dup(rt).into_rc(rt);
+                    let local_name = self
+                        .token
+                        .data
+                        .ident_atom()
+                        .unwrap()
+                        .dup(&self.ctx.rt())
+                        .into_rc(&self.ctx.rt());
 
                     self.next_token()?;
-                    if add_import(self, m, *local_name, JS_ATOM_default) != 0 {
+                    if add_import(self, &m, *local_name, JS_ATOM_default) != 0 {
                         return Err(-1);
                     }
 
@@ -112,27 +116,27 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if !token_is_pseudo_keyword(self, JS_ATOM_as) {
-                        self.throw_syntax_error(c"expecting 'as'");
+                        self.throw_syntax_error("expecting 'as'");
                         return Err(-1);
                     }
 
                     self.next_token()?;
 
                     if !token_is_ident(self.token.val) {
-                        self.throw_syntax_error(c"identifier expected");
+                        self.throw_syntax_error("identifier expected");
                         return Err(-1);
                     }
 
                     let local_name = self
                         .token
-                        .u
-                        .ident
-                        .atom
-                        .dup((*ctx).rt())
-                        .into_rc((*ctx).rt());
+                        .data
+                        .ident_atom()
+                        .unwrap()
+                        .dup(&self.ctx.rt())
+                        .into_rc(&self.ctx.rt());
 
                     self.next_token()?;
-                    if add_import(self, m, *local_name, JS_ATOM__star_) != 0 {
+                    if add_import(self, &m, *local_name, JS_ATOM__star_) != 0 {
                         return Err(-1);
                     }
                 } else if self.token.val == '{' as i32 {
@@ -140,17 +144,17 @@ impl<'s> JSParseState<'s> {
 
                     while self.token.val != '}' as i32 {
                         if !token_is_ident(self.token.val) {
-                            self.throw_syntax_error(c"identifier expected");
+                            self.throw_syntax_error("identifier expected");
                             return Err(-1);
                         }
 
                         let import_name = self
                             .token
-                            .u
-                            .ident
-                            .atom
-                            .dup((*ctx).rt())
-                            .into_rc((*ctx).rt());
+                            .data
+                            .ident_atom()
+                            .unwrap()
+                            .dup(&self.ctx.rt())
+                            .into_rc(&self.ctx.rt());
 
                         self.next_token()?;
 
@@ -158,19 +162,19 @@ impl<'s> JSParseState<'s> {
                             self.next_token()?;
 
                             if !token_is_ident(self.token.val) {
-                                self.throw_syntax_error(c"identifier expected");
+                                self.throw_syntax_error("identifier expected");
                                 return Err(-1);
                             }
 
-                            let ln = self.token.u.ident.atom.dup((*ctx).rt());
+                            let ln = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
                             self.next_token()?;
                             ln
                         } else {
-                            import_name.dup((*ctx).rt())
+                            import_name.dup(&self.ctx.rt())
                         }
-                        .into_rc((*ctx).rt());
+                        .into_rc(&self.ctx.rt());
 
-                        if add_import(self, m, *local_name, *import_name) != 0 {
+                        if add_import(self, &m, *local_name, *import_name) != 0 {
                             return Err(-1);
                         }
 
@@ -190,13 +194,13 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = add_req_module_entry(ctx.as_ptr(), m, module_name);
-        JS_FreeAtom(ctx.as_ptr(), module_name);
+        let idx = add_req_module_entry(&self.ctx, &m, module_name);
+        JS_FreeAtom(&self.ctx, module_name);
         if idx < 0 {
             return Err(-1);
         }
-        for i in first_import..(*m).import_entries_count {
-            (*(*m).import_entries.offset(i as isize)).req_module_idx = idx;
+        for i in first_import..m.0.borrow().import_entries_count {
+            (*m.0.borrow_mut().import_entries.offset(i as isize)).req_module_idx = idx;
         }
 
         self.parse_expect_semi()
@@ -206,20 +210,20 @@ impl<'s> JSParseState<'s> {
 /// Parse an identifier and return its atom
 unsafe fn parse_export_name(s: *mut JSParseState) -> JSAtom {
     if !token_is_ident((*s).token.val) {
-        (*s).throw_syntax_error(c"identifier expected");
+        (*s).throw_syntax_error("identifier expected");
         return JS_ATOM_NULL;
     }
-    (*s).token.u.ident.atom.dup((*s).ctx.rt())
+    (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt())
 }
 
 /// Parse an 'as' clause and return the export name
 unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
-    let ctx = (*s).ctx;
+    let ctx = &(*s).ctx;
     let mut export_name = name;
 
     if token_is_pseudo_keyword(s, JS_ATOM_as) {
         if (*s).next_token().is_err() {
-            JS_FreeAtom(ctx.as_ptr(), export_name);
+            JS_FreeAtom(ctx, export_name);
             return JS_ATOM_NULL;
         }
         export_name = parse_export_name(s);
@@ -227,7 +231,7 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
             return JS_ATOM_NULL;
         }
         if (*s).next_token().is_err() {
-            JS_FreeAtom(ctx.as_ptr(), export_name);
+            JS_FreeAtom(ctx, export_name);
             return JS_ATOM_NULL;
         }
     }
@@ -236,12 +240,11 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
 }
 
 pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
-    let ctx = (*s).ctx;
-    let m = (*s).cur_func().module;
+    let ctx = &(*s).ctx;
+    let m: &JSModuleDef = (*s).cur_func().module.as_ref().unwrap();
+
     let mut local_name: JSAtom;
     let mut export_name: JSAtom;
-
-    let mut me: *mut JSExportEntry;
 
     if (*s).next_token().is_err() {
         return -1;
@@ -249,7 +252,11 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
 
     let tok = (*s).token.val;
     if tok == TOK_CLASS {
-        return js_parse_class(s, false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED);
+        return js_parse_class(
+            s.as_mut().unwrap(),
+            false,
+            JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
+        );
     } else if tok == TOK_FUNCTION
         || (token_is_pseudo_keyword(s, JS_ATOM_async) && peek_token(s, true) == TOK_FUNCTION)
     {
@@ -282,12 +289,12 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 }
                 export_name = JS_ATOM_NULL;
                 if (*s).next_token().is_err() {
-                    JS_FreeAtom(ctx.as_ptr(), local_name);
+                    JS_FreeAtom(ctx, local_name);
                     return -1;
                 }
                 export_name = parse_as_clause(s, local_name);
                 if export_name == JS_ATOM_NULL {
-                    JS_FreeAtom(ctx.as_ptr(), local_name);
+                    JS_FreeAtom(ctx, local_name);
                     return -1;
                 }
                 exports.push((local_name, export_name));
@@ -305,10 +312,10 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             }
 
             // Process named exports
-            let first_export = (*m).export_entries.len(); // (*m).export_entries_count;
+            let first_export = m.0.borrow().export_entries.len();
             for (local_name, export_name) in exports {
-                me = add_export_entry(
-                    s,
+                match add_export_entry(
+                    s.as_mut().unwrap(),
                     m,
                     local_name,
                     export_name,
@@ -316,13 +323,31 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                         var_idx: u16::MAX, // unknown for now
                         var_ref: None,
                     },
-                );
-
-                JS_FreeAtom(ctx.as_ptr(), local_name);
-                JS_FreeAtom(ctx.as_ptr(), export_name);
-                if me.is_null() {
-                    return -1;
+                ) {
+                    Ok(_) => {
+                        JS_FreeAtom(ctx, local_name);
+                        JS_FreeAtom(ctx, export_name);
+                    }
+                    Err(e) => {
+                        return -1;
+                    }
                 }
+
+                // me = add_export_entry(
+                //     s,
+                //     m,
+                //     local_name,
+                //     export_name,
+                //     JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                //         var_idx: u16::MAX, // unknown for now
+                //         var_ref: None,
+                //     },
+                // );
+                // JS_FreeAtom(ctx, local_name);
+                // JS_FreeAtom(ctx, export_name);
+                // if me.is_null() {
+                //     return -1;
+                // }
             }
 
             // Handle re-exports
@@ -332,13 +357,13 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 } else {
                     return -1;
                 };
-                let idx = add_req_module_entry(ctx.as_ptr(), m, module_name);
-                JS_FreeAtom(ctx.as_ptr(), module_name);
+                let idx = add_req_module_entry(ctx, m, module_name);
+                JS_FreeAtom(ctx, module_name);
                 if idx < 0 {
                     return -1;
                 }
 
-                for me in &mut (*m).export_entries[first_export..] {
+                for me in &mut m.0.borrow_mut().export_entries[first_export..] {
                     me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx);
                 }
             }
@@ -354,31 +379,36 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             let module_name = if let Ok(n) = (*s).parse_from_clause() {
                 n
             } else {
-                JS_FreeAtom(ctx.as_ptr(), export_name);
+                JS_FreeAtom(ctx, export_name);
                 return -1;
             };
-            let idx = add_req_module_entry(ctx.as_ptr(), m, module_name);
-            JS_FreeAtom(ctx.as_ptr(), module_name);
+            let idx = add_req_module_entry(ctx, m, module_name);
+            JS_FreeAtom(ctx, module_name);
             if idx < 0 {
-                JS_FreeAtom(ctx.as_ptr(), export_name);
+                JS_FreeAtom(ctx, export_name);
                 return -1;
             }
-            me = add_export_entry(
-                s,
+
+            let me = add_export_entry(
+                s.as_mut().unwrap(),
                 m,
                 JS_ATOM__star_,
                 export_name,
                 JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx),
             );
-            JS_FreeAtom(ctx.as_ptr(), export_name);
-            if me.is_null() {
+            JS_FreeAtom(ctx, export_name);
+            if me.is_err() {
                 return -1;
             }
         }
 
         TOK_DEFAULT => {
             if (*s).token.val == TOK_CLASS {
-                return js_parse_class(s, false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT);
+                return js_parse_class(
+                    s.as_mut().unwrap(),
+                    false,
+                    JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
+                );
             } else if (*s).token.val == TOK_FUNCTION
                 || (token_is_pseudo_keyword(s, JS_ATOM_async)
                     && peek_token(s, true) == TOK_FUNCTION)
@@ -416,7 +446,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             emit_u16(s, 0);
 
             if add_export_entry(
-                s,
+                s.as_mut().unwrap(),
                 m,
                 local_name,
                 JS_ATOM_default,
@@ -425,7 +455,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     var_ref: None,
                 },
             )
-            .is_null()
+            .is_err()
             {
                 return -1;
             }
@@ -436,7 +466,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
         }
 
         _ => {
-            (*s).throw_syntax_error(c"invalid export syntax");
+            (*s).throw_syntax_error("invalid export syntax");
             return -1;
         }
     }
@@ -444,75 +474,69 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
     (*s).parse_expect_semi().map_or(-1, |_| 0)
 }
 
-pub unsafe fn add_export_entry2(
-    ctx: *mut JSContext,
+unsafe fn add_export_entry2(
+    ctx: &JSContext,
     s: *mut JSParseState,
-    m: *mut JSModuleDef,
+    m: &JSModuleDef,
     local_name: JSAtom,
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
-) -> *mut JSExportEntry {
-    if find_export_entry(ctx, m, export_name).is_some() {
+) -> Result<(), i32> {
+    if find_export_entry(m, export_name).is_some() {
         if !s.is_null() {
-            (*s).throw_syntax_error(CStr::from_ptr(
-                format!(
-                    "duplicate exported name '{}'\0",
-                    export_name.to_str((*ctx).rt()),
-                )
-                .as_ptr()
-                .cast(),
+            (*s).throw_syntax_error(&format!(
+                "duplicate exported name '{}'",
+                export_name.to_str(ctx.rt()),
             ));
         } else {
-            JS_ThrowSyntaxErrorAtom(ctx, c"duplicate exported name '%s'", export_name);
+            JS_ThrowSyntaxError(
+                ctx,
+                &format!("duplicate exported name '{}'", export_name.to_str(ctx.rt())),
+            );
         }
 
-        return std::ptr::null_mut();
+        return Err(-1);
     }
 
-    if (*m).export_entries.len() == (*m).export_entries.capacity() {
-        if (*m).export_entries.try_reserve_exact(4).is_err() {
-            (*ctx).JS_ThrowOutOfMemory();
-            return std::ptr::null_mut();
+    m.with_mut(|m| {
+        if m.export_entries.len() == m.export_entries.capacity() {
+            if m.export_entries.try_reserve_exact(4).is_err() {
+                ctx.JS_ThrowOutOfMemory();
+                return Err(-1);
+            }
         }
-    }
+        Ok(())
+    })?;
 
-    let mut me = Box::new(JSExportEntry {
+    let exp = Box::new(JSExportEntry {
         export_type,
-        local_name: local_name.dup((*ctx).rt()),
-        export_name: export_name.dup((*ctx).rt()),
+        local_name: local_name.dup(&ctx.rt()),
+        export_name: export_name.dup(&ctx.rt()),
     });
+    m.0.borrow_mut().export_entries.push(exp);
 
-    let ptr = me.as_mut() as *mut _;
-    (*m).export_entries.push(me);
-
-    ptr
+    Ok(())
 }
 
-pub unsafe fn add_export_entry(
-    s: *mut JSParseState,
-    m: *mut JSModuleDef,
+pub fn add_export_entry<'a>(
+    s: &mut JSParseState,
+    m: &JSModuleDef,
     local_name: JSAtom,
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
-) -> *mut JSExportEntry {
-    add_export_entry2(
-        (*s).ctx.as_ptr(),
-        s,
-        m,
-        local_name,
-        export_name,
-        export_type,
-    )
+) -> Result<(), i32> {
+    let ctx = s.ctx.clone();
+    unsafe { add_export_entry2(&ctx, s, m, local_name, export_name, export_type) }
 }
 
 pub unsafe fn add_import(
     s: *mut JSParseState,
-    m: *mut JSModuleDef,
+    m: &JSModuleDef,
     local_name: JSAtom,
     import_name: JSAtom,
 ) -> i32 {
     if local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval {
-        (*s).throw_syntax_error(c"invalid import binding");
+        (*s).throw_syntax_error("invalid import binding");
         return -1;
     }
 
@@ -523,18 +547,17 @@ pub unsafe fn add_import(
             .as_ref()
             .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
         {
-            (*s).throw_syntax_error(c"duplicate import binding");
+            (*s).throw_syntax_error("duplicate import binding");
             return -1;
         }
     }
 
-    let mut ctx = (*s).ctx;
     let is_local = import_name == JS_ATOM__star_;
     let var_idx = if let Ok(vi) = (*s).cur_func_mut().add_closure_var(
-        ctx.deref_mut(),
+        &(*s).ctx,
         is_local,
         false,
-        (*m).import_entries_count,
+        m.0.borrow().import_entries_count,
         local_name,
         true,
         true,
@@ -545,23 +568,26 @@ pub unsafe fn add_import(
         return -1;
     };
 
-    if js_resize_array(
-        ctx.as_ptr(),
-        std::ptr::addr_of_mut!((*m).import_entries).cast(),
-        std::mem::size_of::<JSImportEntry>() as _,
-        std::ptr::addr_of_mut!((*m).import_entries_size),
-        (*m).import_entries_count as i32 + 1,
-    ) != 0
     {
-        return -1;
-    }
+        let mut md = m.0.borrow_mut();
 
-    let mi = (*m)
-        .import_entries
-        .offset((*m).import_entries_count as isize);
-    (*m).import_entries_count += 1;
-    (*mi).import_name = import_name.dup(ctx.rt());
-    (*mi).var_idx = var_idx;
+        if js_resize_array(
+            &(*s).ctx,
+            std::ptr::addr_of_mut!(md.import_entries).cast(),
+            std::mem::size_of::<JSImportEntry>() as _,
+            std::ptr::addr_of_mut!(m.0.borrow_mut().import_entries_size),
+            md.import_entries_count as i32 + 1,
+        ) != 0
+        {
+            return -1;
+        }
+
+        let mi = md.import_entries.offset(md.import_entries_count as isize);
+        md.import_entries_count += 1;
+
+        (*mi).import_name = import_name.dup(&(*s).ctx.rt());
+        (*mi).var_idx = var_idx;
+    }
 
     0
 }

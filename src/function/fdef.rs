@@ -1,24 +1,29 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{consts::*, js_atom_concat_str, JSAtom, JS_DupAtom, JS_FreeAtom, JS_ATOM_NULL},
-    bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
-    context::{JSContext, JSContextHandle, JS_MODE_STRIP},
-    error::{JS_ThrowSyntaxErrorAtom, JS_THROW_VAR_RO},
+    atom::{
+        JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_str,
+    },
+    bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
+    context::{JS_MODE_STRIP, JSContext},
+    error::{JS_THROW_VAR_RO, JS_ThrowSyntaxError},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
-        free_bytecode_atoms, JSClosureVar, JSFunctionKindEnum, JSGlobalVar, JSVarDef,
-        JSVarKindEnum, JSVarScope, DEFINE_GLOBAL_LEX_VAR,
+        DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSFunctionKindEnum, JSGlobalVar, JSVarDef,
+        JSVarKindEnum, JSVarScope, free_bytecode_atoms,
     },
     list_entry,
     mem::js_malloc_typed,
     module::JSModuleDef,
     parse::JSParseFunctionEnum,
+    runtime::JSRuntime,
     utils::{
-        init_list_head, list_add_tail, list_del, list_foreach_safe, list_head, push_vec_u16,
-        push_vec_u32, push_vec_u8, read_from_ptr,
+        init_list_head, list_add_tail, list_del, list_foreach_safe, list_head, push_vec_u8,
+        push_vec_u16, push_vec_u32, read_from_ptr,
     },
     value::{
+        JS_FreeValueRT, JSValue,
         object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-        JSValue, JS_FreeValue,
     },
 };
 
@@ -27,7 +32,7 @@ use super::LabelSlot;
 #[derive(Debug)]
 #[repr(C)]
 pub struct JSFunctionDef {
-    pub ctx: JSContextHandle,
+    pub ctx: JSContext,
 
     /// parent function def
     /// TODO: use Option<Box<JSFunctionDef>>
@@ -184,30 +189,30 @@ pub struct JSFunctionDef {
     /// pc到行号的映射表
     pub pc2line: Option<Vec<u8>>,
 
-    // 模块定义（解析模块时非空）
-    pub module: *mut JSModuleDef,
-    // 是否包含await（用于模块eval）
+    /// 模块定义（解析模块时非空）
+    pub module: Option<JSModuleDef>,
+
+    /// 是否包含await（用于模块eval）
     pub has_await: bool,
 }
 
-// #[cfg(debug_assertions)]
-// impl Drop for JSFunctionDef {
-//     fn drop(&mut self) {
-//         println!("JSFunctionDef::drop({self:p})");
-//     }
-// }
+impl Drop for JSFunctionDef {
+    fn drop(&mut self) {
+        self.finalize();
+    }
+}
 
 impl JSFunctionDef {
     /// alloc a function def, and initialize it.
     pub(crate) fn new0(
-        mut ctx: JSContextHandle,
+        mut ctx: &JSContext,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         let o = JSFunctionDef {
-            ctx,
+            ctx: ctx.clone(),
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
@@ -292,12 +297,13 @@ impl JSFunctionDef {
             line_num,
             pc2line: None,
             source: None,
-            module: std::ptr::null_mut(),
+
+            module: None,
             has_await: false,
         };
 
         let fd = unsafe {
-            let mut p = js_malloc_typed::<JSFunctionDef>(ctx.as_ptr(), 1, true).ok_or(-1)?;
+            let mut p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
             p.write(o);
 
             init_list_head(&mut p.as_mut().child_list);
@@ -308,8 +314,8 @@ impl JSFunctionDef {
     }
 
     /// create function def and attach to parent-child chain
-    pub fn new<X: Into<JSContextHandle>>(
-        ctx: X,
+    pub fn new(
+        ctx: &JSContext,
         parent: *mut JSFunctionDef,
         is_eval: bool,
         is_func_expr: bool,
@@ -317,8 +323,7 @@ impl JSFunctionDef {
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         debug_assert!(line_num >= 0);
-
-        Self::new0(ctx.into(), is_eval, is_func_expr, filename, line_num).map(|mut fd| {
+        Self::new0(ctx, is_eval, is_func_expr, filename, line_num).map(|mut fd| {
             if !parent.is_null() {
                 fd.set_parent(parent);
             }
@@ -367,7 +372,7 @@ impl JSFunctionDef {
     }
 
     #[cfg(feature = "dump_bytecode")]
-    pub fn dump_bytecode(&self, ctx: &mut JSContext, pass: i32) {
+    pub fn dump_bytecode(&self, ctx: &JSContext, pass: i32) {
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass {pass}");
 
@@ -391,15 +396,16 @@ impl JSFunctionDef {
         }
     }
 
-    /// drop Box<Self> and all its subs.
-    pub fn dispose(mut self: Box<Self>, ctx: &mut JSContext) {
+    fn finalize(&mut self) {
         // free child function defs
         list_foreach_safe(&mut self.child_list, |el| unsafe {
             let fd1 = list_entry!(el, JSFunctionDef, link);
-            Self::dispose(Box::from_raw(fd1), ctx);
+            drop(Box::from_raw(fd1));
         });
 
-        free_bytecode_atoms(ctx.rt_mut(), &self.byte_code, self.use_short_opcodes);
+        let rt = self.ctx.rt_mut();
+
+        free_bytecode_atoms(rt, &self.byte_code, self.use_short_opcodes);
         self.byte_code.clear();
 
         // #[cfg(feature = "short_opcode")]
@@ -409,11 +415,11 @@ impl JSFunctionDef {
         // self.line_number_slots.clear();
 
         for v in self.cpool.drain(..) {
-            JS_FreeValue(ctx, v);
+            JS_FreeValueRT(rt, &v);
         }
 
         for mut vd in self.args.drain(..) {
-            JS_FreeAtom(ctx, vd.var_name);
+            JS_FreeAtomRT(rt, vd.var_name);
             #[cfg(debug_assertions)]
             {
                 vd.var_name = JS_ATOM_NULL;
@@ -421,7 +427,7 @@ impl JSFunctionDef {
         }
 
         for mut vd in self.vars.drain(..) {
-            JS_FreeAtom(ctx, vd.var_name);
+            JS_FreeAtomRT(rt, vd.var_name);
             #[cfg(debug_assertions)]
             {
                 vd.var_name = JS_ATOM_NULL;
@@ -429,17 +435,17 @@ impl JSFunctionDef {
         }
 
         for gv in self.global_vars.drain(..) {
-            JS_FreeAtom(ctx, gv.var_name);
+            JS_FreeAtomRT(rt, gv.var_name);
         }
 
         if let Some(mut lst) = self.closure_vars.take() {
             for cv in lst.drain(..) {
-                JS_FreeAtom(ctx, cv.var_name);
+                JS_FreeAtomRT(rt, cv.var_name);
             }
         }
 
-        JS_FreeAtom(ctx, self.func_name);
-        JS_FreeAtom(ctx, self.filename);
+        JS_FreeAtomRT(rt, self.func_name);
+        JS_FreeAtomRT(rt, self.filename);
 
         if !self.parent.is_null() {
             // remove from parent's list
@@ -483,26 +489,21 @@ pub struct JumpSlot {
 
 #[deprecated(note = "use JSFunctionDef::new() instead")]
 pub unsafe fn js_new_function_def(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     parent: *mut JSFunctionDef,
     is_eval: bool,
     is_func_expr: bool,
     filename: &str,
     line_num: i32,
 ) -> *mut JSFunctionDef {
-    if let Ok(d) = JSFunctionDef::new(
-        ctx.as_mut().unwrap(),
-        parent,
-        is_eval,
-        is_func_expr,
-        filename,
-        line_num,
-    ) {
-        debug_assert_eq!(d.scope_first, -1);
-        Box::into_raw(d)
-    } else {
-        std::ptr::null_mut()
-    }
+    unreachable!("use JSFunctionDef::new() instead");
+
+    // if let Ok(d) = JSFunctionDef::new(ctx, parent, is_eval, is_func_expr, filename, line_num) {
+    //     debug_assert_eq!(d.scope_first, -1);
+    //     Box::into_raw(d)
+    // } else {
+    //     std::ptr::null_mut()
+    // }
 }
 
 /// update label ref count by delta. returns new ref count.
@@ -536,31 +537,31 @@ pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
 }
 
 #[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
-pub unsafe fn add_func_var(ctx: &mut JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
+pub unsafe fn add_func_var(ctx: &JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
     (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
-pub unsafe fn add_var_this(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
+pub unsafe fn add_var_this(ctx: &JSContext, fd: *mut JSFunctionDef) -> i32 {
     (*fd).add_var_this(ctx).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_arguments(ctx, false) instead")]
-pub unsafe fn add_arguments_var(ctx: &mut JSContext, fd: *mut JSFunctionDef) -> i32 {
+pub unsafe fn add_arguments_var(ctx: &JSContext, fd: *mut JSFunctionDef) -> i32 {
     (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32)
 }
 
 // add an argument definition in the argument scope. Only needed when
 // "eval()" may be called in the argument scope. Return 0 if OK.
 #[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
-pub unsafe fn add_arguments_arg(ctx: &mut JSContext, fd: &mut JSFunctionDef) -> i32 {
+pub unsafe fn add_arguments_arg(ctx: &JSContext, fd: &mut JSFunctionDef) -> i32 {
     (*fd).add_arguments(ctx, true).map_or(-1, |x| x as i32)
 }
 
 /// find closure var by name, returning index of the closure var
 #[deprecated(note = "use JSFunctionDef::find_closure_var() instead")]
 pub unsafe fn find_closure_var(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     s: &mut JSFunctionDef,
     var_name: JSAtom,
 ) -> Option<u16> {
@@ -572,7 +573,7 @@ pub unsafe fn find_closure_var(
 // 'fd'
 #[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
 pub unsafe fn get_closure_var2(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     s: &mut JSFunctionDef,
     fd: *const JSFunctionDef,
     is_local: bool,
@@ -590,7 +591,7 @@ pub unsafe fn get_closure_var2(
 
 #[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
 pub unsafe fn get_closure_var(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     s: &mut JSFunctionDef,
     fd: *const JSFunctionDef,
     is_arg: bool,
@@ -605,26 +606,25 @@ pub unsafe fn get_closure_var(
     )
 }
 
-pub unsafe fn get_label_pos(s: *const JSFunctionDef, mut label: i32) -> i32 {
+pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
-        pos = (*s).label_slots[label as usize].pos;
-
+        pos = s.label_slots[label as usize].pos;
         loop {
-            match (*s).byte_code[pos as usize] {
+            match s.byte_code[pos as usize] {
                 opcodes::op_line_num | opcodes::op_label => {
                     pos += 5;
                     continue;
                 }
                 opcodes::OP_goto => {
-                    label = read_from_ptr::<i32>((*s).byte_code.as_ptr().add(pos as usize + 1));
+                    label =
+                        unsafe { read_from_ptr::<i32>(s.byte_code.as_ptr().add(pos as usize + 1)) };
                 }
                 _ => {
                     return pos;
                 }
             }
-
             break;
         }
     }
@@ -689,7 +689,7 @@ pub fn skip_dead_code(
                     }
 
                     let atom = JSAtom(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
-                    JS_FreeAtom((*s).ctx.as_ptr(), atom);
+                    JS_FreeAtom(&(*s).ctx, atom);
                 },
                 _ => {}
             }
@@ -717,7 +717,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
 /// var_name is not consumed.
 // return 0 if OK or -1 if the private field could not be resolved
 pub fn resolve_scope_private_field(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     s: *mut JSFunctionDef,
     var_name: JSAtom,
     scope_level: i32,
@@ -765,7 +765,7 @@ pub fn resolve_scope_private_field(
                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
                     // XXX: add clearer error message
                     bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
+                    bc.extend_from_slice(var_name.dup(ctx.rt().deref()).0.to_ne_bytes().as_slice());
                     bc.push(JS_THROW_VAR_RO);
                 }
                 _ => {
@@ -782,7 +782,7 @@ pub fn resolve_scope_private_field(
                 JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
                     // XXX: add clearer error message
                     bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
+                    bc.extend_from_slice(var_name.dup(ctx.rt().deref()).0.to_ne_bytes().as_slice());
                     bc.push(JS_THROW_VAR_RO);
                 }
                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER
@@ -852,7 +852,7 @@ pub fn find_private_class_field_all(fd: *mut JSFunctionDef, name: JSAtom, scope_
 
 /// var_name is not consumed
 pub fn resolve_scope_private_field1(
-    ctx: &mut JSContext,
+    ctx: &JSContext,
     pis_ref: *mut bool,
     pvar_kind: *mut JSVarKindEnum,
     s: *mut JSFunctionDef,
@@ -927,7 +927,10 @@ pub fn resolve_scope_private_field1(
             }
 
             // XXX: no line number info
-            JS_ThrowSyntaxErrorAtom(ctx, c"undefined private field '%s'", var_name);
+            JS_ThrowSyntaxError(
+                ctx,
+                &format!("undefined private field '{}'", var_name.to_str(ctx.rt())),
+            );
             return -1;
         } else {
             fd = unsafe { (*fd).parent };
@@ -946,12 +949,12 @@ pub fn resolve_scope_private_field1(
 }
 
 /* build a private setter function name from the private getter name */
-pub fn get_private_setter_name(ctx: *mut JSContext, name: JSAtom) -> JSAtom {
+pub fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
     unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }
 
 pub unsafe fn instantiate_hoisted_definitions(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     s: *mut JSFunctionDef,
     bc: &mut Vec<u8>,
 ) {
@@ -981,7 +984,7 @@ pub unsafe fn instantiate_hoisted_definitions(
     // the module global variables must be initialized before
     // evaluating the module so that the exported functions are
     // visible if there are cyclic module references
-    if !(*s).module.is_null() {
+    if (*s).module.is_some() {
         let l = (*s)
             .add_label()
             .expect("TODO: unhandled create label exception");
@@ -1089,7 +1092,7 @@ pub unsafe fn instantiate_hoisted_definitions(
         JS_FreeAtom(ctx, hf.var_name);
     }
 
-    if !(*s).module.is_null() {
+    if (*s).module.is_some() {
         let l = label_next.unwrap();
         push_vec_u8(bc, OpCode::RETURN_UNDEF as u8);
         push_vec_u8(bc, OpCodeTemp::LABEL as u8);

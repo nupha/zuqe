@@ -1,21 +1,20 @@
+use std::ops::Deref;
+
 use crate::{
     array::JS_IsArray,
-    atom::{consts::*, JSAtom},
+    atom::{JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowStackOverflow, JS_ThrowTypeErrorRevokedProxy},
-    function::JS_CallFree,
+    function::JS_Call,
     gc::GCMarkFunc,
-    runtime::{js_check_stack_overflow, JSRuntime},
+    runtime::{JSRuntime, js_check_stack_overflow},
     value::{
-        object::{
-            JSObjectIsa, JS_GetPrototype, JS_IsExtensible, JS_PreventExtensions,
-            JS_SetPrototypeInternal,
-        },
-        JSValue, JSValueConst, JS_FreeValue, JS_IsException, JS_IsUndefined, JS_ToBoolFree,
-        JS_TAG_NULL, JS_TAG_OBJECT, JS_UNDEFINED, JS_VALUE_GET_OBJ,
+        JSValue, JSValueConst,
+        object::{JS_PreventExtensions, JS_SetPrototypeInternal, JSObjectIsa},
     },
 };
 
+#[derive(Debug)]
 pub struct JSProxyData {
     pub target: JSValue,
     pub handler: JSValue,
@@ -23,18 +22,16 @@ pub struct JSProxyData {
     pub is_revoked: bool,
 }
 
-pub unsafe fn get_proxy_method(
-    ctx: *mut JSContext,
-    pmethod: *mut JSValue,
-    obj: JSValueConst,
+pub unsafe fn get_proxy_method<'a>(
+    ctx: &'a JSContext,
+    obj: &'a JSValueConst,
     name: JSAtom,
-) -> *mut JSProxyData {
-    if let JSObjectIsa::PROXY(s) = obj.object_unchecked().isa() {
-        let s = *s;
+) -> Result<(JSValue, &'a JSProxyData), i32> {
+    if let JSObjectIsa::PROXY(s) = obj.object_unchecked().0.isa.borrow().deref() {
         unimplemented!()
 
         // // safer to test recursion in all proxy methods
-        // if js_check_stack_overflow((*ctx).rt, 0) {
+        // if js_check_stack_overflow(ctx.rt, 0) {
         //     JS_ThrowStackOverflow(ctx);
         //     return std::ptr::null_mut();
         // }
@@ -58,141 +55,97 @@ pub unsafe fn get_proxy_method(
     }
 }
 
-pub unsafe fn js_proxy_isArray(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    if let JSObjectIsa::PROXY(s) = obj.object_unchecked().isa() {
-        let s = *s;
-        if js_check_stack_overflow((*ctx).rt(), 0) {
-            JS_ThrowStackOverflow(ctx);
-            return Err(-1);
+pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
+    if let JSValue::Object(p) = val {
+        if let JSObjectIsa::PROXY(s) = p.0.isa.borrow().deref() {
+            unsafe {
+                if js_check_stack_overflow(ctx.rt().deref(), 0) {
+                    JS_ThrowStackOverflow(ctx);
+                    return Err(-1);
+                }
+                if s.is_revoked {
+                    JS_ThrowTypeErrorRevokedProxy(ctx);
+                    return Err(-1);
+                }
+                JS_IsArray(ctx, &(*s).target)
+            }
+        } else {
+            Ok(false)
         }
-        if s.as_ref().unwrap().is_revoked {
-            JS_ThrowTypeErrorRevokedProxy(ctx);
-            return Err(-1);
-        }
-        JS_IsArray(ctx, s.as_ref().unwrap().target)
     } else {
         Ok(false)
     }
 }
 
-pub unsafe fn js_proxy_isExtensible(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
-    let mut method = JSValue::default();
-    let s = get_proxy_method(ctx, &mut method, obj, JS_ATOM_isExtensible);
-    if s.is_null() {
-        return Err(-1);
+pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValueConst) -> Result<bool, i32> {
+    let (method, s) = unsafe { get_proxy_method(ctx, obj, JS_ATOM_isExtensible)? };
+    if method.is_undefined() {
+        return s.target.is_extensible(ctx);
     }
 
-    if JS_IsUndefined(method) {
-        return JS_IsExtensible(ctx, (*s).target);
-    }
-    let ret = JS_CallFree(
-        ctx.as_mut().unwrap(),
-        method,
-        (*s).handler,
-        1,
-        &mut (*s).target,
-    );
-    if JS_IsException(ret) {
-        return Err(-1);
-    }
+    let ret = JS_Call(ctx, &method, &s.handler, &[s.target.clone()]).check_exception()?;
 
-    let b = JS_ToBoolFree(ctx, ret)?;
-    if b != JS_IsExtensible(ctx, (*s).target)? {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeError(c"proxy: inconsistent isExtensible");
+    let b = ret.coerce_to_bool(ctx)?;
+    if b != s.target.is_extensible(ctx)? {
+        ctx.JS_ThrowTypeError("proxy: inconsistent isExtensible");
         return Err(-1);
     }
 
     Ok(b)
 }
 
-pub unsafe fn js_proxy_preventExtensions(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-) -> Result<bool, i32> {
-    let mut method: JSValue = JS_UNDEFINED;
-    let s = get_proxy_method(ctx, &mut method, obj, JS_ATOM_preventExtensions);
-    if s.is_null() {
-        return Err(-1);
-    }
-    if JS_IsUndefined(method) {
-        return JS_PreventExtensions(ctx, (*s).target);
+pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+    let (method, s) = unsafe { get_proxy_method(ctx, obj, JS_ATOM_preventExtensions)? };
+    if method.is_undefined() {
+        return JS_PreventExtensions(ctx, &s.target);
     }
 
-    let ret = JS_CallFree(
-        ctx.as_mut().unwrap(),
-        method,
-        (*s).handler,
-        1,
-        &mut (*s).target,
-    );
-    if JS_IsException(ret) {
-        return Err(-1);
-    }
+    let ret =
+        JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target)).check_exception()?;
 
-    let res = JS_ToBoolFree(ctx, ret)?;
-    if res {
-        if JS_IsExtensible(ctx, (*s).target)? {
-            ctx.as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"proxy: inconsistent preventExtensions");
-            return Err(-1);
-        }
+    let res = ret.coerce_to_bool(ctx)?;
+    if res && s.target.is_extensible(ctx)? {
+        ctx.JS_ThrowTypeError("proxy: inconsistent preventExtensions");
+        return Err(-1);
     }
 
     Ok(res)
 }
 
-pub unsafe fn js_proxy_getPrototypeOf(ctx: *mut JSContext, obj: JSValueConst) -> JSValue {
-    let mut method: JSValue = JS_UNDEFINED;
-    let s = get_proxy_method(ctx, &mut method, obj, JS_ATOM_getPrototypeOf);
-    if s.is_null() {
+pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValueConst) -> JSValue {
+    let (method, s) = if let Ok((m, s)) = get_proxy_method(ctx, obj, JS_ATOM_getPrototypeOf) {
+        (m, s)
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
+
     if method.is_undefined() {
-        return JS_GetPrototype(ctx, (*s).target);
+        return s.target.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
     }
 
-    let ret = JS_CallFree(
-        ctx.as_mut().unwrap(),
-        method,
-        (*s).handler,
-        1,
-        &mut (*s).target,
-    );
+    let ret = JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target));
     if ret.is_exception() {
         return ret;
     }
 
-    if !matches!(ret.tag(), JS_TAG_NULL | JS_TAG_OBJECT) {
-        {
-            // C2RS: goto fail replaced with a block to handle the failure case
-            JS_FreeValue(ctx, ret);
-            return ctx
-                .as_mut()
-                .unwrap()
-                .JS_ThrowTypeError(c"proxy: inconsistent prototype");
-        }
+    if !matches!(ret, JSValue::NULL | JSValue::Object(_)) {
+        ctx.JS_ThrowTypeError("proxy: inconsistent prototype");
+        return JSValue::EXCEPTION;
     }
 
-    match JS_IsExtensible(ctx, (*s).target) {
+    match s.target.is_extensible(ctx) {
         Ok(false) => {
             // check invariant
-            let proto1 = JS_GetPrototype(ctx, (*s).target);
-            if JS_IsException(proto1) {
-                JS_FreeValue(ctx, ret);
-                return JSValue::EXCEPTION;
-            }
-            if JS_VALUE_GET_OBJ(proto1) != JS_VALUE_GET_OBJ(ret) {
-                JS_FreeValue(ctx, proto1);
-                JS_FreeValue(ctx, ret);
-
-                ctx.as_mut()
-                    .unwrap()
-                    .JS_ThrowTypeError(c"proxy: inconsistent prototype")
+            let proto1 = if let Ok(p) = s.target.prototype(ctx) {
+                p
             } else {
-                JS_FreeValue(ctx, proto1);
+                return JSValue::EXCEPTION;
+            };
+
+            if proto1 != ret {
+                ctx.JS_ThrowTypeError("proxy: inconsistent prototype");
+                JSValue::EXCEPTION
+            } else {
                 ret
             }
         }
@@ -202,64 +155,47 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: *mut JSContext, obj: JSValueConst) ->
 }
 
 pub unsafe fn js_proxy_setPrototypeOf(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    proto_val: JSValueConst,
+    ctx: &JSContext,
+    obj: &JSValue,
+    proto_val: JSValue,
     throw_flag: bool,
 ) -> Result<bool, i32> {
-    let mut method: JSValue = JS_UNDEFINED;
-    let s = get_proxy_method(ctx, &mut method, obj, JS_ATOM_setPrototypeOf);
-    if s.is_null() {
-        return Err(-1);
-    }
-    if JS_IsUndefined(method) {
-        return JS_SetPrototypeInternal(ctx, (*s).target, proto_val, throw_flag);
+    let (method, s) = get_proxy_method(ctx, obj, JS_ATOM_setPrototypeOf)?;
+    if method.is_undefined() {
+        return JS_SetPrototypeInternal(ctx, &s.target, proto_val, throw_flag);
     }
 
-    let mut args = [(*s).target, proto_val];
-    let ret = JS_CallFree(
-        ctx.as_mut().unwrap(),
-        method,
-        (*s).handler,
-        2,
-        args.as_mut_ptr(),
-    );
-    if JS_IsException(ret) {
-        return Err(-1);
-    }
+    let ret = JS_Call(
+        ctx,
+        &method,
+        &s.handler,
+        &[s.target.clone(), proto_val.clone()],
+    )
+    .check_exception()?;
 
-    match JS_ToBoolFree(ctx, ret) {
+    match ret.coerce_to_bool(ctx) {
         Ok(false) => {
             if throw_flag {
-                ctx.as_mut()
-                    .unwrap()
-                    .JS_ThrowTypeError(c"proxy: bad prototype");
+                ctx.JS_ThrowTypeError("proxy: bad prototype");
                 Err(-1)
             } else {
                 Ok(false)
             }
         }
         Ok(true) | Err(_) => {
-            if !JS_IsExtensible(ctx, (*s).target)? {
-                let proto1 = JS_GetPrototype(ctx, (*s).target);
-                if JS_IsException(proto1) {
+            if !s.target.is_extensible(ctx)? {
+                let proto1 = s.target.prototype(ctx)?;
+                if proto_val != proto1 {
+                    ctx.JS_ThrowTypeError("proxy: inconsistent prototype");
                     return Err(-1);
                 }
-                if JS_VALUE_GET_OBJ(proto_val) != JS_VALUE_GET_OBJ(proto1) {
-                    JS_FreeValue(ctx, proto1);
-                    ctx.as_mut()
-                        .unwrap()
-                        .JS_ThrowTypeError(c"proxy: inconsistent prototype");
-                    return Err(-1);
-                }
-                JS_FreeValue(ctx, proto1);
             }
             Ok(true)
         }
     }
 }
 
-pub unsafe fn js_proxy_finalizer(rt: *mut JSRuntime, val: JSValue) {
+pub fn js_proxy_finalizer(rt: &mut JSRuntime, is: &JSObjectIsa, id: usize) {
     unimplemented!();
 }
 

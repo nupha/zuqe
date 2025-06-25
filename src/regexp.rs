@@ -1,13 +1,16 @@
+use std::ops::Deref;
+
 use crate::{
+    JS_CLASS_REGEXP,
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
     gc::GCMarkFunc,
     parse::JSParseState,
     runtime::JSRuntime,
-    value::{object::JSObjectIsa, JSString, JSValue, JSValueConst, JS_ToBoolFree, JS_TAG_OBJECT},
-    JS_CLASS_REGEXP,
+    value::{JSString, JSValue, JSValueConst, object::JSObjectIsa},
 };
 
+#[derive(Debug)]
 pub struct JSRegExpStringIteratorData {
     pub iterating_regexp: JSValue,
     pub iterated_string: JSValue,
@@ -16,10 +19,10 @@ pub struct JSRegExpStringIteratorData {
     pub done: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct JSRegExp {
-    pattern: *mut JSString,
-    bytecode: *mut JSString, /* also contains the flags */
+    pattern: JSString,
+    bytecode: JSString, /* also contains the flags */
 }
 
 // code point ranges for Zs,Zl or Zp property
@@ -102,7 +105,7 @@ pub const fn is_digit(c: u8) -> bool {
 /* create a RegExp object from a string containing the RegExp bytecode
 and the source pattern */
 pub unsafe fn js_regexp_constructor_internal(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     ctor: JSValueConst,
     pattern: JSValue,
     bc: JSValue,
@@ -110,50 +113,42 @@ pub unsafe fn js_regexp_constructor_internal(
     unimplemented!()
 }
 
-pub unsafe fn js_get_regexp(
-    ctx: *mut JSContext,
-    obj: JSValueConst,
-    throw_error: bool,
-) -> *mut JSRegExp {
-    if obj.tag() == JS_TAG_OBJECT {
-        if let JSObjectIsa::REGEXP(re) = obj.object_unchecked().isa() {
-            return *re;
+pub fn js_get_regexp(ctx: &JSContext, obj: &JSValueConst, throw_error: bool) -> Option<JSRegExp> {
+    if let JSValue::Object(ob) = obj {
+        if let JSObjectIsa::REGEXP(re) = ob.0.isa.borrow().deref() {
+            return Some(*re.clone());
         }
     }
-
     if throw_error {
-        ctx.as_mut()
-            .unwrap()
-            .JS_ThrowTypeErrorInvalidClass(JS_CLASS_REGEXP);
+        ctx.JS_ThrowTypeErrorInvalidClass(JS_CLASS_REGEXP);
     }
-
-    std::ptr::null_mut()
+    None
 }
 
-pub unsafe fn js_is_regexp(ctx: *mut JSContext, obj: JSValueConst) -> Result<bool, i32> {
+pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     if !obj.is_object() {
         return Ok(false);
     }
 
-    let m = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_match);
+    let m = obj.get_property(ctx, JS_ATOM_Symbol_match);
     if m.is_exception() {
         return Err(-1);
     }
     if !m.is_undefined() {
-        return JS_ToBoolFree(ctx, m);
+        return m.coerce_to_bool(ctx);
     }
-    if !js_get_regexp(ctx, obj, false).is_null() {
+    if js_get_regexp(ctx, obj, false).is_some() {
         Ok(true)
     } else {
         Ok(false)
     }
 }
 
-pub unsafe fn js_regexp_finalizer(rt: *mut JSRuntime, val: JSValue) {
+pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
     unimplemented!();
 }
 
-pub unsafe fn js_regexp_iterator_finalizer(rt: *mut JSRuntime, val: JSValue) {
+pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
     unimplemented!();
 }
 

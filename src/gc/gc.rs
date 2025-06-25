@@ -1,10 +1,12 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    context::JSContext, function::JSVarRef, runtime::JSRuntime, utils::Node, value::JSValueConst,
+    context::JSContext,
+    function::JSVarRef,
+    runtime::JSRuntime,
+    utils::Node,
+    value::{JSValueConst, object::GCObjectWeakref},
 };
-
-use super::{GCObject, GCObjectType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JSGCPhaseEnum {
@@ -22,38 +24,12 @@ pub fn JS_DumpObjectHeader() {
     );
 }
 
-fn gcobject_to_node(g: Box<dyn GCObject>) -> Box<Node<Box<dyn GCObject>>> {
-    Node::new(g, |data, link| {
-        let ptr = link.as_ptr();
-        match &mut data.gc_type() {
-            GCObjectType::Object(mut o) => unsafe {
-                o.as_mut().header.list_node = ptr;
-            },
-            GCObjectType::FunctionBytecode(mut o) => unsafe {
-                o.as_mut().header.list_node = ptr;
-            },
-            GCObjectType::Shape(mut o) => unsafe {
-                o.as_mut().header.list_node = ptr;
-            },
-            GCObjectType::VarRef(o) => unsafe {
-                o.cast::<JSVarRef>().as_mut().header.list_node = ptr;
-            },
-            GCObjectType::AsyncFunction(mut o) => unsafe {
-                o.as_mut().header.list_node = ptr;
-            },
-            GCObjectType::Context(mut o) => unsafe {
-                o.as_mut().header.list_node = ptr;
-            },
-        }
-    })
-}
-
 impl JSRuntime {
     /// Adds a GC object to the garbage collector's tracking list
     /// Initializes the object's mark and type, then adds it to the GC object list
-    pub fn gc_add_object(&mut self, mut ob: Box<dyn GCObject>) {
-        ob.set_gc_mark(0);
-        self.gc_obj_list.push(gcobject_to_node(ob));
+    pub fn gc_add_object(&mut self, ob: GCObjectWeakref) {
+        // ob.set_gc_mark(0);
+        self.gc_obj_list.push(ob);
     }
 
     /// Frees objects in zeroed gc list
@@ -61,16 +37,15 @@ impl JSRuntime {
         // Set GC phase to decrement reference count
         self.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_DECREF;
 
-        while let Some(mut node) = self.gc_zero_ref_count_list.pop() {
-            debug_assert_eq!(node.ref_count(), 0);
-            node.finalize(self);
+        println!("[O.o] TODO gc free zeroed");
 
-            if self.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && node.ref_count() != 0 {
-                self.gc_zero_ref_count_list.push(node);
-            }
+        // while let Some(mut node) = self.gc_zero_ref_count_list.pop() {
+        //     if self.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && node.ref_count() != 0 {
+        //         self.gc_zero_ref_count_list.push(node);
+        //     }
 
-            // node is dropped here
-        }
+        //     // node is dropped here
+        // }
 
         // Reset GC phase
         self.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
@@ -84,45 +59,45 @@ impl JSRuntime {
         let mut rt = unsafe { NonNull::new_unchecked(self) };
 
         for node in self.gc_obj_list.iter_mut() {
-            debug_assert_eq!(node.gc_mark(), 0);
+            // debug_assert_eq!(node.gc_mark(), 0);
 
-            node.gc_mark_children(unsafe { rt.as_mut() }, |rt, p| unsafe {
-                debug_assert!(!p.is_null());
+            // node.gc_mark_children(unsafe { rt.as_mut() }, |rt, p| unsafe {
+            //     debug_assert!(!p.is_null());
 
-                #[cfg(debug_assertions)]
-                if (*p).gc_mark() == 0 {
-                    // if (*p).ref_count() == 0 {
-                    //     (*p).gc_dump(rt.as_ref().unwrap());
-                    //     let n = (*p).gc_node_ptr();
-                    //     Node::unlink(n);
-                    //     // panic!("object in gc list must have ref count greater than 0, if it's not in marking")
-                    // }
+            //     #[cfg(debug_assertions)]
+            //     if (*p).gc_mark() == 0 {
+            //         // if (*p).ref_count() == 0 {
+            //         //     (*p).gc_dump(rt.as_ref().unwrap());
+            //         //     let n = (*p).gc_node_ptr();
+            //         //     Node::unlink(n);
+            //         //     // panic!("object in gc list must have ref count greater than 0, if it's not in marking")
+            //         // }
 
-                    debug_assert!(
-                        (*p).ref_count() > 0,
-                        "object in gc list must have ref count greater than 0, if it's not in marking"
-                    );
-                }
+            //         debug_assert!(
+            //             (*p).ref_count() > 0,
+            //             "object in gc list must have ref count greater than 0, if it's not in marking"
+            //         );
+            //     }
 
-                // must do def_ref() first
-                if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
-                    let n = (*p).gc_node_ptr();
-                    Node::unlink(n);
-                    (*rt).tmp_obj_list.push_raw(n);
-                } else {
-                    // node is dropped
-                }
-            });
+            //     // must do def_ref() first
+            //     if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
+            //         let n = (*p).gc_node_ptr();
+            //         Node::unlink(n);
+            //         (*rt).tmp_obj_list.push_raw(n);
+            //     } else {
+            //         // node is dropped
+            //     }
+            // });
 
-            node.set_gc_mark(1);
+            // node.set_gc_mark(1);
 
-            if node.ref_count() == 0 {
-                unsafe {
-                    let n = NonNull::from(node);
-                    Node::unlink(n);
-                    self.tmp_obj_list.push_raw(n);
-                }
-            }
+            // if node.ref_count() == 0 {
+            //     unsafe {
+            //         let n = NonNull::from(node);
+            //         Node::unlink(n);
+            //         self.tmp_obj_list.push_raw(n);
+            //     }
+            // }
         }
     }
 
@@ -158,7 +133,7 @@ impl JSRuntime {
         JS_DumpObjectHeader();
 
         for node in list.iter() {
-            node.gc_dump(self);
+            // node.gc_dump(self);
         }
 
         println!("}}");
@@ -222,7 +197,7 @@ pub fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
 //     }
 // }
 
-/* Marks an object as potentially part of a function prototype cycle */
-pub unsafe fn set_cycle_flag(ctx: *mut JSContext, obj: JSValueConst) {
+/// Marks an object as potentially part of a function prototype cycle
+pub fn set_cycle_flag(ctx: &JSContext, obj: &JSValueConst) {
     // to nothing
 }

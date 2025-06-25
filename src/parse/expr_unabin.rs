@@ -1,11 +1,13 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{JS_FreeAtom, JS_ATOM_NULL},
+    atom::{JS_ATOM_NULL, JS_FreeAtom},
     bytecode::{OpCode, OpCodeTemp},
     error::JS_ThrowSyntaxError,
     function::JSFunctionKindEnum,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
-        token::{peek_token, TOK_IN},
+        token::{TOK_IN, TokenData, peek_token},
     },
 };
 
@@ -37,32 +39,36 @@ impl<'s> JSParseState<'s> {
             && level == 4
             && peek_token(self, false) == TOK_IN
         {
-            let atom = self.token.u.ident.atom.dup(self.ctx.rt());
+            let atom = if let TokenData::Ident { atom, .. } = self.token.data {
+                atom.dup(&self.ctx.rt());
+                atom
+            } else {
+                unreachable!()
+            };
 
             if self.next_token().is_err() {
-                JS_FreeAtom(self.ctx.as_ptr(), atom);
+                JS_FreeAtom(&self.ctx, atom);
                 return Err(-1);
             }
             if self.token.val != TOK_IN {
-                JS_FreeAtom(self.ctx.as_ptr(), atom);
+                JS_FreeAtom(&self.ctx, atom);
                 return Err(-1);
             }
-            if self.next_token().is_err() {
-                JS_FreeAtom(self.ctx.as_ptr(), atom);
-                return Err(-1);
-            }
+            self.next_token().inspect_err(|_| {
+                JS_FreeAtom(&self.ctx, atom);
+            })?;
             if self
                 .parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)
                 .is_err()
             {
-                JS_FreeAtom(self.ctx.as_ptr(), atom);
+                JS_FreeAtom(&self.ctx, atom);
                 return Err(-1);
             }
 
             emit_op_temp(self, OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
             emit_atom_dup(self, atom);
             emit_u16(self, self.cur_func().scope_level as _);
-            JS_FreeAtom(self.ctx.as_ptr(), atom);
+            JS_FreeAtom(&self.ctx, atom);
 
             return Ok(());
         } else {
@@ -228,11 +234,11 @@ impl<'s> JSParseState<'s> {
             }
             TOK_AWAIT => {
                 if !self.cur_func().func_kind.is_async() {
-                    self.throw_syntax_error(c"unexpected 'await' keyword");
+                    self.throw_syntax_error("unexpected 'await' keyword");
                     return Err(-1);
                 }
                 if !self.cur_func().in_function_body {
-                    self.throw_syntax_error(c"await in default expression");
+                    self.throw_syntax_error("await in default expression");
                     return Err(-1);
                 }
 
@@ -294,9 +300,9 @@ impl<'s> JSParseState<'s> {
                 syntax error. */
                 if parse_flags & PF_POW_FORBIDDEN != 0 {
                     JS_ThrowSyntaxError(
-                    self.ctx.as_ptr(),
-                    c"unparenthesized unary expression can't appear on the left-hand side of '**'",
-                );
+                        &self.ctx,
+                        "unparenthesized unary expression can't appear on the left-hand side of '**'",
+                    );
                     return Err(-1);
                 }
 

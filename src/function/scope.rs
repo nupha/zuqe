@@ -93,7 +93,7 @@ impl JSFunctionDef {
     /// define a variable in the current scope
     pub unsafe fn add_scope_var(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         name: JSAtom,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {

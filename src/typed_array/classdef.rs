@@ -1,6 +1,11 @@
 use std::cmp::Ordering;
 
 use crate::{
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
+    JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array::{
         js_array_every, js_array_reduce, special_TA, special_every, special_filter, special_find,
         special_findIndex, special_findLast, special_findLastIndex, special_forEach,
@@ -11,133 +16,101 @@ use crate::{
     bytecode::js_for_of_start,
     class::JSClassID,
     context::JSContext,
-    error::{JSResult, JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer},
-    function::{CallArgs, JSCFunctionListEntry, JS_Call, JS_CallConstructor},
-    iterator::{js_create_array_iterator, JSIteratorKindEnum, JS_IteratorClose, JS_IteratorNext},
+    error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    function::{CallContext, JS_Call, JS_CallConstructor, JSCFunctionListEntry},
+    iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
-    typed_array::{typed_array_size_log2, Float32Array, Float64Array},
+    typed_array::{Float32Array, Float64Array, typed_array_size_log2},
     utils::UncheckedInto,
     value::{
-        object::{
-            js_get_length64, JS_SpeciesConstructor, JS_ToObject, JS_PROP_C_W_E, JS_PROP_THROW,
-        },
-        JSTag, JSValue, JSValueConst, JSValueRc, JS_FreeValue, JS_ToBoolFree, JS_ToFloat64,
-        JS_ToIndex, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree, JS_ToUint32,
-        JS_ToUint8ClampFree, StringContent, HINT_NUMBER, JS_TAG_OBJECT, JS_VALUE_GET_FLOAT64,
-        JS_VALUE_GET_INT, JS_VALUE_GET_NORM_TAG,
+        HINT_NUMBER, JS_ToFloat64, JS_ToIndex, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree,
+        JS_ToUint8ClampFree, JS_ToUint32, JSValue, JSValueConst, StringContent,
+        object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     },
-    JS_ALIAS_DEF, JS_CFUNC_DEF, JS_CFUNC_MAGIC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF,
-    JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY,
-    JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
-    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
-    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT8_ARRAY,
-    JS_MKPTR,
 };
 
-use super::{js_typed_array_get_length_internal, js_typed_array_set_internal, TypedArrayValue};
+use super::{TypedArrayValue, js_typed_array_get_length_internal, js_typed_array_set_internal};
 
-pub unsafe fn js_typed_array_base_constructor(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    (*ctx).JS_ThrowTypeError(c"cannot be called")
+pub fn js_typed_array_base_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    ctx.JS_ThrowTypeError("cannot be called");
+    Err(-1)
 }
 
-pub unsafe fn js_typed_array___speciesCreate(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let obj = *argv.offset(0);
+pub fn js_typed_array___speciesCreate(
+    ctx: &JSContext,
+    this_val: &JSValueConst,
+    args: &[JSValue],
+) -> JSResult {
+    let obj = &args[0];
+    let p = obj.clone().typed_array_must(ctx, false)?;
 
-    if let Ok(p) = obj.typed_array_must(ctx.as_mut().unwrap(), false) {
-        let ctor = JS_SpeciesConstructor(ctx, obj, JSValue::UNDEFINED);
-        if ctor.is_exception() {
-            return ctor;
-        }
-
-        let argc1 = std::cmp::max(argc - 1, 0);
-        if ctor.is_undefined() {
-            js_typed_array_constructor(
-                ctx,
-                JSValue::UNDEFINED,
-                argc1,
-                argv.offset(1),
-                p.class_id() as _,
-            )
-        } else {
-            let ret = js_typed_array_create(ctx, ctor, argc1, argv.offset(1));
-            JS_FreeValue(ctx, ctor);
-            ret
-        }
+    let ctor = JS_SpeciesConstructor(ctx, &obj, JSValue::UNDEFINED)?;
+    let args_list = if args.len() > 1 { &args[1..] } else { &[] };
+    if ctor.is_undefined() {
+        js_typed_array_constructor(
+            ctx,
+            CallContext::new(ctx, JSValue::UNDEFINED, args_list, p.class_id() as _, None),
+        )
     } else {
-        JSValue::EXCEPTION
+        js_typed_array_create(ctx, &ctor, args_list)
     }
 }
 
-pub unsafe fn js_typed_array_constructor(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    classid: i32,
-) -> JSValue {
-    let res = if (*argv.offset(0)).tag() != JS_TAG_OBJECT {
-        let mut len = 0;
-        if JS_ToIndex(ctx, &mut len, *argv.offset(0)) != 0 {
-            return JSValue::EXCEPTION;
-        }
-        (*ctx).create_typed_array_from(
-            new_target,
-            JSValue::UNDEFINED,
-            0,
-            len as usize,
-            classid as _,
-        )
-    } else {
-        let p = (*argv.offset(0)).object_unchecked();
+pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let new_target = cc.this();
+    let class_id = cc.magic();
+
+    if let JSValue::Object(p) = cc.arg(0) {
         if matches!(
-            (*p).class_id(),
+            p.class_id(),
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
         ) {
             let mut offset = 0;
-            if JS_ToIndex(ctx, &mut offset, *argv.offset(1)) != 0 {
-                return JSValue::EXCEPTION;
+            if unsafe { JS_ToIndex(ctx, &mut offset, cc.arg(1)) } != 0 {
+                return Err(-1);
             }
 
             let mut len = 0;
-            let a2 = *argv.offset(2);
+            let a2 = cc.arg(2);
             if !a2.is_undefined() {
-                if JS_ToIndex(ctx, &mut len, *argv.offset(2)) != 0 {
-                    return JSValue::EXCEPTION;
+                if unsafe { JS_ToIndex(ctx, &mut len, a2) } != 0 {
+                    return Err(-1);
                 }
             }
-            (*ctx).create_typed_array_from(
+
+            ctx.create_typed_array_from(
                 new_target,
-                *argv,
+                cc.arg(0),
                 offset as usize,
                 len as usize,
-                classid as _,
+                class_id as _,
             )
         } else {
-            (*ctx).create_typed_array_from(new_target, *argv, 0, 0, classid as _)
+            ctx.create_typed_array_from(new_target, cc.arg(0), 0, 0, class_id as _)
         }
-    };
+    } else {
+        let mut len = 0;
+        if unsafe { JS_ToIndex(ctx, &mut len, cc.arg(0)) } != 0 {
+            return Err(-1);
+        }
 
-    res.unwrap_or(JSValue::EXCEPTION)
+        ctx.create_typed_array_from(
+            new_target,
+            &JSValue::UNDEFINED,
+            0,
+            len as usize,
+            class_id as _,
+        )
+    }
 }
 
 pub unsafe fn js_typed_array_constructor_obj(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    obj: JSValueConst,
+    ctx: &JSContext,
+    new_target: &JSValueConst,
+    obj: &JSValueConst,
     classid: i32,
 ) -> JSValue {
-    (*ctx)
-        .create_typed_array_from(new_target, obj, 0, 0, classid as _)
+    ctx.create_typed_array_from(new_target, obj, 0, 0, classid as _)
         .unwrap_or(JSValue::EXCEPTION)
 
     // let size_log2 = typed_array_size_log2(classid as _);
@@ -147,7 +120,7 @@ pub unsafe fn js_typed_array_constructor_obj(
     //     return JSValue::EXCEPTION;
     // }
 
-    // let iter = obj.get_property(ctx.as_mut().unwrap(), JS_ATOM_Symbol_iterator);
+    // let iter = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
     // if iter.is_exception() {
     //     JS_FreeValue(ctx, ret);
     //     return JSValue::EXCEPTION;
@@ -190,7 +163,7 @@ pub unsafe fn js_typed_array_constructor_obj(
     // }
 
     // for i in 0..len {
-    //     let val = arr.get_property_u32(ctx.as_mut().unwrap(), i as u32);
+    //     let val = arr.get_property_u32(ctx, i as u32);
     //     if val.is_exception() {
     //         JS_FreeValue(ctx, arr);
     //         JS_FreeValue(ctx, ret);
@@ -199,7 +172,7 @@ pub unsafe fn js_typed_array_constructor_obj(
     //     }
 
     //     if ret
-    //         .set_property_u32(ctx.as_mut().unwrap(), i as u32, val)
+    //         .set_property_u32(ctx, i as u32, val)
     //         .is_err()
     //     {
     //         JS_FreeValue(ctx, arr);
@@ -213,66 +186,48 @@ pub unsafe fn js_typed_array_constructor_obj(
     // return ret;
 }
 
-pub unsafe fn js_typed_array_constructor_ta(
-    ctx: *mut JSContext,
-    new_target: JSValueConst,
-    src_obj: JSValueConst,
+pub fn js_typed_array_constructor_ta(
+    ctx: &JSContext,
+    new_target: &JSValue,
+    src_obj: JSValue,
     classid: i32,
-) -> JSValue {
-    UncheckedInto::<TypedArrayValue>::unchecked_into(src_obj)
-        .create_to_new(ctx.as_mut().unwrap(), new_target, classid as JSClassID)
-        .unwrap_or(JSValue::EXCEPTION)
+) -> JSResult {
+    unsafe { UncheckedInto::<TypedArrayValue>::unchecked_into(src_obj) }.create_to_new(
+        ctx,
+        new_target,
+        classid as JSClassID,
+    )
 }
 
-pub unsafe fn js_typed_array_create(
-    ctx: *mut JSContext,
-    ctor: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    let ret = JS_CallConstructor(ctx.as_mut().unwrap(), ctor, argc, argv);
-    if ret.is_exception() {
-        return ret;
-    }
+pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) -> JSResult {
+    let ret = JS_CallConstructor(ctx, ctor, args).check_exception()?;
 
     // validate the typed array
-    let new_len = if let Ok(n) = js_typed_array_get_length_internal(ctx.as_mut().unwrap(), ret) {
-        n
-    } else {
-        JS_FreeValue(ctx, ret);
-        return JSValue::EXCEPTION;
-    };
+    let new_len = unsafe { js_typed_array_get_length_internal(ctx, &ret)? };
 
-    if argc == 1 {
+    if args.len() == 1 {
         // ensure that it is large enough
-        let len = if let Ok(n) = JS_ToLengthFree(ctx, (*argv.offset(0)).dup()) {
-            n
-        } else {
-            JS_FreeValue(ctx, ret);
-            return JSValue::EXCEPTION;
-        };
-
+        let len = unsafe { JS_ToLengthFree(ctx, args[0].clone())? };
         if new_len < len as u32 {
-            JS_FreeValue(ctx, ret);
-            (*ctx).JS_ThrowTypeError(c"TypedArray length is too small");
-            return JSValue::EXCEPTION;
+            ctx.JS_ThrowTypeError("TypedArray length is too small");
+            return Err(-1);
         }
     }
 
-    ret
+    Ok(ret)
 }
 
-pub fn js_typed_array_from(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     // from(items, mapfn = void 0, this_arg = void 0)
-    let items = args.get_raw(0);
+    let items = args.arg(0);
 
     let mut mapping = false;
-    let mut mapfn = JSValue::UNDEFINED;
+    let mut mapfn = &JSValue::UNDEFINED;
     let mut this_arg = JSValue::UNDEFINED;
 
     let argc = args.length();
     if argc > 1 {
-        mapfn = args.get_raw(1);
+        mapfn = args.arg(1);
         if !mapfn.is_undefined() {
             mapfn.ensure_callable(ctx)?;
             mapping = true;
@@ -284,111 +239,69 @@ pub fn js_typed_array_from(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     let iter = items
         .get_property(ctx, JS_ATOM_Symbol_iterator)
-        .check_exception()?
-        .into_rc(ctx.rt());
+        .check_exception()?;
 
-    let arr: JSValueRc;
+    let arr: JSValue;
 
     if !iter.is_undefined() {
-        arr = ctx.create_array()?.into_rc(ctx.rt());
+        arr = ctx.create_array()?;
 
         // call iterator() of `items` to get enum object and next() method.
-        let mut stack = [items.dup(), JSValue::UNDEFINED]; // [enum_obj, next]
+        let mut stack = [items.clone(), JSValue::UNDEFINED]; // [enum_obj, next]
         if unsafe { js_for_of_start(ctx, stack.as_mut_ptr().add(1), false) } != 0 {
             return Err(-1);
         }
 
-        let mut enum_obj = stack[0].into_rc(ctx.rt());
-        let cx = ctx as *mut JSContext;
-        enum_obj.on_drop(move |_, v| unsafe {
-            JS_IteratorClose(cx, v, true);
-        });
-
-        let next = stack[1].into_rc(ctx.rt());
+        let enum_obj = &stack[0];
+        let next = &stack[1];
         let mut k = 0;
 
         loop {
-            unsafe {
-                let mut done = false;
-                let v = JS_IteratorNext(ctx, *enum_obj, *next, 0, std::ptr::null_mut(), &mut done)
-                    .check_exception()?;
+            let mut done = false;
+            let v = JS_IteratorNext(ctx, enum_obj, &next, &[], &mut done)
+                .check_exception()
+                .inspect_err(|_| {
+                    JS_IteratorClose(ctx, enum_obj, true);
+                })?;
 
-                if done {
-                    break;
-                } else {
-                    arr.define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
-                }
+            if done {
+                break;
+            } else {
+                arr.define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)
+                    .inspect_err(|_| unsafe {
+                        JS_IteratorClose(ctx, enum_obj, true);
+                    })?;
+                k += 1;
             }
+        }
 
-            k += 1;
+        unsafe {
+            JS_IteratorClose(ctx, &enum_obj, true);
         }
     } else {
-        arr = unsafe { JS_ToObject(ctx, items).check_exception()?.into_rc(ctx.rt()) };
+        arr = items.coerce_to_object(ctx)?;
     }
 
-    let len = unsafe { js_get_length64(ctx, *arr)? };
-    let len_val = JSValue::from_i64(len).into_rc(ctx.rt());
-    let res_ta = unsafe {
-        js_typed_array_create(ctx, args.this_raw(), 1, [*len_val].as_mut_ptr())
-            .check_exception()?
-            .into_rc(ctx.rt())
-    };
+    let len = js_get_length64(ctx, &arr)?;
+    let len_val = JSValue::from(len);
+    let res_ta = js_typed_array_create(ctx, args.this(), &[len_val])?;
 
-    for k in 0..len {
-        let mut nth_val = arr.get_property_i64(ctx, k).check_exception()?;
-
+    for i in 0..len {
+        let mut el = arr.get_property_i64(ctx, i).check_exception()?;
         if mapping {
-            unsafe {
-                let v2 = JS_Call(
-                    ctx,
-                    mapfn,
-                    this_arg,
-                    2,
-                    [nth_val, (k as i32).into()].as_mut_ptr(),
-                );
-                JS_FreeValue(ctx, nth_val);
-                if v2.is_exception() {
-                    return Err(-1);
-                }
-                nth_val = v2;
-            }
+            el = JS_Call(ctx, mapfn, &this_arg, &[el, JSValue::Int(i as i32)]).check_exception()?;
         }
-
-        if res_ta.set_property_i64(ctx, k, nth_val).is_err() {
-            unsafe {
-                JS_FreeValue(ctx, nth_val);
-            }
-            return Err(-1);
-        };
+        res_ta.set_property_i64(ctx, i, el)?;
     }
 
-    Ok(res_ta.into())
+    Ok(res_ta)
 }
 
-pub fn js_typed_array_of(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let obj = unsafe {
-        js_typed_array_create(
-            ctx,
-            args.this_raw(),
-            1,
-            [JSValue::from_i32(args.length() as i32)].as_mut_ptr(),
-        )
-        .check_exception()?
-    };
+pub fn js_typed_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let obj = js_typed_array_create(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)])?;
 
-    for i in 0..args.length() {
-        obj.set_property_u32(ctx, i as u32, args.get_raw(i).dup())
-            .inspect_err(|_| {
-                JS_FreeValue(ctx, obj);
-            })?;
-
-        // if obj
-        //     .set_property_u32(ctx, i as u32, args.get_raw(i).dup())
-        //     .is_err()
-        // {
-        //     JS_FreeValue(ctx, obj);
-        //     return Err(-1);
-        // }
+    for i in 0..cc.length() {
+        obj.set_property_u32(ctx, i as u32, cc.arg(i).clone())?;
     }
 
     Ok(obj)
@@ -404,8 +317,8 @@ pub const js_typed_array_base_funcs: [JSCFunctionListEntry; 3] = [
 // Prototype
 //
 
-pub unsafe fn js_typed_array_get_length(ctx: *mut JSContext, this_val: JSValueConst) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx.as_mut().unwrap(), false) {
+pub unsafe fn js_typed_array_get_length(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
+    if let Ok(p) = this_val.typed_array_must(ctx, false) {
         (p.length() as i32).into()
     } else {
         JSValue::EXCEPTION
@@ -413,30 +326,31 @@ pub unsafe fn js_typed_array_get_length(ctx: *mut JSContext, this_val: JSValueCo
 }
 
 pub unsafe fn js_typed_array_get_buffer(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
+    ctx: &JSContext,
+    this_val: JSValue,
     is_dataview: i32,
 ) -> JSValue {
     this_val
-        .typed_array_must(ctx.as_mut().unwrap(), is_dataview != 0)
-        .map(|p| JS_MKPTR!(JSTag::Object, p.typed_array().buffer.as_ptr().cast()).dup())
+        .typed_array_must(ctx, is_dataview != 0)
+        .map(|p| JSValue::Object(p.with_typed_array(|ta| ta.buffer.clone())))
         .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn js_typed_array_get_byteLength(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
+    ctx: &JSContext,
+    this_val: JSValue,
     is_dataview: i32,
 ) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx.as_mut().unwrap(), is_dataview != 0) {
+    if let Ok(p) = this_val.typed_array_must(ctx, is_dataview != 0) {
         if p.is_detached() {
             if is_dataview != 0 {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx)
+                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                JSValue::EXCEPTION
             } else {
-                JSValue::ZERO
+                JSValue::Int(0)
             }
         } else {
-            (p.typed_array().byte_length as i32).into()
+            JSValue::Int(p.with_typed_array(|ta| ta.byte_length) as i32)
         }
     } else {
         JSValue::EXCEPTION
@@ -444,166 +358,119 @@ pub unsafe fn js_typed_array_get_byteLength(
 }
 
 pub unsafe fn js_typed_array_get_byteOffset(
-    ctx: *mut JSContext,
+    ctx: &JSContext,
     this_val: JSValueConst,
     is_dataview: i32,
 ) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx.as_mut().unwrap(), is_dataview != 0) {
-        p.array_buffer_byte_offset(ctx.as_mut().unwrap(), is_dataview != 0)
+    if let Ok(p) = this_val.typed_array_must(ctx, is_dataview != 0) {
+        p.array_buffer_byte_offset(ctx, is_dataview != 0)
             .map_or(JSValue::EXCEPTION, |n| JSValue::from(n as i32))
     } else {
         JSValue::EXCEPTION
     }
 }
 
-pub unsafe fn js_typed_array_at(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx.as_mut().unwrap(), false) {
-        if p.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return JSValue::EXCEPTION;
-        }
-
-        let mut idx: i64 = 0;
-        if JS_ToInt64Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-            return JSValue::EXCEPTION;
-        }
-
-        let len = p.length() as i64;
-        if idx < 0 {
-            idx += len;
-        }
-        if idx < 0 || idx >= len {
-            return JSValue::UNDEFINED;
-        }
-
-        this_val.get_property_i64(ctx.as_mut().unwrap(), idx)
-    } else {
-        JSValue::EXCEPTION
+pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let p = cc.this().clone().typed_array_must(ctx, false)?;
+    if p.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
     }
+
+    let mut idx: i64 = 0;
+    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
+    }
+
+    let len = p.length() as i64;
+    if idx < 0 {
+        idx += len;
+    }
+    if idx < 0 || idx >= len {
+        return Err(-1);
+    }
+
+    cc.this()
+        .get_property_value(ctx, &JSValue::from(idx))
+        .check_exception()
 }
 
-pub unsafe fn js_typed_array_with(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx.as_mut().unwrap(), false) {
-        let mut idx: i64 = 0;
-        if JS_ToInt64Sat(ctx, &mut idx, *argv.offset(0)) != 0 {
-            return JSValue::EXCEPTION;
-        }
+pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this().clone();
+    let p = this_val.clone().typed_array_must(ctx, false)?;
 
-        let len = p.length() as i64;
-        if idx < 0 {
-            idx += len;
-        }
-        if idx < 0 || idx >= len {
-            return JS_ThrowRangeError(ctx, c"out of bound");
-        }
-
-        let val = if let Ok(v) =
-            (*argv.offset(1)).coerce_to_primitive(ctx.as_mut().unwrap(), HINT_NUMBER)
-        {
-            v
-        } else {
-            return JSValue::EXCEPTION;
-        };
-
-        let arr =
-            js_typed_array_constructor_ta(ctx, JSValue::UNDEFINED, this_val, p.class_id() as _);
-        if arr.is_exception() {
-            JS_FreeValue(ctx, val);
-            return JSValue::EXCEPTION;
-        }
-        if arr
-            .set_property_i64(ctx.as_mut().unwrap(), idx, val)
-            .is_err()
-        {
-            JS_FreeValue(ctx, arr);
-            return JSValue::EXCEPTION;
-        }
-
-        arr
-    } else {
-        JSValue::EXCEPTION
+    let mut idx: i64 = 0;
+    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
+        return Err(-1);
     }
+
+    let len = p.length() as i64;
+    if idx < 0 {
+        idx += len;
+    }
+    if idx < 0 || idx >= len {
+        JS_ThrowRangeError(ctx, "out of bound");
+        return Err(-1);
+    }
+
+    let val = cc.arg(1).coerce_to_primitive(ctx, HINT_NUMBER)?;
+    let arr = js_typed_array_constructor_ta(ctx, &JSValue::UNDEFINED, this_val, p.class_id() as _)?;
+    arr.set_property_i64(ctx, idx, val)?;
+    Ok(arr)
 }
 
-pub unsafe fn js_typed_array_set(
-    ctx: *mut JSContext,
-    this_val: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    let offset = if argc > 1 {
-        *argv.offset(1)
+pub fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let offset = if cc.length() > 1 {
+        cc.arg(1)
     } else {
-        JSValue::UNDEFINED
+        &JSValue::UNDEFINED
     };
-
-    js_typed_array_set_internal(ctx, this_val, *argv.offset(0), offset)
+    js_typed_array_set_internal(ctx, cc.this(), cc.arg(0), offset)
 }
 
-pub unsafe fn js_create_typed_array_iterator(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
-    if let Ok(tao) = this_val.typed_array_must(ctx.as_mut().unwrap(), false) {
-        if tao.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return JSValue::EXCEPTION;
-        }
-        js_create_array_iterator(ctx, this_val, argc, argv, magic)
+pub fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let tao = cc.this().clone().typed_array_must(ctx, false)?;
+    if tao.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        Err(-1)
     } else {
-        JSValue::EXCEPTION
+        js_create_array_iterator(ctx, cc)
     }
 }
 
-pub unsafe fn js_typed_array_get_toStringTag(
-    ctx: *mut JSContext,
-    this_val: JSValueConst,
-) -> JSValue {
+pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
     if let Ok(tao) = TryInto::<TypedArrayValue>::try_into(this_val) {
-        let class_name = (*ctx).rt().class_array[tao.class_id() as usize].class_name;
-        class_name.to_value(ctx.as_mut().unwrap(), true)
+        let class_name = ctx.rt().class_array[tao.class_id() as usize].class_name;
+        class_name.to_value(ctx, true)
     } else {
         JSValue::UNDEFINED
     }
 }
 
-pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     unsafe {
-        let len = js_typed_array_get_length_internal(ctx, args.this_raw())? as i32;
+        let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
 
         let mut to: i32 = 0;
         let mut from: i32 = 0;
 
-        if JS_ToInt32Clamp(ctx, &mut to, args.get_raw(0), 0, len, len) != 0 {
+        if JS_ToInt32Clamp(ctx, &mut to, cc.arg(0), 0, len, len) != 0 {
             return Err(-1);
         }
-        if JS_ToInt32Clamp(ctx, &mut from, args.get_raw(1), 0, len, len) != 0 {
+        if JS_ToInt32Clamp(ctx, &mut from, cc.arg(1), 0, len, len) != 0 {
             return Err(-1);
         }
 
         let mut final_ = len;
-        if args.length() > 2 && !args.get_raw(2).is_undefined() {
-            if JS_ToInt32Clamp(ctx, &mut final_, args.get_raw(2), 0, len, len) != 0 {
+        if cc.length() > 2 && !cc.get_raw(2).is_undefined() {
+            if JS_ToInt32Clamp(ctx, &mut final_, cc.arg(2), 0, len, len) != 0 {
                 return Err(-1);
             }
         }
 
         let count = std::cmp::min(final_ - from, len - to);
         if count > 0 {
-            let mut tao: TypedArrayValue = args.this_raw().unchecked_into();
+            let tao: TypedArrayValue = cc.this_raw().unchecked_into();
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 return Err(-1);
@@ -611,7 +478,9 @@ pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResul
 
             let shift = typed_array_size_log2(tao.class_id());
 
-            tao.with_bytes_mut_ptr(|ptr| {
+            tao.with_bytes_mut(|buf| unsafe {
+                let ptr = buf.as_mut_ptr();
+
                 std::ptr::copy(
                     ptr.add((from << shift) as usize),
                     ptr.add((to << shift) as usize),
@@ -620,36 +489,37 @@ pub fn js_typed_array_copyWithin(ctx: &mut JSContext, args: CallArgs) -> JSResul
             });
         }
 
-        Ok(args.this_raw().dup())
+        Ok(cc.this().clone())
     }
 }
 
-pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
-    let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let mut p: TypedArrayValue = unsafe { this_val.unchecked_into() };
+pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this().clone();
+
+    let len = unsafe { js_typed_array_get_length_internal(ctx, &this_val)? as i32 };
+    let mut p: TypedArrayValue = unsafe { this_val.clone().unchecked_into() };
 
     let v64: u64;
 
     match p.class_id() {
         JS_CLASS_UINT8C_ARRAY => {
             let mut v: i32 = 0;
-            if unsafe { JS_ToUint8ClampFree(ctx, &mut v, args.get_raw(0).dup()) } != 0 {
+            if unsafe { JS_ToUint8ClampFree(ctx, &mut v, cc.arg(0).clone()) } != 0 {
                 return Err(-1);
             }
             v64 = v as u64;
         }
         JS_CLASS_UINT32_ARRAY => {
-            v64 = unsafe { JS_ToUint32(ctx, args.get_raw(0))? as u64 };
+            v64 = unsafe { JS_ToUint32(ctx, cc.arg(0))? as u64 };
         }
         JS_CLASS_BIG_UINT64_ARRAY => {
             //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
-            ctx.JS_ThrowTypeError(c"BigInt64 is not supported");
+            ctx.JS_ThrowTypeError("BigInt64 is not supported");
             return Err(-1);
         }
         cid => {
             let mut d: f64 = 0.0;
-            if unsafe { JS_ToFloat64(ctx, &mut d, args.get_raw(0)) } != 0 {
+            if unsafe { JS_ToFloat64(ctx, &mut d, cc.arg(0)) } != 0 {
                 return Err(-1);
             }
 
@@ -678,15 +548,15 @@ pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     let mut k = 0;
-    if args.length() > 1 {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut k, args.get_raw(1), 0, len, len) } != 0 {
+    if cc.length() > 1 {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut k, cc.arg(1), 0, len, len) } != 0 {
             return Err(-1);
         }
     }
 
     let mut final_ = len;
-    if args.length() > 2 && !args.get_raw(2).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, args.get_raw(2), 0, len, len) } != 0 {
+    if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, cc.arg(2), 0, len, len) } != 0 {
             return Err(-1);
         }
     }
@@ -700,67 +570,65 @@ pub fn js_typed_array_fill(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     match shift {
         0 => {
             if k < final_ {
-                unsafe {
-                    p.with_bytes_mut_ptr(|ptr| {
-                        std::ptr::write_bytes(
-                            ptr.offset(k as isize),
-                            v64 as u8,
-                            (final_ - k) as usize,
-                        );
-                    });
-                }
+                p.with_bytes_mut(|buf| unsafe {
+                    std::ptr::write_bytes(
+                        buf.as_mut_ptr().offset(k as isize),
+                        v64 as u8,
+                        (final_ - k) as usize,
+                    );
+                });
             }
         }
-        1 => unsafe {
-            p.with_bytes_mut_ptr(|ptr| {
-                let mut ptr = ptr.cast::<u16>();
+        1 => {
+            p.with_bytes_mut(|buf| unsafe {
+                let mut ptr = buf.as_mut_ptr().cast::<u16>();
                 for _ in k..final_ {
-                    *ptr = v64 as u16;
+                    ptr.write(v64 as u16);
                     ptr = ptr.add(1);
                 }
             });
-        },
-        2 => unsafe {
-            p.with_bytes_mut_ptr(|ptr| {
-                let mut ptr = ptr.cast::<u32>();
+        }
+        2 => {
+            p.with_bytes_mut(|buf| unsafe {
+                let mut ptr = buf.as_mut_ptr().cast::<u32>();
                 for _ in k..final_ {
-                    *ptr = v64 as u32;
+                    ptr.write(v64 as u32);
                     ptr = ptr.add(1);
                 }
             });
-        },
-        3 => unsafe {
-            p.with_bytes_mut_ptr(|ptr| {
-                let mut ptr = ptr.cast::<u64>();
+        }
+        3 => {
+            p.with_bytes_mut(|buf| unsafe {
+                let mut ptr = buf.as_mut_ptr().cast::<u64>();
                 for _ in k..final_ {
-                    *ptr = v64;
+                    ptr.write(v64);
                     ptr = ptr.add(1);
                 }
             });
-        },
+        }
         _ => unreachable!(),
     }
 
-    Ok(this_val.dup())
+    Ok(this_val)
 }
 
-pub fn js_typed_array_find(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
+    let this_val = args.this();
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let func = args.get_raw(0).ensure_callable(ctx)?;
+    let func = args.arg(0).ensure_callable(ctx)?;
 
     let this_arg = if args.length() > 1 {
-        args.get_raw(0)
+        args.arg(0)
     } else {
-        JSValue::UNDEFINED
+        &JSValue::UNDEFINED
     };
 
     let mut k: i32;
     let end: i32;
     let dir: i32;
 
-    if matches!(args.magic, special_findLast | special_findLastIndex) {
+    if matches!(args.magic(), special_findLast | special_findLastIndex) {
         k = len - 1;
         dir = -1;
         end = -1;
@@ -771,48 +639,43 @@ pub fn js_typed_array_find(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     while k != end {
-        let index_val = JSValue::from(k);
-
+        let index_val = JSValue::Int(k);
         let val = this_val
-            .get_property_value(ctx, index_val)
-            .check_exception()?
-            .into_rc(ctx.rt());
+            .get_property_value(ctx, &index_val)
+            .check_exception()?;
 
-        let res = unsafe {
-            JS_Call(
-                ctx,
-                func,
-                this_arg,
-                3,
-                [*val, index_val, this_val].as_mut_ptr(),
-            )
-            .check_exception()?
-        };
+        let res = JS_Call(
+            ctx,
+            func,
+            this_arg,
+            &[val.clone(), index_val.clone(), this_val.clone()],
+        )
+        .check_exception()?;
 
-        if unsafe { JS_ToBoolFree(ctx, res).unwrap_or(true) } {
-            return if matches!(args.magic, special_findIndex | special_findLastIndex) {
+        if res.coerce_to_bool(ctx).unwrap_or(true) {
+            return if matches!(args.magic(), special_findIndex | special_findLastIndex) {
                 Ok(index_val)
             } else {
-                Ok(val.into())
+                Ok(val)
             };
         }
 
         k += dir;
     }
 
-    if matches!(args.magic, special_findIndex | special_findLastIndex) {
-        Ok(JSValue::from(-1))
+    if matches!(args.magic(), special_findIndex | special_findLastIndex) {
+        Ok(JSValue::Int(-1))
     } else {
         Ok(JSValue::UNDEFINED)
     }
 }
 
-pub fn js_typed_array_reverse(ctx: &mut JSContext, args: CallArgs) -> JSResult {
+pub fn js_typed_array_reverse(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this_raw();
     // let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
 
     unsafe {
-        let mut tao: TypedArrayValue = this_val.unchecked_into();
+        let tao: TypedArrayValue = this_val.clone().unchecked_into();
 
         macro_rules! swap_slice {
             ($ty:ident, $shift:expr) => {
@@ -848,36 +711,34 @@ pub fn js_typed_array_reverse(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         }
     }
 
-    Ok(this_val.dup())
+    Ok(this_val)
 }
 
-pub fn js_typed_array_toReversed(ctx: &mut JSContext, mut args: CallArgs) -> JSResult {
+pub fn js_typed_array_toReversed(ctx: &JSContext, mut args: CallContext) -> JSResult {
     let this_val = args.this_raw();
     let mut tao = this_val.typed_array_must(ctx, false)?;
-    let arr = tao
-        .create_to_new(ctx, JSValue::UNDEFINED, tao.class_id())?
-        .into_rc(ctx.rt());
+    let arr = tao.create_to_new(ctx, &JSValue::UNDEFINED, tao.class_id())?;
 
-    args.set_this_raw(*arr);
+    args.set_this(arr);
     js_typed_array_reverse(ctx, args)
 }
 
-pub fn js_typed_array_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this_raw();
 
     let (src_len, shift) = {
-        let p = this_val.typed_array_must(ctx, false)?;
+        let p = this_val.clone().typed_array_must(ctx, false)?;
         (p.length() as i32, typed_array_size_log2(p.class_id()))
     };
 
     let mut start: i32 = 0;
-    if unsafe { JS_ToInt32Clamp(ctx, &mut start, args.get_raw(0), 0, src_len, src_len) } != 0 {
+    if unsafe { JS_ToInt32Clamp(ctx, &mut start, cc.arg(0), 0, src_len, src_len) } != 0 {
         return Err(-1);
     }
 
     let mut final_ = src_len;
-    if !args.get(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, args.get_raw(1), 0, src_len, src_len) } != 0 {
+    if !cc.arg(1).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, cc.arg(1), 0, src_len, src_len) } != 0 {
             return Err(-1);
         }
     }
@@ -885,26 +746,21 @@ pub fn js_typed_array_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let count = std::cmp::max(final_ - start, 0);
 
     // create result typed array
-    let arr = unsafe {
-        js_typed_array___speciesCreate(
-            ctx,
-            JSValue::UNDEFINED,
-            2,
-            [this_val, JSValue::from(count)].as_mut_ptr(),
-        )
-        .check_exception()?
-        .into_rc(ctx.rt())
-    };
+    let arr = js_typed_array___speciesCreate(
+        ctx,
+        &JSValue::UNDEFINED,
+        &[this_val.clone(), JSValue::Int(count)],
+    )?;
 
     if count > 0 {
         // copy values from src to result array
-        let src = this_val.typed_array_must(ctx, false)?;
+        let src = this_val.clone().typed_array_must(ctx, false)?;
         if src.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
-        if let Ok(mut dst) = arr.typed_array_must(ctx, false) {
+        if let Ok(dst) = arr.clone().typed_array_must(ctx, false) {
             if src.class_id() == dst.class_id()
                 && dst.capacity() as i32 >= count
                 && src.capacity() as i32 >= start + count
@@ -927,72 +783,62 @@ pub fn js_typed_array_slice(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         // slow path using property set
         for n in 0..count {
             let val = this_val
-                .get_property_value(ctx, (start + n).into())
+                .get_property_value(ctx, &JSValue::Int(start + n))
                 .check_exception()?;
-            arr.set_property_value(ctx, n.into(), val, JS_PROP_THROW)?;
+            arr.set_property_value(ctx, &JSValue::Int(n), val, JS_PROP_THROW)?;
         }
     }
 
-    Ok(arr.into())
+    Ok(arr)
 }
 
-pub fn js_typed_array_subarray(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this().clone();
 
-    let ta = this_val.typed_array_must(ctx, false)?;
+    let ta = this_val.clone().typed_array_must(ctx, false)?;
     let len = ta.length() as i32;
 
     let mut start: i32 = 0;
-    if unsafe { JS_ToInt32Clamp(ctx, &mut start, args.get_raw(0), 0, len, len) } != 0 {
+    if unsafe { JS_ToInt32Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
         return Err(-1);
     }
 
     let mut final_ = len;
-    if !args.get_raw(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, args.get_raw(1), 0, len, len) } != 0 {
+    if !cc.get_raw(1).is_undefined() {
+        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, cc.arg(1), 0, len, len) } != 0 {
             return Err(-1);
         }
     }
 
     let count = std::cmp::max(final_ - start, 0);
 
-    let byteOffset = ta.array_buffer_byte_offset(ctx, false)?;
-    let shift = typed_array_size_log2(ta.class_id());
-    let offset = byteOffset + (start as usize) << shift;
+    let byte_offset = ta.array_buffer_byte_offset(ctx, false)?;
+    let log2_shift = typed_array_size_log2(ta.class_id());
+    let offset = byte_offset + (start as usize) << log2_shift;
 
-    unsafe {
-        let ta_buffer = JS_MKPTR!(JSTag::Object, ta.typed_array().buffer.as_ptr().cast()).dup();
-
-        let a = js_typed_array___speciesCreate(
-            ctx,
-            JSValue::UNDEFINED,
-            4,
-            [
-                this_val,
-                ta_buffer,
-                JSValue::from(offset as i32),
-                JSValue::from(count as i32),
-            ]
-            .as_mut_ptr(),
-        );
-
-        JS_FreeValue(ctx, ta_buffer);
-        Ok(a)
-    }
+    js_typed_array___speciesCreate(
+        ctx,
+        &JSValue::UNDEFINED,
+        &[
+            this_val,
+            JSValue::Object(ta.with_typed_array(|ta| ta.buffer.clone())), // array buffer
+            JSValue::Int(offset as i32),
+            JSValue::Int(count as i32),
+        ],
+    )
 }
 
-pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
-    let cmp = args.get_raw(0);
+pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this();
+    let cmp = cc.arg(0);
 
     if !cmp.is_undefined() && cmp.ensure_callable(ctx).is_err() {
         return Err(-1);
     }
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
-
     if len > 1 {
-        let mut p: TypedArrayValue = unsafe { this_val.unchecked_into() };
+        let mut p: TypedArrayValue = unsafe { this_val.clone().unchecked_into() };
 
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {
@@ -1009,15 +855,8 @@ pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
                         slice.sort_by(|a, b| {
                             if !has_error {
-                                let r = unsafe {
-                                    JS_Call(
-                                        ctx,
-                                        cmp,
-                                        JSValue::UNDEFINED,
-                                        2,
-                                        [$cvt(*a), $cvt(*b)].as_mut_ptr(),
-                                    )
-                                };
+                                let r =
+                                    JS_Call(ctx, cmp, &JSValue::UNDEFINED, &[$cvt(*a), $cvt(*b)]);
                                 if let Ok(n) =
                                     r.check_exception().and_then(|v| v.coerce_to_i32_free(ctx))
                                 {
@@ -1045,19 +884,19 @@ pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
         match p.class_id() {
             JS_CLASS_INT8_ARRAY => {
-                sort!(i8, 0, |v| JSValue::from(v as i32));
+                sort!(i8, 0, |v| JSValue::Int(v as i32));
             }
             JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                sort!(u8, 0, |v| JSValue::from(v as i32));
+                sort!(u8, 0, |v| JSValue::Int(v as i32));
             }
             JS_CLASS_INT16_ARRAY => {
-                sort!(i16, 1, |v| JSValue::from(v as i32));
+                sort!(i16, 1, |v| JSValue::Int(v as i32));
             }
             JS_CLASS_UINT16_ARRAY => {
-                sort!(u16, 1, |v| JSValue::from(v as i32));
+                sort!(u16, 1, |v| JSValue::Int(v as i32));
             }
             JS_CLASS_INT32_ARRAY => {
-                sort!(i32, 2, JSValue::from);
+                sort!(i32, 2, JSValue::Int);
             }
             JS_CLASS_UINT32_ARRAY => {
                 sort!(u32, 2, JSValue::from);
@@ -1069,39 +908,35 @@ pub fn js_typed_array_sort(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                 sort!(f64, 3, JSValue::from);
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                ctx.JS_ThrowTypeError(c"BigInt64 is not supported");
+                ctx.JS_ThrowTypeError("BigInt64 is not supported");
                 return Err(-1);
             }
             _ => unreachable!(),
         }
     }
 
-    Ok(this_val.dup())
+    Ok(this_val.clone())
 }
 
-pub fn js_typed_array_toSorted(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this();
+    let mut p = this_val.clone().typed_array_must(ctx, false)?;
+    let arr = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
 
-    let mut p = this_val.typed_array_must(ctx, false)?;
-    let arr = p.create_to_new(ctx, JSValue::UNDEFINED, p.class_id())?;
-
-    let cc = CallArgs::new(ctx.handle(), arr, &[], 0, None);
+    let cc = CallContext::new(ctx, arr, &[], 0, None);
     let ret = js_typed_array_sort(ctx, cc);
-    unsafe {
-        JS_FreeValue(ctx, arr);
-    }
 
     ret
 }
 
-pub fn js_typed_array_join(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let toLocaleString = args.magic;
-    let this_val = args.this_raw();
+pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let to_locale = cc.magic() != 0;
+    let this_val = cc.this();
 
     let n = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
     let sep: std::borrow::Cow<'_, str> =
-        if toLocaleString == 0 && args.length() > 0 && !args.get_raw(0).is_undefined() {
-            args.get_raw(0).coerce_to_utf8(ctx.handle())?
+        if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
+            cc.arg(0).coerce_to_utf8(ctx)?
         } else {
             ",".into() // default separator
         };
@@ -1123,7 +958,7 @@ pub fn js_typed_array_join(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
         let el = this_val.get_property_u32(ctx, i).check_exception()?;
         if !el.is_undefined_or_null() {
-            let v = if toLocaleString != 0 {
+            let v = if to_locale {
                 el.to_locale_string(ctx)
             } else {
                 el.coerce_to_string_value(ctx)
@@ -1132,13 +967,10 @@ pub fn js_typed_array_join(ctx: &mut JSContext, args: CallArgs) -> JSResult {
             match v {
                 Ok(s) => {
                     unsafe {
-                        if txt.push(s.string().content()).is_err() {
-                            JS_FreeValue(ctx, s);
+                        if txt.push(s.string_unchecked().content()).is_err() {
                             ctx.JS_ThrowOutOfMemory();
                             return Err(-1);
                         }
-
-                        JS_FreeValue(ctx, s);
                     }
 
                     if txt.capacity() - txt.len() < 16 {
@@ -1149,10 +981,7 @@ pub fn js_typed_array_join(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                     }
                 }
                 Err(e) => {
-                    unsafe {
-                        JS_FreeValue(ctx, el);
-                    }
-                    ctx.JS_ThrowTypeError(c"toString failed");
+                    ctx.JS_ThrowTypeError("toString failed");
                     return Err(e);
                 }
             }
@@ -1162,16 +991,16 @@ pub fn js_typed_array_join(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     ctx.create_string_from_content(txt).check_exception()
 }
 
-pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
-    let this_val = args.this_raw();
-    let special = args.magic;
-    let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
+pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this();
+    let special = cc.magic();
 
+    let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
     if len == 0 {
         return Ok(if special == special_includes {
-            JSValue::FALSE
+            JSValue::Bool(false)
         } else {
-            JSValue::from(-1)
+            JSValue::Int(-1)
         });
     }
 
@@ -1182,8 +1011,8 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
 
     if special == special_lastIndexOf {
         k = len - 1;
-        if args.length() > 1 {
-            if unsafe { JS_ToFloat64(ctx, &mut d, args.get_raw(1)) } != 0 {
+        if cc.length() > 1 {
+            if unsafe { JS_ToFloat64(ctx, &mut d, cc.arg(1)) } != 0 {
                 return Err(-1);
             }
 
@@ -1198,9 +1027,9 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                     d += len as f64;
                     if d < 0.0 {
                         return Ok(if special == special_includes {
-                            JSValue::FALSE
+                            JSValue::Bool(false)
                         } else {
-                            JSValue::from(-1)
+                            JSValue::Int(-1)
                         });
                     }
                     k = d as i32;
@@ -1211,8 +1040,8 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         inc = -1;
     } else {
         k = 0;
-        if args.length() > 1 {
-            if unsafe { JS_ToInt32Clamp(ctx, &mut k, args.get_raw(1), 0, len, len) } != 0 {
+        if cc.length() > 1 {
+            if unsafe { JS_ToInt32Clamp(ctx, &mut k, cc.arg(1), 0, len, len) } != 0 {
                 return Err(-1);
             }
         }
@@ -1220,19 +1049,19 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
         inc = 1;
     }
 
-    let p: TypedArrayValue = unsafe { this_val.unchecked_into() };
+    let p: TypedArrayValue = unsafe { this_val.clone().unchecked_into() };
     let mut res = -1;
 
     if p.is_detached() {
         // if the array was detached, no need to go further (but no exception is raised)
         // "includes" scans all the properties, so "undefined" can match
-        if special == special_includes && args.get_raw(0).is_undefined() && len > 0 {
+        if special == special_includes && cc.get_raw(0).is_undefined() && len > 0 {
             res = 0;
         }
         return Ok(if special == special_includes {
-            JSValue::from(res >= 0)
+            JSValue::Bool(res >= 0)
         } else {
-            JSValue::from(res)
+            JSValue::Int(res)
         });
     }
 
@@ -1241,31 +1070,22 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     let mut v64 = 0_i64; // avoid warning
 
     // check value to find
-    let a0 = args.get_raw(0);
-    match JS_VALUE_GET_NORM_TAG(a0) {
-        JSTag::Int => {
+    match cc.arg(0) {
+        JSValue::Int(i) => {
             is_int = true;
-            v64 = JS_VALUE_GET_INT(a0) as i64;
+            v64 = *i as i64;
             d = v64 as f64;
         }
-        JSTag::Float64 => {
-            d = JS_VALUE_GET_FLOAT64(a0);
+        JSValue::Float64(f) => {
+            d = *f;
             v64 = d as i64;
             is_int = v64 as f64 == d;
         }
-        JSTag::BigInt => {
-            ctx.JS_ThrowTypeError(c"BigInt is not supported");
-            return Err(-1);
-        }
-        JSTag::BigDecimal => {
-            ctx.JS_ThrowTypeError(c"BigDecimal is not supported");
-            return Err(-1);
-        }
         _ => {
             return Ok(if special == special_includes {
-                JSValue::FALSE
+                JSValue::Bool(false)
             } else {
-                JSValue::from(-1)
+                JSValue::Int(-1)
             });
         }
     }
@@ -1355,7 +1175,7 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                     }
                 } else {
                     // indexOf returns -1
-                    return Ok(JSValue::from(-1));
+                    return Ok(JSValue::Int(-1));
                 }
             } else {
                 let f = d as f32;
@@ -1386,14 +1206,14 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
                     }
                 } else {
                     // indexOf returns -1
-                    return Ok(JSValue::from(-1));
+                    return Ok(JSValue::Int(-1));
                 }
             } else {
                 find!(f64, 3, d);
             }
         }
         JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-            ctx.JS_ThrowTypeError(c"BigInt64 is not supported");
+            ctx.JS_ThrowTypeError("BigInt64 is not supported");
             return Err(-1);
         }
 
@@ -1401,34 +1221,34 @@ pub fn js_typed_array_indexOf(ctx: &mut JSContext, args: CallArgs) -> JSResult {
     }
 
     Ok(if special == special_includes {
-        JSValue::from(res >= 0)
+        JSValue::Bool(res >= 0)
     } else {
-        JSValue::from(res)
+        JSValue::Int(res)
     })
 }
 
 pub const js_typed_array_base_proto_funcs: [JSCFunctionListEntry; 36] = [
     JS_CGETSET_DEF!(c"length", js_typed_array_get_length, NONE),
-    JS_CFUNC_DEF!(c"at", 1, js_typed_array_at),
-    JS_CFUNC_DEF!(c"with", 2, js_typed_array_with),
+    JS_CFUNC_NATIVE_DEF!(c"at", 1, js_typed_array_at, 0),
+    JS_CFUNC_NATIVE_DEF!(c"with", 2, js_typed_array_with, 0),
     JS_CGETSET_MAGIC_DEF!(c"buffer", js_typed_array_get_buffer, NONE, 0),
     JS_CGETSET_MAGIC_DEF!(c"byteLength", js_typed_array_get_byteLength, NONE, 0),
     JS_CGETSET_MAGIC_DEF!(c"byteOffset", js_typed_array_get_byteOffset, NONE, 0),
-    JS_CFUNC_DEF!(c"set", 1, js_typed_array_set),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"set", 1, js_typed_array_set, 0),
+    JS_CFUNC_NATIVE_DEF!(
         c"values",
         0,
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16
     ),
     JS_ALIAS_DEF!(c"[Symbol.iterator]", c"values"),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"keys",
         0,
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"entries",
         0,
         js_create_typed_array_iterator,
@@ -1440,38 +1260,38 @@ pub const js_typed_array_base_proto_funcs: [JSCFunctionListEntry; 36] = [
         NONE
     ),
     JS_CFUNC_NATIVE_DEF!(c"copyWithin", 2, js_typed_array_copyWithin, 0),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"every",
         1,
         js_array_every,
         (special_every | special_TA) as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"some",
         1,
         js_array_every,
         (special_some | special_TA) as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"forEach",
         1,
         js_array_every,
         (special_forEach | special_TA) as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(c"map", 1, js_array_every, (special_map | special_TA) as i16),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(c"map", 1, js_array_every, (special_map | special_TA) as i16),
+    JS_CFUNC_NATIVE_DEF!(
         c"filter",
         1,
         js_array_every,
         (special_filter | special_TA) as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"reduce",
         1,
         js_array_reduce,
         (special_reduce | special_TA) as i16
     ),
-    JS_CFUNC_MAGIC_DEF!(
+    JS_CFUNC_NATIVE_DEF!(
         c"reduceRight",
         1,
         js_array_reduce,

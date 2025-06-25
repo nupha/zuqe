@@ -1,13 +1,13 @@
 use crate::{
     atom::{
-        consts::{JS_ATOM_done, JS_ATOM_value},
         JS_ATOM_NULL,
+        consts::{JS_ATOM_done, JS_ATOM_value},
     },
     bytecode::OpCode,
     error::JS_THROW_ERROR_ITERATOR_THROW,
     function::JSFunctionKindEnum,
     parse::{
-        emit::{emit_atom_dup, emit_goto, emit_label, emit_op, emit_return, emit_u32, emit_u8},
+        emit::{emit_atom_dup, emit_goto, emit_label, emit_op, emit_return, emit_u8, emit_u32},
         token::{
             CHAR_BRACKET_R, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_R,
             CHAR_STAR, TOK_YIELD,
@@ -25,10 +25,10 @@ impl<'s> JSParseState<'s> {
             self.cur_func().func_kind,
             JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
-            self.throw_syntax_error(c"unexpected 'yield' keyword");
+            self.throw_syntax_error("unexpected 'yield' keyword");
             return Err(-1);
         } else if !self.cur_func().in_function_body {
-            self.throw_syntax_error(c"yield in default expression");
+            self.throw_syntax_error("yield in default expression");
             return Err(-1);
         }
 

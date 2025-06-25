@@ -1,76 +1,90 @@
 use crate::{
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     array::convert_fast_array_to_array,
-    atom::{JSAtom, JS_AtomIsArrayIndex, JS_FreeAtom, JS_ATOM_MAX_INT, JS_ATOM_NULL},
-    context::{is_strict_mode, JSContext},
-    value::JSTag,
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
+    atom::{JS_ATOM_MAX_INT, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
+    context::{JSContext, is_strict_mode},
+    value::object::JSObject,
 };
 
-use super::{
-    super::{JSValue, JS_FreeValue},
-    obj::JS_ToObject,
-    JSObject, JSShapeProperty, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-};
+use super::{super::JSValue, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT};
 
 impl JSObject {
     /// delete a property in shape or by exotic handler.
-    /// returns false if the property is not configurable; true is delete is successful
-    pub fn delete_property(&mut self, ctx: &mut JSContext, prop: JSAtom) -> Result<bool, i32> {
-        let sh = self.shape_mut().unwrap();
-        let mut idx_and_flags: Option<(usize, u32)> = None;
-
-        if let Some((idx, _, prs)) = sh.props.get_full_mut(&prop) {
-            let flags = prs.flags();
-            if flags & JS_PROP_CONFIGURABLE == 0 {
-                return Ok(false);
-            }
-
-            let mut prs = prs as *mut JSShapeProperty;
-            if unsafe { self.shape_prepare_update(ctx, std::ptr::addr_of_mut!(prs)) } != 0 {
-                return Err(-1);
-            }
-
-            // self.shape could be changed in js_shape_prepare_update()
-
-            idx_and_flags = Some((idx, flags));
-        }
-
-        if let Some((idx, flags)) = idx_and_flags {
-            // remove and free property value
-            let prop_val = self.prop_values.remove(idx);
-            prop_val.free((*ctx).rt_mut(), flags);
-
-            // remove shape property of current self.shape
-            let prs = self.shape_mut().unwrap().props.shift_remove(&prop).unwrap();
-            JS_FreeAtom(ctx, prs.atom);
-
-            return Ok(true);
-        }
+    /// returns false if the property is not configurable; true is delete is successful.
+    /// prop is consumed, and free'd once.
+    pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+        let obj_flags = self.flags();
 
         loop {
-            if self.detailed.is_exotic() {
-                if self.detailed.fast_array() {
-                    let mut idx: u32 = 0;
+            if let Some((idx, prs_flags)) = self
+                .shape()
+                .unwrap()
+                .0
+                .borrow()
+                .props
+                .get_full(&prop.0)
+                .map(|(i, _, p)| (i, p.flags()))
+            {
+                // property found
+                if prs_flags & JS_PROP_CONFIGURABLE == 0 {
+                    return Ok(false);
+                }
 
-                    if unsafe { JS_AtomIsArrayIndex(ctx, &mut idx, prop) } {
+                self.shape_prepare_update(ctx)?;
+
+                // remove property value
+                drop(self.0.prop_values.borrow_mut().remove(idx));
+
+                // remove shape property
+                let prs = self
+                    .shape()
+                    .unwrap()
+                    .0
+                    .borrow_mut()
+                    .props
+                    .shift_remove(&prop.0)
+                    .unwrap();
+                debug_assert_eq!(prop, prs.atom);
+                JS_FreeAtom(ctx, prop);
+
+                return Ok(true);
+            }
+
+            // check for array index or exotic.
+            if obj_flags.is_exotic() {
+                if obj_flags.fast_array() {
+                    if let Some(idx) = prop.to_array_index(ctx.rt()) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                                let lst = unsafe { self.fast_array_values_mut_unchecked() };
-                                if idx == lst.len() as u32 - 1 {
-                                    unsafe {
-                                        JS_FreeValue(ctx, lst.pop().unwrap());
+                                match self
+                                    .with_fast_array_values_mut(|lst| -> Result<bool, i32> {
+                                        if idx == lst.len() - 1 {
+                                            lst.pop();
+                                            return Ok(true);
+                                        } else if idx < lst.len() {
+                                            // convert to slow array, then delete property
+                                            if unsafe { convert_fast_array_to_array(ctx, self) }
+                                                != 0
+                                            {
+                                                return Err(-1);
+                                            }
+                                            return Ok(false);
+                                        } else {
+                                            unreachable!()
+                                        }
+                                    })
+                                    .unwrap()?
+                                {
+                                    true => {
+                                        return Ok(true); // fast array done
                                     }
-                                    return Ok(true);
-                                } else if idx < lst.len() as u32 {
-                                    // convert to slow array, then delete property
-                                    if unsafe { convert_fast_array_to_array(ctx, self) } != 0 {
-                                        return Err(-1);
+                                    false => {
+                                        continue; // redo
                                     }
-                                    continue;
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                                if idx < unsafe { self.array_length_unchecked() } as u32 {
+                                if idx < self.array_length_unchecked() {
                                     // can't delete element of a TypedArray
                                     return Ok(false);
                                 }
@@ -85,18 +99,7 @@ impl JSObject {
                     let em = ctx.rt().class_array[self.class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = unsafe { (*em).delete_property } {
-                            return match unsafe {
-                                cb(
-                                    ctx,
-                                    JS_MKPTR!(JSTag::Object, self as *mut JSObject as _),
-                                    prop,
-                                )
-                            } {
-                                0 => Ok(false),
-                                1 => Ok(true),
-                                -1 => Err(-1),
-                                _ => unreachable!(),
-                            };
+                            return cb(ctx, JSValue::Object(self.clone()), prop);
                         }
                     }
                 }
@@ -105,6 +108,7 @@ impl JSObject {
             break;
         }
 
+        // not found
         Ok(true)
     }
 }
@@ -112,54 +116,36 @@ impl JSObject {
 impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
-    pub fn delete_property(
-        self,
-        ctx: &mut JSContext,
-        prop: JSAtom,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        let obj1 = unsafe { JS_ToObject(ctx, self) };
-        if obj1.is_exception() {
-            return Err(-1);
-        }
-
-        unsafe {
-            let res = obj1.object_unchecked().delete_property(ctx, prop);
-            JS_FreeValue(ctx, obj1);
-
-            if res? {
-                Ok(true)
-            } else if flags & JS_PROP_THROW != 0
-                || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
-            {
-                ctx.JS_ThrowTypeError(c"could not delete property");
-                Err(-1)
-            } else {
-                Ok(false)
-            }
+    pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
+        if unsafe {
+            self.coerce_to_object(ctx)?
+                .object_unchecked()
+                .delete_property(ctx, prop)?
+        } {
+            Ok(true)
+        } else if flags & JS_PROP_THROW != 0
+            || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
+        {
+            ctx.JS_ThrowTypeError("could not delete property");
+            Err(-1)
+        } else {
+            Ok(false)
         }
     }
 
-    pub fn delete_property_i64(
-        self,
-        ctx: &mut JSContext,
-        idx: i64,
-        flags: u32,
-    ) -> Result<bool, i32> {
+    pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
         if (idx as u64) <= JS_ATOM_MAX_INT as u64 {
             // fast path for fast arrays
-            return self.delete_property(ctx, JSAtom::from_u32(idx as u32), flags);
+            return self.delete_property(ctx, JSAtom::new_u32(idx as u32), flags);
         }
 
-        let prop = ctx.rt_mut().add_atom_i64(idx);
+        let prop = ctx.rt_mut().register_atom_i64(idx);
         if prop == JS_ATOM_NULL {
             return Err(-1);
         }
 
-        unsafe {
-            let res = self.delete_property(ctx, prop, flags);
-            JS_FreeAtom(ctx, prop);
-            res
-        }
+        let res = self.delete_property(ctx, prop, flags);
+        JS_FreeAtom(ctx, prop);
+        res
     }
 }

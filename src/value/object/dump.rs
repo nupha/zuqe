@@ -1,49 +1,41 @@
-use std::ops::Deref;
-
 use crate::{
-    function::JSVarRef,
-    gc::{GCObject, GCObjectType, RefCounted},
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     runtime::JSRuntime,
     typed_array::typed_array_size_log2,
     value::{
-        object::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_VARREF},
-        JSTag,
+        JSValue,
+        object::{GCObject, JSProperty, JSShapeInner},
     },
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_MKPTR,
 };
 
-use super::{js_autoinit_get_id, js_autoinit_get_realm, JSObject, JSShape, JS_PROP_TMASK};
+use super::{JSObject, JSShape};
 
-impl JSShape {
+impl JSShapeInner {
     /// print shape debug info to console
     pub unsafe fn dump(&self, rt: &JSRuntime, i: i32) {
         // XXX: should output readable class prototype
 
         print!(
-            "{:5} {:3}{} {:2} {:14p} {:14p} {:5} {:5}",
+            "{:5} {} {:14p} {:14p} {:5} {:5}",
             i,
-            self.ref_count(),
             if self.is_hashed { '*' } else { ' ' }, // hashed?
-            if self.gc_node_ptr().as_ref().is_linked() {
-                "+" // in gc list
-            } else {
-                "-" // not in gc list
-            },
             self,
-            self.proto,
+            self.proto
+                .as_ref()
+                .map_or(std::ptr::null(), |o| o as *const _),
             self.props.len(),
             self.props.len(),
         );
 
-        for key in self.props.keys() {
-            print!(" {}", key.to_str(rt));
+        for (_, prs) in self.props.iter() {
+            print!(" {}", prs.atom.to_str(rt));
         }
 
         println!();
     }
 }
 
-pub unsafe fn JS_DumpShapes(rt: *mut JSRuntime) {
+pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     println!("JSShapes: {{");
     println!(
         "{:5} {:4} {:2} {:14} {:14} {:5} {:5} PROPS",
@@ -51,19 +43,21 @@ pub unsafe fn JS_DumpShapes(rt: *mut JSRuntime) {
     );
 
     // dump hashed shapes
-    for (key, lst) in (*rt).shape_registry.iter() {
+    for (key, lst) in rt.shape_registry.iter() {
         for sh in lst {
-            sh.dump(rt.as_ref().unwrap(), *key as _);
-            debug_assert!(sh.is_hashed);
+            if let Some(sh) = sh.upgrade() {
+                sh.0.borrow().dump(rt, *key as _);
+                debug_assert!(sh.0.borrow().is_hashed);
+            }
         }
     }
 
     // dump non-hashed shapes
-    for node in (*rt).gc_obj_list.iter() {
-        if let GCObjectType::Object(p) = node.gc_type() {
-            let sh = p.as_ref().shape().unwrap();
-            if !sh.is_hashed {
-                sh.dump(rt.as_ref().unwrap(), -1);
+    for node in rt.gc_obj_list.iter() {
+        if let Some(GCObject::Object(p)) = node.upgrade() {
+            let sh = p.shape().unwrap();
+            if !sh.0.borrow().is_hashed {
+                sh.0.borrow().dump(rt, -1);
             }
         }
     }
@@ -72,24 +66,27 @@ pub unsafe fn JS_DumpShapes(rt: *mut JSRuntime) {
 }
 
 #[deprecated(note = "use JSShape::dump() instead")]
-pub unsafe fn JS_DumpShape(rt: *const JSRuntime, i: i32, sh: *const JSShape) {
-    (*sh).dump(rt.as_ref().unwrap(), i);
+pub unsafe fn JS_DumpShape(rt: &JSRuntime, i: i32, sh: &JSShape) {
+    unreachable!("unused")
+    //sh.dump(rt, i);
 }
 
 impl JSObject {
     /// print object debug info to console
     pub fn dump(&self, rt: &JSRuntime) {
         // XXX: should encode atoms with special characters
-        print!("{:14p} {:4} ", self, self.ref_count());
+        print!("{:14p} ", self);
 
         // NOTE: the shape can be NULL while freeing an object
         if let Some(sh) = self.shape() {
+            let sh = sh.0.borrow();
             print!(
-                "{:3}{} {:14p} {:14p} ",
-                sh.ref_count(),
+                "   {} {:14p} {:14p} ",
                 if sh.is_hashed { "*" } else { " " },
-                sh,
+                sh.id() as *const JSShapeInner,
                 sh.proto
+                    .as_ref()
+                    .map_or(std::ptr::null(), |o| o as *const _)
             );
         } else {
             print!("{:>3}  {:>14} {:>14} ", "-", "-", "-");
@@ -103,31 +100,37 @@ impl JSObject {
                 .to_str(rt),
         );
 
-        if self.detailed.is_exotic() && self.detailed.fast_array() {
+        if self.flags().is_exotic() && self.flags().fast_array() {
             print!("[ ");
 
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    let lst = unsafe { self.fast_array_values_unchecked() };
-                    for (i, v) in lst.iter().enumerate() {
-                        if i != 0 {
-                            print!(", ");
+                    self.with_fast_array_values(|lst| {
+                        for (i, v) in lst.iter().enumerate() {
+                            if i != 0 {
+                                print!(", ");
+                            }
+                            v.repr(rt);
                         }
-                        v.repr(rt);
-                    }
+                    });
                 }
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
                     // 1, 2, 4, 8
                     let bytes_per_element = 1 << typed_array_size_log2(class_id);
 
-                    self.isa().typed_array().unwrap().with_bytes(|lst| {
-                        for (i, b) in lst.iter().enumerate() {
-                            if i != 0 && i % bytes_per_element == 0 {
-                                print!(", ");
+                    self.0
+                        .isa
+                        .borrow()
+                        .typed_array()
+                        .unwrap()
+                        .with_bytes(|lst| {
+                            for (i, b) in lst.iter().enumerate() {
+                                if i != 0 && i % bytes_per_element == 0 {
+                                    print!(", ");
+                                }
+                                print!("{:02X}", *b);
                             }
-                            print!("{:02X}", *b);
-                        }
-                    });
+                        });
                 }
                 class_id => unimplemented!("{}", class_id),
             }
@@ -139,39 +142,63 @@ impl JSObject {
         if let Some(sh) = self.shape() {
             print!("{{ ");
 
+            let prop_values = self.0.prop_values.borrow();
             let mut is_first: bool = true;
-            for (idx, (atom, prs)) in sh.props.iter().enumerate() {
+            for (idx, (_, prs)) in sh.0.borrow().props.iter().enumerate() {
                 if !is_first {
                     print!(", ");
                 };
 
                 // key
-                print!("{}:", atom.to_str(rt));
+                print!("{}:", prs.atom.to_str(rt));
 
                 // value
-                if let Some(pr) = self.prop_values.get(idx) {
-                    match prs.flags() & JS_PROP_TMASK {
-                        JS_PROP_NORMAL => unsafe {
-                            print!("{}", pr.u.value.repr(rt));
-                        },
-                        JS_PROP_GETSET => unsafe {
-                            print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
-                        },
-                        JS_PROP_VARREF => unsafe {
-                            print!("[varref {:p}]", pr.u.var_ref.deref());
-                        },
-                        JS_PROP_AUTOINIT => unsafe {
+                if let Some(pr) = prop_values.get(idx) {
+                    match pr {
+                        JSProperty::Value(val) => {
+                            print!("{}", val.repr(rt));
+                        }
+                        JSProperty::GetSet { getter, setter } => {
                             print!(
-                                "[autoinit {:p} {} {:p}]",
-                                js_autoinit_get_realm(pr),
-                                js_autoinit_get_id(pr),
-                                pr.u.init.opaque
+                                "[getset 0x{:x} 0x{:x}]",
+                                getter.as_ref().map_or(0, |o| o.id()),
+                                setter.as_ref().map_or(0, |o| o.id())
                             );
-                        },
-                        _ => {
-                            unreachable!();
+                        }
+                        JSProperty::VarRef(vref) => {
+                            print!("[varref {:p}", vref.value_ptr())
+                        }
+                        JSProperty::AutoInit {
+                            realm,
+                            init_type,
+                            opaque,
+                        } => {
+                            print!("[autoinit 0x{:x} {:p}]", realm.id(), opaque);
                         }
                     }
+
+                    // match prs.flags() & JS_PROP_TMASK {
+                    //     JS_PROP_NORMAL => unsafe {
+                    //         print!("{}", pr.u.value.repr(rt));
+                    //     },
+                    //     JS_PROP_GETSET => unsafe {
+                    //         print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
+                    //     },
+                    //     JS_PROP_VARREF => unsafe {
+                    //         print!("[varref {:p}]", pr.u.var_ref.deref());
+                    //     },
+                    //     JS_PROP_AUTOINIT => unsafe {
+                    //         print!(
+                    //             "[autoinit 0x{:x} {} {:p}]",
+                    //             pr.realm().unwrap().id(),
+                    //             js_autoinit_get_id(pr),
+                    //             pr.u.init.opaque
+                    //         );
+                    //     },
+                    //     _ => {
+                    //         unreachable!();
+                    //     }
+                    // }
                 } else {
                     // prop value slots is cleared
                     print!("<?>");
@@ -182,23 +209,19 @@ impl JSObject {
             print!(" }}");
         }
 
-        if let Some(func) = self.isa().func() {
-            let b = func.function_bytecode;
-            if unsafe { (*b).closure_var_count } != 0 {
-                print!(" Closure:");
-                for vr in func.var_refs.iter() {
-                    print!(" {}", unsafe {
-                        (*vr.cast::<JSVarRef>().as_ref().pvalue).repr(rt)
-                    });
-                }
+        if let Some(func) = self.0.isa.borrow().func() {
+            func.function_bytecode.as_ref().unwrap().with_mut(|b| {
+                if b.closure_var_count != 0 {
+                    print!(" Closure:");
+                    for vr in func.var_refs.iter() {
+                        print!(" {}", vr.value().repr(rt));
+                    }
 
-                if !func.home_object.is_null() {
-                    print!(
-                        " HomeObject: {}",
-                        JS_MKPTR!(JSTag::Object, func.home_object.cast()).repr(rt)
-                    );
+                    if let Some(o) = func.home_object.clone() {
+                        print!(" HomeObject: {}", JSValue::Object(o).repr(rt));
+                    }
                 }
-            }
+            });
         }
 
         println!();

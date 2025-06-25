@@ -24,7 +24,7 @@ enum ResolveLabelsState {
 }
 
 /// pass 3: peephole optimizations and resolve goto/labels.
-pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Result<(), i32> {
+pub unsafe fn resolve_labels(ctx: &JSContext, s: *mut JSFunctionDef) -> Result<(), i32> {
     let bc_buf = (*s).byte_code.as_ptr();
     let bc_len = (*s).byte_code.len();
     let mut bc_out = Vec::<u8>::with_capacity(bc_len);
@@ -47,7 +47,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
             .try_reserve_exact((*s).line_number_slots_cap)
             .is_err()
         {
-            (*ctx).JS_ThrowOutOfMemory();
+            ctx.JS_ThrowOutOfMemory();
             return Err(-1);
         }
 
@@ -281,7 +281,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                 if lb.addr == -1 {
                     // unresolved yet: create a new relocation entry
                     if lb
-                        .add_reloc(ctx.as_mut().unwrap(), bc_out.len() - 4, 4)
+                        .add_reloc(ctx, bc_out.len() - 4, 4)
                         .is_err()
                     {
                         goto = Some(ResolveLabelsState::Fail);
@@ -757,7 +757,7 @@ pub unsafe fn resolve_labels(ctx: *mut JSContext, s: *mut JSFunctionDef) -> Resu
                     if (*lb).addr == -1 {
                         // unresolved yet: create a new relocation entry
                         if lb
-                            .add_reloc(ctx.as_mut().unwrap(), bc_out.len() - 4, 4)
+                            .add_reloc(ctx, bc_out.len() - 4, 4)
                             .is_err()
                         {
                             state = Some(ResolveLabelsState::Fail);

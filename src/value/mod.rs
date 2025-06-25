@@ -1,20 +1,23 @@
+mod free;
 mod number;
-pub mod object;
+mod ops;
 mod primitives;
 mod repr;
 mod string;
 mod string_content;
 mod symbol;
 mod value;
-mod value_rc;
+
+pub mod object;
 
 pub use {
+    free::*,
     number::*,
+    ops::*,
     primitives::*,
     repr::*,
     string::*,
     string_content::{StringChars, StringContent},
     symbol::*,
     value::*,
-    value_rc::JSValueRc,
 };

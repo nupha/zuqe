@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{consts::*, JSAtom, JS_ATOM_NULL},
-    context::{JSContext, JS_MODE_STRICT},
+    atom::{JS_ATOM_NULL, JSAtom, consts::*},
+    context::{JS_MODE_STRICT, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::JSFunctionDef,
     runtime::JS_MAX_LOCAL_VARS,
@@ -155,9 +157,9 @@ impl Drop for JSVarDef {
 
 /* XXX: should handle the argument scope generically */
 #[inline(always)]
-pub unsafe fn is_var_in_arg_scope(vd: *const JSVarDef) -> bool {
+pub fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
     matches!(
-        (*vd).var_name,
+        vd.var_name,
         JS_ATOM__home_object_
             | JS_ATOM_this_active_func
             | JS_ATOM_new_target
@@ -205,7 +207,7 @@ impl JSFunctionDef {
     /// add a global variable definition
     pub fn add_global_var(
         &mut self,
-        ctx: &mut JSContext,
+        ctx: &JSContext,
         name: JSAtom,
     ) -> Result<&mut JSGlobalVar, i32> {
         if self.global_vars.len() == self.global_vars.capacity() {
@@ -219,7 +221,7 @@ impl JSFunctionDef {
             cpool_idx: -1,
             bitfields: 0,
             scope_level: self.scope_level,
-            var_name: name.dup(ctx.rt()),
+            var_name: name.dup(ctx.rt().deref()),
         };
         hf.set_force_init(false);
         hf.set_is_lexical(false);
@@ -251,11 +253,12 @@ impl JSFunctionDef {
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
     }
 
-    /// add new argument to the function, returns arg index or error
-    pub fn add_arg(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
+    /// add new argument to the function, returns arg index or error.
+    /// `name` is not consumed.
+    pub fn add_arg(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
-            ctx.JS_ThrowInternalError(c"too many arguments");
+            ctx.JS_ThrowInternalError("too many arguments");
             return Err(-1);
         }
 
@@ -267,7 +270,7 @@ impl JSFunctionDef {
         }
 
         self.args.push(JSVarDef {
-            var_name: name.dup(ctx.rt()),
+            var_name: name.dup(ctx.rt().deref()),
             func_pool_idx: -1,
             scope_level: 0,
             scope_next: 0,
@@ -278,9 +281,9 @@ impl JSFunctionDef {
     }
 
     /// add variable defination. return the new variable index or error
-    pub fn add_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
+    pub fn add_var(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
-            ctx.JS_ThrowInternalError(c"too many local variables");
+            ctx.JS_ThrowInternalError("too many local variables");
             return Err(-1);
         }
 
@@ -292,7 +295,7 @@ impl JSFunctionDef {
         }
 
         self.vars.push(JSVarDef {
-            var_name: name.dup(ctx.rt()),
+            var_name: name.dup(ctx.rt().deref()),
             func_pool_idx: -1,
             scope_level: 0,
             scope_next: 0,
@@ -303,15 +306,13 @@ impl JSFunctionDef {
     }
 
     /// define pseudo variable named `this`
-    pub fn add_var_this(&mut self, ctx: &mut JSContext) -> Result<u16, i32> {
+    pub fn add_var_this(&mut self, ctx: &JSContext) -> Result<u16, i32> {
         let idx = self.add_var(ctx, JS_ATOM_this)?;
         if self.is_derived_class_constructor {
-            let vd = self.vars.get_mut(idx as usize).unwrap();
-
             // used to trigger 'uninitialized' checks
             // in a derived class constructor
             // XXX: should have is_this flag or var type
-            vd.set_is_lexical(true);
+            self.vars[idx as usize].set_is_lexical(true);
         }
         Ok(idx)
     }
@@ -319,7 +320,7 @@ impl JSFunctionDef {
     /// Add defination named `arguments`.
     /// - in_arg_scope=false, will define in the variable scope, returns var idx for `arguments`
     /// - in_arg_scope=true, will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
-    pub fn add_arguments(&mut self, ctx: &mut JSContext, in_arg_scope: bool) -> Result<u16, i32> {
+    pub fn add_arguments(&mut self, ctx: &JSContext, in_arg_scope: bool) -> Result<u16, i32> {
         if in_arg_scope {
             if self.arguments_arg_idx.is_none() {
                 if self
@@ -354,7 +355,7 @@ impl JSFunctionDef {
 
     /// get or create const variable used as function/expr name.
     /// returns the variable id.
-    pub unsafe fn add_func_var(&mut self, ctx: &mut JSContext, name: JSAtom) -> Result<u16, i32> {
+    pub unsafe fn add_func_var(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         if let Some(i) = self.func_var_idx {
             Ok(i)
         } else {

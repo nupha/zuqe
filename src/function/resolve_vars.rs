@@ -1,26 +1,28 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{consts::*, JSAtom, JS_FreeAtom, JS_ATOM_NULL},
-    bytecode::{opcode_info_intermediate, opcodes, OpCode, OpCodeTemp},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::JSContext,
     error::JS_THROW_VAR_REDECL,
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
-        get_label_pos, instantiate_hoisted_definitions, resolve_scope_private_field,
-        skip_dead_code, JSFunctionDef, JSVarKindEnum,
+        JSFunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
+        resolve_scope_private_field, skip_dead_code,
     },
-    utils::{push_vec_slice, push_vec_u16, push_vec_u32, push_vec_u8, read_from_ptr, M2},
+    utils::{M2, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
 };
 
 use super::{
-    optimize::{CodeContext, OPTIMIZE},
     DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR,
+    optimize::{CodeContext, OPTIMIZE},
 };
 
 impl JSFunctionDef {
     /// Performs initial runtime checks for global variables
     /// This must be executed before creating any variables
     /// Checks for potential conflicts between global and closure variables
-    fn resolve_variables_check_global_vars(&self, ctx: &mut JSContext, bc_buf: &mut Vec<u8>) {
+    fn resolve_variables_check_global_vars(&self, ctx: &JSContext, bc_buf: &mut Vec<u8>) {
         'g_var: for hf in self.global_vars.iter() {
             // check if global variable (XXX: simplify)
             if let Some(cvars) = self.closure_vars.as_ref() {
@@ -37,7 +39,7 @@ impl JSFunctionDef {
                                 // with the other checks, we delay the
                                 // error generation.
                                 push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-                                push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt()).0);
+                                push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt().deref()).0);
                                 push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
                             }
                             continue 'g_var;
@@ -48,7 +50,7 @@ impl JSFunctionDef {
             }
 
             push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
-            push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt()).0);
+            push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt().deref()).0);
 
             let mut flags = 0;
             if hf.is_lexical() {
@@ -65,7 +67,7 @@ impl JSFunctionDef {
     /// Converts global variable accesses to local/closure variables when needed
     /// This is the second pass of bytecode generation
     /// Handles scope resolution and variable binding
-    pub fn resolve_variables(&mut self, ctx: &mut JSContext) -> Result<(), i32> {
+    pub fn resolve_variables(&mut self, ctx: &JSContext) -> Result<(), i32> {
         let bc_buf_ptr = self.byte_code.as_mut_ptr();
         let bc_buf_len = self.byte_code.len();
 
@@ -175,7 +177,7 @@ impl JSFunctionDef {
 
                     // debug: get atom refcount before resolve_scope_var()
                     #[cfg(debug_assertions)]
-                    let _name_refcnt = var_name.ref_count(ctx.rt());
+                    let _name_refcnt = var_name.ref_count(ctx.rt().deref());
 
                     pos_next = self.resolve_scope_var(
                         ctx,
@@ -191,9 +193,9 @@ impl JSFunctionDef {
                     // check atom refcount after resolve_scope_var()
                     #[cfg(debug_assertions)]
                     debug_assert!(
-                        var_name.ref_count(ctx.rt()) >= _name_refcnt,
+                        var_name.ref_count(ctx.rt().deref()) >= _name_refcnt,
                         "[O.o] {var_name:?}, {}",
-                        var_name.to_str((*ctx).rt())
+                        var_name.to_str(ctx.rt().deref())
                     );
 
                     JS_FreeAtom(ctx, var_name);
@@ -515,7 +517,7 @@ impl JSFunctionDef {
 }
 
 pub unsafe fn mark_eval_captured_variables(
-    ctx: *const JSContext,
+    ctx: &JSContext,
     s: *mut JSFunctionDef,
     scope_level: i32,
 ) {
