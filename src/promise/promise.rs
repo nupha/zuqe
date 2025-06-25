@@ -291,7 +291,7 @@ impl PromiseValue {
             .unwrap();
 
         for rd in rd_list.drain(..) {
-            ctx.enqueue_job(
+            ctx.queue_job(
                 promise_reaction_job,
                 &[
                     rd.resolving_funcs[0].clone(),

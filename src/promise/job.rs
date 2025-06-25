@@ -26,10 +26,10 @@ pub struct JSJobEntry {
 impl JSContext {
     /// Append a job to queue.
     /// Note: `args` values are not consumed, args count must not greater than 5.
-    pub fn enqueue_job(&self, callback: JobCallback, args: &[JSValue]) -> Result<(), i32> {
+    pub(super) fn queue_job(&self, callback: JobCallback, args: &[JSValue]) -> Result<(), i32> {
         debug_assert!(args.len() <= 5);
 
-        let mut e = Box::new(JSJobEntry {
+        let mut job = Box::new(JSJobEntry {
             link: list_head::default(),
             ctx: self.clone(),
             callback,
@@ -38,10 +38,10 @@ impl JSContext {
         });
 
         for (i, v) in args.iter().enumerate() {
-            e.args[i] = v.clone();
+            job.args[i] = v.clone();
         }
 
-        let ent = Box::into_raw(e);
+        let ent = Box::into_raw(job);
         unsafe {
             list_add_tail(&mut (*ent).link, &mut self.rt_mut().job_list);
         }
@@ -117,43 +117,35 @@ impl JSRuntime {
     /// this will only execute one job, keep rest jobs in queue.
     ///
     /// Returns:
-    /// - 0: the Context of the executed job.
-    /// - 1: false if there are no jobs left; true if it need more runs.
-    pub fn execute_pending_job(
-        &mut self,
-    ) -> Result<(Option<JSContext>, bool), (Option<JSContext>, i32)> {
+    /// Some(ctx): the Context of the executed job.
+    /// None: there is no pending job.
+    /// Err: fail in execute job. ctx is the context of the executed job.
+    pub fn execute_job_once(&mut self) -> Result<Option<JSContext>, (JSContext, i32)> {
         if list_empty(&self.job_list) {
-            return Ok((None, false));
+            return Ok(None); // no job to run
         }
 
-        // get the first pending job and execute it
+        // fetch the first pending job and execute it
         unsafe {
             let ent = list_entry!(self.job_list.next, JSJobEntry, link);
             list_del(&mut (*ent).link);
 
             let job = Box::from_raw(ent);
-            let mut ctx = job.ctx;
-
             let res = {
                 let cc = CallContext::new(
-                    &ctx,
+                    &job.ctx,
                     JSValue::UNDEFINED,
                     &job.args[..job.argc as usize],
                     0,
                     None,
                 );
-                (job.callback)(&ctx, cc)
+                (job.callback)(&job.ctx, cc)
             };
 
-            // free job arguments
-            // for i in 0..job.argc {
-            //     JS_FreeValue(ctx.into(), job.args[i as usize]);
-            // }
-
             if let Ok(r) = res {
-                Ok((Some(ctx), true))
+                Ok(Some(job.ctx))
             } else {
-                Err((Some(ctx), -1))
+                Err((job.ctx, -1))
             }
         }
     }

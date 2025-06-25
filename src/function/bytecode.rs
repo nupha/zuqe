@@ -466,6 +466,14 @@ impl From<JSFunctionBytecode> for GCObject {
 }
 
 impl JSFunctionBytecode {
+    pub fn id(&self) -> usize {
+        self.0.borrow().id()
+    }
+
+    pub fn rt(&self) -> &JSRuntime {
+        unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+    }
+
     pub fn with<R>(&self, f: impl FnOnce(&JSFunctionBytecodeInner) -> R) -> R {
         f(self.0.borrow().deref())
     }
@@ -476,10 +484,6 @@ impl JSFunctionBytecode {
 
     pub fn downgrade(&self) -> JSFunctionBytecodeWeakref {
         JSFunctionBytecodeWeakref(Rc::downgrade(&self.0))
-    }
-
-    pub fn id(&self) -> usize {
-        self.0.borrow().id()
     }
 
     /// get const pool values slice

@@ -67,7 +67,7 @@ fn main() {
             };
 
             loop {
-                if let Ok((None, false)) = js.execute_pending_job() {
+                if let Ok(None) = js.execute_job_once() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -75,19 +75,15 @@ fn main() {
 
             if r.is_exception() {
                 let exc = js.take_exception();
-                println!("!!! EXCEPTION {:?}", exc.repr(&js));
+                println!("!!! EXCEPTION {:?}", exc.repr());
                 exc.object_unchecked().dump(js.as_ref());
             } else {
-                println!(
-                    ">>> RESULT: {:?}, {:?}",
-                    r.repr(&js),
-                    r.coerce_to_utf8(&ctx)
-                );
+                println!(">>> RESULT: {:?}, {:?}", r.repr(), r.coerce_to_utf8(&ctx));
 
                 if let Ok(pr) = TryInto::<PromiseValue>::try_into(r) {
                     let v = pr.result();
                     println!("promise state: {:?}", pr.state());
-                    println!("promise result: {:?}", v.repr(&js));
+                    println!("promise result: {:?}", v.repr());
                 }
             }
 

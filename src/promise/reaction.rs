@@ -119,7 +119,7 @@ impl PromiseValue {
                     JSValue::Bool(p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED), // is reject?
                     p.promise_result.clone(),
                 ];
-                ctx.enqueue_job(promise_reaction_job, &args).unwrap();
+                ctx.queue_job(promise_reaction_job, &args).unwrap();
             }
 
             p.is_handled = true;

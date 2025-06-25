@@ -806,15 +806,7 @@ pub unsafe fn JS_DefinePropertyDesc(
     desc: JSValueConst,
     flags: u32,
 ) -> Result<bool, i32> {
-    obj.define_property_desc(ctx, prop, &desc, flags)
-
-    // let mut d: JSPropertyDescriptor = std::mem::zeroed();
-    // js_obj_to_desc(ctx, &mut d, desc)?;
-
-    // let ret = JS_DefineProperty(ctx, obj, prop, d.value, d.getter, d.setter, d.flags | flags);
-    // js_free_desc(ctx, &mut d);
-
-    // Ok(ret != 0)
+    unreachable!("unused");
 }
 
 /// `getter` and `setter` are consumed.

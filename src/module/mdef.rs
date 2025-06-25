@@ -21,7 +21,7 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         JSValue, JSValueConst,
-        object::{JS_PROP_C_W_E, JSObjectIsa},
+        object::{JS_PROP_C_W_E, JSObject, JSObjectIsa},
     },
 };
 
@@ -242,6 +242,10 @@ impl JSModuleDef {
         Self(Rc::new(RefCell::new(inner)))
     }
 
+    pub fn rt(&self) -> &JSRuntime {
+        unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+    }
+
     pub fn with<R>(&self, f: impl FnOnce(&JSModuleDefInner) -> R) -> R {
         f(self.0.borrow().deref())
     }
@@ -435,8 +439,8 @@ pub fn js_default_module_normalize_name(
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-unsafe fn js_module_ns_has(ctx: &JSContext, obj: JSValueConst, atom: JSAtom) -> i32 {
-    (!obj.object_unchecked().has_own_property(atom)) as i32
+fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: JSAtom) -> i32 {
+    (!obj.has_own_property(prop)) as i32
 }
 
 pub static js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

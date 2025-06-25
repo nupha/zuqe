@@ -85,7 +85,7 @@ impl PromiseResolvingFuncValue {
                 .clone()
                 .fulfill_or_reject(ctx, resolution, is_reject);
         } else {
-            ctx.enqueue_job(
+            ctx.queue_job(
                 js_promise_resolve_thenable_job,
                 &[s.promise.clone().0, resolution, then], // arg values are not consumed
             )

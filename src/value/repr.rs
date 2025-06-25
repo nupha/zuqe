@@ -15,8 +15,8 @@ use crate::{
 use super::{HINT_STRING, JS_FreeValue, JSString, JSValue, f64_stringify};
 
 impl JSValue {
-    /// get string representation of value
-    pub fn repr(&self, rt: &JSRuntime) -> Cow<'_, str> {
+    /// get string representation of value.
+    pub fn repr(&self) -> Cow<'_, str> {
         match self {
             Self::Int(i) => format!("{}", *i).into(),
             Self::Bool(b) => if *b { "true" } else { "false" }.into(),
@@ -58,20 +58,78 @@ impl JSValue {
                 String::from_utf8(buf.to_vec()).unwrap().into()
             }
             Self::FunctionBytecode(b) => {
-                format!("[bytecode {}]", b.0.borrow().func_name.to_str(rt)).into()
+                format!("[bytecode {}]", b.0.borrow().func_name.to_str(b.rt())).into()
             }
             Self::Object(p) => {
-                let atom = rt.class_array[p.class_id() as usize].class_name;
-                format!("[{}]", atom.to_str(rt)).into()
+                let atom = p.rt().class_array[p.class_id() as usize].class_name;
+                format!("[{}]", atom.to_str(p.rt())).into()
             }
             Self::Symbol(p) => {
-                format!("Symbol({})", p.atom_info().unwrap().atom().to_str(rt)).into()
+                format!("Symbol({})", p.atom_info().unwrap().atom().to_str(p.rt())).into()
             }
             Self::Module(_) => "[module]".into(),
             Self::CatchOffset(n) => format!("[catchoffset({})]", *n).into(),
             Self::AsyncFuncResume(_) => "[asyncfuncresume]".into(),
         }
     }
+
+    // /// get string representation of value
+    // pub fn repr(&self, rt: &JSRuntime) -> Cow<'_, str> {
+    //     match self {
+    //         Self::Int(i) => format!("{}", *i).into(),
+    //         Self::Bool(b) => if *b { "true" } else { "false" }.into(),
+    //         Self::UNDEFINED => "undefined".into(),
+    //         Self::NULL => "null".into(),
+    //         Self::EXCEPTION => "[exception]".into(),
+    //         Self::UNINITIALIZED => "[uninitialized]".into(),
+    //         Self::Float64(n) => format!("{:14}", *n).into(),
+    //         Self::String(p) => {
+    //             let sep = '\"';
+    //             let mut buf = SmallVec::<[u8; 128]>::new();
+    //             buf.push(sep as u8);
+    //             for c in p.content().chars() {
+    //                 match c {
+    //                     '\'' | '"' if c == sep => {
+    //                         buf.extend_from_slice(format!("\\{c}").as_bytes());
+    //                     }
+    //                     '\n' => {
+    //                         buf.extend_from_slice(b"\\n");
+    //                     }
+    //                     '\r' => {
+    //                         buf.extend_from_slice(b"\\r");
+    //                     }
+    //                     '\t' => {
+    //                         buf.extend_from_slice(b"\\t");
+    //                     }
+    //                     '\\' => {
+    //                         buf.extend_from_slice(b"\\\\");
+    //                     }
+    //                     ' '..='~' => {
+    //                         buf.push(c as u8);
+    //                     }
+    //                     _ => {
+    //                         buf.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes());
+    //                     }
+    //                 }
+    //             }
+    //             buf.push(sep as u8);
+    //             String::from_utf8(buf.to_vec()).unwrap().into()
+    //         }
+    //         Self::FunctionBytecode(b) => {
+    //             format!("[bytecode {}]", b.0.borrow().func_name.to_str(rt)).into()
+    //         }
+    //         Self::Object(p) => {
+    //             let atom = rt.class_array[p.class_id() as usize].class_name;
+    //             format!("[{}]", atom.to_str(rt)).into()
+    //         }
+    //         Self::Symbol(p) => {
+    //             format!("Symbol({})", p.atom_info().unwrap().atom().to_str(rt)).into()
+    //         }
+    //         Self::Module(_) => "[module]".into(),
+    //         Self::CatchOffset(n) => format!("[catchoffset({})]", *n).into(),
+    //         Self::AsyncFuncResume(_) => "[asyncfuncresume]".into(),
+    //     }
+    // }
 
     /// Represent value `self` to string value.
     /// `self` is not consumed.

@@ -31,19 +31,29 @@ pub fn JS_ObjectDefineProperties(
     }
 
     let props = properties.coerce_to_object(ctx)?;
-    let p = unsafe { props.object_unchecked() };
 
-    let r = p.own_property_names_foreach(
-        ctx,
-        JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
-        |cx, name: PropertyEnum| {
-            let desc = props.get_property(cx, name.atom).check_exception()?;
-            obj.define_property_desc(cx, name.atom, &desc, JS_PROP_THROW)
-                .map(|_| ())
-        },
-    );
+    if let JSValue::Object(obj) = obj {
+        let p = unsafe { props.object_unchecked() };
+        let r = p.own_property_names_foreach(
+            ctx,
+            JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+            |cx, name: PropertyEnum| {
+                let desc = props.get_property(cx, name.atom).check_exception()?;
+                if let JSValue::Object(desc) = desc {
+                    obj.define_property_desc(cx, name.atom, &desc, JS_PROP_THROW)
+                        .map(|_| ())
+                } else {
+                    ctx.JS_ThrowTypeErrorNotAnObject();
+                    return Err(-1);
+                }
+            },
+        );
 
-    r
+        r
+    } else {
+        ctx.JS_ThrowTypeErrorNotAnObject();
+        return Err(-1);
+    }
 }
 
 pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -100,30 +110,33 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     let prop = cc.arg(1);
     let desc = cc.arg(2);
 
-    if !obj.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
+    match (obj, desc) {
+        (JSValue::Object(obj), JSValue::Object(desc)) => {
+            let atom = JS_ValueToAtom(ctx, prop);
+            if atom == JS_ATOM_NULL {
+                return Err(-1);
+            }
 
-    let atom = JS_ValueToAtom(ctx, prop);
-    if unlikely(atom == JS_ATOM_NULL) {
-        return Err(-1);
-    }
+            // magic = 1 if called as Reflect.defineProperty
+            let mut flags = 0;
+            if cc.magic() == 0 {
+                flags |= JS_PROP_THROW;
+            }
+            let ret = obj.define_property_desc(ctx, atom, desc, flags);
+            JS_FreeAtom(ctx, atom);
 
-    // magic = 1 if called as Reflect.defineProperty
-    let mut flags = 0;
-    if cc.magic() == 0 {
-        flags |= JS_PROP_THROW;
+            let b = ret?;
+            Ok(if cc.magic() != 0 {
+                JSValue::Bool(b)
+            } else {
+                JSValue::Object(obj.clone())
+            })
+        }
+        _ => {
+            ctx.JS_ThrowTypeErrorNotAnObject();
+            Err(-1)
+        }
     }
-    let ret = obj.define_property_desc(ctx, atom, desc, flags);
-    JS_FreeAtom(ctx, atom);
-    let b = ret?;
-
-    Ok(if cc.magic() != 0 {
-        JSValue::Bool(b)
-    } else {
-        obj.clone()
-    })
 }
 
 /// defineProperties(obj, properties)

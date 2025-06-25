@@ -93,6 +93,7 @@ pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
 /// Set the is_enumerable field in JSPropertyEnum
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
+#[derive(Debug, Clone)]
 pub struct JSPropertyDescriptor {
     pub flags: u32,
     pub value: JSValue,
@@ -108,6 +109,81 @@ impl Default for JSPropertyDescriptor {
             getter: JSValue::UNDEFINED,
             setter: JSValue::UNDEFINED,
         }
+    }
+}
+
+impl JSPropertyDescriptor {
+    /// Parse an object to JSPropertyDescriptor.
+    pub(crate) fn parse(ctx: &JSContext, desc: &JSObject) -> Result<Self, i32> {
+        let mut flags: u32 = 0;
+        let mut value: JSValue = JSValue::UNDEFINED;
+        let mut getter: JSValue = JSValue::UNDEFINED;
+        let mut setter: JSValue = JSValue::UNDEFINED;
+
+        if desc.has_property(ctx, JS_ATOM_configurable)? {
+            let conf = desc
+                .get_property(ctx, JS_ATOM_configurable)
+                .check_exception()?;
+            flags |= JS_PROP_HAS_CONFIGURABLE;
+            if conf.coerce_to_bool(ctx)? {
+                flags |= JS_PROP_CONFIGURABLE;
+            }
+        }
+
+        if desc.has_property(ctx, JS_ATOM_writable)? {
+            let conf = desc.get_property(ctx, JS_ATOM_writable).check_exception()?;
+            flags |= JS_PROP_HAS_WRITABLE;
+            if conf.coerce_to_bool(ctx)? {
+                flags |= JS_PROP_WRITABLE;
+            }
+        }
+
+        if desc.has_property(ctx, JS_ATOM_enumerable)? {
+            let conf = desc
+                .get_property(ctx, JS_ATOM_enumerable)
+                .check_exception()?;
+            flags |= JS_PROP_HAS_ENUMERABLE;
+            if conf.coerce_to_bool(ctx)? {
+                flags |= JS_PROP_ENUMERABLE;
+            }
+        }
+
+        if desc.has_property(ctx, JS_ATOM_value)? {
+            flags |= JS_PROP_HAS_VALUE;
+            value = desc.get_property(ctx, JS_ATOM_value).check_exception()?;
+        }
+
+        if desc.has_property(ctx, JS_ATOM_get)? {
+            flags |= JS_PROP_HAS_GET;
+            getter = desc.get_property(ctx, JS_ATOM_get);
+            if getter.is_exception() || !(getter.is_undefined() || getter.is_callable()) {
+                ctx.JS_ThrowTypeError("invalid getter");
+                return Err(-1);
+            }
+        }
+
+        if desc.has_property(ctx, JS_ATOM_set)? {
+            flags |= JS_PROP_HAS_SET;
+            setter = desc.get_property(ctx, JS_ATOM_set);
+            if setter.is_exception() || !(setter.is_undefined() || setter.is_callable()) {
+                ctx.JS_ThrowTypeError("invalid setter");
+                return Err(-1);
+            }
+        }
+
+        if flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
+            && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0
+        {
+            ctx.JS_ThrowTypeError("cannot have setter/getter and value or writable");
+            return Err(-1);
+        }
+
+        Ok(Self {
+            flags,
+            value,
+            getter,
+            setter,
+        })
     }
 }
 
@@ -261,13 +337,13 @@ impl JSObject {
 
         loop {
             if p.flags().is_exotic() {
-                if let Some(f) = unsafe {
+                if let Some(cb) = unsafe {
                     ctx.rt().class_array[p.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|x| x.has_property)
                 } {
-                    return match unsafe { f(ctx, JSValue::Object(p), prop) } {
+                    return match cb(ctx, &p, prop) {
                         -1 => Err(-1),
                         n => Ok(n != 0),
                     };

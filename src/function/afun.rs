@@ -230,12 +230,16 @@ impl JSAsyncFunctionState {
         Ok(s)
     }
 
-    pub fn downgrade(&self) -> JSAsyncFunctionStateWeakref {
-        JSAsyncFunctionStateWeakref(Rc::downgrade(&self.0))
-    }
-
     pub fn id(&self) -> usize {
         self.0.borrow().id()
+    }
+
+    pub fn rt(&self) -> &JSRuntime {
+        unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+    }
+
+    pub fn downgrade(&self) -> JSAsyncFunctionStateWeakref {
+        JSAsyncFunctionStateWeakref(Rc::downgrade(&self.0))
     }
 
     pub fn set_throw_flag(&self, b: bool) {

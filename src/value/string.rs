@@ -64,6 +64,10 @@ impl JSStringInner {
         self as *const Self as usize
     }
 
+    pub fn rt(&self) -> &JSRuntime {
+        self.rt()
+    }
+
     /// Returns a reference to the underlying string content
     /// Used for string operations and comparisons
     #[inline(always)]
@@ -191,6 +195,10 @@ impl JSString {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.id()
+    }
+
+    pub fn rt(&self) -> &JSRuntime {
+        self.0.rt()
     }
 
     pub fn content(&self) -> &StringContentRc {
@@ -683,7 +691,7 @@ pub fn js_string_get_own_property(
     Ok(None)
 }
 
-pub unsafe fn js_string_define_own_property(
+pub fn js_string_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValueConst,
     prop: JSAtom,
@@ -718,15 +726,15 @@ pub unsafe fn js_string_define_own_property(
 
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
-
-        if let JSValue::String(p1) = this_obj.object_unchecked().0.isa.borrow().value().unwrap() {
+        let ob = unsafe { this_obj.object_unchecked() };
+        if let JSValue::String(p1) = ob.0.isa.borrow().value().unwrap() {
             let len = p1.len();
             let nth_char = p1.content().chars().nth(idx as usize);
 
             if idx >= len as u32 {
                 def!();
             }
-            if !check_define_prop_flags(JS_PROP_ENUMERABLE, flags as _) {
+            if unsafe { !check_define_prop_flags(JS_PROP_ENUMERABLE, flags as _) } {
                 fail!();
             }
 
@@ -736,7 +744,7 @@ pub unsafe fn js_string_define_own_property(
                     fail!();
                 }
 
-                let p2 = val.string_unchecked();
+                let p2 = unsafe { val.string_unchecked() };
                 let len2 = p2.len();
                 let nth_char2 = p2.content().chars().next();
 

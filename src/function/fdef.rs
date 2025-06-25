@@ -16,13 +16,12 @@ use crate::{
     mem::js_malloc_typed,
     module::JSModuleDef,
     parse::JSParseFunctionEnum,
-    runtime::JSRuntime,
     utils::{
         init_list_head, list_add_tail, list_del, list_foreach_safe, list_head, push_vec_u8,
         push_vec_u16, push_vec_u32, read_from_ptr,
     },
     value::{
-        JS_FreeValueRT, JSValue,
+        JSValue,
         object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     },
 };
@@ -414,9 +413,7 @@ impl JSFunctionDef {
         // self.label_slots.clear();
         // self.line_number_slots.clear();
 
-        for v in self.cpool.drain(..) {
-            JS_FreeValueRT(rt, &v);
-        }
+        self.cpool.clear();
 
         for mut vd in self.args.drain(..) {
             JS_FreeAtomRT(rt, vd.var_name);

@@ -6,8 +6,7 @@ use crate::{
     gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
-        HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JS_FreeValueRT, JSValue, JSValueConst,
-        object::JSObjectIsa,
+        HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue, JSValueConst, object::JSObjectIsa,
     },
 };
 

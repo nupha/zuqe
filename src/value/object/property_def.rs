@@ -467,6 +467,19 @@ impl JSObject {
 
         Ok(true)
     }
+
+    /// define property from descriptor object configuration.
+    /// `prop` is not consumed.
+    pub fn define_property_desc(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        desc: &JSObject,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let d = JSPropertyDescriptor::parse(ctx, desc)?;
+        self.define_property(ctx, prop, &d.value, &d.getter, &d.setter, d.flags | flags)
+    }
 }
 
 impl JSValue {
@@ -619,119 +632,6 @@ impl JSValue {
             flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
         )
     }
-
-    /// define property from descriptor object configuration.
-    /// `prop` is not consumed.
-    pub fn define_property_desc(
-        &self,
-        ctx: &JSContext,
-        prop: JSAtom,
-        desc: &Self,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        let mut d = JSPropertyDescriptor::default();
-        unsafe {
-            js_obj_to_desc(ctx, &mut d, desc.clone())?;
-        }
-        self.define_property(ctx, prop, &d.value, &d.getter, &d.setter, d.flags | flags)
-    }
-}
-
-/// Descriptor config object to JSPropertyDescriptor.
-/// `desc` keep ref count unchanged after calling.
-pub unsafe fn js_obj_to_desc(
-    ctx: &JSContext,
-    d: &mut JSPropertyDescriptor,
-    desc: JSValue,
-) -> Result<(), i32> {
-    if !desc.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
-    }
-
-    let mut val: JSValue = JSValue::UNDEFINED;
-    let mut getter: JSValue = JSValue::UNDEFINED;
-    let mut setter: JSValue = JSValue::UNDEFINED;
-    let mut flags: u32 = 0;
-
-    macro_rules! fail {
-        () => {
-            return Err(-1);
-        };
-    }
-
-    if desc.has_property(ctx, JS_ATOM_configurable)? {
-        let conf = desc.get_property(ctx, JS_ATOM_configurable);
-        if conf.is_exception() {
-            fail!();
-        }
-        flags |= JS_PROP_HAS_CONFIGURABLE;
-        if conf.coerce_to_bool(ctx).unwrap_or(true) {
-            flags |= JS_PROP_CONFIGURABLE;
-        }
-    }
-
-    if desc.has_property(ctx, JS_ATOM_writable)? {
-        let conf = desc.get_property(ctx, JS_ATOM_writable);
-        if conf.is_exception() {
-            fail!();
-        }
-        flags |= JS_PROP_HAS_WRITABLE;
-        if conf.coerce_to_bool(ctx).unwrap_or(true) {
-            flags |= JS_PROP_WRITABLE;
-        }
-    }
-
-    if desc.has_property(ctx, JS_ATOM_enumerable)? {
-        let conf = desc.get_property(ctx, JS_ATOM_enumerable);
-        if conf.is_exception() {
-            fail!();
-        }
-        flags |= JS_PROP_HAS_ENUMERABLE;
-        if conf.coerce_to_bool(ctx).unwrap_or(true) {
-            flags |= JS_PROP_ENUMERABLE;
-        }
-    }
-
-    if desc.has_property(ctx, JS_ATOM_value)? {
-        flags |= JS_PROP_HAS_VALUE;
-        val = desc.get_property(ctx, JS_ATOM_value);
-        if val.is_exception() {
-            fail!();
-        }
-    }
-
-    if desc.has_property(ctx, JS_ATOM_get)? {
-        flags |= JS_PROP_HAS_GET;
-        getter = desc.get_property(ctx, JS_ATOM_get);
-        if getter.is_exception() || !(getter.is_undefined() || getter.is_callable()) {
-            ctx.JS_ThrowTypeError("invalid getter");
-            fail!();
-        }
-    }
-
-    if desc.has_property(ctx, JS_ATOM_set)? {
-        flags |= JS_PROP_HAS_SET;
-        setter = desc.get_property(ctx, JS_ATOM_set);
-        if setter.is_exception() || !(setter.is_undefined() || setter.is_callable()) {
-            ctx.JS_ThrowTypeError("invalid setter");
-            fail!();
-        }
-    }
-
-    if flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
-        && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0
-    {
-        ctx.JS_ThrowTypeError("cannot have setter/getter and value or writable");
-        fail!();
-    }
-
-    d.flags = flags;
-    d.value = val;
-    d.getter = getter;
-    d.setter = setter;
-
-    Ok(())
 }
 
 #[deprecated(note = "unused")]

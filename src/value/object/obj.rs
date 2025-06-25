@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    ffi::c_void,
     ops::{Deref, DerefMut},
     ptr::NonNull,
     rc::{Rc, Weak},
@@ -152,10 +153,9 @@ impl JSObjectFlags {
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct JSObjectInner {
     rt: NonNull<JSRuntime>,
-    // header: GCObjectHeader,
+
     /// object flags
     pub detailed: Cell<JSObjectFlags>,
 
@@ -349,7 +349,7 @@ impl JSObjectInner {
     }
 
     fn finalize(&mut self) {
-        let class_id = self.isa.borrow().class_id();
+        let class_id = self.class_id();
 
         // free shape props and props
         self.shape.take();
@@ -372,7 +372,7 @@ impl JSObjectInner {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JSObject(pub(crate) Rc<JSObjectInner>);
 
 impl PartialEq for JSObject {
@@ -387,10 +387,20 @@ impl From<JSObject> for GCObject {
     }
 }
 
+impl std::fmt::Debug for JSObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<JSObject id={:p}>", self.id() as *const c_void)
+    }
+}
+
 impl JSObject {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.id()
+    }
+
+    pub fn rt(&self) -> &JSRuntime {
+        self.0.rt()
     }
 
     /// Get object class_id
@@ -890,9 +900,8 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValueConst, val: bool)
 /// Note: `val` is consumed.
 pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValueConst, val: JSValue) -> i32 {
     if let Some(o) = obj.object() {
-        if let Ok(old) = o.0.isa.borrow_mut().value_replace(ctx.rt_mut(), val) {
-            // free old value
-            // JS_FreeValue(ctx, &old);
+        if let Ok(old) = o.0.isa.borrow_mut().replace_value(val) {
+            drop(old);
             0
         } else {
             ctx.JS_ThrowTypeError("invalid object type");

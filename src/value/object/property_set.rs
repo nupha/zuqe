@@ -161,7 +161,8 @@ impl JSObject {
         Err(Some(new_state))
     }
 
-    /// assign value to property at idx slot.
+    /// assign property value at specified slot idx.
+    /// if the property is auto init type, do instantiate instead.
     pub(super) fn internal_assign_prop_value(
         &self,
         ctx: &JSContext,
@@ -174,7 +175,7 @@ impl JSObject {
     ) -> Result<bool, i32> {
         if prs_flags & JS_PROP_LENGTH != 0 {
             // special prop: length
-            // use to set .length property of an array object
+            // to set .length property of an array object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
             debug_assert_eq!(idx, 0, "length property must be indexed at 0");
@@ -182,20 +183,26 @@ impl JSObject {
         }
 
         if prs_flags & JS_PROP_AUTOINIT != 0 {
-            // is auto init property
-            if prs_flags & JS_PROP_WRITABLE == 0 {
-                return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                    Err(-1)
-                } else {
-                    Ok(false)
-                };
-            }
-
+            // auto init property
+            // if prs_flags & JS_PROP_WRITABLE == 0 {
+            //     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+            //         Err(-1)
+            //     } else {
+            //         Ok(false)
+            //     };
+            // }
             let mut pr = std::mem::replace(
                 &mut self.0.prop_values.borrow_mut()[idx],
                 JSProperty::default(),
             );
+            println!(
+                "[O.o][init prop] {:?} {}, {:?}",
+                prop,
+                prop.to_str(ctx.rt()),
+                pr
+            );
             debug_assert!(matches!(pr, JSProperty::AutoInit { .. }));
+
             pr.instantiate(this_val, prop)?;
             self.0.prop_values.borrow_mut()[idx] = pr;
             Ok(true)

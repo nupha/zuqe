@@ -17,7 +17,7 @@ use crate::{
     value::{
         JSValue, JSValueConst,
         object::{
-            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObjectIsa,
+            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
             JSPropertyDescriptor, PropertyEnum,
         },
     },
@@ -54,17 +54,17 @@ pub struct JSClassExoticMethods {
         Option<fn(&JSContext, JSValue, JSAtom) -> Result<Option<JSPropertyDescriptor>, i32>>,
 
     pub get_own_property_names:
-        Option<unsafe fn(&JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> i32>,
+        Option<fn(&JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> i32>,
 
     pub delete_property: Option<fn(&JSContext, JSValue, JSAtom) -> Result<bool, i32>>,
 
     /// both JSValue(s), JSAtom should not be consumed.
     pub define_own_property:
-        Option<unsafe fn(&JSContext, &JSValue, JSAtom, &JSValue, &JSValue, &JSValue, i32) -> i32>,
+        Option<fn(&JSContext, &JSValue, JSAtom, &JSValue, &JSValue, &JSValue, i32) -> i32>,
 
-    pub has_property: Option<unsafe fn(&JSContext, JSValue, JSAtom) -> i32>,
+    pub has_property: Option<fn(ctx: &JSContext, this_obj: &JSObject, prop: JSAtom) -> i32>,
 
-    pub get_property: Option<unsafe fn(&JSContext, JSValue, JSAtom, JSValue) -> JSValue>,
+    pub get_property: Option<fn(&JSContext, JSValue, JSAtom, JSValue) -> JSValue>,
 
     pub set_property:
         Option<fn(&JSContext, JSValue, JSAtom, JSValue, JSValue, i32) -> Result<bool, i32>>,
@@ -476,24 +476,20 @@ impl JSContext {
 }
 
 #[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
-pub unsafe fn js_create_from_ctor(
-    ctx: &JSContext,
-    ctor: JSValueConst,
-    class_id: JSClassID,
-) -> JSValue {
+pub unsafe fn js_create_from_ctor(ctx: &JSContext, ctor: JSValue, class_id: JSClassID) -> JSValue {
     unreachable!("unused");
 }
 
-unsafe fn js_arguments_define_own_property(
+fn js_arguments_define_own_property(
     ctx: &JSContext,
-    this_obj: &JSValueConst,
+    this_obj: &JSValue,
     prop: JSAtom,
-    val: &JSValueConst,
-    getter: &JSValueConst,
-    setter: &JSValueConst,
+    val: &JSValue,
+    getter: &JSValue,
+    setter: &JSValue,
     flags: i32,
 ) -> i32 {
-    let p = this_obj.object_unchecked();
+    let p = unsafe { this_obj.object_unchecked() };
 
     /* convert to normal array when redefining an existing numeric field */
     if p.flags().fast_array()
@@ -501,7 +497,7 @@ unsafe fn js_arguments_define_own_property(
             .to_array_index(ctx.rt())
             .map_or(false, |i| i < p.array_length_unchecked())
     {
-        if convert_fast_array_to_array(ctx, p) != 0 {
+        if unsafe { convert_fast_array_to_array(ctx, p) } != 0 {
             return -1;
         }
     }

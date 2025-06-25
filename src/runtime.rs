@@ -13,7 +13,7 @@ use crate::{
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     JS_CLASS_STRING, STD_CLASS_DEFS,
     array_buffer::JSSharedArrayBufferFunctions,
-    atom::{JS_FreeAtomRT, JSAtomStruct},
+    atom::JS_FreeAtomRT,
     callable::CallableValue,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
@@ -29,7 +29,7 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::{init_list_head, js_get_stack_pointer, list_foreach_safe, list_head},
     value::{
-        JS_FreeValueRT, JSStringInner, JSValue, js_string_exotic_methods,
+        JSStringInner, JSValue, js_string_exotic_methods,
         object::{GCObjectWeakref, JSShapeWeakref},
     },
 };
@@ -185,9 +185,7 @@ impl JSRuntime {
 
         rt.init_default_atoms()?;
 
-        if rt.shape_registry.try_reserve(16).is_err() {
-            return Err(-1);
-        }
+        rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
 
         // register intrinsic classes
         rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
@@ -235,9 +233,6 @@ impl JSRuntime {
         {
             list_foreach_safe(&mut self.job_list, |el| {
                 let job_ent = list_entry!(el, JSJobEntry, link);
-                for i in 0..(*job_ent).argc {
-                    JS_FreeValueRT(self, &(*job_ent).args[i as usize]);
-                }
                 drop(Box::from_raw(job_ent));
             });
             init_list_head(&mut self.job_list);
@@ -275,7 +270,7 @@ impl JSRuntime {
         //     }
         // }
 
-        // free classes
+        // free classe name atoms
         while let Some(cls) = self.class_array.pop() {
             // 0: base object class
             if cls.class_id != 0 {

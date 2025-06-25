@@ -163,16 +163,13 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    /// `val` is consumed
-    pub fn value_replace(&mut self, rt: &mut JSRuntime, val: JSValue) -> Result<JSValue, i32> {
+
+    pub fn replace_value(&mut self, val: JSValue) -> Result<JSValue, i32> {
         match self {
             Self::NUMBER(a) | Self::STRING(a) | Self::BOOLEAN(a) | Self::SYMBOL(a) => {
-                Ok(a.replace(val))
+                Ok(std::mem::replace(a, val))
             }
-            _ => unsafe {
-                crate::value::JS_FreeValueRT(rt, &val);
-                Err(-1)
-            },
+            _ => Err(-1),
         }
     }
 }

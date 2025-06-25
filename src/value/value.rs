@@ -1,14 +1,11 @@
-use std::hash::Hash;
-
 use crate::{
     JS_CLASS_ERROR,
-    atom::{JSAtom, JSAtomStruct, JSAtomTypeHint, consts::*},
+    atom::{JSAtomStruct, JSAtomTypeHint},
     context::JSContext,
     error::JS_ThrowRangeError,
     function::{JSAsyncFunctionState, JSFunctionBytecode},
     module::JSModuleDef,
     runtime::JSRuntime,
-    value::JS_FreeValueRT,
 };
 
 use super::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER, object::JSObject, string::JSString};
@@ -149,7 +146,7 @@ mod nb_value {
 pub use nb_value::*;
 
 #[repr(u8)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum JSValue {
     UNDEFINED,
     NULL,
@@ -188,6 +185,12 @@ impl PartialEq for JSValue {
             (Self::CatchOffset(a), Self::CatchOffset(b)) => *a == *b,
             _ => false,
         }
+    }
+}
+
+impl std::fmt::Debug for JSValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.repr())
     }
 }
 
@@ -299,8 +302,7 @@ impl JSValue {
     /// set new value and free the old value.
     #[inline(always)]
     pub fn replace_free(&mut self, rt: *mut JSRuntime, new_val: JSValue) {
-        let v0 = std::mem::replace(self, new_val);
-        JS_FreeValueRT(rt, &v0);
+        drop(std::mem::replace(self, new_val));
     }
 
     #[inline(always)]
