@@ -11,8 +11,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     gc::GCObjectHeader,
+    obsoletes::JS_ToStringFree,
     runtime::JSRuntime,
-    value::{JS_FreeValue, JSValue, JSValueConst, object::GCObjectWeakref},
+    value::{JSValue, JSValueConst, object::GCObjectWeakref},
 };
 
 use super::{
@@ -393,31 +394,6 @@ pub fn is_num(c: i32) -> bool {
     ('0' as i32..='9' as i32).contains(&c)
 }
 
-#[deprecated(note = "use StringContent::parse_u32() instead")]
-pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
-    match (*p).content().parse_u32() {
-        Ok(n) => {
-            *pval = n;
-            true
-        }
-        Err(_) => false,
-    }
-}
-
-/// `val` is consumed.
-#[deprecated(note = "use JSValue::coerce_to_string_value() + JS_FreeValue() instead")]
-pub fn JS_ToStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_string_value(ctx)
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-/// `val` is consumed.
-#[deprecated(note = "use JSValue::to_locale_string() + JS_FreeValue() instead")]
-pub unsafe fn JS_ToLocaleStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    let r = val.to_locale_string(ctx).unwrap_or(JSValue::EXCEPTION);
-    r
-}
-
 pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValueConst) -> JSResult {
     if val.is_undefined_or_null() {
         ctx.JS_ThrowTypeError("null or undefined are forbidden");
@@ -444,7 +420,6 @@ pub unsafe fn JS_ConcatString3(
 ) -> JSValue {
     macro_rules! fail {
         () => {
-            JS_FreeValue(ctx, &str2);
             return JSValue::EXCEPTION;
         };
     }
@@ -472,8 +447,6 @@ pub unsafe fn JS_ConcatString3(
         .and_then(|_| res_string.push((*p).content()))
         .and_then(|_| res_string.push_str(str3.to_string_lossy().as_ref()));
 
-    JS_FreeValue(ctx, &str2);
-
     if r.is_err() {
         fail!();
     }
@@ -488,7 +461,6 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
     let str1 = if !op1.is_string() {
         let v = JS_ToStringFree(ctx, op1);
         if v.is_exception() {
-            JS_FreeValue(ctx, &op2);
             return JSValue::EXCEPTION;
         }
         v

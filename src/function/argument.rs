@@ -6,7 +6,7 @@ use crate::{
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
     value::{
-        JS_FreeValue, JSValue,
+        JSValue,
         object::{
             JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
             JS_PROP_WRITABLE, JSObjectIsa, JSProperty, js_get_length32,
@@ -130,7 +130,6 @@ pub unsafe fn js_build_mapped_arguments(
             .define_property_value_u32(ctx, i as _, args[i].clone(), JS_PROP_C_W_E)
             .is_err()
         {
-            JS_FreeValue(ctx, &val);
             return JSValue::EXCEPTION;
         }
     }
@@ -162,7 +161,6 @@ pub fn js_build_rest(ctx: &JSContext, first: usize, args: &[JSValue]) -> JSValue
                 .define_property_value_u32(ctx, (i - first) as _, v.clone(), JS_PROP_C_W_E)
                 .is_err()
             {
-                JS_FreeValue(ctx, &val);
                 return JSValue::EXCEPTION;
             }
         }

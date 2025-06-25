@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use crate::{
     bytecode::OpCode,
     context::JSContext,
-    value::{HINT_NONE, HINT_NUMBER, JS_ConcatString, JS_FreeValue, JSFloat64Union, JSValue},
+    value::{HINT_NONE, HINT_NUMBER, JS_ConcatString, JSFloat64Union, JSValue},
 };
 
 #[derive(Debug, Clone)]
@@ -134,13 +134,7 @@ impl BinaryOp {
         match self {
             BinaryOp::Int(a, b) => Ok(JSValue::from_f64((a as f64) / (b as f64))),
             BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a / b)),
-            BinaryOp::HasString(a, b) => {
-                unsafe {
-                    JS_FreeValue(ctx, &a);
-                    JS_FreeValue(ctx, &b);
-                }
-                Err(-1)
-            }
+            BinaryOp::HasString(a, b) => Err(-1),
         }
     }
 

@@ -5,7 +5,7 @@ use crate::{
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
-    value::{JS_DumpString, JS_FreeValue, JSStringInner, JSValue, StringContent},
+    value::{JSStringInner, JSValue, StringContent},
 };
 
 use super::{JSAtomStruct, consts::*};
@@ -671,7 +671,6 @@ pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
     if num.is_exception() {
         return -1;
     }
-    JS_FreeValue(ctx, &num);
     return 1;
 }
 
@@ -690,7 +689,6 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
     let astr = if let Ok(s) = str_val.coerce_to_utf8(ctx.into()) {
         s
     } else {
-        JS_FreeValue(ctx, &str_val);
         return JS_ATOM_NULL;
     };
 
@@ -710,7 +708,6 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
         JS_ATOM_NULL
     };
 
-    JS_FreeValue(ctx, &str_val);
     res
 }
 

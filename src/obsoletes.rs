@@ -16,7 +16,6 @@ use crate::{
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
     iterator::JSIteratorKindEnum,
-    map::JSMapState,
     module::JSModuleDef,
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
@@ -24,8 +23,8 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
     value::{
-        JSString, JSValue, JSValueConst,
-        object::{JSAutoInitIDEnum, JSObject, JSProperty, JSShape, PropertyEnum},
+        JSString, JSStringInner, JSValue, JSValueConst,
+        object::{JSAutoInitIDEnum, JSProperty, JSShape, PropertyEnum},
     },
 };
 
@@ -281,6 +280,31 @@ pub unsafe fn free_arg_list(ctx: &JSContext, tab: *mut JSValue, len: u32) {
     //     JS_FreeValue(ctx, *tab.add(i as _));
     // }
     // js_free(ctx, tab.cast());
+}
+
+#[deprecated(note = "use StringContent::parse_u32() instead")]
+pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
+    match (*p).content().parse_u32() {
+        Ok(n) => {
+            *pval = n;
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// `val` is consumed.
+#[deprecated(note = "use JSValue::coerce_to_string_value() instead")]
+pub fn JS_ToStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
+    val.coerce_to_string_value(ctx)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+/// `val` is consumed.
+#[deprecated(note = "use JSValue::to_locale_string() instead")]
+pub unsafe fn JS_ToLocaleStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
+    let r = val.to_locale_string(ctx).unwrap_or(JSValue::EXCEPTION);
+    r
 }
 
 #[deprecated(note = "unused")]

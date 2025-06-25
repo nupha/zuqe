@@ -10,7 +10,7 @@ use crate::{
     runtime::JSRuntime,
     typed_array::JSTypedArray,
     value::{
-        JS_FreeValue, JS_ToUint32, JSValue, JSValueConst,
+        JS_ToUint32, JSValue, JSValueConst,
         object::{
             JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
             JSObject, JSObjectIsa, JSProperty,
@@ -562,7 +562,6 @@ pub unsafe fn js_create_array(ctx: &JSContext, len: i32, tab: *const JSValueCons
                 .create_data_property_u32(ctx, i as _, (*tab.offset(i as isize)).clone(), 0)
                 .is_err()
             {
-                JS_FreeValue(ctx, &obj);
                 return JSValue::EXCEPTION;
             }
         }

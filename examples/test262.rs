@@ -19,7 +19,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
     runtime::JSRuntime,
-    value::{JS_FreeValue, JSValue, StringContent, object::JS_PROP_C_W_E},
+    value::{JSValue, StringContent, object::JS_PROP_C_W_E},
 };
 
 fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
@@ -142,7 +142,6 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
     obj262.set_property_str(ctx, "global", global.clone())?;
     global.set_property_str(ctx, "$262", obj262.clone())?;
 
-    JS_FreeValue(ctx, &global);
     Ok(obj262)
 }
 
@@ -270,8 +269,6 @@ fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue
         if r.is_exception() {
             return Err(ctx.take_exception());
         }
-
-        JS_FreeValue(ctx, &r);
     }
 
     Ok(())
