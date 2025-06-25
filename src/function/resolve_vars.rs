@@ -193,9 +193,9 @@ impl JSFunctionDef {
                     // check atom refcount after resolve_scope_var()
                     #[cfg(debug_assertions)]
                     debug_assert!(
-                        var_name.ref_count(ctx.rt().deref()) >= _name_refcnt,
+                        var_name.ref_count(ctx.rt()) >= _name_refcnt,
                         "[O.o] {var_name:?}, {}",
-                        var_name.to_str(ctx.rt().deref())
+                        var_name.to_str(ctx.rt())
                     );
 
                     JS_FreeAtom(ctx, var_name);

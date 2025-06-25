@@ -199,13 +199,6 @@ impl JSContext {
             bc_obj = JSValue::Module(m.clone());
         }
 
-        // O.o
-        println!("[O.o] bc  obj: {:?}", bc_obj.repr(self.rt()));
-        println!(
-            "[O.o] func  obj: {:?}",
-            func_obj.as_ref().map(|v| v.dump(self.rt()))
-        );
-
         // returns compiled or evaluated
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
             bc_obj

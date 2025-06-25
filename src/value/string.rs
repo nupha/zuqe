@@ -135,7 +135,7 @@ impl From<JSString> for JSValue {
 }
 
 impl JSString {
-    /// create JSString from content
+    /// create JSString with string content
     pub fn new(rt: &mut JSRuntime, content: StringContentRc) -> Self {
         let inner = JSStringInner {
             header: GCObjectHeader::new(rt, 1),
@@ -148,7 +148,7 @@ impl JSString {
         };
 
         let s = Self(Rc::new(inner));
-        rt.gc_add_object(s.downgrade().into());
+        //rt.gc_add_object(s.downgrade().into());
         s
     }
 

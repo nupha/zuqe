@@ -166,9 +166,6 @@ impl JSObject {
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        // O.o
-        debug_assert!(self.0.prop_values.try_borrow_mut().is_ok(), "O.o");
-
         macro_rules! update_array_length {
             ($p:expr, $idx:expr) => {
                 let len = $p.0.prop_values.borrow()[0]

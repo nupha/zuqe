@@ -12,7 +12,7 @@ use crate::{
     gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{JS_FreeValueRT, JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
 
 #[derive(Debug)]
@@ -68,14 +68,6 @@ impl JSCFunctionDataRecord {
     #[inline(always)]
     pub fn data_mut(&mut self) -> &mut [JSValue] {
         self.data.as_mut_slice()
-    }
-
-    /// free data values, and drop Self
-    pub unsafe fn free(rt: *mut JSRuntime, rec: NonNull<Self>) {
-        let a = Box::from_raw(rec.as_ptr());
-        for d in a.data() {
-            JS_FreeValueRT(rt, d);
-        }
     }
 }
 

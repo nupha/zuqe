@@ -175,7 +175,7 @@ impl JSShape {
             proto.cloned(),
             prop_slots,
         )?)));
-        ctx.rt_mut().gc_add_object(shape.downgrade().into());
+        //ctx.rt_mut().gc_add_object(shape.downgrade().into());
         Ok(shape)
     }
 
@@ -220,7 +220,7 @@ impl JSShape {
         sh.is_hashed = true;
         let shape = Self(Rc::new(RefCell::new(sh)));
 
-        ctx.rt_mut().gc_add_object(shape.downgrade().into());
+        //ctx.rt_mut().gc_add_object(shape.downgrade().into());
 
         Ok(shape)
     }
@@ -335,8 +335,7 @@ impl JSContext {
         shape: JSShape,
         isa: JSObjectIsa,
     ) -> Result<JSValue, JSObjectIsa> {
-        let inner = JSObjectInner::new(self, Some(shape), isa)?;
-        let obj = JSObject(Rc::new(inner));
+        let obj = JSObject(Rc::new(JSObjectInner::new(self, Some(shape), isa)?));
         self.rt_mut().gc_add_object(obj.downgrade().into());
         Ok(JSValue::Object(obj))
     }

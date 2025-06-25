@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    super::{JS_FreeValue, JS_NumberIsNegativeOrMinusZero, JSValue, JSValueConst},
+    super::{JS_NumberIsNegativeOrMinusZero, JSValue, JSValueConst},
     JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
@@ -380,10 +380,9 @@ impl JSObject {
                 Ok(true)
             };
 
-            /* still need to reset the writable flag if
-            needed.  The JS_PROP_LENGTH is kept because the
-            Uint32 test is still done if the length
-            property is read-only. */
+            // still need to reset the writable flag if needed.
+            // The JS_PROP_LENGTH is kept because the Uint32 test is still done if the length
+            // property is read-only.
             if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
                 self.js_update_property_flags(ctx, prop, prs_flags & !JS_PROP_WRITABLE)?;
             }
@@ -657,9 +656,6 @@ pub unsafe fn js_obj_to_desc(
 
     macro_rules! fail {
         () => {
-            JS_FreeValue(ctx, &val);
-            JS_FreeValue(ctx, &getter);
-            JS_FreeValue(ctx, &setter);
             return Err(-1);
         };
     }
@@ -741,9 +737,6 @@ pub unsafe fn js_obj_to_desc(
 #[deprecated(note = "unused")]
 pub unsafe fn js_free_desc(ctx: &JSContext, desc: *mut JSPropertyDescriptor) {
     unreachable!("unused");
-    // JS_FreeValue(ctx, (*desc).getter);
-    // JS_FreeValue(ctx, (*desc).setter);
-    // JS_FreeValue(ctx, (*desc).value);
 }
 
 pub unsafe fn JS_DefineObjectName(

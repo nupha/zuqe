@@ -29,6 +29,11 @@ use crate::{
     },
 };
 
+#[deprecated(note = "use JSRuntime::finalize() instead")]
+unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
+    unreachable!("unused");
+}
+
 #[deprecated(note = "use JSObject::opaque() instead")]
 pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_void {
     unreachable!("use JSObject::opaque() instead")

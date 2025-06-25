@@ -269,18 +269,6 @@ impl JSValue {
                 ob_obj = Some(o.clone());
                 ob_this = Some(this);
 
-                // O.o
-                debug_assert!(
-                    ob_this
-                        .as_ref()
-                        .unwrap()
-                        .0
-                        .prop_values
-                        .try_borrow_mut()
-                        .is_ok(),
-                    "O.o"
-                );
-
                 if o == this {
                     if let Some((idx, prs_flags)) = this.find_own_property(prop) {
                         return this.internal_assign_prop_value(

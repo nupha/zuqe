@@ -431,11 +431,6 @@ pub unsafe fn find_atom(ctx: &JSContext, name: &str) -> JSAtom {
 }
 
 unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
-    //O.o
-    if i.0 == 74 {
-        println!("[O.o] drop atom 74");
-    }
-
     if let Some(p) = (*rt).get_atom_desc(i) {
         if Rc::strong_count(&p.0) > 2 {
             drop(p);
@@ -476,12 +471,6 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
     };
     let adesc = Rc::from_raw(aptr);
     debug_assert_eq!(Rc::strong_count(&adesc), 1);
-
-    println!(
-        "[O.o][-] free atom desc: {:?} {}",
-        adesc.content().to_str(),
-        aid
-    );
 
     let hash = adesc.hash();
     let mut ids = (*rt).atom_hash_lut.remove(&hash).unwrap();

@@ -240,7 +240,33 @@ impl JSContextInner {
     }
 
     fn finalize(&mut self) {
-        //let rt=self.header.rt_mut();
+        // reset values, to free reference
+        {
+            self.array_shape.take();
+            self.function_ctor = JSValue::NULL;
+            self.array_ctor = JSValue::NULL;
+            self.regexp_ctor = JSValue::NULL;
+            self.promise_ctor = JSValue::NULL;
+            self.function_proto = JSValue::UNDEFINED;
+            self.native_error_proto = [const { JSValue::UNDEFINED }; JS_NATIVE_ERROR_COUNT];
+            self.iterator_proto = JSValue::UNDEFINED;
+            self.async_iterator_proto = JSValue::UNDEFINED;
+            self.array_proto_values = JSValue::UNDEFINED;
+            self.throw_type_error = JSValue::UNDEFINED;
+            self.eval_func = JSValue::UNDEFINED;
+            self.current_exception = JSValue::NULL;
+            self.global_obj = JSValue::UNDEFINED;
+            self.global_var_obj = JSValue::UNDEFINED;
+            self.stack_trace = JSValue::UNDEFINED;
+
+            self.class_proto.clear();
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            self.loaded_modules.retain(|w| w.upgrade().is_some());
+            debug_assert!(self.loaded_modules.is_empty());
+        }
 
         #[cfg(feature = "dump_atoms")]
         JS_DumpAtoms(rt);

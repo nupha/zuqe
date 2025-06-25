@@ -64,7 +64,7 @@ pub struct JSRuntime {
     pub context_list: Vec<JSContext>,
 
     pub gc_phase: JSGCPhaseEnum,
-    /// List of allocated GC objects (used by garbage collector)
+    /// List of tracked GC objects (used by garbage collector)
     pub gc_obj_list: Vec<GCObjectWeakref>,
     /// Used during JS_FreeValueRT()
     pub gc_zero_ref_count_list: Vec<GCObjectWeakref>,
@@ -229,12 +229,214 @@ impl JSRuntime {
 
         Ok(rt)
     }
+
+    unsafe fn finalize(&mut self) {
+        // free jobs
+        {
+            list_foreach_safe(&mut self.job_list, |el| {
+                let job_ent = list_entry!(el, JSJobEntry, link);
+                for i in 0..(*job_ent).argc {
+                    JS_FreeValueRT(self, &(*job_ent).args[i as usize]);
+                }
+                drop(Box::from_raw(job_ent));
+            });
+            init_list_head(&mut self.job_list);
+        }
+
+        self.current_exception = JSValue::UNDEFINED;
+
+        self.gc();
+
+        // #[cfg(feature = "dump_leaks")]
+        // {
+        //     // leaking objects
+
+        //     // remove the internal refcounts to display only the object referenced externally
+        //     for node in rt.gc_obj_list.iter_mut() {
+        //         node.set_gc_mark(0);
+        //     }
+        //     rt.gc_decref();
+
+        //     let mut header_done = false;
+        //     for node in rt.gc_obj_list.iter() {
+        //         if node.ref_count() != 0 {
+        //             if !header_done {
+        //                 println!("Object leaks:\n");
+        //                 crate::gc::JS_DumpObjectHeader();
+        //                 header_done = true;
+        //             }
+        //             node.gc_dump(rt);
+        //         }
+        //     }
+
+        //     let count = rt.gc_obj_list.iter().filter(|n| n.ref_count() == 0).count();
+        //     if count != 0 {
+        //         println!("Secondary object leaks: {}", count);
+        //     }
+        // }
+
+        // free classes
+        while let Some(cls) = self.class_array.pop() {
+            // 0: base object class
+            if cls.class_id != 0 {
+                JS_FreeAtomRT(self, cls.class_name);
+            }
+        }
+
+        // free contexts
+        self.context_list.clear();
+
+        // dump atom leaks
+        // #[cfg(feature = "dump_leaks")]
+        // {
+        //     let mut header_done: bool = false;
+
+        //     // only the constant atoms could be left
+        //     for (i, a) in rt.atom_slots.iter().enumerate() {
+        //         if let Some(p) = a {
+        //             let p = p.as_ref();
+        //             if i >= JS_ATOM_INIT_COUNT as usize || p.ref_count() != 1 {
+        //                 if !header_done {
+        //                     header_done = true;
+        //                     if !rt.rt_info.is_null() {
+        //                         println!(
+        //                             "{}:1: atom leakage:",
+        //                             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
+        //                         );
+        //                     } else {
+        //                         println!("Atom leaks: (NANE, ID, REFCNT)");
+        //                     }
+        //                 }
+        //                 if !rt.rt_info.is_null() {
+        //                     print!(" ");
+        //                 } else {
+        //                     print!("    {:6} {:6} ", i, (*p).ref_count());
+        //                 }
+        //                 match p.atom_type().unwrap() {
+        //                     JSAtomType::String(_) => JS_DumpString(rt, p),
+        //                     JSAtomType::GlobalSymbol(_) => {
+        //                         print!("Symbol.for(");
+        //                         JS_DumpString(rt, p);
+        //                         print!(")");
+        //                     }
+        //                     JSAtomType::Symbol(_) => {
+        //                         print!("Symbol(");
+        //                         JS_DumpString(rt, p);
+        //                         print!(")");
+        //                     }
+        //                     JSAtomType::Private(_) => {
+        //                         print!("Private(");
+        //                         JS_DumpString(rt, p);
+        //                         print!(")");
+        //                     }
+        //                 }
+
+        //                 if !rt.rt_info.is_null() {
+        //                     println!(":{}", (*p).ref_count());
+        //                 } else {
+        //                     println!("");
+        //                 }
+        //             }
+        //         }
+        //     }
+
+        //     if !rt.rt_info.is_null() && header_done {
+        //         println!("");
+        //     }
+        // }
+
+        // free atom descriptors
+        self.atom_hash_lut.clear();
+        for a in self.atom_slots.drain(..) {
+            if !a.is_null() {
+                drop(unsafe { Rc::from_raw(a) });
+            }
+        }
+
+        // ensure shapes and gc objects are freed.
+        #[cfg(not(debug_assertions))]
+        {
+            self.shape_registry.clear();
+            self.gc_obj_list.clear();
+        }
+        #[cfg(debug_assertions)]
+        {
+            self.gc_obj_list.retain(|w| w.upgrade().is_some());
+            debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
+
+            for (_, mut sh_lst) in self.shape_registry.drain() {
+                sh_lst.retain(|w| w.upgrade().is_some());
+                debug_assert!(sh_lst.is_empty());
+            }
+        }
+
+        // dump string leakage
+        #[cfg(feature = "dump_leaks")]
+        {
+            // if !list_empty(&mut rt.debug_string_list) {
+            //     if !rt.rt_info.is_null() {
+            //         println!(
+            //             "{}:1: string leakage:",
+            //             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
+            //         );
+            //     } else {
+            //         println!("String leaks:\n");
+            //     }
+
+            //     list_foreach_safe(&mut rt.debug_string_list, |el| {
+            //         let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
+
+            //         if !rt.rt_info.is_null() {
+            //             print!(" ");
+            //         } else {
+            //             print!("    {:6} ", (*str).ref_count());
+            //         }
+
+            //         JS_DumpString(rt, str);
+
+            //         if !rt.rt_info.is_null() {
+            //             println!(":{}", (*str).ref_count());
+            //         } else {
+            //             println!("");
+            //         }
+
+            //         list_del(&mut (*str).link);
+            //         drop(Box::from_raw(str));
+            //     });
+
+            //     if !rt.rt_info.is_null() {
+            //         println!("");
+            //     }
+            // }
+
+            {
+                let s: *mut JSMallocState = &mut self.malloc_state;
+                println!("MemState: {:?}", *s);
+
+                // TODO:
+                // if (*s).malloc_count > 1 {
+                //     if !(*rt).rt_info.is_null() {
+                //         print!(
+                //             "{}:1: ",
+                //             std::ffi::CStr::from_ptr((*rt).rt_info).to_string_lossy()
+                //         );
+                //     }
+                //     println!(
+                //         "Memory leak: {} bytes lost in {} block{}",
+                //         (*s).malloc_size as usize - std::mem::size_of::<JSRuntime>(),
+                //         (*s).malloc_count - 1,
+                //         if (*s).malloc_count == 2 { "" } else { "s" }
+                //     );
+                // }
+            }
+        }
+    }
 }
 
 impl Drop for JSRuntime {
     fn drop(&mut self) {
         unsafe {
-            JS_FreeRuntime(self);
+            self.finalize();
         }
     }
 }
@@ -267,207 +469,4 @@ pub fn JS_UpdateStackTop(rt: *mut JSRuntime) {
         (*rt).stack_top = js_get_stack_pointer() as usize;
         update_stack_limit(rt);
     }
-}
-
-unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
-    // free jobs
-    list_foreach_safe(&mut rt.job_list, |el| {
-        let job_ent = list_entry!(el, JSJobEntry, link);
-        for i in 0..(*job_ent).argc {
-            JS_FreeValueRT(rt, &(*job_ent).args[i as usize]);
-        }
-        drop(Box::from_raw(job_ent));
-    });
-    init_list_head(&mut rt.job_list);
-
-    rt.gc();
-
-    // #[cfg(feature = "dump_leaks")]
-    // {
-    //     // leaking objects
-
-    //     // remove the internal refcounts to display only the object referenced externally
-    //     for node in rt.gc_obj_list.iter_mut() {
-    //         node.set_gc_mark(0);
-    //     }
-    //     rt.gc_decref();
-
-    //     let mut header_done = false;
-    //     for node in rt.gc_obj_list.iter() {
-    //         if node.ref_count() != 0 {
-    //             if !header_done {
-    //                 println!("Object leaks:\n");
-    //                 crate::gc::JS_DumpObjectHeader();
-    //                 header_done = true;
-    //             }
-    //             node.gc_dump(rt);
-    //         }
-    //     }
-
-    //     let count = rt.gc_obj_list.iter().filter(|n| n.ref_count() == 0).count();
-    //     if count != 0 {
-    //         println!("Secondary object leaks: {}", count);
-    //     }
-    // }
-
-    #[cfg(debug_assertions)]
-    {
-        rt.gc_obj_list.retain(|w| w.upgrade().is_some());
-        debug_assert!(rt.gc_obj_list.is_empty(), "{:?}", rt.gc_obj_list);
-    }
-
-    // free classes
-    while let Some(cls) = rt.class_array.pop() {
-        // 0: base object class
-        if cls.class_id != 0 {
-            JS_FreeAtomRT(rt, cls.class_name);
-        }
-    }
-
-    // dump atom leaks
-    // #[cfg(feature = "dump_leaks")]
-    // {
-    //     let mut header_done: bool = false;
-
-    //     // only the constant atoms could be left
-    //     for (i, a) in rt.atom_slots.iter().enumerate() {
-    //         if let Some(p) = a {
-    //             let p = p.as_ref();
-    //             if i >= JS_ATOM_INIT_COUNT as usize || p.ref_count() != 1 {
-    //                 if !header_done {
-    //                     header_done = true;
-    //                     if !rt.rt_info.is_null() {
-    //                         println!(
-    //                             "{}:1: atom leakage:",
-    //                             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
-    //                         );
-    //                     } else {
-    //                         println!("Atom leaks: (NANE, ID, REFCNT)");
-    //                     }
-    //                 }
-    //                 if !rt.rt_info.is_null() {
-    //                     print!(" ");
-    //                 } else {
-    //                     print!("    {:6} {:6} ", i, (*p).ref_count());
-    //                 }
-    //                 match p.atom_type().unwrap() {
-    //                     JSAtomType::String(_) => JS_DumpString(rt, p),
-    //                     JSAtomType::GlobalSymbol(_) => {
-    //                         print!("Symbol.for(");
-    //                         JS_DumpString(rt, p);
-    //                         print!(")");
-    //                     }
-    //                     JSAtomType::Symbol(_) => {
-    //                         print!("Symbol(");
-    //                         JS_DumpString(rt, p);
-    //                         print!(")");
-    //                     }
-    //                     JSAtomType::Private(_) => {
-    //                         print!("Private(");
-    //                         JS_DumpString(rt, p);
-    //                         print!(")");
-    //                     }
-    //                 }
-
-    //                 if !rt.rt_info.is_null() {
-    //                     println!(":{}", (*p).ref_count());
-    //                 } else {
-    //                     println!("");
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     if !rt.rt_info.is_null() && header_done {
-    //         println!("");
-    //     }
-    // }
-
-    // free atom descriptions
-    rt.atom_hash_lut.clear();
-    for a in rt.atom_slots.drain(..) {
-        if !a.is_null() {
-            let s = Rc::from_raw(a);
-            drop(s);
-
-            // println!(
-            //     "[O.o] atom {}, rc={}",
-            //     p.content().to_str(),
-            //     Rc::strong_count(&p)
-            // );
-
-            // if __JS_AtomIsConst(p.atom_type().unwrap().atom()) {
-            //     drop(p);
-            // } else {
-            //     debug_assert_eq!(Rc::strong_count(&p), 0);
-            // }
-        }
-    }
-
-    // dump string leakage
-    #[cfg(feature = "dump_leaks")]
-    {
-        // if !list_empty(&mut rt.debug_string_list) {
-        //     if !rt.rt_info.is_null() {
-        //         println!(
-        //             "{}:1: string leakage:",
-        //             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
-        //         );
-        //     } else {
-        //         println!("String leaks:\n");
-        //     }
-
-        //     list_foreach_safe(&mut rt.debug_string_list, |el| {
-        //         let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
-
-        //         if !rt.rt_info.is_null() {
-        //             print!(" ");
-        //         } else {
-        //             print!("    {:6} ", (*str).ref_count());
-        //         }
-
-        //         JS_DumpString(rt, str);
-
-        //         if !rt.rt_info.is_null() {
-        //             println!(":{}", (*str).ref_count());
-        //         } else {
-        //             println!("");
-        //         }
-
-        //         list_del(&mut (*str).link);
-        //         drop(Box::from_raw(str));
-        //     });
-
-        //     if !rt.rt_info.is_null() {
-        //         println!("");
-        //     }
-        // }
-
-        {
-            let s: *mut JSMallocState = &mut rt.malloc_state;
-            println!("MemState: {:?}", *s);
-
-            // TODO:
-            // if (*s).malloc_count > 1 {
-            //     if !(*rt).rt_info.is_null() {
-            //         print!(
-            //             "{}:1: ",
-            //             std::ffi::CStr::from_ptr((*rt).rt_info).to_string_lossy()
-            //         );
-            //     }
-            //     println!(
-            //         "Memory leak: {} bytes lost in {} block{}",
-            //         (*s).malloc_size as usize - std::mem::size_of::<JSRuntime>(),
-            //         (*s).malloc_count - 1,
-            //         if (*s).malloc_count == 2 { "" } else { "s" }
-            //     );
-            // }
-        }
-    }
-
-    // JSRuntime itself is not allocated with js_malloc, so we do not free it here.
-    // {
-    //     let ms = &mut (*rt).malloc_state;
-    //     ((*rt).mf.js_free)(ms, rt.cast());
-    // }
 }

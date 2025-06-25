@@ -327,19 +327,6 @@ pub unsafe fn run_bytecodes(
                     SP_GO!(1);
                 }
                 OpCode::PUSH_THIS => {
-                    // O.o
-                    {
-                        println!("[O.o][push_this] this_val={:?}", this_obj.repr(ctx.rt()));
-                        debug_assert!(
-                            this_obj.object().map_or(true, |o| o
-                                .0
-                                .prop_values
-                                .try_borrow_mut()
-                                .is_ok()),
-                            "O.o"
-                        );
-                    }
-
                     // only called at the start of a function
                     let val = if mode & JS_MODE_STRICT == 0 {
                         match &this_obj {
@@ -359,16 +346,6 @@ pub unsafe fn run_bytecodes(
                         this_obj.clone()
                     };
                     debug_assert!(!val.is_exception());
-
-                    // O.o
-                    {
-                        println!("[O.o][push_this] {:?}", val.repr(ctx.rt()));
-                        debug_assert!(
-                            val.object()
-                                .map_or(true, |o| o.0.prop_values.try_borrow_mut().is_ok()),
-                            "O.o"
-                        );
-                    }
 
                     SP_PUT!(0, val);
                     SP_GO!(1);
@@ -1537,20 +1514,6 @@ pub unsafe fn run_bytecodes(
                     let op_2 = SP_TAKE!(-2); // this_obj 
                     let op_1 = SP_TAKE!(-1); // value
                     SP_GO!(-2);
-
-                    // O.o
-                    {
-                        println!("[O.o] this={:?}", op_2.repr(ctx.rt()));
-                        // op_2.object_unchecked().dump(ctx.rt());
-                        debug_assert!(
-                            op_2.object_unchecked()
-                                .0
-                                .prop_values
-                                .try_borrow_mut()
-                                .is_ok(),
-                            "O.o"
-                        );
-                    }
 
                     if JSValue::set_property_internal(
                         ctx,

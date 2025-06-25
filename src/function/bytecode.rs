@@ -633,7 +633,7 @@ impl JSValue {
 
 impl BytecodeFunctionValue {
     /// call bytecode function
-    pub unsafe fn call_internal(
+    pub fn call_internal(
         &self,
         caller_ctx: &JSContext,
         this_obj: JSValue,
@@ -641,20 +641,6 @@ impl BytecodeFunctionValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        // O.o
-        {
-            println!(
-                "[O.o][call_internal] this_obj={:?}",
-                this_obj.repr(caller_ctx.rt())
-            );
-            debug_assert!(
-                this_obj
-                    .object()
-                    .map_or(true, |o| o.0.prop_values.try_borrow_mut().is_ok()),
-                "O.o"
-            );
-        }
-
         let func_obj = &self.0;
         let p = unsafe { self.0.object_unchecked() };
 
