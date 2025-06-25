@@ -27,7 +27,7 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let p = val.object_unchecked();
 
     // add the length property (cannot fail)
-    p.add_property_then(
+    p.add_own_property_then(
         ctx,
         JS_ATOM_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -92,7 +92,7 @@ pub unsafe fn js_build_mapped_arguments(
     let p = val.object_unchecked();
 
     // add the length property (cannot fail)
-    p.add_property_then(
+    p.add_own_property_then(
         ctx,
         JS_ATOM_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -105,7 +105,7 @@ pub unsafe fn js_build_mapped_arguments(
     for i in 0..arg_count {
         match sf.get_var_ref(ctx, i as _, true) {
             Ok(vr) => {
-                if p.add_property_then(
+                if p.add_own_property_then(
                     ctx,
                     JSAtom::new_u32(i as u32),
                     JS_PROP_C_W_E | JS_PROP_VARREF,

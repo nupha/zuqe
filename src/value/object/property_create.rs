@@ -96,7 +96,7 @@ impl JSObjectInner {
                 self.shape.borrow_mut().replace(sh0);
             } else {
                 // shape was unregistered
-                ctx.rt_mut().register_shape(&shape);
+                ctx.rt_mut().register_shape(&shape).unwrap();
                 self.shape.borrow_mut().replace(shape);
             }
             return Err(-1);
@@ -131,12 +131,13 @@ impl JSObjectInner {
 }
 
 impl JSObject {
-    /// Add a property to shape and enlarge prop value slots,
-    /// the property value is initialized to undefined.
+    /// Add an own property to shape and enlarge prop value slots.
+    /// This function implies that the new prop should be add to shape (owned property),
+    /// and it does not exist yet.
     /// Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline]
-    pub(crate) fn add_property_then<R>(
+    pub(crate) fn add_own_property_then<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -319,7 +320,7 @@ impl JSObject {
             flags & JS_PROP_C_W_E
         };
 
-        self.add_property_then(ctx, prop, prop_flags, |pr| {
+        self.add_own_property_then(ctx, prop, prop_flags, |pr| {
             *pr = if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                 // getset property
                 JSProperty::GetSet {

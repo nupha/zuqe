@@ -1201,7 +1201,7 @@ pub unsafe fn run_bytecodes(
                         Ok(vr) => {
                             if SP_REF!(-1)
                                 .object_unchecked()
-                                .add_property_then(
+                                .add_own_property_then(
                                     ctx,
                                     atom,
                                     JS_PROP_WRITABLE | JS_PROP_VARREF,
@@ -1511,16 +1511,27 @@ pub unsafe fn run_bytecodes(
                 OpCode::PUT_FIELD => {
                     // [this_obj, value, ^] -> [^]
                     let atom = JSAtom(PC_FETCH!(u32));
-                    let op_2 = SP_TAKE!(-2); // this_obj 
-                    let op_1 = SP_TAKE!(-1); // value
+                    let this_obj = SP_TAKE!(-2);
+                    let value = SP_TAKE!(-1);
                     SP_GO!(-2);
+
+                    // O.o
+                    debug_assert!(
+                        this_obj
+                            .object_unchecked()
+                            .0
+                            .prop_values
+                            .try_borrow_mut()
+                            .is_ok(),
+                        "O.o"
+                    );
 
                     if JSValue::set_property_internal(
                         ctx,
-                        &op_2,
+                        &this_obj,
                         atom,
-                        op_1,
-                        &op_2,
+                        value,
+                        &this_obj,
                         JS_PROP_THROW_STRICT,
                     )
                     .is_err()

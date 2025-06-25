@@ -119,7 +119,7 @@ impl JSObject {
             ));
             Err(-1)
         } else {
-            self.add_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
+            self.add_own_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
                 *pr = JSProperty::Normal(val);
             })
         }
@@ -154,7 +154,7 @@ impl JSValue {
                         JS_NewSymbolFromAtom(ctx, JS_ATOM_brand, JSAtomTypeHint::Private)
                             .check_exception()?
                     };
-                    home.add_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
+                    home.add_own_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
                         *pr = JSProperty::Normal(br.clone());
                     })?;
                     br
@@ -168,7 +168,7 @@ impl JSValue {
                     ctx.JS_ThrowTypeError("private method is already present");
                     Err(-1)
                 } else {
-                    let r = p1.add_property_then(ctx, brand_atom, JS_PROP_C_W_E, |pr| {
+                    let r = p1.add_own_property_then(ctx, brand_atom, JS_PROP_C_W_E, |pr| {
                         *pr = JSProperty::Normal(JSValue::UNDEFINED);
                     });
                     JS_FreeAtom(ctx, brand_atom);

@@ -17,7 +17,9 @@ use crate::{
     utils::UncheckedInto,
     value::{
         JS_ToFloat64, JS_ToUint8Clamp,
-        object::{JS_PROP_AUTOINIT, JS_PROP_LENGTH, JS_PROP_THROW_STRICT, JSProperty},
+        object::{
+            JS_PROP_AUTOINIT, JS_PROP_LENGTH, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSProperty,
+        },
     },
 };
 
@@ -160,14 +162,14 @@ impl JSObject {
 
     /// assign property value at specified slot idx.
     /// if the property is auto init type, do instantiate instead.
-    pub(super) fn assign_prop_slot_value(
+    pub(super) fn put_prop_slot_value(
         &self,
         ctx: &JSContext,
         prs_flags: u32,
         prop: JSAtom,
         slot_idx: usize,
         value: JSValue,
-        this_val: &JSObject,
+        this_obj: &JSObject,
         flags: u32,
     ) -> Result<bool, i32> {
         if prs_flags & JS_PROP_LENGTH != 0 {
@@ -179,7 +181,16 @@ impl JSObject {
             return self.set_array_length(ctx, value, flags);
         }
 
-        if prs_flags & JS_PROP_AUTOINIT != 0 {
+        println!(
+            "[O.o][put slot value] idx={slot_idx}, {prop:?}, {}, flag={}/{}, self={:?}, this={:?}",
+            prop.to_str(ctx.rt()),
+            prs_flags,
+            prs_flags & JS_PROP_TMASK,
+            self,
+            this_obj
+        );
+
+        if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
             // auto init property
             // if prs_flags & JS_PROP_WRITABLE == 0 {
             //     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
@@ -192,15 +203,16 @@ impl JSObject {
                 &mut self.0.prop_values.borrow_mut()[slot_idx],
                 JSProperty::default(),
             );
-            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }));
-            pr.instantiate(this_val, prop)?;
+            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }), "{:?}", pr);
+
+            pr.instantiate(this_obj, prop)?;
             self.0.prop_values.borrow_mut()[slot_idx] = pr;
             Ok(true)
         } else {
             // normal, getter, setter
-            let pr = &mut self.0.prop_values.borrow_mut()[slot_idx];
+            let pr = self.0.prop_values.borrow()[slot_idx].clone();
             match pr {
-                JSProperty::Normal(v) => {
+                JSProperty::Normal(_) => {
                     if prs_flags & JS_PROP_WRITABLE == 0 {
                         return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                             Err(-1)
@@ -209,7 +221,7 @@ impl JSObject {
                         };
                     }
 
-                    *v = value;
+                    self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
                     Ok(true)
                 }
                 JSProperty::GetSet { setter, .. } => call_setter(
@@ -266,14 +278,14 @@ impl JSValue {
                 ob_this = Some(this);
 
                 if o == this {
-                    if let Some((idx, prs_flags)) = this.find_own_property(prop) {
-                        return this.assign_prop_slot_value(
+                    if let Some((idx, prs_flags)) = o.find_own_property(prop) {
+                        return o.put_prop_slot_value(
                             ctx,
                             prs_flags,
                             prop,
                             idx,
                             val.clone(),
-                            this,
+                            o,
                             flags,
                         );
                     }
@@ -351,7 +363,7 @@ impl JSValue {
                 SetPropState::SetOrInit => {
                     let target = ob_obj.as_ref().unwrap();
                     if let Some((idx, prs_flags)) = target.find_own_property(prop) {
-                        return target.assign_prop_slot_value(
+                        return target.put_prop_slot_value(
                             ctx,
                             prs_flags,
                             prop,
@@ -408,7 +420,7 @@ impl JSValue {
                             state = SetPropState::CreateProp;
                             continue;
                         } else {
-                            target.add_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
+                            target.add_own_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
                                 *pr = JSProperty::Normal(val);
                             })?;
                             return Ok(true);

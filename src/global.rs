@@ -129,7 +129,7 @@ pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: JSAtom, def_flags: u32) -> i32 
     } else if !p.flags().extensible() {
         0
     } else if p
-        .add_property_then(ctx, prop, flags, |pr| {
+        .add_own_property_then(ctx, prop, flags, |pr| {
             *pr = JSProperty::Normal(val);
         })
         .is_ok()

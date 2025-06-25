@@ -246,7 +246,7 @@ impl JSModuleDef {
             let en = s.exported_names.add(i as usize).as_ref().unwrap();
             match en.export_type.clone() {
                 ExportedNameEntryEnum::EXPORTED_NAME_NORMAL(vref) => {
-                    if p.add_property_then(
+                    if p.add_own_property_then(
                         ctx,
                         en.export_name,
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
