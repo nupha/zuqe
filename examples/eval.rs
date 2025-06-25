@@ -78,7 +78,8 @@ fn main() {
                 println!("!!! EXCEPTION {:?}", exc.repr());
                 exc.object_unchecked().dump(js.as_ref());
             } else {
-                println!(">>> RESULT: {:?}, {:?}", r.repr(), r.coerce_to_utf8(&ctx));
+                println!(">>> RESULT: {:?}", r.repr());
+                println!(">>> {:?}", r.coerce_to_utf8(&ctx));
 
                 if let Ok(pr) = TryInto::<PromiseValue>::try_into(r) {
                     let v = pr.result();

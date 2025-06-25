@@ -499,7 +499,6 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
     let str2 = if !op2.is_string() {
         let v = JS_ToStringFree(ctx, op2);
         if v.is_exception() {
-            JS_FreeValue(ctx, &str1);
             return JSValue::EXCEPTION;
         }
         v
@@ -601,12 +600,10 @@ impl JSValue {
         }
     }
 
-    /// Coerce value `self` to utf8 string.
-    /// Note: `self` is not consumed.
-    pub fn coerce_to_utf8(&self, ctx: &JSContext) -> Result<Cow<str>, i32> {
+    /// Convert value `self` to utf8 string.
+    pub fn coerce_to_utf8(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
         if let Some(p) = self.string() {
             let cc = p.content();
-
             let ret = match cc.to_str() {
                 Cow::Borrowed(str) => {
                     // use string description content pointer.

@@ -14,7 +14,7 @@ use crate::{
     function::JS_Call,
     value::{
         JS_GetPrototypePrimitive, JSValue,
-        object::{JSObject, JSProperty},
+        object::{JS_DumpShape, JSObject, JSProperty},
     },
 };
 
@@ -37,15 +37,18 @@ impl JSObject {
             if let Some((idx, prs_flags)) = p.find_own_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
-                        let pr = self.0.prop_values.borrow()[idx].clone();
-                        pr.value(ctx, &this_obj)
+                        if let JSProperty::Normal(val) = &p.0.prop_values.borrow()[idx] {
+                            val.clone()
+                        } else {
+                            unreachable!()
+                        }
                     }
                     JS_PROP_GETSET => {
-                        let pr = self.0.prop_values.borrow()[idx].clone();
+                        let pr = p.0.prop_values.borrow()[idx].clone();
                         pr.value(ctx, &this_obj)
                     }
                     JS_PROP_VARREF => {
-                        let pr = self.0.prop_values.borrow()[idx].clone();
+                        let pr = p.0.prop_values.borrow()[idx].clone();
                         let val = pr.value(ctx, &this_obj);
                         if val.is_uninitialized() {
                             JS_ThrowReferenceErrorUninitialized(ctx, prop);
@@ -55,14 +58,14 @@ impl JSObject {
                         }
                     }
                     JS_PROP_AUTOINIT => {
-                        // Instantiate property
+                        // Instantiate property.
                         let mut pr = std::mem::replace(
-                            &mut self.0.prop_values.borrow_mut()[idx],
+                            &mut p.0.prop_values.borrow_mut()[idx],
                             JSProperty::default(),
                         );
                         let val = pr.instantiate(&p, prop).unwrap_or(JSValue::EXCEPTION);
                         debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                        self.0.prop_values.borrow_mut()[idx] = pr;
+                        p.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
                         val
                     }
                     _ => unreachable!(),

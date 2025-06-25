@@ -389,7 +389,7 @@ impl From<JSObject> for GCObject {
 
 impl std::fmt::Debug for JSObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<JSObject id={:p}>", self.id() as *const c_void)
+        write!(f, "<JSObject {:p}>", self.id() as *const c_void)
     }
 }
 

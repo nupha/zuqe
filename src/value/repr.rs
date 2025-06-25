@@ -131,8 +131,7 @@ impl JSValue {
     //     }
     // }
 
-    /// Represent value `self` to string value.
-    /// `self` is not consumed.
+    /// Convert value `self` to string value.
     fn do_coerce_to_string_value(&self, ctx: &JSContext, as_propkey: bool) -> Result<JSValue, i32> {
         let ret: JSValue = match self {
             Self::String(s) => s.clone().into(),
@@ -144,10 +143,8 @@ impl JSValue {
                 return Err(-1);
             }
             Self::Object(_) => {
-                let tmp = self.coerce_to_primitive(ctx, HINT_STRING)?;
-                let r = tmp.do_coerce_to_string_value(ctx, as_propkey)?;
-                JS_FreeValue(ctx, &tmp);
-                r
+                let t = self.coerce_to_primitive(ctx, HINT_STRING)?;
+                t.do_coerce_to_string_value(ctx, as_propkey)?
             }
             Self::FunctionBytecode(_) => ctx.create_string("[function bytecode]"),
             Self::Symbol(_) => {
