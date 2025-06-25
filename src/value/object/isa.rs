@@ -6,7 +6,6 @@ use crate::{
     function::{JSAsyncFunctionState, JSObjectFunc},
     map::JSMapState,
     promise::JSPromiseFunctionData,
-    runtime::JSRuntime,
     typed_array::JSTypedArray,
     value::JSValue,
 };

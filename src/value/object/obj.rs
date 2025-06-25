@@ -296,7 +296,7 @@ impl JSObjectInner {
 
         if add_length_prop {
             // only used for the fast array, cannot fail
-            obj.add_property_then(
+            obj.add_own_property_then(
                 ctx,
                 JS_ATOM_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
@@ -414,25 +414,9 @@ impl JSObject {
         self.0.detailed.get()
     }
 
-    // pub fn flags_mut(&self) -> &mut JSObjectFlags {
-    //     self.0.detailed.s()
-    // }
-
     pub fn shape(&self) -> Option<JSShape> {
         self.0.shape.borrow().clone()
     }
-
-    // #[inline(always)]
-    // pub fn isa(&self) -> JSObjectIsa {
-    //     let s = self.0.isa.borrow();
-
-    //     Ref::map(self.0.borrow(), |o| &o.isa)
-    // }
-
-    // #[inline(always)]
-    // pub fn isa_mut(&self) -> RefMut<JSObjectIsa> {
-    //     RefMut::map(self.0.borrow_mut(), |o| &mut o.isa)
-    // }
 
     /// Test if object `self` can be called like a function, that means value is a:
     ///
@@ -449,15 +433,10 @@ impl JSObject {
         JSObjectWeakref(Rc::downgrade(&self.0))
     }
 
-    pub fn with<R>(&self, f: impl FnOnce(&JSObjectInner) -> R) -> R {
+    pub(crate) fn with<R>(&self, f: impl FnOnce(&JSObjectInner) -> R) -> R {
         let o = self.0.deref();
         f(o)
     }
-
-    // pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSObjectInner) -> R) -> R {
-    //     let o = self.0.deref_m();
-    //     f(self.0.borrow_mut().deref_mut())
-    // }
 
     // /// Retrieve associated payload raw pointer, cast to type T.
     // /// If object is not instance of `class_id`, returns None.

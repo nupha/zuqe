@@ -1,15 +1,14 @@
 use std::ffi::c_void;
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_PROXY,
-    JS_CLASS_UINT8C_ARRAY,
-    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, JSAtomKindEnum, consts::*},
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY,
+    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
     function::{JS_Call, JSVarRef},
     proxy::js_proxy_isExtensible,
     runtime::JSRuntime,
-    value::object::{AutoInitType, JSObject, PropertyEnum, PropertyEnumIsa, call_setter},
+    value::object::{AutoInitType, JSObject},
 };
 
 use super::{

@@ -33,10 +33,12 @@ impl JSObjectInner {
         Ok(())
     }
 
-    /// Add a property to shape and enlarge prop value slots.
-    /// Note: the property value is initialized to undefined. Returns Err if memory error.
+    /// Add an own property to shape and enlarge prop value slots.
+    /// This function implies that the new prop should be add to shape (owned property),
+    /// and it does not exist yet.
+    /// Returns Err if memory error.
     /// `prop` is not consumed.
-    fn do_add_property<R>(
+    fn do_add_own_property<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -50,7 +52,6 @@ impl JSObjectInner {
             // try to find an existing shape
             match ctx.rt().find_shape_with_prop(&shape, prop, prop_flags) {
                 Some(found) => {
-                    // found matching shape
                     let new_len = found.len();
                     let len = shape.len();
                     debug_assert!(new_len > len);
@@ -101,34 +102,6 @@ impl JSObjectInner {
             return Err(-1);
         };
 
-        // let len = if let Ok(n) = shape.add_shape_property(ctx, prop, prop_flags) {
-        //     n
-        // } else {
-        //     // can't add property in shape, restore the old shape for object
-        //     if let Some(sh0) = shape0 {
-        //         self.shape.borrow_mut().replace(sh0);
-        //     } else {
-        //         // shape was unregistered
-        //         ctx.rt_mut().register_shape(&shape);
-        //         self.shape.borrow_mut().replace(shape);
-        //     }
-        //     return Err(-1);
-        // };
-
-        // // ensure object's prop values slot have same length as shape's length
-        // if self.grow_prop_value_slots(len).is_err() {
-        //     ctx.JS_ThrowOutOfMemory();
-
-        //     // restore old shape
-        //     if let Some(sh0) = shape0 {
-        //         ctx.rt_mut().unregister_shape(shape.id(), shape.hash());
-        //         self.shape.borrow_mut().replace(sh0);
-        //     } else {
-        //         self.shape.borrow_mut().replace(shape);
-        //     }
-        //     return Err(-1);
-        // }
-
         // let object use modified shape
         self.shape.borrow_mut().replace(shape.clone());
 
@@ -139,56 +112,60 @@ impl JSObjectInner {
         }
     }
 
-    /// Add a property to shape and enlarge prop value slots.
-    /// Note: the property value is initialized to undefined. Returns Err if memory error.
+    /// Add an own property to shape and enlarge prop value slots.
+    /// This function implies that the new prop should be add to shape (owned property),
+    /// and it does not exist yet.
+    /// Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub(super) fn add_property_then<R>(
+    pub(super) fn add_own_property_then<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
         prop_flags: u32,
         then: impl FnOnce(&mut JSProperty) -> R,
     ) -> Result<R, i32> {
-        self.do_add_property(ctx, prop, prop_flags, Some(then))
+        self.do_add_own_property(ctx, prop, prop_flags, Some(then))
             .map(|r| r.unwrap())
     }
 }
 
 impl JSObject {
-    /// Add a property to shape and enlarge prop value slots.
-    /// Note: the property value is initialized to undefined. Returns Err if memory error.
+    /// Add a property to shape and enlarge prop value slots,
+    /// the property value is initialized to undefined.
+    /// Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline]
-    pub fn add_property_then<R>(
+    pub(crate) fn add_property_then<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
         prop_flags: u32,
         then: impl FnOnce(&mut JSProperty) -> R,
     ) -> Result<R, i32> {
-        self.0.add_property_then(ctx, prop, prop_flags, then)
+        self.0.add_own_property_then(ctx, prop, prop_flags, then)
     }
 
-    /// Add new property to shape and enlarge prop value slots.
-    ///
-    /// Note: the new property value is initialized to undefined. Returns Err if out of memory.
-    /// `prop` is not consumed.
-    #[inline]
-    pub fn add_property(&self, ctx: &JSContext, prop: JSAtom, prop_flags: u32) -> Result<(), i32> {
-        self.0
-            .do_add_property(
-                ctx,
-                prop,
-                prop_flags,
-                Option::<Box<dyn FnOnce(&mut JSProperty)>>::None,
-            )
-            .map(|r| r.unwrap())
-    }
+    // /// Add a property to shape and enlarge prop value slots,
+    // /// the property value is initialized to undefined.
+    // /// Usually used to add a get/set or lazy prop.
+    // ///
+    // /// Returns Err if memory error.
+    // /// `prop` is not consumed.
+    // #[inline]
+    // pub fn add_property(&self, ctx: &JSContext, prop: JSAtom, prop_flags: u32) -> Result<(), i32> {
+    //     self.0
+    //         .do_add_property(
+    //             ctx,
+    //             prop,
+    //             prop_flags,
+    //             Option::<Box<dyn FnOnce(&mut JSProperty)>>::None,
+    //         )
+    //         .map(|r| r.unwrap())
+    // }
 
-    /// Add property with value.
+    /// Similar to define_property(), usually for new instance property initialization.
     /// `prop` is not consumed.
-    /// `val`, `getter` and `setter` are consumed.
     pub fn create_property(
         &self,
         ctx: &JSContext,

@@ -1,5 +1,3 @@
-use std::{ffi::CStr, ops::Deref};
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -24,7 +22,7 @@ use crate::{
 };
 
 use super::{
-    super::{JS_FreeValue, JS_GetPrototypePrimitive, JSValue},
+    super::{JS_GetPrototypePrimitive, JSValue},
     JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_WRITABLE,
     obj::JSObject,
@@ -73,7 +71,7 @@ pub(crate) fn call_setter(
 }
 
 impl JSObject {
-    unsafe fn set_property_exotic(
+    fn set_property_exotic(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -103,7 +101,7 @@ impl JSObject {
                     new_state = SetPropState::ErrTypedArrayOOB;
                 }
             } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
-                let ret = JS_AtomIsNumericIndex(ctx, prop);
+                let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
                 if ret != 0 {
                     if ret < 0 {
                         return Err(None);
@@ -113,9 +111,12 @@ impl JSObject {
             }
         } else {
             // use exotic handler
-            let em = ctx.rt().class_array[self.class_id() as usize].exotic;
-            if !em.is_null() {
-                if let Some(cb) = (*em).set_property {
+            if let Some(em) = unsafe {
+                ctx.rt().class_array[self.class_id() as usize]
+                    .exotic
+                    .as_ref()
+            } {
+                if let Some(cb) = em.set_property {
                     return cb(
                         ctx,
                         JSValue::Object(self.clone()),
@@ -125,19 +126,16 @@ impl JSObject {
                         flags as _,
                     )
                     .map_err(|_| None);
-                } else if let Some(cb) = (*em).get_own_property {
-                    // get_own_property can free the prototype
+                } else if let Some(cb) = em.get_own_property {
                     if let Some(desc) =
                         cb(ctx, JSValue::Object(self.clone()), prop).map_err(|_| None)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             return call_setter(ctx, desc.setter.object(), &this_obj, val, flags)
                                 .map_err(|_| None);
+                        } else if desc.flags & JS_PROP_WRITABLE == 0 {
+                            new_state = SetPropState::ErrReadOnly;
                         } else {
-                            if desc.flags & JS_PROP_WRITABLE == 0 {
-                                new_state = SetPropState::ErrReadOnly;
-                            }
-
                             if this_obj.object().map_or(false, |o| o == self) {
                                 return this_obj
                                     .define_property(
@@ -150,7 +148,6 @@ impl JSObject {
                                     )
                                     .map_err(|_| None);
                             }
-
                             new_state = SetPropState::Add;
                         }
                     }
@@ -163,12 +160,12 @@ impl JSObject {
 
     /// assign property value at specified slot idx.
     /// if the property is auto init type, do instantiate instead.
-    pub(super) fn internal_assign_prop_value(
+    pub(super) fn assign_prop_slot_value(
         &self,
         ctx: &JSContext,
         prs_flags: u32,
         prop: JSAtom,
-        idx: usize,
+        slot_idx: usize,
         value: JSValue,
         this_val: &JSObject,
         flags: u32,
@@ -178,7 +175,7 @@ impl JSObject {
             // to set .length property of an array object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
-            debug_assert_eq!(idx, 0, "length property must be indexed at 0");
+            debug_assert_eq!(slot_idx, 0, "length property must be indexed at 0");
             return self.set_array_length(ctx, value, flags);
         }
 
@@ -192,24 +189,16 @@ impl JSObject {
             //     };
             // }
             let mut pr = std::mem::replace(
-                &mut self.0.prop_values.borrow_mut()[idx],
+                &mut self.0.prop_values.borrow_mut()[slot_idx],
                 JSProperty::default(),
             );
-            println!(
-                "[O.o][init prop] {:?} {}, {:?}",
-                prop,
-                prop.to_str(ctx.rt()),
-                pr
-            );
             debug_assert!(matches!(pr, JSProperty::AutoInit { .. }));
-
             pr.instantiate(this_val, prop)?;
-            self.0.prop_values.borrow_mut()[idx] = pr;
+            self.0.prop_values.borrow_mut()[slot_idx] = pr;
             Ok(true)
         } else {
             // normal, getter, setter
-            let pr = &mut self.0.prop_values.borrow_mut()[idx];
-
+            let pr = &mut self.0.prop_values.borrow_mut()[slot_idx];
             match pr {
                 JSProperty::Normal(v) => {
                     if prs_flags & JS_PROP_WRITABLE == 0 {
@@ -278,7 +267,7 @@ impl JSValue {
 
                 if o == this {
                     if let Some((idx, prs_flags)) = this.find_own_property(prop) {
-                        return this.internal_assign_prop_value(
+                        return this.assign_prop_slot_value(
                             ctx,
                             prs_flags,
                             prop,
@@ -362,7 +351,7 @@ impl JSValue {
                 SetPropState::SetOrInit => {
                     let target = ob_obj.as_ref().unwrap();
                     if let Some((idx, prs_flags)) = target.find_own_property(prop) {
-                        return target.internal_assign_prop_value(
+                        return target.assign_prop_slot_value(
                             ctx,
                             prs_flags,
                             prop,
@@ -481,7 +470,6 @@ impl JSValue {
                 }
 
                 SetPropState::ErrReadOnly => {
-                    JS_FreeValue(ctx, &val);
                     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                         Err(-1)
                     } else {
