@@ -157,83 +157,6 @@ impl JSObject {
 
         Err(Some(new_state))
     }
-
-    /// overwrite property value at specified slot idx.
-    /// if the property is auto init type, do instantiate instead.
-    pub(super) fn put_prop_slot_value(
-        &self,
-        ctx: &JSContext,
-        prs_flags: u32,
-        prop: JSAtom,
-        slot_idx: usize,
-        value: JSValue,
-        this_obj: &JSObject,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        if prs_flags & JS_PROP_LENGTH != 0 {
-            // special prop: length
-            // to set .length property of an array object
-            debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
-            debug_assert_eq!(prop, JS_ATOM_length);
-            debug_assert_eq!(slot_idx, 0, "length property must be indexed at 0");
-            return self.set_array_length(ctx, value, flags);
-        }
-
-        if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
-            // auto init property
-            let mut pr = std::mem::replace(
-                &mut self.0.prop_values.borrow_mut()[slot_idx],
-                JSProperty::default(),
-            );
-            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }), "{:?}", pr);
-
-            pr.instantiate(this_obj, prop)?;
-            self.0.prop_values.borrow_mut()[slot_idx] = pr;
-            Ok(true)
-        } else {
-            // normal, getter, setter
-            let pr = self.0.prop_values.borrow()[slot_idx].clone();
-            match pr {
-                JSProperty::Normal(_) => {
-                    if prs_flags & JS_PROP_WRITABLE == 0 {
-                        return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                            Err(-1)
-                        } else {
-                            Ok(false)
-                        };
-                    }
-
-                    self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
-                    Ok(true)
-                }
-                JSProperty::GetSet { setter, .. } => call_setter(
-                    ctx,
-                    setter.as_ref(),
-                    &JSValue::Object(self.clone()),
-                    value,
-                    flags,
-                ),
-                JSProperty::VarRef(vref) => {
-                    // JS_PROP_WRITABLE is always true for variable references,
-                    // but they are write protected in module name spaces.
-                    if self.class_id() == JS_CLASS_MODULE_NS {
-                        if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                            Err(-1)
-                        } else {
-                            Ok(false)
-                        }
-                    } else {
-                        vref.set_value(value);
-                        Ok(true)
-                    }
-                }
-                JSProperty::AutoInit { .. } => {
-                    #[cfg(debug_assertions)]
-                    unreachable!()
-                }
-            }
-        }
-    }
 }
 
 impl JSValue {
@@ -261,15 +184,7 @@ impl JSValue {
 
                 if o == this {
                     if let Some((idx, prs_flags)) = o.find_own_property(prop) {
-                        return o.put_prop_slot_value(
-                            ctx,
-                            prs_flags,
-                            prop,
-                            idx,
-                            val.clone(),
-                            o,
-                            flags,
-                        );
+                        return o.put_prop_slot(ctx, prs_flags, prop, idx, val.clone(), o, flags);
                     }
                     SetPropState::ExoticAndGoUp
                 } else {
@@ -345,7 +260,7 @@ impl JSValue {
                 SetPropState::SetOrInit => {
                     let target = ob_obj.as_ref().unwrap();
                     if let Some((idx, prs_flags)) = target.find_own_property(prop) {
-                        return target.put_prop_slot_value(
+                        return target.put_prop_slot(
                             ctx,
                             prs_flags,
                             prop,

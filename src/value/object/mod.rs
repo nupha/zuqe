@@ -11,6 +11,7 @@ mod property_del;
 mod property_get;
 mod property_name;
 mod property_set;
+mod property_slot;
 mod shape;
 
 pub use {
