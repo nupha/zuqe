@@ -266,18 +266,16 @@ pub fn js_method_set_home_object(
     home_obj: &JSValueConst,
 ) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(bc) = o.0.isa.borrow_mut().func_mut() {
-            let need_home_object = bc
+        if let Some(fo) = o.0.isa.borrow_mut().func_mut() {
+            let need_home_object = fo
                 .function_bytecode
                 .as_ref()
                 .map_or(false, |b| b.0.borrow().need_home_object);
 
             if need_home_object {
-                bc.home_object = home_obj.object().cloned();
+                fo.home_object = home_obj.object().cloned();
             }
         }
-    } else {
-        return;
     }
 }
 
@@ -287,10 +285,10 @@ pub fn js_method_set_home_object(
 // Return < 0 if exception.
 pub unsafe fn js_method_set_properties(
     ctx: &JSContext,
-    func_obj: &JSValueConst,
+    func_obj: &JSValue,
     name: JSAtom,
     flags: u32,
-    home_obj: &JSValueConst,
+    home_obj: &JSValue,
 ) -> i32 {
     let mut name_str = js_get_function_name(ctx, name);
     if flags & JS_PROP_HAS_GET != 0 {

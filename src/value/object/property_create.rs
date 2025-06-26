@@ -166,6 +166,7 @@ impl JSObject {
     // }
 
     /// Similar to define_property(), usually for new instance property initialization.
+    /// If property already exists, modify its slot value; otherwise add own property and set slot value.
     /// `prop` is not consumed.
     pub fn create_property(
         &self,

@@ -181,24 +181,8 @@ impl JSObject {
             return self.set_array_length(ctx, value, flags);
         }
 
-        println!(
-            "[O.o][put slot value] idx={slot_idx}, {prop:?}, {}, flag={}/{}, self={:?}, this={:?}",
-            prop.to_str(ctx.rt()),
-            prs_flags,
-            prs_flags & JS_PROP_TMASK,
-            self,
-            this_obj
-        );
-
         if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
             // auto init property
-            // if prs_flags & JS_PROP_WRITABLE == 0 {
-            //     return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-            //         Err(-1)
-            //     } else {
-            //         Ok(false)
-            //     };
-            // }
             let mut pr = std::mem::replace(
                 &mut self.0.prop_values.borrow_mut()[slot_idx],
                 JSProperty::default(),

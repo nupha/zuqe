@@ -1515,17 +1515,6 @@ pub unsafe fn run_bytecodes(
                     let value = SP_TAKE!(-1);
                     SP_GO!(-2);
 
-                    // O.o
-                    debug_assert!(
-                        this_obj
-                            .object_unchecked()
-                            .0
-                            .prop_values
-                            .try_borrow_mut()
-                            .is_ok(),
-                        "O.o"
-                    );
-
                     if JSValue::set_property_internal(
                         ctx,
                         &this_obj,
@@ -1631,34 +1620,38 @@ pub unsafe fn run_bytecodes(
                     // [this_obj, name, value, ^] -> [this_obj, ^]
                     // DEFINE_METHOD:
                     // [this_obj, value, ^] -> [this_obj, ^]
-                    let is_computed = opcode == OpCode::DEFINE_METHOD_COMPUTED;
+                    let (is_computed, mut name, op_flags) =
+                        if opcode == OpCode::DEFINE_METHOD_COMPUTED {
+                            // format u8
+                            (true, JS_ATOM_NULL, PC_FETCH!(u8))
+                        } else {
+                            // format atom_u8
+                            (false, JSAtom(PC_FETCH!(u32)), PC_FETCH!(u8))
+                        };
 
-                    let atom = if is_computed {
-                        JS_ValueToAtom(ctx, SP_REF!(-2)) // name
-                    } else {
-                        JSAtom(PC_FETCH!(u32))
-                    };
-                    if atom == JS_ATOM_NULL {
-                        break State::Exception;
+                    if name == JS_ATOM_NULL {
+                        // compute name from value SP[-2]
+                        name = JS_ValueToAtom(ctx, SP_REF!(-2));
+                        if name == JS_ATOM_NULL {
+                            break State::Exception;
+                        }
                     }
 
-                    let mut op_flags = PC_FETCH!(u8);
                     let mut flags = JS_PROP_HAS_CONFIGURABLE
                         | JS_PROP_CONFIGURABLE
                         | JS_PROP_HAS_ENUMERABLE
-                        | JS_PROP_THROW
-                        | if op_flags & OP_DEFINE_METHOD_ENUMERABLE != 0 {
-                            JS_PROP_ENUMERABLE
-                        } else {
-                            0
-                        };
+                        | JS_PROP_THROW;
+
+                    if op_flags & OP_DEFINE_METHOD_ENUMERABLE != 0 {
+                        flags |= JS_PROP_ENUMERABLE
+                    }
 
                     let this_obj = SP_REF![if is_computed { -3 } else { -2 }];
 
+                    let func_obj: &JSValue;
                     let mut value = JSValue::UNDEFINED;
                     let mut getter = JSValue::UNDEFINED;
                     let mut setter = JSValue::UNDEFINED;
-                    let mut func_obj = &JSValue::UNDEFINED;
 
                     match op_flags & (OP_DEFINE_METHOD_GETTER | OP_DEFINE_METHOD_SETTER) {
                         OP_DEFINE_METHOD_METHOD => {
@@ -1678,15 +1671,15 @@ pub unsafe fn run_bytecodes(
                         }
                         _ => unreachable!(),
                     }
-                    let mut ret = js_method_set_properties(ctx, func_obj, atom, flags, this_obj);
+                    let mut ret = js_method_set_properties(ctx, func_obj, name, flags, this_obj);
                     if ret >= 0 {
                         ret = this_obj
-                            .define_property(ctx, atom, &value, &getter, &setter, flags)
+                            .define_property(ctx, name, &value, &getter, &setter, flags)
                             .map_or(-1, |b| b as i32);
                     }
 
                     if is_computed {
-                        JS_FreeAtom(ctx, atom);
+                        JS_FreeAtom(ctx, name);
                         SP_TAKE!(-2);
                         SP_GO!(-2);
                     } else {

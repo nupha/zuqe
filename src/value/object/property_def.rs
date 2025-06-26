@@ -42,15 +42,15 @@ impl JSObject {
 
         loop {
             if let Some((idx, prs_flags)) = self.find_own_property(prop) {
-                if prs_flags & JS_PROP_LENGTH != 0 && flags & JS_PROP_HAS_VALUE != 0 {
+                if (prs_flags & JS_PROP_LENGTH != 0) && (flags & JS_PROP_HAS_VALUE != 0) {
                     // is `length` property
                     // the range of the Array length property is always tested before
                     let array_length = unsafe { JS_ToArrayLengthFree(ctx, val, false)? };
                     val = JSValue::from(array_length);
                 }
 
+                // property already exists
                 if unsafe { !check_define_prop_flags(prs_flags, flags) } {
-                    // property already exists
                     return if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
                         Err(-1)
                     } else {
@@ -74,8 +74,7 @@ impl JSObject {
                     != 0
                 {
                     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-                        // getset property
-                        self.do_build_getset_property(
+                        self.update_slot_value_getset(
                             ctx,
                             prop,
                             prs_flags,
@@ -85,9 +84,8 @@ impl JSObject {
                             flags,
                         )?;
                     } else {
-                        // normal property
                         let res =
-                            self.do_build_normal_property(ctx, prop, prs_flags, idx, val, flags)?;
+                            self.update_slot_value_normal(ctx, prop, prs_flags, idx, val, flags)?;
                         if flags & JS_PROP_LENGTH != 0 {
                             // don't change flag for length property
                             // return immediately
@@ -105,7 +103,6 @@ impl JSObject {
                 }
 
                 self.js_update_property_flags(ctx, prop, (prs_flags & !mask) | (flags & mask))?;
-
                 return Ok(true);
             }
 
@@ -270,13 +267,13 @@ impl JSObject {
         )
     }
 
-    /// make a property as normal type
-    fn do_build_normal_property(
+    /// update property value as normal at slot `idx`
+    fn update_slot_value_normal(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
         prs_flags: u32,
-        idx: usize, // property slot index
+        idx: usize,
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -404,8 +401,8 @@ impl JSObject {
         Ok(true)
     }
 
-    /// make a property as getset type
-    fn do_build_getset_property(
+    /// update property as getset type at slot `idx`
+    fn update_slot_value_getset(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -426,9 +423,12 @@ impl JSObject {
             None
         };
 
+        let mut old_getter: Option<JSObject> = None;
+        let mut old_setter: Option<JSObject> = None;
+
         if prs_flags & JS_PROP_TMASK != JS_PROP_GETSET {
-            // property descriptor is not getset type:
-            // change property description and clear old property value.
+            // property is not getset type:
+            // change shape property type and clear old property value.
             self.shape_prepare_update(ctx)?;
 
             self.shape().unwrap().with_mut(|s| {
@@ -438,31 +438,36 @@ impl JSObject {
                 );
             });
         } else {
-            // alreay is getset type, check if configurable
-            if prs_flags & JS_PROP_CONFIGURABLE == 0 {
-                if let JSProperty::GetSet { getter, setter } =
-                    self.0.prop_values.borrow().get(idx).unwrap()
+            // alreay is getset type
+            if let JSProperty::GetSet { getter, setter } =
+                self.0.prop_values.borrow().get(idx).unwrap()
+            {
+                if prs_flags & JS_PROP_CONFIGURABLE == 0
+                    && ((flags & JS_PROP_HAS_GET != 0 && new_getter != getter.as_ref())
+                        || (flags & JS_PROP_HAS_SET != 0 && new_setter != setter.as_ref()))
                 {
-                    if (flags & JS_PROP_HAS_GET != 0 && new_getter != getter.as_ref())
-                        || (flags & JS_PROP_HAS_SET != 0 && new_setter != setter.as_ref())
-                    {
-                        return if ctx
-                            .JS_ThrowTypeErrorOrFalse(flags, "property is not configurable")
-                        {
-                            Err(-1)
-                        } else {
-                            Ok(false)
-                        };
-                    }
-                } else {
-                    unreachable!()
+                    return if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
+                        Err(-1)
+                    } else {
+                        Ok(false)
+                    };
                 }
+
+                if flags & JS_PROP_HAS_GET == 0 {
+                    old_getter = getter.clone();
+                }
+                if flags & JS_PROP_HAS_SET == 0 {
+                    old_setter = setter.clone();
+                }
+            } else {
+                unreachable!()
             }
         }
 
+        // modify property value
         self.0.prop_values.borrow_mut()[idx] = JSProperty::GetSet {
-            getter: new_getter.cloned(),
-            setter: new_setter.cloned(),
+            getter: new_getter.cloned().or(old_getter),
+            setter: new_setter.cloned().or(old_setter),
         };
 
         Ok(true)

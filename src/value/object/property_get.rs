@@ -33,7 +33,7 @@ impl JSObject {
         let mut p = self.clone();
 
         loop {
-            // 1. find shape property
+            // 1. find own property in shape
             if let Some((idx, prs_flags)) = p.find_own_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
