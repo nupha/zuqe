@@ -12,7 +12,7 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    pub unsafe fn parse_string(
+    pub fn parse_string(
         &mut self,
         sep: char,
         do_throw: bool,
@@ -39,187 +39,189 @@ impl<'s> JSParseState<'s> {
 
             let mut char_code: u32 = 0;
 
-            match (*p) as char {
-                c @ ('\r' | '\n') => {
-                    if sep == '`' {
-                        p = p.offset(1);
-                        if c == '\r' && *p == b'\n' {
+            unsafe {
+                match (*p) as char {
+                    c @ ('\r' | '\n') => {
+                        if sep == '`' {
                             p = p.offset(1);
-                        }
-                        char_code = '\n' as u32;
-                        // do not update s->line_num
-                    } else {
-                        if do_throw {
-                            self.throw_syntax_error("unexpected end of string");
-                        }
-                        return Err(-1);
-                    }
-                }
-                c if (c as u32) < 0x20 => {
-                    // handle ASCII control characters
-                    if self.cur_func_ptr.is_null() {
-                        if do_throw {
-                            self.throw_syntax_error("invalid character in a JSON string");
-                        }
-                        return Err(-1);
-                    }
-
-                    p = p.offset(1);
-                }
-
-                c if c == sep => {
-                    // found string ending delimiter
-                    p = p.offset(1);
-                    break;
-                }
-
-                '$' if *p.add(1) == b'{' && sep == '`' => {
-                    // found template expression start
-                    p = p.offset(2); // move past ${
-                    break;
-                }
-                '\\' => {
-                    // handle escape sequences
-                    p = p.offset(1);
-                    let mut do_parse_escape: Option<char> = None;
-
-                    match *p as char {
-                        '\0' => {
-                            if p >= self.buf_end {
-                                if do_throw {
-                                    self.throw_syntax_error("unexpected end of string");
-                                }
-                                return Err(-1);
-                            }
-                            p = p.offset(1);
-                            char_code = 0;
-                        }
-                        c1 @ ('\'' | '\"' | '\\') => {
-                            char_code = c1 as u32;
-                            p = p.offset(1);
-                        }
-                        c1 @ ('\r' | '\n') => {
-                            p = p.offset(1);
-                            if c1 == '\r' && *p == b'\n' {
+                            if c == '\r' && *p == b'\n' {
                                 p = p.offset(1);
                             }
-                            // skip escaped line breaks
-                            if sep != '`' {
-                                self.line_num += 1;
+                            char_code = '\n' as u32;
+                            // do not update s->line_num
+                        } else {
+                            if do_throw {
+                                self.throw_syntax_error("unexpected end of string");
                             }
-                            continue;
-                        }
-                        c1 @ ('0'..='9') => {
-                            if self.cur_func_ptr.is_null() {
-                                if do_throw {
-                                    self.throw_syntax_error(
-                                        "malformed escape sequence in string literal",
-                                    );
-                                }
-                                return Err(-1);
-                            }
-
-                            if self.cur_func().js_mode & JS_MODE_STRICT as u8 == 0 && sep != '`' {
-                                // parse escape sequence in non-strict mode
-                                do_parse_escape = Some(c1);
-                            } else if c1 == '0' && !(*p.add(1)).is_ascii_digit() {
-                                // handle null character escape
-                                p = p.add(1);
-                                char_code = 0;
-                            } else {
-                                // ES2021: octal escapes 8/9 not allowed in strict mode/templates
-                                if do_throw {
-                                    self.throw_syntax_error(if c1 >= '8' || sep == '`' {
-                                        "malformed escape sequence in string literal"
-                                    } else {
-                                        "octal escape sequences are not allowed in strict mode"
-                                    });
-                                }
-                                return Err(-1);
-                            }
-                        }
-                        c1 => {
-                            if !c1.is_ascii() {
-                                let mut p_next = std::ptr::null::<u8>();
-                                match unicode_from_utf8(
-                                    p,
-                                    UTF8_CHAR_LEN_MAX as i32,
-                                    std::ptr::addr_of_mut!(p_next),
-                                ) {
-                                    Ok(uc) => {
-                                        p = p_next;
-                                        if matches!(uc, '\u{2088}' | '\u{2089}') {
-                                            continue; // skip line/paragraph separators
-                                        } else {
-                                            char_code = uc as u32;
-                                        }
-                                    }
-                                    Err(_) => {
-                                        if do_throw {
-                                            self.throw_syntax_error("invalid UTF-8 sequence");
-                                        }
-                                        return Err(-1);
-                                    }
-                                }
-                            } else {
-                                do_parse_escape = Some(c1)
-                            }
-                        }
-                    } // match
-
-                    if let Some(ch) = do_parse_escape.take() {
-                        match self.parse_string_escape(&mut p, 1) {
-                            Ok(cp) => {
-                                char_code = cp;
-                            }
-                            Err(-1) => {
-                                if do_throw {
-                                    self.throw_syntax_error(
-                                        "malformed escape sequence in string literal",
-                                    );
-                                }
-                                return Err(-1);
-                            }
-                            Err(-2) => {
-                                // treat backslash as literal character
-                                char_code = ch as u32;
-                            }
-                            _ => unreachable!(),
+                            return Err(-1);
                         }
                     }
-                }
-                c => {
-                    if !c.is_ascii() {
-                        // handle UTF-8 characters
-                        let mut p_next = std::ptr::null::<u8>();
-                        match unicode_from_utf8(
-                            p,
-                            UTF8_CHAR_LEN_MAX as i32,
-                            std::ptr::addr_of_mut!(p_next),
-                        ) {
-                            Ok(uc) => {
-                                p = p_next;
-                                if matches!(uc, '\u{2088}' | '\u{2089}') {
-                                    continue; // LS or PS are skipped
+                    c if (c as u32) < 0x20 => {
+                        // handle ASCII control characters
+                        if self.cur_func_ptr.is_null() {
+                            if do_throw {
+                                self.throw_syntax_error("invalid character in a JSON string");
+                            }
+                            return Err(-1);
+                        }
+
+                        p = p.offset(1);
+                    }
+
+                    c if c == sep => {
+                        // found string ending delimiter
+                        p = p.offset(1);
+                        break;
+                    }
+
+                    '$' if *p.add(1) == b'{' && sep == '`' => {
+                        // found template expression start
+                        p = p.offset(2); // move past ${
+                        break;
+                    }
+                    '\\' => {
+                        // handle escape sequences
+                        p = p.offset(1);
+                        let mut do_parse_escape: Option<char> = None;
+
+                        match *p as char {
+                            '\0' => {
+                                if p >= self.buf_end {
+                                    if do_throw {
+                                        self.throw_syntax_error("unexpected end of string");
+                                    }
+                                    return Err(-1);
+                                }
+                                p = p.offset(1);
+                                char_code = 0;
+                            }
+                            c1 @ ('\'' | '\"' | '\\') => {
+                                char_code = c1 as u32;
+                                p = p.offset(1);
+                            }
+                            c1 @ ('\r' | '\n') => {
+                                p = p.offset(1);
+                                if c1 == '\r' && *p == b'\n' {
+                                    p = p.offset(1);
+                                }
+                                // skip escaped line breaks
+                                if sep != '`' {
+                                    self.line_num += 1;
+                                }
+                                continue;
+                            }
+                            c1 @ ('0'..='9') => {
+                                if self.cur_func_ptr.is_null() {
+                                    if do_throw {
+                                        self.throw_syntax_error(
+                                            "malformed escape sequence in string literal",
+                                        );
+                                    }
+                                    return Err(-1);
+                                }
+
+                                if self.cur_func().js_mode & JS_MODE_STRICT as u8 == 0 && sep != '`'
+                                {
+                                    // parse escape sequence in non-strict mode
+                                    do_parse_escape = Some(c1);
+                                } else if c1 == '0' && !(*p.add(1)).is_ascii_digit() {
+                                    // handle null character escape
+                                    p = p.add(1);
+                                    char_code = 0;
                                 } else {
-                                    char_code = uc as u32;
+                                    // ES2021: octal escapes 8/9 not allowed in strict mode/templates
+                                    if do_throw {
+                                        self.throw_syntax_error(if c1 >= '8' || sep == '`' {
+                                            "malformed escape sequence in string literal"
+                                        } else {
+                                            "octal escape sequences are not allowed in strict mode"
+                                        });
+                                    }
+                                    return Err(-1);
                                 }
                             }
-                            Err(_) => {
-                                if do_throw {
-                                    self.throw_syntax_error("invalid UTF-8 sequence");
+                            c1 => {
+                                if !c1.is_ascii() {
+                                    let mut p_next = std::ptr::null::<u8>();
+                                    match unicode_from_utf8(
+                                        p,
+                                        UTF8_CHAR_LEN_MAX as i32,
+                                        std::ptr::addr_of_mut!(p_next),
+                                    ) {
+                                        Ok(uc) => {
+                                            p = p_next;
+                                            if matches!(uc, '\u{2088}' | '\u{2089}') {
+                                                continue; // skip line/paragraph separators
+                                            } else {
+                                                char_code = uc as u32;
+                                            }
+                                        }
+                                        Err(_) => {
+                                            if do_throw {
+                                                self.throw_syntax_error("invalid UTF-8 sequence");
+                                            }
+                                            return Err(-1);
+                                        }
+                                    }
+                                } else {
+                                    do_parse_escape = Some(c1)
                                 }
-                                return Err(-1);
+                            }
+                        } // match
+
+                        if let Some(ch) = do_parse_escape.take() {
+                            match self.parse_string_escape(&mut p, 1) {
+                                Ok(cp) => {
+                                    char_code = cp;
+                                }
+                                Err(-1) => {
+                                    if do_throw {
+                                        self.throw_syntax_error(
+                                            "malformed escape sequence in string literal",
+                                        );
+                                    }
+                                    return Err(-1);
+                                }
+                                Err(-2) => {
+                                    // treat backslash as literal character
+                                    char_code = ch as u32;
+                                }
+                                _ => unreachable!(),
                             }
                         }
-                    } else {
-                        // ascii char
-                        p = p.offset(1);
-                        char_code = c as u32;
+                    }
+                    c => {
+                        if !c.is_ascii() {
+                            // handle UTF-8 characters
+                            let mut p_next = std::ptr::null::<u8>();
+                            match unicode_from_utf8(
+                                p,
+                                UTF8_CHAR_LEN_MAX as i32,
+                                std::ptr::addr_of_mut!(p_next),
+                            ) {
+                                Ok(uc) => {
+                                    p = p_next;
+                                    if matches!(uc, '\u{2088}' | '\u{2089}') {
+                                        continue; // LS or PS are skipped
+                                    } else {
+                                        char_code = uc as u32;
+                                    }
+                                }
+                                Err(_) => {
+                                    if do_throw {
+                                        self.throw_syntax_error("invalid UTF-8 sequence");
+                                    }
+                                    return Err(-1);
+                                }
+                            }
+                        } else {
+                            // ascii char
+                            p = p.offset(1);
+                            char_code = c as u32;
+                        }
                     }
                 }
             }
-
             // add char_code to string content
             if let Some(uc) = char::from_u32(char_code) {
                 content.push_char(uc).unwrap(); // can't fail
@@ -241,7 +243,9 @@ impl<'s> JSParseState<'s> {
             sep: sep as i32,
         };
 
-        *pp = p;
+        unsafe {
+            *pp = p;
+        }
         Ok(())
     }
 
@@ -363,257 +367,3 @@ impl<'s> JSParseState<'s> {
         Ok(code)
     }
 }
-
-#[deprecated(note = "use JSParseState::parse_string() instead")]
-pub unsafe fn js_parse_string(
-    s: *mut JSParseState,
-    sep: char,
-    do_throw: bool,
-    p: *const u8,
-    token: *mut JSToken,
-    pp: *mut *const u8,
-) -> i32 {
-    if (*s)
-        .parse_string(sep, do_throw, p, Some(token.as_mut().unwrap()), pp)
-        .is_err()
-    {
-        -1
-    } else {
-        0
-    }
-}
-
-// pub unsafe fn js_parse_string(
-//     s: *mut JSParseState,
-//     sep: i32,
-//     do_throw: bool,
-//     mut p: *const u8,
-//     token: *mut JSToken,
-//     pp: *mut *const u8,
-// ) -> i32 {
-//     // string
-//     let mut b_s: StringBuffer = std::mem::zeroed();
-//     let b = std::ptr::addr_of_mut!(b_s);
-
-//     if string_buffer_init((*s).ctx, b, 32) != 0 {
-//         // C2RS: goto fail
-//         string_buffer_free(b);
-//         return -1;
-//     }
-
-//     let mut ret: i32;
-//     let mut c: i32;
-
-//     loop {
-//         if p >= (*s).buf_end {
-//             // C2RS: goto invalid_char
-//             if do_throw {
-//                 js_parse_error(s, c"unexpected end of string");
-//             }
-//             string_buffer_free(b);
-//             return -1;
-//         }
-
-//         c = *p as i32;
-
-//         if c < 0x20 {
-//             if (*s).cur_func.is_null() {
-//                 if do_throw {
-//                     js_parse_error(s, c"invalid character in a JSON string");
-//                 }
-//                 string_buffer_free(b);
-//                 return -1;
-//             }
-//             if sep == b'`' as i32 {
-//                 if c == b'\r' as i32 {
-//                     if *p.offset(1) == b'\n' {
-//                         p = p.offset(1);
-//                     }
-//                     c = b'\n' as i32;
-//                 }
-//                 // do not update s->line_num
-//             } else if c == b'\n' as i32 || c == b'\r' as i32 {
-//                 // C2RS: goto invalid_char
-//                 if do_throw {
-//                     js_parse_error(s, c"unexpected end of string");
-//                 }
-//                 string_buffer_free(b);
-//                 return -1;
-//             }
-//         }
-//         p = p.offset(1);
-//         if c == sep as i32 {
-//             break;
-//         }
-//         if c == b'$' as i32 && *p == b'{' as u8 && sep == b'`' as i32 {
-//             // template start or middle part
-//             p = p.offset(1);
-//             break;
-//         }
-//         if c == b'\\' as i32 {
-//             c = *p as i32;
-//             // XXX: need a specific JSON case to avoid accepting invalid escapes
-//             match c as u8 {
-//                 b'\0' => {
-//                     if p >= (*s).buf_end {
-//                         // C2RS: goto invalid_char
-//                         if do_throw {
-//                             js_parse_error(s, c"unexpected end of string");
-//                         }
-//                         string_buffer_free(b);
-//                         return -1;
-//                     }
-//                     p = p.offset(1);
-//                 }
-//                 b'\'' | b'\"' | b'\\' => {
-//                     p = p.offset(1);
-//                 }
-//                 b'\r' => {
-//                     // accept DOS and MAC newline sequences
-//                     if *p.offset(1) == b'\n' {
-//                         p = p.offset(1);
-//                     }
-//                     // fall thru
-//                     p = p.offset(1);
-//                     if sep != b'`' as i32 {
-//                         (*s).line_num += 1;
-//                     }
-//                     continue;
-//                 }
-//                 b'\n' => {
-//                     // ignore escaped newline sequence
-//                     p = p.offset(1);
-//                     if sep != b'`' as i32 {
-//                         (*s).line_num += 1;
-//                     }
-//                     continue;
-//                 }
-//                 _ => {
-//                     if (c as u8) >= b'0' && (c as u8) <= b'9' {
-//                         if (*s).cur_func.is_null() {
-//                             // C2RS: goto invalid_escape
-//                             if do_throw {
-//                                 js_parse_error(s, c"malformed escape sequence in string literal");
-//                             }
-//                             string_buffer_free(b);
-//                             return -1;
-//                         }
-//                         if ((*(*s).cur_func).js_mode & JS_MODE_STRICT as u8) == 0
-//                             && sep != b'`' as i32
-//                         {
-//                             // C2RS: goto parse_escape
-//                             ret = lre_parse_escape(&mut p as *mut *const u8, true as i32);
-//                         } else {
-//                             if (c as u8) >= b'8' || sep == b'`' as i32 {
-//                                 // Note: according to ES2021, \8 and \9 are not accepted in strict mode or in templates.
-//                                 // C2RS: goto invalid_escape
-//                                 if do_throw {
-//                                     js_parse_error(
-//                                         s,
-//                                         c"malformed escape sequence in string literal",
-//                                     );
-//                                 }
-//                                 string_buffer_free(b);
-//                                 return -1;
-//                             } else {
-//                                 if do_throw {
-//                                     js_parse_error(
-//                                         s,
-//                                         c"octal escape sequences are not allowed in strict mode",
-//                                     );
-//                                 }
-//                                 string_buffer_free(b);
-//                                 return -1;
-//                             }
-//                         }
-//                         if ret == -1 {
-//                             // C2RS: goto invalid_escape
-//                             if do_throw {
-//                                 js_parse_error(s, c"malformed escape sequence in string literal");
-//                             }
-//                             string_buffer_free(b);
-//                             return -1;
-//                         } else if ret < 0 {
-//                             // ignore the '\' (could output a warning)
-//                             p = p.offset(1);
-//                         } else {
-//                             c = ret as i32;
-//                         }
-//                     } else if c >= 0x80 {
-//                         let mut p_next = std::ptr::null::<u8>();
-//                         c = unicode_from_utf8(
-//                             p,
-//                             UTF8_CHAR_LEN_MAX as i32,
-//                             std::ptr::addr_of_mut!(p_next),
-//                         );
-//                         assert!(c >= 0);
-
-//                         if c > 0x10FFFF {
-//                             // C2RS: goto invalid_utf8
-//                             if do_throw {
-//                                 js_parse_error(s, c"invalid UTF-8 sequence");
-//                             }
-//                             string_buffer_free(b);
-//                             return -1;
-//                         }
-//                         p = p_next;
-//                         // LS or PS are skipped
-//                         if c == CP_LS as i32 || c == CP_PS as i32 {
-//                             continue;
-//                         }
-//                     } else {
-//                         // parse_escape
-//                         ret = lre_parse_escape(&mut p as *mut *const u8, true as i32);
-//                         if ret == -1 {
-//                             // C2RS: goto invalid_escape
-//                             if do_throw {
-//                                 js_parse_error(s, c"malformed escape sequence in string literal");
-//                             }
-//                             string_buffer_free(b);
-//                             return -1;
-//                         } else if ret < 0 {
-//                             // ignore the '\' (could output a warning)
-//                             p = p.offset(1);
-//                         } else {
-//                             c = ret;
-//                         }
-//                     }
-//                 }
-//             }
-//         } else if c >= 0x80 {
-//             let mut p_next = std::ptr::null::<u8>();
-//             c = unicode_from_utf8(
-//                 p.offset(-1),
-//                 UTF8_CHAR_LEN_MAX as _,
-//                 std::ptr::addr_of_mut!(p_next),
-//             );
-//             assert!(c >= 0);
-
-//             if c > 0x10FFFF {
-//                 // C2RS: goto invalid_utf8
-//                 if do_throw {
-//                     js_parse_error(s, c"invalid UTF-8 sequence");
-//                 }
-//                 string_buffer_free(b);
-//                 return -1;
-//             }
-//             p = p_next;
-//         }
-//         if string_buffer_putc(b, c as _) != 0 {
-//             string_buffer_free(b);
-//             return -1;
-//         }
-//     }
-//     (*token).val = TOK_STRING;
-//     (*token).u.str.sep = c;
-//     (*token).u.str.str = string_buffer_end(b);
-//     println!(
-//         "string {:p} #{}, {:?}",
-//         JS_VALUE_GET_STRING((*token).u.str.str),
-//         (*JS_VALUE_GET_STRING((*token).u.str.str)).header.ref_count,
-//         CStr::from_ptr((*JS_VALUE_GET_STRING((*token).u.str.str)).as_str8().cast())
-//     );
-//     *pp = p;
-
-//     0
-// }

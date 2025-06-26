@@ -326,7 +326,7 @@ impl<'s> JSParseState<'s> {
                             fd1.defined_arg_count += 1;
                         }
                         if fd1.has_parameter_expressions {
-                            /* copy the argument to the argument scope */
+                            // copy the argument to the argument scope
                             emit_op(self, OpCode::GET_ARG);
                             emit_u16(self, idx as _);
                             emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);

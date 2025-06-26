@@ -4,13 +4,12 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{JS_Call, JSCFunctionEnum, js_poll_interrupts},
+    function::{JS_Call, JSCFunctionEnum},
     gc::GCMarkFunc,
     map::MapKV,
-    mem::js_malloc_typed,
     runtime::JSRuntime,
     value::{
-        JS_FreeValue, JSValue, JSValueConst,
+        JSValue, JSValueConst,
         object::{
             JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
             JS_PROP_ENUMERABLE, JS_PROP_THROW, JSObjectIsa, PropertyEnum,
@@ -354,7 +353,7 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
                 }
 
                 // must check for timeout to avoid infinite loop
-                if js_poll_interrupts(ctx) != 0 {
+                if ctx.poll_interrupts().is_err() {
                     return -1;
                 }
             }

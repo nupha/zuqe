@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, JSAtomTypeHint,
@@ -31,7 +29,6 @@ use crate::{
         CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal, JSFunctionBytecode,
         JSFunctionKindEnum, JSVarRef, build_arg_list, js_build_arguments,
         js_build_mapped_arguments, js_build_rest, js_closure, js_function_apply,
-        js_poll_interrupts,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
     global::{
@@ -1238,7 +1235,7 @@ pub unsafe fn run_bytecodes(
                     let n = unsafe { read_from_ptr::<i32>(pc) }; // could be minus
                     PC_GO!(n);
 
-                    if js_poll_interrupts(ctx) != 0 {
+                    if ctx.poll_interrupts().is_err() {
                         break State::Exception;
                     }
                 }
@@ -1283,7 +1280,7 @@ pub unsafe fn run_bytecodes(
                         };
                     }
 
-                    if js_poll_interrupts(ctx) != 0 {
+                    if ctx.poll_interrupts().is_err() {
                         break State::Exception;
                     }
                 }

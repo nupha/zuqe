@@ -9,7 +9,7 @@ use crate::{
     },
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::{
-        JS_FreeValue, JSValue, StringContent,
+        JSValue, StringContent,
         object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     },
 };

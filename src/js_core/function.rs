@@ -14,16 +14,16 @@ use crate::{
 };
 
 pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
-    JS_Call(
-        ctx,
-        args.this(),
-        &JSValue::UNDEFINED,
-        if args.length() > 0 {
-            &args.arguments()[1..] // chop first argument (thisArg)
-        } else {
-            &[]
-        },
-    )
+    if args.length() > 0 {
+        JS_Call(
+            ctx,
+            args.this(),
+            args.arg(0),
+            &args.arguments()[1..], // chop first argument (thisArg)
+        )
+    } else {
+        JS_Call(ctx, args.this(), &JSValue::UNDEFINED, &[])
+    }
     .check_exception()
 }
 

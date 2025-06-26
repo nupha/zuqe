@@ -5,14 +5,14 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Invoke, JSCFunctionListEntry, js_poll_interrupts},
+    function::{CallContext, JS_Invoke, JSCFunctionListEntry},
     utils::unlikely,
     value::{
         JS_ConcatString3, JSValue, JSValueConst,
         object::{
             JS_GetOwnPropertyInternal, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
             JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_THROW, JS_SetPrototypeInternal, JSObject, JSPropertyDescriptor, js_free_desc,
+            JS_PROP_THROW, JS_SetPrototypeInternal, JSPropertyDescriptor,
         },
     },
 };
@@ -183,9 +183,7 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         // avoid infinite loop (possible with proxies)
-        if js_poll_interrupts(ctx) != 0 {
-            return Err(-1);
-        }
+        ctx.poll_interrupts()?;
     };
     Ok(JSValue::Bool(res))
 }
@@ -395,7 +393,7 @@ pub unsafe fn js_object___lookupGetter__(
         }
 
         // avoid infinite loop (possible with proxies)
-        if js_poll_interrupts(ctx) != 0 {
+        if ctx.poll_interrupts().is_err() {
             JS_FreeAtom(ctx, prop);
             return JSValue::EXCEPTION;
         }

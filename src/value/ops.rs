@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_PROXY,
     atom::{JSAtom, consts::*},
     context::JSContext,
-    function::{JS_Call, js_poll_interrupts},
+    function::JS_Call,
     value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
 
@@ -87,9 +87,7 @@ impl JSValue {
                         }
 
                         // must check for timeout to avoid infinite loop
-                        if js_poll_interrupts(ctx) != 0 {
-                            break Err(-1);
-                        }
+                        ctx.poll_interrupts()?;
                     }
                 } else {
                     Ok(false)

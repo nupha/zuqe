@@ -453,7 +453,7 @@ impl JSParseState<'_> {
         Ok(())
     }
 
-    pub unsafe fn parse_expect(&mut self, tok: i32) -> Result<(), i32> {
+    pub fn parse_expect(&mut self, tok: i32) -> Result<(), i32> {
         if self.token.val != tok {
             /* XXX: dump token correctly in all cases */
             debug_assert!(tok > 0);
@@ -467,7 +467,7 @@ impl JSParseState<'_> {
         }
     }
 
-    pub unsafe fn parse_expect_semi(&mut self) -> Result<(), i32> {
+    pub fn parse_expect_semi(&mut self) -> Result<(), i32> {
         if self.token.val != CHAR_SEMI {
             if matches!(self.token.val, TOK_EOF | CHAR_CURLY_R) || self.got_lf {
                 // automatic insertion of ';'

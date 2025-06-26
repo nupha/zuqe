@@ -1,5 +1,3 @@
-use std::{pin::Pin, ptr::NonNull};
-
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
@@ -7,7 +5,7 @@ use crate::{
     context::JSContext,
     function::{
         JSFunctionKindEnum, JSNativeCallback, JSNativeIteratorNext, JSObjectFunc, JSVarRef,
-        js_closure2, js_poll_interrupts,
+        js_closure2,
     },
     gc::set_cycle_flag,
     iterator::{
@@ -497,7 +495,7 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                 }
 
                 // must check for timeout to avoid infinite loop
-                if js_poll_interrupts(ctx) != 0 {
+                if ctx.poll_interrupts().is_err() {
                     return -1;
                 }
 

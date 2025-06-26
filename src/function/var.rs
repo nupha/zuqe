@@ -270,7 +270,7 @@ impl JSFunctionDef {
         }
 
         self.args.push(JSVarDef {
-            var_name: name.dup(ctx.rt().deref()),
+            var_name: name.dup(ctx.rt()),
             func_pool_idx: -1,
             scope_level: 0,
             scope_next: 0,

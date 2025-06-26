@@ -282,6 +282,26 @@ pub unsafe fn free_arg_list(ctx: &JSContext, tab: *mut JSValue, len: u32) {
     // js_free(ctx, tab.cast());
 }
 
+#[deprecated(note = "use JSParseState::parse_string() instead")]
+pub unsafe fn js_parse_string(
+    s: *mut JSParseState,
+    sep: char,
+    do_throw: bool,
+    p: *const u8,
+    token: *mut c_void, //JSToken,
+    pp: *mut *const u8,
+) -> i32 {
+    unreachable!("unused");
+    // if (*s)
+    //     .parse_string(sep, do_throw, p, Some(token.as_mut().unwrap()), pp)
+    //     .is_err()
+    // {
+    //     -1
+    // } else {
+    //     0
+    // }
+}
+
 #[deprecated(note = "use StringContent::parse_u32() instead")]
 pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
     match (*p).content().parse_u32() {

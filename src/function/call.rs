@@ -5,7 +5,7 @@ use crate::{
     atom::JSAtom,
     bytecode::run_bytecodes,
     context::JSContext,
-    error::{JS_SetUncatchableError, JSResult},
+    error::JSResult,
     function::{CallContext, build_arg_list},
     stack_frame::JSStackFrame,
     value::{JSValue, JSValueConst, object::JSObjectIsa},
@@ -14,41 +14,6 @@ use crate::{
 pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
 pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
-
-/* must be large enough to have a negligible runtime cost and small
-enough to call the interrupt callback often. */
-pub const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
-
-#[inline(never)]
-pub unsafe fn __js_poll_interrupts(ctx: &JSContext) -> i32 {
-    let rt = ctx.rt_mut();
-    ctx.0.borrow_mut().interrupt_counter = JS_INTERRUPT_COUNTER_INIT;
-
-    if let Some(cb) = rt.interrupt_handler {
-        if cb(rt, rt.interrupt_opaque) != 0 {
-            // XXX: should set a specific flag to avoid catching
-            ctx.JS_ThrowInternalError("interrupted");
-            JS_SetUncatchableError(&rt.current_exception, true);
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
-#[inline(always)]
-pub fn js_poll_interrupts(ctx: &JSContext) -> i32 {
-    let icnt = ctx.with_mut(|ctx| {
-        ctx.interrupt_counter -= 1;
-        ctx.interrupt_counter
-    });
-
-    if icnt <= 0 {
-        unsafe { __js_poll_interrupts(ctx) }
-    } else {
-        0
-    }
-}
 
 /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
 /// both `this_obj` and `argv` values are not consumed.
@@ -60,7 +25,7 @@ pub fn JS_CallInternal(
     args: &[JSValue],
     flags: i32,
 ) -> JSValue {
-    if js_poll_interrupts(caller_ctx) != 0 {
+    if caller_ctx.poll_interrupts().is_err() {
         return JSValue::EXCEPTION;
     }
 
@@ -265,9 +230,10 @@ pub fn JS_CallConstructorInternal(
     args: &[JSValue],
     mut flags: i32,
 ) -> JSValue {
-    if js_poll_interrupts(ctx) != 0 {
+    if ctx.poll_interrupts().is_err() {
         return JSValue::EXCEPTION;
     }
+
     if !func_obj.is_object() {
         ctx.JS_ThrowTypeError("not a function");
         return JSValue::EXCEPTION;

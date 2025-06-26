@@ -175,7 +175,7 @@ impl TokenData {
 // }
 
 impl<'s> JSParseState<'s> {
-    pub unsafe fn next_token(&mut self) -> Result<(), i32> {
+    pub fn next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(&self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
@@ -203,7 +203,7 @@ impl<'s> JSParseState<'s> {
             self.token.line_num = self.line_num;
             self.token.ptr = p;
 
-            match (*p) as char {
+            match unsafe { (*p) as char } {
                 '\0' => {
                     if p >= self.buf_end {
                         self.token.val = TOK_EOF;
@@ -211,35 +211,35 @@ impl<'s> JSParseState<'s> {
                         state = Some(State::DefaultToken('\0'));
                     }
                 }
-                '`' => {
+                '`' => unsafe {
                     if self.parse_template_part(p.offset(1)).is_err() {
                         state = Some(State::Fail);
                     } else {
                         p = self.buf_ptr;
                     }
-                }
-                c @ ('\'' | '\"') => {
+                },
+                c @ ('\'' | '\"') => unsafe {
                     if self
                         .parse_string(c, true, p.offset(1), None, &mut p)
                         .is_err()
                     {
                         state = Some(State::Fail);
                     }
-                }
-                c @ ('\r' | '\n') => {
+                },
+                c @ ('\r' | '\n') => unsafe {
                     if c == '\r' && *p.offset(1) == b'\n' {
                         // \r\n sequence
                         p = p.offset(1);
                     }
                     p = p.offset(1);
                     state = Some(State::LineTerminator);
-                }
+                },
                 // 0x0c='\f', 0x0b='\v'
-                '\u{000c}' | '\u{000b}' | ' ' | '\t' => {
+                '\u{000c}' | '\u{000b}' | ' ' | '\t' => unsafe {
                     p = p.add(1);
                     continue 'redo;
-                }
-                '/' => {
+                },
+                '/' => unsafe {
                     match *p.offset(1) {
                         b'*' => {
                             // block comment
@@ -293,9 +293,10 @@ impl<'s> JSParseState<'s> {
                             self.token.val = b'/' as i32;
                         }
                     } // starts with '/'
-                }
-                '\\' => {
+                },
+                '\\' => unsafe {
                     state = Some(State::DefaultToken('\\'));
+
                     if *p.add(1) == b'u' {
                         let mut p1 = p.add(1);
                         let cp = self.parse_string_escape(&mut p1, 1)?;
@@ -313,13 +314,13 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     }
-                }
-                ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => {
+                },
+                ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => unsafe {
                     // identifier
                     p = p.add(1);
                     state = Some(State::HasIdent(ch));
-                }
-                '#' => {
+                },
+                '#' => unsafe {
                     // private name
                     p = p.add(1);
                     let c = (*p) as char;
@@ -350,8 +351,8 @@ impl<'s> JSParseState<'s> {
                             state = Some(State::Fail);
                         }
                     }
-                }
-                '.' => {
+                },
+                '.' => unsafe {
                     if *p.add(1) == b'.' && *p.add(2) == b'.' {
                         p = p.add(3);
                         self.token.val = TOK_ELLIPSIS;
@@ -360,8 +361,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('.'))
                     }
-                }
-                '0' => {
+                },
+                '0' => unsafe {
                     // in strict mode, octal literals are not accepted
                     if is_digit(*p.add(1)) && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
@@ -369,11 +370,11 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::ParseNumber);
                     }
-                }
+                },
                 '1'..='9' => {
                     state = Some(State::ParseNumber);
                 }
-                '*' => {
+                '*' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_MUL_ASSIGN;
@@ -388,16 +389,16 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('*'));
                     }
-                }
-                '%' => {
+                },
+                '%' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_MOD_ASSIGN;
                     } else {
                         state = Some(State::DefaultToken('%'));
                     }
-                }
-                '+' => {
+                },
+                '+' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_PLUS_ASSIGN;
@@ -407,8 +408,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('+'));
                     }
-                }
-                '-' => {
+                },
+                '-' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_MINUS_ASSIGN;
@@ -429,8 +430,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('-'));
                     }
-                }
-                '<' => {
+                },
+                '<' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_LTE;
@@ -453,8 +454,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('<'));
                     }
-                }
-                '>' => {
+                },
+                '>' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_GTE;
@@ -477,8 +478,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('>'));
                     }
-                }
-                '=' => {
+                },
+                '=' => unsafe {
                     if *p.offset(1) == b'=' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
@@ -494,8 +495,8 @@ impl<'s> JSParseState<'s> {
                         self.token.val = '=' as i32;
                         p = p.offset(1);
                     }
-                }
-                '!' => {
+                },
+                '!' => unsafe {
                     if *p.offset(1) == b'=' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
@@ -507,8 +508,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('!'));
                     }
-                }
-                '&' => {
+                },
+                '&' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_AND_ASSIGN;
@@ -523,16 +524,16 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('&'));
                     }
-                }
-                '^' => {
+                },
+                '^' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_XOR_ASSIGN;
                     } else {
                         state = Some(State::DefaultToken('^'))
                     }
-                }
-                '|' => {
+                },
+                '|' => unsafe {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_OR_ASSIGN;
@@ -547,8 +548,8 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('|'));
                     }
-                }
-                '?' => {
+                },
+                '?' => unsafe {
                     if *p.offset(1) == b'?' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
@@ -565,9 +566,9 @@ impl<'s> JSParseState<'s> {
                     } else {
                         state = Some(State::DefaultToken('?'));
                     }
-                }
+                },
 
-                c if !c.is_ascii() => {
+                c if !c.is_ascii() => unsafe {
                     match unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p)? {
                         '\u{2028}' | '\u{2029}' => {
                             // C2RS: 处理行终止符
@@ -587,7 +588,7 @@ impl<'s> JSParseState<'s> {
                             }
                         }
                     }
-                }
+                },
                 c => {
                     state = Some(State::DefaultToken(c));
                 }
@@ -596,11 +597,11 @@ impl<'s> JSParseState<'s> {
             // handle token type
             if let Some(what) = state.take() {
                 match what {
-                    State::DefaultToken(ch) => {
+                    State::DefaultToken(ch) => unsafe {
                         self.token.val = ch as i32;
                         p = p.offset(1);
-                    }
-                    State::HasIdent(first_char) => {
+                    },
+                    State::HasIdent(first_char) => unsafe {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
                             self.token.data = TokenData::Ident {
@@ -616,17 +617,17 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_ERROR;
                             return Err(-1);
                         }
-                    }
+                    },
                     State::LineTerminator => {
                         self.got_lf = true;
                         self.line_num += 1;
                         continue 'redo;
                     }
-                    State::SkipLineComment => {
+                    State::SkipLineComment => unsafe {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
-                    }
-                    State::ParseNumber => {
+                    },
+                    State::ParseNumber => unsafe {
                         // NOTE: p may be changed after calling next_token_parse_number()
                         if self
                             .next_token_parse_number(std::ptr::addr_of_mut!(p))
@@ -635,7 +636,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_ERROR;
                             return Err(-1);
                         }
-                    }
+                    },
                     State::Fail => {
                         self.token.val = TOK_ERROR;
                         return Err(-1);

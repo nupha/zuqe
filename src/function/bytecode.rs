@@ -772,7 +772,11 @@ impl BytecodeFunctionValue {
         let new_target = cc.this();
         let func_kind = unsafe { std::mem::transmute::<u8, JSFunctionKindEnum>(cc.magic() as u8) };
 
-        let mut buf = SmallVec::<[u8; 64]>::new();
+        //
+        // make function source script:
+        // ([async] function[*] anonymous(a,b){<body>})
+        //
+        let mut buf = SmallVec::<[u8; 256]>::new();
         buf.push(b'(');
 
         if matches!(
@@ -781,33 +785,33 @@ impl BytecodeFunctionValue {
         ) {
             buf.extend_from_slice(b"async ");
         }
-        buf.extend_from_slice(b"function");
 
+        buf.extend_from_slice(b"function");
         if matches!(
             func_kind,
             JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
             buf.push(b'*');
         }
+
         buf.extend_from_slice(b" anonymous(");
 
         // Note: the last argument is function body.
-        if let Some((last, arglist)) = cc.arguments().split_last() {
+        if let Some((body, arglist)) = cc.arguments().split_last() {
             // args list
             for (i, a) in arglist.iter().enumerate() {
                 if i != 0 {
                     buf.push(b',');
                 }
-                let txt = a.coerce_to_utf8(ctx)?;
-                buf.extend_from_slice(txt.as_bytes());
+                buf.extend_from_slice(a.coerce_to_utf8(ctx)?.as_bytes());
             }
+            buf.extend_from_slice(b"){");
 
             // function body
-            let txt = last.coerce_to_utf8(ctx)?;
-            buf.extend_from_slice(txt.as_bytes());
+            buf.extend_from_slice(body.coerce_to_utf8(ctx)?.as_bytes());
         }
 
-        buf.extend_from_slice(b"\n})");
+        buf.extend_from_slice(b"})");
 
         // create script string
         let src = ctx
