@@ -14,7 +14,17 @@ use crate::{
 };
 
 pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
-    JS_Call(ctx, &args.this_raw(), &JSValue::UNDEFINED, args.arguments()).check_exception()
+    JS_Call(
+        ctx,
+        args.this(),
+        &JSValue::UNDEFINED,
+        if args.length() > 0 {
+            &args.arguments()[1..] // chop first argument (thisArg)
+        } else {
+            &[]
+        },
+    )
+    .check_exception()
 }
 
 pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {

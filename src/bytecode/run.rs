@@ -726,10 +726,11 @@ pub unsafe fn run_bytecodes(
                         unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                         0,
                     );
-
                     if ret_val.is_exception() {
                         break State::Exception;
-                    } else if opcode == OpCode::TAIL_CALL_METHOD {
+                    }
+
+                    if opcode == OpCode::TAIL_CALL_METHOD {
                         break State::Done(ret_val, false);
                     } else {
                         for i in -2..call_argc as isize {

@@ -734,7 +734,6 @@ impl BytecodeFunctionValue {
 
         let retval = unsafe {
             let b = bc.0.borrow();
-
             run_bytecodes(
                 &bc,
                 home_obj.as_ref(),
