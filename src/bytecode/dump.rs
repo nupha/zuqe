@@ -114,12 +114,12 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
         }
         "atom" => {
             let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
-            print!(" {a}:{}", JSAtom(a).to_str(ctx.rt().deref()));
+            print!(" {a}:{}", JSAtom(a).to_str(ctx.rt()));
         }
         f @ ("atom_u8" | "atom_u16") => {
             print!(
                 " {}, {}",
-                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt().deref()),
+                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt()),
                 if f == "atom_u8" {
                     tab[pos as usize + 4] as usize
                 } else {
@@ -130,7 +130,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
         f @ ("atom_label_u8" | "atom_label_u16") => {
             print!(
                 " {}",
-                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt().deref())
+                JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt())
             );
 
             // addr = get_u32(tab.as_ptr().offset(pos as isize + 4)) as _;
@@ -166,7 +166,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
             };
 
             if let Some(vi) = b.with_var(idx as _, |v| v.var_name) {
-                print!(" {idx}:{}", vi.to_str(ctx.rt().deref()));
+                print!(" {idx}:{}", vi.to_str(ctx.rt()));
             } else {
                 print!(" {idx}:?");
             }
@@ -185,7 +185,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
         "arg" => {
             let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
             if let Some(var_name) = b.with_arg(idx as _, |vi| vi.var_name) {
-                print!(" {idx}:{}", var_name.to_str(ctx.rt().deref()));
+                print!(" {idx}:{}", var_name.to_str(ctx.rt()));
             } else {
                 print!(" {idx}:?");
             }
@@ -207,7 +207,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
                 " {idx}:{}",
                 b.with_closure_var(idx as _, |v| v.var_name)
                     .unwrap()
-                    .to_str(ctx.rt().deref())
+                    .to_str(ctx.rt())
             );
         }
 
@@ -512,8 +512,7 @@ pub unsafe fn dump_byte_code(
             f @ ("atom_label_u8" | "atom_label_u16") => {
                 print!(
                     " {}",
-                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _)))
-                        .to_str(ctx.rt().deref())
+                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str(ctx.rt())
                 );
 
                 let addr = read_from_ptr::<u32>(tab.as_ptr().offset(pos as isize + 4));
@@ -550,7 +549,7 @@ pub unsafe fn dump_byte_code(
                 };
                 print!(
                     " {idx}:{}",
-                    vars.get(idx).unwrap().var_name.to_str(ctx.rt().deref())
+                    vars.get(idx).unwrap().var_name.to_str(ctx.rt())
                 );
             }
 
@@ -568,7 +567,7 @@ pub unsafe fn dump_byte_code(
                 let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
-                    args.get(idx).unwrap().var_name.to_str(ctx.rt().deref())
+                    args.get(idx).unwrap().var_name.to_str(ctx.rt())
                 );
             }
 
@@ -585,11 +584,7 @@ pub unsafe fn dump_byte_code(
                 let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
-                    closure_vars
-                        .get(idx)
-                        .unwrap()
-                        .var_name
-                        .to_str(ctx.rt().deref())
+                    closure_vars.get(idx).unwrap().var_name.to_str(ctx.rt())
                 );
             }
 
@@ -615,7 +610,7 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
     if b.has_debug && b.debug.filename != JS_ATOM_NULL {
         print!(
             "{}:{}: ",
-            b.debug.filename.to_str(ctx.rt().deref()),
+            b.debug.filename.to_str(ctx.rt()),
             b.debug.line_num
         );
     }
@@ -627,7 +622,7 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
         } else {
             ""
         },
-        b.func_name.to_str(ctx.rt().deref()),
+        b.func_name.to_str(ctx.rt()),
     );
 
     if b.js_mode != 0 {
@@ -646,7 +641,7 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
         if !args.is_empty() {
             print!("  args:");
             for arg in args {
-                print!(" {}", arg.var_name.to_str(ctx.rt().deref()));
+                print!(" {}", arg.var_name.to_str(ctx.rt()));
             }
             println!();
         }
@@ -676,8 +671,8 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
 
             print!(
                 "{i:5}: {kind_str} {}'{}",
-                vd.var_name.to_str(ctx.rt().deref()),
-                vd.var_name.ref_count(ctx.rt().deref()).unwrap_or(999)
+                vd.var_name.to_str(ctx.rt()),
+                vd.var_name.ref_count(ctx.rt()).unwrap_or(999)
             );
 
             if vd.scope_level != 0 {
@@ -703,7 +698,7 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
 
             println!(
                 "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
-                cv.var_name.to_str(ctx.rt().deref()),
+                cv.var_name.to_str(ctx.rt()),
                 cv.var_idx
             );
         }

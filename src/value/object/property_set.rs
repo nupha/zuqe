@@ -4,8 +4,7 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{
-        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom,
-        JSAtom, consts::JS_ATOM_length,
+        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom, JSAtom,
     },
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
@@ -17,7 +16,7 @@ use crate::{
     utils::UncheckedInto,
     value::{
         JS_ToFloat64, JS_ToUint8Clamp,
-        object::{JS_PROP_AUTOINIT, JS_PROP_LENGTH, JS_PROP_THROW_STRICT, JSProperty},
+        object::{JS_PROP_THROW_STRICT, JSProperty},
     },
 };
 

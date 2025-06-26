@@ -221,7 +221,7 @@ impl JSFunctionDef {
             cpool_idx: -1,
             bitfields: 0,
             scope_level: self.scope_level,
-            var_name: name.dup(ctx.rt().deref()),
+            var_name: name.dup(ctx.rt()),
         };
         hf.set_force_init(false);
         hf.set_is_lexical(false);
@@ -295,7 +295,7 @@ impl JSFunctionDef {
         }
 
         self.vars.push(JSVarDef {
-            var_name: name.dup(ctx.rt().deref()),
+            var_name: name.dup(ctx.rt()),
             func_pool_idx: -1,
             scope_level: 0,
             scope_next: 0,

@@ -256,12 +256,12 @@ pub unsafe fn JS_DupAtomRT(rt: *mut JSRuntime, v: JSAtom) -> JSAtom {
 #[deprecated(note = "use JSAtom::dup() instead")]
 #[inline(always)]
 pub unsafe fn JS_DupAtom(ctx: &JSContext, v: JSAtom) -> JSAtom {
-    v.dup(ctx.rt().deref())
+    v.dup(ctx.rt())
 }
 
 #[deprecated(note = "use JSAtom::kind() instead")]
 pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> JSAtomKindEnum {
-    v.kind(ctx.rt().deref())
+    v.kind(ctx.rt())
 }
 
 pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
@@ -531,7 +531,7 @@ pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> boo
 pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
     match val {
         JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => JSAtom::new_u32(*i as u32),
-        JSValue::Symbol(_) => js_symbol_to_atom(ctx, val).dup(ctx.rt().deref()),
+        JSValue::Symbol(_) => js_symbol_to_atom(ctx, val).dup(ctx.rt()),
         _ => {
             if let Ok(tmp) = val.coerce_to_propkey_value(ctx) {
                 if let JSValue::Symbol(_) = tmp {

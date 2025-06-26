@@ -762,7 +762,7 @@ pub fn resolve_scope_private_field(
                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
                     // XXX: add clearer error message
                     bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(var_name.dup(ctx.rt().deref()).0.to_ne_bytes().as_slice());
+                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
                     bc.push(JS_THROW_VAR_RO);
                 }
                 _ => {
@@ -779,7 +779,7 @@ pub fn resolve_scope_private_field(
                 JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
                     // XXX: add clearer error message
                     bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(var_name.dup(ctx.rt().deref()).0.to_ne_bytes().as_slice());
+                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
                     bc.push(JS_THROW_VAR_RO);
                 }
                 JSVarKindEnum::JS_VAR_PRIVATE_SETTER

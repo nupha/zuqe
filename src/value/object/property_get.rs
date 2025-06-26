@@ -14,7 +14,7 @@ use crate::{
     function::JS_Call,
     value::{
         JS_GetPrototypePrimitive, JSValue,
-        object::{JS_DumpShape, JSObject, JSProperty},
+        object::{JSObject, JSProperty},
     },
 };
 

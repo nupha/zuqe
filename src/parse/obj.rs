@@ -44,7 +44,7 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
                 fd.byte_code
                     .as_mut_ptr()
                     .offset(define_class_pos as isize + 1),
-                name.dup((*s).ctx.rt().deref()).0,
+                name.dup((*s).ctx.rt()).0,
             );
             fd.last_opcode_pos = -1;
         }

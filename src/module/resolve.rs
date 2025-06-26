@@ -47,8 +47,8 @@ impl ModuleResolveExport {
                     ctx,
                     &format!(
                         "circular reference when looking for export '{}' in module '{}'",
-                        export_name.to_str(ctx.rt().deref()),
-                        m.0.borrow().module_name.to_str(ctx.rt().deref()),
+                        export_name.to_str(ctx.rt()),
+                        m.0.borrow().module_name.to_str(ctx.rt()),
                     ),
                 );
             }

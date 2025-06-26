@@ -154,7 +154,7 @@ pub unsafe fn define_var(
                 }
             } else {
                 #[cfg(debug_assertions)]
-                let _name_refcnt = name.ref_count(ctx.rt().deref());
+                let _name_refcnt = name.ref_count(ctx.rt());
 
                 vid = if let Some(id) = (*fd).find_var(name) {
                     // the variable already exists, don't add it again

@@ -307,7 +307,7 @@ impl JSAsyncFunctionStateWeakref {
 pub fn async_func_resume(ctx: &JSContext, s: &JSAsyncFunctionState) -> JSValue {
     debug_assert!(!s.0.borrow().is_completed);
 
-    let mut ret = if js_check_stack_overflow(ctx.rt().deref(), 0) {
+    let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx);
         JSValue::EXCEPTION
     } else {

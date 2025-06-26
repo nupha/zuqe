@@ -39,7 +39,7 @@ impl JSFunctionDef {
                                 // with the other checks, we delay the
                                 // error generation.
                                 push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-                                push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt().deref()).0);
+                                push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt()).0);
                                 push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
                             }
                             continue 'g_var;
@@ -50,7 +50,7 @@ impl JSFunctionDef {
             }
 
             push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
-            push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt().deref()).0);
+            push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt()).0);
 
             let mut flags = 0;
             if hf.is_lexical() {
@@ -177,7 +177,7 @@ impl JSFunctionDef {
 
                     // debug: get atom refcount before resolve_scope_var()
                     #[cfg(debug_assertions)]
-                    let _name_refcnt = var_name.ref_count(ctx.rt().deref());
+                    let _name_refcnt = var_name.ref_count(ctx.rt());
 
                     pos_next = self.resolve_scope_var(
                         ctx,

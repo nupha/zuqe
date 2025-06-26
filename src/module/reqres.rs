@@ -350,7 +350,7 @@ pub unsafe fn js_inner_module_linking(
     pstack_top: &mut Option<JSModuleDef>,
     index: i32,
 ) -> i32 {
-    if js_check_stack_overflow(ctx.rt().deref(), 0) {
+    if js_check_stack_overflow(ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx);
         return -1;
     }

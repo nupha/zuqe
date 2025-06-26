@@ -422,7 +422,7 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else {
-                        name = JS_ATOM_async.dup(self.ctx.rt().deref());
+                        name = JS_ATOM_async.dup(self.ctx.rt());
                         emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
                         emit_u32(self, name.0);
                         emit_u16(self, self.cur_func().scope_level as _);
