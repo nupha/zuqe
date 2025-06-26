@@ -17,9 +17,7 @@ use crate::{
     utils::UncheckedInto,
     value::{
         JS_ToFloat64, JS_ToUint8Clamp,
-        object::{
-            JS_PROP_AUTOINIT, JS_PROP_LENGTH, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSProperty,
-        },
+        object::{JS_PROP_AUTOINIT, JS_PROP_LENGTH, JS_PROP_THROW_STRICT, JSProperty},
     },
 };
 
@@ -160,7 +158,7 @@ impl JSObject {
         Err(Some(new_state))
     }
 
-    /// assign property value at specified slot idx.
+    /// overwrite property value at specified slot idx.
     /// if the property is auto init type, do instantiate instead.
     pub(super) fn put_prop_slot_value(
         &self,
@@ -513,31 +511,29 @@ impl JSValue {
                 match p.class_id() {
                     JS_CLASS_ARRAY => {
                         // fast path: fast array
-                        if p.flags().fast_array() && p.flags().extensible() {
+                        let ob_flags = p.flags();
+                        if ob_flags.fast_array() && ob_flags.extensible() {
                             let r = p
                                 .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
                                     match idx.cmp(&(lst.len() as i32)) {
                                         std::cmp::Ordering::Less => {
                                             // update array element
-                                            std::mem::replace(
-                                                lst.get_mut(idx as usize).unwrap(),
-                                                val.clone(),
-                                            );
+                                            lst[idx as usize] = val.clone();
                                             return Ok(Some(true));
                                         }
                                         std::cmp::Ordering::Equal => {
-                                            // 检查原型链是否有数字属性
+                                            // find int prop through prototype chain
                                             let mut has_int_prop = false;
                                             let mut p1 =
                                                 p.shape().unwrap().0.borrow().proto.clone();
 
                                             while p1.is_some() && !has_int_prop {
-                                                let ob = p1.unwrap();
-                                                let sh1 = ob.shape().unwrap();
+                                                let proto_ob = p1.unwrap();
+                                                let sh1 = proto_ob.shape().unwrap();
 
-                                                match ob.class_id() {
+                                                match proto_ob.class_id() {
                                                     JS_CLASS_ARRAY => {
-                                                        if !ob.flags().fast_array() {
+                                                        if !proto_ob.flags().fast_array() {
                                                             has_int_prop = true;
                                                         }
                                                     }
@@ -555,12 +551,25 @@ impl JSValue {
                                             }
 
                                             if !has_int_prop {
-                                                // append array element
-                                                todo!("p.isa().borrow() conflict: inside borrow_mut() already");
+                                                // append to array
+                                                lst.try_reserve_exact(1).map_err(|_| {
+                                                    ctx.JS_ThrowOutOfMemory();
+                                                    -1
+                                                })?;
+                                                lst.push(val.clone());
 
-                                                return p
-                                                    .add_fast_array_element(ctx, val.clone(), flags)
-                                                    .map(|b| Some(b));
+                                                // update prop length
+                                                p.0.prop_values.borrow_mut()[0] =
+                                                    JSProperty::Normal(JSValue::Int(
+                                                        lst.len() as i32
+                                                    ));
+
+                                                return Ok(Some(true));
+
+                                                // calling .add_fast_array_element() will cause borrow conflict on .isa().borrow_mut()...
+                                                // return p
+                                                //     .add_fast_array_element(ctx, val.clone(), flags)
+                                                //     .map(|b| Some(b));
                                             }
                                         }
                                         std::cmp::Ordering::Greater => {}
@@ -584,10 +593,7 @@ impl JSValue {
                         let done = p
                             .with_fast_array_values_mut(|lst| -> bool {
                                 if idx < lst.len() as i32 {
-                                    std::mem::replace(
-                                        lst.get_mut(idx as usize).unwrap(),
-                                        val.clone(),
-                                    );
+                                    lst[idx as usize] = val.clone();
                                     true
                                 } else {
                                     false

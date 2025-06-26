@@ -497,21 +497,21 @@ impl JSObjectInner {
     /// if object's shape is changed, returns true.
     /// after calling, object's shape is guaranteed to be exclusive, and not registered.
     fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
-        let b = self.shape.borrow();
-        let b = b.as_ref().unwrap();
+        // Note: short borrow in scope to avoid conflict with later ::borrow_mut()
+        let (shape_id, is_hashed, hash, strong_count) = {
+            let b = self.shape.borrow();
+            let sh = b.as_ref().unwrap();
+            (sh.id(), sh.is_hashed(), sh.hash(), sh.strong_count())
+        };
 
-        let changed = if b.is_hashed() {
-            if b.strong_count() != 1 {
+        let changed = if is_hashed {
+            if strong_count != 1 {
                 // shape is shared: clone and use a new shape (the new shape is not registered)
-                let sh1 = self.shape.borrow().as_ref().unwrap().clone_to_new(ctx)?;
-                self.shape.borrow_mut().replace(sh1);
+                let new_sh = self.shape.borrow().as_ref().unwrap().clone_to_new(ctx)?;
+                self.shape.borrow_mut().replace(new_sh);
                 true
             } else {
                 // already exclusive: unregister
-                let (shape_id, hash) = {
-                    let s = b.0.borrow();
-                    (s.id(), s.hash)
-                };
                 ctx.rt_mut().unregister_shape(shape_id, hash);
                 false
             }

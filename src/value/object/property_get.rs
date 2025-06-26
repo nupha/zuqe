@@ -58,7 +58,7 @@ impl JSObject {
                         }
                     }
                     JS_PROP_AUTOINIT => {
-                        // Instantiate property.
+                        // Lazy instantiate property.
                         let mut pr = std::mem::replace(
                             &mut p.0.prop_values.borrow_mut()[idx],
                             JSProperty::default(),
