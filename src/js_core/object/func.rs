@@ -199,9 +199,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     loop {
         if idx >= MAX_SAFE_INTEGER {
             ctx.JS_ThrowTypeError("too many elements");
-            unsafe {
-                JS_IteratorClose(ctx, &iter, true);
-            }
+            JS_IteratorClose(ctx, &iter, true);
             return Err(-1);
         }
 
@@ -218,7 +216,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             &[val.clone(), JSValue::from_i64(idx)],
         )
         .check_exception()
-        .inspect_err(|_| unsafe {
+        .inspect_err(|_| {
             JS_IteratorClose(ctx, &iter, true);
         })?;
 

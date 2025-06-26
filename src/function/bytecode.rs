@@ -16,6 +16,7 @@ use crate::{
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
     gc::{GCMarkFunc, GCObjectHeader},
+    global,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
@@ -819,14 +820,12 @@ impl BytecodeFunctionValue {
             .check_exception()?;
 
         // eval string `src`
-        let func_val = src
-            .eval_object(
-                ctx,
-                ctx.0.borrow().global_obj.clone(),
-                JS_EVAL_TYPE_INDIRECT,
-                -1,
-            )
-            .check_exception()?;
+        let func_val = {
+            // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
+            let global = JSValue::Object(ctx.global_obj());
+            src.eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
+                .check_exception()?
+        };
 
         if !new_target.is_undefined() {
             // set the prototype

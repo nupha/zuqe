@@ -23,12 +23,13 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         .check_exception()?;
 
     if !proto.is_object() {
-        let realm = unsafe { JS_GetFunctionRealm(ctx, &new_target)? };
-        proto = if cc.magic() < 0 {
-            realm.0.borrow().class_proto[JS_CLASS_ERROR as usize].clone()
+        let realm = JS_GetFunctionRealm(ctx, &new_target)?;
+        proto = realm.0.borrow().class_proto[if cc.magic() < 0 {
+            JS_CLASS_ERROR as usize
         } else {
-            realm.0.borrow().native_error_proto[cc.magic() as usize].clone()
-        };
+            cc.magic() as usize
+        }]
+        .clone();
     }
 
     let obj = ctx

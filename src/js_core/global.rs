@@ -8,13 +8,10 @@ use crate::{
 };
 
 pub fn js_global_eval(ctx: &JSContext, cc: CallContext) -> JSResult {
+    // to avoid ctx borrow conflict, fetch global object in advance
+    let global = JSValue::Object(ctx.global_obj());
     cc.arg(0)
-        .eval_object(
-            ctx,
-            ctx.0.borrow().global_obj.clone(),
-            JS_EVAL_TYPE_INDIRECT,
-            -1,
-        )
+        .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
         .check_exception()
 }
 

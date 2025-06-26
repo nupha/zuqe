@@ -556,6 +556,8 @@ impl JSValue {
 
                                             if !has_int_prop {
                                                 // append array element
+                                                todo!("p.isa().borrow() conflict: inside borrow_mut() already");
+
                                                 return p
                                                     .add_fast_array_element(ctx, val.clone(), flags)
                                                     .map(|b| Some(b));
