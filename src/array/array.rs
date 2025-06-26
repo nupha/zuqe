@@ -152,10 +152,15 @@ impl JSObject {
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
         // not an integer, then if it >= 2^31.
-        if let JSProperty::Normal(JSValue::Int(array_len)) =
-            self.0.prop_values.borrow().first().cloned().unwrap()
-        {
-            if new_len > array_len as usize {
+        // Note: check array length to int in advance, to avoid prop_values borrow conflict.
+        let len = if let JSProperty::Normal(JSValue::Int(len)) = &self.0.prop_values.borrow()[0] {
+            Some(*len)
+        } else {
+            // unreachable!();
+            None
+        };
+        if let Some(cur_len) = len {
+            if new_len > cur_len as usize {
                 if self
                     .shape()
                     .and_then(|sh| sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags()))
@@ -169,7 +174,7 @@ impl JSObject {
                         Ok(false)
                     };
                 }
-                // replace with new length, drop old length
+                // update to new length
                 self.0.prop_values.borrow_mut()[0] =
                     JSProperty::Normal(JSValue::Int(new_len as i32));
             }
