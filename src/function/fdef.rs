@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_str,

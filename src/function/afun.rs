@@ -1,7 +1,5 @@
 use std::{
     cell::RefCell,
-    marker::PhantomPinned,
-    ops::Deref,
     pin::Pin,
     rc::{Rc, Weak},
 };
@@ -10,7 +8,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::{JS_MODE_ASYNC, JSContext},
     error::{JS_ThrowStackOverflow, JSResult},
-    gc::{GCMarkFunc, GCObjectHeader, GCObjectStatus},
+    gc::{GCMarkFunc, GCObjectHeader},
     promise::{PromiseValue, js_promise_resolve},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,

@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ops::Deref};
+use std::ffi::CStr;
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
@@ -6,7 +6,7 @@ use crate::{
     error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
     parse::token::CHAR_SLASH,
-    value::{JS_FreeValue, JSValue},
+    value::JSValue,
 };
 
 use super::{

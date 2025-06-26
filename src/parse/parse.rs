@@ -1,7 +1,4 @@
-use std::{
-    ffi::CStr,
-    ops::{Deref, DerefMut},
-};
+use std::ffi::CStr;
 
 use smallvec::SmallVec;
 
@@ -16,7 +13,6 @@ use crate::{
     parse::{expr_lvalue::PutLValueEnum, token::TokenData},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
     utils::read_from_ptr,
-    value::JS_FreeValue,
 };
 
 use super::{

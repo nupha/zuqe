@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},

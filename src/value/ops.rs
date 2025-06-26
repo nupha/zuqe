@@ -1,5 +1,3 @@
-// Value operators
-
 use std::ops::Deref;
 
 use crate::{
@@ -9,6 +7,8 @@ use crate::{
     function::JS_Call,
     value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
+
+// Value operators
 
 impl JSValue {
     /// get typeof value, equivelent to js `typeof val`

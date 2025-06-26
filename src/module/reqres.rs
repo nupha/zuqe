@@ -1,5 +1,3 @@
-use std::{cell::RefCell, ffi::CStr, ops::Deref, rc::Rc};
-
 use crate::{
     atom::{JSAtom, consts::JS_ATOM__star_},
     context::JSContext,
@@ -7,7 +5,7 @@ use crate::{
     function::JS_Call,
     mem::js_resize_array,
     module::{
-        JSExportTypeEnum, JSModuleDef, JSModuleDefInner, ModuleResolveExport, js_create_module_var,
+        JSExportTypeEnum, JSModuleDef, ModuleResolveExport, js_create_module_var,
         js_default_module_normalize_name,
     },
     runtime::js_check_stack_overflow,

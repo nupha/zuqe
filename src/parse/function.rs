@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},

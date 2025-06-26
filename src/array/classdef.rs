@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_STRING_DEF,

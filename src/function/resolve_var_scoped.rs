@@ -1,11 +1,9 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{JSAtom, consts::*},
     bytecode::{OpCode, opcodes},
     context::JSContext,
     error::JS_THROW_VAR_RO,
-    function::{ARG_SCOPE_END, ARGUMENT_VAR_OFFSET, JSFunctionDef, JSVarKindEnum},
+    function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSVarKindEnum},
     utils::{push_vec_u8, push_vec_u16, push_vec_u32},
 };
 

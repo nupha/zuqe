@@ -1,4 +1,4 @@
-use std::{ffi::CStr, mem::ManuallyDrop};
+use std::ffi::CStr;
 
 use crate::{
     atom::{JS_FreeAtom, JSAtom, consts::*},

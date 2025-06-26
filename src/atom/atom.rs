@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, ops::Deref, rc::Rc};
+use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, rc::Rc};
 
 use crate::{
     context::JSContext,

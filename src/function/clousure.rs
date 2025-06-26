@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use fallible_collections::FallibleVec;
 
 use crate::{

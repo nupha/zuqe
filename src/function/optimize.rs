@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::Deref};
+use std::marker::PhantomData;
 
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom},

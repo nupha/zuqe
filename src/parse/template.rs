@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use crate::{
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,

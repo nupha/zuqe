@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{JSAtom, consts::JS_ATOM_arguments},
     context::JS_MODE_STRICT,
