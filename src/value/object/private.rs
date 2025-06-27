@@ -1,5 +1,3 @@
-use std::{ffi::CStr, ops::Deref};
-
 use crate::{
     atom::{JS_FreeAtom, JSAtomTypeHint, consts::*, js_symbol_to_atom},
     context::JSContext,

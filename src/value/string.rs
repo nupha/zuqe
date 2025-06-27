@@ -11,7 +11,6 @@ use crate::{
     context::JSContext,
     error::JSResult,
     gc::GCObjectHeader,
-    obsoletes::JS_ToStringFree,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst, object::GCObjectWeakref},
 };
@@ -418,16 +417,12 @@ pub unsafe fn JS_ConcatString3(
     mut str2: JSValue,
     str3: &CStr,
 ) -> JSValue {
-    macro_rules! fail {
-        () => {
-            return JSValue::EXCEPTION;
-        };
-    }
-
     if !matches!(str2, JSValue::String(_)) {
-        str2 = JS_ToStringFree(ctx, str2);
+        str2 = str2
+            .coerce_to_string_value(ctx)
+            .unwrap_or(JSValue::EXCEPTION);
         if str2.is_exception() {
-            fail!();
+            return JSValue::EXCEPTION;
         }
     }
 
@@ -439,7 +434,7 @@ pub unsafe fn JS_ConcatString3(
         if let Ok(s) = StringContent::with_capacity(len1 + (*p).len() + len3, p.is_wide_char()) {
             s
         } else {
-            fail!();
+            return JSValue::EXCEPTION;
         };
 
     let r = res_string
@@ -448,7 +443,7 @@ pub unsafe fn JS_ConcatString3(
         .and_then(|_| res_string.push_str(str3.to_string_lossy().as_ref()));
 
     if r.is_err() {
-        fail!();
+        return JSValue::EXCEPTION;
     }
 
     ctx.create_string_from_content(res_string)
@@ -459,7 +454,9 @@ pub unsafe fn JS_ConcatString3(
 /// op1 and op2 are consumed
 pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JSValue {
     let str1 = if !op1.is_string() {
-        let v = JS_ToStringFree(ctx, op1);
+        let v = op1
+            .coerce_to_string_value(ctx)
+            .unwrap_or(JSValue::EXCEPTION);
         if v.is_exception() {
             return JSValue::EXCEPTION;
         }
@@ -469,7 +466,9 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
     };
 
     let str2 = if !op2.is_string() {
-        let v = JS_ToStringFree(ctx, op2);
+        let v = op2
+            .coerce_to_string_value(ctx)
+            .unwrap_or(JSValue::EXCEPTION);
         if v.is_exception() {
             return JSValue::EXCEPTION;
         }

@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     gc::GCMarkFunc,
     runtime::JSRuntime,
-    value::{JS_FreeValue, JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
 
 use super::{PromiseValue, js_promise_resolve_thenable_job};

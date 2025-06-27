@@ -27,9 +27,9 @@ pub fn JS_DumpObjectHeader() {
 impl JSRuntime {
     /// Adds a GC object to the garbage collector's tracking list
     /// Initializes the object's mark and type, then adds it to the GC object list
-    pub fn gc_add_object(&mut self, gcob: GCObjectWeakref) {
+    pub fn gc_add_object(&mut self, id: usize, gcob: GCObjectWeakref) {
         // ob.set_gc_mark(0);
-        self.gc_obj_list.push(gcob);
+        self.gc_obj_list.insert(id, gcob);
     }
 
     /// Frees objects in zeroed gc list
@@ -114,29 +114,29 @@ impl JSRuntime {
     }
 
     pub fn gc_dump_objects(&mut self, which: u8) {
-        let list = match which {
-            0 => {
-                println!("Zeroed GCObjects: {{");
-                &self.gc_zero_ref_count_list
-            }
-            1 => {
-                println!("GCObjects: {{");
-                &self.gc_obj_list
-            }
-            2 => {
-                println!("Temp GCObjects: {{");
-                &self.tmp_obj_list
-            }
-            _ => unreachable!(),
-        };
+        // let list = match which {
+        //     0 => {
+        //         println!("Zeroed GCObjects: {{");
+        //         &self.gc_zero_ref_count_list
+        //     }
+        //     1 => {
+        //         println!("GCObjects: {{");
+        //         self.gc_obj_list
+        //     }
+        //     2 => {
+        //         println!("Temp GCObjects: {{");
+        //         &self.tmp_obj_list
+        //     }
+        //     _ => unreachable!(),
+        // };
 
-        JS_DumpObjectHeader();
+        // JS_DumpObjectHeader();
 
-        for node in list.iter() {
-            // node.gc_dump(self);
-        }
+        // for node in list.iter() {
+        //     // node.gc_dump(self);
+        // }
 
-        println!("}}");
+        // println!("}}");
     }
 }
 

@@ -12,7 +12,7 @@ use widestring::{
     ustr::{CharIndicesLossyUtf16, CharsLossyUtf16},
 };
 
-use crate::{atom::JSAtomTypeHint, runtime::JSRuntime};
+use crate::atom::JSAtomTypeHint;
 
 use super::string::JS_STRING_LEN_MAX;
 

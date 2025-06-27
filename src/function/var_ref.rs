@@ -391,7 +391,8 @@ impl JSStackFrame {
             },
         );
 
-        ctx.rt_mut().gc_add_object(vref.downgrade().into());
+        ctx.rt_mut()
+            .gc_add_object(vref.id(), vref.downgrade().into());
         self.var_ref_list.push(vref.clone());
 
         Ok(vref)

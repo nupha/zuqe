@@ -505,7 +505,8 @@ pub fn js_create_module_var(ctx: &JSContext, is_lexical: bool) -> Result<JSVarRe
         },
     );
 
-    ctx.rt_mut().gc_add_object(var_ref.downgrade().into());
+    ctx.rt_mut()
+        .gc_add_object(var_ref.id(), var_ref.downgrade().into());
     Ok(var_ref)
 }
 

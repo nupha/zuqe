@@ -1,7 +1,7 @@
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Cell, RefCell},
     ffi::c_void,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -14,25 +14,23 @@ use crate::{
     JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
     atom::{JSAtom, consts::*},
     class::JSClassID,
-    context::{JSContext, JSContextInner},
+    context::JSContext,
     error::JSResult,
-    function::{CallContext, JSCFunction, JSVarRef},
-    gc::{GCMarkFunc, GCObjectHeader, GCObjectStatus, js_trigger_gc},
+    function::{CallContext, JSCFunction},
+    gc::js_trigger_gc,
     proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
-    value::object::{GCObjectWeakref, JS_PROP_C_W_E, JS_PROP_ENUMERABLE},
+    value::object::GCObjectWeakref,
 };
 
 use super::{
     super::{
-        JS_AtomSymbolHasDescription, JS_ConcatString3, JS_FreeValue, JS_GetPrototypePrimitive,
-        JSValue, JSValueConst,
+        JS_AtomSymbolHasDescription, JS_ConcatString3, JS_GetPrototypePrimitive, JSValue,
+        JSValueConst,
     },
-    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_GetOwnPropertyInternal, JS_IsExtensible,
-    JS_PROP_AUTOINIT, JS_PROP_CONFIGURABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_TMASK,
-    JS_PROP_VARREF, JS_PROP_WRITABLE, JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape,
-    JSShapeProperty, js_free_desc,
+    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
+    JS_PROP_WRITABLE, JSObjectIsa, JSProperty, JSShape,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -369,6 +367,9 @@ impl JSObjectInner {
         if let Some(f) = rt.class_array[class_id as usize].finalizer {
             f(rt, self.isa.borrow().deref(), self.id());
         }
+
+        // untrack from gc
+        rt.gc_obj_list.remove(&self.id());
     }
 }
 

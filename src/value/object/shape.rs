@@ -351,7 +351,8 @@ impl JSContext {
         isa: JSObjectIsa,
     ) -> Result<JSValue, JSObjectIsa> {
         let obj = JSObject(Rc::new(JSObjectInner::new(self, Some(shape), isa)?));
-        self.rt_mut().gc_add_object(obj.downgrade().into());
+        self.rt_mut()
+            .gc_add_object(obj.id(), obj.downgrade().into());
         Ok(JSValue::Object(obj))
     }
 }

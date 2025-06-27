@@ -53,10 +53,10 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     }
 
     // dump non-hashed shapes
-    for node in rt.gc_obj_list.iter() {
-        if let Some(GCObject::Object(p)) = node.upgrade() {
+    for (_, w) in rt.gc_obj_list.iter() {
+        if let Some(GCObject::Object(p)) = w.upgrade() {
             let sh = p.shape().unwrap();
-            if !sh.0.borrow().is_hashed {
+            if !sh.is_hashed() {
                 sh.0.borrow().dump(rt, -1);
             }
         }

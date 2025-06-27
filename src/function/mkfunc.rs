@@ -327,7 +327,7 @@ impl JSFunctionDef {
         }
 
         ctx.rt_mut()
-            .gc_add_object(GCObjectWeakref::FunctionBytecode(bf.downgrade()));
+            .gc_add_object(bf.id(), GCObjectWeakref::FunctionBytecode(bf.downgrade()));
 
         // return bytecode function value
         Ok(JSValue::FunctionBytecode(bf))

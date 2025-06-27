@@ -223,7 +223,7 @@ impl JSAsyncFunctionState {
         }
 
         // register to gc
-        ctx.rt_mut().gc_obj_list.push(w.into());
+        ctx.rt_mut().gc_obj_list.insert(s.id(), w.into());
 
         Ok(s)
     }

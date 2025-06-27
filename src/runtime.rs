@@ -64,7 +64,7 @@ pub struct JSRuntime {
 
     pub gc_phase: JSGCPhaseEnum,
     /// List of tracked GC objects (used by garbage collector)
-    pub gc_obj_list: Vec<GCObjectWeakref>,
+    pub gc_obj_list: HashMap<usize, GCObjectWeakref>,
     /// Used during JS_FreeValueRT()
     pub gc_zero_ref_count_list: Vec<GCObjectWeakref>,
     /// used during GC
@@ -146,8 +146,7 @@ impl JSRuntime {
 
             context_list: Vec::with_capacity(1),
             gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
-            // gc_list: Vec::with_capacity(128),
-            gc_obj_list: Vec::new(),
+            gc_obj_list: HashMap::with_capacity(128),
             gc_zero_ref_count_list: Vec::new(),
             tmp_obj_list: Vec::new(),
             malloc_gc_threshold: 256 * 1024,
@@ -355,7 +354,7 @@ impl JSRuntime {
         }
         #[cfg(debug_assertions)]
         {
-            self.gc_obj_list.retain(|w| w.upgrade().is_some());
+            self.gc_obj_list.retain(|_, w| w.upgrade().is_some());
             debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
 
             for (_, mut sh_lst) in self.shape_registry.drain() {
