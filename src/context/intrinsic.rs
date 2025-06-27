@@ -19,8 +19,8 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{JS_NATIVE_ERROR_COUNT, JSErrorEnum, JSResult, NATIVE_ERROR_NAMES},
     function::{
-        BytecodeFunctionValue, CallContext, JSCFunctionEnum, JSFunctionKindEnum,
-        js_async_function_proto_funcs,
+        BytecodeFunctionValue, CallContext, JSCFunctionEnum, JSCFunctionListEntry,
+        JSFunctionKindEnum, js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -374,31 +374,32 @@ impl JSContext {
             .unwrap();
     }
 
+    /// create global object
+    pub fn intrinsic_global_object(&self, fields: &[JSCFunctionListEntry]) {
+        let global = self.create_base_object().unwrap();
+
+        // define global fields
+        global.install_property_entries(self, fields).unwrap();
+
+        // globalThis
+        global
+            .define_property_value(
+                self,
+                JS_ATOM_globalThis,
+                global.clone(),
+                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+            )
+            .unwrap();
+
+        self.0.borrow_mut().global_obj = global;
+
+        self.0.borrow_mut().global_var_obj =
+            self.create_base_object_with_proto(&JSValue::NULL).unwrap();
+    }
+
     pub fn intrinsic_base_objects(&self) {
-        // make global object - this must come first
-        {
-            let global = self.create_base_object().unwrap();
-
-            // define global properties (isNan, parseInt, undefined, NaN etc)
-            global
-                .install_property_entries(self, &js_global_props)
-                .unwrap();
-
-            // globalThis
-            global
-                .define_property_value(
-                    self,
-                    JS_ATOM_globalThis,
-                    global.clone(),
-                    JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-                )
-                .unwrap();
-
-            self.0.borrow_mut().global_obj = global;
-
-            self.0.borrow_mut().global_var_obj =
-                self.create_base_object_with_proto(&JSValue::NULL).unwrap();
-        }
+        // make global object - this must come first. (isNan, parseInt, undefined, NaN etc)
+        self.intrinsic_global_object(&js_global_props);
 
         unsafe {
             // throw TypeError()

@@ -394,15 +394,15 @@ impl JSContext {
 
     /// Add minimum amount of objects to be able to compile code and display error messages.
     /// No JSAtom should be allocated by this function.
-    fn add_core_objects(&self) {
+    pub fn add_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
         // Object
         let object_proto = self
             .create_instance_from_proto(&JSValue::NULL, JSObjectIsa::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object_proto.clone();
 
-        // Function
-        {
+        if function {
+            // Function
             let func_proto = self
                 .create_native_function_from_proto(
                     js_function_proto,
@@ -420,8 +420,8 @@ impl JSContext {
             });
         }
 
-        // Error
-        {
+        if errors {
+            // Error
             let err_proto = self.create_base_object().unwrap();
             self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = err_proto.clone();
 
@@ -459,8 +459,9 @@ impl JSContext {
             }
         }
 
-        // Array
-        {
+        if array {
+            // Array
+
             // the array prototype is an array
             let array_proto = self
                 .create_instance_from_proto(
@@ -490,6 +491,18 @@ impl JSContext {
                 cx.array_shape.replace(array_sh);
             });
         }
+
+        /* XXX: could test it on first context creation to ensure that no
+        new atoms are created in JS_AddIntrinsicBasicObjects(). It is
+        necessary to avoid useless renumbering of atoms after
+        JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
+        // assert_eq!((*ctx.rt).atom_count as u32, JS_ATOM_INIT_COUNT);
+    }
+
+    /// Add minimum amount of objects to be able to compile code and display error messages.
+    /// No JSAtom should be allocated by this function.
+    pub fn add_core_objects(&self) {
+        self.add_core_objects_ex(true, true, true);
 
         /* XXX: could test it on first context creation to ensure that no
         new atoms are created in JS_AddIntrinsicBasicObjects(). It is
@@ -581,14 +594,25 @@ pub unsafe fn JS_FreeContext(ctx: &JSContext) {
 }
 
 impl JSRuntime {
-    /// Creates a new JavaScript execution context core.
-    pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
+    /// Creates a new JavaScript execution context base, and call customize.
+    pub fn create_context_customize(
+        &mut self,
+        setup: impl FnOnce(&JSContext) -> Result<(), i32>,
+    ) -> Result<JSContext, i32> {
         let inner = JSContextInner::new(self)?;
         let ctx = JSContext(Rc::new(RefCell::new(inner)));
 
-        ctx.add_core_objects();
-
+        setup(&ctx)?;
         self.context_list.push(ctx.clone());
+        Ok(ctx)
+    }
+
+    /// Creates a new JavaScript execution context core.
+    pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
+        let ctx = self.create_context_customize(|c| {
+            c.add_core_objects();
+            Ok(())
+        })?;
         Ok(ctx)
     }
 

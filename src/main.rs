@@ -9,7 +9,13 @@ fn main() {
     if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
         println!("js runtime: {js:p}");
 
-        let ctx = js.create_context().unwrap();
+        let ctx = js
+            .create_context_customize(|c| {
+                c.add_core_objects_ex(false, false, false);
+                c.intrinsic_global_object(&[]);
+                Ok(())
+            })
+            .unwrap();
 
         let src = c"function g(a){return a+10} g('x')"; // ok
         //  let src = c"function g(a){return a+10} g(20)"; // ok
@@ -30,13 +36,16 @@ fn main() {
         // //function g(a) { 10} // fail
         // "#;
 
-        let r = ctx.eval(
-            src,
-            "<test>",
-            JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
-        );
-        println!("::::::::::::::: eval: {r:?}");
-        js.as_mut().gc_dump_objects(1);
+        if false {
+            let r = ctx.eval(
+                src,
+                "<test>",
+                JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
+            );
+            println!("::::::::::::::: eval: {r:?}");
+            js.as_mut().gc_dump_objects(1);
+        }
+
         // JS_DumpAtoms(js.as_mut());
 
         println!("================ free eval result");
