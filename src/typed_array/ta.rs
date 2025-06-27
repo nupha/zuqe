@@ -94,7 +94,7 @@ impl JSTypedArray {
             }
 
             let ta = Self {
-                obj: JSObjectWeakref::new(), // empty weakref
+                obj: JSObjectWeakref::default(), // empty weakref
                 buffer: abo,
                 offset: offset as u32,
                 byte_length: (count as u32) << size_log2,

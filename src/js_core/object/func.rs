@@ -182,7 +182,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cb = cc.arg(1);
     cb.ensure_callable(ctx)?;
 
-    let iter = unsafe { JS_GetIterator(ctx, cc.arg(0), false).check_exception()? };
+    let iter = JS_GetIterator(ctx, cc.arg(0), false).check_exception()?;
     let next = iter.get_property(ctx, JS_ATOM_next).check_exception()?;
 
     let is_map = cc.magic();
@@ -199,7 +199,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     loop {
         if idx >= MAX_SAFE_INTEGER {
             ctx.JS_ThrowTypeError("too many elements");
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
             return Err(-1);
         }
 
@@ -217,7 +217,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         )
         .check_exception()
         .inspect_err(|_| {
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
         })?;
 
         // get prop value array and key atom
@@ -237,9 +237,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else {
             let atom = JS_ValueToAtom(ctx, &key);
             if atom == JS_ATOM_NULL {
-                unsafe {
-                    JS_IteratorClose(ctx, &iter, true);
-                }
+                let _ = JS_IteratorClose(ctx, &iter, true);
                 return Err(-1);
             }
             (groups.get_property(ctx, atom), atom)
@@ -463,16 +461,14 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
     // JS_GetIterator() by JS_GetProperty()
     let iterable = cc.arg(0);
 
-    let iter = unsafe { JS_GetIterator(ctx, iterable, false).check_exception()? };
+    let iter = JS_GetIterator(ctx, iterable, false).check_exception()?;
     let next_method = iter
         .get_property(ctx, JS_ATOM_next)
         .check_exception()
         .inspect_err(|_| {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
-                unsafe {
-                    JS_IteratorClose(ctx, &iter, true);
-                }
+                JS_IteratorClose(ctx, &iter, true).unwrap();
             }
         })?;
 
@@ -481,10 +477,8 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
         if item.is_exception() {
             if iter.is_object() {
-                unsafe {
-                    // close the iterator object, preserving pending exception
-                    JS_IteratorClose(ctx, &iter, true);
-                }
+                // close the iterator object, preserving pending exception
+                JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
         }
@@ -496,10 +490,8 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         if !item.is_object() {
             ctx.JS_ThrowTypeErrorNotAnObject();
             if iter.is_object() {
-                unsafe {
-                    // close the iterator object, preserving pending exception
-                    JS_IteratorClose(ctx, &iter, true);
-                }
+                // close the iterator object, preserving pending exception
+                JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
         }
@@ -507,10 +499,8 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         let key = item.get_property_u32(ctx, 0);
         if key.is_exception() {
             if iter.is_object() {
-                unsafe {
-                    // close the iterator object, preserving pending exception
-                    JS_IteratorClose(ctx, &iter, true);
-                }
+                // close the iterator object, preserving pending exception
+                JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
         }
@@ -518,10 +508,8 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         let value = item.get_property_u32(ctx, 1);
         if value.is_exception() {
             if iter.is_object() {
-                unsafe {
-                    // close the iterator object, preserving pending exception
-                    JS_IteratorClose(ctx, &iter, true);
-                }
+                // close the iterator object, preserving pending exception
+                JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
         }
@@ -531,10 +519,8 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
             .is_err()
         {
             if iter.is_object() {
-                unsafe {
-                    // close the iterator object, preserving pending exception
-                    JS_IteratorClose(ctx, &iter, true).expect("TODO");
-                }
+                // close the iterator object, preserving pending exception
+                JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
         }

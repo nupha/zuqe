@@ -43,7 +43,7 @@ impl JSShapeProperty {
     }
 
     #[inline]
-    pub fn set_flags(&mut self, f: u32) {
+    pub const fn set_flags(&mut self, f: u32) {
         self.bitfield = (self.bitfield & !Self::FLAGS_MASK) | ((f & 0x3f) << 26);
     }
 }
@@ -252,6 +252,10 @@ impl JSShape {
         self.0.borrow().prop_defs.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Append a property defination to shape, returns final shape property length.
     /// If obj is provided, it's an object that would use this shape,
     /// will try to enlarge obj's value slots if a prop is added to shape.
@@ -405,18 +409,12 @@ impl JSRuntime {
 
         self.shape_registry.get(&h).and_then(|lst| {
             lst.iter().find_map(|w| {
-                if let Some(s) = w.upgrade() {
-                    if s.with(|s| {
+                w.upgrade().filter(|s| {
+                    s.with(|s| {
                         debug_assert_eq!(s.hash, h);
                         s.proto.as_ref().eq(&proto) && s.prop_defs.is_empty()
-                    }) {
-                        Some(s)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                    })
+                })
             })
         })
     }
@@ -484,7 +482,7 @@ const fn shape_hasher_u32(h: u32, val: u32) -> u32 {
     h.wrapping_add(val).wrapping_mul(0x9e3779b9)
 }
 
-pub fn shape_initial_hash(proto_id: usize) -> u32 {
+pub const fn shape_initial_hash(proto_id: usize) -> u32 {
     let mut h = shape_hasher_u32(1, proto_id as u32);
     if std::mem::size_of::<usize>() > 4 {
         h = shape_hasher_u32(h, ((proto_id as u64) >> 32) as u32);

@@ -334,7 +334,7 @@ impl JSObject {
     #[inline]
     pub fn has_own_property(&self, prop: JSAtom) -> bool {
         self.shape()
-            .map_or(false, |sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
+            .is_some_and(|sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
     }
 
     /// Find own property by prop atom.
@@ -387,10 +387,7 @@ impl JSObject {
                 }
                 JS_PROP_AUTOINIT => {
                     // Instantiate property
-                    let mut pr = std::mem::replace(
-                        &mut self.0.prop_values.borrow_mut()[idx],
-                        JSProperty::default(),
-                    );
+                    let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
                     desc.value = pr.instantiate(self, prop)?;
                     debug_assert!(matches!(pr, JSProperty::Normal(_)));
                     self.0.prop_values.borrow_mut()[idx] = pr;

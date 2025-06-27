@@ -79,8 +79,8 @@ impl JSRuntime {
                                     if !a.is_const() {
                                         unsafe {
                                             let d = Rc::from_raw(aptr);
-                                            d.clone();
-                                            Rc::into_raw(d);
+                                            let _ = d.clone();
+                                            let _ = Rc::into_raw(d);
                                         }
                                     }
                                     return Ok(a);

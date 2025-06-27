@@ -36,7 +36,7 @@ impl JSObject {
         } else {
             // func is not an object, or can't find its home object
             ctx.JS_ThrowTypeErrorNotAnObject();
-            return Err(-1);
+            Err(-1)
         }
     }
 
@@ -63,7 +63,7 @@ impl JSObject {
             ctx.JS_ThrowTypeErrorNotASymbol();
             Err(-1)
         } else {
-            let prop = js_symbol_to_atom(ctx, &name);
+            let prop = js_symbol_to_atom(ctx, name);
             if let Some((idx, _)) = self.find_own_property(prop) {
                 if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
                     Ok(val.clone())
@@ -110,7 +110,7 @@ impl JSObject {
             return Err(-1);
         }
 
-        let prop = js_symbol_to_atom(ctx, &name);
+        let prop = js_symbol_to_atom(ctx, name);
 
         if self.has_own_property(prop) {
             ctx.JS_ThrowTypeError(&format!(
@@ -133,7 +133,7 @@ impl JSValue {
             ob.check_brand(ctx, func)
         } else {
             ctx.JS_ThrowTypeErrorNotAnObject();
-            return Err(-1);
+            Err(-1)
         }
     }
 
@@ -194,7 +194,7 @@ impl JSValue {
             ob.set_private_field(ctx, name, val)
         } else {
             ctx.JS_ThrowTypeErrorNotAnObject();
-            return Err(-1);
+            Err(-1)
         }
     }
 

@@ -1060,16 +1060,16 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::PUT_LOC => {
                     let idx = PC_FETCH!(u16);
-                    std::mem::replace(VAR_REF![idx], SP_TAKE!(-1));
+                    let _ = std::mem::replace(VAR_REF![idx], SP_TAKE!(-1));
                     SP_GO!(-1);
                 }
                 OpCode::SET_LOC => {
                     let idx = PC_FETCH!(u16);
-                    std::mem::replace(VAR_REF![idx], SP_REF!(-1).clone());
+                    let _ = std::mem::replace(VAR_REF![idx], SP_REF!(-1).clone());
                 }
                 OpCode::SET_LOC_UNINITIALIZED => {
                     let idx = PC_FETCH!(u16);
-                    std::mem::replace(VAR_REF![idx], JSValue::UNINITIALIZED);
+                    let _ = std::mem::replace(VAR_REF![idx], JSValue::UNINITIALIZED);
                 }
                 OpCode::GET_ARG => {
                     let idx = PC_FETCH!(u16);
@@ -1078,12 +1078,12 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::PUT_ARG => {
                     let idx = PC_FETCH!(u16);
-                    std::mem::replace(ARG_REF![idx], SP_TAKE!(-1));
+                    let _ = std::mem::replace(ARG_REF![idx], SP_TAKE!(-1));
                     SP_GO!(-1);
                 }
                 OpCode::SET_ARG => {
                     let idx = PC_FETCH!(u16);
-                    std::mem::replace(ARG_REF![idx], SP_REF!(-1).clone());
+                    let _ = std::mem::replace(ARG_REF![idx], SP_REF!(-1).clone());
                 }
 
                 #[cfg(feature = "short_opcode")]
@@ -1169,7 +1169,7 @@ pub unsafe fn run_bytecodes(
                         }
                         break State::Exception;
                     } else {
-                        std::mem::replace(pval, SP_TAKE!(-1));
+                        *pval = SP_TAKE!(-1);
                         SP_GO!(-1);
                     }
                 }
@@ -1920,7 +1920,7 @@ pub unsafe fn run_bytecodes(
                     if let Ok(val) = BinaryOp::new_slow(ctx, pv.clone(), op1, 3, Some(HINT_NONE))
                         .and_then(|bop| bop.add(ctx))
                     {
-                        std::mem::replace(pv, val);
+                        *pv = val;
                     } else {
                         break State::Exception;
                     }
@@ -1978,7 +1978,7 @@ pub unsafe fn run_bytecodes(
                             _ => unreachable!(),
                         })
                     {
-                        std::mem::replace(op1, res);
+                        *op1 = res;
                     } else {
                         break State::Exception;
                     }

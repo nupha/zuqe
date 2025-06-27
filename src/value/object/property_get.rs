@@ -43,11 +43,11 @@ impl JSObject {
                     }
                     JS_PROP_GETSET => {
                         let pr = p.0.prop_values.borrow()[idx].clone();
-                        pr.value(ctx, &this_obj)
+                        pr.value(ctx, this_obj)
                     }
                     JS_PROP_VARREF => {
                         let pr = p.0.prop_values.borrow()[idx].clone();
-                        let val = pr.value(ctx, &this_obj);
+                        let val = pr.value(ctx, this_obj);
                         if val.is_uninitialized() {
                             JS_ThrowReferenceErrorUninitialized(ctx, prop);
                             JSValue::EXCEPTION
@@ -57,10 +57,7 @@ impl JSObject {
                     }
                     JS_PROP_AUTOINIT => {
                         // Lazy instantiate property.
-                        let mut pr = std::mem::replace(
-                            &mut p.0.prop_values.borrow_mut()[idx],
-                            JSProperty::default(),
-                        );
+                        let mut pr = std::mem::take(&mut p.0.prop_values.borrow_mut()[idx]);
                         let val = pr.instantiate(&p, prop).unwrap_or(JSValue::EXCEPTION);
                         debug_assert!(matches!(pr, JSProperty::Normal(_)));
                         p.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
@@ -232,7 +229,7 @@ impl JSObject {
 
         // slow path
         {
-            let atom = JS_ValueToAtom(ctx, &prop);
+            let atom = JS_ValueToAtom(ctx, prop);
             if atom == JS_ATOM_NULL {
                 JSValue::EXCEPTION
             } else {
@@ -325,7 +322,7 @@ impl JSValue {
         if self.is_object() {
             unsafe { self.object_unchecked().get_property_value(ctx, prop) }
         } else {
-            let atom = JS_ValueToAtom(ctx, &prop);
+            let atom = JS_ValueToAtom(ctx, prop);
             if atom == JS_ATOM_NULL {
                 JSValue::EXCEPTION
             } else {

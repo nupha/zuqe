@@ -315,12 +315,12 @@ impl JSObjectInner {
     }
 
     #[inline(always)]
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub const fn rt_ptr(&self) -> NonNull<JSRuntime> {
         self.rt
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub const fn rt(&self) -> &JSRuntime {
         unsafe { self.rt.as_ref() }
     }
 
@@ -552,11 +552,13 @@ impl From<JSObjectWeakref> for GCObjectWeakref {
     }
 }
 
-impl JSObjectWeakref {
-    pub fn new() -> Self {
+impl Default for JSObjectWeakref {
+    fn default() -> Self {
         Self(Weak::new())
     }
+}
 
+impl JSObjectWeakref {
     #[inline]
     pub fn upgrade(&self) -> Option<JSObject> {
         self.0.upgrade().map(JSObject)
@@ -564,7 +566,7 @@ impl JSObjectWeakref {
 }
 
 impl JSValue {
-    pub fn object(&self) -> Option<&JSObject> {
+    pub const fn object(&self) -> Option<&JSObject> {
         if let Self::Object(ob) = self {
             Some(ob)
         } else {
@@ -850,7 +852,7 @@ pub fn JS_SetPrototypeInternal(
         Ok(true)
     } else {
         ctx.JS_ThrowTypeErrorNotAnObject();
-        return Err(-1);
+        Err(-1)
     }
 }
 
@@ -958,7 +960,7 @@ pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32>
             Ok(true)
         }
     } else {
-        return Ok(false);
+        Ok(false)
     }
 }
 

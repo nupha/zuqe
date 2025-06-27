@@ -96,7 +96,7 @@ impl<'s> JSParseState<'s> {
         )?;
 
         // stack is now: fclosure
-        self.push_scope();
+        self.push_scope()?;
         emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
         emit_atom_dup(self, JS_ATOM_this);
         emit_u16(self, 0);
@@ -276,7 +276,7 @@ impl<'s> JSParseState<'s> {
         });
 
         // this scope contains the private fields
-        self.push_scope();
+        self.push_scope().unwrap();
 
         emit_op(self, OpCode::PUSH_CONST);
         let ctor_cpool_offset = self.cur_func_mut().byte_code.len();
@@ -636,13 +636,10 @@ pub unsafe fn js_parse_class(
         JS_ATOM_NULL
     };
 
-    s.push_scope();
-
-    let mut name = JS_ATOM_NULL;
+    s.push_scope().unwrap();
 
     macro_rules! fail {
         () => {
-            JS_FreeAtom(&s.ctx, name);
             JS_FreeAtom(&s.ctx, class_name);
             JS_FreeAtom(&s.ctx, class_var_name);
             s.cur_func_mut().js_mode = saved_js_mode;

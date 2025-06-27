@@ -156,7 +156,7 @@ pub fn JS_IteratorNext(
     pdone: &mut bool,
 ) -> JSValue {
     let mut done: i32 = 0;
-    let obj = unsafe { JS_IteratorNext2(ctx, enum_obj, method, args, &mut done) };
+    let obj = JS_IteratorNext2(ctx, enum_obj, method, args, &mut done);
     if obj.is_exception() {
         *pdone = false;
         return JSValue::EXCEPTION;
@@ -238,7 +238,7 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     value
 }
 
-pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, _id: usize) {
     if let JSObjectIsa::FOR_IN_ITERATOR(it) = isa {
         if !it.is_array {
             for x in it.tab_atom.iter() {
@@ -407,7 +407,7 @@ pub unsafe fn iterator_to_array(ctx: &JSContext, items: &JSValueConst) -> JSValu
             let mut done = false;
             let v = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
             if v.is_exception() {
-                JS_IteratorClose(ctx, &iter, true);
+                let _ = JS_IteratorClose(ctx, &iter, true);
                 return JSValue::EXCEPTION;
             }
 
@@ -418,7 +418,7 @@ pub unsafe fn iterator_to_array(ctx: &JSContext, items: &JSValueConst) -> JSValu
             if r.define_property_value(ctx, JSAtom(k), v, JS_PROP_C_W_E | JS_PROP_THROW)
                 .is_err()
             {
-                JS_IteratorClose(ctx, &iter, true);
+                let _ = JS_IteratorClose(ctx, &iter, true);
                 return JSValue::EXCEPTION;
             }
 

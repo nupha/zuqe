@@ -32,7 +32,7 @@ impl JSObjectIsa {
         self.array_mut().map(f)
     }
 
-    pub fn array_buffer(&self) -> Option<&JSArrayBuffer> {
+    pub const fn array_buffer(&self) -> Option<&JSArrayBuffer> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,

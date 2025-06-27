@@ -196,7 +196,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         let mut done = false;
         let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
         if item.is_exception() {
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
             return fail_reject(promise_resolve);
         }
 
@@ -211,7 +211,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             std::slice::from_ref(&item),
         );
         if next_promise.is_exception() {
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
             return fail_reject(promise_resolve);
         }
 
@@ -233,7 +233,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             .unwrap_or(JSValue::EXCEPTION);
 
         if resolve_element.is_exception() {
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
             return fail_reject(promise_resolve);
         }
 
@@ -248,7 +248,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 if let Ok(r) = r {
                     r
                 } else {
-                    JS_IteratorClose(ctx, &iter, true);
+                    let _ = JS_IteratorClose(ctx, &iter, true);
                     return fail_reject(promise_resolve);
                 }
 
@@ -271,7 +271,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                     .define_property_value_u32(ctx, index as u32, JSValue::UNDEFINED, 0x7)
                     .is_err()
                 {
-                    JS_IteratorClose(ctx, &iter, true);
+                    let _ = JS_IteratorClose(ctx, &iter, true);
                     return fail_reject(promise_resolve);
                 }
                 std::mem::replace(&mut resolve_element, resolving_funcs[0].clone()) // take out old value
@@ -280,7 +280,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         if remainingElementsCount_add(ctx, resolve_element_env.clone(), 1).is_err() {
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
             return fail_reject(promise_resolve);
         }
 
@@ -291,7 +291,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             &[resolve_element, reject_element],
         );
         if ret.is_exception() {
-            JS_IteratorClose(ctx, &iter, true);
+            let _ = JS_IteratorClose(ctx, &iter, true);
             return fail_reject(promise_resolve);
         }
 

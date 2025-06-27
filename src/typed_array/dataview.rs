@@ -62,7 +62,7 @@ impl JSContext {
         let ta = unsafe {
             if let Some(ptr) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
                 ptr.write(JSTypedArray {
-                    obj: JSObjectWeakref::new(),
+                    obj: JSObjectWeakref::default(),
                     buffer: buffer.object_unchecked().clone(), // underlaying array buffer
                     offset: offset as u32,
                     byte_length: len as _,

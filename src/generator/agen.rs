@@ -86,7 +86,7 @@ impl AsyncGeneratorValue {
         flags: i32,
     ) -> JSResult {
         let s = Box::new(JSAsyncGeneratorData {
-            generator: JSObjectWeakref::new(),
+            generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
             func_state: Some(JSAsyncFunctionState::new(ctx, func_obj, this_obj, args)?),
             queue: Vec::with_capacity(1),

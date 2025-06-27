@@ -66,7 +66,7 @@ impl JSStringInner {
     }
 
     pub fn rt(&self) -> &JSRuntime {
-        self.rt()
+        self.header.rt()
     }
 
     /// Returns a reference to the underlying string content
@@ -255,7 +255,7 @@ impl JSString {
         if start == 0 && end == self.len() {
             Ok(JSValue::String(self.clone()))
         } else {
-            let count = if end > start { end - start } else { 0 };
+            let count = end.saturating_sub(start); // if end > start { end - start } else { 0 };
             if count > 0 {
                 let sub = self.content().slice(start..end).to_owned().map_err(|_| {
                     ctx.JS_ThrowOutOfMemory();
@@ -554,7 +554,7 @@ impl JSValue {
 
     /// get a reference to value's string description.
     #[inline(always)]
-    pub fn string(&self) -> Option<&JSString> {
+    pub const fn string(&self) -> Option<&JSString> {
         if let Self::String(s) | Self::Symbol(s) = self {
             Some(s)
         } else {

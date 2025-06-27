@@ -40,7 +40,7 @@ pub unsafe fn js_map_constructor(
 
     let obj = match ctx.create_instance_from_ctor(new_target, isa) {
         Ok(o) => o,
-        Err(isa) => {
+        Err(_) => {
             return JSValue::EXCEPTION;
         }
     };
@@ -49,7 +49,7 @@ pub unsafe fn js_map_constructor(
         ($iter:expr, $next_method:expr, $adder:expr) => {
             if $iter.is_object() {
                 // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, $iter, true);
+                let _ = JS_IteratorClose(ctx, $iter, true);
             }
             return JSValue::EXCEPTION;
         };
@@ -68,9 +68,6 @@ pub unsafe fn js_map_constructor(
         }
         if !adder.is_callable() {
             ctx.JS_ThrowTypeError("set/add is not a function");
-
-            JS_FreeValue(ctx, &adder);
-            JS_FreeValue(ctx, &obj);
             return JSValue::EXCEPTION;
         }
 
@@ -78,7 +75,7 @@ pub unsafe fn js_map_constructor(
         if iter.is_exception() {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true);
+                let _ = JS_IteratorClose(ctx, &iter, true);
             }
             return JSValue::EXCEPTION;
         }
@@ -87,7 +84,7 @@ pub unsafe fn js_map_constructor(
         if next_method.is_exception() {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true);
+                let _ = JS_IteratorClose(ctx, &iter, true);
             }
             return JSValue::EXCEPTION;
         }

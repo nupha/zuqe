@@ -454,7 +454,7 @@ pub unsafe fn JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) ->
         }
         JSValue::UNDEFINED => {
             *pres = f64::NAN;
-            return -1; // Error
+            -1 // Error
         }
         JSValue::NULL => {
             *pres = 0.0;
@@ -509,10 +509,10 @@ pub unsafe fn JS_ToIntegerFree(ctx: &JSContext, mut val: JSValue) -> JSValue {
     loop {
         match val {
             JSValue::UNDEFINED | JSValue::NULL => {
-                ret = 0.into();
+                ret = JSValue::Int(0);
             }
             JSValue::Bool(b) => {
-                ret = (0 as i32).into();
+                ret = JSValue::Int(b as i32);
             }
             JSValue::Int(i) => {
                 ret = JSValue::Int(i);
@@ -618,7 +618,7 @@ pub unsafe fn JS_ToInt32Clamp(
     res
 }
 
-pub fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
+pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
     match val {
         JSValue::Int(v) => *v < 0,
         JSValue::Float64(d) => {

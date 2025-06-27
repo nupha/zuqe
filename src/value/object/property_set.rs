@@ -87,7 +87,7 @@ impl JSObject {
             if prop.is_int_type() {
                 let idx = __JS_AtomToUInt32(prop);
                 if idx < self.array_length_unchecked() as u32 {
-                    if this_obj.object().map_or(false, |o| o == self) {
+                    if this_obj.object() == Some(self) {
                         return this_obj
                             .set_property_value(ctx, &JSValue::from_i32(idx as _), val, flags)
                             .map_err(|_| None);
@@ -135,7 +135,7 @@ impl JSObject {
                         } else if desc.flags & JS_PROP_WRITABLE == 0 {
                             new_state = SetPropState::ErrReadOnly;
                         } else {
-                            if this_obj.object().map_or(false, |o| o == self) {
+                            if this_obj.object() == Some(self) {
                                 return this_obj
                                     .define_property(
                                         ctx,
@@ -416,279 +416,273 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        match (self, prop) {
-            (JSValue::Object(p), JSValue::Int(idx)) => {
-                let idx = *idx;
-                let mut ta_out_of_bound = false;
+        if let (JSValue::Object(p), JSValue::Int(idx)) = (self, prop) {
+            let idx = *idx;
+            let mut ta_out_of_bound = false;
 
-                // early return using fast path if possible
-                match p.class_id() {
-                    JS_CLASS_ARRAY => {
-                        // fast path: fast array
-                        let ob_flags = p.flags();
-                        if ob_flags.fast_array() && ob_flags.extensible() {
-                            let r = p
-                                .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
-                                    match idx.cmp(&(lst.len() as i32)) {
-                                        std::cmp::Ordering::Less => {
-                                            // update array element
-                                            lst[idx as usize] = val.clone();
-                                            return Ok(Some(true));
-                                        }
-                                        std::cmp::Ordering::Equal => {
-                                            // find int prop through prototype chain
-                                            let mut has_int_prop = false;
-                                            let mut p1 =
-                                                p.shape().unwrap().0.borrow().proto.clone();
+            // early return using fast path if possible
+            match p.class_id() {
+                JS_CLASS_ARRAY => {
+                    // fast path: fast array
+                    let ob_flags = p.flags();
+                    if ob_flags.fast_array() && ob_flags.extensible() {
+                        let r = p
+                            .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
+                                match idx.cmp(&(lst.len() as i32)) {
+                                    std::cmp::Ordering::Less => {
+                                        // update array element
+                                        lst[idx as usize] = val.clone();
+                                        return Ok(Some(true));
+                                    }
+                                    std::cmp::Ordering::Equal => {
+                                        // find int prop through prototype chain
+                                        let mut has_int_prop = false;
+                                        let mut p1 = p.shape().unwrap().0.borrow().proto.clone();
 
-                                            while p1.is_some() && !has_int_prop {
-                                                let proto_ob = p1.unwrap();
-                                                let sh1 = proto_ob.shape().unwrap();
+                                        while p1.is_some() && !has_int_prop {
+                                            let proto_ob = p1.unwrap();
+                                            let sh1 = proto_ob.shape().unwrap();
 
-                                                match proto_ob.class_id() {
-                                                    JS_CLASS_ARRAY => {
-                                                        if !proto_ob.flags().fast_array() {
-                                                            has_int_prop = true;
-                                                        }
-                                                    }
-                                                    JS_CLASS_OBJECT => {
-                                                        if sh1.0.borrow().has_small_array_index {
-                                                            has_int_prop = true;
-                                                        }
-                                                    }
-                                                    _ => {
+                                            match proto_ob.class_id() {
+                                                JS_CLASS_ARRAY => {
+                                                    if !proto_ob.flags().fast_array() {
                                                         has_int_prop = true;
                                                     }
                                                 }
-
-                                                p1 = sh1.0.borrow().proto.clone();
+                                                JS_CLASS_OBJECT => {
+                                                    if sh1.0.borrow().has_small_array_index {
+                                                        has_int_prop = true;
+                                                    }
+                                                }
+                                                _ => {
+                                                    has_int_prop = true;
+                                                }
                                             }
 
-                                            if !has_int_prop {
-                                                // append to array
-                                                lst.try_reserve_exact(1).map_err(|_| {
-                                                    ctx.JS_ThrowOutOfMemory();
-                                                    -1
-                                                })?;
-                                                lst.push(val.clone());
-
-                                                // update prop length
-                                                p.0.prop_values.borrow_mut()[0] =
-                                                    JSProperty::Normal(JSValue::Int(
-                                                        lst.len() as i32
-                                                    ));
-
-                                                return Ok(Some(true));
-
-                                                // calling .add_fast_array_element() will cause borrow conflict on .isa().borrow_mut()...
-                                                // return p
-                                                //     .add_fast_array_element(ctx, val.clone(), flags)
-                                                //     .map(|b| Some(b));
-                                            }
+                                            p1 = sh1.0.borrow().proto.clone();
                                         }
-                                        std::cmp::Ordering::Greater => {}
+
+                                        if !has_int_prop {
+                                            // append to array
+                                            lst.try_reserve_exact(1).map_err(|_| {
+                                                ctx.JS_ThrowOutOfMemory();
+                                                -1
+                                            })?;
+                                            lst.push(val.clone());
+
+                                            // update prop length
+                                            p.0.prop_values.borrow_mut()[0] =
+                                                JSProperty::Normal(JSValue::Int(lst.len() as i32));
+
+                                            return Ok(Some(true));
+
+                                            // calling .add_fast_array_element() will cause borrow conflict on .isa().borrow_mut()...
+                                            // return p
+                                            //     .add_fast_array_element(ctx, val.clone(), flags)
+                                            //     .map(|b| Some(b));
+                                        }
                                     }
+                                    std::cmp::Ordering::Greater => {}
+                                }
 
-                                    Ok(None)
-                                })
-                                .unwrap()?;
-
-                            match r {
-                                Some(b) => {
-                                    return Ok(b); // done
-                                }
-                                None => {
-                                    // handle with slow array
-                                }
-                            }
-                        }
-                    }
-                    JS_CLASS_ARGUMENTS => {
-                        let done = p
-                            .with_fast_array_values_mut(|lst| -> bool {
-                                if idx < lst.len() as i32 {
-                                    lst[idx as usize] = val.clone();
-                                    true
-                                } else {
-                                    false
-                                }
+                                Ok(None)
                             })
-                            .unwrap();
-                        if done {
-                            return Ok(true); // done fast array
-                        }
-                    }
+                            .unwrap()?;
 
-                    //
-                    // typed array
-                    //
-                    JS_CLASS_UINT8C_ARRAY => {
-                        let mut v = 0;
-                        if unsafe { JS_ToUint8Clamp(ctx, &mut v, &val) } != 0 {
-                            return Err(-1);
-                        }
-
-                        if unsafe { UncheckedInto::<Uint8Array>::unchecked_into(self.clone()) }
-                            .set_element(idx as _, v as _)
-                            .is_err()
-                        {
-                            ta_out_of_bound = true;
-                        } else {
-                            return Ok(true);
-                        }
-                    }
-                    cid @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY) => {
-                        let v = if let Ok(n) = val.coerce_to_i32(ctx) {
-                            n as u8
-                        } else {
-                            return Err(-1);
-                        };
-
-                        let r = unsafe {
-                            if cid == JS_CLASS_INT8_ARRAY {
-                                UncheckedInto::<Int8Array>::unchecked_into(self.clone())
-                                    .set_element(idx as _, v as _)
-                            } else {
-                                UncheckedInto::<Uint8Array>::unchecked_into(self.clone())
-                                    .set_element(idx as _, v as _)
+                        match r {
+                            Some(b) => {
+                                return Ok(b); // done
                             }
-                        };
-
-                        if r.is_err() {
-                            ta_out_of_bound = true;
-                        } else {
-                            return Ok(true);
-                        }
-                    }
-                    cid @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
-                        let v = if let Ok(n) = val.coerce_to_i32(ctx) {
-                            n as u16
-                        } else {
-                            return Err(-1);
-                        };
-
-                        let r = unsafe {
-                            if cid == JS_CLASS_INT16_ARRAY {
-                                UncheckedInto::<Int16Array>::unchecked_into(self.clone())
-                                    .set_element(idx as _, v as _)
-                            } else {
-                                UncheckedInto::<Uint16Array>::unchecked_into(self.clone())
-                                    .set_element(idx as _, v as _)
+                            None => {
+                                // handle with slow array
                             }
-                        };
-
-                        if r.is_err() {
-                            ta_out_of_bound = true;
-                        } else {
-                            return Ok(true);
                         }
                     }
-                    cid @ (JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY) => {
-                        let v = if let Ok(n) = val.coerce_to_i32(ctx) {
-                            n as u32
-                        } else {
-                            return Err(-1);
-                        };
-
-                        let r = unsafe {
-                            if cid == JS_CLASS_INT32_ARRAY {
-                                UncheckedInto::<Int32Array>::unchecked_into(self.clone())
-                                    .set_element(idx as _, v as _)
+                }
+                JS_CLASS_ARGUMENTS => {
+                    let done = p
+                        .with_fast_array_values_mut(|lst| -> bool {
+                            if idx < lst.len() as i32 {
+                                lst[idx as usize] = val.clone();
+                                true
                             } else {
-                                UncheckedInto::<Uint32Array>::unchecked_into(self.clone())
-                                    .set_element(idx as _, v as _)
+                                false
                             }
-                        };
-
-                        if r.is_err() {
-                            ta_out_of_bound = true;
-                        } else {
-                            return Ok(true);
-                        }
-
-                        // if idx >= p.array_length_unchecked() as i32 {
-                        //     ta_out_of_bound = true;
-                        // } else {
-                        //     p.as_typed_array_obj_unchecked()
-                        //         .with_data_mut_ptr::<u32, _>(|ptr| {
-                        //             *ptr.add(idx as usize) = v;
-                        //         });
-                        //     return Ok(true);
-                        // }
-                    }
-                    JS_CLASS_FLOAT32_ARRAY => {
-                        let mut d = 0.0;
-                        if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
-                            return Err(-1);
-                        }
-
-                        let r = unsafe {
-                            UncheckedInto::<Float32Array>::unchecked_into(self.clone())
-                                .set_element(idx as _, d as _)
-                        };
-
-                        if r.is_err() {
-                            ta_out_of_bound = true;
-                        } else {
-                            return Ok(true);
-                        }
-
-                        // original code
-                        // if idx >= p.array_length_unchecked() as i32 {
-                        //     ta_out_of_bound = true;
-                        // } else {
-                        //     p.as_typed_array_obj_unchecked()
-                        //         .with_data_mut_ptr::<f32, _>(|ptr| {
-                        //             *ptr.add(idx as usize) = d as f32;
-                        //         });
-                        //     return Ok(true);
-                        // }
-                    }
-                    JS_CLASS_FLOAT64_ARRAY => {
-                        let mut d = 0.0;
-                        if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
-                            return Err(-1);
-                        }
-
-                        let r = unsafe {
-                            UncheckedInto::<Float64Array>::unchecked_into(self.clone())
-                                .set_element(idx as _, d)
-                        };
-                        if r.is_err() {
-                            ta_out_of_bound = true;
-                        } else {
-                            return Ok(true);
-                        }
-
-                        // original code
-                        // if idx >= p.array_length_unchecked() as i32 {
-                        //     ta_out_of_bound = true;
-                        // } else {
-                        //     p.as_typed_array_obj_unchecked()
-                        //         .with_data_mut_ptr::<f64, _>(|ptr| {
-                        //             *ptr.add(idx as usize) = d;
-                        //         });
-                        //     return Ok(true);
-                        // }
-                    }
-                    JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                        unimplemented!()
-                    }
-
-                    _ => {
-                        unreachable!()
+                        })
+                        .unwrap();
+                    if done {
+                        return Ok(true); // done fast array
                     }
                 }
 
-                if ta_out_of_bound {
-                    return Ok(true);
+                //
+                // typed array
+                //
+                JS_CLASS_UINT8C_ARRAY => {
+                    let mut v = 0;
+                    if unsafe { JS_ToUint8Clamp(ctx, &mut v, &val) } != 0 {
+                        return Err(-1);
+                    }
+
+                    if unsafe { UncheckedInto::<Uint8Array>::unchecked_into(self.clone()) }
+                        .set_element(idx as _, v as _)
+                        .is_err()
+                    {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+                }
+                cid @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY) => {
+                    let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                        n as u8
+                    } else {
+                        return Err(-1);
+                    };
+
+                    let r = unsafe {
+                        if cid == JS_CLASS_INT8_ARRAY {
+                            UncheckedInto::<Int8Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, v as _)
+                        } else {
+                            UncheckedInto::<Uint8Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, v as _)
+                        }
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+                }
+                cid @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
+                    let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                        n as u16
+                    } else {
+                        return Err(-1);
+                    };
+
+                    let r = unsafe {
+                        if cid == JS_CLASS_INT16_ARRAY {
+                            UncheckedInto::<Int16Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, v as _)
+                        } else {
+                            UncheckedInto::<Uint16Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, v as _)
+                        }
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+                }
+                cid @ (JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY) => {
+                    let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                        n as u32
+                    } else {
+                        return Err(-1);
+                    };
+
+                    let r = unsafe {
+                        if cid == JS_CLASS_INT32_ARRAY {
+                            UncheckedInto::<Int32Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, v as _)
+                        } else {
+                            UncheckedInto::<Uint32Array>::unchecked_into(self.clone())
+                                .set_element(idx as _, v as _)
+                        }
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<u32, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = v;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                JS_CLASS_FLOAT32_ARRAY => {
+                    let mut d = 0.0;
+                    if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
+                        return Err(-1);
+                    }
+
+                    let r = unsafe {
+                        UncheckedInto::<Float32Array>::unchecked_into(self.clone())
+                            .set_element(idx as _, d as _)
+                    };
+
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // original code
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<f32, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = d as f32;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                JS_CLASS_FLOAT64_ARRAY => {
+                    let mut d = 0.0;
+                    if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
+                        return Err(-1);
+                    }
+
+                    let r = unsafe {
+                        UncheckedInto::<Float64Array>::unchecked_into(self.clone())
+                            .set_element(idx as _, d)
+                    };
+                    if r.is_err() {
+                        ta_out_of_bound = true;
+                    } else {
+                        return Ok(true);
+                    }
+
+                    // original code
+                    // if idx >= p.array_length_unchecked() as i32 {
+                    //     ta_out_of_bound = true;
+                    // } else {
+                    //     p.as_typed_array_obj_unchecked()
+                    //         .with_data_mut_ptr::<f64, _>(|ptr| {
+                    //             *ptr.add(idx as usize) = d;
+                    //         });
+                    //     return Ok(true);
+                    // }
+                }
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+                    unimplemented!()
+                }
+
+                _ => {
+                    unreachable!()
                 }
             }
-            _ => {}
-        } // match
+
+            if ta_out_of_bound {
+                return Ok(true);
+            }
+        }
 
         // fail safe: slow_path
-        let atom = JS_ValueToAtom(ctx, &prop);
+        let atom = JS_ValueToAtom(ctx, prop);
         if atom == JS_ATOM_NULL {
             return Err(-1);
         }

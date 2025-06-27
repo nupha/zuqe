@@ -261,23 +261,21 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
             let v = JS_IteratorNext(ctx, enum_obj, &next, &[], &mut done)
                 .check_exception()
                 .inspect_err(|_| {
-                    JS_IteratorClose(ctx, enum_obj, true);
+                    let _ = JS_IteratorClose(ctx, enum_obj, true);
                 })?;
 
             if done {
                 break;
             } else {
                 arr.define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)
-                    .inspect_err(|_| unsafe {
-                        JS_IteratorClose(ctx, enum_obj, true);
+                    .inspect_err(|_| {
+                        let _ = JS_IteratorClose(ctx, enum_obj, true);
                     })?;
                 k += 1;
             }
         }
 
-        unsafe {
-            JS_IteratorClose(ctx, &enum_obj, true);
-        }
+        let _ = JS_IteratorClose(ctx, &enum_obj, true);
     } else {
         arr = items.coerce_to_object(ctx)?;
     }
