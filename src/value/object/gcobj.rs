@@ -52,6 +52,30 @@ impl GCObject {
             Self::Context(o) => o.id(),
         }
     }
+
+    pub fn gc_has_mark(&self) -> bool {
+        match self {
+            Self::Object(o) => o.gc_has_mark(),
+            Self::FunctionBytecode(o) => o.gc_has_mark(),
+            Self::String(o) => o.gc_has_mark(),
+            Self::Shape(o) => o.gc_has_mark(),
+            Self::VarRef(o) => o.gc_has_mark(),
+            Self::AsyncFunction(o) => o.gc_has_mark(),
+            Self::Context(o) => o.gc_has_mark(),
+        }
+    }
+
+    pub fn gc_set_mark(&self, b: bool) {
+        match self {
+            Self::Object(o) => o.gc_set_mark(b),
+            Self::FunctionBytecode(o) => o.gc_set_mark(b),
+            Self::String(o) => o.gc_set_mark(b),
+            Self::Shape(o) => o.gc_set_mark(b),
+            Self::VarRef(o) => o.gc_set_mark(b),
+            Self::AsyncFunction(o) => o.gc_set_mark(b),
+            Self::Context(o) => o.gc_set_mark(b),
+        }
+    }
 }
 
 #[repr(u8)]

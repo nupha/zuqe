@@ -16,8 +16,8 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JSCFunction},
-    gc::js_trigger_gc,
+    function::{CallContext, JSCFunction, VarRefState},
+    gc::{GCMarkFunc, js_trigger_gc},
     proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
     value::object::GCObjectWeakref,
@@ -169,6 +169,8 @@ pub(crate) struct JSObjectInner {
 
     /// payload data
     pub isa: RefCell<JSObjectIsa>,
+
+    pub gc_mark: Cell<bool>,
 }
 
 impl Drop for JSObjectInner {
@@ -290,6 +292,7 @@ impl JSObjectInner {
             prop_values: RefCell::new(prop_values),
             weak_refs: RefCell::new(Vec::new()),
             isa: RefCell::new(isa),
+            gc_mark: Cell::new(false),
         };
 
         if add_length_prop {
@@ -369,7 +372,8 @@ impl JSObjectInner {
         }
 
         // untrack from gc
-        rt.gc_obj_list.remove(&self.id());
+        let _r = rt.gc_obj_list.remove(&self.id());
+        debug_assert!(_r.is_some());
     }
 }
 
@@ -487,61 +491,105 @@ impl JSObject {
     //     self.0.borrow_mut().header.gc_set_status(s)
     // }
 
-    // fn gc_mark(&self) -> bool {
-    //     self.header.gc_mark()
-    // }
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.gc_mark.get()
+    }
 
-    // fn set_gc_mark(&self, mark: bool) {
-    //     self.header.set_gc_mark(mark);
-    // }
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.0.gc_mark.set(mark);
+    }
 
-    fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
+    pub fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
         self.dump(rt);
     }
 
-    // fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-    //     unsafe {
-    //         mark_func(rt, self.shape);
-    //     }
+    pub fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        unsafe {
+            todo!();
+            // mark_func(rt, self.shape());
+        }
 
-    //     // Mark all the fields
-    //     for (prs, pr) in unsafe { (*self.shape).props.values() }.zip(self.prop_values.iter_mut()) {
-    //         match prs.flags() & JS_PROP_TMASK {
-    //             JS_PROP_NORMAL => unsafe {
-    //                 // prop with normal value
-    //                 rt.gc_mark_value(pr.u.value, mark_func);
-    //             },
-    //             JS_PROP_GETSET => unsafe {
-    //                 if !pr.u.getset.getter.is_null() {
-    //                     mark_func(rt, pr.u.getset.getter);
-    //                 }
-    //                 if !pr.u.getset.setter.is_null() {
-    //                     mark_func(rt, pr.u.getset.setter);
-    //                 }
-    //             },
-    //             JS_PROP_VARREF => unsafe {
-    //                 // Note: the tag does not matter.
-    //                 // provided it is a GC object
-    //                 mark_func(rt, (*pr.u.var_ref).cast::<JSVarRef>().as_ptr());
-    //             },
-    //             JS_PROP_AUTOINIT => unsafe {
-    //                 rt.gc_mark_autoinit(pr, mark_func);
-    //             },
-    //             _ => {
-    //                 unreachable!();
-    //             }
-    //         }
-    //     }
+        // Mark all the fields
+        let len = self.0.prop_values.borrow().len();
+        for i in 0..len {
+            let pr = self.0.prop_values.borrow()[i].clone();
+            match pr {
+                JSProperty::Normal(val) => {
+                    rt.gc_mark_value(&val, mark_func);
+                }
+                JSProperty::GetSet { getter, setter } => {
+                    if let Some(o) = getter {
+                        todo!()
+                        //mark_func(o);
+                    }
+                    if let Some(o) = setter {
+                        todo!()
+                        // mark_func(o);
+                    }
+                }
+                JSProperty::VarRef(vref) => {
+                    let state = vref.0.borrow().state.clone();
+                    match state {
+                        VarRefState::Detached { value } => {
+                            rt.gc_mark_value(&value, mark_func);
+                        }
+                        VarRefState::Bind {
+                            var_idx,
+                            pvalue,
+                            async_func,
+                        } => {
+                            rt.gc_mark_value(unsafe { pvalue.as_ref() }, mark_func);
+                        }
+                    }
+                }
+                JSProperty::AutoInit {
+                    realm,
+                    init_type,
+                    opaque,
+                } => {
+                    // rt.gc_mark_autoinit(pr, mark_func);
+                    todo!()
+                }
+            }
+        }
 
-    //     let class_id = self.class_id();
-    //     if class_id != JS_CLASS_OBJECT {
-    //         if let Some(f) = rt.class_array[class_id as usize].gc_mark {
-    //             unsafe {
-    //                 f(rt, JSValue::Object(self.clone()), mark_func);
-    //             }
-    //         }
-    //     }
-    // }
+        // for (prs, pr) in unsafe { (*self.shape).props.values() }.zip(self.prop_values.iter_mut()) {
+        //     match prs.flags() & JS_PROP_TMASK {
+        //         JS_PROP_NORMAL => unsafe {
+        //             // prop with normal value
+        //             rt.gc_mark_value(pr.u.value, mark_func);
+        //         },
+        //         JS_PROP_GETSET => unsafe {
+        //             if !pr.u.getset.getter.is_null() {
+        //                 mark_func(rt, pr.u.getset.getter);
+        //             }
+        //             if !pr.u.getset.setter.is_null() {
+        //                 mark_func(rt, pr.u.getset.setter);
+        //             }
+        //         },
+        //         JS_PROP_VARREF => unsafe {
+        //             // Note: the tag does not matter.
+        //             // provided it is a GC object
+        //             mark_func(rt, (*pr.u.var_ref).cast::<JSVarRef>().as_ptr());
+        //         },
+        //         JS_PROP_AUTOINIT => unsafe {
+        //             rt.gc_mark_autoinit(pr, mark_func);
+        //         },
+        //         _ => {
+        //             unreachable!();
+        //         }
+        //     }
+        // }
+
+        let class_id = self.class_id();
+        if class_id != JS_CLASS_OBJECT {
+            if let Some(f) = rt.class_array[class_id as usize].gc_mark {
+                unsafe {
+                    f(rt, JSValue::Object(self.clone()), mark_func);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

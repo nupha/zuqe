@@ -604,6 +604,14 @@ impl JSFunctionBytecode {
         unsafe { self.0.borrow().find_line_num(pc_value) }
     }
 
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
+    }
+
+    pub fn gc_set_mark(&self, b: bool) {
+        self.0.borrow_mut().header.gc_set_mark(b)
+    }
+
     fn gc_dump(&self, rt: &JSRuntime) {
         println!("{:14x} [function bytecode]", self.id());
     }

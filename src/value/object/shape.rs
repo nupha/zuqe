@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use crate::{
     atom::{JS_FreeAtomRT, JSAtom},
     context::JSContext,
-    gc::GCObjectHeader,
+    gc::{GCMarkFunc, GCObjectHeader},
     runtime::JSRuntime,
     value::{
         JSValue,
@@ -113,26 +113,6 @@ impl JSShapeInner {
             rt.unregister_shape(self.id(), self.hash);
         }
     }
-
-    fn gc_dump(&self, rt: &JSRuntime) {
-        println!("{:14p} [shape {:12x}]", self, self.hash);
-    }
-
-    fn gc_mark(&self) -> bool {
-        self.header.gc_mark()
-    }
-
-    fn set_gc_mark(&mut self, mark: bool) {
-        self.header.set_gc_mark(mark);
-    }
-
-    // fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-    //     if let Some(p) = self.proto {
-    //         unsafe {
-    //             mark_func(rt, p);
-    //         }
-    //     }
-    // }
 }
 
 #[repr(transparent)]
@@ -173,7 +153,9 @@ impl JSShape {
             proto.cloned(),
             prop_slots,
         )?)));
-        //ctx.rt_mut().gc_add_object(shape.downgrade().into());
+        ctx.rt_mut()
+            .gc_add_object(shape.id(), shape.downgrade().into());
+
         Ok(shape)
     }
 
@@ -220,7 +202,8 @@ impl JSShape {
         sh.is_hashed = true;
         let shape = Self(Rc::new(RefCell::new(sh)));
 
-        //ctx.rt_mut().gc_add_object(shape.downgrade().into());
+        ctx.rt_mut()
+            .gc_add_object(shape.id(), shape.downgrade().into());
 
         Ok(shape)
     }
@@ -322,6 +305,27 @@ impl JSShape {
 
     pub fn downgrade(&self) -> JSShapeWeakref {
         JSShapeWeakref(Rc::downgrade(&self.0))
+    }
+
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
+    }
+
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.0.borrow_mut().header.gc_set_mark(mark);
+    }
+
+    pub fn gc_mark_children(&self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
+        let proto = self.0.borrow().proto.clone();
+        if let Some(p) = proto {
+            unsafe {
+                todo!(); // mark_func(rt, &p);
+            }
+        }
+    }
+
+    fn gc_dump(&self, rt: &JSRuntime) {
+        println!("{:14p} [shape {:12x}]", self, self.hash());
     }
 }
 

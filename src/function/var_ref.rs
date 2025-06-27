@@ -171,24 +171,16 @@ impl JSVarRefInner {
         }
     }
 
-    fn gc_mark(&self) -> bool {
-        self.header.gc_mark()
-    }
-
-    fn set_gc_mark(&mut self, mark: bool) {
-        self.header.set_gc_mark(mark);
-    }
-
     fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
         match &self.state {
             VarRefState::Detached { value } => {
                 rt.gc_mark_value(value, mark_func);
             }
-            VarRefState::Bind { async_func, .. } => unsafe {
+            VarRefState::Bind { async_func, .. } => {
                 if let Some(af) = async_func {
                     // mark_func(rt, af);
                 }
-            },
+            }
         }
     }
 
@@ -293,6 +285,14 @@ impl JSVarRef {
     #[inline(always)]
     pub fn async_func(&self) -> Option<JSAsyncFunctionState> {
         self.0.borrow().async_func()
+    }
+
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
+    }
+
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.0.borrow_mut().header.gc_set_mark(mark);
     }
 }
 

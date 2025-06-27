@@ -220,14 +220,6 @@ impl JSContextInner {
         self.header.rt_mut()
     }
 
-    fn gc_mark(&self) -> bool {
-        self.header.gc_mark()
-    }
-
-    // fn set_gc_mark(&mut self, mark: u8) {
-    //     self.header.set_gc_mark(mark);
-    // }
-
     // fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
     //     unsafe {
     //         rt.gc_mark_context(self, mark_func);
@@ -509,6 +501,14 @@ impl JSContext {
     pub fn downgrade(&self) -> JSContextWeakref {
         JSContextWeakref(Rc::downgrade(&self.0))
     }
+
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
+    }
+
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.0.borrow_mut().header.gc_set_mark(mark);
+    }
 }
 
 #[repr(transparent)]
@@ -581,21 +581,26 @@ pub unsafe fn JS_FreeContext(ctx: &JSContext) {
 }
 
 impl JSRuntime {
-    /// Creates a new JavaScript execution context
-    pub fn create_context(&mut self) -> Result<JSContext, i32> {
+    /// Creates a new JavaScript execution context core.
+    pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
         let inner = JSContextInner::new(self)?;
-        let s = Rc::new(RefCell::new(inner));
-        let ctx = JSContext(s);
+        let ctx = JSContext(Rc::new(RefCell::new(inner)));
 
         ctx.add_core_objects();
+
+        self.context_list.push(ctx.clone());
+        Ok(ctx)
+    }
+
+    /// Creates a new JavaScript execution context
+    pub fn create_context(&mut self) -> Result<JSContext, i32> {
+        let ctx = self.create_context_core()?;
 
         unsafe {
             ctx.intrinsic_base_objects();
             ctx.intrinsic_async();
             ctx.intrinsic_typed_arrays();
         }
-
-        self.context_list.push(ctx.clone());
 
         Ok(ctx)
     }

@@ -54,6 +54,8 @@ pub struct JSStringInner {
     /// string content
     content: StringContentRc,
 
+    gc_mark: Cell<bool>,
+
     /// For tracking string allocations
     #[cfg(feature = "dump_leaks")]
     pub link: crate::utils::list_head,
@@ -146,6 +148,7 @@ impl JSString {
             hash_and_type: Cell::new(0),
             atom_type: Cell::new(None),
             content,
+            gc_mark: Cell::new(false),
 
             #[cfg(feature = "dump_leaks")]
             link: crate::utils::list_head::default(),
@@ -243,10 +246,6 @@ impl JSString {
         self.0.atom_info()
     }
 
-    pub fn downgrade(&self) -> JSStringWeakref {
-        JSStringWeakref(Rc::downgrade(&self.0))
-    }
-
     /// get sub string in specified range, and return the sub string value.
     pub fn sub_string(&self, ctx: &JSContext, start: usize, end: usize) -> JSResult {
         let end = std::cmp::min(end, self.len());
@@ -265,6 +264,18 @@ impl JSString {
                 Ok(ctx.create_string_from_content(StringContent::Empty))
             }
         }
+    }
+
+    pub fn downgrade(&self) -> JSStringWeakref {
+        JSStringWeakref(Rc::downgrade(&self.0))
+    }
+
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.gc_mark.get()
+    }
+
+    pub fn gc_set_mark(&self, b: bool) {
+        self.0.gc_mark.set(b);
     }
 }
 

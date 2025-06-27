@@ -268,14 +268,6 @@ impl JSRuntime {
         //     }
         // }
 
-        // free classe name atoms
-        while let Some(cls) = self.class_array.pop() {
-            // 0: base object class
-            if cls.class_id != 0 {
-                JS_FreeAtomRT(self, cls.class_name);
-            }
-        }
-
         // free contexts
         self.context_list.clear();
 
@@ -338,14 +330,6 @@ impl JSRuntime {
         //     }
         // }
 
-        // free atom descriptors
-        self.atom_hash_lut.clear();
-        for a in self.atom_slots.drain(..) {
-            if !a.is_null() {
-                drop(unsafe { Rc::from_raw(a) });
-            }
-        }
-
         // ensure shapes and gc objects are freed.
         #[cfg(not(debug_assertions))]
         {
@@ -354,12 +338,43 @@ impl JSRuntime {
         }
         #[cfg(debug_assertions)]
         {
-            self.gc_obj_list.retain(|_, w| w.upgrade().is_some());
+            self.gc_obj_list.retain(|_, w| {
+                if let Some(o) = w.upgrade() {
+                    use crate::value::object::GCObject;
+
+                    if let GCObject::Object(ob) = o {
+                        println!(
+                            "[O.o] live object: {} [{}]",
+                            JSValue::Object(ob.clone()).repr(),
+                            Rc::strong_count(&ob.0)
+                        );
+                    }
+                    true
+                } else {
+                    false
+                }
+            });
             debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
 
             for (_, mut sh_lst) in self.shape_registry.drain() {
                 sh_lst.retain(|w| w.upgrade().is_some());
                 debug_assert!(sh_lst.is_empty());
+            }
+        }
+
+        // free classe name atoms
+        while let Some(cls) = self.class_array.pop() {
+            // 0: base object class
+            if cls.class_id != 0 {
+                JS_FreeAtomRT(self, cls.class_name);
+            }
+        }
+
+        // free atom descriptors
+        self.atom_hash_lut.clear();
+        for a in self.atom_slots.drain(..) {
+            if !a.is_null() {
+                drop(unsafe { Rc::from_raw(a) });
             }
         }
 

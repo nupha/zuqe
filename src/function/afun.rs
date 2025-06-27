@@ -150,39 +150,6 @@ impl JSAsyncFunctionStateInner {
             self.free_stack(unsafe { self.header.rt_ptr().as_mut() });
         }
     }
-
-    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-        if !self.is_completed {
-            let sf = &mut self.frame;
-
-            rt.gc_mark_value(&sf.cur_func, mark_func);
-            rt.gc_mark_value(&self.this_val, mark_func);
-
-            // HINT:
-            // cur_sp_offset != -1 if the function is running.
-            // If the function is running, cur_sp_offset is not known so we
-            // cannot mark the stack. Marking the variables is not needed
-            // because a running function cannot be part of a removable cycle
-
-            if sf.cur_sp_offset != -1 {
-                // for async function, arg_base_ptr point to a position in local_buf,
-                // cur_sp_offset is also about local_buf,
-                // they are match.
-                // mark values in arg_base through cur_sp range.
-                let mut ptr = sf.arg_base_ptr;
-                let end_ptr = sf.stack_cur_ptr().as_ptr();
-                while ptr < end_ptr {
-                    unsafe {
-                        rt.gc_mark_value(&*ptr, mark_func);
-                        ptr = ptr.add(1);
-                    }
-                }
-            }
-        }
-
-        rt.gc_mark_value(&self.resolving_funcs[0], mark_func);
-        rt.gc_mark_value(&self.resolving_funcs[1], mark_func);
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -250,13 +217,13 @@ impl JSAsyncFunctionState {
         Rc::strong_count(&self.0)
     }
 
-    // fn gc_mark(&self) -> bool {
-    //     self.0.borrow().header.gc_mark()
-    // }
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
+    }
 
-    // fn set_gc_mark(&self, mark: bool) {
-    //     self.0.borrow_mut().header.set_gc_mark(mark);
-    // }
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.0.borrow_mut().header.gc_set_mark(mark);
+    }
 
     // fn gc_status(&self) -> GCObjectStatus {
     //     self.0.borrow().header.gc_status()

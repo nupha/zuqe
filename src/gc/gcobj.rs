@@ -57,12 +57,12 @@ impl GCObjectHeader {
     }
 
     #[inline(always)]
-    pub const fn gc_mark(&self) -> bool {
+    pub const fn gc_has_mark(&self) -> bool {
         (self.bitfields & 0x01) != 0
     }
 
     #[inline(always)]
-    pub const fn set_gc_mark(&mut self, m: bool) {
+    pub const fn gc_set_mark(&mut self, m: bool) {
         self.bitfields = (self.bitfields & 0b1111_1110) | (m as u8)
     }
 
