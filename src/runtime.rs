@@ -238,6 +238,9 @@ impl JSRuntime {
 
         self.current_exception = JSValue::UNDEFINED;
 
+        // free contexts
+        self.context_list.clear();
+
         self.gc();
 
         // #[cfg(feature = "dump_leaks")]
@@ -267,9 +270,6 @@ impl JSRuntime {
         //         println!("Secondary object leaks: {}", count);
         //     }
         // }
-
-        // free contexts
-        self.context_list.clear();
 
         // dump atom leaks
         // #[cfg(feature = "dump_leaks")]
@@ -340,26 +340,19 @@ impl JSRuntime {
         {
             self.gc_obj_list.retain(|_, w| {
                 if let Some(o) = w.upgrade() {
-                    use crate::value::object::GCObject;
-
-                    if let GCObject::Object(ob) = o {
-                        println!(
-                            "[O.o] live object: {} [{}]",
-                            JSValue::Object(ob.clone()).repr(),
-                            Rc::strong_count(&ob.0)
-                        );
-                    }
+                    println!("[O.o] live gc: {:?} [{}]", o, o.ref_count());
                     true
                 } else {
                     false
                 }
             });
-            debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
 
             for (_, mut sh_lst) in self.shape_registry.drain() {
                 sh_lst.retain(|w| w.upgrade().is_some());
                 debug_assert!(sh_lst.is_empty());
             }
+
+            debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
         }
 
         // free classe name atoms

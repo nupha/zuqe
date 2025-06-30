@@ -68,7 +68,7 @@ pub struct JSDebugInfo {
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.
 #[repr(C)]
-pub(crate) struct JSContextInner {
+pub struct JSContextInner {
     /// Garbage collection header (must be first field)
     pub header: GCObjectHeader,
 
@@ -289,7 +289,7 @@ impl JSContextInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct JSContext(pub(crate) Rc<RefCell<JSContextInner>>);
+pub struct JSContext(pub Rc<RefCell<JSContextInner>>);
 
 impl PartialEq for JSContext {
     fn eq(&self, other: &Self) -> bool {
@@ -396,6 +396,7 @@ impl JSContext {
     /// No JSAtom should be allocated by this function.
     pub fn add_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
         // Object
+        println!("[O.o] create base object ctor");
         let object_proto = self
             .create_instance_from_proto(&JSValue::NULL, JSObjectIsa::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);

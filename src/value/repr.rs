@@ -12,7 +12,7 @@ use crate::{
     runtime::JSRuntime,
 };
 
-use super::{HINT_STRING, JS_FreeValue, JSString, JSValue, f64_stringify};
+use super::{HINT_STRING, JSString, JSValue, f64_stringify};
 
 impl JSValue {
     /// get string representation of value.
@@ -62,7 +62,16 @@ impl JSValue {
             }
             Self::Object(p) => {
                 let atom = p.rt().class_array[p.class_id() as usize].class_name;
-                format!("[{}]", atom.to_str(p.rt())).into()
+                #[cfg(not(debug_assertions))]
+                {
+                    format!("[{}]", atom.to_str(p.rt())).into()
+                }
+                #[cfg(debug_assertions)]
+                {
+                    use std::os::raw::c_void;
+
+                    format!("[{} {:p}]", atom.to_str(p.rt()), p.id() as *const c_void).into()
+                }
             }
             Self::Symbol(p) => {
                 format!("Symbol({})", p.atom_info().unwrap().atom().to_str(p.rt())).into()

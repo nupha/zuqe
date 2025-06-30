@@ -376,12 +376,14 @@ impl JSContext {
 
     /// create global object
     pub fn intrinsic_global_object(&self, fields: &[JSCFunctionListEntry]) {
+        println!("[O.o] create global object");
         let global = self.create_base_object().unwrap();
 
         // define global fields
         global.install_property_entries(self, fields).unwrap();
 
-        // globalThis
+        // define prop `globalThis`
+        // Note: global object is self referenced here.
         global
             .define_property_value(
                 self,
@@ -391,10 +393,15 @@ impl JSContext {
             )
             .unwrap();
 
-        self.0.borrow_mut().global_obj = global;
+        // global var object
+        println!("[O.o] create global var object");
+        let gvobj = self.create_base_object_with_proto(&JSValue::NULL).unwrap();
 
-        self.0.borrow_mut().global_var_obj =
-            self.create_base_object_with_proto(&JSValue::NULL).unwrap();
+        {
+            let mut cx = self.0.borrow_mut();
+            cx.global_obj = global;
+            cx.global_var_obj = gvobj;
+        }
     }
 
     pub fn intrinsic_base_objects(&self) {

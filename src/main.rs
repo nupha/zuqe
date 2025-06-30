@@ -1,4 +1,6 @@
-use zhuque::{eval::JS_EVAL_TYPE_GLOBAL, mem::JS_DEFAULT_MALLOC_FUNCTIONS, runtime::JSRuntime};
+use zhuque::{
+    eval::JS_EVAL_TYPE_GLOBAL, mem::JS_DEFAULT_MALLOC_FUNCTIONS, runtime::JSRuntime, value::JSValue,
+};
 
 fn main() {
     unsafe {
@@ -16,6 +18,18 @@ fn main() {
                 Ok(())
             })
             .unwrap();
+
+        for p in ctx.0.borrow().class_proto.iter() {
+            println!(
+                "[O.o][proto] {}, rc={}",
+                p.repr(),
+                if let JSValue::Object(o) = p {
+                    o.ref_count()
+                } else {
+                    0
+                }
+            );
+        }
 
         let src = c"function g(a){return a+10} g('x')"; // ok
         //  let src = c"function g(a){return a+10} g(20)"; // ok

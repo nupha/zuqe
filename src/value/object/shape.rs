@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    os::raw::c_void,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -116,7 +117,7 @@ impl JSShapeInner {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JSShape(pub(crate) Rc<RefCell<JSShapeInner>>);
 
 impl PartialEq for JSShape {
@@ -128,6 +129,12 @@ impl PartialEq for JSShape {
 impl From<JSShape> for GCObject {
     fn from(value: JSShape) -> Self {
         Self::Shape(value)
+    }
+}
+
+impl std::fmt::Debug for JSShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<Shape {:p}>", self.id() as *const c_void)
     }
 }
 

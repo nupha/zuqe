@@ -378,7 +378,7 @@ impl JSObjectInner {
 }
 
 #[derive(Clone)]
-pub struct JSObject(pub(crate) Rc<JSObjectInner>);
+pub struct JSObject(pub Rc<JSObjectInner>);
 
 impl PartialEq for JSObject {
     fn eq(&self, other: &Self) -> bool {
@@ -436,6 +436,11 @@ impl JSObject {
     #[inline(always)]
     pub fn downgrade(&self) -> JSObjectWeakref {
         JSObjectWeakref(Rc::downgrade(&self.0))
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn ref_count(&self) -> usize {
+        Rc::strong_count(&self.0)
     }
 
     pub(crate) fn with<R>(&self, f: impl FnOnce(&JSObjectInner) -> R) -> R {
@@ -770,16 +775,15 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 impl JSContext {
-    /// create new instance of isa type, with prototype and isa payload data.
+    /// create new instance of isa type, using shape of specified `proto`.
     /// when fail, isa is returned back in Err, caller should free it.
     /// `proto` is Prototype object (can be JSValue::NULL).
-    /// Note: `proto` is not consumed.
     pub fn create_instance_from_proto(
         &self,
         proto: &JSValue,
         isa: JSObjectIsa,
     ) -> Result<JSValue, JSObjectIsa> {
-        // find shape for prototype
+        // find shape by prototype
         let shape = {
             let proto_ob = proto.object();
             match self.rt().find_shape_by_proto(proto_ob) {

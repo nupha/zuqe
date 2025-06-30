@@ -2,8 +2,6 @@ use std::ptr::NonNull;
 
 use crate::runtime::JSRuntime;
 
-use super::GCMarkFunc;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSGCObjectTypeEnum {

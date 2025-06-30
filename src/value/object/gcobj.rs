@@ -13,7 +13,7 @@ use crate::{
 use super::{JSObject, JSShape};
 
 #[repr(u8)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum GCObject {
     Object(JSObject),
     FunctionBytecode(JSFunctionBytecode),
@@ -50,6 +50,21 @@ impl GCObject {
             Self::VarRef(o) => o.id(),
             Self::AsyncFunction(o) => o.id(),
             Self::Context(o) => o.id(),
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn ref_count(&self) -> usize {
+        use std::rc::Rc;
+
+        match self {
+            Self::Object(o) => o.ref_count(),
+            Self::FunctionBytecode(b) => Rc::strong_count(&b.0),
+            Self::String(s) => Rc::strong_count(&s.0),
+            Self::Shape(s) => s.strong_count(),
+            Self::VarRef(v) => Rc::strong_count(&v.0),
+            Self::AsyncFunction(a) => Rc::strong_count(&a.0),
+            Self::Context(c) => Rc::strong_count(&c.0),
         }
     }
 

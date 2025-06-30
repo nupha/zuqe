@@ -1,4 +1,4 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::{ops::Deref, os::raw::c_void, ptr::NonNull};
 
 use crate::{
     context::JSContext,
@@ -29,6 +29,8 @@ impl JSRuntime {
     /// Initializes the object's mark and type, then adds it to the GC object list
     pub fn gc_add_object(&mut self, id: usize, gcob: GCObjectWeakref) {
         // ob.set_gc_mark(0);
+        println!("[O.o][+gc] id={:p}, {gcob:?}", id as *const c_void);
+
         self.gc_obj_list.insert(id, gcob);
     }
 
