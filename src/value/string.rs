@@ -101,7 +101,7 @@ impl JSStringInner {
 
     /// Get hash value of the string.
     #[inline(always)]
-    pub fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u32 {
         self.hash_and_type.get()
     }
 
@@ -117,7 +117,7 @@ impl JSStringInner {
     /// - An interned string atom (String)
     /// - A unique symbol (Symbol)
     #[inline(always)]
-    pub fn atom_info(&self) -> Option<JSAtomInfo> {
+    pub const fn atom_info(&self) -> Option<JSAtomInfo> {
         self.atom_type.get()
     }
 
@@ -340,13 +340,11 @@ impl JSContext {
         } else if data.len() > JS_STRING_LEN_MAX {
             self.JS_ThrowInternalError("string too long");
             JSValue::EXCEPTION
+        } else if let Ok(ss) = JSString::from_utf8(self.rt_mut(), data) {
+            JSValue::String(ss)
         } else {
-            if let Ok(ss) = JSString::from_utf8(self.rt_mut(), data) {
-                JSValue::String(ss)
-            } else {
-                self.JS_ThrowOutOfMemory();
-                JSValue::EXCEPTION
-            }
+            self.JS_ThrowOutOfMemory();
+            JSValue::EXCEPTION
         }
     }
 }

@@ -10,7 +10,6 @@ use super::{
         emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
         emit_u16, emit_u32, get_prev_opcode,
     },
-    parse::has_with_scope,
     state::JSParseState,
     token::{CHAR_COMMA, TOK_ELLIPSIS},
 };
@@ -276,7 +275,7 @@ impl<'s> JSParseState<'s> {
                     /* XXX: always generate the op_scope_get_ref
                     and remove it in variable resolution
                     pass ? */
-                    if has_with_scope(fd, scope as _) {
+                    if (*fd).has_with_scope(scope as _) {
                         opcode = opcodes::op_scope_get_ref;
                         (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcode;
                     }

@@ -8,7 +8,7 @@ use crate::{
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     error::JS_THROW_ERROR_DELETE_SUPER,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
+    function::{JSFunctionDef, JSFunctionKindEnum},
     module::JSExportTypeEnum,
     parse::{expr_lvalue::PutLValueEnum, token::TokenData},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
@@ -32,16 +32,15 @@ use super::{
     statement::{DECL_MASK_ALL, js_parse_statement_or_decl},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_DOT, CHAR_EQUAL,
-        CHAR_SEMI, CHAR_SLASH, CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CATCH, TOK_CLASS, TOK_CONST,
-        TOK_DEBUGGER, TOK_DEC, TOK_DELETE, TOK_DIV_ASSIGN, TOK_DO, TOK_ELLIPSIS, TOK_ENUM, TOK_EOF,
-        TOK_EXPORT, TOK_FALSE, TOK_FIRST_KEYWORD, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF,
-        TOK_IMPORT, TOK_INC, TOK_INTERFACE, TOK_LAST_KEYWORD, TOK_LET, TOK_NEW, TOK_NULL,
-        TOK_NUMBER, TOK_OF, TOK_PACKAGE, TOK_PRIVATE, TOK_PROTECTED, TOK_PUBLIC, TOK_REGEXP,
-        TOK_RETURN, TOK_STATIC, TOK_STRING, TOK_SUPER, TOK_SWITCH, TOK_TEMPLATE, TOK_THIS,
-        TOK_THROW, TOK_TRUE, TOK_TRY, TOK_TYPEOF, TOK_VAR, TOK_WHILE, TOK_WITH, is_regexp_allowed,
-        peek_token, token_is_pseudo_keyword, update_token_ident,
+        CHAR_SEMI, CHAR_SLASH, CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CLASS, TOK_CONST, TOK_DEBUGGER,
+        TOK_DEC, TOK_DELETE, TOK_DIV_ASSIGN, TOK_DO, TOK_ELLIPSIS, TOK_ENUM, TOK_EOF, TOK_EXPORT,
+        TOK_FALSE, TOK_FIRST_KEYWORD, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF, TOK_IMPORT,
+        TOK_INC, TOK_INTERFACE, TOK_LAST_KEYWORD, TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_OF,
+        TOK_PACKAGE, TOK_PRIVATE, TOK_PROTECTED, TOK_PUBLIC, TOK_REGEXP, TOK_RETURN, TOK_STATIC,
+        TOK_STRING, TOK_SUPER, TOK_SWITCH, TOK_TEMPLATE, TOK_THIS, TOK_THROW, TOK_TRUE, TOK_TRY,
+        TOK_TYPEOF, TOK_VAR, TOK_WHILE, TOK_WITH, is_regexp_allowed, token_is_pseudo_keyword,
+        update_token_ident,
     },
-    var::define_var,
 };
 
 impl JSParseState<'_> {
@@ -78,7 +77,7 @@ impl JSParseState<'_> {
         Ok(())
     }
 
-    pub unsafe fn parse_directives(&mut self) -> Result<(), i32> {
+    pub fn parse_directives(&mut self) -> Result<(), i32> {
         if self.token.val != TOK_STRING {
             return Ok(());
         }
@@ -86,10 +85,10 @@ impl JSParseState<'_> {
         let pos = self.get_pos();
 
         while self.token.val == TOK_STRING {
-            let token_str = CStr::from_ptr(self.token.ptr.offset(1).cast())
+            let token_str = unsafe { CStr::from_ptr(self.token.ptr.offset(1).cast()) }
                 .to_str()
                 .unwrap();
-            let len: usize = (self.buf_ptr.offset_from(self.token.ptr) - 2) as usize;
+            let len: usize = unsafe { (self.buf_ptr.offset_from(self.token.ptr) - 2) as usize };
             let text = format!("{:.len$}", token_str);
 
             self.next_token()?;
@@ -143,7 +142,7 @@ impl JSParseState<'_> {
 
         if tok == TOK_FUNCTION
             || (token_is_pseudo_keyword(self, JS_ATOM_async)
-                && peek_token(self, true) == TOK_FUNCTION)
+                && self.peek_token(true) == TOK_FUNCTION)
         {
             // 'function' or 'async function'
             self.parse_function_decl(
@@ -159,7 +158,7 @@ impl JSParseState<'_> {
             }
         } else if tok == TOK_IMPORT
             && self.cur_func().module.is_some()
-            && !matches!(peek_token(self, false), CHAR_BRACKET_L | CHAR_DOT)
+            && !matches!(self.peek_token(false), CHAR_BRACKET_L | CHAR_DOT)
         {
             // the peek_token is needed to avoid confusion with 'import()' or 'import.meta'
             self.parse_import()?;
@@ -305,7 +304,7 @@ impl JSParseState<'_> {
                     .data
                     .ident_atom()
                     .unwrap()
-                    .ref_count(&self.ctx.rt());
+                    .ref_count(self.ctx.rt());
 
                 let name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
 
@@ -313,7 +312,7 @@ impl JSParseState<'_> {
                     JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
-                if js_define_var(self, name, tok) != 0 {
+                if self.define_var(name, tok).is_err() {
                     JS_FreeAtom(&self.ctx, name);
                     return Err(-1);
                 }
@@ -506,39 +505,6 @@ pub unsafe fn skip_shebang(pp: *mut *const u8, buf_end: *const u8) {
     }
 }
 
-pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32 {
-    if name == JS_ATOM_yield && (*s).cur_func().func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
-        (*s).throw_syntax_error("yield is a reserved identifier");
-        return -1;
-    }
-    if (name == JS_ATOM_arguments || name == JS_ATOM_eval)
-        && (*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
-    {
-        (*s).throw_syntax_error("invalid variable name in strict mode");
-        return -1;
-    }
-    if (name == JS_ATOM_let || name == JS_ATOM_undefined) && (tok == TOK_LET || tok == TOK_CONST) {
-        (*s).throw_syntax_error("invalid lexical variable name");
-        return -1;
-    }
-
-    let var_def_type = match tok {
-        TOK_LET => JSVarDefEnum::JS_VAR_DEF_LET,
-        TOK_CONST => JSVarDefEnum::JS_VAR_DEF_CONST,
-        TOK_VAR => JSVarDefEnum::JS_VAR_DEF_VAR,
-        TOK_CATCH => JSVarDefEnum::JS_VAR_DEF_CATCH,
-        _ => {
-            unreachable!()
-        }
-    };
-
-    if define_var(s, (*s).cur_func_mut(), name, var_def_type) < 0 {
-        -1
-    } else {
-        0
-    }
-}
-
 // XXX: improve speed with early bailout
 // XXX: no longer works if regexps are present. Could use previous
 //   regexp parsing heuristics to handle most cases
@@ -694,29 +660,6 @@ pub unsafe fn js_parse_skip_parens_token(
     }
 
     tok
-}
-
-// XXX: remove
-pub unsafe fn has_with_scope(s: *mut JSFunctionDef, mut scope_level: i32) -> bool {
-    let mut s = s;
-
-    // check if scope chain contains a with statement
-    while !s.is_null() {
-        let mut scope_idx = (*s).scopes[scope_level as usize].first;
-        while scope_idx >= 0 {
-            let vd = (*s).vars.get(scope_idx as usize).unwrap();
-            if vd.var_name == JS_ATOM__with_ {
-                return true;
-            }
-            scope_idx = vd.scope_next;
-        }
-
-        // check parent scopes
-        scope_level = (*s).parent_scope_level;
-        s = (*s).parent;
-    }
-
-    false
 }
 
 pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {

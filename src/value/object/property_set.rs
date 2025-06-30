@@ -334,13 +334,11 @@ impl JSValue {
                                     } else {
                                         Ok(false)
                                     };
-                                } else {
-                                    if desc.flags & JS_PROP_WRITABLE == 0
-                                        || target.class_id() == JS_CLASS_MODULE_NS
-                                    {
-                                        state = SetPropState::ErrReadOnly;
-                                        continue;
-                                    }
+                                } else if desc.flags & JS_PROP_WRITABLE == 0
+                                    || target.class_id() == JS_CLASS_MODULE_NS
+                                {
+                                    state = SetPropState::ErrReadOnly;
+                                    continue;
                                 }
 
                                 return this_obj.define_property(

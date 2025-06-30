@@ -30,8 +30,7 @@ use super::{
         TOK_ARROW, TOK_CLASS, TOK_DIV_ASSIGN, TOK_DOUBLE_QUESTION_MARK_ASSIGN, TOK_FALSE,
         TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LAND_ASSIGN, TOK_LOR_ASSIGN, TOK_MUL_ASSIGN,
         TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_POW_ASSIGN, TOK_QUESTION_MARK_DOT, TOK_STRING,
-        TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD, peek_token,
-        token_is_pseudo_keyword,
+        TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD, token_is_pseudo_keyword,
     },
 };
 
@@ -382,7 +381,7 @@ impl<'s> JSParseState<'s> {
                         Ok(())
                     };
                 }
-                if (parse_flags & PF_ARROW_FUNC) != 0 && peek_token(self, true) == TOK_ARROW {
+                if (parse_flags & PF_ARROW_FUNC) != 0 && self.peek_token(true) == TOK_ARROW {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
@@ -391,7 +390,7 @@ impl<'s> JSParseState<'s> {
                         self.token.line_num,
                     )?;
                 } else if token_is_pseudo_keyword(self, JS_ATOM_async)
-                    && peek_token(self, true) != '\n' as i32
+                    && self.peek_token(true) != '\n' as i32
                 {
                     let source_ptr = self.token.ptr;
                     let source_line_num = self.token.line_num;
@@ -412,7 +411,7 @@ impl<'s> JSParseState<'s> {
                                 == TOK_ARROW)
                         || (self.token.val == TOK_IDENT
                             && !self.token.data.is_reserved()
-                            && peek_token(self, true) == TOK_ARROW)
+                            && self.peek_token(true) == TOK_ARROW)
                     {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,

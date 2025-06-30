@@ -1,13 +1,10 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom},
     bytecode::{OpCode, OpCodeTemp},
     error::JS_ThrowSyntaxError,
-    function::JSFunctionKindEnum,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
-        token::{TOK_IN, TokenData, peek_token},
+        token::{TOK_IN, TokenData},
     },
 };
 
@@ -37,7 +34,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_PRIVATE_NAME
             && (parse_flags & PF_IN_ACCEPTED) != 0
             && level == 4
-            && peek_token(self, false) == TOK_IN
+            && self.peek_token(false) == TOK_IN
         {
             let atom = if let TokenData::Ident { atom, .. } = self.token.data {
                 atom.dup(&self.ctx.rt());

@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     error::{JS_BACKTRACE_FLAG_SINGLE_LEVEL, JSErrorEnum},
     value::JSValue,
@@ -10,7 +8,7 @@ use super::state::JSParseState;
 impl JSParseState<'_> {
     /// given an `exc_obj` object, build traceback and throw it as current exception.
     /// old exception will be freed.
-    pub fn throw(&mut self, exc_obj: JSValue) {
+    pub fn throw(&self, exc_obj: JSValue) {
         let backtrace_flags = if !self.cur_func_ptr.is_null() && self.cur_func().backtrace_barrier {
             JS_BACKTRACE_FLAG_SINGLE_LEVEL
         } else {
@@ -26,7 +24,7 @@ impl JSParseState<'_> {
         self.ctx.throw(exc_obj);
     }
 
-    pub fn throw_syntax_error(&mut self, message: &str) {
+    pub fn throw_syntax_error(&self, message: &str) {
         self.ctx.throw_error_ex(JSErrorEnum::Syntax, message, false);
 
         let backtrace_flags = if !self.cur_func_ptr.is_null() && self.cur_func().backtrace_barrier {

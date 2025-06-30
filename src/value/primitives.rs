@@ -104,7 +104,7 @@ pub unsafe fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValu
     })
 }
 
-pub fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
     // free object data
     // JS_FreeValueRT(
     //     rt,

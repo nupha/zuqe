@@ -475,19 +475,18 @@ impl JSValue {
             };
 
             let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
-            if src_obj.flags().is_exotic() {
-                if unsafe {
+            if src_obj.flags().is_exotic()
+                && unsafe {
                     ctx.rt().class_array[src_obj.class_id() as usize]
                         .exotic
                         .as_ref()
                 }
                 .and_then(|x| x.get_own_property_names)
                 .is_some()
-                {
-                    // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
-                    // introduces a visible change
-                    gpn_flags &= !JS_GPN_ENUM_ONLY;
-                }
+            {
+                // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
+                // introduces a visible change
+                gpn_flags &= !JS_GPN_ENUM_ONLY;
             }
 
             src_obj.own_property_names_foreach(ctx, gpn_flags, |cx, name| -> Result<(), i32> {
@@ -579,20 +578,19 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
         }
     }
     if (flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_GET | JS_PROP_HAS_SET)) != 0
+        && prop_flags & JS_PROP_CONFIGURABLE == 0
     {
-        if (prop_flags & JS_PROP_CONFIGURABLE) == 0 {
-            has_accessor = (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) != 0;
-            is_getset = (prop_flags & JS_PROP_TMASK) == JS_PROP_GETSET;
-            if has_accessor != is_getset {
+        has_accessor = (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) != 0;
+        is_getset = (prop_flags & JS_PROP_TMASK) == JS_PROP_GETSET;
+        if has_accessor != is_getset {
+            return false;
+        }
+        if !has_accessor && !is_getset && (prop_flags & JS_PROP_WRITABLE) == 0 {
+            /* not writable: cannot set the writable bit */
+            if (flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE))
+                == (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)
+            {
                 return false;
-            }
-            if !has_accessor && !is_getset && (prop_flags & JS_PROP_WRITABLE) == 0 {
-                /* not writable: cannot set the writable bit */
-                if (flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE))
-                    == (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)
-                {
-                    return false;
-                }
             }
         }
     }

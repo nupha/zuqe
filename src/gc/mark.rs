@@ -277,6 +277,12 @@ impl JSContext {
             cx.eval_func.gc_mark();
             cx.global_obj.gc_mark();
             cx.global_var_obj.gc_mark();
+
+            for mw in self.0.borrow().loaded_modules.iter() {
+                if let Some(m) = mw.upgrade() {
+                    m.gc_mark();
+                }
+            }
         }
     }
 

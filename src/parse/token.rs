@@ -142,39 +142,12 @@ impl TokenData {
     }
 }
 
-// #[derive(Clone)]
-// pub union JSTokenUnion {
-//     pub str: JSTokenStr,
-//     pub num: JSTokenNum,
-//     pub ident: JSTokenIdent,
-//     pub regexp: JSTokenRegexp,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct JSTokenStr {
-//     pub str: JSValue,
-//     pub sep: i32,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct JSTokenNum {
-//     pub val: JSValue,
-// }
-
-// #[derive(Debug, Clone, Copy)]
-// pub struct JSTokenIdent {
-//     pub atom: JSAtom,
-//     pub has_escape: bool,
-//     pub is_reserved: bool,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct JSTokenRegexp {
-//     pub body: JSValue,
-//     pub flags: JSValue,
-// }
-
 impl<'s> JSParseState<'s> {
+    pub fn peek_token(&self, no_line_terminator: bool) -> i32 {
+        let mut p = self.buf_ptr;
+        unsafe { simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator) }
+    }
+
     pub fn next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(&self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");
@@ -652,13 +625,13 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    unsafe fn next_token_parse_number(&mut self, p: *mut *const u8) -> Result<(), i32> {
+    fn next_token_parse_number(&mut self, p: *mut *const u8) -> Result<(), i32> {
         let flags = ATOD_ACCEPT_BIN_OCT
             | ATOD_ACCEPT_LEGACY_OCTAL
             | ATOD_ACCEPT_UNDERSCORES
             | ATOD_ACCEPT_SUFFIX;
 
-        let ret = js_atof(&self.ctx, *p, p, 0, flags);
+        let ret = unsafe { js_atof(&self.ctx, *p, p, 0, flags) };
         if ret.is_exception() {
             let exc_obj = self.ctx.take_exception();
             self.throw(exc_obj);
@@ -671,7 +644,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // reject `10instanceof Number`
-        if let Some(c) = CStr::from_ptr(*p.cast())
+        if let Some(c) = unsafe { CStr::from_ptr(*p.cast()) }
             .to_str()
             .map_err(|_| {
                 self.throw_syntax_error("invalid UTF-8 sequence");
@@ -685,12 +658,6 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
         }
-        // let mut p1 = std::ptr::null::<u8>();
-        // if lre_js_is_ident_next(unicode_from_utf8(*p, UTF8_CHAR_LEN_MAX as _, &mut p1)) {
-        //     JS_FreeValue(self.ctx, ret);
-        //     js_parse_error(self, c"invalid number literal");
-        //     return Err(-1);
-        // }
 
         self.token.val = TOK_NUMBER;
         self.token.data = TokenData::Num(ret);
@@ -722,7 +689,7 @@ impl<'s> JSParseState<'s> {
         p
     }
 
-    pub unsafe fn seek_token(&mut self, sp: &JSParsePos) -> Result<(), i32> {
+    pub fn seek_token(&mut self, sp: &JSParsePos) -> Result<(), i32> {
         self.token.line_num = sp.last_line_num;
         self.line_num = sp.line_num;
         self.buf_ptr = sp.ptr;
@@ -895,11 +862,6 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
             }
         }
     }
-}
-
-pub unsafe fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i32 {
-    let mut p = (*s).buf_ptr;
-    simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator)
 }
 
 // convert a TOK_IDENT to a keyword when needed

@@ -1,175 +1,186 @@
 use crate::{
-    atom::{JSAtom, consts::JS_ATOM_arguments},
+    atom::{
+        JSAtom,
+        consts::{JS_ATOM_arguments, JS_ATOM_eval, JS_ATOM_let, JS_ATOM_undefined, JS_ATOM_yield},
+    },
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{GLOBAL_VAR_OFFSET, JSFunctionDef, JSVarDefEnum, JSVarKindEnum},
+    function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
+    parse::token::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
 };
 
 use super::state::JSParseState;
 
-pub unsafe fn define_var(
-    s: *mut JSParseState,
-    fd: *mut JSFunctionDef,
-    name: JSAtom,
-    var_def_type: JSVarDefEnum,
-) -> i32 {
-    macro_rules! goto_redef_lex_error {
-        () => {
-            // redefining a scoped var in the same scope: error
-            (*s).throw_syntax_error("invalid redefinition of lexical identifier");
-            return -1;
-        };
-    }
-    macro_rules! goto_invalid_lexical_redefinition {
-        () => {
-            // error to redefine a var that inside a lexical scope
-            (*s).throw_syntax_error("invalid redefinition of lexical identifier");
-            return -1;
-        };
-    }
+impl<'s> JSParseState<'s> {
+    /// define variable for current function
+    pub fn define_var_cur_func(
+        &mut self,
+        name: JSAtom,
+        var_def_type: JSVarDefEnum,
+    ) -> Result<u32, i32> {
+        let ctx = self.ctx.clone();
+        let fd = self.cur_func_mut();
+        let mut var_id: u32;
 
-    let mut ctx = &(*s).ctx;
-    let mut vid: i32;
+        match var_def_type {
+            JSVarDefEnum::JS_VAR_DEF_WITH => {
+                var_id =
+                    unsafe { fd.add_scope_var(&ctx, name, JSVarKindEnum::JS_VAR_NORMAL)? as u32 };
+            }
+            JSVarDefEnum::JS_VAR_DEF_LET
+            | JSVarDefEnum::JS_VAR_DEF_CONST
+            | JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
+            | JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL => {
+                if let Some(id) = fd.find_lexical_decl(name, fd.scope_first, true) {
+                    var_id = id;
 
-    match var_def_type {
-        JSVarDefEnum::JS_VAR_DEF_WITH => {
-            vid = (*fd)
-                .add_scope_var(ctx, name, JSVarKindEnum::JS_VAR_NORMAL)
-                .map_or(-1, |x| x as i32);
-        }
-        JSVarDefEnum::JS_VAR_DEF_LET
-        | JSVarDefEnum::JS_VAR_DEF_CONST
-        | JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
-        | JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL => {
-            if let Some(id) = (*fd).find_lexical_decl(name, (*fd).scope_first, true) {
-                vid = id as i32;
-
-                if vid < GLOBAL_VAR_OFFSET {
-                    let vd = (*fd).vars.get(vid as usize).unwrap();
-                    if vd.scope_level == (*fd).scope_level {
-                        // same scope: in non strict mode, functions can be redefined (annex B.3.3.4).
-                        if !((*fd).js_mode & JS_MODE_STRICT as u8 == 0
-                            && var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
-                            && vd.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
+                    if var_id < GLOBAL_VAR_OFFSET as u32 {
+                        let vd = fd.vars.get(var_id as usize).unwrap();
+                        if vd.scope_level == fd.scope_level {
+                            // same scope: in non strict mode, functions can be redefined (annex B.3.3.4).
+                            if !(fd.js_mode & JS_MODE_STRICT as u8 == 0
+                                && var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
+                                && vd.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
+                            {
+                                self.throw_syntax_error(
+                                    "invalid redefinition of lexical identifier",
+                                );
+                                return Err(-1);
+                            }
+                        } else if vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH
+                            && vd.scope_level + 2 == fd.scope_level
                         {
-                            goto_redef_lex_error!();
+                            self.throw_syntax_error("invalid redefinition of lexical identifier");
+                            return Err(-1);
                         }
-                    } else if vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH
-                        && vd.scope_level + 2 == (*fd).scope_level
-                    {
-                        goto_redef_lex_error!();
-                    }
-                } else {
-                    if (*fd).scope_level == (*fd).body_scope {
-                        goto_redef_lex_error!();
+                    } else {
+                        if fd.scope_level == fd.body_scope {
+                            self.throw_syntax_error("invalid redefinition of lexical identifier");
+                            return Err(-1);
+                        }
                     }
                 }
-            }
 
-            if var_def_type != JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
-                && var_def_type != JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
-                && (*fd).scope_level == (*fd).body_scope
-                && (*fd).find_arg(name).is_some()
-            {
-                // lexical variable redefines a parameter name
-                (*s).throw_syntax_error("invalid redefinition of parameter name");
-                return -1;
-            }
+                if var_def_type != JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
+                    && var_def_type != JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
+                    && fd.scope_level == fd.body_scope
+                    && fd.find_arg(name).is_some()
+                {
+                    // lexical variable redefines a parameter name
+                    self.throw_syntax_error("invalid redefinition of parameter name");
+                    return Err(-1);
+                }
 
-            if (*fd)
-                .find_var_in_child_scope(name, (*fd).scope_level)
-                .is_some()
-            {
-                (*s).throw_syntax_error("invalid redefinition of a variable");
-                return -1;
-            }
+                if fd.find_var_in_child_scope(name, fd.scope_level).is_some() {
+                    self.throw_syntax_error("invalid redefinition of a variable");
+                    return Err(-1);
+                }
 
-            if (*fd).is_global_var {
-                if let Some(hf) = (*fd).find_global_var(name) {
-                    if (*fd).is_child_scope(hf.scope_level, (*fd).scope_level) {
-                        (*s).throw_syntax_error("invalid redefinition of global identifier");
-                        return -1;
+                if fd.is_global_var {
+                    if let Some(hf) = fd.find_global_var(name) {
+                        if fd.is_child_scope(hf.scope_level, (*fd).scope_level) {
+                            self.throw_syntax_error("invalid redefinition of global identifier");
+                            return Err(-1);
+                        }
                     }
                 }
-            }
 
-            if (*fd).is_eval
-                && matches!((*fd).eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
-                && (*fd).scope_level == (*fd).body_scope
-            {
-                if let Ok(hf) = (*fd).add_global_var(ctx, name) {
+                if fd.is_eval
+                    && matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
+                    && fd.scope_level == fd.body_scope
+                {
+                    let hf = fd.add_global_var(&ctx, name)?;
                     hf.set_is_lexical(true);
                     hf.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
-                    vid = GLOBAL_VAR_OFFSET;
+                    var_id = GLOBAL_VAR_OFFSET as u32;
                 } else {
-                    return -1;
-                }
-            } else {
-                let var_kind = if var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL {
-                    JSVarKindEnum::JS_VAR_FUNCTION_DECL
-                } else if var_def_type == JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL {
-                    JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL
-                } else {
-                    JSVarKindEnum::JS_VAR_NORMAL
-                };
-                vid = (*fd)
-                    .add_scope_var(ctx, name, var_kind)
-                    .map_or(-1, |x| x as i32);
-                if vid >= 0 {
-                    let vd = (*fd).vars.get_mut(vid as usize).unwrap();
+                    let var_kind = if var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL {
+                        JSVarKindEnum::JS_VAR_FUNCTION_DECL
+                    } else if var_def_type == JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL {
+                        JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL
+                    } else {
+                        JSVarKindEnum::JS_VAR_NORMAL
+                    };
+                    var_id = unsafe { fd.add_scope_var(&ctx, name, var_kind)? as u32 };
+                    let vd = fd.vars.get_mut(var_id as usize).unwrap();
                     vd.set_is_lexical(true);
                     vd.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                 }
             }
-        }
-        JSVarDefEnum::JS_VAR_DEF_CATCH => {
-            vid = (*fd)
-                .add_scope_var(ctx, name, JSVarKindEnum::JS_VAR_CATCH)
-                .map_or(-1, |x| x as i32);
-        }
-        JSVarDefEnum::JS_VAR_DEF_VAR => {
-            if (*fd)
-                .find_lexical_decl(name, (*fd).scope_first, false)
-                .is_some()
-            {
-                goto_invalid_lexical_redefinition!();
+            JSVarDefEnum::JS_VAR_DEF_CATCH => {
+                var_id =
+                    unsafe { fd.add_scope_var(&ctx, name, JSVarKindEnum::JS_VAR_CATCH)? as u32 };
             }
-
-            if (*fd).is_global_var {
-                if let Some(hf) = (*fd).find_global_var(name) {
-                    if hf.is_lexical()
-                        && hf.scope_level == (*fd).scope_level
-                        && (*fd).eval_type == JS_EVAL_TYPE_MODULE
-                    {
-                        goto_invalid_lexical_redefinition!();
-                    }
+            JSVarDefEnum::JS_VAR_DEF_VAR => {
+                if fd.find_lexical_decl(name, fd.scope_first, false).is_some() {
+                    self.throw_syntax_error("invalid redefinition of lexical identifier");
+                    return Err(-1);
                 }
 
-                if (*fd).add_global_var(ctx, name).is_ok() {
-                    vid = GLOBAL_VAR_OFFSET;
-                } else {
-                    return -1;
-                }
-            } else {
-                #[cfg(debug_assertions)]
-                let _name_refcnt = name.ref_count(ctx.rt());
-
-                vid = if let Some(id) = (*fd).find_var(name) {
-                    // the variable already exists, don't add it again
-                    id as i32
-                } else if let Ok(id) = (*fd).add_var(ctx, name) {
-                    if name == JS_ATOM_arguments && (*fd).has_arguments_binding {
-                        (*fd).arguments_var_idx.replace(id);
+                if fd.is_global_var {
+                    if let Some(hf) = fd.find_global_var(name) {
+                        if hf.is_lexical()
+                            && hf.scope_level == fd.scope_level
+                            && fd.eval_type == JS_EVAL_TYPE_MODULE
+                        {
+                            self.throw_syntax_error("invalid redefinition of lexical identifier");
+                            return Err(-1);
+                        }
                     }
-                    (*fd).vars.get_mut(id as usize).unwrap().scope_next = (*fd).scope_level;
-                    id as i32
+
+                    fd.add_global_var(&ctx, name)?;
+                    var_id = GLOBAL_VAR_OFFSET as u32;
                 } else {
-                    // TODO: how to handle add_var() error?
-                    -1
-                };
+                    #[cfg(debug_assertions)]
+                    let _name_refcnt = name.ref_count(&ctx.rt());
+
+                    var_id = if let Some(id) = fd.find_var(name) {
+                        // the variable already exists, don't add it again
+                        id
+                    } else {
+                        let id = fd.add_var(&ctx, name)?;
+                        if name == JS_ATOM_arguments && fd.has_arguments_binding {
+                            fd.arguments_var_idx.replace(id);
+                        }
+                        fd.vars[id as usize].scope_next = fd.scope_level;
+                        id as u32
+                    };
+                }
             }
         }
+
+        Ok(var_id)
     }
 
-    vid
+    pub fn define_var(&mut self, name: JSAtom, tok: i32) -> Result<(), i32> {
+        let func = self.cur_func();
+
+        match name {
+            JS_ATOM_yield if func.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
+                self.throw_syntax_error("yield is a reserved identifier");
+                return Err(-1);
+            }
+            JS_ATOM_arguments | JS_ATOM_eval if func.js_mode & JS_MODE_STRICT as u8 != 0 => {
+                self.throw_syntax_error("invalid variable name in strict mode");
+                return Err(-1);
+            }
+            JS_ATOM_let | JS_ATOM_undefined if matches!(tok, TOK_LET | TOK_CONST) => {
+                self.throw_syntax_error("invalid lexical variable name");
+                return Err(-1);
+            }
+            _ => {}
+        }
+
+        self.define_var_cur_func(
+            name,
+            match tok {
+                TOK_LET => JSVarDefEnum::JS_VAR_DEF_LET,
+                TOK_CONST => JSVarDefEnum::JS_VAR_DEF_CONST,
+                TOK_VAR => JSVarDefEnum::JS_VAR_DEF_VAR,
+                TOK_CATCH => JSVarDefEnum::JS_VAR_DEF_CATCH,
+                _ => unreachable!(),
+            },
+        )?;
+        Ok(())
+    }
 }

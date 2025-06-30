@@ -11,7 +11,8 @@ use crate::{
     context::JSContext,
     function::{
         JSAsyncFunctionState, JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
-        JSGlobalVar, JSNativeCallback, JSVarKindEnum, JSVarRef, LabelSlot, RelocEntry,
+        JSGlobalVar, JSNativeCallback, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
+        RelocEntry,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
@@ -1009,7 +1010,7 @@ pub unsafe fn JS_EvalObject(
         return val.clone(); // dup and return val
     }
 
-    match val.coerce_to_utf8(ctx.into()) {
+    match val.coerce_to_utf8(ctx) {
         Ok(str) => ctx.eval_internal(
             this_obj,
             CString::new(str.as_bytes()).unwrap().as_c_str(),
@@ -1872,8 +1873,7 @@ pub fn JS_GetPrototype(ctx: &JSContext, obj: &JSValueConst) -> JSValue {
 /// `obj` is consumed
 #[deprecated(note = "use JSValue::prototype() instead")]
 pub fn JS_GetPrototypeFree(ctx: &JSContext, obj: JSValue) -> JSValue {
-    let ret = JS_GetPrototype(ctx, &obj);
-    ret
+    JS_GetPrototype(ctx, &obj)
 }
 
 // Private fields can be added even on non extensible objects or Proxies
@@ -1905,4 +1905,34 @@ pub unsafe fn JS_SetPrivateField(
     val: JSValue,
 ) -> i32 {
     obj.set_private_field(ctx, name, val).map_or(-1, |_| 0)
+}
+
+// XXX: remove
+#[deprecated(note = "use JSFunctionDef::has_with_scope() instead")]
+pub unsafe fn has_with_scope(s: *mut JSFunctionDef, mut scope_level: i32) -> bool {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSParseState::define_var_for_func() instead")]
+pub unsafe fn define_var(
+    s: *mut JSParseState,
+    fd: *mut JSFunctionDef,
+    name: JSAtom,
+    var_def_type: JSVarDefEnum,
+) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSParseState::define_var() instead")]
+pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32 {
+    if (*s).define_var(name, tok).is_err() {
+        -1
+    } else {
+        0
+    }
+}
+
+#[deprecated(note = "use JSParseState::peek_token() instead")]
+pub fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i32 {
+    unsafe { (*s).peek_token(no_line_terminator) }
 }

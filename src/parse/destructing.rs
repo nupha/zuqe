@@ -21,7 +21,7 @@ use super::{
     expr_lvalue::PutLValueEnum,
     function::js_parse_check_duplicate_parameter,
     obj::set_object_name,
-    parse::{js_define_var, js_parse_skip_parens_token},
+    parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
     token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
 };
@@ -67,7 +67,7 @@ pub unsafe fn js_parse_destructuring_element(
     macro_rules! set_val {
         () => {
             if tok != 0 {
-                if js_define_var(s, var_name, tok) != 0 {
+                if (*s).define_var(var_name, tok).is_err() {
                     var_error!();
                 }
                 scope = (*s).cur_func().scope_level as _;
@@ -512,7 +512,7 @@ pub unsafe fn js_parse_destructuring_element(
                     if var_name == JS_ATOM_NULL {
                         var_error!();
                     }
-                    if js_define_var(s, var_name, tok) != 0 {
+                    if (*s).define_var(var_name, tok).is_err() {
                         var_error!();
                     }
                     opcode = opcodes::op_scope_get_var as i32;

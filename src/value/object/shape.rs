@@ -366,13 +366,9 @@ impl JSRuntime {
 
         // resize the shape hash table
         if self.shape_registry.len() == self.shape_registry.capacity() {
-            if self
-                .shape_registry
+            self.shape_registry
                 .try_reserve(JS_PROP_INITIAL_HASH_SIZE)
-                .is_err()
-            {
-                return Err(-1);
-            }
+                .map_err(|_| -1)?;
         }
 
         let hash = shape.0.borrow().hash;

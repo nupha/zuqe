@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ops::Deref};
+use std::ffi::CStr;
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
@@ -23,10 +23,9 @@ use super::{
     state::JSParseState,
     token::{
         CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
-        TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR, peek_token,
+        TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR,
         simple_next_token, token_is_ident, token_is_pseudo_keyword,
     },
-    var::define_var,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,7 +257,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
         );
     } else if tok == TOK_FUNCTION
-        || (token_is_pseudo_keyword(s, JS_ATOM_async) && peek_token(s, true) == TOK_FUNCTION)
+        || (token_is_pseudo_keyword(s, JS_ATOM_async) && (*s).peek_token(true) == TOK_FUNCTION)
     {
         return (*s)
             .parse_function_decl2(
@@ -411,7 +410,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                 );
             } else if (*s).token.val == TOK_FUNCTION
                 || (token_is_pseudo_keyword(s, JS_ATOM_async)
-                    && peek_token(s, true) == TOK_FUNCTION)
+                    && (*s).peek_token(true) == TOK_FUNCTION)
             {
                 return (*s)
                     .parse_function_decl2(
@@ -432,12 +431,9 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             set_object_name(s, JS_ATOM_default);
 
             local_name = JS_ATOM__default_;
-            if define_var(
-                s,
-                (*s).cur_func_mut(),
-                local_name,
-                JSVarDefEnum::JS_VAR_DEF_LET,
-            ) < 0
+            if (*s)
+                .define_var_cur_func(local_name, JSVarDefEnum::JS_VAR_DEF_LET)
+                .is_err()
             {
                 return -1;
             }

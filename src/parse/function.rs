@@ -24,10 +24,8 @@ use super::{
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, TOK_ARROW,
-        TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR, TOK_YIELD, peek_token,
-        token_is_pseudo_keyword,
+        TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR, TOK_YIELD, token_is_pseudo_keyword,
     },
-    var::define_var,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,14 +72,12 @@ impl<'s> JSParseState<'s> {
         )?;
 
         sub_fd.func_name = func_name; // <-- atom is consumed here.
-
         sub_fd.has_prototype = matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
                 | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
                 | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
         ) && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL;
-
         sub_fd.has_home_object = matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
@@ -90,15 +86,12 @@ impl<'s> JSParseState<'s> {
                 | JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
                 | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
         );
-
         sub_fd.has_arguments_binding = !matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
                 | JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
         );
-
         sub_fd.has_this_binding = sub_fd.has_arguments_binding;
-
         sub_fd.is_derived_class_constructor =
             func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
 
@@ -256,7 +249,11 @@ impl<'s> JSParseState<'s> {
                         fail!();
                     }
                     if fd1.has_parameter_expressions {
-                        if define_var(self, fd1, name, JSVarDefEnum::JS_VAR_DEF_LET) < 0 {
+                        // fd1 is the cur_func
+                        if self
+                            .define_var_cur_func(name, JSVarDefEnum::JS_VAR_DEF_LET)
+                            .is_err()
+                        {
                             fail!();
                         }
                     }
@@ -552,7 +549,7 @@ impl<'s> JSParseState<'s> {
             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
                 if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                     && token_is_pseudo_keyword(self, JS_ATOM_async)
-                    && peek_token(self, true) != b'\n' as i32
+                    && self.peek_token(true) != b'\n' as i32
                 {
                     self.next_token()?;
                     func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
@@ -656,17 +653,18 @@ impl<'s> JSParseState<'s> {
             } else {
                 /* Always create a lexical name, fail if at the same scope as existing name */
                 /* Lexical variable will be initialized upon entering scope */
-                lexical_func_idx = define_var(
-                    self,
-                    fd0,
+                // now fd0 is still the cur_func
+                debug_assert_eq!(fd0 as *mut JSFunctionDef, self.cur_func_ptr);
+                lexical_func_idx = if let Ok(i) = self.define_var_cur_func(
                     func_name,
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
                         JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
                     } else {
                         JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
                     },
-                );
-                if lexical_func_idx < 0 {
+                ) {
+                    i as i32
+                } else {
                     JS_FreeAtom(&self.ctx, func_name);
                     return Err(-1);
                 }
@@ -775,15 +773,8 @@ impl<'s> JSParseState<'s> {
                 }
             } else {
                 if !self.cur_func().is_global_var {
-                    let var_idx = define_var(
-                        self,
-                        self.cur_func_mut(),
-                        func_name,
-                        JSVarDefEnum::JS_VAR_DEF_VAR,
-                    );
-                    if var_idx < 0 {
-                        return Err(-1);
-                    }
+                    let var_idx =
+                        self.define_var_cur_func(func_name, JSVarDefEnum::JS_VAR_DEF_VAR)? as i32;
 
                     // the variable will be assigned at the top of the function
                     if var_idx & ARGUMENT_VAR_OFFSET != 0 {
@@ -839,6 +830,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
+    #[inline(always)]
     pub(super) fn parse_function_decl(
         &mut self,
         func_type: JSParseFunctionEnum,

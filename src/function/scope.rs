@@ -1,13 +1,13 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ptr::NonNull};
 
 use crate::{
-    atom::JSAtom,
+    atom::{JSAtom, consts::JS_ATOM__with_},
     bytecode::OpCodeTemp,
     context::JSContext,
     function::{JSFunctionDef, JSVarKindEnum},
 };
 
-use super::{JSVarDef, ARG_SCOPE_END};
+use super::{ARG_SCOPE_END, JSVarDef};
 
 #[derive(Debug, Clone, Copy)]
 pub struct JSVarScope {
@@ -148,6 +148,29 @@ impl JSFunctionDef {
                 return true;
             }
             scope = self.scopes[scope as usize].parent;
+        }
+
+        false
+    }
+
+    pub fn has_with_scope(&self, scope_level: i32) -> bool {
+        let mut s = self as *const Self;
+        let mut scope_level = scope_level;
+
+        // check if scope chain contains a with statement
+        while !s.is_null() {
+            let mut scope_idx = unsafe { (&(*s).scopes)[scope_level as usize].first };
+            while scope_idx >= 0 {
+                let vd = unsafe { (&(*s).vars).get(scope_idx as usize).unwrap() };
+                if vd.var_name == JS_ATOM__with_ {
+                    return true;
+                }
+                scope_idx = vd.scope_next;
+            }
+
+            // check parent scopes
+            scope_level = unsafe { (*s).parent_scope_level };
+            s = unsafe { (*s).parent };
         }
 
         false

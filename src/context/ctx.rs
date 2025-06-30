@@ -17,7 +17,6 @@ use crate::{
     error::{JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFunc,
     function::{JSCFunctionEnum, js_function_proto},
-    gc::GCObjectHeader,
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
@@ -31,52 +30,15 @@ use crate::{
     },
 };
 
-// /// Represents a lexical environment
-// #[repr(C)]
-// pub struct JSLexEnv {
-//     /// Environment header (must be first field)
-//     header: GCObjectHeader,
-
-//     /// Outer environment
-//     outer: *mut JSLexEnv,
-
-//     /// Variable bindings
-//     vars: *mut JSVarBinding,
-// }
-
-/// Represents debug information for a function
-#[repr(C)]
-pub struct JSDebugInfo {
-    /// Debug info header (must be first field)
-    header: GCObjectHeader,
-
-    /// Source file name
-    filename: *const c_char,
-
-    /// Line number table
-    line_num_table: *const u8,
-
-    /// Source code
-    source: *const c_char,
-
-    /// Source length
-    source_len: usize,
-}
-
 /// Execution context
 ///
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.
-#[repr(C)]
 pub struct JSContextInner {
-    /// Garbage collection header (must be first field)
-    pub header: GCObjectHeader,
+    /// pointer to runtime
+    pub rt: NonNull<JSRuntime>,
 
-    /// Pointer to runtime
-    //pub rt: NonNull<JSRuntime>,
-
-    /// Linked list node for runtime context list
-    pub link: list_head,
+    pub flags: u8,
 
     /// Count of binary objects in this context
     pub binary_object_count: u16,
@@ -155,10 +117,18 @@ impl Drop for JSContextInner {
 
 impl JSContextInner {
     pub fn new(rt: &mut JSRuntime) -> Result<Self, i32> {
-        let c = Self {
-            header: GCObjectHeader::new(rt, 1),
+        let class_proto = {
+            let mut lst = Vec::<JSValue>::new();
+            lst.try_reserve_exact(rt.class_array.capacity())
+                .map_err(|_| -1)?;
+            lst.extend(std::iter::repeat_n(JSValue::NULL, rt.class_array.len()));
+            lst
+        };
 
-            link: list_head::default(),
+        let c = Self {
+            rt: NonNull::from(rt),
+            flags: 0,
+
             binary_object_count: 0,
             binary_object_size: 0,
 
@@ -169,13 +139,7 @@ impl JSContextInner {
             regexp_ctor: JSValue::NULL,
             promise_ctor: JSValue::NULL,
 
-            class_proto: {
-                let mut lst = Vec::<JSValue>::new();
-                lst.try_reserve_exact(rt.class_array.capacity())
-                    .map_err(|_| -1)?;
-                lst.extend(std::iter::repeat_n(JSValue::NULL, rt.class_array.len()));
-                lst
-            },
+            class_proto,
 
             function_proto: JSValue::UNDEFINED,
             native_error_proto: [const { JSValue::UNDEFINED }; JS_NATIVE_ERROR_COUNT],
@@ -212,25 +176,26 @@ impl JSContextInner {
         self as *const Self as usize
     }
 
+    #[inline(always)]
+    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+        self.rt
+    }
+
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
-        self.header.rt()
+        unsafe { self.rt.as_ref() }
     }
 
+    #[inline(always)]
     pub fn rt_mut(&mut self) -> &mut JSRuntime {
-        self.header.rt_mut()
+        unsafe { self.rt.as_mut() }
     }
-
-    // fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-    //     unsafe {
-    //         rt.gc_mark_context(self, mark_func);
-    //     }
-    // }
 
     fn gc_dump(&self, rt: &JSRuntime) {
         println!("{:14p} [context]", self);
     }
 
-    fn finalize(&mut self) {
+    pub(crate) fn finalize(&mut self) {
         // reset values, to free reference
         {
             self.array_shape.take();
@@ -304,6 +269,7 @@ impl std::fmt::Debug for JSContext {
 }
 
 impl JSContext {
+    #[inline]
     pub fn id(&self) -> usize {
         self.0.borrow().id()
     }
@@ -313,9 +279,9 @@ impl JSContext {
     }
 
     /// Returns the runtime prt
-    #[inline(always)]
+    #[inline]
     pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
-        self.0.borrow().header.rt_ptr()
+        self.0.borrow().rt_ptr()
     }
 
     /// Returns the runtime reference
@@ -517,11 +483,12 @@ impl JSContext {
     }
 
     pub fn gc_has_mark(&self) -> bool {
-        self.0.borrow().header.gc_has_mark()
+        self.0.borrow().flags & 1 != 0
     }
 
     pub fn gc_set_mark(&self, mark: bool) {
-        self.0.borrow_mut().header.gc_set_mark(mark);
+        let mut b = self.0.borrow_mut();
+        b.flags = (b.flags & 0b1111_1110) | (mark as u8)
     }
 }
 

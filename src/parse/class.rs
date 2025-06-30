@@ -1,8 +1,8 @@
-use std::{ffi::CStr, ops::Deref};
+use std::ffi::CStr;
 
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JS_FreeAtomRT, JS_ValueToAtom, JSAtom, consts::*,
+        JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JS_ValueToAtom, JSAtom, consts::*,
         js_atom_concat_num, js_atom_concat_str,
     },
     bytecode::{OpCode, OpCodeTemp},
@@ -18,7 +18,6 @@ use crate::{
         esm::add_export_entry,
         obj::{set_object_name, set_object_name_computed},
         token::CHAR_SQUARE_L,
-        var::define_var,
     },
     utils::write_to_ptr,
     value::{
@@ -39,7 +38,7 @@ use super::{
     function::JSParseFunctionEnum,
     state::JSParseState,
     token::{
-        TOK_EXTENDS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STATIC, TOK_STRING, peek_token,
+        TOK_EXTENDS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STATIC, TOK_STRING,
         token_is_ident, token_is_pseudo_keyword,
     },
 };
@@ -411,12 +410,9 @@ impl<'s> JSParseState<'s> {
                         if field_var_name == JS_ATOM_NULL {
                             return Err(-1);
                         }
-                        if define_var(
-                            self,
-                            self.cur_func_mut(),
-                            field_var_name,
-                            JSVarDefEnum::JS_VAR_DEF_CONST,
-                        ) < 0
+                        if self
+                            .define_var_cur_func(field_var_name, JSVarDefEnum::JS_VAR_DEF_CONST)
+                            .is_err()
                         {
                             JS_FreeAtom(&self.ctx, field_var_name);
                             return Err(-1);
@@ -663,13 +659,9 @@ pub unsafe fn js_parse_class(
 
     // add a 'const' definition for the class name
     if class_name != JS_ATOM_NULL {
-        let class_name_var_idx = define_var(
-            s,
-            s.cur_func_mut(),
-            class_name,
-            JSVarDefEnum::JS_VAR_DEF_CONST,
-        );
-        if class_name_var_idx < 0 {
+        if s.define_var_cur_func(class_name, JSVarDefEnum::JS_VAR_DEF_CONST)
+            .is_err()
+        {
             fail!();
         }
     }
@@ -1198,13 +1190,9 @@ pub unsafe fn js_parse_class(
         }
 
         // store the function to initialize the fields...
-        let var_idx = define_var(
-            s,
-            s.cur_func_ptr,
-            JS_ATOM_class_fields_init,
-            JSVarDefEnum::JS_VAR_DEF_CONST,
-        );
-        if var_idx < 0 {
+        if s.define_var_cur_func(JS_ATOM_class_fields_init, JSVarDefEnum::JS_VAR_DEF_CONST)
+            .is_err()
+        {
             fail!();
         }
         if !cf.fields_init_fd.is_null() {
@@ -1252,12 +1240,8 @@ pub unsafe fn js_parse_class(
 
     /* the class statements have a block level scope */
     if class_var_name != JS_ATOM_NULL {
-        if define_var(
-            s,
-            s.cur_func_ptr,
-            class_var_name,
-            JSVarDefEnum::JS_VAR_DEF_LET,
-        ) < 0
+        if s.define_var_cur_func(class_var_name, JSVarDefEnum::JS_VAR_DEF_LET)
+            .is_err()
         {
             fail!();
         }
@@ -1354,7 +1338,7 @@ pub unsafe fn js_parse_property_name(
                 }
                 prop_type = PROP_TYPE_STAR;
             } else if token_is_pseudo_keyword(s, JS_ATOM_async)
-                && peek_token(s, true) != '\n' as i32
+                && (*s).peek_token(true) != '\n' as i32
             {
                 name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
                 if (*s).next_token().is_err() {

@@ -30,19 +30,17 @@ impl StringContent {
 
         if str.is_empty() {
             Ok(Self::Empty)
+        } else if str.is_ascii() {
+            let mut s = Vec::<u8>::try_with_capacity(str.len())?;
+            s.try_extend_from_slice(str.as_bytes())?;
+            Ok(Self::Utf8(s))
         } else {
-            if str.is_ascii() {
-                let mut s = Vec::<u8>::try_with_capacity(str.len())?;
-                s.try_extend_from_slice(str.as_bytes())?;
-                Ok(Self::Utf8(s))
-            } else {
-                let mut b = Vec::<u16>::try_with_capacity(str.len())?;
-                for el in str.encode_utf16() {
-                    b.push(el);
-                }
-                b.shrink_to_fit();
-                Ok(Self::Utf16(b))
+            let mut b = Vec::<u16>::try_with_capacity(str.len())?;
+            for el in str.encode_utf16() {
+                b.push(el);
             }
+            b.shrink_to_fit();
+            Ok(Self::Utf16(b))
         }
     }
 

@@ -748,11 +748,9 @@ pub fn JS_SetPrototypeInternal(
     proto_val: JSValue,
     throw_flag: bool,
 ) -> Result<bool, i32> {
-    if throw_flag {
-        if obj.is_undefined_or_null() {
-            ctx.JS_ThrowTypeErrorNotAnObject();
-            return Err(-1);
-        }
+    if throw_flag && obj.is_undefined_or_null() {
+        ctx.JS_ThrowTypeErrorNotAnObject();
+        return Err(-1);
     }
 
     if let JSValue::Object(p) = obj {

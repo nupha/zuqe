@@ -242,7 +242,7 @@ impl JSObject {
         if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
             // auto init property
             let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[slot_idx]);
-            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }), "{:?}", pr);
+            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }), "{pr:?}");
 
             pr.instantiate(this_obj, prop)?;
             self.0.prop_values.borrow_mut()[slot_idx] = pr;
