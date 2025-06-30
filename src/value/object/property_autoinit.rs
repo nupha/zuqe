@@ -103,8 +103,14 @@ impl JSProperty {
 
             // reset AUTO INIT flag to NORMAL
             this_obj.shape().unwrap().with_mut(|s| {
-                let prs = s.prop_defs.get_mut(&prop.0).unwrap();
-                prs.set_flags(prs.flags() & (!JS_PROP_TMASK));
+                if let Some(prs) = s.prop_defs.get_mut(&prop.0) {
+                    prs.set_flags(prs.flags() & (!JS_PROP_TMASK));
+                } else {
+                    println!(
+                        "Fail to lazy instantiate property '{}': shape was sweeped",
+                        prop.to_str(realm.rt())
+                    );
+                }
             });
 
             // set property normal value
@@ -116,7 +122,7 @@ impl JSProperty {
                 Err(-1)
             }
         } else {
-            unreachable!()
+            unreachable!("{:p}", self);
         }
     }
 }
