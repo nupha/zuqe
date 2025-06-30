@@ -3,7 +3,10 @@ use std::{os::raw::c_void, ptr::NonNull};
 use crate::{
     context::JSContext,
     runtime::JSRuntime,
-    value::{JSValueConst, object::GCObjectWeakref},
+    value::{
+        JSValueConst,
+        object::{GCObject, GCObjectWeakref},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,19 +119,25 @@ impl JSRuntime {
         }
 
         // sweep
+        let mut zero_list = Vec::<GCObject>::with_capacity(self.gc_obj_list.len());
         self.gc_obj_list.retain(|_, w| {
             if let Some(o) = w.upgrade() {
                 if o.gc_has_mark() {
                     println!("[O.o] has mark: {o:?}");
                     true
                 } else {
-                    println!("[O.o] todo sweep gc obj {o:?}");
+                    zero_list.push(o);
                     false
                 }
             } else {
                 false
             }
         });
+
+        for obj in zero_list {
+            println!("[O.o] sweep gc obj {obj:?}");
+            obj.gc_sweep();
+        }
 
         // // keep the GC objects with a non zero refcount and their childs
         // self.gc_scan();

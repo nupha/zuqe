@@ -372,13 +372,12 @@ impl JSObjectInner {
         }
 
         // untrack from gc
-        let _r = rt.gc_obj_list.remove(&self.id());
-        debug_assert!(_r.is_some());
+        rt.gc_obj_list.remove(&self.id());
     }
 }
 
 #[derive(Clone)]
-pub struct JSObject(pub Rc<JSObjectInner>);
+pub struct JSObject(pub(crate) Rc<JSObjectInner>);
 
 impl PartialEq for JSObject {
     fn eq(&self, other: &Self) -> bool {
@@ -507,91 +506,6 @@ impl JSObject {
     pub fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
         self.dump(rt);
     }
-
-    // pub fn gc_mark_children(&self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-    //     //  mark_func(rt, self);
-
-    //     // Mark all the fields
-    //     let len = self.0.prop_values.borrow().len();
-    //     for i in 0..len {
-    //         let pr = self.0.prop_values.borrow()[i].clone();
-    //         match pr {
-    //             JSProperty::Normal(val) => {
-    //                 rt.gc_mark_value(&val, mark_func);
-    //             }
-    //             JSProperty::GetSet { getter, setter } => {
-    //                 if let Some(o) = getter {
-    //                     todo!()
-    //                     //mark_func(o);
-    //                 }
-    //                 if let Some(o) = setter {
-    //                     todo!()
-    //                     // mark_func(o);
-    //                 }
-    //             }
-    //             JSProperty::VarRef(vref) => {
-    //                 let state = vref.0.borrow().state.clone();
-    //                 match state {
-    //                     VarRefState::Detached { value } => {
-    //                         rt.gc_mark_value(&value, mark_func);
-    //                     }
-    //                     VarRefState::Bind {
-    //                         var_idx,
-    //                         pvalue,
-    //                         async_func,
-    //                     } => {
-    //                         rt.gc_mark_value(unsafe { pvalue.as_ref() }, mark_func);
-    //                     }
-    //                 }
-    //             }
-    //             JSProperty::AutoInit {
-    //                 realm,
-    //                 init_type,
-    //                 opaque,
-    //             } => {
-    //                 // rt.gc_mark_autoinit(pr, mark_func);
-    //                 todo!()
-    //             }
-    //         }
-    //     }
-
-    //     // for (prs, pr) in unsafe { (*self.shape).props.values() }.zip(self.prop_values.iter_mut()) {
-    //     //     match prs.flags() & JS_PROP_TMASK {
-    //     //         JS_PROP_NORMAL => unsafe {
-    //     //             // prop with normal value
-    //     //             rt.gc_mark_value(pr.u.value, mark_func);
-    //     //         },
-    //     //         JS_PROP_GETSET => unsafe {
-    //     //             if !pr.u.getset.getter.is_null() {
-    //     //                 mark_func(rt, pr.u.getset.getter);
-    //     //             }
-    //     //             if !pr.u.getset.setter.is_null() {
-    //     //                 mark_func(rt, pr.u.getset.setter);
-    //     //             }
-    //     //         },
-    //     //         JS_PROP_VARREF => unsafe {
-    //     //             // Note: the tag does not matter.
-    //     //             // provided it is a GC object
-    //     //             mark_func(rt, (*pr.u.var_ref).cast::<JSVarRef>().as_ptr());
-    //     //         },
-    //     //         JS_PROP_AUTOINIT => unsafe {
-    //     //             rt.gc_mark_autoinit(pr, mark_func);
-    //     //         },
-    //     //         _ => {
-    //     //             unreachable!();
-    //     //         }
-    //     //     }
-    //     // }
-
-    //     let class_id = self.class_id();
-    //     if class_id != JS_CLASS_OBJECT {
-    //         if let Some(f) = rt.class_array[class_id as usize].gc_mark {
-    //             unsafe {
-    //                 f(rt, JSValue::Object(self.clone()), mark_func);
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 #[derive(Debug, Clone)]

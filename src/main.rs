@@ -1,6 +1,4 @@
-use zhuque::{
-    eval::JS_EVAL_TYPE_GLOBAL, mem::JS_DEFAULT_MALLOC_FUNCTIONS, runtime::JSRuntime, value::JSValue,
-};
+use zhuque::{eval::JS_EVAL_TYPE_GLOBAL, mem::JS_DEFAULT_MALLOC_FUNCTIONS, runtime::JSRuntime};
 
 fn main() {
     unsafe {

@@ -4,7 +4,7 @@ use crate::{
     function::{JSAsyncFunctionState, JSFunctionBytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, JSModuleDef},
     value::{
-        JSValue,
+        JSString, JSValue,
         object::{AutoInitType, JSObject, JSProperty, JSShape},
     },
 };
@@ -30,6 +30,14 @@ impl JSObject {
                     f(JSValue::Object(self.clone()));
                 }
             }
+        }
+    }
+
+    pub fn gc_sweep(&self) {
+        // unref all fields
+        self.0.shape.borrow_mut().take();
+        for pr in self.0.prop_values.borrow_mut().iter_mut() {
+            *pr = JSProperty::default();
         }
     }
 }
@@ -64,13 +72,41 @@ impl JSProperty {
                     },
                 }
             }
-            JSProperty::AutoInit {
-                realm,
-                init_type,
-                opaque,
-            } => match init_type {
+            JSProperty::AutoInit { init_type, .. } => match init_type {
                 AutoInitType::ModuleNS(m) => {
                     m.gc_mark();
+                }
+                AutoInitType::Prototype | AutoInitType::Prop(_) => {}
+            },
+        }
+    }
+
+    pub fn gc_sweep(&mut self) {
+        match self {
+            JSProperty::Normal(val) => {
+                *val = JSValue::UNDEFINED;
+            }
+            JSProperty::GetSet { getter, setter } => {
+                getter.take();
+                setter.take();
+            }
+            JSProperty::VarRef(vref) => {
+                let state = &mut vref.0.borrow_mut().state;
+                match state {
+                    VarRefState::Detached { value } => {
+                        *value = JSValue::UNDEFINED;
+                    }
+                    VarRefState::Bind {
+                        pvalue, async_func, ..
+                    } => unsafe {
+                        *(pvalue.as_mut()) = JSValue::UNDEFINED;
+                        async_func.take();
+                    },
+                }
+            }
+            JSProperty::AutoInit { init_type, .. } => match init_type {
+                AutoInitType::ModuleNS(m) => {
+                    m.gc_sweep();
                 }
                 AutoInitType::Prototype | AutoInitType::Prop(_) => {}
             },
@@ -89,6 +125,20 @@ impl JSShape {
             }
         }
     }
+
+    pub fn gc_sweep(&self) {
+        self.0.borrow_mut().proto.take();
+    }
+}
+
+impl JSString {
+    pub fn gc_mark(&self) {
+        if !self.gc_has_mark() {
+            self.gc_set_mark(true);
+        }
+    }
+
+    pub fn gc_sweep(&self) {}
 }
 
 impl JSModuleDef {
@@ -117,6 +167,27 @@ impl JSModuleDef {
             }
         }
     }
+
+    pub fn gc_sweep(&self) {
+        let mut m = self.0.borrow_mut();
+
+        m.module_ns = JSValue::UNDEFINED;
+        m.func_obj = JSValue::UNDEFINED;
+        m.eval_exception = JSValue::UNDEFINED;
+        m.meta_obj = JSValue::UNDEFINED;
+        m.promise = JSValue::UNDEFINED;
+        m.resolving_funcs[0] = JSValue::UNDEFINED;
+        m.resolving_funcs[1] = JSValue::UNDEFINED;
+
+        for me in m.export_entries.iter_mut() {
+            if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                var_ref: Some(vr), ..
+            } = &mut me.export_type
+            {
+                vr.gc_sweep();
+            }
+        }
+    }
 }
 
 impl JSFunctionBytecode {
@@ -129,6 +200,12 @@ impl JSFunctionBytecode {
                 v.gc_mark();
             });
         }
+    }
+
+    pub fn gc_sweep(&self) {
+        self.cpools_slice().iter().for_each(|v| {
+            v.gc_mark();
+        });
     }
 }
 
@@ -146,6 +223,15 @@ impl JSVarRef {
             }
         }
     }
+
+    pub fn gc_sweep(&self) {
+        match &mut self.0.borrow_mut().state {
+            VarRefState::Detached { value } => *value = JSValue::UNDEFINED,
+            VarRefState::Bind { async_func, .. } => {
+                async_func.take();
+            }
+        }
+    }
 }
 
 impl JSAsyncFunctionState {
@@ -153,6 +239,13 @@ impl JSAsyncFunctionState {
         self.0.borrow().this_val.gc_mark();
         self.0.borrow().resolving_funcs[0].gc_mark();
         self.0.borrow().resolving_funcs[1].gc_mark();
+    }
+
+    pub fn gc_sweep(&self) {
+        let mut b = self.0.borrow_mut();
+        b.this_val = JSValue::UNDEFINED;
+        b.resolving_funcs[0] = JSValue::UNDEFINED;
+        b.resolving_funcs[1] = JSValue::UNDEFINED;
     }
 }
 
@@ -186,6 +279,32 @@ impl JSContext {
             cx.global_var_obj.gc_mark();
         }
     }
+
+    pub fn gc_sweep(&self) {
+        let mut cx = self.0.borrow_mut();
+
+        if let Some(o) = &mut cx.array_shape {
+            o.gc_sweep();
+        }
+
+        cx.class_proto.clear();
+
+        cx.function_proto = JSValue::UNDEFINED;
+        cx.function_ctor = JSValue::UNDEFINED;
+        cx.array_ctor = JSValue::UNDEFINED;
+        cx.regexp_ctor = JSValue::UNDEFINED;
+        cx.promise_ctor = JSValue::UNDEFINED;
+        for v in cx.native_error_proto.iter_mut() {
+            *v = JSValue::UNDEFINED;
+        }
+        cx.iterator_proto = JSValue::UNDEFINED;
+        cx.async_iterator_proto = JSValue::UNDEFINED;
+        cx.array_proto_values = JSValue::UNDEFINED;
+        cx.throw_type_error = JSValue::UNDEFINED;
+        cx.eval_func = JSValue::UNDEFINED;
+        cx.global_obj = JSValue::UNDEFINED;
+        cx.global_var_obj = JSValue::UNDEFINED;
+    }
 }
 
 impl JSValue {
@@ -196,6 +315,21 @@ impl JSValue {
             }
             JSValue::FunctionBytecode(b) => {
                 b.gc_mark();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn gc_sweep(&self) {
+        match self {
+            JSValue::Object(o) => {
+                o.gc_sweep();
+            }
+            JSValue::FunctionBytecode(b) => {
+                b.gc_sweep();
+            }
+            JSValue::String(s) | JSValue::Symbol(s) => {
+                s.gc_sweep();
             }
             _ => {}
         }

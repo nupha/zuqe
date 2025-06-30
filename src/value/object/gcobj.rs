@@ -91,6 +91,18 @@ impl GCObject {
             Self::Context(o) => o.gc_set_mark(b),
         }
     }
+
+    pub fn gc_sweep(&self) {
+        match self {
+            Self::Object(o) => o.gc_sweep(),
+            Self::FunctionBytecode(o) => o.gc_sweep(),
+            Self::String(o) => o.gc_sweep(),
+            Self::Shape(o) => o.gc_sweep(),
+            Self::VarRef(o) => o.gc_sweep(),
+            Self::AsyncFunction(o) => o.gc_sweep(),
+            Self::Context(o) => o.gc_sweep(),
+        }
+    }
 }
 
 #[repr(u8)]
