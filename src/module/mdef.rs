@@ -272,6 +272,14 @@ impl JSModuleDef {
     pub fn downgrade(&self) -> JSModuleDefWeakref {
         JSModuleDefWeakref(Rc::downgrade(&self.0))
     }
+
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
+    }
+
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.0.borrow_mut().header.gc_set_mark(mark);
+    }
 }
 
 #[derive(Debug, Clone)]

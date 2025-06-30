@@ -6,16 +6,13 @@ use crate::{
         __JS_FindAtom, JS_ATOM_NULL, JSAtom, JSAtomTypeHint,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
-    context::{JSContext, JSContextInner},
+    context::JSContext,
     error::JSResult,
-    function::{
-        JS_GetFunctionRealm, JS_NewCFunction2, JSCFunction, JSCFunctionEnum, JSFunctionDef,
-        JSNativeCallback,
-    },
-    gc::{GCMarkFunc, set_cycle_flag},
+    function::{JS_GetFunctionRealm, JSCFunctionEnum, JSFunctionDef, JSNativeCallback},
+    gc::set_cycle_flag,
     runtime::JSRuntime,
     value::{
-        JSValue, JSValueConst,
+        JSValue,
         object::{
             JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
             JSPropertyDescriptor, PropertyEnum,
@@ -36,7 +33,7 @@ pub type JSClassID = u32;
 /// instance finalizer callback, obj is the object payload.
 pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize);
 
-pub type JSClassGCMark = unsafe fn(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc);
+pub type JSClassGCMark = fn(val: JSValue);
 
 /// class native constructor callback func
 pub type JSClassCall = fn(

@@ -17,7 +17,7 @@ use crate::{
     error::{JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFunc,
     function::{JSCFunctionEnum, js_function_proto},
-    gc::{GCMarkFunc, GCObjectHeader},
+    gc::GCObjectHeader,
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,

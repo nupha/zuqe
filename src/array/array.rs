@@ -5,7 +5,6 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
     error::{JS_ThrowRangeError, JSErrorEnum, JSResult},
-    gc::GCMarkFunc,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
@@ -602,10 +601,12 @@ pub unsafe fn js_is_fast_array(ctx: &JSContext, obj: JSValueConst) -> bool {
 
 pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-pub unsafe fn js_array_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-    val.object_unchecked().with_fast_array_values(|lst| {
-        for v in lst {
-            (*rt).gc_mark_value(v, mark_func);
-        }
-    });
+pub fn js_array_mark(val: JSValue) {
+    unsafe {
+        val.object_unchecked().with_fast_array_values(|lst| {
+            for v in lst {
+                v.gc_mark();
+            }
+        });
+    }
 }

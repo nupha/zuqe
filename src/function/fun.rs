@@ -8,7 +8,6 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorRevokedProxy, JSResult},
     function::JSVarRef,
-    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
         JSValue, JSValueConst,
@@ -204,25 +203,25 @@ pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i
 
 pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-pub unsafe fn js_bytecode_function_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
-    let p = val.object_unchecked();
+pub fn js_bytecode_function_mark(val: JSValue) {
+    let p = unsafe { val.object_unchecked() };
+
     let (bf, home_obj) =
         p.0.isa
             .borrow()
             .func()
-            .map(|f| (f.function_bytecode.clone(), f.home_object.clone()))
+            .map(|f| {
+                for vr in f.var_refs.iter() {
+                    vr.gc_mark();
+                }
+                (f.function_bytecode.clone(), f.home_object.clone())
+            })
             .unwrap();
 
     if let Some(ho) = home_obj {
-        (*rt).gc_mark_value(&JSValue::Object(ho), mark_func);
+        ho.gc_mark();
     }
-
     if let Some(b) = bf {
-        // for vr in func.var_refs.iter() {
-        //     mark_func(rt, vr);
-        // }
-
-        // must mark the function bytecode because template objects may be part of a cycle
-        (*rt).gc_mark_value(&JSValue::FunctionBytecode(b), mark_func);
+        b.gc_mark();
     }
 }

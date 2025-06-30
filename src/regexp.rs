@@ -4,7 +4,6 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
-    gc::GCMarkFunc,
     parse::JSParseState,
     runtime::JSRuntime,
     value::{JSString, JSValue, JSValueConst, object::JSObjectIsa},
@@ -152,6 +151,6 @@ pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: u
     unimplemented!();
 }
 
-pub unsafe fn js_regexp_iterator_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
+pub fn js_regexp_iterator_mark(val: JSValue) {
     unimplemented!();
 }

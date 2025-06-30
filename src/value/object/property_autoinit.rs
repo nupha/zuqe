@@ -96,8 +96,10 @@ impl JSProperty {
             opaque,
         } = self
         {
-            this_obj.shape_prepare_update(realm)?;
-            let val = init_type.instantiate(realm, this_obj);
+            let realm = realm.upgrade().unwrap();
+
+            this_obj.shape_prepare_update(&realm)?;
+            let val = init_type.instantiate(&realm, this_obj);
 
             // reset AUTO INIT flag to NORMAL
             this_obj.shape().unwrap().with_mut(|s| {
@@ -142,7 +144,7 @@ impl JSObject {
             |pr| {
                 *pr = JSProperty::AutoInit {
                     init_type,
-                    realm: ctx.clone(),
+                    realm: ctx.downgrade(),
                     opaque: std::ptr::null_mut(),
                 };
             },
@@ -158,7 +160,7 @@ pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
 #[deprecated(note = "use JSProperty::realm() instead")]
 pub unsafe fn js_autoinit_get_realm(pr: &JSProperty) -> JSContext {
     if let JSProperty::AutoInit { realm, .. } = pr {
-        realm.clone()
+        realm.upgrade().unwrap()
     } else {
         unreachable!()
     }

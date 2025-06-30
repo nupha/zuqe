@@ -7,7 +7,6 @@ use crate::{
     defer,
     error::{JS_ThrowStackOverflow, JSResult},
     function::JS_CALL_FLAG_CONSTRUCTOR,
-    gc::GCMarkFunc,
     iterator::js_create_iterator_result,
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
@@ -474,10 +473,12 @@ impl JSObjectCFunc {
         debug_assert!(matches!(isa, JSObjectIsa::C_FUNCTION(_)));
     }
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
-        if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().0.isa.borrow().deref() {
-            println!("[O.o] TODO cfunction mark");
-            // mark_func(rt, &cfunc.realm);
+    pub fn hook_mark(val: JSValue) {
+        unsafe {
+            if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().0.isa.borrow().deref() {
+                // println!("[O.o] TODO cfunction mark");
+                // mark_func(rt, &cfunc.realm);
+            }
         }
     }
 }

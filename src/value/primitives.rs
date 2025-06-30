@@ -3,11 +3,8 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     function::JS_Call,
-    gc::GCMarkFunc,
     runtime::JSRuntime,
-    value::{
-        HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue, JSValueConst, object::JSObjectIsa,
-    },
+    value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue, object::JSObjectIsa},
 };
 
 impl From<bool> for JSValue {
@@ -118,9 +115,16 @@ pub fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize
     // );
 }
 
-pub unsafe fn js_object_data_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-    (*rt).gc_mark_value(
-        val.object_unchecked().0.isa.borrow().value().unwrap(),
-        mark_func,
-    );
+pub fn js_object_data_mark(val: JSValue) {
+    let v = unsafe {
+        val.object_unchecked()
+            .0
+            .isa
+            .borrow()
+            .value()
+            .unwrap()
+            .clone()
+    };
+
+    v.gc_mark();
 }

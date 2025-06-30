@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
@@ -9,10 +6,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JSNativeCallback, js_function_set_properties},
-    gc::GCMarkFunc,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, object::JSObjectIsa},
 };
 
 #[derive(Debug)]
@@ -140,10 +136,12 @@ impl CallableValue {
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        if let JSObjectIsa::C_FUNCTION_DATA(p) = val.object_unchecked().0.isa.borrow().deref() {
-            for d in p.as_ref().data() {
-                (*rt).gc_mark_value(d, mark_func);
+    pub fn hook_mark(val: JSValue) {
+        unsafe {
+            if let JSObjectIsa::C_FUNCTION_DATA(p) = val.object_unchecked().0.isa.borrow().deref() {
+                for d in p.as_ref().data() {
+                    d.gc_mark();
+                }
             }
         }
     }

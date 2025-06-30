@@ -5,7 +5,6 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{JS_Call, JSCFunctionEnum},
-    gc::GCMarkFunc,
     map::MapKV,
     runtime::JSRuntime,
     value::{
@@ -248,9 +247,10 @@ pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, _id: 
     }
 }
 
-pub unsafe fn js_for_in_iterator_mark(rt: *mut JSRuntime, val: JSValue, mark_func: GCMarkFunc) {
-    if let JSObjectIsa::FOR_IN_ITERATOR(it) = val.object_unchecked().0.isa.borrow().deref() {
-        (*rt).gc_mark_value(&it.obj, mark_func);
+pub fn js_for_in_iterator_mark(val: JSValue) {
+    let p = unsafe { val.object_unchecked() };
+    if let JSObjectIsa::FOR_IN_ITERATOR(it) = p.0.isa.borrow().deref() {
+        it.obj.gc_mark();
     }
 }
 

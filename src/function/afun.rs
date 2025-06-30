@@ -8,7 +8,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::{JS_MODE_ASYNC, JSContext},
     error::{JS_ThrowStackOverflow, JSResult},
-    gc::{GCMarkFunc, GCObjectHeader},
+    gc::GCObjectHeader,
     promise::{PromiseValue, js_promise_resolve},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
@@ -243,10 +243,13 @@ impl JSAsyncFunctionState {
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        //if let Some(s) = val.object().and_then(|p| p.isa().async_func_state()) {
-        // mark_func(rt, s);
-        //}
+    pub fn hook_mark(val: JSValue) {
+        if let Some(s) = val
+            .object()
+            .and_then(|p| p.0.isa.borrow().async_func_state().cloned())
+        {
+            s.gc_mark();
+        }
     }
 }
 

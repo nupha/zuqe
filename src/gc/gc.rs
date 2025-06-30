@@ -1,10 +1,8 @@
-use std::{ops::Deref, os::raw::c_void, ptr::NonNull};
+use std::{os::raw::c_void, ptr::NonNull};
 
 use crate::{
     context::JSContext,
-    function::JSVarRef,
     runtime::JSRuntime,
-    utils::Node,
     value::{JSValueConst, object::GCObjectWeakref},
 };
 
@@ -105,14 +103,38 @@ impl JSRuntime {
 
     /// Executes garbage collection process once
     pub fn gc(&mut self) {
-        // decrement the reference of the children of each object. mark = 1 after this pass.
-        self.gc_decref();
+        // clear mark
+        for (_, w) in self.gc_obj_list.iter() {
+            if let Some(o) = w.upgrade() {
+                o.gc_set_mark(false);
+            }
+        }
 
-        // keep the GC objects with a non zero refcount and their childs
-        self.gc_scan();
+        // mark
+        for c in self.context_list.iter() {
+            c.gc_mark();
+        }
 
-        // free the GC objects in a cycle
-        self.gc_free_cycles();
+        // sweep
+        self.gc_obj_list.retain(|_, w| {
+            if let Some(o) = w.upgrade() {
+                if o.gc_has_mark() {
+                    println!("[O.o] has mark: {o:?}");
+                    true
+                } else {
+                    println!("[O.o] todo sweep gc obj {o:?}");
+                    false
+                }
+            } else {
+                false
+            }
+        });
+
+        // // keep the GC objects with a non zero refcount and their childs
+        // self.gc_scan();
+
+        // // free the GC objects in a cycle
+        // self.gc_free_cycles();
     }
 
     pub fn gc_dump_objects(&mut self, which: u8) {

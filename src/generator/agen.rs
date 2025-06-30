@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -8,7 +8,6 @@ use crate::{
     function::{
         CallContext, JS_Call, JSAsyncFunctionState, JSCFunctionListEntry, async_func_resume,
     },
-    gc::GCMarkFunc,
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
@@ -113,23 +112,21 @@ impl AsyncGeneratorValue {
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        println!("[O.o] TODO asycn generator value mark");
+    pub fn hook_mark(val: JSValue) {
+        let p = unsafe { val.object_unchecked() };
 
-        // if let Some(JSObjectIsa::ASYNC_GENERATOR(p)) = val.object().map(|o| o.isa()) {
-        //     list_foreach(&mut p.as_mut().unwrap().queue, |el| {
-        //         let req = list_entry!(el, JSAsyncGeneratorRequest, link);
+        if let JSObjectIsa::ASYNC_GENERATOR(Some(gd)) = p.0.isa.borrow().deref() {
+            if let Some(st) = &gd.func_state {
+                st.gc_mark();
+            }
 
-        //         (*rt).gc_mark_value((*req).result, mark_func);
-        //         (*rt).gc_mark_value((*req).promise, mark_func);
-        //         (*rt).gc_mark_value((*req).resolving_funcs[0], mark_func);
-        //         (*rt).gc_mark_value((*req).resolving_funcs[1], mark_func);
-        //     });
-
-        //     if !p.as_ref().unwrap().func_state.is_null() {
-        //         mark_func(rt, p.as_ref().unwrap().func_state);
-        //     }
-        // }
+            for req in gd.queue.iter() {
+                req.result.gc_mark();
+                req.promise.gc_mark();
+                req.resolving_funcs[0].gc_mark();
+                req.resolving_funcs[1].gc_mark();
+            }
+        }
     }
 }
 

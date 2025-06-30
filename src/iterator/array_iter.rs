@@ -6,12 +6,10 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
-    gc::GCMarkFunc,
-    mem::js_malloc_typed,
     runtime::JSRuntime,
     typed_array::TypedArrayValue,
     value::{
-        JS_FreeValue, JS_ToStringCheckObject, JSValue, JSValueConst,
+        JS_ToStringCheckObject, JSValue,
         object::{JSObjectIsa, js_get_length32},
     },
 };
@@ -28,11 +26,12 @@ pub struct JSArrayIteratorData {
 impl JSArrayIteratorData {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
+    pub fn hook_mark(val: JSValue) {
+        let p = unsafe { val.object_unchecked() };
         if let JSObjectIsa::ARRAY_ITERATOR(it) | JSObjectIsa::STRING_ITERATOR(it) =
-            val.object_unchecked().0.isa.borrow().deref()
+            p.0.isa.borrow().deref()
         {
-            // rt.gc_mark_value(&it.obj, mark_func);
+            it.obj.gc_mark();
         }
     }
 }

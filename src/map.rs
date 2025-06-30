@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::{
     context::JSContext,
-    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{
         JSValue, JSValueConst,
@@ -206,19 +205,23 @@ impl JSMapState {
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        todo!();
-
-        // let s = val.object_unchecked().isa().map_state();
-        // if !s.is_null() {
-        //     list_foreach(&mut (*s).records, |el| {
-        //         let mr = list_entry!(el, JSMapRecord, link);
-        //         if !(*s).is_weak {
-        //             (*rt).gc_mark_value((*mr).key, mark_func);
-        //         }
-        //         (*rt).gc_mark_value((*mr).value, mark_func);
-        //     });
-        // }
+    pub fn hook_mark(val: JSValue) {
+        let p = unsafe { val.object_unchecked() };
+        if let Some(s) = p.0.isa.borrow().map_state() {
+            for lst in s.items.values() {
+                for kv in lst {
+                    match kv {
+                        MapKV::Strong { key, value } => {
+                            key.gc_mark();
+                            value.gc_mark();
+                        }
+                        MapKV::Weak { value, .. } => {
+                            value.gc_mark();
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -277,6 +280,6 @@ pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usiz
     unimplemented!();
 }
 
-pub unsafe fn js_map_iterator_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
+pub fn js_map_iterator_mark(val: JSValue) {
     unimplemented!();
 }

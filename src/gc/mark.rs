@@ -1,101 +1,203 @@
 use crate::{
+    JS_CLASS_OBJECT,
     context::JSContext,
-    error::JS_NATIVE_ERROR_COUNT,
-    list_entry,
+    function::{JSAsyncFunctionState, JSFunctionBytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, JSModuleDef},
-    runtime::JSRuntime,
-    utils::list_foreach,
     value::{
         JSValue,
-        object::{GCObject, JSProperty},
+        object::{AutoInitType, JSObject, JSProperty, JSShape},
     },
 };
 
-/// Function type for marking objects during garbage collection
-/// Parameters:
-/// - rt: Pointer to the JavaScript runtime
-/// - gp: Pointer to the garbage collected object header
-pub type GCMarkFunc = unsafe fn(rt: *mut JSRuntime, ob: &GCObject);
+impl JSObject {
+    pub fn gc_mark(&self) {
+        if !self.gc_has_mark() {
+            self.gc_set_mark(true);
 
-impl JSRuntime {
-    /// Marks a JavaScript value during garbage collection
-    /// Only marks values that have reference counts (objects and function bytecode)
-    pub(crate) fn gc_mark_value(&mut self, val: &JSValue, mark_func: GCMarkFunc) {
-        match val {
-            JSValue::Object(o) => unsafe {
-                // mark_func(self, val);
-            },
-            JSValue::FunctionBytecode(_) => unsafe {
-                // mark_func(self, val);
-            },
-            _ => {}
-        }
-    }
+            // Mark shape
+            self.shape().unwrap().gc_mark();
 
-    pub unsafe fn gc_mark_module_def(&mut self, m: &mut JSModuleDef, mark_func: GCMarkFunc) {
-        for me in m.0.borrow_mut().export_entries.iter_mut() {
-            if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                var_ref: Some(vr), ..
-            } = &me.export_type
-            {
-                // mark for var_ref
-                // mark_func(self, vr);
+            // Mark all fields
+            let len = self.0.prop_values.borrow().len();
+            for i in 0..len {
+                let pr = self.0.prop_values.borrow()[i].clone();
+                pr.gc_mark();
+            }
+
+            let class_id = self.class_id();
+            if class_id != JS_CLASS_OBJECT {
+                if let Some(f) = self.rt().class_array[class_id as usize].gc_mark {
+                    f(JSValue::Object(self.clone()));
+                }
             }
         }
-
-        let m = m.0.borrow();
-        self.gc_mark_value(&m.module_ns, mark_func);
-        self.gc_mark_value(&m.func_obj, mark_func);
-        self.gc_mark_value(&m.eval_exception, mark_func);
-        self.gc_mark_value(&m.meta_obj, mark_func);
-        self.gc_mark_value(&m.promise, mark_func);
-        self.gc_mark_value(&m.resolving_funcs[0], mark_func);
-        self.gc_mark_value(&m.resolving_funcs[1], mark_func);
     }
+}
 
-    /// Marks the realm associated with an auto-initialized property
-    /// This ensures the realm is preserved during garbage collection
-    pub unsafe fn gc_mark_autoinit(&mut self, pr: *mut JSProperty, mark_func: GCMarkFunc) {
-        // Get the realm from the property and mark its header
-        let realm = (*pr).auto_init_realm().unwrap();
-        //  mark_func(self, realm);
+impl JSProperty {
+    pub fn gc_mark(&self) {
+        match self {
+            JSProperty::Normal(val) => {
+                val.gc_mark();
+            }
+            JSProperty::GetSet { getter, setter } => {
+                if let Some(o) = getter {
+                    o.gc_mark();
+                }
+                if let Some(o) = setter {
+                    o.gc_mark();
+                }
+            }
+            JSProperty::VarRef(vref) => {
+                let state = vref.0.borrow().state.clone();
+                match state {
+                    VarRefState::Detached { value } => {
+                        value.gc_mark();
+                    }
+                    VarRefState::Bind {
+                        pvalue, async_func, ..
+                    } => unsafe {
+                        pvalue.as_ref().gc_mark();
+                        if let Some(a) = &async_func {
+                            a.gc_mark();
+                        }
+                    },
+                }
+            }
+            JSProperty::AutoInit {
+                realm,
+                init_type,
+                opaque,
+            } => match init_type {
+                AutoInitType::ModuleNS(m) => {
+                    m.gc_mark();
+                }
+                AutoInitType::Prototype | AutoInitType::Prop(_) => {}
+            },
+        }
     }
+}
 
-    pub unsafe fn gc_mark_context(&mut self, ctx: &JSContext, mark_func: GCMarkFunc) {
-        // Modules are not seen by the GC, so we directly mark the objects
-        // referenced by each module
+impl JSShape {
+    pub fn gc_mark(&self) {
+        if !self.gc_has_mark() {
+            self.gc_set_mark(true);
 
-        // list_foreach(&mut ctx.loaded_modules, |el| {
-        //     let m = list_entry!(el, JSModuleDef, link);
-        //     self.gc_mark_module_def(m.as_mut().unwrap(), mark_func);
-        // });
+            let proto = self.0.borrow().proto.clone();
+            if let Some(p) = proto {
+                p.gc_mark();
+            }
+        }
+    }
+}
 
-        // self.gc_mark_value(ctx.global_obj, mark_func);
-        // self.gc_mark_value(ctx.global_var_obj, mark_func);
+impl JSModuleDef {
+    pub fn gc_mark(&self) {
+        if !self.gc_has_mark() {
+            self.gc_set_mark(true);
 
-        // self.gc_mark_value(ctx.throw_type_error, mark_func);
-        // self.gc_mark_value(ctx.eval_func, mark_func);
+            {
+                let m = self.0.borrow();
+                m.module_ns.gc_mark();
+                m.func_obj.gc_mark();
+                m.eval_exception.gc_mark();
+                m.meta_obj.gc_mark();
+                m.promise.gc_mark();
+                m.resolving_funcs[0].gc_mark();
+                m.resolving_funcs[1].gc_mark();
+            }
 
-        // self.gc_mark_value(ctx.array_proto_values, mark_func);
+            for me in self.0.borrow_mut().export_entries.iter_mut() {
+                if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                    var_ref: Some(vr), ..
+                } = &me.export_type
+                {
+                    vr.gc_mark();
+                }
+            }
+        }
+    }
+}
 
-        // for i in 0..JS_NATIVE_ERROR_COUNT {
-        //     self.gc_mark_value(ctx.native_error_proto[i], mark_func);
-        // }
+impl JSFunctionBytecode {
+    pub fn gc_mark(&self) {
+        if !self.gc_has_mark() {
+            self.gc_set_mark(true);
 
-        // for cproto in ctx.class_proto.iter() {
-        //     self.gc_mark_value(*cproto, mark_func);
-        // }
+            // The template objects can be part of a cycle
+            self.cpools_slice().iter().for_each(|v| {
+                v.gc_mark();
+            });
+        }
+    }
+}
 
-        // self.gc_mark_value(ctx.iterator_proto, mark_func);
-        // self.gc_mark_value(ctx.async_iterator_proto, mark_func);
-        // self.gc_mark_value(ctx.promise_ctor, mark_func);
-        // self.gc_mark_value(ctx.array_ctor, mark_func);
-        // self.gc_mark_value(ctx.regexp_ctor, mark_func);
-        // self.gc_mark_value(ctx.function_ctor, mark_func);
-        // self.gc_mark_value(ctx.function_proto, mark_func);
+impl JSVarRef {
+    pub fn gc_mark(&self) {
+        let state = self.0.borrow().state.clone();
+        match state {
+            VarRefState::Detached { value } => {
+                value.gc_mark();
+            }
+            VarRefState::Bind { async_func, .. } => {
+                if let Some(af) = async_func {
+                    af.gc_mark();
+                }
+            }
+        }
+    }
+}
 
-        // if !ctx.array_shape.is_null() {
-        //     mark_func(self, ctx.array_shape);
-        // }
+impl JSAsyncFunctionState {
+    pub fn gc_mark(&self) {
+        self.0.borrow().this_val.gc_mark();
+        self.0.borrow().resolving_funcs[0].gc_mark();
+        self.0.borrow().resolving_funcs[1].gc_mark();
+    }
+}
+
+impl JSContext {
+    pub fn gc_mark(&self) {
+        if !self.gc_has_mark() {
+            self.gc_set_mark(true);
+
+            let cx = self.0.borrow();
+
+            if let Some(o) = &cx.array_shape {
+                o.gc_mark();
+            }
+            for p in cx.class_proto.iter() {
+                p.gc_mark();
+            }
+            cx.function_proto.gc_mark();
+            cx.function_ctor.gc_mark();
+            cx.array_ctor.gc_mark();
+            cx.regexp_ctor.gc_mark();
+            cx.promise_ctor.gc_mark();
+            for p in cx.native_error_proto.iter() {
+                p.gc_mark();
+            }
+            cx.iterator_proto.gc_mark();
+            cx.async_iterator_proto.gc_mark();
+            cx.array_proto_values.gc_mark();
+            cx.throw_type_error.gc_mark();
+            cx.eval_func.gc_mark();
+            cx.global_obj.gc_mark();
+            cx.global_var_obj.gc_mark();
+        }
+    }
+}
+
+impl JSValue {
+    pub fn gc_mark(&self) {
+        match self {
+            JSValue::Object(o) => {
+                o.gc_mark();
+            }
+            JSValue::FunctionBytecode(b) => {
+                b.gc_mark();
+            }
+            _ => {}
+        }
     }
 }

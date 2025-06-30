@@ -173,7 +173,11 @@ impl JSObject {
                             init_type,
                             opaque,
                         } => {
-                            print!("[autoinit 0x{:x} {:p}]", realm.id(), opaque);
+                            print!(
+                                "[autoinit 0x{:x} {:p}]",
+                                realm.upgrade().unwrap().id(),
+                                opaque
+                            );
                         }
                     }
 

@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use crate::{
     atom::{JS_FreeAtomRT, JSAtom},
     context::JSContext,
-    gc::{GCMarkFunc, GCObjectHeader},
+    gc::GCObjectHeader,
     runtime::JSRuntime,
     value::{
         JSValue,
@@ -320,15 +320,6 @@ impl JSShape {
 
     pub fn gc_set_mark(&self, mark: bool) {
         self.0.borrow_mut().header.gc_set_mark(mark);
-    }
-
-    pub fn gc_mark_children(&self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-        let proto = self.0.borrow().proto.clone();
-        if let Some(p) = proto {
-            unsafe {
-                todo!(); // mark_func(rt, &p);
-            }
-        }
     }
 
     fn gc_dump(&self, rt: &JSRuntime) {

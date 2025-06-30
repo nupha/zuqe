@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY,
     atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
-    context::JSContext,
+    context::{JSContext, JSContextWeakref},
     error::JS_ThrowReferenceErrorUninitialized,
     function::{JS_Call, JSVarRef},
     proxy::js_proxy_isExtensible,
@@ -198,7 +198,7 @@ pub enum JSProperty {
     VarRef(JSVarRef),
     /// TODO: use Box<PropertyInit> instead
     AutoInit {
-        realm: JSContext,
+        realm: JSContextWeakref,
         init_type: AutoInitType,
         opaque: *mut c_void,
     },
@@ -231,7 +231,7 @@ impl JSProperty {
     /// for other property types, returns None.
     pub(crate) fn auto_init_realm(&self) -> Option<JSContext> {
         if let JSProperty::AutoInit { realm, .. } = self {
-            Some(realm.clone())
+            realm.upgrade()
         } else {
             None
         }

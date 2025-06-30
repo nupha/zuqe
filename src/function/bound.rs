@@ -3,7 +3,6 @@ use std::ops::{Deref, DerefMut};
 use crate::{
     context::JSContext,
     error::JSResult,
-    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
@@ -24,16 +23,16 @@ pub struct BoundFunctionValue(JSValue);
 impl BoundFunctionValue {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        if let JSObjectIsa::BOUND_FUNCTION(bf) =
-            val.object_unchecked().0.isa.borrow_mut().deref_mut()
-        {
-            (*rt).gc_mark_value(&val, mark_func);
-            (*rt).gc_mark_value(&bf.func_obj, mark_func);
-            (*rt).gc_mark_value(&bf.this_val, mark_func);
+    pub fn hook_mark(val: JSValue) {
+        unsafe {
+            if let JSObjectIsa::BOUND_FUNCTION(bf) = val.object_unchecked().0.isa.borrow().deref() {
+                val.gc_mark();
+                bf.func_obj.gc_mark();
+                bf.this_val.gc_mark();
 
-            for a in bf.bind_args.iter() {
-                (*rt).gc_mark_value(a, mark_func);
+                for a in bf.bind_args.iter() {
+                    a.gc_mark();
+                }
             }
         }
     }

@@ -15,7 +15,7 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
-    gc::{GCMarkFunc, GCObjectHeader},
+    gc::GCObjectHeader,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
@@ -438,19 +438,6 @@ impl JSFunctionBytecodeInner {
         if self.has_debug {
             JS_FreeAtomRT(rt, self.debug.filename);
             self.debug.filename = JS_ATOM_NULL;
-        }
-    }
-
-    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-        // The template objects can be part of a cycle
-        self.cpools_slice().iter().for_each(|v| {
-            rt.gc_mark_value(v, mark_func);
-        });
-
-        if let Some(r) = self.realm.upgrade() {
-            // unsafe {
-            //     mark_func(rt, r);
-            // }
         }
     }
 }

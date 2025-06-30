@@ -1,14 +1,12 @@
 use std::{
     cell::RefCell,
-    pin::Pin,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
 
 use crate::{
-    container_of,
     context::{JS_MODE_ASYNC, JSContext},
-    gc::{GCMarkFunc, GCObjectHeader},
+    gc::GCObjectHeader,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     value::{JSValue, object::GCObjectWeakref},
@@ -168,19 +166,6 @@ impl JSVarRefInner {
             async_func.clone()
         } else {
             None
-        }
-    }
-
-    fn gc_mark_children(&mut self, rt: &mut JSRuntime, mark_func: GCMarkFunc) {
-        match &self.state {
-            VarRefState::Detached { value } => {
-                rt.gc_mark_value(value, mark_func);
-            }
-            VarRefState::Bind { async_func, .. } => {
-                if let Some(af) = async_func {
-                    // mark_func(rt, af);
-                }
-            }
         }
     }
 

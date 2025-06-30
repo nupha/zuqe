@@ -6,7 +6,6 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call, JSCFunctionListEntry},
-    gc::GCMarkFunc,
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
@@ -219,16 +218,12 @@ pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectI
     // }
 }
 
-pub unsafe fn js_async_from_sync_iterator_mark(
-    rt: *mut JSRuntime,
-    val: JSValueConst,
-    mark_func: GCMarkFunc,
-) {
-    todo!();
-    // if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
-    //     (*rt).gc_mark_value(p.sync_iter, mark_func);
-    //     (*rt).gc_mark_value(p.next_method, mark_func);
-    // }
+pub fn js_async_from_sync_iterator_mark(val: JSValue) {
+    let p = unsafe { val.object_unchecked() };
+    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(it) = p.0.isa.borrow().deref() {
+        it.sync_iter.gc_mark();
+        it.next_method.gc_mark();
+    }
 }
 
 pub const js_async_from_sync_iterator_proto_funcs: [JSCFunctionListEntry; 3] = [

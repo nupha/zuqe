@@ -5,7 +5,6 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    gc::GCMarkFunc,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
@@ -97,10 +96,10 @@ impl PromiseResolvingFuncValue {
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
 
-    pub unsafe fn hook_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: GCMarkFunc) {
-        let mut isa = val.object_unchecked().0.isa.borrow_mut();
-        if let Some(s) = isa.promise_func_data_mut() {
-            (*rt).gc_mark_value(&s.promise.0, mark_func);
+    pub fn hook_mark(val: JSValueConst) {
+        let isa = unsafe { val.object_unchecked().0.isa.borrow() };
+        if let Some(s) = isa.promise_func_data() {
+            s.promise.0.gc_mark();
         }
     }
 }

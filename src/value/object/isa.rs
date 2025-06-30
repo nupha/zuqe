@@ -106,6 +106,14 @@ impl JSObjectIsa {
     //         _ => Err(-1),
     //     }
     // }
+
+    pub const fn promise_func_data(&self) -> Option<&JSPromiseFunctionData> {
+        match self {
+            Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
+            _ => None,
+        }
+    }
+
     pub const fn promise_func_data_mut(&mut self) -> Option<&mut JSPromiseFunctionData> {
         match self {
             Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
