@@ -12,14 +12,10 @@ use crate::{
         DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSFunctionKindEnum, JSGlobalVar, JSVarDef,
         JSVarKindEnum, JSVarScope, free_bytecode_atoms,
     },
-    list_entry,
     mem::js_malloc_typed,
     module::JSModuleDef,
     parse::JSParseFunctionEnum,
-    utils::{
-        init_list_head, list_add_tail, list_del, list_foreach_safe, list_head, push_vec_u8,
-        push_vec_u16, push_vec_u32, read_from_ptr,
-    },
+    utils::{push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
     value::{
         JSValue,
         object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
