@@ -38,14 +38,14 @@ pub enum JSParseFunctionEnum {
 }
 
 impl<'s> JSParseState<'s> {
-    /// Creates a new function definition as child of the current function def.
-    /// The new function definition is used to parse the function body.
+    /// Creates a sub function definition (as child of the current function def).
+    /// to parse the function body.
     /// Returns the newly created function definition.
     /// For JS_PARSE_FUNC_STATEMENT, JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR,
     /// func_name must be JS_ATOM_NULL.
     ///
     /// Note: `func_name` is **CONSUMED** inside.
-    fn parse_function_body_to_sub_fd(
+    fn parse_function_body(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
@@ -678,7 +678,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // create sub FunctionDef to parse function body, returns new sub fd.
-        let mut fd1 = self.parse_function_body_to_sub_fd(
+        let mut fd1 = self.parse_function_body(
             func_type,
             func_kind,
             func_name, // this will be consumed
@@ -826,7 +826,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        // fd1 is added to children list of fd0,
+        // fd1 raw pointer was added to children list of fd0,
         // rust should give up its ownership.
         let fd_ptr = Box::into_raw(fd1);
         if !pfd.is_null() {
