@@ -72,9 +72,6 @@ pub struct JSRuntime {
 
     pub malloc_gc_threshold: usize,
 
-    #[cfg(feature = "dump_leaks")]
-    pub debug_string_list: list_head, /* list of JSString.link */
-
     /* stack limitation */
     pub stack_size: usize, /* in bytes, 0 if no limit */
     pub stack_top: usize,
@@ -170,16 +167,11 @@ impl JSRuntime {
                 reg
             },
 
-            #[cfg(feature = "dump_leaks")]
-            debug_string_list: list_head::default(),
-
             user_opaque: std::ptr::null_mut(),
             interrupt_opaque: std::ptr::null_mut(),
         });
 
         init_list_head(&mut rt.job_list);
-        #[cfg(feature = "dump_leaks")]
-        init_list_head(&mut rt.debug_string_list);
 
         rt.init_default_atoms()?;
 

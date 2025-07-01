@@ -1,4 +1,4 @@
-use std::{os::raw::c_void, ptr::NonNull};
+use std::os::raw::c_void;
 
 use crate::{
     context::JSContext,
@@ -35,75 +35,6 @@ impl JSRuntime {
         self.gc_obj_list.insert(id, gcob);
     }
 
-    /// Frees objects in zeroed gc list
-    pub unsafe fn gc_free_zeroed(&mut self) {
-        // Set GC phase to decrement reference count
-        self.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_DECREF;
-
-        println!("[O.o] TODO gc free zeroed");
-
-        // while let Some(mut node) = self.gc_zero_ref_count_list.pop() {
-        //     if self.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && node.ref_count() != 0 {
-        //         self.gc_zero_ref_count_list.push(node);
-        //     }
-
-        //     // node is dropped here
-        // }
-
-        // Reset GC phase
-        self.gc_phase = JSGCPhaseEnum::JS_GC_PHASE_NONE;
-    }
-
-    /// Decreases reference counts for all child objects in the GC object list.
-    /// Moves objects with zero reference count to a temporary list for cleanup.
-    pub fn gc_decref(&mut self) {
-        debug_assert!(self.tmp_obj_list.is_empty());
-
-        let mut rt = unsafe { NonNull::new_unchecked(self) };
-
-        for node in self.gc_obj_list.iter_mut() {
-            // debug_assert_eq!(node.gc_mark(), 0);
-
-            // node.gc_mark_children(unsafe { rt.as_mut() }, |rt, p| unsafe {
-            //     debug_assert!(!p.is_null());
-
-            //     #[cfg(debug_assertions)]
-            //     if (*p).gc_mark() == 0 {
-            //         // if (*p).ref_count() == 0 {
-            //         //     (*p).gc_dump(rt.as_ref().unwrap());
-            //         //     let n = (*p).gc_node_ptr();
-            //         //     Node::unlink(n);
-            //         //     // panic!("object in gc list must have ref count greater than 0, if it's not in marking")
-            //         // }
-
-            //         debug_assert!(
-            //             (*p).ref_count() > 0,
-            //             "object in gc list must have ref count greater than 0, if it's not in marking"
-            //         );
-            //     }
-
-            //     // must do def_ref() first
-            //     if (*p).dec_ref() == 0 && (*p).gc_mark() == 1 {
-            //         let n = (*p).gc_node_ptr();
-            //         Node::unlink(n);
-            //         (*rt).tmp_obj_list.push_raw(n);
-            //     } else {
-            //         // node is dropped
-            //     }
-            // });
-
-            // node.set_gc_mark(1);
-
-            // if node.ref_count() == 0 {
-            //     unsafe {
-            //         let n = NonNull::from(node);
-            //         Node::unlink(n);
-            //         self.tmp_obj_list.push_raw(n);
-            //     }
-            // }
-        }
-    }
-
     /// Executes garbage collection process once
     pub fn gc(&mut self) {
         // clear mark
@@ -138,12 +69,6 @@ impl JSRuntime {
             println!("[O.o] sweep gc obj {obj:?}");
             obj.gc_sweep();
         }
-
-        // // keep the GC objects with a non zero refcount and their childs
-        // self.gc_scan();
-
-        // // free the GC objects in a cycle
-        // self.gc_free_cycles();
     }
 
     pub fn gc_dump_objects(&mut self, which: u8) {

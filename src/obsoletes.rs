@@ -1556,7 +1556,7 @@ pub unsafe fn remove_gc_object(h: *mut GCObjectHeader) {
 /// Frees objects with zero reference count (in gc_zero_ref_count_list chain).
 #[deprecated(note = "use JSRuntime::gc_free_zeroed() instead")]
 pub unsafe fn free_zero_refcount(rt: *mut JSRuntime) {
-    (*rt).gc_free_zeroed();
+    unreachable!("unused");
 }
 
 /// Decrements the reference count of a child GC object

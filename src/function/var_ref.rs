@@ -101,7 +101,7 @@ impl JSVarRefInner {
     }
 
     /// get raw pointer to value
-    pub fn value_ptr(&self) -> NonNull<JSValue> {
+    fn value_ptr(&self) -> NonNull<JSValue> {
         match &self.state {
             VarRefState::Bind { pvalue, .. } => *pvalue,
             VarRefState::Detached { value } => NonNull::from(value),
@@ -223,7 +223,7 @@ impl JSVarRef {
 
     /// get pointer to value of the var.
     #[inline(always)]
-    pub fn value_ptr(&self) -> NonNull<JSValue> {
+    pub(crate) fn value_ptr(&self) -> NonNull<JSValue> {
         self.0.borrow().value_ptr()
     }
 
@@ -339,14 +339,14 @@ impl JSStackFrame {
         if let Some(vr) = self
             .var_ref_list
             .iter()
-            .find(|v| unsafe { v.var_idx() == Some(var_idx) && v.is_arg() == is_arg })
+            .find(|v| v.var_idx() == Some(var_idx) && v.is_arg() == is_arg)
             .cloned()
         {
             return Ok(vr);
         }
 
         // make new VarRef bind to target var_idx
-        let mut vref = JSVarRef::new_bind(
+        let vref = JSVarRef::new_bind(
             ctx.rt_mut(),
             var_idx,
             is_arg,

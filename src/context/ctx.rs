@@ -20,7 +20,6 @@ use crate::{
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    utils::list_head,
     value::{
         JSValue,
         object::{

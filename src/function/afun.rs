@@ -459,8 +459,8 @@ pub fn js_async_function_resume(ctx: &JSContext, s: &JSAsyncFunctionState) {
             js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
         };
         if promise.is_exception() {
-            let mut error = ctx.take_exception();
-            let ret2 = JS_Call(
+            let error = ctx.take_exception();
+            JS_Call(
                 ctx,
                 &s.0.borrow().resolving_funcs[1],
                 &JSValue::UNDEFINED,

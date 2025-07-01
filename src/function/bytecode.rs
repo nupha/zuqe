@@ -1,6 +1,7 @@
 use std::{
     cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},
+    os::raw::c_void,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -417,34 +418,44 @@ impl JSFunctionBytecodeInner {
     }
 
     fn finalize(&mut self) {
-        let rt = self.header.rt_mut() as *mut JSRuntime;
+        let rt = self.header.rt_ptr();
 
-        free_bytecode_atoms(rt, &self.binary[self.bytecode_start as usize..], true);
+        free_bytecode_atoms(
+            rt.as_ptr(),
+            &self.binary[self.bytecode_start as usize..],
+            true,
+        );
 
         // free vardef var_name atom
         for vd in self.vardefs_slice() {
-            JS_FreeAtomRT(rt, vd.var_name);
+            JS_FreeAtomRT(rt.as_ptr(), vd.var_name);
         }
 
         // free closure vars atom
         for cv in self.closure_vars_slice() {
-            JS_FreeAtomRT(rt, cv.var_name);
+            JS_FreeAtomRT(rt.as_ptr(), cv.var_name);
         }
 
         // free func name atom
-        JS_FreeAtomRT(rt, self.func_name);
+        JS_FreeAtomRT(rt.as_ptr(), self.func_name);
         self.func_name = JS_ATOM_NULL;
 
         if self.has_debug {
-            JS_FreeAtomRT(rt, self.debug.filename);
+            JS_FreeAtomRT(rt.as_ptr(), self.debug.filename);
             self.debug.filename = JS_ATOM_NULL;
         }
     }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JSFunctionBytecode(pub(crate) Rc<RefCell<JSFunctionBytecodeInner>>);
+
+impl std::fmt::Debug for JSFunctionBytecode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<Bytecode {:p}>", self.id() as *const c_void)
+    }
+}
 
 impl From<JSFunctionBytecode> for GCObject {
     fn from(value: JSFunctionBytecode) -> Self {

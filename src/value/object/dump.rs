@@ -180,29 +180,6 @@ impl JSObject {
                             );
                         }
                     }
-
-                    // match prs.flags() & JS_PROP_TMASK {
-                    //     JS_PROP_NORMAL => unsafe {
-                    //         print!("{}", pr.u.value.repr(rt));
-                    //     },
-                    //     JS_PROP_GETSET => unsafe {
-                    //         print!("[getset {:p} {:p}]", pr.u.getset.getter, pr.u.getset.setter);
-                    //     },
-                    //     JS_PROP_VARREF => unsafe {
-                    //         print!("[varref {:p}]", pr.u.var_ref.deref());
-                    //     },
-                    //     JS_PROP_AUTOINIT => unsafe {
-                    //         print!(
-                    //             "[autoinit 0x{:x} {} {:p}]",
-                    //             pr.realm().unwrap().id(),
-                    //             js_autoinit_get_id(pr),
-                    //             pr.u.init.opaque
-                    //         );
-                    //     },
-                    //     _ => {
-                    //         unreachable!();
-                    //     }
-                    // }
                 } else {
                     // prop value slots is cleared
                     print!("<?>");
