@@ -69,17 +69,19 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj_val)
 }
 
-pub fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: JSValue) -> JSResult {
-    let res = {
-        let b = obj.is_array(ctx)?;
-        if !b {
-            return js_array_constructor(
+fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> JSResult {
+    if !obj.is_array(ctx)? {
+        return js_array_constructor(
+            ctx,
+            CallContext::new(
                 ctx,
-                CallContext::new(ctx, JSValue::UNDEFINED, &[len_val], 0, None),
-            );
-        }
-        b
-    };
+                JSValue::UNDEFINED,
+                std::slice::from_ref(len_val),
+                0,
+                None,
+            ),
+        );
+    }
 
     let mut ctor = obj
         .get_property(ctx, JS_ATOM_constructor)
@@ -106,10 +108,16 @@ pub fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: JSValue) -
     if ctor.is_undefined() {
         js_array_constructor(
             ctx,
-            CallContext::new(ctx, JSValue::UNDEFINED, &[len_val], 0, None),
+            CallContext::new(
+                ctx,
+                JSValue::UNDEFINED,
+                std::slice::from_ref(len_val),
+                0,
+                None,
+            ),
         )
     } else {
-        JS_CallConstructor(ctx, &ctor, &[len_val]).check_exception()
+        JS_CallConstructor(ctx, &ctor, std::slice::from_ref(len_val)).check_exception()
     }
 }
 
@@ -264,7 +272,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
-    let arr = unsafe { JS_ArraySpeciesCreate(ctx, &obj, JSValue::Int(0))? };
+    let arr = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))?;
 
     let mut n = 0;
 
@@ -332,10 +340,10 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             ret = JSValue::Bool(false);
         }
         special_map => {
-            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, JSValue::from_i64(len))? };
+            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, &JSValue::from_i64(len))? };
         }
         special_filter => {
-            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, JSValue::Int(0))? };
+            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))? };
         }
         s if s == special_map | special_TA => {
             ret = js_typed_array___speciesCreate(
@@ -1036,7 +1044,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let len_val = JSValue::from_i64(count);
-    let arr = JS_ArraySpeciesCreate(ctx, &obj, len_val)?;
+    let arr = JS_ArraySpeciesCreate(ctx, &obj, &len_val)?;
 
     let final_ = start + count;
     let mut k = start;
@@ -1261,7 +1269,7 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let res_arr = JS_ArraySpeciesCreate(ctx, &source, JSValue::Int(0))?;
+    let res_arr = JS_ArraySpeciesCreate(ctx, &source, &JSValue::Int(0))?;
 
     JS_FlattenIntoArray(
         ctx,
