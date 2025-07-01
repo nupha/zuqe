@@ -505,11 +505,8 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     // JS_DumpGCObjects(js.as_mut());
     // JS_DumpAtoms(js.as_mut());
 
-    // unsafe {
-    //     JS_FreeContext(&ctx);
-    // }
-
-    drop(rt);
+    // drop(ctx);
+    // drop(rt);
 }
 
 fn main() {

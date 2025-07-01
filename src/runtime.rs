@@ -57,7 +57,7 @@ pub struct JSRuntime {
     pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
     /// registered classes
-    pub class_array: Vec<JSClass>,
+    pub class_defs: Vec<JSClass>,
 
     /// context list
     pub context_list: Vec<JSContext>,
@@ -137,7 +137,7 @@ impl JSRuntime {
                 lst
             },
 
-            class_array: Vec::new(),
+            class_defs: Vec::new(),
 
             current_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
@@ -187,37 +187,39 @@ impl JSRuntime {
 
         // register intrinsic classes
         rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
+
         // setup common classes
         {
-            rt.class_array[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
-            rt.class_array[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
-            rt.class_array[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
+            rt.class_defs[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
+            rt.class_defs[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
+            rt.class_defs[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
 
-            rt.class_array[JS_CLASS_C_FUNCTION as usize]
+            rt.class_defs[JS_CLASS_C_FUNCTION as usize]
                 .call
                 .replace(JSObjectCFunc::hook_call);
-            rt.class_array[JS_CLASS_C_FUNCTION_DATA as usize]
+            rt.class_defs[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
                 .replace(CallableValue::hook_call);
-            rt.class_array[JS_CLASS_BOUND_FUNCTION as usize]
+            rt.class_defs[JS_CLASS_BOUND_FUNCTION as usize]
                 .call
                 .replace(BoundFunctionValue::hook_call);
-            rt.class_array[JS_CLASS_GENERATOR_FUNCTION as usize]
+            rt.class_defs[JS_CLASS_GENERATOR_FUNCTION as usize]
                 .call
                 .replace(js_generator_function_call);
         }
+
         // setup async related classes
         {
-            rt.class_array[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
+            rt.class_defs[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
                 Some(PromiseResolvingFuncValue::hook_call);
-            rt.class_array[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
+            rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
                 Some(PromiseResolvingFuncValue::hook_call);
-            rt.class_array[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(js_async_function_call);
-            rt.class_array[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
+            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(js_async_function_call);
+            rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
                 Some(js_async_function_resolve_call);
-            rt.class_array[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
+            rt.class_defs[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
                 Some(js_async_function_resolve_call);
-            rt.class_array[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
+            rt.class_defs[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
                 Some(AsyncGeneratorValue::hook_call);
         }
 
@@ -331,11 +333,6 @@ impl JSRuntime {
         // }
 
         // ensure shapes and gc objects are freed.
-        #[cfg(not(debug_assertions))]
-        {
-            self.shape_registry.clear();
-            self.gc_obj_list.clear();
-        }
         #[cfg(debug_assertions)]
         {
             self.gc_obj_list.retain(|_, w| {
@@ -348,7 +345,14 @@ impl JSRuntime {
             });
 
             for (_, mut sh_lst) in self.shape_registry.drain() {
-                sh_lst.retain(|w| w.upgrade().is_some());
+                sh_lst.retain(|w| {
+                    if let Some(s) = w.upgrade() {
+                        println!("[O.o] shape {s:?} should be freed");
+                        true
+                    } else {
+                        false
+                    }
+                });
                 debug_assert!(sh_lst.is_empty());
             }
 
@@ -356,10 +360,15 @@ impl JSRuntime {
         }
 
         // free classe name atoms
-        while let Some(cls) = self.class_array.pop() {
+        for i in 0..self.class_defs.len() {
+            let (class_id, class_name) = {
+                let c = &self.class_defs[i];
+                (c.class_id, c.class_name)
+            };
+
             // 0: base object class
-            if cls.class_id != 0 {
-                JS_FreeAtomRT(self, cls.class_name);
+            if class_id != 0 {
+                JS_FreeAtomRT(self, class_name);
             }
         }
 

@@ -111,7 +111,7 @@ impl JSObject {
         } else {
             // use exotic handler
             if let Some(em) = unsafe {
-                ctx.rt().class_array[self.class_id() as usize]
+                ctx.rt().class_defs[self.class_id() as usize]
                     .exotic
                     .as_ref()
             } {

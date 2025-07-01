@@ -26,7 +26,7 @@ impl JSObject {
 
             let class_id = self.class_id();
             if class_id != JS_CLASS_OBJECT {
-                if let Some(f) = self.rt().class_array[class_id as usize].gc_mark {
+                if let Some(f) = self.rt().class_defs[class_id as usize].gc_mark {
                     f(JSValue::Object(self.clone()));
                 }
             }

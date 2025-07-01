@@ -96,7 +96,7 @@ impl JSObject {
                     }
                 } else {
                     // use exotic delete_property callback
-                    let em = ctx.rt().class_array[self.class_id() as usize].exotic;
+                    let em = ctx.rt().class_defs[self.class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = unsafe { (*em).delete_property } {
                             return cb(ctx, JSValue::Object(self.clone()), prop);

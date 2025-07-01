@@ -438,7 +438,7 @@ pub fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSRes
 
 pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
     if let Ok(tao) = TryInto::<TypedArrayValue>::try_into(this_val) {
-        let class_name = ctx.rt().class_array[tao.class_id() as usize].class_name;
+        let class_name = ctx.rt().class_defs[tao.class_id() as usize].class_name;
         class_name.to_value(ctx, true)
     } else {
         JSValue::UNDEFINED

@@ -262,7 +262,7 @@ impl JSObject {
         loop {
             if p.flags().is_exotic() {
                 if let Some(cb) = unsafe {
-                    ctx.rt().class_array[p.class_id() as usize]
+                    ctx.rt().class_defs[p.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|x| x.has_property)
@@ -418,7 +418,7 @@ impl JSObject {
                     }
                 }
             } else {
-                let em = ctx.rt().class_array[self.class_id() as usize].exotic;
+                let em = ctx.rt().class_defs[self.class_id() as usize].exotic;
                 if !em.is_null() {
                     if let Some(cb) = unsafe { (*em).get_own_property } {
                         return cb(ctx, JSValue::Object(self.clone()), prop);
@@ -481,7 +481,7 @@ impl JSValue {
             let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
             if src_obj.flags().is_exotic()
                 && unsafe {
-                    ctx.rt().class_array[src_obj.class_id() as usize]
+                    ctx.rt().class_defs[src_obj.class_id() as usize]
                         .exotic
                         .as_ref()
                 }

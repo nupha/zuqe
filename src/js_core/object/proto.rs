@@ -100,7 +100,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
                 | JS_CLASS_BOOLEAN
                 | JS_CLASS_NUMBER
                 | JS_CLASS_DATE
-                | JS_CLASS_REGEXP) => ctx.rt().class_array[cid as usize].class_name,
+                | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
                 _ => JS_ATOM_Object,
             }
         };

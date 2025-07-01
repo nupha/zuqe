@@ -255,7 +255,7 @@ impl JSObjectInner {
 
             class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
-                if !ctx.rt().class_array[class_id as usize].exotic.is_null() {
+                if !ctx.rt().class_defs[class_id as usize].exotic.is_null() {
                     flags.set_exotic(true);
                 }
             }
@@ -279,7 +279,7 @@ impl JSObjectInner {
             }
 
             class_id => {
-                if !ctx.rt().class_array[class_id as usize].exotic.is_null() {
+                if !ctx.rt().class_defs[class_id as usize].exotic.is_null() {
                     flags.set_exotic(true);
                 }
             }
@@ -341,7 +341,7 @@ impl JSObjectInner {
             s => {
                 // check if class proto is callable
                 self.rt()
-                    .class_array
+                    .class_defs
                     .get(s.class_id() as usize)
                     .and_then(|c| c.call)
                     .is_some()
@@ -367,7 +367,7 @@ impl JSObjectInner {
         let rt = unsafe { self.rt_ptr().as_mut() };
 
         // call class finalizer
-        if let Some(f) = rt.class_array[class_id as usize].finalizer {
+        if let Some(f) = rt.class_defs[class_id as usize].finalizer {
             f(rt, self.isa.borrow().deref(), self.id());
         }
 

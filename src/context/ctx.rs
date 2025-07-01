@@ -119,9 +119,9 @@ impl JSContextInner {
     pub fn new(rt: &mut JSRuntime) -> Result<Self, i32> {
         let class_proto = {
             let mut lst = Vec::<JSValue>::new();
-            lst.try_reserve_exact(rt.class_array.capacity())
+            lst.try_reserve_exact(rt.class_defs.capacity())
                 .map_err(|_| -1)?;
-            lst.extend(std::iter::repeat_n(JSValue::NULL, rt.class_array.len()));
+            lst.extend(std::iter::repeat_n(JSValue::NULL, rt.class_defs.len()));
             lst
         };
 

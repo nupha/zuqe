@@ -85,7 +85,7 @@ pub fn JS_CallInternal(
     if class_id != JS_CLASS_BYTECODE_FUNCTION {
         // for non-bytecode function (e.g. bound function, native function, async function etc),
         // use callback defined on the class.
-        return if let Some(cb) = rt.class_array[class_id as usize].call {
+        return if let Some(cb) = rt.class_defs[class_id as usize].call {
             cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
         } else {
             caller_ctx.JS_ThrowTypeError("not a function");
@@ -249,7 +249,7 @@ pub fn JS_CallConstructorInternal(
     let class_id = p.class_id();
 
     if class_id != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = ctx.rt().class_array[class_id as usize].call {
+        return if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
             cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
         } else {
             ctx.JS_ThrowTypeError("not a function");

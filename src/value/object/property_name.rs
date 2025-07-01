@@ -109,7 +109,7 @@ impl JSObject {
                     }
                 }
             } else if let Some(f) = unsafe {
-                ctx.rt().class_array[self.class_id() as usize]
+                ctx.rt().class_defs[self.class_id() as usize]
                     .exotic
                     .as_ref()
                     .and_then(|em| em.get_own_property_names)

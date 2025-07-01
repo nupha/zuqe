@@ -61,7 +61,7 @@ impl JSValue {
                 format!("[bytecode {}]", b.0.borrow().func_name.to_str(b.rt())).into()
             }
             Self::Object(p) => {
-                let atom = p.rt().class_array[p.class_id() as usize].class_name;
+                let atom = p.rt().class_defs[p.class_id() as usize].class_name;
                 #[cfg(not(debug_assertions))]
                 {
                     format!("[{}]", atom.to_str(p.rt())).into()

@@ -96,7 +96,7 @@ impl Default for JSClassDef {
     }
 }
 
-#[repr(C)]
+#[derive(Debug, Clone)]
 pub struct JSClass {
     /// 0 means free entry
     pub class_id: JSClassID,
@@ -133,17 +133,17 @@ impl JSRuntime {
             return Err(-1);
         }
 
-        if (class_id as usize) < self.class_array.len() {
-            if self.class_array[class_id as usize].class_id != 0 {
+        if (class_id as usize) < self.class_defs.len() {
+            if self.class_defs[class_id as usize].class_id != 0 {
                 return Err(-1); // class_id slot is in use
             }
         } else {
-            if class_id as usize >= self.class_array.len() {
+            if class_id as usize >= self.class_defs.len() {
                 // number of extra slots to grow
-                let grow = class_id as usize - self.class_array.len() + 1;
+                let grow = class_id as usize - self.class_defs.len() + 1;
 
                 // grow context class prototype array
-                for mut ctx in self.context_list.iter() {
+                for ctx in self.context_list.iter() {
                     let mut cx = ctx.0.borrow_mut();
                     cx.class_proto.try_reserve(grow).map_err(|_| -1)?;
                     cx.class_proto
@@ -151,9 +151,9 @@ impl JSRuntime {
                 }
 
                 // grow class array, fill slots with empty class entries
-                self.class_array.try_reserve(grow).map_err(|_| -1)?;
+                self.class_defs.try_reserve(grow).map_err(|_| -1)?;
                 for _ in 0..grow {
-                    self.class_array.push(JSClass {
+                    self.class_defs.push(JSClass {
                         class_id: 0,
                         class_name: JS_ATOM_NULL,
                         finalizer: None,
@@ -165,7 +165,7 @@ impl JSRuntime {
             }
         }
 
-        self.class_array[class_id as usize] = JSClass {
+        self.class_defs[class_id as usize] = JSClass {
             class_id,
             class_name: name.dup(self),
             finalizer: class_def.finalizer,
@@ -214,8 +214,8 @@ impl JSRuntime {
 
     #[inline(always)]
     pub fn is_class_registered(&self, class_id: JSClassID) -> bool {
-        class_id < self.class_array.len() as JSClassID
-            && self.class_array[class_id as usize].class_id != 0
+        class_id < self.class_defs.len() as JSClassID
+            && self.class_defs[class_id as usize].class_id != 0
     }
 }
 

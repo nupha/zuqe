@@ -101,7 +101,7 @@ impl JSObject {
                         }
                     }
                 } else {
-                    let em = ctx.rt().class_array[cur_obj.class_id() as usize].exotic;
+                    let em = ctx.rt().class_defs[cur_obj.class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = unsafe { (*em).get_property } {
                             /* XXX: should pass throw_ref_error */

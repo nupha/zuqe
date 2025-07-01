@@ -273,7 +273,7 @@ impl JSObject {
                 }
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0 {
-                        let em = ctx.rt().class_array[cid as usize].exotic;
+                        let em = ctx.rt().class_defs[cid as usize].exotic;
                         if !em.is_null() {
                             if let Some(cb) = unsafe { (*em).define_own_property } {
                                 let r = cb(

@@ -171,7 +171,7 @@ impl JSContext {
     }
 
     pub fn JS_ThrowTypeErrorInvalidClass(&self, class_id: JSClassID) {
-        let name = self.rt().class_array[class_id as usize].class_name;
+        let name = self.rt().class_defs[class_id as usize].class_name;
         self.JS_ThrowTypeError(&format!("{} object expected", name.to_str(self.rt())))
     }
 
