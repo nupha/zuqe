@@ -1,3 +1,5 @@
+use std::{ops::DerefMut, ptr::NonNull};
+
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_str,
@@ -42,11 +44,8 @@ pub struct JSFunctionDef {
     // 父级作用域层级
     pub parent_scope_level: i32,
 
-    /// chain of children function defs
-    /// TODO use Option<Box<JSFunctionDef>> for child
-    pub child_list: list_head,
-
-    pub link: list_head,
+    /// list of children function defs
+    pub child_list: Vec<NonNull<JSFunctionDef>>,
 
     // TODO: use Option<EvalType>
     /// 是否是eval代码
@@ -213,8 +212,7 @@ impl JSFunctionDef {
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
-            child_list: list_head::default(),
-            link: list_head::default(),
+            child_list: Vec::with_capacity(16),
             is_eval,
             eval_type: 0,
             is_global_var: false,
@@ -300,10 +298,8 @@ impl JSFunctionDef {
         };
 
         let fd = unsafe {
-            let mut p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
+            let p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
             p.write(o);
-
-            init_list_head(&mut p.as_mut().child_list);
             Box::from_raw(p.as_ptr())
         };
 
@@ -320,17 +316,28 @@ impl JSFunctionDef {
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         debug_assert!(line_num >= 0);
-        Self::new0(ctx, is_eval, is_func_expr, filename, line_num).map(|mut fd| {
-            if !parent.is_null() {
-                fd.parent = parent;
-                fd.js_mode = unsafe { (*parent).js_mode };
-                fd.parent_scope_level = unsafe { (*parent).scope_level as i32 };
-                unsafe {
-                    list_add_tail(&mut fd.link, &mut (*parent).child_list);
+
+        let mut fd = Self::new0(ctx, is_eval, is_func_expr, filename, line_num)?;
+
+        if !parent.is_null() {
+            fd.parent = parent;
+            fd.js_mode = unsafe { (*parent).js_mode };
+            fd.parent_scope_level = unsafe { (*parent).scope_level as i32 };
+
+            unsafe {
+                if (*parent).child_list.len() == (*parent).child_list.capacity() {
+                    (*parent).child_list.try_reserve(8).map_err(|_| {
+                        ctx.JS_ThrowOutOfMemory();
+                        -1
+                    })?;
                 }
+
+                let fd_ptr = NonNull::from(fd.deref_mut());
+                (*parent).child_list.push(fd_ptr);
             }
-            fd
-        })
+        }
+
+        Ok(fd)
     }
 
     /// update label ref count by delta. returns updated ref count.
@@ -387,10 +394,9 @@ impl JSFunctionDef {
 
     fn finalize(&mut self) {
         // free child function defs
-        list_foreach_safe(&mut self.child_list, |el| unsafe {
-            let fd1 = list_entry!(el, JSFunctionDef, link);
-            drop(Box::from_raw(fd1));
-        });
+        for sub in self.child_list.drain(..) {
+            drop(unsafe { Box::from_raw(sub.as_ptr()) });
+        }
 
         let rt = self.ctx.rt_mut();
 
@@ -434,11 +440,20 @@ impl JSFunctionDef {
         JS_FreeAtomRT(rt, self.func_name);
         JS_FreeAtomRT(rt, self.filename);
 
-        if !self.parent.is_null() {
-            // remove from parent's list
-            unsafe {
-                list_del(&mut self.link);
-            }
+        // // remove from parent's children list
+        // if let Some(upper) = unsafe { self.parent.as_mut() } {
+        //     upper.child_list.retain(|f| !std::ptr::eq(f.as_ptr(), self))
+        // }
+
+        // dropped function def must not exist in parent's children list
+        #[cfg(debug_assertions)]
+        if let Some(upper) = unsafe { self.parent.as_mut() } {
+            debug_assert!(
+                !upper
+                    .child_list
+                    .iter()
+                    .any(|f| std::ptr::eq(f.as_ptr(), self))
+            );
         }
     }
 }

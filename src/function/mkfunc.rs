@@ -77,30 +77,43 @@ impl JSFunctionDef {
             }
         }
 
-        // first create all the child functions
-        let r = list_foreach_safe_with_ret(&mut self.child_list, |el| {
-            let fd1 = list_entry!(el, JSFunctionDef, link);
+        // first create all child functions
+        for fd1 in self.child_list.drain(..) {
+            let fd1 = Box::from_raw(fd1.as_ptr());
 
-            let cpool_idx: i32 = (*fd1).parent_cpool_idx;
+            let cpool_idx: i32 = fd1.parent_cpool_idx;
             debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-            let bc_val = Box::from_raw(fd1).make_function_bytecode(ctx);
-            if bc_val.is_err() {
-                return Some(-1); // fail exit
-            }
-            debug_assert!(matches!(
-                bc_val.as_ref().unwrap(),
-                JSValue::FunctionBytecode(_)
-            ));
+            let bc_val = fd1.make_function_bytecode(ctx)?;
+            debug_assert!(matches!(bc_val, JSValue::FunctionBytecode(_)));
 
             // put child function to parent's constant pool
-            self.cpool[cpool_idx as usize] = bc_val.unwrap();
-
-            None
-        });
-        if r.is_some() {
-            return Err(-1);
+            self.cpool[cpool_idx as usize] = bc_val;
         }
+
+        // let r = list_foreach_safe_with_ret(&mut self.child_list, |el| {
+        //     let fd1 = list_entry!(el, JSFunctionDef, link);
+
+        //     let cpool_idx: i32 = (*fd1).parent_cpool_idx;
+        //     debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
+
+        //     let bc_val = Box::from_raw(fd1).make_function_bytecode(ctx);
+        //     if bc_val.is_err() {
+        //         return Some(-1); // fail exit
+        //     }
+        //     debug_assert!(matches!(
+        //         bc_val.as_ref().unwrap(),
+        //         JSValue::FunctionBytecode(_)
+        //     ));
+
+        //     // put child function to parent's constant pool
+        //     self.cpool[cpool_idx as usize] = bc_val.unwrap();
+
+        //     None
+        // });
+        // if r.is_some() {
+        //     return Err(-1);
+        // }
 
         #[cfg(feature = "dump_bytecode")]
         self.dump_bytecode(ctx, 1);
