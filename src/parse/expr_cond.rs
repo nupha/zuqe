@@ -1,7 +1,6 @@
 use crate::bytecode::OpCode;
 
 use super::{
-    emit::{emit_goto, emit_label, emit_op},
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED},
     token::{CHAR_COLON, TOK_DOUBLE_QUESTION_MARK, TOK_LAND, TOK_LOR},
 };
@@ -81,9 +80,8 @@ impl<'s> JSParseState<'s> {
             loop {
                 self.next_token()?;
 
-                emit_op(self, OpCode::DUP);
-                emit_goto(
-                    self,
+                self.emit_op(OpCode::DUP);
+                self.emit_goto(
                     if op == TOK_LAND {
                         OpCode::IF_FALSE
                     } else {
@@ -91,7 +89,7 @@ impl<'s> JSParseState<'s> {
                     },
                     label1,
                 );
-                emit_op(self, OpCode::DROP);
+                self.emit_op(OpCode::DROP);
 
                 if op == TOK_LAND {
                     self.parse_expr_binary(8, parse_flags & !PF_ARROW_FUNC)?;
@@ -108,7 +106,7 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            emit_label(self, label1);
+            self.emit_label(label1);
         }
 
         Ok(())

@@ -13,10 +13,7 @@ use crate::{
 
 use super::{
     destructing::js_parse_destructuring_element,
-    emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_return, emit_u16,
-        emit_u32, js_is_live_code,
-    },
+    emit::js_is_live_code,
     esm::{JSParseExportEnum, add_export_entry},
     obj::set_object_name,
     parse::{js_parse_skip_parens_token, reparse_ident_token},
@@ -719,17 +716,17 @@ impl<'s> JSParseState<'s> {
                         | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
                 ) {
                     // OP_fclosure creates the function object from the bytecode and adds the scope information
-                    emit_op(self, OpCode::FCLOSURE);
-                    emit_u32(self, cp_idx as _);
+                    self.emit_op(OpCode::FCLOSURE);
+                    self.emit_u32(cp_idx as _);
 
                     if func_name == JS_ATOM_NULL {
-                        emit_op(self, OpCode::SET_NAME);
-                        emit_u32(self, JS_ATOM_NULL.0);
+                        self.emit_op(OpCode::SET_NAME);
+                        self.emit_u32(JS_ATOM_NULL.0);
                     }
                 }
             } else if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-                emit_op(self, OpCode::FCLOSURE);
-                emit_u32(self, cp_idx as _);
+                self.emit_op(OpCode::FCLOSURE);
+                self.emit_u32(cp_idx as _);
 
                 if create_func_var {
                     if self.cur_func().is_global_var {
@@ -748,10 +745,10 @@ impl<'s> JSParseState<'s> {
                         hf.set_force_init(js_mode & JS_MODE_STRICT as u8 != 0);
 
                         /* store directly into global var, bypass lexical scope */
-                        emit_op(self, OpCode::DUP);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
-                        emit_atom_dup(self, func_name);
-                        emit_u16(self, 0);
+                        self.emit_op(OpCode::DUP);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
+                        self.emit_atom_dup(func_name);
+                        self.emit_u16(0);
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(func_name).is_none() {
@@ -760,10 +757,10 @@ impl<'s> JSParseState<'s> {
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
-                        emit_op(self, OpCode::DUP);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
-                        emit_atom_dup(self, func_name);
-                        emit_u16(self, 0);
+                        self.emit_op(OpCode::DUP);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
+                        self.emit_atom_dup(func_name);
+                        self.emit_u16(0);
                     }
                 }
 
@@ -774,13 +771,13 @@ impl<'s> JSParseState<'s> {
                         .get_mut(lexical_func_idx as usize)
                         .unwrap()
                         .func_pool_idx = cp_idx;
-                    emit_op(self, OpCode::DROP);
+                    self.emit_op(OpCode::DROP);
                 } else {
                     /* store function object into its lexical name */
                     /* XXX: could use OP_put_loc directly */
-                    emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    emit_atom_dup(self, func_name);
-                    emit_u16(self, self.cur_func().scope_level as _);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                    self.emit_atom_dup(func_name);
+                    self.emit_u16(self.cur_func().scope_level as _);
                 }
             } else {
                 if !self.cur_func().is_global_var {

@@ -6,7 +6,6 @@ use crate::{
     parse::{
         JSParseFunctionEnum,
         class::js_parse_property_name,
-        emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u8, emit_u16},
         obj::{set_object_name, set_object_name_computed},
         token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
     },
@@ -23,7 +22,7 @@ impl<'s> JSParseState<'s> {
         self.next_token()?;
 
         // XXX: add an initial length that will be patched back
-        emit_op(self, OpCode::OBJECT);
+        self.emit_op(OpCode::OBJECT);
 
         let mut has_proto = false;
 
@@ -36,11 +35,11 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.parse_assign_expr()?;
 
-                emit_op(self, OpCode::NULL); // dummy excludeList
-                emit_op(self, OpCode::COPY_DATA_PROPERTIES);
-                emit_u8(self, 2 | (1 << 2));
-                emit_op(self, OpCode::DROP); // pop excludeList
-                emit_op(self, OpCode::DROP); // pop src object
+                self.emit_op(OpCode::NULL); // dummy excludeList
+                self.emit_op(OpCode::COPY_DATA_PROPERTIES);
+                self.emit_u8(2 | (1 << 2));
+                self.emit_op(OpCode::DROP); // pop excludeList
+                self.emit_op(OpCode::DROP); // pop src object
 
                 // next
                 if self.token.val != ',' as i32 {
@@ -58,11 +57,11 @@ impl<'s> JSParseState<'s> {
 
             if prop_type == PROP_TYPE_VAR {
                 // shortcut for x: x
-                emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                emit_atom_dup(self, name);
-                emit_u16(self, self.cur_func().scope_level as _);
-                emit_op(self, OpCode::DEFINE_FIELD);
-                emit_atom_dup(self, name);
+                self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                self.emit_atom_dup(name);
+                self.emit_u16(self.cur_func().scope_level as _);
+                self.emit_op(OpCode::DEFINE_FIELD);
+                self.emit_atom_dup(name);
             } else if self.token.val == CHAR_BRACKET_L {
                 let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
                 let (func_type, func_kind, op_flags): (
@@ -110,12 +109,12 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if name == JS_ATOM_NULL {
-                    emit_op(self, OpCode::DEFINE_METHOD_COMPUTED);
+                    self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
                 } else {
-                    emit_op(self, OpCode::DEFINE_METHOD);
-                    emit_atom_dup(self, name);
+                    self.emit_op(OpCode::DEFINE_METHOD);
+                    self.emit_atom_dup(name);
                 }
-                emit_u8(self, op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
+                self.emit_u8(op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
             } else {
                 if self.parse_expect(CHAR_COLON).is_err() {
                     JS_FreeAtom(&self.ctx, name);
@@ -128,20 +127,20 @@ impl<'s> JSParseState<'s> {
 
                 if name == JS_ATOM_NULL {
                     set_object_name_computed(self);
-                    emit_op(self, OpCode::DEFINE_ARRAY_EL);
-                    emit_op(self, OpCode::DROP);
+                    self.emit_op(OpCode::DEFINE_ARRAY_EL);
+                    self.emit_op(OpCode::DROP);
                 } else if name == JS_ATOM___proto__ {
                     if has_proto {
                         self.throw_syntax_error("duplicate __proto__ property name");
                         JS_FreeAtom(&self.ctx, name);
                         return Err(-1);
                     }
-                    emit_op(self, OpCode::SET_PROTO);
+                    self.emit_op(OpCode::SET_PROTO);
                     has_proto = true;
                 } else {
                     set_object_name(self, name);
-                    emit_op(self, OpCode::DEFINE_FIELD);
-                    emit_atom_dup(self, name);
+                    self.emit_op(OpCode::DEFINE_FIELD);
+                    self.emit_atom_dup(name);
                 }
             }
 

@@ -6,12 +6,9 @@ use crate::{
     bytecode::OpCode,
     error::JS_THROW_ERROR_ITERATOR_THROW,
     function::JSFunctionKindEnum,
-    parse::{
-        emit::{emit_atom_dup, emit_goto, emit_label, emit_op, emit_return, emit_u8, emit_u32},
-        token::{
-            CHAR_BRACKET_R, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_R,
-            CHAR_STAR, TOK_YIELD,
-        },
+    parse::token::{
+        CHAR_BRACKET_R, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_R, CHAR_STAR,
+        TOK_YIELD,
     },
 };
 
@@ -50,7 +47,7 @@ impl<'s> JSParseState<'s> {
             }
             self.parse_assign_expr2(parse_flags)?;
         } else {
-            emit_op(self, OpCode::UNDEFINED);
+            self.emit_op(OpCode::UNDEFINED);
         }
 
         if is_star {
@@ -62,119 +59,116 @@ impl<'s> JSParseState<'s> {
                 )
             };
 
-            emit_op(
-                self,
-                if is_async {
-                    OpCode::FOR_AWAIT_OF_START
-                } else {
-                    OpCode::FOR_OF_START
-                },
-            );
+            self.emit_op(if is_async {
+                OpCode::FOR_AWAIT_OF_START
+            } else {
+                OpCode::FOR_OF_START
+            });
 
             // remove the catch offset (XXX: could avoid pushing back undefined)
-            emit_op(self, OpCode::DROP);
-            emit_op(self, OpCode::UNDEFINED);
+            self.emit_op(OpCode::DROP);
+            self.emit_op(OpCode::UNDEFINED);
 
             // initial value
-            emit_op(self, OpCode::UNDEFINED);
+            self.emit_op(OpCode::UNDEFINED);
 
-            emit_label(self, label_loop as _);
-            emit_op(self, OpCode::ITERATOR_NEXT);
+            self.emit_label(label_loop as _);
+            self.emit_op(OpCode::ITERATOR_NEXT);
             if is_async {
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
             }
-            emit_op(self, OpCode::ITERATOR_CHECK_OBJECT);
-            emit_op(self, OpCode::GET_FIELD2);
-            emit_atom_dup(self, JS_ATOM_done);
-            let label_next = emit_goto(self, OpCode::IF_TRUE, -1); // end of loop
-            emit_label(self, label_yield as _);
+            self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
+            self.emit_op(OpCode::GET_FIELD2);
+            self.emit_atom_dup(JS_ATOM_done);
+            let label_next = self.emit_goto(OpCode::IF_TRUE, -1); // end of loop
+            self.emit_label(label_yield as _);
 
             if is_async {
                 // OP_async_yield_star takes the value as parameter
-                emit_op(self, OpCode::GET_FIELD);
-                emit_atom_dup(self, JS_ATOM_value);
-                emit_op(self, OpCode::ASYNC_YIELD_STAR);
+                self.emit_op(OpCode::GET_FIELD);
+                self.emit_atom_dup(JS_ATOM_value);
+                self.emit_op(OpCode::ASYNC_YIELD_STAR);
             } else {
                 // OP_yield_star takes (value, done) as parameter
-                emit_op(self, OpCode::YIELD_STAR);
+                self.emit_op(OpCode::YIELD_STAR);
             }
-            emit_op(self, OpCode::DUP);
-            let label_return = emit_goto(self, OpCode::IF_TRUE, -1);
-            emit_op(self, OpCode::DROP);
-            emit_goto(self, OpCode::GOTO, label_loop as _);
+            self.emit_op(OpCode::DUP);
+            let label_return = self.emit_goto(OpCode::IF_TRUE, -1);
+            self.emit_op(OpCode::DROP);
+            self.emit_goto(OpCode::GOTO, label_loop as _);
 
-            emit_label(self, label_return);
-            emit_op(self, OpCode::PUSH_I32);
-            emit_u32(self, 2);
-            emit_op(self, OpCode::STRICT_EQ);
+            self.emit_label(label_return);
+            self.emit_op(OpCode::PUSH_I32);
+            self.emit_u32(2);
+            self.emit_op(OpCode::STRICT_EQ);
 
-            let label_throw = emit_goto(self, OpCode::IF_TRUE, -1);
+            let label_throw = self.emit_goto(OpCode::IF_TRUE, -1);
 
             // return handling
             if is_async {
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
             }
-            emit_op(self, OpCode::ITERATOR_CALL);
-            emit_u8(self, 0);
-            let label_return1 = emit_goto(self, OpCode::IF_TRUE, -1);
+            self.emit_op(OpCode::ITERATOR_CALL);
+            self.emit_u8(0);
+            let label_return1 = self.emit_goto(OpCode::IF_TRUE, -1);
             if is_async {
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
             }
-            emit_op(self, OpCode::ITERATOR_CHECK_OBJECT);
-            emit_op(self, OpCode::GET_FIELD2);
-            emit_atom_dup(self, JS_ATOM_done);
-            emit_goto(self, OpCode::IF_FALSE, label_yield as _);
+            self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
+            self.emit_op(OpCode::GET_FIELD2);
+            self.emit_atom_dup(JS_ATOM_done);
+            self.emit_goto(OpCode::IF_FALSE, label_yield as _);
 
-            emit_op(self, OpCode::GET_FIELD);
-            emit_atom_dup(self, JS_ATOM_value);
+            self.emit_op(OpCode::GET_FIELD);
+            self.emit_atom_dup(JS_ATOM_value);
 
-            emit_label(self, label_return1);
-            emit_op(self, OpCode::NIP);
-            emit_op(self, OpCode::NIP);
-            emit_op(self, OpCode::NIP);
-            emit_return(self, true);
+            self.emit_label(label_return1);
+            self.emit_op(OpCode::NIP);
+            self.emit_op(OpCode::NIP);
+            self.emit_op(OpCode::NIP);
+            self.emit_return(true);
 
             // throw handling
-            emit_label(self, label_throw);
-            emit_op(self, OpCode::ITERATOR_CALL);
-            emit_u8(self, 1);
-            let label_throw1 = emit_goto(self, OpCode::IF_TRUE, -1);
+            self.emit_label(label_throw);
+            self.emit_op(OpCode::ITERATOR_CALL);
+            self.emit_u8(1);
+            let label_throw1 = self.emit_goto(OpCode::IF_TRUE, -1);
             if is_async {
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
             }
-            emit_op(self, OpCode::ITERATOR_CHECK_OBJECT);
-            emit_op(self, OpCode::GET_FIELD2);
-            emit_atom_dup(self, JS_ATOM_done);
-            emit_goto(self, OpCode::IF_FALSE, label_yield as _);
-            emit_goto(self, OpCode::GOTO, label_next);
+            self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
+            self.emit_op(OpCode::GET_FIELD2);
+            self.emit_atom_dup(JS_ATOM_done);
+            self.emit_goto(OpCode::IF_FALSE, label_yield as _);
+            self.emit_goto(OpCode::GOTO, label_next);
             // close the iterator and throw a type error exception
-            emit_label(self, label_throw1);
-            emit_op(self, OpCode::ITERATOR_CALL);
-            emit_u8(self, 2);
-            let label_throw2 = emit_goto(self, OpCode::IF_TRUE, -1);
+            self.emit_label(label_throw1);
+            self.emit_op(OpCode::ITERATOR_CALL);
+            self.emit_u8(2);
+            let label_throw2 = self.emit_goto(OpCode::IF_TRUE, -1);
             if is_async {
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
             }
-            emit_label(self, label_throw2);
+            self.emit_label(label_throw2);
 
-            emit_op(self, OpCode::THROW_ERROR);
-            emit_atom_dup(self, JS_ATOM_NULL);
-            emit_u8(self, JS_THROW_ERROR_ITERATOR_THROW);
+            self.emit_op(OpCode::THROW_ERROR);
+            self.emit_atom_dup(JS_ATOM_NULL);
+            self.emit_u8(JS_THROW_ERROR_ITERATOR_THROW);
 
-            emit_label(self, label_next);
-            emit_op(self, OpCode::GET_FIELD);
-            emit_atom_dup(self, JS_ATOM_value);
-            emit_op(self, OpCode::NIP); // keep the value associated with done = true
-            emit_op(self, OpCode::NIP);
-            emit_op(self, OpCode::NIP);
+            self.emit_label(label_next);
+            self.emit_op(OpCode::GET_FIELD);
+            self.emit_atom_dup(JS_ATOM_value);
+            self.emit_op(OpCode::NIP); // keep the value associated with done = true
+            self.emit_op(OpCode::NIP);
+            self.emit_op(OpCode::NIP);
         } else {
             if is_async {
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
             }
-            emit_op(self, OpCode::YIELD);
-            let label_next = emit_goto(self, OpCode::IF_FALSE, -1);
-            emit_return(self, true);
-            emit_label(self, label_next);
+            self.emit_op(OpCode::YIELD);
+            let label_next = self.emit_goto(OpCode::IF_FALSE, -1);
+            self.emit_return(true);
+            self.emit_label(label_next);
         }
 
         Ok(())

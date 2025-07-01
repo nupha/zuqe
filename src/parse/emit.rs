@@ -372,6 +372,161 @@ impl JSFunctionDef {
     }
 }
 
+impl<'s> JSParseState<'s> {
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_u8(&mut self, val: u8) {
+        self.cur_func_mut().emit_u8(val);
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_u16(&mut self, val: u16) {
+        self.cur_func_mut().emit_u16(val);
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_u32(&mut self, val: u32) {
+        self.cur_func_mut().emit_u32(val);
+    }
+
+    /// emit an atom, increase ref_count
+    #[inline(always)]
+    pub fn emit_atom_dup(&mut self, name: JSAtom) {
+        self.cur_func_mut().emit_atom_dup(name);
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_op_u8(&mut self, op: u8) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_op_u8(op, ln);
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_op(&mut self, op: OpCode) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_op(op, ln);
+    }
+
+    /// don't update the last opcode and don't emit line number info
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_label_raw(&mut self, label: i32) {
+        self.cur_func_mut().emit_label_raw(label);
+    }
+
+    /* return the label ID offset */
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_label(&mut self, label: i32) -> i32 {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_label(label, ln)
+    }
+
+    /* return label or -1 if dead code */
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_goto(&mut self, opcode: OpCode, label: i32) -> i32 {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_goto(opcode, label, ln)
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> i32 {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_push_const(val, as_atom, ln)
+    }
+
+    /* initialize the class fields, called by the constructor. Note:
+    super() can be called in an arrow function, so <this> and
+    <class_fields_init> can be variable references */
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_class_field_init(&mut self) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_class_field_init(ln);
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_op_temp(&mut self, op: OpCodeTemp) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_op_temp(op, ln);
+    }
+
+    /// emit on current function def
+    #[inline(always)]
+    pub fn emit_return(&mut self, hasval: bool) {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_return(hasval, ln);
+    }
+
+    /// emit on current function def
+    pub fn emit_break(&mut self, name: JSAtom, is_continue: bool) -> i32 {
+        let (mut scope_level, mut top_break) = {
+            let f = self.cur_func();
+            (f.scope_level, f.top_break)
+        };
+
+        while !top_break.is_null() {
+            let top = unsafe { top_break.as_ref().unwrap() };
+
+            self.close_scopes(scope_level, top.scope_level);
+            scope_level = top.scope_level;
+            if is_continue
+                && top.label_cont != -1
+                && (name == JS_ATOM_NULL || top.label_name == name)
+            {
+                // continue stays inside the same block
+                self.emit_goto(OpCode::GOTO, top.label_cont);
+                return 0;
+            }
+            if !is_continue
+                && top.label_break != -1
+                && (name == JS_ATOM_NULL || top.label_name == name)
+            {
+                self.emit_goto(OpCode::GOTO, top.label_break);
+                return 0;
+            }
+
+            let i = if top.has_iterator {
+                self.emit_op(OpCode::ITERATOR_CLOSE);
+                3
+            } else {
+                0
+            };
+            for _ in i..top.drop_count {
+                self.emit_op(OpCode::DROP);
+            }
+
+            if top.label_finally != -1 {
+                // must push dummy value to keep same stack depth
+                self.emit_op(OpCode::UNDEFINED);
+                self.emit_goto(OpCode::GOSUB, top.label_finally);
+                self.emit_op(OpCode::DROP);
+            }
+
+            top_break = top.prev;
+        }
+
+        self.throw_syntax_error(if name == JS_ATOM_NULL {
+            if is_continue {
+                "continue must be inside loop"
+            } else {
+                "break must be inside loop or switch"
+            }
+        } else {
+            "break/continue label not found"
+        });
+
+        -1
+    }
+}
+
 #[inline(always)]
 pub unsafe fn get_prev_opcode(fd: *const JSFunctionDef) -> u8 {
     if (*fd).last_opcode_pos < 0 {
@@ -465,12 +620,19 @@ pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
         .emit_class_field_init((*s).last_line_num)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
     (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
 }
 
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
     (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
+}
+
+#[deprecated(note = "use JSParseState::emit_break() instead")]
+pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) -> i32 {
+    (*s).emit_break(name, is_continue)
 }
 
 pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
@@ -497,59 +659,4 @@ pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
     // enum_rec xxx array idx undef -- enum_rec xxx array
     emit_op(s, OpCode::DROP);
     emit_op(s, OpCode::DROP);
-}
-
-pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) -> i32 {
-    let mut scope_level = (*s).cur_func().scope_level;
-    let mut top = (*s).cur_func().top_break;
-
-    while !top.is_null() {
-        (*s).close_scopes(scope_level, (*top).scope_level);
-        scope_level = (*top).scope_level;
-        if is_continue
-            && (*top).label_cont != -1
-            && (name == JS_ATOM_NULL || (*top).label_name == name)
-        {
-            // continue stays inside the same block
-            emit_goto(s, OpCode::GOTO, (*top).label_cont);
-            return 0;
-        }
-        if !is_continue
-            && (*top).label_break != -1
-            && (name == JS_ATOM_NULL || (*top).label_name == name)
-        {
-            emit_goto(s, OpCode::GOTO, (*top).label_break);
-            return 0;
-        }
-
-        let i = if (*top).has_iterator {
-            emit_op(s, OpCode::ITERATOR_CLOSE);
-            3
-        } else {
-            0
-        };
-        for _ in i..(*top).drop_count {
-            emit_op(s, OpCode::DROP);
-        }
-
-        if (*top).label_finally != -1 {
-            // must push dummy value to keep same stack depth
-            emit_op(s, OpCode::UNDEFINED);
-            emit_goto(s, OpCode::GOSUB, (*top).label_finally);
-            emit_op(s, OpCode::DROP);
-        }
-        top = (*top).prev;
-    }
-
-    (*s).throw_syntax_error(if name == JS_ATOM_NULL {
-        if is_continue {
-            "continue must be inside loop"
-        } else {
-            "break must be inside loop or switch"
-        }
-    } else {
-        "break/continue label not found"
-    });
-
-    -1
 }

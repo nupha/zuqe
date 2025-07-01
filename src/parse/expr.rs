@@ -14,8 +14,8 @@ use super::{
     class::js_parse_class,
     destructing::js_parse_destructuring_element,
     emit::{
-        OPSpecialObjectEnum, emit_atom_dup, emit_goto, emit_label, emit_label_raw, emit_op,
-        emit_op_temp, emit_push_const, emit_u8, emit_u16, emit_u32, get_prev_opcode,
+        OPSpecialObjectEnum, emit_goto, emit_label_raw, emit_op_temp, emit_push_const, emit_u16,
+        emit_u32, get_prev_opcode,
     },
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
@@ -92,7 +92,7 @@ impl<'s> JSParseState<'s> {
                         OpCode::OR,
                         OpCode::POW,
                     ];
-                    emit_op(self, assign_opcodes[(op - TOK_MUL_ASSIGN) as usize]);
+                    self.emit_op(assign_opcodes[(op - TOK_MUL_ASSIGN) as usize]);
                 }
 
                 self.put_lvalue(
@@ -120,12 +120,11 @@ impl<'s> JSParseState<'s> {
                     op,
                 )?;
 
-                emit_op(self, OpCode::DUP);
+                self.emit_op(OpCode::DUP);
                 if op == TOK_DOUBLE_QUESTION_MARK_ASSIGN {
-                    emit_op(self, OpCode::IS_UNDEFINED_OR_NULL);
+                    self.emit_op(OpCode::IS_UNDEFINED_OR_NULL);
                 }
-                let label1 = emit_goto(
-                    self,
+                let label1 = self.emit_goto(
                     if op == TOK_LOR_ASSIGN {
                         OpCode::IF_TRUE
                     } else {
@@ -133,7 +132,7 @@ impl<'s> JSParseState<'s> {
                     },
                     -1,
                 );
-                emit_op(self, OpCode::DROP);
+                self.emit_op(OpCode::DROP);
 
                 if self.parse_assign_expr2(parse_flags).is_err() {
                     JS_FreeAtom(&self.ctx, name);
@@ -145,9 +144,9 @@ impl<'s> JSParseState<'s> {
                 }
 
                 match depth_lvalue {
-                    1 => emit_op(self, OpCode::INSERT2),
-                    2 => emit_op(self, OpCode::INSERT3),
-                    3 => emit_op(self, OpCode::INSERT4),
+                    1 => self.emit_op(OpCode::INSERT2),
+                    2 => self.emit_op(OpCode::INSERT3),
+                    3 => self.emit_op(OpCode::INSERT4),
                     _ => unreachable!(),
                 }
 
@@ -163,15 +162,15 @@ impl<'s> JSParseState<'s> {
                 );
 
                 let label2 = emit_goto(self, OpCode::GOTO, -1);
-                emit_label(self, label1);
+                self.emit_label(label1);
 
                 // remove the lvalue stack entries
                 while depth_lvalue != 0 {
-                    emit_op(self, OpCode::NIP);
+                    self.emit_op(OpCode::NIP);
                     depth_lvalue -= 1;
                 }
 
-                emit_label(self, label2);
+                self.emit_label(label2);
             }
             _ => {}
         }
@@ -206,7 +205,7 @@ impl<'s> JSParseState<'s> {
 
             comma = true;
             self.next_token()?;
-            emit_op(self, OpCode::DROP);
+            self.emit_op(OpCode::DROP);
         }
 
         Ok(())
@@ -243,10 +242,10 @@ impl<'s> JSParseState<'s> {
             TOK_NUMBER => {
                 let val = self.token.data.number().unwrap().clone();
                 if let JSValue::Int(i) = val {
-                    emit_op(self, OpCode::PUSH_I32);
-                    emit_u32(self, i as u32);
+                    self.emit_op(OpCode::PUSH_I32);
+                    self.emit_u32(i as u32);
                 } else {
-                    if emit_push_const(self, val, false) < 0 {
+                    if self.emit_push_const(val, false) < 0 {
                         return Err(-1);
                     }
                 }
@@ -276,7 +275,7 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    emit_push_const(self, self.token.data.regexp_body().unwrap().clone(), false);
+                    self.emit_push_const(self.token.data.regexp_body().unwrap().clone(), false);
 
                     let str = cb(
                         &self.ctx,
@@ -302,7 +301,7 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    let ret = emit_push_const(self, str, false);
+                    let ret = self.emit_push_const(str, false);
                     if ret != 0 {
                         return Err(-1);
                     }
@@ -310,7 +309,7 @@ impl<'s> JSParseState<'s> {
                     /* we use a specific opcode to be sure the correct
                     function is called (otherwise the bytecode would have
                     to be verified by the RegExp constructor) */
-                    emit_op(self, OpCode::REGEXP);
+                    self.emit_op(OpCode::REGEXP);
                     self.next_token()?;
                 } else {
                     self.throw_syntax_error("RegExp are not supported");
@@ -350,7 +349,7 @@ impl<'s> JSParseState<'s> {
             }
             TOK_NULL => {
                 self.next_token()?;
-                emit_op(self, OpCode::NULL);
+                self.emit_op(OpCode::NULL);
             }
             // TODO: how about define TOK_UNDEFINDED token, and emit UNDEFINED opcode?
             // TOK_UNDEFINED => {
@@ -359,17 +358,17 @@ impl<'s> JSParseState<'s> {
             // }
             TOK_THIS => {
                 self.next_token()?;
-                emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                emit_atom_dup(self, JS_ATOM_this);
-                emit_u16(self, 0);
+                self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                self.emit_atom_dup(JS_ATOM_this);
+                self.emit_u16(0);
             }
             TOK_FALSE => {
                 self.next_token()?;
-                emit_op(self, OpCode::PUSH_FALSE);
+                self.emit_op(OpCode::PUSH_FALSE);
             }
             TOK_TRUE => {
                 self.next_token()?;
-                emit_op(self, OpCode::PUSH_TRUE);
+                self.emit_op(OpCode::PUSH_TRUE);
             }
             TOK_IDENT => {
                 let name: JSAtom;
@@ -487,18 +486,18 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_atom_dup(self, JS_ATOM_new_target);
-                    emit_u16(self, 0);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    self.emit_atom_dup(JS_ATOM_new_target);
+                    self.emit_u16(0);
                 } else {
                     self.parse_postfix_expr(0)?;
 
                     accept_lparen = true;
                     if self.token.val != b'(' as i32 {
                         /* new operator on an object */
-                        emit_op(self, OpCode::DUP);
-                        emit_op(self, OpCode::CALL_CONSTRUCTOR);
-                        emit_u16(self, 0);
+                        self.emit_op(OpCode::DUP);
+                        self.emit_op(OpCode::CALL_CONSTRUCTOR);
+                        self.emit_u16(0);
                     } else {
                         call_type = FuncCallType::FUNC_CALL_NEW;
                     }
@@ -520,13 +519,13 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_atom_dup(self, JS_ATOM_this);
-                    emit_u16(self, 0);
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_atom_dup(self, JS_ATOM__home_object_);
-                    emit_u16(self, 0);
-                    emit_op(self, OpCode::GET_SUPER);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    self.emit_atom_dup(JS_ATOM_this);
+                    self.emit_u16(0);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    self.emit_atom_dup(JS_ATOM__home_object_);
+                    self.emit_u16(0);
+                    self.emit_op(OpCode::GET_SUPER);
                 } else {
                     self.throw_syntax_error("invalid use of 'super'");
                     return Err(-1);
@@ -546,11 +545,8 @@ impl<'s> JSParseState<'s> {
                     }
                     self.next_token()?;
 
-                    emit_op(self, OpCode::SPECIAL_OBJECT);
-                    emit_u8(
-                        self,
-                        OPSpecialObjectEnum::OP_SPECIAL_OBJECT_IMPORT_META as u8,
-                    );
+                    self.emit_op(OpCode::SPECIAL_OBJECT);
+                    self.emit_u8(OPSpecialObjectEnum::OP_SPECIAL_OBJECT_IMPORT_META as u8);
                 } else {
                     self.parse_expect(CHAR_BRACKET_L)?;
                     if !accept_lparen {
@@ -559,7 +555,7 @@ impl<'s> JSParseState<'s> {
                     }
                     self.parse_assign_expr()?;
                     self.parse_expect(CHAR_BRACKET_R)?;
-                    emit_op(self, OpCode::IMPORT);
+                    self.emit_op(OpCode::IMPORT);
                 }
             }
             _ => {
@@ -691,15 +687,15 @@ impl<'s> JSParseState<'s> {
         }
 
         // XXX: could be more efficient with a specific opcode
-        emit_op(self, OpCode::DUP);
-        emit_op(self, OpCode::IS_UNDEFINED_OR_NULL);
-        let label_next = emit_goto(self, OpCode::IF_FALSE, -1);
+        self.emit_op(OpCode::DUP);
+        self.emit_op(OpCode::IS_UNDEFINED_OR_NULL);
+        let label_next = self.emit_goto(OpCode::IF_FALSE, -1);
         for _ in 0..drop_count {
-            emit_op(self, OpCode::DROP);
+            self.emit_op(OpCode::DROP);
         }
-        emit_op(self, OpCode::UNDEFINED);
-        emit_goto(self, OpCode::GOTO, *poptional_chaining_label);
-        emit_label(self, label_next);
+        self.emit_op(OpCode::UNDEFINED);
+        self.emit_goto(OpCode::GOTO, *poptional_chaining_label);
+        self.emit_label(label_next);
     }
 }
 

@@ -18,8 +18,7 @@ use crate::{
 use super::{
     destructing::js_parse_destructuring_element,
     emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_push_const, emit_return,
-        emit_u8, emit_u16, get_prev_opcode,
+        emit_atom_dup, emit_goto, emit_label, emit_op, emit_push_const, emit_u8, get_prev_opcode,
     },
     esm::{add_export_entry, js_parse_export},
     function::JSParseFunctionEnum,
@@ -66,11 +65,11 @@ impl JSParseState<'_> {
 
         if !self.is_module {
             // return the value of the hidden variable fd.eval_ret_idx
-            emit_op(self, OpCode::GET_LOC);
-            emit_u16(self, self.cur_func().eval_ret_idx.unwrap());
-            emit_return(self, true);
+            self.emit_op(OpCode::GET_LOC);
+            self.emit_u16(self.cur_func().eval_ret_idx.unwrap());
+            self.emit_return(true);
         } else {
-            emit_return(self, false);
+            self.emit_return(false);
         }
 
         Ok(())
@@ -345,9 +344,9 @@ impl JSParseState<'_> {
                         let mut label: i32 = 0;
                         let mut name1: JSAtom = JS_ATOM_NULL;
 
-                        emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                        emit_atom_dup(self, name);
-                        emit_u16(self, self.cur_func().scope_level as u16);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_atom_dup(name);
+                        self.emit_u16(self.cur_func().scope_level as u16);
 
                         if self
                             .get_lvalue(
@@ -388,16 +387,13 @@ impl JSParseState<'_> {
                             return Err(-1);
                         }
                         set_object_name(self, name);
-                        emit_op_temp(
-                            self,
-                            if tok == TOK_CONST || tok == TOK_LET {
-                                OpCodeTemp::SCOPE_PUT_VAR_INIT
-                            } else {
-                                OpCodeTemp::SCOPE_PUT_VAR
-                            },
-                        );
-                        emit_atom_dup(self, name);
-                        emit_u16(self, self.cur_func().scope_level as u16);
+                        self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
+                            OpCodeTemp::SCOPE_PUT_VAR_INIT
+                        } else {
+                            OpCodeTemp::SCOPE_PUT_VAR
+                        });
+                        self.emit_atom_dup(name);
+                        self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 } else {
                     if tok == TOK_CONST {
@@ -406,10 +402,10 @@ impl JSParseState<'_> {
                         return Err(-1);
                     } else if tok == TOK_LET {
                         // initialize lexical variable upon entering its scope
-                        emit_op(self, OpCode::UNDEFINED);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        emit_atom_dup(self, name);
-                        emit_u16(self, self.cur_func().scope_level as u16);
+                        self.emit_op(OpCode::UNDEFINED);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                        self.emit_atom_dup(name);
+                        self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 }
 
@@ -420,7 +416,7 @@ impl JSParseState<'_> {
                 if (self.token.val == '[' as i32 || self.token.val == '{' as i32)
                     && js_parse_skip_parens_token(self, &mut skip_bits, false) == '=' as i32
                 {
-                    emit_op(self, OpCode::UNDEFINED);
+                    self.emit_op(OpCode::UNDEFINED);
                     if js_parse_destructuring_element(
                         self,
                         tok,

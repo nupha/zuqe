@@ -6,10 +6,7 @@ use crate::{
 };
 
 use super::{
-    emit::{
-        emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
-        emit_u16, emit_u32, get_prev_opcode,
-    },
+    emit::get_prev_opcode,
     state::JSParseState,
     token::{CHAR_COMMA, TOK_ELLIPSIS},
 };
@@ -54,18 +51,18 @@ impl<'s> JSParseState<'s> {
                 self.emit_func_call(fd, call_type, opcode, argc as _);
             }
             FuncCallType::FUNC_CALL_NEW => {
-                emit_op(self, OpCode::DUP); // new.target = function
+                self.emit_op(OpCode::DUP); // new.target = function
             }
             FuncCallType::FUNC_CALL_SUPER_CTOR => {
-                emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                emit_atom_dup(self, JS_ATOM_this_active_func);
-                emit_u16(self, 0);
+                self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                self.emit_atom_dup(JS_ATOM_this_active_func);
+                self.emit_u16(0);
 
-                emit_op(self, OpCode::GET_SUPER);
+                self.emit_op(OpCode::GET_SUPER);
 
-                emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                emit_atom_dup(self, JS_ATOM_new_target);
-                emit_u16(self, 0);
+                self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                self.emit_atom_dup(JS_ATOM_new_target);
+                self.emit_u16(0);
             }
             FuncCallType::FUNC_CALL_NORMAL => {}
         }
@@ -96,10 +93,10 @@ impl<'s> JSParseState<'s> {
 
         if self.token.val == TOK_ELLIPSIS {
             // ellipsis args, e.g.: f(...[a,b,c]), f(a,b, ...[x,y,z])
-            emit_op(self, OpCode::ARRAY_FROM);
-            emit_u16(self, arg_count as _);
-            emit_op(self, OpCode::PUSH_I32);
-            emit_u32(self, arg_count as _);
+            self.emit_op(OpCode::ARRAY_FROM);
+            self.emit_u16(arg_count as _);
+            self.emit_op(OpCode::PUSH_I32);
+            self.emit_u32(arg_count as _);
 
             // on stack: array idx
             while self.token.val != ')' as i32 {
@@ -108,13 +105,13 @@ impl<'s> JSParseState<'s> {
                     self.parse_assign_expr()?;
 
                     /* XXX: could pass is_last indicator? */
-                    emit_op(self, OpCode::APPEND);
+                    self.emit_op(OpCode::APPEND);
                 } else {
                     self.parse_assign_expr()?;
 
                     /* array idx val */
-                    emit_op(self, OpCode::DEFINE_ARRAY_EL);
-                    emit_op(self, OpCode::INC);
+                    self.emit_op(OpCode::DEFINE_ARRAY_EL);
+                    self.emit_op(OpCode::INC);
                 }
                 if self.token.val == ')' as i32 {
                     break;
@@ -127,7 +124,7 @@ impl<'s> JSParseState<'s> {
             self.next_token()?;
 
             // drop the index
-            emit_op(self, OpCode::DROP);
+            self.emit_op(OpCode::DROP);
 
             // apply function call
             match opcode {
@@ -136,37 +133,37 @@ impl<'s> JSParseState<'s> {
                 | opcodes::OP_get_array_el
                 | opcodes::op_scope_get_ref => {
                     // obj func array -> func obj array
-                    emit_op(self, OpCode::PERM3);
-                    emit_op(self, OpCode::APPLY);
-                    emit_u16(self, (call_type == FuncCallType::FUNC_CALL_NEW) as _);
+                    self.emit_op(OpCode::PERM3);
+                    self.emit_op(OpCode::APPLY);
+                    self.emit_u16((call_type == FuncCallType::FUNC_CALL_NEW) as _);
                 }
                 opcodes::OP_eval => {
-                    emit_op(self, OpCode::APPLY_EVAL);
-                    emit_u16(self, (*fd).scope_level as _);
+                    self.emit_op(OpCode::APPLY_EVAL);
+                    self.emit_u16((*fd).scope_level as _);
                     (*fd).has_eval_call = true;
                 }
                 _ => {
                     if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {
-                        emit_op(self, OpCode::APPLY);
-                        emit_u16(self, 1);
+                        self.emit_op(OpCode::APPLY);
+                        self.emit_u16(1);
                         /* set the 'this' value */
-                        emit_op(self, OpCode::DUP);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        emit_atom_dup(self, JS_ATOM_this);
-                        emit_u16(self, 0);
+                        self.emit_op(OpCode::DUP);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                        self.emit_atom_dup(JS_ATOM_this);
+                        self.emit_u16(0);
 
-                        emit_class_field_init(self);
+                        self.emit_class_field_init();
                     } else if call_type == FuncCallType::FUNC_CALL_NEW {
                         /* obj func array -> func obj array */
-                        emit_op(self, OpCode::PERM3);
-                        emit_op(self, OpCode::APPLY);
-                        emit_u16(self, 1);
+                        self.emit_op(OpCode::PERM3);
+                        self.emit_op(OpCode::APPLY);
+                        self.emit_u16(1);
                     } else {
                         /* func array -> func undef array */
-                        emit_op(self, OpCode::UNDEFINED);
-                        emit_op(self, OpCode::SWAP);
-                        emit_op(self, OpCode::APPLY);
-                        emit_u16(self, 0);
+                        self.emit_op(OpCode::UNDEFINED);
+                        self.emit_op(OpCode::SWAP);
+                        self.emit_op(OpCode::APPLY);
+                        self.emit_u16(0);
                     }
                 }
             }
@@ -206,13 +203,13 @@ impl<'s> JSParseState<'s> {
                 (*fd)
                     .byte_code
                     .truncate((*fd).last_opcode_pos as usize + 1 + 4); // ...size = fd->last_opcode_pos + 1 + 4;
-                let next_label = emit_goto(self, OpCode::GOTO, -1);
-                emit_label(self, opt_chain_label as _);
+                let next_label = self.emit_goto(OpCode::GOTO, -1);
+                self.emit_label(opt_chain_label as _);
                 /* need an additional undefined value for the
                 case where the optional field does not
                 exists */
-                emit_op(self, OpCode::UNDEFINED);
-                emit_label(self, next_label);
+                self.emit_op(OpCode::UNDEFINED);
+                self.emit_label(next_label);
                 drop_count = 2;
                 opcode = OpCode::GET_FIELD as u8;
             }
@@ -237,13 +234,13 @@ impl<'s> JSParseState<'s> {
                 /* keep the object on the stack */
                 (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcodes::OP_get_array_el2;
                 (*fd).byte_code.truncate((*fd).last_opcode_pos as usize + 1);
-                let next_label = emit_goto(self, OpCode::GOTO, -1);
-                emit_label(self, opt_chain_label as _);
+                let next_label = self.emit_goto(OpCode::GOTO, -1);
+                self.emit_label(opt_chain_label as _);
                 /* need an additional undefined value for the
                 case where the optional field does not
                 exists */
-                emit_op(self, OpCode::UNDEFINED);
-                emit_label(self, next_label);
+                self.emit_op(OpCode::UNDEFINED);
+                self.emit_label(next_label);
                 drop_count = 2;
                 opcode = opcodes::OP_get_array_el;
             }
@@ -313,34 +310,34 @@ impl<'s> JSParseState<'s> {
             | opcodes::op_scope_get_private_field
             | opcodes::OP_get_array_el
             | opcodes::op_scope_get_ref => {
-                emit_op(self, OpCode::CALL_METHOD);
-                emit_u16(self, arg_count);
+                self.emit_op(OpCode::CALL_METHOD);
+                self.emit_u16(arg_count);
             }
             opcodes::OP_eval => {
                 debug_assert!((*fd).scope_level > 0);
-                emit_op(self, OpCode::EVAL);
-                emit_u16(self, arg_count);
-                emit_u16(self, (*fd).scope_level as _);
+                self.emit_op(OpCode::EVAL);
+                self.emit_u16(arg_count);
+                self.emit_u16((*fd).scope_level as _);
                 (*fd).has_eval_call = true;
             }
             _ => {
                 if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {
-                    emit_op(self, OpCode::CALL_CONSTRUCTOR);
-                    emit_u16(self, arg_count);
+                    self.emit_op(OpCode::CALL_CONSTRUCTOR);
+                    self.emit_u16(arg_count);
 
                     /* set the 'this' value */
-                    emit_op(self, OpCode::DUP);
-                    emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    emit_atom_dup(self, JS_ATOM_this);
-                    emit_u16(self, 0);
+                    self.emit_op(OpCode::DUP);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                    self.emit_atom_dup(JS_ATOM_this);
+                    self.emit_u16(0);
 
-                    emit_class_field_init(self);
+                    self.emit_class_field_init();
                 } else if call_type == FuncCallType::FUNC_CALL_NEW {
-                    emit_op(self, OpCode::CALL_CONSTRUCTOR);
-                    emit_u16(self, arg_count);
+                    self.emit_op(OpCode::CALL_CONSTRUCTOR);
+                    self.emit_u16(arg_count);
                 } else {
-                    emit_op(self, OpCode::CALL);
-                    emit_u16(self, arg_count);
+                    self.emit_op(OpCode::CALL);
+                    self.emit_u16(arg_count);
                 }
             }
         }

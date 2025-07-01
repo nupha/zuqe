@@ -1,10 +1,7 @@
 use crate::{
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,
-    parse::{
-        emit::{emit_atom_dup, emit_op, emit_push_const, emit_u16},
-        token::TokenData,
-    },
+    parse::token::TokenData,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::{
         JSValue, StringContent,
@@ -103,7 +100,7 @@ impl<'s> JSParseState<'s> {
             // Create an array of raw strings and store it to the raw property
             template_object = self.ctx.create_array()?;
 
-            let ret = emit_push_const(self, template_object.clone(), false);
+            let ret = self.emit_push_const(template_object.clone(), false);
             if ret != 0 {
                 return Err(-1);
             }
@@ -161,7 +158,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
                 let str = cooked.data.string().unwrap().string_unchecked();
                 if depth == 0 || !str.is_empty() {
-                    let ret = emit_push_const(self, JSValue::String(str.clone()), true);
+                    let ret = self.emit_push_const(JSValue::String(str.clone()), true);
                     // emit_push_const(self, cooked.u.str.str.replace(JSValue::UNDEFINED), true);
 
                     if ret != 0 {
@@ -172,8 +169,8 @@ impl<'s> JSParseState<'s> {
                         if self.token.data.string_sep().unwrap() == b'`' as i32 {
                             return self.next_token();
                         }
-                        emit_op(self, OpCode::GET_FIELD2);
-                        emit_atom_dup(self, JS_ATOM_concat);
+                        self.emit_op(OpCode::GET_FIELD2);
+                        self.emit_atom_dup(JS_ATOM_concat);
                     }
                     depth += 1;
                 } else {
@@ -188,8 +185,8 @@ impl<'s> JSParseState<'s> {
                     seal_template_obj(&self.ctx, template_object);
                     *argc = depth + 1;
                 } else {
-                    emit_op(self, OpCode::CALL_METHOD);
-                    emit_u16(self, depth as u16 - 1);
+                    self.emit_op(OpCode::CALL_METHOD);
+                    self.emit_u16(depth as u16 - 1);
                 }
                 return self.next_token();
             }

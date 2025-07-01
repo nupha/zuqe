@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    emit::{emit_atom_dup, emit_op, emit_op_temp, emit_u16, get_prev_opcode},
+    emit::get_prev_opcode,
     expr_lvalue::PutLValueEnum,
     parse::js_parse_delete,
     state::{JSParseState, PF_POSTFIX_CALL, PF_POW_FORBIDDEN},
@@ -62,9 +62,9 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            emit_op_temp(self, OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
-            emit_atom_dup(self, atom);
-            emit_u16(self, self.cur_func().scope_level as _);
+            self.emit_op_temp(OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
+            self.emit_atom_dup(atom);
+            self.emit_u16(self.cur_func().scope_level as _);
             JS_FreeAtom(&self.ctx, atom);
 
             return Ok(());
@@ -148,7 +148,7 @@ impl<'s> JSParseState<'s> {
 
             self.next_token()?;
             self.parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)?;
-            emit_op(self, opcode);
+            self.emit_op(opcode);
         }
     }
 
@@ -161,13 +161,13 @@ impl<'s> JSParseState<'s> {
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
                 match op {
-                    0x2d => emit_op(self, OpCode::NEG),  // '-'
-                    0x2b => emit_op(self, OpCode::PLUS), // '+'
-                    0x21 => emit_op(self, OpCode::LNOT), // '!'
-                    0x7e => emit_op(self, OpCode::NOT),  // '~'
+                    0x2d => self.emit_op(OpCode::NEG),  // '-'
+                    0x2b => self.emit_op(OpCode::PLUS), // '+'
+                    0x21 => self.emit_op(OpCode::LNOT), // '!'
+                    0x7e => self.emit_op(OpCode::NOT),  // '~'
                     TOK_VOID => {
-                        emit_op(self, OpCode::DROP);
-                        emit_op(self, OpCode::UNDEFINED);
+                        self.emit_op(OpCode::DROP);
+                        self.emit_op(OpCode::UNDEFINED);
                     }
                     _ => unreachable!(),
                 }
@@ -192,14 +192,11 @@ impl<'s> JSParseState<'s> {
                     op,
                 )?;
 
-                emit_op(
-                    self,
-                    if op == TOK_DEC {
-                        OpCode::DEC
-                    } else {
-                        OpCode::INC
-                    },
-                ); //emit_op_u8(s, (OpCode::DEC as i32 + op - TOK_DEC) as u8);
+                self.emit_op(if op == TOK_DEC {
+                    OpCode::DEC
+                } else {
+                    OpCode::INC
+                }); //emit_op_u8(s, (OpCode::DEC as i32 + op - TOK_DEC) as u8);
 
                 self.put_lvalue(
                     opcode,
@@ -220,7 +217,7 @@ impl<'s> JSParseState<'s> {
                     self.cur_func_mut().byte_code[last_opcode_pos as usize] =
                         OpCodeTemp::SCOPE_GET_VAR_UNDEF as u8;
                 }
-                emit_op(self, OpCode::TYPEOF);
+                self.emit_op(OpCode::TYPEOF);
                 parse_flags = 0;
             }
             TOK_DELETE => {
@@ -243,7 +240,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
                 self.cur_func_mut().has_await = true;
-                emit_op(self, OpCode::AWAIT);
+                self.emit_op(OpCode::AWAIT);
                 parse_flags = 0;
             }
             _ => {
@@ -265,14 +262,11 @@ impl<'s> JSParseState<'s> {
                         tok,
                     )?;
 
-                    emit_op(
-                        self,
-                        if self.token.val == TOK_DEC {
-                            OpCode::POST_DEC
-                        } else {
-                            OpCode::POST_INC
-                        },
-                    ); //  emit_op_u8(s, (OpCode::POST_DEC as i32 + op - TOK_DEC) as u8);
+                    self.emit_op(if self.token.val == TOK_DEC {
+                        OpCode::POST_DEC
+                    } else {
+                        OpCode::POST_INC
+                    }); //  emit_op_u8(s, (OpCode::POST_DEC as i32 + op - TOK_DEC) as u8);
 
                     self.put_lvalue(
                         opcode,
@@ -305,7 +299,7 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
                 self.parse_unary(PF_POW_ALLOWED)?;
-                emit_op(self, OpCode::POW);
+                self.emit_op(OpCode::POW);
             }
         }
 

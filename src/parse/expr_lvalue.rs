@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::{
-    emit::{emit_atom_dup, emit_label, emit_op, emit_op_temp, emit_u16, emit_u32, get_prev_opcode},
+    emit::get_prev_opcode,
     state::{JSParseState, PF_POSTFIX_CALL},
     token::{TOK_DEC, TOK_FOR, TOK_INC},
 };
@@ -143,34 +143,34 @@ impl<'s> JSParseState<'s> {
                         .add_label()
                         .expect("add_label() can't fail") as i32;
 
-                    emit_op_temp(self, OpCodeTemp::SCOPE_MAKE_REF);
-                    emit_atom_dup(self, name);
-                    emit_u32(self, label as _);
-                    emit_u16(self, scope);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
+                    self.emit_atom_dup(name);
+                    self.emit_u32(label as _);
+                    self.emit_u16(scope);
                     self.cur_func_mut().update_label_ref_count(label as _, 1);
-                    emit_op(self, OpCode::GET_REF_VALUE);
+                    self.emit_op(OpCode::GET_REF_VALUE);
 
                     opcode = OpCode::GET_REF_VALUE as _;
                 }
                 opcodes::OP_get_field => {
-                    emit_op(self, OpCode::GET_FIELD2);
-                    emit_atom_dup(self, name);
+                    self.emit_op(OpCode::GET_FIELD2);
+                    self.emit_atom_dup(name);
                 }
                 opcodes::op_scope_get_private_field => {
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
-                    emit_atom_dup(self, name);
-                    emit_u16(self, scope);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
+                    self.emit_atom_dup(name);
+                    self.emit_u16(scope);
                 }
                 opcodes::OP_get_array_el => {
                     // XXX: replace by a single opcode ?
-                    emit_op(self, OpCode::TO_PROPKEY2);
-                    emit_op(self, OpCode::DUP2);
-                    emit_op(self, OpCode::GET_ARRAY_EL);
+                    self.emit_op(OpCode::TO_PROPKEY2);
+                    self.emit_op(OpCode::DUP2);
+                    self.emit_op(OpCode::GET_ARRAY_EL);
                 }
                 opcodes::OP_get_super_value => {
-                    emit_op(self, OpCode::TO_PROPKEY);
-                    emit_op(self, OpCode::DUP3);
-                    emit_op(self, OpCode::GET_SUPER_VALUE);
+                    self.emit_op(OpCode::TO_PROPKEY);
+                    self.emit_op(OpCode::DUP3);
+                    self.emit_op(OpCode::GET_SUPER_VALUE);
                 }
                 _ => {
                     unreachable!();
@@ -184,19 +184,19 @@ impl<'s> JSParseState<'s> {
                         .add_label()
                         .expect("add_label() can't fail") as i32;
 
-                    emit_op_temp(self, OpCodeTemp::SCOPE_MAKE_REF);
-                    emit_atom_dup(self, name);
-                    emit_u32(self, label as _);
-                    emit_u16(self, scope);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
+                    self.emit_atom_dup(name);
+                    self.emit_u32(label as _);
+                    self.emit_u16(scope);
                     self.cur_func_mut().update_label_ref_count(label as _, 1);
 
                     opcode = OpCode::GET_REF_VALUE as _;
                 }
                 opcodes::OP_get_array_el => {
-                    emit_op(self, OpCode::TO_PROPKEY2);
+                    self.emit_op(OpCode::TO_PROPKEY2);
                 }
                 opcodes::OP_get_super_value => {
-                    emit_op(self, OpCode::TO_PROPKEY);
+                    self.emit_op(OpCode::TO_PROPKEY);
                 }
                 _ => {}
             }
@@ -232,13 +232,13 @@ impl<'s> JSParseState<'s> {
                 match special {
                     PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH => {}
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP => {
-                        emit_op(self, OpCode::INSERT2); // obj v -> v obj v
+                        self.emit_op(OpCode::INSERT2); // obj v -> v obj v
                     }
                     PutLValueEnum::PUT_LVALUE_KEEP_SECOND => {
-                        emit_op(self, OpCode::PERM3); // obj v0 v -> v0 obj v
+                        self.emit_op(OpCode::PERM3); // obj v0 v -> v0 obj v
                     }
                     PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM => {
-                        emit_op(self, OpCode::SWAP);
+                        self.emit_op(OpCode::SWAP);
                     }
                 }
             }
@@ -246,21 +246,21 @@ impl<'s> JSParseState<'s> {
                 // depth = 2
                 if opcode == opcodes::OP_get_ref_value as i32 {
                     JS_FreeAtom(&self.ctx, name);
-                    emit_label(self, label);
+                    self.emit_label(label);
                 }
                 match special {
                     PutLValueEnum::PUT_LVALUE_NOKEEP => {
-                        emit_op(self, OpCode::NOP); // will trigger optimization
+                        self.emit_op(OpCode::NOP); // will trigger optimization
                     }
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH => {}
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP => {
-                        emit_op(self, OpCode::INSERT3); // obj prop v -> v obj prop v
+                        self.emit_op(OpCode::INSERT3); // obj prop v -> v obj prop v
                     }
                     PutLValueEnum::PUT_LVALUE_KEEP_SECOND => {
-                        emit_op(self, OpCode::PERM4); // obj prop v0 v -> v0 obj prop v
+                        self.emit_op(OpCode::PERM4); // obj prop v0 v -> v0 obj prop v
                     }
                     PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM => {
-                        emit_op(self, OpCode::ROT3L);
+                        self.emit_op(OpCode::ROT3L);
                     }
                 }
             }
@@ -269,13 +269,13 @@ impl<'s> JSParseState<'s> {
                 match special {
                     PutLValueEnum::PUT_LVALUE_NOKEEP | PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH => {}
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP => {
-                        emit_op(self, OpCode::INSERT4); // this obj prop v -> v this obj prop v
+                        self.emit_op(OpCode::INSERT4); // this obj prop v -> v this obj prop v
                     }
                     PutLValueEnum::PUT_LVALUE_KEEP_SECOND => {
-                        emit_op(self, OpCode::PERM5); // this obj prop v0 v -> v0 this obj prop v
+                        self.emit_op(OpCode::PERM5); // this obj prop v0 v -> v0 this obj prop v
                     }
                     PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM => {
-                        emit_op(self, OpCode::ROT4L);
+                        self.emit_op(OpCode::ROT4L);
                     }
                 }
             }
@@ -289,34 +289,31 @@ impl<'s> JSParseState<'s> {
                     special == PutLValueEnum::PUT_LVALUE_NOKEEP
                         || special == PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH
                 );
-                emit_op_temp(
-                    self,
-                    if is_let {
-                        OpCodeTemp::SCOPE_PUT_VAR_INIT
-                    } else {
-                        OpCodeTemp::SCOPE_PUT_VAR
-                    },
-                );
-                emit_u32(self, name.0); // has refcount
-                emit_u16(self, scope as _);
+                self.emit_op_temp(if is_let {
+                    OpCodeTemp::SCOPE_PUT_VAR_INIT
+                } else {
+                    OpCodeTemp::SCOPE_PUT_VAR
+                });
+                self.emit_u32(name.0); // has refcount
+                self.emit_u16(scope as _);
             }
             opcodes::OP_get_field => {
-                emit_op(self, OpCode::PUT_FIELD);
-                emit_u32(self, name.0); // name has refcount
+                self.emit_op(OpCode::PUT_FIELD);
+                self.emit_u32(name.0); // name has refcount
             }
             opcodes::op_scope_get_private_field => {
-                emit_op_temp(self, OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD);
-                emit_u32(self, name.0); // name has refcount
-                emit_u16(self, scope as _);
+                self.emit_op_temp(OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD);
+                self.emit_u32(name.0); // name has refcount
+                self.emit_u16(scope as _);
             }
             opcodes::OP_get_array_el => {
-                emit_op(self, OpCode::PUT_ARRAY_EL);
+                self.emit_op(OpCode::PUT_ARRAY_EL);
             }
             opcodes::OP_get_ref_value => {
-                emit_op(self, OpCode::PUT_REF_VALUE);
+                self.emit_op(OpCode::PUT_REF_VALUE);
             }
             opcodes::OP_get_super_value => {
-                emit_op(self, OpCode::PUT_SUPER_VALUE);
+                self.emit_op(OpCode::PUT_SUPER_VALUE);
             }
             _ => {
                 unreachable!();
