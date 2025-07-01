@@ -20,7 +20,6 @@ use super::{
     },
     expr_lvalue::PutLValueEnum,
     function::js_parse_check_duplicate_parameter,
-    obj::set_object_name,
     parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
     token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
@@ -89,7 +88,7 @@ pub unsafe fn js_parse_destructuring_element(
                 if opcode == opcodes::op_scope_get_var as i32
                     || opcode == opcodes::OP_get_ref_value as i32
                 {
-                    set_object_name(s, var_name);
+                    (*s).set_object_name(var_name);
                 }
                 emit_label(s, label_hasval);
             }
@@ -560,7 +559,7 @@ pub unsafe fn js_parse_destructuring_element(
                     if opcode == opcodes::op_scope_get_var as i32
                         || opcode == opcodes::OP_get_ref_value as i32
                     {
-                        set_object_name(s, var_name);
+                        (*s).set_object_name(var_name);
                     }
                     emit_label(s, label_hasval);
                 }

@@ -4,29 +4,21 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
-    bytecode::{OpCode, OpCodeTemp, opcodes},
+    bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
-    error::JS_THROW_ERROR_DELETE_SUPER,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    function::{JSFunctionDef, JSFunctionKindEnum},
+    function::JSFunctionKindEnum,
     module::JSExportTypeEnum,
     parse::{expr_lvalue::PutLValueEnum, token::TokenData},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
-    utils::read_from_ptr,
 };
 
 use super::{
     destructing::js_parse_destructuring_element,
-    emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_push_const, emit_u8, get_prev_opcode,
-    },
     esm::{add_export_entry, js_parse_export},
     function::JSParseFunctionEnum,
-    obj::set_object_name,
     regexp::js_parse_regexp,
-    state::{
-        JSParseState, PF_POW_FORBIDDEN, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI,
-    },
+    state::{JSParseState, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     statement::{DECL_MASK_ALL, js_parse_statement_or_decl},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_DOT, CHAR_EQUAL,
@@ -36,8 +28,7 @@ use super::{
         TOK_INC, TOK_INTERFACE, TOK_LAST_KEYWORD, TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_OF,
         TOK_PACKAGE, TOK_PRIVATE, TOK_PROTECTED, TOK_PUBLIC, TOK_REGEXP, TOK_RETURN, TOK_STATIC,
         TOK_STRING, TOK_SUPER, TOK_SWITCH, TOK_TEMPLATE, TOK_THIS, TOK_THROW, TOK_TRUE, TOK_TRY,
-        TOK_TYPEOF, TOK_VAR, TOK_WHILE, TOK_WITH, is_regexp_allowed, token_is_pseudo_keyword,
-        update_token_ident,
+        TOK_TYPEOF, TOK_VAR, TOK_WHILE, TOK_WITH, is_regexp_allowed, update_token_ident,
     },
 };
 
@@ -139,7 +130,7 @@ impl JSParseState<'_> {
         let tok = self.token.val;
 
         if tok == TOK_FUNCTION
-            || (token_is_pseudo_keyword(self, JS_ATOM_async)
+            || (self.token_is_pseudo_keyword(JS_ATOM_async)
                 && self.peek_token(true) == TOK_FUNCTION)
         {
             // 'function' or 'async function'
@@ -371,7 +362,7 @@ impl JSParseState<'_> {
                             return Err(-1);
                         }
 
-                        set_object_name(self, name);
+                        self.set_object_name(name);
 
                         self.put_lvalue(
                             opcode,
@@ -386,7 +377,7 @@ impl JSParseState<'_> {
                             JS_FreeAtom(&self.ctx, name);
                             return Err(-1);
                         }
-                        set_object_name(self, name);
+                        self.set_object_name(name);
                         self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                             OpCodeTemp::SCOPE_PUT_VAR_INIT
                         } else {
@@ -623,7 +614,8 @@ pub unsafe fn js_parse_skip_parens_token(
 
         // last_tok is only used to recognize regexps
         last_tok = if (*s).token.val == TOK_IDENT
-            && (token_is_pseudo_keyword(s, JS_ATOM_of) || token_is_pseudo_keyword(s, JS_ATOM_yield))
+            && ((*s).token_is_pseudo_keyword(JS_ATOM_of)
+                || (*s).token_is_pseudo_keyword(JS_ATOM_yield))
         {
             TOK_OF
         } else {
@@ -636,7 +628,7 @@ pub unsafe fn js_parse_skip_parens_token(
         }
         if level <= 1 {
             tok = (*s).token.val;
-            if token_is_pseudo_keyword(s, JS_ATOM_of) {
+            if (*s).token_is_pseudo_keyword(JS_ATOM_of) {
                 tok = TOK_OF;
             }
             if no_line_terminator && (*s).last_line_num != (*s).token.line_num {
@@ -655,133 +647,6 @@ pub unsafe fn js_parse_skip_parens_token(
     }
 
     tok
-}
-
-pub unsafe fn js_parse_delete(s: *mut JSParseState) -> i32 {
-    let fd = (*s).cur_func_mut();
-    let name: JSAtom;
-
-    if (*s).next_token().is_err() {
-        return -1;
-    }
-    if (*s).parse_unary(PF_POW_FORBIDDEN).is_err() {
-        return -1;
-    }
-
-    debug_assert_eq!(
-        fd as *mut JSFunctionDef,
-        (*s).cur_func_mut() as *mut JSFunctionDef,
-        "cur_func must not change"
-    );
-
-    match get_prev_opcode(fd) {
-        opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
-            let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
-                read_from_ptr::<i32>(
-                    fd.byte_code
-                        .as_ptr()
-                        .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
-                )
-            } else {
-                -1
-            };
-
-            name = JSAtom(read_from_ptr::<u32>(
-                fd.byte_code
-                    .as_ptr()
-                    .offset(fd.last_opcode_pos as isize + 1),
-            ));
-
-            debug_assert!(fd.last_opcode_pos > 0);
-            fd.byte_code.truncate(fd.last_opcode_pos as _);
-
-            let val = name.to_value(&(*s).ctx, false);
-            let ret = emit_push_const(s, val, true);
-            JS_FreeAtom(&(*s).ctx, name);
-
-            if ret != 0 {
-                return ret;
-            }
-
-            emit_op(s, OpCode::DELETE);
-
-            if opt_chain_label >= 0 {
-                let next_label = emit_goto(s, OpCode::GOTO, -1);
-                emit_label(s, opt_chain_label);
-                // if the optional chain is not taken, return 'true'
-                emit_op(s, OpCode::DROP);
-                emit_op(s, OpCode::PUSH_TRUE);
-                emit_label(s, next_label);
-            }
-
-            fd.last_opcode_pos = -1;
-        }
-        opcodes::OP_get_array_el => {
-            //(*fd).byte_code.size = (*fd).last_opcode_pos;
-
-            // equivelent of  (*fd).byte_code.size = (*fd).last_opcode_pos;
-            debug_assert!(fd.last_opcode_pos >= 0);
-            fd.byte_code.truncate(fd.last_opcode_pos as _);
-
-            fd.last_opcode_pos = -1;
-            emit_op(s, OpCode::DELETE);
-        }
-        opcodes::op_get_array_el_opt_chain => {
-            let opt_chain_label = read_from_ptr::<u32>(
-                fd.byte_code
-                    .as_ptr()
-                    .offset(fd.last_opcode_pos as isize + 1 + 1),
-            );
-
-            fd.byte_code.truncate(fd.last_opcode_pos as _); // (*fd).byte_code.size = (*fd).last_opcode_pos;
-
-            emit_op(s, OpCode::DELETE);
-            let next_label = emit_goto(s, OpCode::GOTO, -1);
-            emit_label(s, opt_chain_label as _);
-            // if the optional chain is not taken, return 'true'
-            emit_op(s, OpCode::DROP);
-            emit_op(s, OpCode::PUSH_TRUE);
-            emit_label(s, next_label);
-            fd.last_opcode_pos = -1;
-        }
-        opcodes::op_scope_get_var => {
-            // 'delete this': this is not a reference
-            name = JSAtom(read_from_ptr::<u32>(
-                fd.byte_code
-                    .as_ptr()
-                    .offset(fd.last_opcode_pos as isize + 1),
-            ));
-            if name == JS_ATOM_this || name == JS_ATOM_new_target {
-                emit_op(s, OpCode::DROP);
-                emit_op(s, OpCode::PUSH_TRUE);
-                return 0;
-            }
-            if fd.js_mode & JS_MODE_STRICT as u8 != 0 {
-                (*s).throw_syntax_error("cannot delete a direct reference in strict mode");
-                return -1;
-            } else {
-                fd.byte_code[fd.last_opcode_pos as usize] = OpCodeTemp::SCOPE_DELETE_VAR as u8;
-            }
-        }
-        opcodes::op_scope_get_private_field => {
-            (*s).throw_syntax_error("cannot delete a private class field");
-            return -1;
-        }
-        opcodes::OP_get_super_value => {
-            fd.byte_code.truncate(fd.last_opcode_pos as _);
-            fd.last_opcode_pos = -1;
-            emit_op(s, OpCode::THROW_ERROR);
-            emit_atom_dup(s, JS_ATOM_NULL);
-            emit_u8(s, JS_THROW_ERROR_DELETE_SUPER);
-        }
-        _ => {
-            // ret_true:
-            emit_op(s, OpCode::DROP);
-            emit_op(s, OpCode::PUSH_TRUE);
-        }
-    }
-
-    0
 }
 
 // if the current token is an identifier or keyword, reparse it

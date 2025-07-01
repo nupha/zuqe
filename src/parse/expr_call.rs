@@ -12,7 +12,7 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    pub(super) unsafe fn parse_func_call(
+    pub(super) fn parse_func_call(
         &mut self,
         fd: *mut JSFunctionDef,
         call_type: FuncCallType,
@@ -22,7 +22,9 @@ impl<'s> JSParseState<'s> {
         self.next_token()?;
 
         let opcode = if call_type == FuncCallType::FUNC_CALL_NORMAL {
-            self.parse_func_call2(fd, call_type, has_optional_chain, optional_chaining_label)
+            unsafe {
+                self.parse_func_call2(fd, call_type, has_optional_chain, optional_chaining_label)
+            }
         } else {
             opcodes::OP_invalid
         };
@@ -36,7 +38,7 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    pub(super) unsafe fn parse_func_call3(
+    pub(super) fn parse_func_call3(
         &mut self,
         fd: *mut JSFunctionDef,
         opcode: u8,
@@ -139,8 +141,10 @@ impl<'s> JSParseState<'s> {
                 }
                 opcodes::OP_eval => {
                     self.emit_op(OpCode::APPLY_EVAL);
-                    self.emit_u16((*fd).scope_level as _);
-                    (*fd).has_eval_call = true;
+                    self.emit_u16(unsafe { (*fd).scope_level } as _);
+                    unsafe {
+                        (*fd).has_eval_call = true;
+                    }
                 }
                 _ => {
                     if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {
@@ -298,7 +302,7 @@ impl<'s> JSParseState<'s> {
         opcode
     }
 
-    unsafe fn emit_func_call(
+    fn emit_func_call(
         &mut self,
         fd: *mut JSFunctionDef,
         call_type: FuncCallType,
@@ -314,11 +318,13 @@ impl<'s> JSParseState<'s> {
                 self.emit_u16(arg_count);
             }
             opcodes::OP_eval => {
-                debug_assert!((*fd).scope_level > 0);
+                debug_assert!(unsafe { (*fd).scope_level } > 0);
                 self.emit_op(OpCode::EVAL);
                 self.emit_u16(arg_count);
-                self.emit_u16((*fd).scope_level as _);
-                (*fd).has_eval_call = true;
+                self.emit_u16(unsafe { (*fd).scope_level } as _);
+                unsafe {
+                    (*fd).has_eval_call = true;
+                }
             }
             _ => {
                 if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {

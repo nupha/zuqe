@@ -5,48 +5,57 @@ use crate::{
 };
 
 use super::{
-    emit::{emit_atom_dup, emit_op, get_prev_opcode},
+    emit::{emit_op, get_prev_opcode},
     state::JSParseState,
 };
 
-pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
-    let fd = (*s).cur_func_mut();
+impl<'s> JSParseState<'s> {
+    pub fn set_object_name(&mut self, name: JSAtom) {
+        let ctx = self.ctx.clone();
+        let fd = self.cur_func_mut();
 
-    match get_prev_opcode(fd) {
-        opcodes::OP_set_name => {
-            // XXX: should free atom after OP_set_name?
-            fd.byte_code.truncate(fd.last_opcode_pos as usize); //   (*fd).byte_code.size = (*fd).last_opcode_pos;
-            fd.last_opcode_pos = -1;
-            emit_op(s, OpCode::SET_NAME);
-            emit_atom_dup(s, name);
-        }
-        opcodes::op_set_class_name => {
-            let define_class_pos = fd.last_opcode_pos + 1
-                - read_from_ptr::<i32>(
-                    fd.byte_code
-                        .as_ptr()
-                        .offset(fd.last_opcode_pos as isize + 1),
+        match get_prev_opcode(fd) {
+            opcodes::OP_set_name => {
+                // XXX: should free atom after OP_set_name?
+                fd.byte_code.truncate(fd.last_opcode_pos as usize); //   (*fd).byte_code.size = (*fd).last_opcode_pos;
+                fd.last_opcode_pos = -1;
+                self.emit_op(OpCode::SET_NAME);
+                self.emit_atom_dup(name);
+            }
+            opcodes::op_set_class_name => {
+                let define_class_pos = fd.last_opcode_pos + 1
+                    - unsafe {
+                        read_from_ptr::<i32>(
+                            fd.byte_code
+                                .as_ptr()
+                                .offset(fd.last_opcode_pos as isize + 1),
+                        )
+                    };
+
+                debug_assert_eq!(
+                    unsafe { *fd.byte_code.as_ptr().offset(define_class_pos as isize) },
+                    opcodes::OP_define_class
                 );
 
-            assert_eq!(
-                *fd.byte_code.as_ptr().offset(define_class_pos as isize),
-                opcodes::OP_define_class
-            );
-
-            // for consistency we free the previous atom which is JS_ATOM_empty_string
-            let atom = JSAtom(read_from_ptr::<u32>(
-                fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
-            ));
-            JS_FreeAtom(&(*s).ctx, atom);
-            write_to_ptr::<u32>(
-                fd.byte_code
-                    .as_mut_ptr()
-                    .offset(define_class_pos as isize + 1),
-                name.dup((*s).ctx.rt()).0,
-            );
-            fd.last_opcode_pos = -1;
+                // for consistency we free the previous atom which is JS_ATOM_empty_string
+                let atom = JSAtom(unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
+                    )
+                });
+                JS_FreeAtom(&ctx, atom);
+                unsafe {
+                    write_to_ptr::<u32>(
+                        fd.byte_code
+                            .as_mut_ptr()
+                            .offset(define_class_pos as isize + 1),
+                        name.dup(ctx.rt()).0,
+                    );
+                }
+                fd.last_opcode_pos = -1;
+            }
+            _ => {}
         }
-        _ => {}
     }
 }
 

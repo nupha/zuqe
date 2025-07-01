@@ -55,10 +55,6 @@ pub struct JSStringInner {
     content: StringContentRc,
 
     gc_mark: Cell<bool>,
-
-    /// For tracking string allocations
-    #[cfg(feature = "dump_leaks")]
-    pub link: crate::utils::list_head,
 }
 
 impl JSStringInner {
@@ -149,9 +145,6 @@ impl JSString {
             atom_type: Cell::new(None),
             content,
             gc_mark: Cell::new(false),
-
-            #[cfg(feature = "dump_leaks")]
-            link: crate::utils::list_head::default(),
         };
 
         let s = Self(Rc::new(inner));

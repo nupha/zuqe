@@ -710,48 +710,20 @@ impl<'s> JSParseState<'s> {
                 *flags = JSValue::UNDEFINED;
             }
         }
-
-        // let token = &mut self.token;
-        // match token.val {
-        //     TOK_NUMBER => {
-        //         //token.u.num.val = JSValue::UNDEFINED;
-        //     }
-        //     TOK_STRING | TOK_TEMPLATE => {
-        //         //token.u.str.str = JSValue::UNDEFINED;
-        //     }
-        //     TOK_REGEXP => {
-        //         //token.u.regexp.body = JSValue::UNDEFINED;
-        //         //token.u.regexp.flags = JSValue::UNDEFINED;
-        //     }
-        //     TOK_IDENT | TOK_PRIVATE_NAME | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
-        //         JS_FreeAtom(&self.ctx, token.data.ident_atom().unwrap());
-        //     }
-        //     _ => {}
-        // }
     }
-}
 
-#[deprecated(note = "use JSParseState::next_token() instead")]
-pub unsafe fn next_token(s: *mut JSParseState) -> i32 {
-    if (*s).next_token().is_err() { -1 } else { 0 }
-}
+    #[inline(always)]
+    pub fn token_is_ident(tok: i32) -> bool {
+        /* Accept keywords and reserved words as property names */
+        tok == TOK_IDENT || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&tok)
+    }
 
-#[deprecated(note = "use JSParseState::free_token() instead")]
-pub unsafe fn free_token(s: *mut JSParseState, token: *mut JSToken) {
-    debug_assert_eq!(&mut (*s).token as *mut JSToken, token);
-    (*s).free_token();
-}
-
-pub unsafe fn token_is_ident(tok: i32) -> bool {
-    /* Accept keywords and reserved words as property names */
-    tok == TOK_IDENT || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&tok)
-}
-
-#[inline(always)]
-pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: JSAtom) -> bool {
-    (*s).token.val == TOK_IDENT
-        && (*s).token.data.ident_atom().unwrap() == atom
-        && !(*s).token.data.ident_has_escape()
+    #[inline(always)]
+    pub fn token_is_pseudo_keyword(&self, atom: JSAtom) -> bool {
+        self.token.val == TOK_IDENT
+            && self.token.data.ident_atom().unwrap() == atom
+            && !self.token.data.ident_has_escape()
+    }
 }
 
 /* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is

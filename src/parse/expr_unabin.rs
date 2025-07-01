@@ -1,17 +1,22 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom},
-    bytecode::{OpCode, OpCodeTemp},
-    error::JS_ThrowSyntaxError,
+    atom::{
+        JS_ATOM_NULL, JS_FreeAtom, JSAtom,
+        consts::{JS_ATOM_new_target, JS_ATOM_this},
+    },
+    bytecode::{OpCode, OpCodeTemp, opcodes},
+    context::JS_MODE_STRICT,
+    error::{JS_THROW_ERROR_DELETE_SUPER, JS_ThrowSyntaxError},
+    function::JSFunctionDef,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
         token::{TOK_IN, TokenData},
     },
+    utils::read_from_ptr,
 };
 
 use super::{
     emit::get_prev_opcode,
     expr_lvalue::PutLValueEnum,
-    parse::js_parse_delete,
     state::{JSParseState, PF_POSTFIX_CALL, PF_POW_FORBIDDEN},
     token::{
         CHAR_MINUS, CHAR_PERCENT, CHAR_PLUS, CHAR_SLASH, CHAR_STAR, TOK_AWAIT, TOK_DEC, TOK_DELETE,
@@ -22,11 +27,7 @@ use super::{
 
 impl<'s> JSParseState<'s> {
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-    pub(super) unsafe fn parse_expr_binary(
-        &mut self,
-        level: i32,
-        parse_flags: i32,
-    ) -> Result<(), i32> {
+    pub(super) fn parse_expr_binary(&mut self, level: i32, parse_flags: i32) -> Result<(), i32> {
         if level == 0 {
             return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
         }
@@ -153,7 +154,7 @@ impl<'s> JSParseState<'s> {
     }
 
     // allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
-    pub(super) unsafe fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
+    pub(super) fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
         match self.token.val {
             // '+', '-', '!', '~'
             op @ (CHAR_PLUS | CHAR_MINUS | 0x21 | 0x7e | TOK_VOID) => {
@@ -221,9 +222,7 @@ impl<'s> JSParseState<'s> {
                 parse_flags = 0;
             }
             TOK_DELETE => {
-                if js_parse_delete(self) != 0 {
-                    return Err(-1);
-                }
+                self.parse_delete()?;
                 parse_flags = 0;
             }
             TOK_AWAIT => {
@@ -300,6 +299,137 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.parse_unary(PF_POW_ALLOWED)?;
                 self.emit_op(OpCode::POW);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn parse_delete(&mut self) -> Result<(), i32> {
+        let fd0 = self.cur_func_ptr;
+
+        self.next_token()?;
+        self.parse_unary(PF_POW_FORBIDDEN)?;
+        debug_assert_eq!(
+            fd0,
+            self.cur_func_mut() as *mut JSFunctionDef,
+            "cur_func_ptr must not change"
+        );
+
+        let name: JSAtom;
+        let fd = unsafe { fd0.as_mut().unwrap() };
+
+        match get_prev_opcode(fd) {
+            opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
+                let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
+                    unsafe {
+                        read_from_ptr::<i32>(
+                            fd.byte_code
+                                .as_ptr()
+                                .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
+                        )
+                    }
+                } else {
+                    -1
+                };
+
+                name = JSAtom(unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 1),
+                    )
+                });
+
+                debug_assert!(fd.last_opcode_pos > 0);
+                fd.byte_code.truncate(fd.last_opcode_pos as _);
+
+                let val = name.to_value(&self.ctx, false);
+                let ret = self.emit_push_const(val, true);
+                JS_FreeAtom(&(*self).ctx, name);
+                if ret != 0 {
+                    return Err(-1);
+                }
+
+                self.emit_op(OpCode::DELETE);
+
+                if opt_chain_label >= 0 {
+                    let next_label = self.emit_goto(OpCode::GOTO, -1);
+                    self.emit_label(opt_chain_label);
+                    // if the optional chain is not taken, return 'true'
+                    self.emit_op(OpCode::DROP);
+                    self.emit_op(OpCode::PUSH_TRUE);
+                    self.emit_label(next_label);
+                }
+
+                fd.last_opcode_pos = -1;
+            }
+            opcodes::OP_get_array_el => {
+                //(*fd).byte_code.size = (*fd).last_opcode_pos;
+
+                // equivelent of  (*fd).byte_code.size = (*fd).last_opcode_pos;
+                debug_assert!(fd.last_opcode_pos >= 0);
+                fd.byte_code.truncate(fd.last_opcode_pos as _);
+
+                fd.last_opcode_pos = -1;
+                self.emit_op(OpCode::DELETE);
+            }
+            opcodes::op_get_array_el_opt_chain => {
+                let opt_chain_label = unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 1 + 1),
+                    )
+                };
+
+                fd.byte_code.truncate(fd.last_opcode_pos as _);
+
+                self.emit_op(OpCode::DELETE);
+                let next_label = self.emit_goto(OpCode::GOTO, -1);
+                self.emit_label(opt_chain_label as _);
+                // if the optional chain is not taken, return 'true'
+                self.emit_op(OpCode::DROP);
+                self.emit_op(OpCode::PUSH_TRUE);
+                self.emit_label(next_label);
+                fd.last_opcode_pos = -1;
+            }
+            opcodes::op_scope_get_var => {
+                // 'delete this': this is not a reference
+                name = JSAtom(unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 1),
+                    )
+                });
+                if matches!(name, JS_ATOM_this | JS_ATOM_new_target) {
+                    self.emit_op(OpCode::DROP);
+                    self.emit_op(OpCode::PUSH_TRUE);
+                    return Ok(());
+                }
+                if fd.js_mode & JS_MODE_STRICT as u8 != 0 {
+                    self.throw_syntax_error("cannot delete a direct reference in strict mode");
+                    return Err(-1);
+                } else {
+                    fd.byte_code[fd.last_opcode_pos as usize] = OpCodeTemp::SCOPE_DELETE_VAR as u8;
+                }
+            }
+            opcodes::op_scope_get_private_field => {
+                self.throw_syntax_error("cannot delete a private class field");
+                return Err(-1);
+            }
+            opcodes::OP_get_super_value => {
+                fd.byte_code.truncate(fd.last_opcode_pos as _);
+                fd.last_opcode_pos = -1;
+                self.emit_op(OpCode::THROW_ERROR);
+                self.emit_atom_dup(JS_ATOM_NULL);
+                self.emit_u8(JS_THROW_ERROR_DELETE_SUPER);
+            }
+            _ => {
+                // ret_true:
+                self.emit_op(OpCode::DROP);
+                self.emit_op(OpCode::PUSH_TRUE);
             }
         }
 

@@ -15,7 +15,7 @@ use crate::{
 use super::JSParseState;
 
 impl<'s> JSParseState<'s> {
-    pub(super) unsafe fn parse_yield(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub(super) fn parse_yield(&mut self, parse_flags: i32) -> Result<(), i32> {
         debug_assert_eq!(self.token.val, TOK_YIELD);
 
         if !matches!(

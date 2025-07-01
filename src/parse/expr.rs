@@ -13,14 +13,10 @@ use super::{
     array::js_parse_array_literal,
     class::js_parse_class,
     destructing::js_parse_destructuring_element,
-    emit::{
-        OPSpecialObjectEnum, emit_goto, emit_label_raw, emit_op_temp, emit_push_const, emit_u16,
-        emit_u32, get_prev_opcode,
-    },
+    emit::{OPSpecialObjectEnum, get_prev_opcode},
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
-    obj::set_object_name,
     parse::js_parse_skip_parens_token,
     regexp::js_parse_regexp,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
@@ -29,13 +25,13 @@ use super::{
         TOK_ARROW, TOK_CLASS, TOK_DIV_ASSIGN, TOK_DOUBLE_QUESTION_MARK_ASSIGN, TOK_FALSE,
         TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LAND_ASSIGN, TOK_LOR_ASSIGN, TOK_MUL_ASSIGN,
         TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_POW_ASSIGN, TOK_QUESTION_MARK_DOT, TOK_STRING,
-        TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD, token_is_pseudo_keyword,
+        TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD,
     },
 };
 
 impl<'s> JSParseState<'s> {
     // allowed parse_flags: PF_IN_ACCEPTED
-    pub(super) unsafe fn parse_assign_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub(super) fn parse_assign_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
         if self.token.val == TOK_YIELD {
             return self.parse_yield(parse_flags);
         }
@@ -75,7 +71,7 @@ impl<'s> JSParseState<'s> {
 
                 if op == CHAR_EQUAL {
                     if opcode == OpCode::GET_REF_VALUE as _ && name == name0 {
-                        set_object_name(self, name);
+                        self.set_object_name(name);
                     }
                 } else {
                     const assign_opcodes: [OpCode; 12] = [
@@ -140,7 +136,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
-                    set_object_name(self, name);
+                    self.set_object_name(name);
                 }
 
                 match depth_lvalue {
@@ -161,7 +157,7 @@ impl<'s> JSParseState<'s> {
                     false,
                 );
 
-                let label2 = emit_goto(self, OpCode::GOTO, -1);
+                let label2 = self.emit_goto(OpCode::GOTO, -1);
                 self.emit_label(label1);
 
                 // remove the lvalue stack entries
@@ -185,7 +181,7 @@ impl<'s> JSParseState<'s> {
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED
-    pub(super) unsafe fn parse_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub(super) fn parse_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
         let mut comma = false;
 
         loop {
@@ -213,11 +209,11 @@ impl<'s> JSParseState<'s> {
 
     /// a short-cut to `self.parse_expr2(PF_IN_ACCEPTED)`
     #[inline(always)]
-    pub unsafe fn parse_expr(&mut self) -> Result<(), i32> {
+    pub fn parse_expr(&mut self) -> Result<(), i32> {
         self.parse_expr2(PF_IN_ACCEPTED)
     }
 
-    pub unsafe fn parse_expr_parens(&mut self) -> Result<(), i32> {
+    pub fn parse_expr_parens(&mut self) -> Result<(), i32> {
         self.parse_expect(CHAR_BRACKET_L)?;
         self.parse_expr()?;
         self.parse_expect(CHAR_BRACKET_R)?;
@@ -234,7 +230,7 @@ impl<'s> JSParseState<'s> {
     /// and then checking for postfix operators or access patterns that follow it.
     ///
     /// allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC
-    pub unsafe fn parse_postfix_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub fn parse_postfix_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         let mut accept_lparen: bool = (parse_flags & PF_POSTFIX_CALL) != 0;
         let mut call_type = FuncCallType::FUNC_CALL_NORMAL;
 
@@ -252,17 +248,17 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
             }
-            TOK_TEMPLATE => {
+            TOK_TEMPLATE => unsafe {
                 self.parse_template(false, core::ptr::null_mut())?;
-            }
+            },
             TOK_STRING => {
-                if emit_push_const(self, self.token.data.string().unwrap().clone(), true) != 0 {
+                if self.emit_push_const(self.token.data.string().unwrap().clone(), true) != 0 {
                     return Err(-1);
                 }
                 self.next_token()?;
             }
 
-            t @ (TOK_DIV_ASSIGN | CHAR_SLASH) => {
+            t @ (TOK_DIV_ASSIGN | CHAR_SLASH) => unsafe {
                 self.buf_ptr = self
                     .buf_ptr
                     .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 });
@@ -315,10 +311,10 @@ impl<'s> JSParseState<'s> {
                     self.throw_syntax_error("RegExp are not supported");
                     return Err(-1);
                 }
-            }
+            },
 
             // '('
-            CHAR_BRACKET_L => {
+            CHAR_BRACKET_L => unsafe {
                 if (parse_flags & PF_ARROW_FUNC) != 0
                     && js_parse_skip_parens_token(self, core::ptr::null_mut(), true) == TOK_ARROW
                 {
@@ -332,7 +328,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_expr_parens()?;
                 }
-            }
+            },
             TOK_FUNCTION => {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
@@ -342,11 +338,11 @@ impl<'s> JSParseState<'s> {
                     self.token.line_num,
                 )?;
             }
-            TOK_CLASS => {
+            TOK_CLASS => unsafe {
                 if js_parse_class(self, true, JSParseExportEnum::JS_PARSE_EXPORT_NONE) != 0 {
                     return Err(-1);
                 }
-            }
+            },
             TOK_NULL => {
                 self.next_token()?;
                 self.emit_op(OpCode::NULL);
@@ -384,7 +380,7 @@ impl<'s> JSParseState<'s> {
                         self.token.ptr,
                         self.token.line_num,
                     )?;
-                } else if token_is_pseudo_keyword(self, JS_ATOM_async)
+                } else if self.token_is_pseudo_keyword(JS_ATOM_async)
                     && self.peek_token(true) != '\n' as i32
                 {
                     let source_ptr = self.token.ptr;
@@ -402,8 +398,10 @@ impl<'s> JSParseState<'s> {
                         )?;
                     } else if (parse_flags & PF_ARROW_FUNC) != 0
                         && (self.token.val == b'(' as i32
-                            && js_parse_skip_parens_token(self, core::ptr::null_mut(), true)
-                                == TOK_ARROW)
+                            && unsafe {
+                                js_parse_skip_parens_token(self, core::ptr::null_mut(), true)
+                                    == TOK_ARROW
+                            })
                         || (self.token.val == TOK_IDENT
                             && !self.token.data.is_reserved()
                             && self.peek_token(true) == TOK_ARROW)
@@ -417,9 +415,9 @@ impl<'s> JSParseState<'s> {
                         )?;
                     } else {
                         name = JS_ATOM_async.dup(self.ctx.rt());
-                        emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                        emit_u32(self, name.0);
-                        emit_u16(self, self.cur_func().scope_level as _);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_u32(name.0);
+                        self.emit_u16(self.cur_func().scope_level as _);
                     }
                 } else {
                     if self.token.data.ident_atom().unwrap() == JS_ATOM_arguments
@@ -439,13 +437,13 @@ impl<'s> JSParseState<'s> {
                     }
 
                     // do_get_var:
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_u32(self, name.0);
-                    emit_u16(self, self.cur_func().scope_level as _);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    self.emit_u32(name.0);
+                    self.emit_u16(self.cur_func().scope_level as _);
                 }
             }
             // '{' | '['
-            CHAR_CURLY_L | CHAR_SQUARE_L => {
+            CHAR_CURLY_L | CHAR_SQUARE_L => unsafe {
                 let mut skip_bits: i32 = 0;
                 if js_parse_skip_parens_token(self, &mut skip_bits, false) == '=' as i32 {
                     if js_parse_destructuring_element(
@@ -468,14 +466,14 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                 }
-            }
+            },
             TOK_NEW => {
                 self.next_token()?;
 
                 if self.token.val == b'.' as i32 {
                     self.next_token()?;
 
-                    if !token_is_pseudo_keyword(self, JS_ATOM_target) {
+                    if !self.token_is_pseudo_keyword(JS_ATOM_target) {
                         self.throw_syntax_error("expecting target");
                         return Err(-1);
                     }
@@ -535,7 +533,8 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 if self.token.val == b'.' as i32 {
                     self.next_token()?;
-                    if !token_is_pseudo_keyword(self, JS_ATOM_meta) {
+
+                    if !self.token_is_pseudo_keyword(JS_ATOM_meta) {
                         self.throw_syntax_error("meta expected");
                         return Err(-1);
                     }
@@ -562,7 +561,7 @@ impl<'s> JSParseState<'s> {
                 let len = self.buf_ptr as usize - self.token.ptr as usize;
                 let msg = format!(
                     "unexpected token in expression: '{:.1$?}'",
-                    CStr::from_ptr(self.token.ptr.cast()).to_string_lossy(),
+                    unsafe { CStr::from_ptr(self.token.ptr.cast()).to_string_lossy() },
                     len
                 );
                 self.throw_syntax_error(&msg);
@@ -575,8 +574,8 @@ impl<'s> JSParseState<'s> {
         loop {
             let mut has_optional_chain: bool = false;
 
-            let mut arg_count: i32;
-            let mut drop_count: i32;
+            // let mut arg_count: i32;
+            // let mut drop_count: i32;
 
             if self.token.val == TOK_QUESTION_MARK_DOT {
                 /* optional chaining */
@@ -585,25 +584,31 @@ impl<'s> JSParseState<'s> {
                 has_optional_chain = true;
 
                 if self.token.val == b'(' as i32 && accept_lparen {
-                    self.parse_func_call(
-                        self.cur_func_ptr,
-                        call_type,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
+                    unsafe {
+                        self.parse_func_call(
+                            self.cur_func_ptr,
+                            call_type,
+                            has_optional_chain,
+                            &mut optional_chaining_label,
+                        )?;
+                    }
                     call_type = FuncCallType::FUNC_CALL_NORMAL;
                 } else if self.token.val == b'[' as i32 {
-                    self.parse_array_access(
-                        self.cur_func_ptr,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
+                    unsafe {
+                        self.parse_array_access(
+                            self.cur_func_ptr,
+                            has_optional_chain,
+                            &mut optional_chaining_label,
+                        )?;
+                    }
                 } else {
-                    self.parse_property(
-                        self.cur_func_ptr,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
+                    unsafe {
+                        self.parse_property(
+                            self.cur_func_ptr,
+                            has_optional_chain,
+                            &mut optional_chaining_label,
+                        )?;
+                    }
                 }
             } else if self.token.val == TOK_TEMPLATE && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
@@ -613,49 +618,60 @@ impl<'s> JSParseState<'s> {
                 }
 
                 call_type = FuncCallType::FUNC_CALL_TEMPLATE;
-                let op = self.parse_func_call2(
-                    self.cur_func_ptr,
-                    call_type,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                );
-                self.parse_func_call3(
-                    self.cur_func_ptr,
-                    op,
-                    call_type,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                )?;
+                let op = unsafe {
+                    self.parse_func_call2(
+                        self.cur_func_ptr,
+                        call_type,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )
+                };
+
+                unsafe {
+                    self.parse_func_call3(
+                        self.cur_func_ptr,
+                        op,
+                        call_type,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
+                }
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == CHAR_BRACKET_L && accept_lparen {
                 /* function call */
-                self.parse_func_call(
-                    self.cur_func_ptr,
-                    call_type,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                )?;
+                unsafe {
+                    self.parse_func_call(
+                        self.cur_func_ptr,
+                        call_type,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
+                }
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == b'.' as i32 {
                 self.next_token()?;
-                self.parse_property(
-                    self.cur_func_ptr,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                )?;
+                unsafe {
+                    self.parse_property(
+                        self.cur_func_ptr,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
+                }
             } else if self.token.val == b'[' as i32 {
-                self.parse_array_access(
-                    self.cur_func_ptr,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                )?;
+                unsafe {
+                    self.parse_array_access(
+                        self.cur_func_ptr,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
+                }
             } else {
                 break;
             }
         } // loop
 
         if optional_chaining_label >= 0 {
-            emit_label_raw(self, optional_chaining_label);
+            self.emit_label_raw(optional_chaining_label);
 
             /* modify the last opcode to indicate optional chain */
             match get_prev_opcode(self.cur_func()) {
@@ -677,11 +693,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub unsafe fn optional_chain_test(
-        &mut self,
-        poptional_chaining_label: &mut i32,
-        drop_count: i32,
-    ) {
+    pub fn optional_chain_test(&mut self, poptional_chaining_label: &mut i32, drop_count: i32) {
         if *poptional_chaining_label < 0 {
             *poptional_chaining_label = self.cur_func_mut().add_label().map_or(-1, |x| x as i32);
         }
@@ -697,121 +709,4 @@ impl<'s> JSParseState<'s> {
         self.emit_goto(OpCode::GOTO, *poptional_chaining_label);
         self.emit_label(label_next);
     }
-}
-
-#[deprecated(note = "use JSParseState::parse_assign_expr() instead")]
-pub unsafe fn js_parse_assign_expr(s: *mut JSParseState) -> i32 {
-    (*s).parse_assign_expr2(PF_IN_ACCEPTED).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::get_lvalue() instead")]
-pub unsafe fn get_lvalue(
-    s: *mut JSParseState,
-    popcode: *mut i32,
-    pscope: *mut i32,
-    pname: *mut JSAtom,
-    plabel: *mut i32,
-    pdepth: *mut i32,
-    keep: bool,
-    tok: i32,
-) -> i32 {
-    (*s).get_lvalue(popcode, pscope, pname, plabel, pdepth, keep, tok)
-        .map_or(-1, |_| 0)
-}
-
-// name has a live reference. 'is_let' is only used with opcode =
-// op_scope_get_var which is never generated by get_lvalue().
-#[deprecated(note = "use JSParseState::get_lvalue() instead")]
-pub unsafe fn put_lvalue(
-    s: *mut JSParseState,
-    opcode: i32,
-    scope: i32,
-    name: JSAtom,
-    label: i32,
-    special: PutLValueEnum,
-    is_let: bool,
-) {
-    (*s).put_lvalue(opcode, scope, name, label, special, is_let);
-}
-
-/// cond? a : b
-/// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-#[deprecated(note = "use JSParseState::parse_cond_expr() instead")]
-pub unsafe fn js_parse_cond_expr(s: *mut JSParseState, parse_flags: i32) -> i32 {
-    (*s).parse_cond_expr(parse_flags).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::parse_coalesce_expr() instead")]
-pub unsafe fn js_parse_coalesce_expr(s: *mut JSParseState, parse_flags: i32) -> i32 {
-    (*s).parse_coalesce_expr(parse_flags).map_or(-1, |_| 0)
-}
-
-// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-#[deprecated(note = "use JSParseState::parse_logical_and_or() instead")]
-pub unsafe fn js_parse_logical_and_or(s: *mut JSParseState, op: i32, parse_flags: i32) -> i32 {
-    (*s).parse_logical_and_or(op, parse_flags).map_or(-1, |_| 0)
-}
-
-// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-#[deprecated(note = "use JSParseState::parse_expr_binary() instead")]
-pub unsafe fn js_parse_expr_binary(s: *mut JSParseState, level: i32, parse_flags: i32) -> i32 {
-    (*s).parse_expr_binary(level, parse_flags).map_or(-1, |_| 0)
-}
-
-// allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
-#[deprecated(note = "use JSParseState::parse_unary() instead")]
-pub unsafe fn js_parse_unary(s: *mut JSParseState, mut parse_flags: i32) -> i32 {
-    (*s).parse_unary(parse_flags).map_or(-1, |_| 0)
-}
-
-// allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC
-#[deprecated(note = "use JSParseState::parse_postfix_expr() instead")]
-pub unsafe fn js_parse_postfix_expr(s: *mut JSParseState, parse_flags: i32) -> i32 {
-    (*s).parse_postfix_expr(parse_flags).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::optional_chain_test() instead")]
-pub unsafe fn optional_chain_test(
-    s: *mut JSParseState,
-    poptional_chaining_label: &mut i32,
-    drop_count: i32,
-) {
-    (*s).optional_chain_test(poptional_chaining_label, drop_count);
-}
-
-// allowed parse_flags: PF_IN_ACCEPTED
-#[deprecated(note = "use JSParseState::parse_assign_expr2() instead")]
-pub unsafe fn js_parse_assign_expr2(s: *mut JSParseState, parse_flags: i32) -> i32 {
-    (*s).parse_assign_expr2(parse_flags).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::parse_expr() instead")]
-pub unsafe fn js_parse_expr(s: *mut JSParseState) -> i32 {
-    (*s).parse_expr2(PF_IN_ACCEPTED).map_or(-1, |_| 0)
-}
-
-// allowed parse_flags: PF_IN_ACCEPTED
-#[deprecated(note = "use JSParseState::parse_expr2() instead")]
-pub unsafe fn js_parse_expr2(s: *mut JSParseState, parse_flags: i32) -> i32 {
-    (*s).parse_expr2(parse_flags).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::parse_template() instead")]
-pub unsafe fn js_parse_template(s: *mut JSParseState, call: bool, argc: *mut i32) -> i32 {
-    (*s).parse_template(call, argc).map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::parse_left_hand_side_expr() instead")]
-pub unsafe fn js_parse_left_hand_side_expr(s: *mut JSParseState) -> i32 {
-    (*s).parse_left_hand_side_expr().map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::parse_expr_parens() instead")]
-pub unsafe fn js_parse_expr_paren(s: *mut JSParseState) -> i32 {
-    (*s).parse_expr_parens().map_or(-1, |_| 0)
-}
-
-#[deprecated(note = "use JSParseState::parse_object_literal() instead")]
-pub unsafe fn js_parse_object_literal(s: *mut JSParseState) -> i32 {
-    (*s).parse_object_literal().map_or(-1, |_| 0)
 }

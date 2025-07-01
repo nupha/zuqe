@@ -6,11 +6,11 @@ use crate::{
 use super::{
     emit::get_prev_opcode,
     state::JSParseState,
-    token::{CHAR_SQUARE_R, TOK_PRIVATE_NAME, token_is_ident},
+    token::{CHAR_SQUARE_R, TOK_PRIVATE_NAME},
 };
 
 impl<'s> JSParseState<'s> {
-    pub(super) unsafe fn parse_property(
+    pub(super) fn parse_property(
         &mut self,
         fd: *mut JSFunctionDef,
         has_optional_chain: bool,
@@ -29,7 +29,7 @@ impl<'s> JSParseState<'s> {
             self.emit_atom_dup(self.token.data.ident_atom().unwrap());
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
-            if !token_is_ident(self.token.val) {
+            if !Self::token_is_ident(self.token.val) {
                 self.throw_syntax_error("expecting field name");
                 return Err(-1);
             }
@@ -57,7 +57,7 @@ impl<'s> JSParseState<'s> {
         self.next_token()
     }
 
-    pub(super) unsafe fn parse_array_access(
+    pub(super) fn parse_array_access(
         &mut self,
         fd: *mut JSFunctionDef,
         has_optional_chain: bool,

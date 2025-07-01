@@ -6,7 +6,7 @@ use crate::{
     parse::{
         JSParseFunctionEnum,
         class::js_parse_property_name,
-        obj::{set_object_name, set_object_name_computed},
+        obj::set_object_name_computed,
         token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
     },
     value::object::{
@@ -138,7 +138,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::SET_PROTO);
                     has_proto = true;
                 } else {
-                    set_object_name(self, name);
+                    self.set_object_name(name);
                     self.emit_op(OpCode::DEFINE_FIELD);
                     self.emit_atom_dup(name);
                 }

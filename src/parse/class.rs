@@ -14,11 +14,7 @@ use crate::{
     defer,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::JSExportTypeEnum,
-    parse::{
-        esm::add_export_entry,
-        obj::{set_object_name, set_object_name_computed},
-        token::CHAR_SQUARE_L,
-    },
+    parse::{esm::add_export_entry, obj::set_object_name_computed, token::CHAR_SQUARE_L},
     utils::write_to_ptr,
     value::{
         JSValue,
@@ -36,10 +32,7 @@ use super::{
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     state::JSParseState,
-    token::{
-        TOK_EXTENDS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STATIC, TOK_STRING,
-        token_is_ident, token_is_pseudo_keyword,
-    },
+    token::{TOK_EXTENDS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STATIC, TOK_STRING},
 };
 
 impl<'s> JSParseState<'s> {
@@ -276,24 +269,21 @@ impl<'s> JSParseState<'s> {
         // this scope contains the private fields
         self.push_scope().unwrap();
 
-        emit_op(self, OpCode::PUSH_CONST);
+        self.emit_op(OpCode::PUSH_CONST);
         let ctor_cpool_offset = self.cur_func_mut().byte_code.len();
-        emit_u32(self, 0); // will be patched at the end of the class parsing
+        self.emit_u32(0); // will be patched at the end of the class parsing
 
-        emit_op(self, OpCode::DEFINE_CLASS);
-        emit_atom_dup(
-            self,
-            if class_name == JS_ATOM_NULL {
-                if class_var_name != JS_ATOM_NULL {
-                    JS_ATOM_default
-                } else {
-                    JS_ATOM_empty_string
-                }
+        self.emit_op(OpCode::DEFINE_CLASS);
+        self.emit_atom_dup(if class_name == JS_ATOM_NULL {
+            if class_var_name != JS_ATOM_NULL {
+                JS_ATOM_default
             } else {
-                class_name
-            },
-        );
-        emit_u8(self, class_flags as u8);
+                JS_ATOM_empty_string
+            }
+        } else {
+            class_name
+        });
+        self.emit_u8(class_flags as u8);
         define_class_offset = self.cur_func_mut().last_opcode_pos;
 
         let mut ctor_fd: *mut JSFunctionDef = std::ptr::null_mut();
@@ -325,7 +315,7 @@ impl<'s> JSParseState<'s> {
             }
 
             if is_static {
-                emit_op(self, OpCode::SWAP);
+                self.emit_op(OpCode::SWAP);
             }
 
             start_ptr = self.token.ptr;
@@ -444,19 +434,19 @@ impl<'s> JSParseState<'s> {
                         self.next_token()?;
                         self.parse_assign_expr()?;
                     } else {
-                        emit_op(self, OpCode::UNDEFINED);
+                        self.emit_op(OpCode::UNDEFINED);
                     }
                     if is_private {
                         set_object_name_computed(self);
-                        emit_op(self, OpCode::DEFINE_PRIVATE_FIELD);
+                        self.emit_op(OpCode::DEFINE_PRIVATE_FIELD);
                     } else if name == JS_ATOM_NULL {
                         set_object_name_computed(self);
-                        emit_op(self, OpCode::DEFINE_ARRAY_EL);
-                        emit_op(self, OpCode::DROP);
+                        self.emit_op(OpCode::DEFINE_ARRAY_EL);
+                        self.emit_op(OpCode::DROP);
                     } else {
-                        set_object_name(self, name);
-                        emit_op(self, OpCode::DEFINE_FIELD);
-                        emit_atom_dup(self, name);
+                        self.set_object_name(name);
+                        self.emit_op(OpCode::DEFINE_FIELD);
+                        self.emit_atom_dup(name);
                     }
                     self.cur_func_ptr = self.cur_func().parent;
                     self.parse_expect_semi()?;
@@ -538,7 +528,7 @@ impl<'s> JSParseState<'s> {
             }
 
             if is_static {
-                emit_op(self, OpCode::SWAP);
+                self.emit_op(OpCode::SWAP);
             }
 
             JS_FreeAtom(&self.ctx, name);
@@ -1311,7 +1301,9 @@ pub unsafe fn js_parse_property_name(
 
     let mut goto: Option<GotoLabel> = loop {
         if allow_method {
-            if token_is_pseudo_keyword(s, JS_ATOM_get) || token_is_pseudo_keyword(s, JS_ATOM_set) {
+            if (*s).token_is_pseudo_keyword(JS_ATOM_get)
+                || (*s).token_is_pseudo_keyword(JS_ATOM_set)
+            {
                 /* get x(), set x() */
                 name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
                 if (*s).next_token().is_err() {
@@ -1336,7 +1328,7 @@ pub unsafe fn js_parse_property_name(
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
                 }
                 prop_type = PROP_TYPE_STAR;
-            } else if token_is_pseudo_keyword(s, JS_ATOM_async)
+            } else if (*s).token_is_pseudo_keyword(JS_ATOM_async)
                 && (*s).peek_token(true) != '\n' as i32
             {
                 name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
@@ -1404,7 +1396,7 @@ pub unsafe fn js_parse_property_name(
                 }
                 private = PROP_TYPE_PRIVATE;
             }
-            t if token_is_ident(t) => {
+            t if JSParseState::token_is_ident(t) => {
                 /* variable can only be a non-reserved identifier */
                 let is_non_reserved_ident =
                     (*s).token.val == TOK_IDENT && !(*s).token.data.is_reserved();

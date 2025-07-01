@@ -15,12 +15,11 @@ use super::{
     destructing::js_parse_destructuring_element,
     emit::js_is_live_code,
     esm::{JSParseExportEnum, add_export_entry},
-    obj::set_object_name,
     parse::{js_parse_skip_parens_token, reparse_ident_token},
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, TOK_ARROW,
-        TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR, TOK_YIELD, token_is_pseudo_keyword,
+        TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR, TOK_YIELD,
     },
 };
 
@@ -310,9 +309,8 @@ impl<'s> JSParseState<'s> {
                             fail!();
                         }
 
-                        unsafe {
-                            set_object_name(self, name);
-                        }
+                        self.set_object_name(name);
+
                         fd1.emit_op(OpCode::DUP, self.last_line_num);
                         fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
@@ -556,7 +554,7 @@ impl<'s> JSParseState<'s> {
             | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
                 if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-                    && token_is_pseudo_keyword(self, JS_ATOM_async)
+                    && self.token_is_pseudo_keyword(JS_ATOM_async)
                     && self.peek_token(true) != b'\n' as i32
                 {
                     self.next_token()?;

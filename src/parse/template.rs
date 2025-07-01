@@ -91,7 +91,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub unsafe fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<(), i32> {
+    pub fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<(), i32> {
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
 
@@ -117,7 +117,7 @@ impl<'s> JSParseState<'s> {
 
         let mut depth = 0;
         while self.token.val == TOK_TEMPLATE {
-            let mut p = self.token.ptr.offset(1);
+            let mut p = unsafe { self.token.ptr.offset(1) };
             let mut cooked = self.token.clone();
 
             if call {
@@ -156,7 +156,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
-                let str = cooked.data.string().unwrap().string_unchecked();
+                let str = unsafe { cooked.data.string().unwrap().string_unchecked() };
                 if depth == 0 || !str.is_empty() {
                     let ret = self.emit_push_const(JSValue::String(str.clone()), true);
                     // emit_push_const(self, cooked.u.str.str.replace(JSValue::UNDEFINED), true);
@@ -183,7 +183,9 @@ impl<'s> JSParseState<'s> {
                 if call {
                     seal_template_obj(&self.ctx, raw_array);
                     seal_template_obj(&self.ctx, template_object);
-                    *argc = depth + 1;
+                    unsafe {
+                        *argc = depth + 1;
+                    }
                 } else {
                     self.emit_op(OpCode::CALL_METHOD);
                     self.emit_u16(depth as u16 - 1);
@@ -193,7 +195,9 @@ impl<'s> JSParseState<'s> {
 
             // 处理模板表达式
             self.next_token()?;
-            self.parse_expr()?;
+            unsafe {
+                self.parse_expr()?;
+            }
 
             depth += 1;
             if self.token.val != b'}' as i32 {
@@ -207,7 +211,7 @@ impl<'s> JSParseState<'s> {
             self.got_lf = false;
             self.last_line_num = self.token.line_num;
 
-            self.parse_template_part(self.buf_ptr)?
+            unsafe { self.parse_template_part(self.buf_ptr)? }
         }
 
         self.parse_expect(TOK_TEMPLATE)

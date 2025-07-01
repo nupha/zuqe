@@ -26,7 +26,7 @@ use super::{
         TOK_CONTINUE, TOK_DEBUGGER, TOK_DEFAULT, TOK_DO, TOK_ELSE, TOK_ENUM, TOK_EXPORT,
         TOK_EXTENDS, TOK_FINALLY, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF, TOK_IN, TOK_LET,
         TOK_OF, TOK_RETURN, TOK_SWITCH, TOK_THROW, TOK_TRY, TOK_VAR, TOK_WHILE, TOK_WITH,
-        TOK_YIELD, token_is_pseudo_keyword,
+        TOK_YIELD,
     },
 };
 
@@ -322,7 +322,7 @@ pub unsafe fn is_label(s: *mut JSParseState) -> bool {
 pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
     let mut res = Ok(false);
 
-    if token_is_pseudo_keyword(s, JS_ATOM_let) {
+    if (*s).token_is_pseudo_keyword(JS_ATOM_let) {
         {
             let pos = (*s).get_pos();
 
@@ -1018,7 +1018,7 @@ unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<StmtState, 
     if is_let(s, decl_mask)? {
         return Ok(StmtState::HasLet(TOK_LET));
     }
-    if token_is_pseudo_keyword(s, JS_ATOM_async) && s.peek_token(true) == TOK_FUNCTION {
+    if (*s).token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(true) == TOK_FUNCTION {
         if decl_mask & DECL_MASK_OTHER == 0 {
             s.throw_syntax_error("function declarations can't appear in single-statement context");
             return Err(-1);
@@ -1137,9 +1137,7 @@ pub unsafe fn js_parse_for_in_of(
             emit_atom_dup(s, var_name);
             emit_u16(s, s.cur_func().scope_level as _);
         }
-    } else if !is_async
-        && token_is_pseudo_keyword(s, JS_ATOM_async)
-        && s.peek_token(false) == TOK_OF
+    } else if !is_async && s.token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(false) == TOK_OF
     {
         s.throw_syntax_error("'for of' expression cannot start with 'async'");
         return Err(-1);
@@ -1213,7 +1211,7 @@ pub unsafe fn js_parse_for_in_of(
     }
     JS_FreeAtom(&s.ctx, var_name);
 
-    if token_is_pseudo_keyword(s, JS_ATOM_of) {
+    if s.token_is_pseudo_keyword(JS_ATOM_of) {
         is_for_of = true;
         break_entry.has_iterator = true;
         break_entry.drop_count += 2;

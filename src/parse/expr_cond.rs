@@ -8,7 +8,7 @@ use super::{
 impl<'s> JSParseState<'s> {
     /// cond_expr? a : b
     /// allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-    pub unsafe fn parse_cond_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub fn parse_cond_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         self.parse_coalesce_expr(parse_flags)?;
 
         if self.token.val == b'?' as i32 {
@@ -34,7 +34,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub unsafe fn parse_coalesce_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub fn parse_coalesce_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         self.parse_logical_and_or(TOK_LOR, parse_flags)?;
 
         if self.token.val == TOK_DOUBLE_QUESTION_MARK {
@@ -67,7 +67,7 @@ impl<'s> JSParseState<'s> {
     }
 
     // allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED
-    pub unsafe fn parse_logical_and_or(&mut self, op: i32, parse_flags: i32) -> Result<(), i32> {
+    pub fn parse_logical_and_or(&mut self, op: i32, parse_flags: i32) -> Result<(), i32> {
         if op == TOK_LAND {
             self.parse_expr_binary(8, parse_flags)?;
         } else {

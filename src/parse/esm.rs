@@ -17,13 +17,12 @@ use super::{
     class::js_parse_class,
     emit::{emit_atom_dup, emit_op_temp, emit_u16},
     function::JSParseFunctionEnum,
-    obj::set_object_name,
     parse::skip_shebang,
     state::JSParseState,
     token::{
         CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
         TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR,
-        simple_next_token, token_is_ident, token_is_pseudo_keyword,
+        simple_next_token,
     },
 };
 
@@ -36,7 +35,7 @@ pub enum JSParseExportEnum {
 
 impl<'s> JSParseState<'s> {
     unsafe fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
-        if !token_is_pseudo_keyword(self, JS_ATOM_from) {
+        if !self.token_is_pseudo_keyword(JS_ATOM_from) {
             self.throw_syntax_error("from clause expected");
             return Err(-1);
         }
@@ -112,14 +111,14 @@ impl<'s> JSParseState<'s> {
                     // name space import
                     self.next_token()?;
 
-                    if !token_is_pseudo_keyword(self, JS_ATOM_as) {
+                    if !self.token_is_pseudo_keyword(JS_ATOM_as) {
                         self.throw_syntax_error("expecting 'as'");
                         return Err(-1);
                     }
 
                     self.next_token()?;
 
-                    if !token_is_ident(self.token.val) {
+                    if !Self::token_is_ident(self.token.val) {
                         self.throw_syntax_error("identifier expected");
                         return Err(-1);
                     }
@@ -140,7 +139,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     while self.token.val != '}' as i32 {
-                        if !token_is_ident(self.token.val) {
+                        if !Self::token_is_ident(self.token.val) {
                             self.throw_syntax_error("identifier expected");
                             return Err(-1);
                         }
@@ -155,10 +154,10 @@ impl<'s> JSParseState<'s> {
 
                         self.next_token()?;
 
-                        let local_name = if token_is_pseudo_keyword(self, JS_ATOM_as) {
+                        let local_name = if self.token_is_pseudo_keyword(JS_ATOM_as) {
                             self.next_token()?;
 
-                            if !token_is_ident(self.token.val) {
+                            if !Self::token_is_ident(self.token.val) {
                                 self.throw_syntax_error("identifier expected");
                                 return Err(-1);
                             }
@@ -206,7 +205,7 @@ impl<'s> JSParseState<'s> {
 
 /// Parse an identifier and return its atom
 unsafe fn parse_export_name(s: *mut JSParseState) -> JSAtom {
-    if !token_is_ident((*s).token.val) {
+    if !JSParseState::token_is_ident((*s).token.val) {
         (*s).throw_syntax_error("identifier expected");
         return JS_ATOM_NULL;
     }
@@ -218,7 +217,7 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
     let ctx = &(*s).ctx;
     let mut export_name = name;
 
-    if token_is_pseudo_keyword(s, JS_ATOM_as) {
+    if (*s).token_is_pseudo_keyword(JS_ATOM_as) {
         if (*s).next_token().is_err() {
             JS_FreeAtom(ctx, export_name);
             return JS_ATOM_NULL;
@@ -255,7 +254,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
         );
     } else if tok == TOK_FUNCTION
-        || (token_is_pseudo_keyword(s, JS_ATOM_async) && (*s).peek_token(true) == TOK_FUNCTION)
+        || ((*s).token_is_pseudo_keyword(JS_ATOM_async) && (*s).peek_token(true) == TOK_FUNCTION)
     {
         return (*s)
             .parse_function_decl2(
@@ -348,7 +347,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             }
 
             // Handle re-exports
-            if token_is_pseudo_keyword(s, JS_ATOM_from) {
+            if (*s).token_is_pseudo_keyword(JS_ATOM_from) {
                 let module_name = if let Ok(n) = (*s).parse_from_clause() {
                     n
                 } else {
@@ -407,7 +406,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
                 );
             } else if (*s).token.val == TOK_FUNCTION
-                || (token_is_pseudo_keyword(s, JS_ATOM_async)
+                || ((*s).token_is_pseudo_keyword(JS_ATOM_async)
                     && (*s).peek_token(true) == TOK_FUNCTION)
             {
                 return (*s)
@@ -426,7 +425,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     return -1;
                 }
             }
-            set_object_name(s, JS_ATOM_default);
+            (*s).set_object_name(JS_ATOM_default);
 
             local_name = JS_ATOM__default_;
             if (*s)
