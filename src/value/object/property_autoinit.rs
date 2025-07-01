@@ -20,9 +20,9 @@ use crate::{
 
 use super::{JSObject, JSProperty};
 
-#[derive(Debug, Clone)]
 #[repr(u8)]
-pub enum AutoInitType {
+#[derive(Debug, Clone)]
+pub enum LazyInit {
     /// Build prototype and set as construstor for target object
     Prototype,
     /// Build module namespace object
@@ -31,7 +31,7 @@ pub enum AutoInitType {
     Prop(NonNull<JSCFunctionListEntry>),
 }
 
-impl AutoInitType {
+impl LazyInit {
     /// apply init. returns instantiated value.
     pub fn instantiate(&self, ctx: &JSContext, this_obj: &JSObject) -> JSResult {
         match self {
@@ -78,18 +78,15 @@ impl AutoInitType {
     }
 }
 
-#[deprecated]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JSAutoInitIDEnum {
-    JS_AUTOINIT_ID_PROTOTYPE,
-    JS_AUTOINIT_ID_MODULE_NS,
-    JS_AUTOINIT_ID_PROP,
-}
-
 impl JSProperty {
-    /// instantiate an AutoInit property.
+    /// instantiate lazy property.
     /// panic if property is not AutoInit type any more.
-    pub(super) fn instantiate(&mut self, this_obj: &JSObject, prop: JSAtom) -> JSResult {
+    pub(super) fn instantiate(
+        &mut self,
+        master_obj: &JSObject,
+        prop: JSAtom,
+        this_obj: &JSObject,
+    ) -> JSResult {
         if let JSProperty::AutoInit {
             realm,
             init_type,
@@ -98,18 +95,19 @@ impl JSProperty {
         {
             let realm = realm.upgrade().unwrap();
 
-            this_obj.shape_prepare_update(&realm)?;
+            master_obj.shape_prepare_update(&realm)?;
             let val = init_type.instantiate(&realm, this_obj);
 
-            // reset AUTO INIT flag to NORMAL
-            this_obj.shape().unwrap().with_mut(|s| {
+            // reset LAZY flag to NORMAL
+            master_obj.shape().unwrap().with_mut(|s| {
                 if let Some(prs) = s.prop_defs.get_mut(&prop.0) {
-                    prs.set_flags(prs.flags() & (!JS_PROP_TMASK));
+                    prs.set_flags(prs.flags() & !JS_PROP_TMASK);
                 } else {
-                    println!(
-                        "Fail to lazy instantiate property '{}': shape was sweeped",
-                        prop.to_str(realm.rt())
-                    );
+                    unreachable!();
+                    // println!(
+                    //     "Fail to instantiate lazy property '{}'",
+                    //     prop.to_str(realm.rt())
+                    // );
                 }
             });
 
@@ -122,7 +120,7 @@ impl JSProperty {
                 Err(-1)
             }
         } else {
-            unreachable!("{:p}", self);
+            unreachable!("expect lazy property, but got {:?}", self);
         }
     }
 }
@@ -133,7 +131,7 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        init_type: AutoInitType,
+        init_type: LazyInit,
         flags: u32,
     ) -> Result<(), i32> {
         debug_assert!(

@@ -5,7 +5,7 @@ use crate::{
     module::{JSExportTypeEnum, JSModuleDef},
     value::{
         JSString, JSValue,
-        object::{AutoInitType, JSObject, JSProperty, JSShape},
+        object::{JSObject, JSProperty, JSShape, LazyInit},
     },
 };
 
@@ -73,10 +73,10 @@ impl JSProperty {
                 }
             }
             JSProperty::AutoInit { init_type, .. } => match init_type {
-                AutoInitType::ModuleNS(m) => {
+                LazyInit::ModuleNS(m) => {
                     m.gc_mark();
                 }
-                AutoInitType::Prototype | AutoInitType::Prop(_) => {}
+                LazyInit::Prototype | LazyInit::Prop(_) => {}
             },
         }
     }
@@ -105,10 +105,10 @@ impl JSProperty {
                 }
             }
             JSProperty::AutoInit { init_type, .. } => match init_type {
-                AutoInitType::ModuleNS(m) => {
+                LazyInit::ModuleNS(m) => {
                     m.gc_sweep();
                 }
-                AutoInitType::Prototype | AutoInitType::Prop(_) => {}
+                LazyInit::Prototype | LazyInit::Prop(_) => {}
             },
         }
     }

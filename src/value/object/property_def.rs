@@ -6,7 +6,7 @@ use crate::{
         JSAtom, consts::*,
     },
     context::JSContext,
-    value::object::JSObject,
+    value::object::{JS_PROP_NORMAL, JSObject},
 };
 
 use super::{
@@ -60,8 +60,12 @@ impl JSObject {
                 if prs_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
                     // Instantiate property
                     let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                    val = pr.instantiate(self, prop)?;
+                    val = pr.instantiate(self, prop, self)?;
                     debug_assert!(matches!(pr, JSProperty::Normal(_)));
+                    debug_assert_eq!(
+                        self.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                        JS_PROP_NORMAL
+                    );
                     self.0.prop_values.borrow_mut()[idx] = pr;
                 }
 

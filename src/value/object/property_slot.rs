@@ -240,11 +240,14 @@ impl JSObject {
         }
 
         if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
-            // auto init property
+            // lazy init property
             let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[slot_idx]);
-            debug_assert!(matches!(pr, JSProperty::AutoInit { .. }), "{pr:?}");
-
-            pr.instantiate(this_obj, prop)?;
+            pr.instantiate(self, prop, this_obj)?;
+            debug_assert!(matches!(pr, JSProperty::Normal(_)));
+            debug_assert_eq!(
+                self.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                JS_PROP_NORMAL
+            );
             self.0.prop_values.borrow_mut()[slot_idx] = pr;
             Ok(true)
         } else {

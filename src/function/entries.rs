@@ -11,7 +11,7 @@ use crate::{
     function::{JS_NewCFunction2, JSCFunctionEnum, JSCFunctionType},
     value::{
         JSValue, JSValueConst,
-        object::{AutoInitType, JS_PROP_CONFIGURABLE},
+        object::{LazyInit, JS_PROP_CONFIGURABLE},
     },
 };
 
@@ -109,7 +109,7 @@ impl JSValue {
                     self.object_unchecked().define_auto_init_property(
                         ctx,
                         atom,
-                        AutoInitType::Prop(NonNull::from(e)),
+                        LazyInit::Prop(NonNull::from(e)),
                         prop_flags as _,
                     )?;
                 }
@@ -210,7 +210,7 @@ impl JSValue {
                     .define_auto_init_property(
                         ctx,
                         atom,
-                        AutoInitType::Prop(NonNull::new_unchecked(
+                        LazyInit::Prop(NonNull::new_unchecked(
                             e as *const JSCFunctionListEntry as *mut JSCFunctionListEntry,
                         )),
                         // JSAutoInitIDEnum::JS_AUTOINIT_ID_PROP,
@@ -289,7 +289,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                 .define_auto_init_property(
                     ctx,
                     atom,
-                    AutoInitType::Prop(NonNull::new_unchecked(
+                    LazyInit::Prop(NonNull::new_unchecked(
                         e as *const JSCFunctionListEntry as *mut JSCFunctionListEntry,
                     )),
                     // JSAutoInitIDEnum::JS_AUTOINIT_ID_PROP,
@@ -372,7 +372,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
                 .define_auto_init_property(
                     ctx,
                     atom,
-                    AutoInitType::Prop(NonNull::new_unchecked(
+                    LazyInit::Prop(NonNull::new_unchecked(
                         e as *const JSCFunctionListEntry as *mut JSCFunctionListEntry,
                     )),
                     prop_flags as _,

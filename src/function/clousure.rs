@@ -12,7 +12,7 @@ use crate::{
     stack_frame::JSStackFrame,
     value::{
         JSValue,
-        object::{AutoInitType, JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa},
+        object::{LazyInit, JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa},
     },
 };
 
@@ -290,7 +290,7 @@ pub unsafe fn js_closure(
                 .define_auto_init_property(
                     ctx,
                     JS_ATOM_prototype,
-                    AutoInitType::Prototype,
+                    LazyInit::Prototype,
                     JS_PROP_WRITABLE,
                 )
                 .unwrap();

@@ -28,25 +28,25 @@ impl JSObject {
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSValue {
-        let mut p = self.clone();
+        let mut cur_obj = self.clone();
 
         loop {
             // 1. find own property in shape
-            if let Some((idx, prs_flags)) = p.find_own_property(prop) {
+            if let Some((idx, prs_flags)) = cur_obj.find_own_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
-                        if let JSProperty::Normal(val) = &p.0.prop_values.borrow()[idx] {
+                        if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
                             val.clone()
                         } else {
                             unreachable!()
                         }
                     }
                     JS_PROP_GETSET => {
-                        let pr = p.0.prop_values.borrow()[idx].clone();
+                        let pr = cur_obj.0.prop_values.borrow()[idx].clone();
                         pr.value(ctx, this_obj)
                     }
                     JS_PROP_VARREF => {
-                        let pr = p.0.prop_values.borrow()[idx].clone();
+                        let pr = cur_obj.0.prop_values.borrow()[idx].clone();
                         let val = pr.value(ctx, this_obj);
                         if val.is_uninitialized() {
                             JS_ThrowReferenceErrorUninitialized(ctx, prop);
@@ -57,10 +57,19 @@ impl JSObject {
                     }
                     JS_PROP_AUTOINIT => {
                         // Lazy instantiate property.
-                        let mut pr = std::mem::take(&mut p.0.prop_values.borrow_mut()[idx]);
-                        let val = pr.instantiate(&p, prop).unwrap_or(JSValue::EXCEPTION);
+                        let mut pr = std::mem::take(&mut cur_obj.0.prop_values.borrow_mut()[idx]);
+                        println!("[O.o] lazy init {:?} {:?}", prop.to_str(ctx.rt()), pr);
+
+                        let val = pr
+                            .instantiate(&cur_obj, prop, self)
+                            .unwrap_or(JSValue::EXCEPTION);
                         debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                        p.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
+                        debug_assert_eq!(
+                            cur_obj.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                            JS_PROP_NORMAL
+                        );
+                        cur_obj.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
+
                         val
                     }
                     _ => unreachable!(),
@@ -68,19 +77,19 @@ impl JSObject {
             }
 
             // 2. try array or exotic handler
-            if p.flags().is_exotic() {
-                if p.flags().fast_array() {
+            if cur_obj.flags().is_exotic() {
+                if cur_obj.flags().fast_array() {
                     if prop.is_int_type() {
                         let idx = __JS_AtomToUInt32(prop);
-                        if idx < p.array_length_unchecked() as u32 {
-                            return p.get_property_value(ctx, &JSValue::from(idx));
+                        if idx < cur_obj.array_length_unchecked() as u32 {
+                            return cur_obj.get_property_value(ctx, &JSValue::from(idx));
                         } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                            .contains(&p.class_id())
+                            .contains(&cur_obj.class_id())
                         {
                             return JSValue::UNDEFINED;
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                        .contains(&p.class_id())
+                        .contains(&cur_obj.class_id())
                     {
                         let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
                         if ret != 0 {
@@ -92,19 +101,24 @@ impl JSObject {
                         }
                     }
                 } else {
-                    let em = ctx.rt().class_array[p.class_id() as usize].exotic;
+                    let em = ctx.rt().class_array[cur_obj.class_id() as usize].exotic;
                     if !em.is_null() {
                         if let Some(cb) = unsafe { (*em).get_property } {
                             /* XXX: should pass throw_ref_error */
                             /* Note: if 'p' is a prototype, it can be
                             freed in the called function */
                             return unsafe {
-                                cb(ctx, JSValue::Object(p.clone()), prop, this_obj.clone())
+                                cb(
+                                    ctx,
+                                    JSValue::Object(cur_obj.clone()),
+                                    prop,
+                                    this_obj.clone(),
+                                )
                             };
                         }
 
                         if let Some(cb) = unsafe { (*em).get_own_property } {
-                            match cb(ctx, JSValue::Object(p.clone()), prop) {
+                            match cb(ctx, JSValue::Object(cur_obj.clone()), prop) {
                                 Ok(Some(desc)) => {
                                     return if desc.flags & JS_PROP_GETSET != 0 {
                                         JS_Call(ctx, &desc.getter, this_obj, &[])
@@ -123,8 +137,8 @@ impl JSObject {
             }
 
             // 3. walk up proto chain
-            if let Some(up) = p.shape().and_then(|s| s.0.borrow().proto.clone()) {
-                p = up;
+            if let Some(up) = cur_obj.shape().and_then(|s| s.0.borrow().proto.clone()) {
+                cur_obj = up;
             } else {
                 break;
             }

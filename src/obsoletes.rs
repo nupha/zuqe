@@ -25,9 +25,17 @@ use crate::{
     utils::UncheckedInto,
     value::{
         JSString, JSStringInner, JSValue, JSValueConst,
-        object::{JSAutoInitIDEnum, JSProperty, JSShape, PropertyEnum},
+        object::{JSProperty, JSShape, PropertyEnum},
     },
 };
+
+#[deprecated]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JSAutoInitIDEnum {
+    JS_AUTOINIT_ID_PROTOTYPE,
+    JS_AUTOINIT_ID_MODULE_NS,
+    JS_AUTOINIT_ID_PROP,
+}
 
 #[deprecated(note = "use JSRuntime::finalize() instead")]
 unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {

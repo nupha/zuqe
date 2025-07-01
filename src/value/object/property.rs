@@ -8,7 +8,7 @@ use crate::{
     function::{JS_Call, JSVarRef},
     proxy::js_proxy_isExtensible,
     runtime::JSRuntime,
-    value::object::{AutoInitType, JSObject},
+    value::object::{JSObject, LazyInit},
 };
 
 use super::{
@@ -186,7 +186,7 @@ impl JSPropertyDescriptor {
     }
 }
 
-/// the property value
+/// the property content
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum JSProperty {
@@ -199,7 +199,7 @@ pub enum JSProperty {
     /// TODO: use Box<PropertyInit> instead
     AutoInit {
         realm: JSContextWeakref,
-        init_type: AutoInitType,
+        init_type: LazyInit,
         opaque: *mut c_void,
     },
 }
@@ -388,8 +388,12 @@ impl JSObject {
                 JS_PROP_AUTOINIT => {
                     // Instantiate property
                     let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                    desc.value = pr.instantiate(self, prop)?;
+                    desc.value = pr.instantiate(self, prop, self)?;
                     debug_assert!(matches!(pr, JSProperty::Normal(_)));
+                    debug_assert_eq!(
+                        self.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                        JS_PROP_NORMAL
+                    );
                     self.0.prop_values.borrow_mut()[idx] = pr;
                 }
                 _ => {}

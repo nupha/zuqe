@@ -13,7 +13,7 @@ use crate::{
         JSModuleDef, JSModuleDefInner, JSResolveResultEnum, JSResolveState, ModuleResolveExport,
     },
     value::object::{
-        AutoInitType, JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObjectIsa, JSProperty,
+        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObjectIsa, JSProperty, LazyInit,
     },
 };
 
@@ -267,7 +267,7 @@ impl JSModuleDef {
                         .define_auto_init_property(
                             ctx,
                             en.export_name,
-                            AutoInitType::ModuleNS(module),
+                            LazyInit::ModuleNS(module),
                             JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                         )
                         .is_err()
