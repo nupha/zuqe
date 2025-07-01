@@ -16,7 +16,6 @@ use super::{
         emit_atom_dup, emit_break, emit_goto, emit_label, emit_op, emit_op_temp, emit_u8, emit_u16,
         emit_u32, js_is_live_code,
     },
-    error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -1013,7 +1012,7 @@ unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
 #[inline(always)]
 unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<StmtState, i32> {
     if s.token.data.is_reserved() {
-        js_parse_error_reserved_identifier(s);
+        s.throw_reserved_identifier_error();
         return Err(-1);
     }
     // Determine if `let` introduces a Declaration or an ExpressionStatement

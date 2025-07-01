@@ -16,7 +16,6 @@ use crate::{
 use super::{
     class::js_parse_class,
     emit::{emit_atom_dup, emit_op_temp, emit_u16},
-    error::js_parse_error_reserved_identifier,
     function::JSParseFunctionEnum,
     obj::set_object_name,
     parse::skip_shebang,
@@ -84,9 +83,8 @@ impl<'s> JSParseState<'s> {
             'outer: loop {
                 if self.token.val == TOK_IDENT {
                     if self.token.data.is_reserved() {
-                        if js_parse_error_reserved_identifier(self) != 0 {
-                            return Err(-1);
-                        };
+                        self.throw_reserved_identifier_error();
+                        return Err(-1);
                     }
 
                     // "default" import

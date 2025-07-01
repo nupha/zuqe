@@ -236,7 +236,7 @@ impl JSFunctionDef {
     /* initialize the class fields, called by the constructor. Note:
     super() can be called in an arrow function, so <this> and
     <class_fields_init> can be variable references */
-    pub unsafe fn emit_class_field_init(&mut self, last_line_num: i32) {
+    pub fn emit_class_field_init(&mut self, last_line_num: i32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
         self.emit_atom_dup(JS_ATOM_class_fields_init);
         self.emit_u16(self.scope_level as _);
@@ -258,7 +258,7 @@ impl JSFunctionDef {
         self.emit_op(OpCode::DROP, last_line_num);
     }
 
-    pub unsafe fn emit_spread_code(&mut self, depth: i32, last_line_num: i32) {
+    pub fn emit_spread_code(&mut self, depth: i32, last_line_num: i32) {
         // XXX: could check if enum object is an actual array and optimize
         //       slice extraction. enumeration record and target array are in a
         //       different order from OP_append case.

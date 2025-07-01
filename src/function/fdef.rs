@@ -202,7 +202,7 @@ impl Drop for JSFunctionDef {
 impl JSFunctionDef {
     /// alloc a function def, and initialize it.
     pub(crate) fn new0(
-        mut ctx: &JSContext,
+        ctx: &JSContext,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -322,23 +322,15 @@ impl JSFunctionDef {
         debug_assert!(line_num >= 0);
         Self::new0(ctx, is_eval, is_func_expr, filename, line_num).map(|mut fd| {
             if !parent.is_null() {
-                fd.set_parent(parent);
+                fd.parent = parent;
+                fd.js_mode = unsafe { (*parent).js_mode };
+                fd.parent_scope_level = unsafe { (*parent).scope_level as i32 };
+                unsafe {
+                    list_add_tail(&mut fd.link, &mut (*parent).child_list);
+                }
             }
             fd
         })
-    }
-
-    fn set_parent(&mut self, parent: *mut JSFunctionDef) {
-        debug_assert!(!parent.is_null());
-        debug_assert!(self.parent.is_null());
-
-        self.parent = parent;
-        self.js_mode = unsafe { (*parent).js_mode };
-        self.parent_scope_level = unsafe { (*parent).scope_level as i32 };
-
-        unsafe {
-            list_add_tail(&mut self.link, &mut (*parent).child_list);
-        }
     }
 
     /// update label ref count by delta. returns updated ref count.
@@ -357,7 +349,7 @@ impl JSFunctionDef {
     }
 
     /// the pc2line table gives a line number for each PC value
-    pub unsafe fn add_pc2line_info(&mut self, pc: u32, line_num: i32) {
+    pub fn add_pc2line_info(&mut self, pc: u32, line_num: i32) {
         if self.line_number_slots.len() < self.line_number_slots_cap as usize
             && pc >= self.line_number_last_pc
             && line_num != self.line_number_last

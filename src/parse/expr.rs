@@ -17,7 +17,6 @@ use super::{
         OPSpecialObjectEnum, emit_atom_dup, emit_goto, emit_label, emit_label_raw, emit_op,
         emit_op_temp, emit_push_const, emit_u8, emit_u16, emit_u32, get_prev_opcode,
     },
-    error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -182,8 +181,8 @@ impl<'s> JSParseState<'s> {
 
     /// a short-cut to `self.parse_assign_expr2(PF_IN_ACCEPTED)`
     #[inline(always)]
-    pub unsafe fn parse_assign_expr(&mut self) -> Result<(), i32> {
-        self.parse_assign_expr2(PF_IN_ACCEPTED)
+    pub fn parse_assign_expr(&mut self) -> Result<(), i32> {
+        unsafe { self.parse_assign_expr2(PF_IN_ACCEPTED) }
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED
@@ -375,11 +374,8 @@ impl<'s> JSParseState<'s> {
             TOK_IDENT => {
                 let name: JSAtom;
                 if self.token.data.is_reserved() {
-                    return if js_parse_error_reserved_identifier(self) < 0 {
-                        Err(-1)
-                    } else {
-                        Ok(())
-                    };
+                    self.throw_reserved_identifier_error();
+                    return Err(-1);
                 }
                 if (parse_flags & PF_ARROW_FUNC) != 0 && self.peek_token(true) == TOK_ARROW {
                     self.parse_function_decl(

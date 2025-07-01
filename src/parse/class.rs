@@ -33,7 +33,6 @@ use super::{
     emit::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u8, emit_u16, emit_u32,
     },
-    error::js_parse_error_reserved_identifier,
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     state::JSParseState,
@@ -54,7 +53,7 @@ impl<'s> JSParseState<'s> {
 
         if self.token.val == TOK_IDENT {
             if self.token.data.is_reserved() {
-                js_parse_error_reserved_identifier(self);
+                self.throw_reserved_identifier_error();
                 return Err(-1);
             }
             // next_token() will free the atom, dup it in advance.
@@ -1463,7 +1462,7 @@ pub unsafe fn js_parse_property_name(
     }
 }
 
-// create a function to init}ialize class fields
+// create a function to initialize class fields
 pub unsafe fn js_parse_function_class_fields_init(
     s: *mut JSParseState,
 ) -> Result<Box<JSFunctionDef>, i32> {

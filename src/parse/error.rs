@@ -39,13 +39,11 @@ impl JSParseState<'_> {
             backtrace_flags,
         );
     }
-}
 
-/// always returns -1
-pub unsafe fn js_parse_error_reserved_identifier(s: *mut JSParseState) -> i32 {
-    (*s).throw_syntax_error(&format!(
-        "'{}' is a reserved identifier",
-        (*s).token.data.ident_atom().unwrap().to_str(&(*s).ctx.rt()),
-    ));
-    -1
+    pub fn throw_reserved_identifier_error(&self) {
+        self.throw_syntax_error(&format!(
+            "'{}' is a reserved identifier",
+            self.token.data.ident_atom().unwrap().to_str(&self.ctx.rt()),
+        ));
+    }
 }

@@ -21,7 +21,6 @@ use super::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_push_const, emit_return,
         emit_u8, emit_u16, get_prev_opcode,
     },
-    error::js_parse_error_reserved_identifier,
     esm::{add_export_entry, js_parse_export},
     function::JSParseFunctionEnum,
     obj::set_object_name,
@@ -287,7 +286,7 @@ impl JSParseState<'_> {
         loop {
             if self.token.val == TOK_IDENT {
                 if self.token.data.is_reserved() {
-                    js_parse_error_reserved_identifier(self);
+                    self.throw_reserved_identifier_error();
                     return Err(-1);
                 }
 

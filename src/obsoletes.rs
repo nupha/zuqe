@@ -1944,3 +1944,13 @@ pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32
 pub fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i32 {
     unsafe { (*s).peek_token(no_line_terminator) }
 }
+
+/// always returns -1
+#[deprecated(note = "use JSParseState::throw_reserved_identifier_error() instead")]
+pub unsafe fn js_parse_error_reserved_identifier(s: *mut JSParseState) -> i32 {
+    (*s).throw_syntax_error(&format!(
+        "'{}' is a reserved identifier",
+        (*s).token.data.ident_atom().unwrap().to_str(&(*s).ctx.rt()),
+    ));
+    -1
+}

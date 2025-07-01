@@ -14,10 +14,9 @@ use crate::{
 use super::{
     destructing::js_parse_destructuring_element,
     emit::{
-        emit_atom_dup, emit_class_field_init, emit_goto, emit_label, emit_op, emit_op_temp,
-        emit_return, emit_u16, emit_u32, js_is_live_code,
+        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_return, emit_u16,
+        emit_u32, js_is_live_code,
     },
-    error::js_parse_error_reserved_identifier,
     esm::{JSParseExportEnum, add_export_entry},
     obj::set_object_name,
     parse::{js_parse_skip_parens_token, reparse_ident_token},
@@ -43,14 +42,14 @@ pub enum JSParseFunctionEnum {
 }
 
 impl<'s> JSParseState<'s> {
-    /// Creates a new JSFunctionDef as a child of the current function def.
-    /// This new function definition is used to parse the function body.
+    /// Creates a new function definition as child of the current function def.
+    /// The new function definition is used to parse the function body.
     /// Returns the newly created function definition.
     /// For JS_PARSE_FUNC_STATEMENT, JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR,
     /// func_name must be JS_ATOM_NULL.
     ///
     /// Note: `func_name` is **CONSUMED** inside.
-    unsafe fn parse_function_body_to_sub_fd(
+    fn parse_function_body_to_sub_fd(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
@@ -96,12 +95,12 @@ impl<'s> JSParseState<'s> {
             func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
 
         match func_type {
-            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {
+            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => unsafe {
                 sub_fd.new_target_allowed = (*sub_fd.parent).new_target_allowed;
                 sub_fd.super_call_allowed = (*sub_fd.parent).super_call_allowed;
                 sub_fd.super_allowed = (*sub_fd.parent).super_allowed;
                 sub_fd.arguments_allowed = (*sub_fd.parent).arguments_allowed;
-            }
+            },
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT => {
                 sub_fd.new_target_allowed = true; // although new.target === undefined
                 sub_fd.super_call_allowed = false;
@@ -129,7 +128,6 @@ impl<'s> JSParseState<'s> {
         macro_rules! fail {
             () => {
                 self.cur_func_ptr = fd0; // restore original cur_func
-                // sub_fd.dispose(self.ctx.deref_mut()); // clean up and drop new fd
                 return Err(-1);
             };
         }
@@ -137,27 +135,28 @@ impl<'s> JSParseState<'s> {
         //
         // generate opcodes for sub_fd
         //
+
         if matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
                 | JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
         ) {
-            /* error if not invoked as a constructor */
-            emit_op(self, OpCode::CHECK_CTOR);
+            // error if not invoked as a constructor
+            fd1.emit_op(OpCode::CHECK_CTOR, self.last_line_num);
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR {
-            emit_class_field_init(self);
+            fd1.emit_class_field_init(self.last_line_num);
         }
 
-        /* parse arguments */
+        // parse arguments
         fd1.has_simple_parameter_list = true;
         fd1.has_parameter_expressions = false;
         let mut has_opt_arg = false;
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
             if self.token.data.is_reserved() {
-                js_parse_error_reserved_identifier(self);
+                self.throw_reserved_identifier_error();
                 fail!();
             }
 
@@ -171,7 +170,9 @@ impl<'s> JSParseState<'s> {
                 let mut skip_bits: i32 = 0;
                 /* if there is an '=' inside the parameter list, we
                 consider there is a parameter expression inside */
-                js_parse_skip_parens_token(self, &mut skip_bits, false);
+                unsafe {
+                    js_parse_skip_parens_token(self, &mut skip_bits, false);
+                }
                 if skip_bits & SKIP_HAS_ASSIGNMENT != 0 {
                     fd1.has_parameter_expressions = true;
                 }
@@ -205,27 +206,29 @@ impl<'s> JSParseState<'s> {
                 if matches!(self.token.val as u8, b'[' | b'{') {
                     fd1.has_simple_parameter_list = false;
                     if rest {
-                        emit_op(self, OpCode::REST);
-                        emit_u16(self, fd1.args.len() as _);
+                        fd1.emit_op(OpCode::REST, self.last_line_num);
+                        fd1.emit_u16(fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
-                        let idx = fd1.add_arg(&self.ctx, JS_ATOM_NULL).expect("TODO") as i32;
-                        emit_op(self, OpCode::GET_ARG);
-                        emit_u16(self, idx as _);
+                        let idx = fd1.add_arg(&self.ctx, JS_ATOM_NULL)? as i32;
+                        fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
+                        fd1.emit_u16(idx as _);
                     }
 
-                    let has_initializer = js_parse_destructuring_element(
-                        self,
-                        if fd1.has_parameter_expressions {
-                            TOK_LET
-                        } else {
-                            TOK_VAR
-                        },
-                        true,
-                        true,
-                        -1,
-                        true,
-                    );
+                    let has_initializer = unsafe {
+                        js_parse_destructuring_element(
+                            self,
+                            if fd1.has_parameter_expressions {
+                                TOK_LET
+                            } else {
+                                TOK_VAR
+                            },
+                            true,
+                            true,
+                            -1,
+                            true,
+                        )
+                    };
                     if has_initializer < 0 {
                         fail!();
                     }
@@ -237,7 +240,7 @@ impl<'s> JSParseState<'s> {
                     }
                 } else if self.token.val == TOK_IDENT {
                     if self.token.data.is_reserved() {
-                        js_parse_error_reserved_identifier(self);
+                        self.throw_reserved_identifier_error();
                         fail!();
                     }
 
@@ -245,7 +248,7 @@ impl<'s> JSParseState<'s> {
                     if name == JS_ATOM_yield
                         && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
-                        js_parse_error_reserved_identifier(self);
+                        self.throw_reserved_identifier_error();
                         fail!();
                     }
                     if fd1.has_parameter_expressions {
@@ -270,17 +273,18 @@ impl<'s> JSParseState<'s> {
                     }
 
                     if rest {
-                        emit_op(self, OpCode::REST);
-                        emit_u16(self, idx as _);
+                        fd1.emit_op(OpCode::REST, self.last_line_num);
+                        fd1.emit_u16(idx as _);
 
                         if fd1.has_parameter_expressions {
-                            emit_op(self, OpCode::DUP);
-                            emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                            emit_atom_dup(self, name);
-                            emit_u16(self, fd1.scope_level as _);
+                            fd1.emit_op(OpCode::DUP, self.last_line_num);
+                            fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
+                            fd1.emit_atom_dup(name);
+                            fd1.emit_u16(fd1.scope_level as _);
                         }
-                        emit_op(self, OpCode::PUT_ARG);
-                        emit_u16(self, idx as _);
+                        fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
+                        fd1.emit_u16(idx as _);
+
                         fd1.has_simple_parameter_list = false;
                         has_opt_arg = true;
                     } else if self.token.val == CHAR_EQUAL {
@@ -297,38 +301,40 @@ impl<'s> JSParseState<'s> {
                             fail!();
                         };
 
-                        emit_op(self, OpCode::GET_ARG);
-                        emit_u16(self, idx as _);
-                        emit_op(self, OpCode::DUP);
-                        emit_op(self, OpCode::UNDEFINED);
-                        emit_op(self, OpCode::STRICT_EQ);
-                        emit_goto(self, OpCode::IF_FALSE, label);
-                        emit_op(self, OpCode::DROP);
+                        fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
+                        fd1.emit_u16(idx as _);
+                        fd1.emit_op(OpCode::DUP, self.last_line_num);
+                        fd1.emit_op(OpCode::UNDEFINED, self.last_line_num);
+                        fd1.emit_op(OpCode::STRICT_EQ, self.last_line_num);
+                        fd1.emit_goto(OpCode::IF_FALSE, label, self.last_line_num);
+                        fd1.emit_op(OpCode::DROP, self.last_line_num);
 
                         if self.parse_assign_expr().is_err() {
                             fail!();
                         }
 
-                        set_object_name(self, name);
-                        emit_op(self, OpCode::DUP);
-                        emit_op(self, OpCode::PUT_ARG);
-                        emit_u16(self, idx as _);
+                        unsafe {
+                            set_object_name(self, name);
+                        }
+                        fd1.emit_op(OpCode::DUP, self.last_line_num);
+                        fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
+                        fd1.emit_u16(idx as _);
 
-                        emit_label(self, label);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        emit_atom_dup(self, name);
-                        emit_u16(self, fd1.scope_level as _);
+                        fd1.emit_label(label, self.last_line_num);
+                        fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
+                        fd1.emit_atom_dup(name);
+                        fd1.emit_u16(fd1.scope_level as _);
                     } else {
                         if !has_opt_arg {
                             fd1.defined_arg_count += 1;
                         }
                         if fd1.has_parameter_expressions {
                             // copy the argument to the argument scope
-                            emit_op(self, OpCode::GET_ARG);
-                            emit_u16(self, idx as _);
-                            emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                            emit_atom_dup(self, name);
-                            emit_u16(self, fd1.scope_level as _);
+                            fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
+                            fd1.emit_u16(idx as _);
+                            fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
+                            fd1.emit_atom_dup(name);
+                            fd1.emit_u16(fd1.scope_level as _);
                         }
                     }
                 } else {
@@ -378,22 +384,26 @@ impl<'s> JSParseState<'s> {
                         fail!();
                     }
 
-                    let vd = fd1.vars.get(idx as usize).unwrap(); // fd->vars may have been reallocated
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_atom_dup(self, vd.var_name);
-                    emit_u16(self, fd1.scope_level as _);
+                    let var_name = {
+                        let vd = fd1.vars.get(idx as usize).unwrap();
+                        vd.var_name
+                    };
 
-                    emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR);
-                    emit_atom_dup(self, vd.var_name);
-                    emit_u16(self, 0);
+                    fd1.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, self.last_line_num);
+                    fd1.emit_atom_dup(var_name);
+                    fd1.emit_u16(fd1.scope_level as _);
+
+                    fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR, self.last_line_num);
+                    fd1.emit_atom_dup(var_name);
+                    fd1.emit_u16(0);
                 }
 
                 idx = scope_next;
             }
 
             /* the argument scope has no parent, hence we don't use pop_scope(s) */
-            emit_op_temp(self, OpCodeTemp::LEAVE_SCOPE);
-            emit_u16(self, fd1.scope_level as _);
+            fd1.emit_op_temp(OpCodeTemp::LEAVE_SCOPE, self.last_line_num);
+            fd1.emit_u16(fd1.scope_level as _);
 
             /* set the variable scope as the current scope */
             fd1.scope_level = 0;
@@ -409,7 +419,7 @@ impl<'s> JSParseState<'s> {
             func_kind,
             JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
-            emit_op(self, OpCode::INITIAL_YIELD);
+            fd1.emit_op(OpCode::INITIAL_YIELD, self.last_line_num);
         }
 
         // in generators, yield expression is forbidden during the parsing of the arguments
@@ -422,20 +432,20 @@ impl<'s> JSParseState<'s> {
                 fail!();
             }
             if self.token.val != CHAR_CURLY_L {
-                if js_parse_function_check_names(self, fd1, func_name) != 0 {
+                if unsafe { js_parse_function_check_names(self, fd1, func_name) } != 0 {
                     fail!();
                 }
                 if self.parse_assign_expr().is_err() {
                     fail!();
                 }
 
-                emit_op(
-                    self,
+                fd1.emit_op(
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
                         OpCode::RETURN_ASYNC
                     } else {
                         OpCode::RETURN
                     },
+                    self.last_line_num,
                 );
 
                 if fd1.js_mode & JS_MODE_STRIP as u8 == 0 {
@@ -445,15 +455,16 @@ impl<'s> JSParseState<'s> {
                     debug_assert!(self.last_ptr >= ptr);
                     debug_assert!(fd1.source.is_none());
 
-                    let src_len = self.last_ptr.offset_from(ptr) as usize;
+                    let src_len = unsafe { self.last_ptr.offset_from(ptr) as usize };
                     if src_len > 0 {
                         let mut src = Vec::<u8>::new();
                         if src.try_reserve_exact(src_len).is_err() {
                             self.ctx.JS_ThrowOutOfMemory();
                             fail!();
                         }
-                        src.extend_from_slice(std::slice::from_raw_parts(ptr, src_len));
-                        fd1.source.replace(String::from_utf8_unchecked(src));
+                        src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
+                        fd1.source
+                            .replace(unsafe { String::from_utf8_unchecked(src) });
                     }
                 }
 
@@ -474,12 +485,12 @@ impl<'s> JSParseState<'s> {
         }
 
         /* in strict_mode, check function and argument names */
-        if js_parse_function_check_names(self, fd1, func_name) != 0 {
+        if unsafe { js_parse_function_check_names(self, fd1, func_name) } != 0 {
             fail!();
         }
 
         while self.token.val != CHAR_CURLY_R {
-            if self.parse_source_element().is_err() {
+            if unsafe { self.parse_source_element().is_err() } {
                 fail!();
             }
         }
@@ -489,15 +500,15 @@ impl<'s> JSParseState<'s> {
             debug_assert!(self.buf_ptr >= ptr);
             debug_assert!(fd1.source.is_none());
 
-            let src_len = self.buf_ptr.offset_from(ptr) as usize;
+            let src_len = unsafe { self.buf_ptr.offset_from(ptr) as usize };
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
                 if src.try_reserve_exact(src_len).is_err() {
                     self.ctx.JS_ThrowOutOfMemory();
                     fail!();
                 }
-                src.extend_from_slice(std::slice::from_raw_parts(ptr, src_len));
-                let s = String::from_utf8_unchecked(src);
+                src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
+                let s = unsafe { String::from_utf8_unchecked(src) };
                 fd1.source.replace(s);
             }
         }
@@ -508,8 +519,8 @@ impl<'s> JSParseState<'s> {
         }
 
         /* in case there is no return, add one */
-        if js_is_live_code(self) {
-            emit_return(self, false);
+        if unsafe { js_is_live_code(self) } {
+            fd1.emit_return(false, self.last_line_num);
         }
 
         self.cur_func_ptr = fd0; // restore cur_func to previoud fd
@@ -576,7 +587,7 @@ impl<'s> JSParseState<'s> {
                                 || func_type
                                     == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
                     {
-                        js_parse_error_reserved_identifier(self);
+                        self.throw_reserved_identifier_error();
                         return Err(-1);
                     }
                 }
@@ -671,7 +682,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        // create a sub FunctionDef to parse function body, returns new sub fd.
+        // create sub FunctionDef to parse function body, returns new sub fd.
         let mut fd1 = self.parse_function_body_to_sub_fd(
             func_type,
             func_kind,
@@ -688,7 +699,7 @@ impl<'s> JSParseState<'s> {
 
         reparse_ident_token(self);
 
-        // create function object
+        // create function object from fd1
         {
             func_name = fd1.func_name;
 
