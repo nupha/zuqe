@@ -288,7 +288,6 @@ impl JSObject {
                     }
                 }
                 JSProperty::AutoInit { .. } => {
-                    #[cfg(debug_assertions)]
                     unreachable!()
                 }
             }

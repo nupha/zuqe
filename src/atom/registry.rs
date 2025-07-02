@@ -109,7 +109,6 @@ impl JSRuntime {
                 (ss, hash)
             }
             JSAtomTypeHint::None => {
-                #[cfg(debug_assertions)]
                 unreachable!()
             }
         };
@@ -147,7 +146,6 @@ impl JSRuntime {
             JSAtomTypeHint::Symbol => JSAtomInfo::Symbol(aid),
             JSAtomTypeHint::Private => JSAtomInfo::Private(aid),
             JSAtomTypeHint::None => {
-                #[cfg(debug_assertions)]
                 unreachable!()
             }
         };

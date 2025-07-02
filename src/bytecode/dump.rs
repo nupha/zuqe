@@ -665,11 +665,7 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
                 }
             };
 
-            print!(
-                "{i:5}: {kind_str} {}'{}",
-                vd.var_name.to_str(ctx.rt()),
-                vd.var_name.ref_count(ctx.rt()).unwrap_or(999)
-            );
+            print!("{i:5}: {kind_str} {}", vd.var_name.to_str(ctx.rt()),);
 
             if vd.scope_level != 0 {
                 print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);

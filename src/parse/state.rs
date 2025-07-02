@@ -135,6 +135,8 @@ impl<'s> JSParseState<'s> {
         } else {
             #[cfg(debug_assertions)]
             unreachable!("empty current function def");
+            #[cfg(not(debug_assertions))]
+            Err(-1)
         }
     }
 
