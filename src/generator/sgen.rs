@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     error::JSResult,
-    function::{JSAsyncFunctionState, async_func_resume},
+    function::JSAsyncFunctionState,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
@@ -58,7 +58,7 @@ pub fn js_generator_function_call(
     };
 
     // execute the function up to 'OP_initial_yield'
-    async_func_resume(ctx, &s.func_state).check_exception()?;
+    s.func_state.resume(ctx)?;
 
     // create js object of generator class
     ctx.create_instance_from_ctor(func_obj, JSObjectIsa::GENERATOR(s))

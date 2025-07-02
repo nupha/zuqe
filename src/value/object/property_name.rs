@@ -112,18 +112,16 @@ impl JSObject {
                 ctx.rt().class_defs[self.class_id() as usize]
                     .exotic
                     .as_ref()
-                    .and_then(|em| em.get_own_property_names)
+                    .and_then(|xm| xm.get_own_property_names)
             } {
                 let mut tab_exotic = std::ptr::null_mut::<PropertyEnum>();
                 let mut exotic_count: u32 = 0;
-                if unsafe {
-                    f(
-                        ctx,
-                        &mut tab_exotic,
-                        &mut exotic_count,
-                        JSValue::Object(self.clone()),
-                    )
-                } != 0
+                if f(
+                    ctx,
+                    &mut tab_exotic,
+                    &mut exotic_count,
+                    JSValue::Object(self.clone()),
+                ) != 0
                 {
                     return Err(-1);
                 }

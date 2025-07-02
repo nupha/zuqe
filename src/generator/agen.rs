@@ -5,9 +5,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{
-        CallContext, JS_Call, JSAsyncFunctionState, JSCFunctionListEntry, async_func_resume,
-    },
+    function::{CallContext, JS_Call, JSAsyncFunctionState, JSCFunctionListEntry},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
@@ -92,7 +90,7 @@ impl AsyncGeneratorValue {
         });
 
         // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
-        async_func_resume(ctx, s.func_state.as_ref().unwrap()).check_exception()?;
+        s.func_state.as_ref().unwrap().resume(ctx)?;
 
         // create AsyncGenerator instance
         let obj = ctx
@@ -216,27 +214,30 @@ impl JSAsyncGeneratorData {
                     return;
                 }
                 State::ResumeExec => loop {
-                    unsafe {
-                        let func_ret = async_func_resume(ctx, self.func_state.as_ref().unwrap());
-                        if self.func_state.as_ref().unwrap().0.borrow().is_completed {
-                            if func_ret.is_exception() {
-                                let value = ctx.take_exception();
+                    let func_ret = self.func_state.as_ref().unwrap().resume(ctx);
+                    if self.func_state.as_ref().unwrap().0.borrow().is_completed {
+                        // end of function
+                        match func_ret {
+                            Ok(val) => {
                                 self.complete();
-                                self.reject(ctx, value);
-                            } else {
-                                // end of function
-                                self.complete();
-                                self.resolve(ctx, func_ret, true);
+                                self.resolve(ctx, val, true);
                             }
+                            Err(_) => {
+                                let err = ctx.take_exception();
+                                self.complete();
+                                self.reject(ctx, err);
+                            }
+                        }
+                    } else {
+                        let code = if let Ok(JSValue::Int(i)) = func_ret {
+                            i
                         } else {
-                            let func_ret_code = if let JSValue::Int(i) = func_ret {
-                                i
-                            } else {
-                                unreachable!()
-                            };
+                            unreachable!()
+                        };
 
-                            let value = self
-                                .func_state
+                        // take value at stack top
+                        let value = unsafe {
+                            self.func_state
                                 .as_ref()
                                 .unwrap()
                                 .0
@@ -245,30 +246,84 @@ impl JSAsyncGeneratorData {
                                 .stack_cur_ptr()
                                 .offset(-1)
                                 .as_mut()
-                                .replace(JSValue::UNDEFINED);
+                                .replace(JSValue::UNDEFINED)
+                        };
 
-                            match func_ret_code {
-                                FUNC_RET_YIELD | FUNC_RET_YIELD_STAR => {
-                                    self.state = if func_ret_code == FUNC_RET_YIELD_STAR {
-                                        JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD_STAR
-                                    } else {
-                                        JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
-                                    };
-                                    self.resolve(ctx, value, false);
-                                }
-                                FUNC_RET_AWAIT => {
-                                    if js_async_generator_await(ctx, self, value).is_err() {
-                                        // exception: throw it
-                                        self.func_state.as_ref().unwrap().set_throw_flag(true);
-                                        continue; // State::ResumeExec loop
-                                    } else {
-                                        return;
-                                    }
-                                }
-                                _ => unreachable!(),
+                        match code {
+                            FUNC_RET_YIELD | FUNC_RET_YIELD_STAR => {
+                                self.state = if code == FUNC_RET_YIELD_STAR {
+                                    JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD_STAR
+                                } else {
+                                    JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
+                                };
+                                self.resolve(ctx, value, false);
                             }
+                            FUNC_RET_AWAIT => {
+                                if unsafe { js_async_generator_await(ctx, self, value).is_err() } {
+                                    // exception: throw it
+                                    self.func_state.as_ref().unwrap().set_throw_flag(true);
+                                    continue; // State::ResumeExec loop
+                                } else {
+                                    return;
+                                }
+                            }
+                            _ => unreachable!(),
                         }
                     }
+
+                    // unsafe {
+                    //     let func_ret = async_func_resume(ctx, self.func_state.as_ref().unwrap());
+                    //     if self.func_state.as_ref().unwrap().0.borrow().is_completed {
+                    //         if func_ret.is_exception() {
+                    //             let value = ctx.take_exception();
+                    //             self.complete();
+                    //             self.reject(ctx, value);
+                    //         } else {
+                    //             // end of function
+                    //             self.complete();
+                    //             self.resolve(ctx, func_ret, true);
+                    //         }
+                    //     } else {
+                    //         let func_ret_code = if let JSValue::Int(i) = func_ret {
+                    //             i
+                    //         } else {
+                    //             unreachable!()
+                    //         };
+
+                    //         let value = self
+                    //             .func_state
+                    //             .as_ref()
+                    //             .unwrap()
+                    //             .0
+                    //             .borrow_mut()
+                    //             .frame
+                    //             .stack_cur_ptr()
+                    //             .offset(-1)
+                    //             .as_mut()
+                    //             .replace(JSValue::UNDEFINED);
+
+                    //         match func_ret_code {
+                    //             FUNC_RET_YIELD | FUNC_RET_YIELD_STAR => {
+                    //                 self.state = if func_ret_code == FUNC_RET_YIELD_STAR {
+                    //                     JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD_STAR
+                    //                 } else {
+                    //                     JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
+                    //                 };
+                    //                 self.resolve(ctx, value, false);
+                    //             }
+                    //             FUNC_RET_AWAIT => {
+                    //                 if js_async_generator_await(ctx, self, value).is_err() {
+                    //                     // exception: throw it
+                    //                     self.func_state.as_ref().unwrap().set_throw_flag(true);
+                    //                     continue; // State::ResumeExec loop
+                    //                 } else {
+                    //                     return;
+                    //                 }
+                    //             }
+                    //             _ => unreachable!(),
+                    //         }
+                    //     }
+                    // }
                 },
             } // state match
         } // outer loop
