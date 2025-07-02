@@ -2115,3 +2115,42 @@ pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: JSAtom) -> boo
     //     && (*s).token.data.ident_atom().unwrap() == atom
     //     && !(*s).token.data.ident_has_escape()
 }
+
+#[deprecated(note = "use JSAtom::to_value() instead")]
+pub unsafe fn __JS_AtomToValue(ctx: &JSContext, atom: JSAtom, force_string: bool) -> JSValue {
+    atom.to_value(ctx, force_string)
+}
+
+#[deprecated(note = "use JSAtom::to_value() instead")]
+pub unsafe fn JS_AtomToValue(ctx: &JSContext, atom: JSAtom) -> JSValue {
+    __JS_AtomToValue(ctx, atom, false)
+}
+
+#[deprecated(note = "use JSContext::create_atom() instead")]
+pub unsafe fn JS_NewAtomLen(ctx: &JSContext, str: *const u8, len: usize) -> JSAtom {
+    ctx.create_atom(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+        str, len,
+    )))
+    .unwrap_or(JS_ATOM_NULL)
+}
+
+#[deprecated(note = "use JSContext::create_atom() instead")]
+pub unsafe fn JS_NewAtom(ctx: &JSContext, str: &CStr) -> JSAtom {
+    ctx.create_atom(str.to_string_lossy().as_ref())
+        .unwrap_or(JS_ATOM_NULL)
+}
+
+#[deprecated(note = "use JSContext::create_atom_string() instead")]
+pub unsafe fn JS_NewAtomString(ctx: &JSContext, str: &str) -> JSValue {
+    ctx.create_atom_string(str).unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSRuntime::register_atom_u32() instead")]
+pub unsafe fn JS_NewAtomUInt32(ctx: &JSContext, n: u32) -> JSAtom {
+    ctx.rt_mut().register_atom_u32(n)
+}
+
+#[deprecated(note = "use JSRuntime::register_atom_i64() instead")]
+pub unsafe fn JS_NewAtomInt64(ctx: &JSContext, n: i64) -> JSAtom {
+    ctx.rt_mut().register_atom_i64(n)
+}

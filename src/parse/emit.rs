@@ -1,7 +1,9 @@
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom, JSAtomTypeHint, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
+    class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
+    parse::class::js_parse_function_class_fields_init,
     utils::{push_vec_u8, push_vec_u16, push_vec_u32},
     value::{JSValue, JSValueConst},
 };
@@ -523,6 +525,83 @@ impl<'s> JSParseState<'s> {
 
         -1
     }
+
+    pub fn emit_spread_code(&mut self, depth: i32) {
+        // XXX: could check if enum object is an actual array and optimize
+        //       slice extraction. enumeration record and target array are in a
+        //       different order from OP_append case.
+        // enum_rec xxx -- enum_rec xxx array 0
+        self.emit_op(OpCode::ARRAY_FROM);
+        self.emit_u16(0);
+        self.emit_op(OpCode::PUSH_I32);
+        self.emit_u32(0);
+
+        let label_rest_next = self.cur_func_mut().add_label().map_or(-1, |x| x as i32);
+        self.emit_label(label_rest_next);
+        self.emit_op(OpCode::FOR_OF_NEXT);
+        self.emit_u8((2 + depth) as u8); // C2RS: explicit cast from i32 to u8
+
+        let label_rest_done = self.emit_goto(OpCode::IF_TRUE, -1);
+        // array idx val -- array idx
+        self.emit_op(OpCode::DEFINE_ARRAY_EL);
+        self.emit_op(OpCode::INC);
+        self.emit_goto(OpCode::GOTO, label_rest_next as _);
+        self.emit_label(label_rest_done);
+        // enum_rec xxx array idx undef -- enum_rec xxx array
+        self.emit_op(OpCode::DROP);
+        self.emit_op(OpCode::DROP);
+    }
+
+    pub(super) fn emit_class_init_start(&mut self, clsdef: &mut ClassFieldsDef) -> Result<(), i32> {
+        debug_assert!(clsdef.fields_init_fd.is_null());
+
+        clsdef.fields_init_fd =
+            Box::into_raw(unsafe { js_parse_function_class_fields_init(self)? });
+        self.cur_func_ptr = clsdef.fields_init_fd;
+
+        if !clsdef.is_static {
+            // add the brand to the newly created instance
+            // XXX: would be better to add the code only if needed, maybe in a
+            // later pass
+            self.emit_op(OpCode::PUSH_FALSE); // will be patched later
+            clsdef.brand_push_pos = unsafe { (*clsdef.fields_init_fd).last_opcode_pos };
+
+            let label_add_brand = self.emit_goto(OpCode::IF_FALSE, -1);
+
+            self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+            self.emit_atom_dup(JS_ATOM_this);
+            self.emit_u16(0);
+
+            self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+            self.emit_atom_dup(JS_ATOM__home_object_);
+            self.emit_u16(0);
+
+            self.emit_op(OpCode::ADD_BRAND);
+            self.emit_label(label_add_brand);
+        }
+        self.cur_func_ptr = self.cur_func().parent;
+
+        Ok(())
+    }
+
+    pub(super) fn emit_class_init_end(&mut self, clsdef: &ClassFieldsDef) {
+        self.cur_func_ptr = clsdef.fields_init_fd;
+        self.emit_op(OpCode::RETURN_UNDEF);
+        self.cur_func_ptr = self.cur_func().parent;
+
+        let cpool_idx = self
+            .cur_func_mut()
+            .cpool_add(JSValue::NULL)
+            .map_or(-1, |x| x as i32);
+
+        unsafe {
+            (*clsdef.fields_init_fd).parent_cpool_idx = cpool_idx;
+        }
+        self.emit_op(OpCode::FCLOSURE);
+        self.emit_u32(cpool_idx as _);
+
+        self.emit_op(OpCode::SET_HOME_OBJECT);
+    }
 }
 
 #[inline(always)]
@@ -635,28 +714,35 @@ pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) 
     (*s).emit_break(name, is_continue)
 }
 
+#[deprecated(note = "use JSParseState::emit_spread_code() instead")]
 pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
-    // XXX: could check if enum object is an actual array and optimize
-    //       slice extraction. enumeration record and target array are in a
-    //       different order from OP_append case.
-    // enum_rec xxx -- enum_rec xxx array 0
-    emit_op(s, OpCode::ARRAY_FROM);
-    emit_u16(s, 0);
-    emit_op(s, OpCode::PUSH_I32);
-    emit_u32(s, 0);
+    (*s).emit_spread_code(depth);
+}
 
-    let label_rest_next = (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32);
-    emit_label(s, label_rest_next);
-    emit_op(s, OpCode::FOR_OF_NEXT);
-    emit_u8(s, (2 + depth) as u8); // C2RS: explicit cast from i32 to u8
+#[deprecated(note = "use JSParseState::emit_class_init_start() instead")]
+pub unsafe fn emit_class_init_start(
+    s: *mut JSParseState,
+    cf: *mut ClassFieldsDef,
+) -> Result<(), i32> {
+    (*s).emit_class_init_start(cf.as_mut().unwrap())
+}
 
-    let label_rest_done = emit_goto(s, OpCode::IF_TRUE, -1);
-    // array idx val -- array idx
-    emit_op(s, OpCode::DEFINE_ARRAY_EL);
-    emit_op(s, OpCode::INC);
-    emit_goto(s, OpCode::GOTO, label_rest_next as _);
-    emit_label(s, label_rest_done);
-    // enum_rec xxx array idx undef -- enum_rec xxx array
-    emit_op(s, OpCode::DROP);
-    emit_op(s, OpCode::DROP);
+#[deprecated(note = "use JSParseState::emit_class_init_end() instead")]
+pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {
+    unreachable!("unused");
+
+    // (*s).cur_func_ptr = (*cf).fields_init_fd;
+    // emit_op(s, OpCode::RETURN_UNDEF);
+    // (*s).cur_func_ptr = (*s).cur_func().parent;
+
+    // let cpool_idx = (*s)
+    //     .cur_func_mut()
+    //     .cpool_add(JSValue::NULL)
+    //     .map_or(-1, |x| x as i32);
+
+    // (*(*cf).fields_init_fd).parent_cpool_idx = cpool_idx;
+    // emit_op(s, OpCode::FCLOSURE);
+    // emit_u32(s, cpool_idx as _);
+
+    // emit_op(s, OpCode::SET_HOME_OBJECT);
 }

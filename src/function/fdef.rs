@@ -1,9 +1,7 @@
 use std::{ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::{
-        JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_str,
-    },
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_str},
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
     error::{JS_THROW_VAR_RO, JS_ThrowSyntaxError},
@@ -1054,7 +1052,7 @@ pub unsafe fn instantiate_hoisted_definitions(
                     }
                 }
                 push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
-                push_vec_u32(bc, JS_DupAtom(ctx, hf.var_name).0); // dup to compensate later free
+                push_vec_u32(bc, hf.var_name.dup(ctx.rt()).0); // dup to compensate later free
                 push_vec_u8(bc, flags as u8);
             }
         }
@@ -1066,7 +1064,7 @@ pub unsafe fn instantiate_hoisted_definitions(
                 if hf.var_name == JS_ATOM__default_ {
                     // set default export function name
                     push_vec_u8(bc, OpCode::SET_NAME as u8);
-                    push_vec_u32(bc, JS_DupAtom(ctx, JS_ATOM_default).0);
+                    push_vec_u32(bc, JS_ATOM_default.dup(ctx.rt()).0);
                 }
             } else {
                 push_vec_u8(bc, OpCode::UNDEFINED as u8);
@@ -1077,12 +1075,12 @@ pub unsafe fn instantiate_hoisted_definitions(
                 push_vec_u16(bc, idx as u16);
             } else if has_closure == 1 {
                 push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
-                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u32(bc, hf.var_name.dup(ctx.rt()).0);
                 push_vec_u8(bc, OpCode::DROP as u8);
             } else {
                 // XXX: Check if variable is writable and enumerable
                 push_vec_u8(bc, OpCode::PUT_VAR as u8);
-                push_vec_u32(bc, JS_DupAtom(ctx, (*hf).var_name).0);
+                push_vec_u32(bc, hf.var_name.dup(ctx.rt()).0);
             }
         }
 

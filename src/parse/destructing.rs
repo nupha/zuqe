@@ -14,7 +14,6 @@ use super::{
     class::js_parse_property_name,
     emit::{
         emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u8, emit_u16, emit_u32,
-        js_emit_spread_code,
     },
     expr_lvalue::PutLValueEnum,
     function::js_parse_check_duplicate_parameter,
@@ -88,7 +87,7 @@ pub unsafe fn js_parse_destructuring_element(
                 {
                     (*s).set_object_name(var_name);
                 }
-                emit_label(s, label_hasval);
+                (*s).emit_label(label_hasval);
             }
             (*s).put_lvalue(
                 opcode,
@@ -280,27 +279,27 @@ pub unsafe fn js_parse_destructuring_element(
                         /* computed property name on stack */
                         if has_ellipsis != 0 {
                             /* define the property in excludeList */
-                            emit_op(s, OpCode::TO_PROPKEY); /* avoid calling ToString twice */
-                            emit_op(s, OpCode::PERM3); /* TOS: src excludeList prop */
-                            emit_op(s, OpCode::NULL); /* TOS: src excludeList prop null */
-                            emit_op(s, OpCode::DEFINE_ARRAY_EL); /* TOS: src excludeList prop */
-                            emit_op(s, OpCode::PERM3); /* TOS: excludeList src prop */
+                            (*s).emit_op(OpCode::TO_PROPKEY); /* avoid calling ToString twice */
+                            (*s).emit_op(OpCode::PERM3); /* TOS: src excludeList prop */
+                            (*s).emit_op(OpCode::NULL); /* TOS: src excludeList prop null */
+                            (*s).emit_op(OpCode::DEFINE_ARRAY_EL); /* TOS: src excludeList prop */
+                            (*s).emit_op(OpCode::PERM3); /* TOS: excludeList src prop */
                         }
                         /* get the computed property from the source object */
-                        emit_op(s, OpCode::GET_ARRAY_EL2);
+                        (*s).emit_op(OpCode::GET_ARRAY_EL2);
                     } else {
                         /* named property */
                         if has_ellipsis != 0 {
                             /* define the property in excludeList */
-                            emit_op(s, OpCode::SWAP); /* TOS: src excludeList */
-                            emit_op(s, OpCode::NULL); /* TOS: src excludeList null */
-                            emit_op(s, OpCode::DEFINE_FIELD); /* TOS: src excludeList */
-                            emit_atom_dup(s, prop_name);
-                            emit_op(s, OpCode::SWAP); /* TOS: excludeList src */
+                            (*s).emit_op(OpCode::SWAP); /* TOS: src excludeList */
+                            (*s).emit_op(OpCode::NULL); /* TOS: src excludeList null */
+                            (*s).emit_op(OpCode::DEFINE_FIELD); /* TOS: src excludeList */
+                            (*s).emit_atom_dup(prop_name);
+                            (*s).emit_op(OpCode::SWAP); /* TOS: excludeList src */
                         }
                         /* get the named property from the source object */
-                        emit_op(s, OpCode::GET_FIELD2);
-                        emit_u32(s, prop_name.0);
+                        (*s).emit_op(OpCode::GET_FIELD2);
+                        (*s).emit_u32(prop_name.0);
                     }
                     if js_parse_destructuring_element(s, tok, is_arg, true, -1, true) < 0 {
                         return -1;
@@ -319,27 +318,27 @@ pub unsafe fn js_parse_destructuring_element(
                 }
 
                 if prop_name == JS_ATOM_NULL {
-                    emit_op(s, OpCode::TO_PROPKEY2);
+                    (*s).emit_op(OpCode::TO_PROPKEY2);
                     if has_ellipsis != 0 {
                         /* define the property in excludeList */
-                        emit_op(s, OpCode::PERM3);
-                        emit_op(s, OpCode::NULL);
-                        emit_op(s, OpCode::DEFINE_ARRAY_EL);
-                        emit_op(s, OpCode::PERM3);
+                        (*s).emit_op(OpCode::PERM3);
+                        (*s).emit_op(OpCode::NULL);
+                        (*s).emit_op(OpCode::DEFINE_ARRAY_EL);
+                        (*s).emit_op(OpCode::PERM3);
                     }
                     /* source prop -- source source prop */
-                    emit_op(s, OpCode::DUP1);
+                    (*s).emit_op(OpCode::DUP1);
                 } else {
                     if has_ellipsis != 0 {
                         /* define the property in excludeList */
-                        emit_op(s, OpCode::SWAP);
-                        emit_op(s, OpCode::NULL);
-                        emit_op(s, OpCode::DEFINE_FIELD);
-                        emit_atom_dup(s, prop_name);
-                        emit_op(s, OpCode::SWAP);
+                        (*s).emit_op(OpCode::SWAP);
+                        (*s).emit_op(OpCode::NULL);
+                        (*s).emit_op(OpCode::DEFINE_FIELD);
+                        (*s).emit_atom_dup(prop_name);
+                        (*s).emit_op(OpCode::SWAP);
                     }
                     /* source -- source source */
-                    emit_op(s, OpCode::DUP);
+                    (*s).emit_op(OpCode::DUP);
                 }
                 if tok != 0 {
                     var_name = js_parse_destructuring_var(s, tok, is_arg);
@@ -359,13 +358,13 @@ pub unsafe fn js_parse_destructuring_element(
                     /* computed property name on stack */
                     /* XXX: should have OP_get_array_el2x with depth */
                     /* source prop -- val */
-                    emit_op(s, OpCode::GET_ARRAY_EL);
+                    (*s).emit_op(OpCode::GET_ARRAY_EL);
                 } else {
                     /* named property */
                     /* XXX: should have OP_get_field2x with depth */
                     /* source -- val */
-                    emit_op(s, OpCode::GET_FIELD);
-                    emit_u32(s, prop_name.0);
+                    (*s).emit_op(OpCode::GET_FIELD);
+                    (*s).emit_u32(prop_name.0);
                 }
             } else {
                 // #210
@@ -382,11 +381,11 @@ pub unsafe fn js_parse_destructuring_element(
                 }
                 if has_ellipsis != 0 {
                     /* define the property in excludeList */
-                    emit_op(s, OpCode::SWAP);
-                    emit_op(s, OpCode::NULL);
-                    emit_op(s, OpCode::DEFINE_FIELD);
-                    emit_atom_dup(s, prop_name);
-                    emit_op(s, OpCode::SWAP);
+                    (*s).emit_op(OpCode::SWAP);
+                    (*s).emit_op(OpCode::NULL);
+                    (*s).emit_op(OpCode::DEFINE_FIELD);
+                    (*s).emit_atom_dup(prop_name);
+                    (*s).emit_op(OpCode::SWAP);
                 }
 
                 let mut goto_lvalue = false;
@@ -394,10 +393,10 @@ pub unsafe fn js_parse_destructuring_element(
                 if tok == 0 || tok == TOK_VAR {
                     /* generate reference */
                     /* source -- source source */
-                    emit_op(s, OpCode::DUP);
-                    emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_atom_dup(s, prop_name);
-                    emit_u16(s, (*s).cur_func().scope_level as _);
+                    (*s).emit_op(OpCode::DUP);
+                    (*s).emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    (*s).emit_atom_dup(prop_name);
+                    (*s).emit_u16((*s).cur_func().scope_level as _);
 
                     goto_lvalue = true;
                     lvalue!(); // #234 goto lvalue
@@ -407,21 +406,21 @@ pub unsafe fn js_parse_destructuring_element(
                         /* computed property name on stack */
                         /* XXX: should have OP_get_array_el2x with depth */
                         /* source prop -- val */
-                        emit_op(s, OpCode::GET_ARRAY_EL);
+                        (*s).emit_op(OpCode::GET_ARRAY_EL);
                     } else {
                         /* named property */
                         /* XXX: should have OP_get_field2x with depth */
                         /* source -- val */
-                        emit_op(s, OpCode::GET_FIELD);
-                        emit_u32(s, prop_name.0);
+                        (*s).emit_op(OpCode::GET_FIELD);
+                        (*s).emit_u32(prop_name.0);
                     }
                 }
 
                 if !goto_lvalue {
                     var_name = JS_DupAtom(ctx, prop_name);
                     /* source -- source val */
-                    emit_op(s, OpCode::GET_FIELD2);
-                    emit_u32(s, prop_name.0);
+                    (*s).emit_op(OpCode::GET_FIELD2);
+                    (*s).emit_u32(prop_name.0);
                 }
             }
 
@@ -430,9 +429,9 @@ pub unsafe fn js_parse_destructuring_element(
         } // while
 
         // drop the source object
-        emit_op(s, OpCode::DROP);
+        (*s).emit_op(OpCode::DROP);
         if has_ellipsis != 0 {
-            emit_op(s, OpCode::DROP); // pop excludeList
+            (*s).emit_op(OpCode::DROP); // pop excludeList
         }
         if (*s).next_token().is_err() {
             return -1;
@@ -451,7 +450,7 @@ pub unsafe fn js_parse_destructuring_element(
         'yield' triggers a 'return' */
         push_break_entry((*s).cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
         block_env.has_iterator = true;
-        emit_op(s, OpCode::FOR_OF_START);
+        (*s).emit_op(OpCode::FOR_OF_START);
         has_spread = false;
         while (*s).token.val != ']' as i32 {
             /* get the next value */
@@ -467,10 +466,10 @@ pub unsafe fn js_parse_destructuring_element(
             }
             if (*s).token.val == ',' as i32 {
                 /* do nothing, skip the value, has_spread is false */
-                emit_op(s, OpCode::FOR_OF_NEXT);
-                emit_u8(s, 0);
-                emit_op(s, OpCode::DROP);
-                emit_op(s, OpCode::DROP);
+                (*s).emit_op(OpCode::FOR_OF_NEXT);
+                (*s).emit_u8(0);
+                (*s).emit_op(OpCode::DROP);
+                (*s).emit_op(OpCode::DROP);
             } else if ((*s).token.val == '[' as i32 || (*s).token.val == '{' as i32)
                 && ({
                     tok1 = js_parse_skip_parens_token(s, &mut skip_bits, false);
@@ -484,11 +483,11 @@ pub unsafe fn js_parse_destructuring_element(
                         (*s).throw_syntax_error("rest element cannot have a default value");
                         return -1;
                     }
-                    js_emit_spread_code(s, 0);
+                    (*s).emit_spread_code(0);
                 } else {
-                    emit_op(s, OpCode::FOR_OF_NEXT);
-                    emit_u8(s, 0);
-                    emit_op(s, OpCode::DROP);
+                    (*s).emit_op(OpCode::FOR_OF_NEXT);
+                    (*s).emit_u8(0);
+                    (*s).emit_op(OpCode::DROP);
                 }
                 if js_parse_destructuring_element(
                     s,
@@ -535,22 +534,22 @@ pub unsafe fn js_parse_destructuring_element(
                     }
                 }
                 if has_spread {
-                    js_emit_spread_code(s, enum_depth);
+                    (*s).emit_spread_code(enum_depth);
                 } else {
-                    emit_op(s, OpCode::FOR_OF_NEXT);
-                    emit_u8(s, enum_depth as _);
-                    emit_op(s, OpCode::DROP);
+                    (*s).emit_op(OpCode::FOR_OF_NEXT);
+                    (*s).emit_u8(enum_depth as _);
+                    (*s).emit_op(OpCode::DROP);
                 }
                 if (*s).token.val == '=' as i32 && !has_spread {
                     /* handle optional default value */
-                    emit_op(s, OpCode::DUP);
-                    emit_op(s, OpCode::UNDEFINED);
-                    emit_op(s, OpCode::STRICT_EQ);
+                    (*s).emit_op(OpCode::DUP);
+                    (*s).emit_op(OpCode::UNDEFINED);
+                    (*s).emit_op(OpCode::STRICT_EQ);
                     let label_hasval = emit_goto(s, OpCode::IF_FALSE, -1);
                     if (*s).next_token().is_err() {
                         var_error!();
                     }
-                    emit_op(s, OpCode::DROP);
+                    (*s).emit_op(OpCode::DROP);
                     if (*s).parse_assign_expr().is_err() {
                         var_error!();
                     }
@@ -559,7 +558,7 @@ pub unsafe fn js_parse_destructuring_element(
                     {
                         (*s).set_object_name(var_name);
                     }
-                    emit_label(s, label_hasval);
+                    (*s).emit_label(label_hasval);
                 }
                 /* store value into lvalue object */
                 (*s).put_lvalue(
@@ -587,7 +586,7 @@ pub unsafe fn js_parse_destructuring_element(
 
         /* close iterator object:
         if completed, enum_obj has been replaced by undefined */
-        emit_op(s, OpCode::ITERATOR_CLOSE);
+        (*s).emit_op(OpCode::ITERATOR_CLOSE);
         pop_break_entry((*s).cur_func_mut());
         if (*s).next_token().is_err() {
             return -1;
@@ -598,19 +597,19 @@ pub unsafe fn js_parse_destructuring_element(
     }
 
     if (*s).token.val == '=' as i32 && allow_initializer {
-        label_done = emit_goto(s, OpCode::GOTO, -1);
+        label_done = (*s).emit_goto(OpCode::GOTO, -1);
         if (*s).next_token().is_err() {
             return -1;
         }
-        emit_label(s, label_parse);
+        (*s).emit_label(label_parse);
         if hasval {
-            emit_op(s, OpCode::DROP);
+            (*s).emit_op(OpCode::DROP);
         }
         if (*s).parse_assign_expr().is_err() {
             return -1;
         }
-        emit_goto(s, OpCode::GOTO, label_assign);
-        emit_label(s, label_done);
+        (*s).emit_goto(OpCode::GOTO, label_assign);
+        (*s).emit_label(label_done);
         has_initializer = true;
     } else {
         /* normally hasval is true except if

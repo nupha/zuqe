@@ -492,7 +492,7 @@ pub fn gen_object_isa(outfile: &Path) {
         items.push(if let Some(p) = cdef.payload {
             format!("{}({})", cdef.const_name, p)
         } else {
-            format!("{}", cdef.const_name.to_string())
+            cdef.const_name.to_string()
         });
 
         getid_arms.push(if cdef.payload.is_some() {

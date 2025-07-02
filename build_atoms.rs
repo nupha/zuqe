@@ -1,6 +1,6 @@
 use std::path::Path;
 
-static atom_defs: &[&str] = &[
+static ATOM_DEFS: &[&str] = &[
     "null",
     "false",
     "true",
@@ -240,7 +240,7 @@ static atom_defs: &[&str] = &[
 ];
 
 pub fn gen_atoms(outfile: &Path) {
-    let text = atom_defs
+    let text = ATOM_DEFS
         .iter()
         .map(|t| match *t {
             "empty_string" => "".to_string(),
@@ -265,9 +265,9 @@ pub fn gen_atoms(outfile: &Path) {
     // }
     // lines.push("];".into());
 
-    for (i, txt) in atom_defs.iter().enumerate() {
+    for (i, txt) in ATOM_DEFS.iter().enumerate() {
         let label = if txt.len() > 2 && txt.starts_with("<") && txt.ends_with(">") {
-            format!("_{}_", txt[1..txt.len() - 1].to_string())
+            format!("_{}_", &txt[1..txt.len() - 1])
         } else if txt.eq(&"*") {
             "_star_".to_string()
         } else if txt.contains('.') {
@@ -284,7 +284,7 @@ pub fn gen_atoms(outfile: &Path) {
     output.push("".into());
     output.push(format!(
         "pub const JS_ATOM_INIT_COUNT:u32={};",
-        atom_defs.len() + 1
+        ATOM_DEFS.len() + 1
     ));
     output.push("pub const JS_ATOM_FIRST: JSAtom = JS_ATOM_null;".into());
     output.push("pub const JS_ATOM_LAST_KEYWORD: JSAtom = JS_ATOM_super;".into());

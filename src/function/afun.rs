@@ -14,7 +14,7 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
     value::{
-        JS_FreeValue, JSValue, JSValueConst,
+        JSValue, JSValueConst,
         object::{GCObjectWeakref, JS_PROP_CONFIGURABLE, JSObjectIsa},
     },
 };
@@ -326,10 +326,7 @@ pub unsafe fn js_async_function_resolve_create(
                     JSObjectIsa::ASYNC_FUNCTION_REJECT(s.clone())
                 }
             })
-            .map_err(|_| {
-                JS_FreeValue(ctx, &resolving_funcs[0]);
-                -1
-            })?;
+            .map_err(|_| -1)?;
 
         resolving_funcs[i] = func_obj;
     }
@@ -340,23 +337,6 @@ pub unsafe fn js_async_function_resolve_create(
 #[deprecated(note = "use JSAsyncFunctionState::free_frame() instead")]
 pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
     unreachable!("unused");
-
-    // let sf = &mut (*s).frame;
-
-    // if !sf.arg_base_ptr.is_null() {
-    //     // cannot free the function if it is running
-    //     let mut p = sf.arg_base_ptr;
-    //     let cur_sp = sf.stack_cur_ptr().as_ptr();
-    //     while p < cur_sp {
-    //         JS_FreeValueRT(rt, *p);
-    //         p = p.add(1);
-    //     }
-
-    //     sf.arg_base_ptr = std::ptr::null_mut();
-    // }
-
-    // JS_FreeValueRT(rt, sf.cur_func);
-    // JS_FreeValueRT(rt, (*s).this_val);
 }
 
 pub fn js_async_function_resolve_call(

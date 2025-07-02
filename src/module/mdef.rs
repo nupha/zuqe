@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
@@ -615,7 +615,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
                     if !b.has_debug {
                         return JS_ATOM_NULL;
                     }
-                    return JS_DupAtom(ctx, b.debug.filename);
+                    return b.debug.filename.dup(ctx.rt());
                 } else {
                     sf = (*sf).prev_frame.cast::<JSStackFrame>(); // walk up
                     if sf.is_null() {

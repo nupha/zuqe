@@ -16,19 +16,13 @@ use crate::{
     module::JSExportTypeEnum,
     parse::{esm::add_export_entry, obj::set_object_name_computed, token::CHAR_SQUARE_L},
     utils::write_to_ptr,
-    value::{
-        JSValue,
-        object::{
-            PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT,
-            PROP_TYPE_PRIVATE, PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
-        },
+    value::object::{
+        PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
+        PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
     },
 };
 
 use super::{
-    emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u8, emit_u16, emit_u32,
-    },
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     state::JSParseState,
@@ -68,7 +62,7 @@ impl<'s> JSParseState<'s> {
         let mut init = std::ptr::null_mut::<JSFunctionDef>();
 
         if cf.fields_init_fd.is_null() {
-            emit_class_init_start(self, cf)?;
+            self.emit_class_init_start(cf)?;
         }
 
         self.cur_func_ptr = cf.fields_init_fd;
@@ -88,16 +82,16 @@ impl<'s> JSParseState<'s> {
 
         // stack is now: fclosure
         self.push_scope()?;
-        emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-        emit_atom_dup(self, JS_ATOM_this);
-        emit_u16(self, 0);
+        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+        self.emit_atom_dup(JS_ATOM_this);
+        self.emit_u16(0);
         // stack is now: fclosure this
-        emit_op(self, OpCode::SWAP);
+        self.emit_op(OpCode::SWAP);
         // stack is now: this fclosure
-        emit_op(self, OpCode::CALL_METHOD);
-        emit_u16(self, 0);
+        self.emit_op(OpCode::CALL_METHOD);
+        self.emit_u16(0);
         // stack is now: returnvalue
-        emit_op(self, OpCode::DROP);
+        self.emit_op(OpCode::DROP);
         // stack is now: <empty>
         self.pop_scope();
         self.cur_func_ptr = self.cur_func().parent;
@@ -185,15 +179,15 @@ impl<'s> JSParseState<'s> {
 
         if is_private {
             (*method_fd).need_home_object = true; // needed for brand check
-            emit_op(self, OpCode::SET_HOME_OBJECT);
+            self.emit_op(OpCode::SET_HOME_OBJECT);
             // XXX: missing function name
-            emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
+            self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
             if is_set {
                 let setter_name = get_private_setter_name(&self.ctx, name);
                 if setter_name == JS_ATOM_NULL {
                     return Err(-1);
                 }
-                emit_atom_dup(self, setter_name);
+                self.emit_atom_dup(setter_name);
 
                 let ret = add_private_class_field(
                     self,
@@ -207,24 +201,21 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
             } else {
-                emit_atom_dup(self, name);
+                self.emit_atom_dup(name);
             }
-            emit_u16(self, self.cur_func().scope_level as _);
+            self.emit_u16(self.cur_func().scope_level as _);
         } else {
             if name == JS_ATOM_NULL {
-                emit_op(self, OpCode::DEFINE_METHOD_COMPUTED);
+                self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
             } else {
-                emit_op(self, OpCode::DEFINE_METHOD);
-                emit_atom_dup(self, name);
+                self.emit_op(OpCode::DEFINE_METHOD);
+                self.emit_atom_dup(name);
             }
-            emit_u8(
-                self,
-                if is_set {
-                    OP_DEFINE_METHOD_SETTER
-                } else {
-                    OP_DEFINE_METHOD_GETTER
-                },
-            );
+            self.emit_u8(if is_set {
+                OP_DEFINE_METHOD_SETTER
+            } else {
+                OP_DEFINE_METHOD_GETTER
+            });
         }
 
         Ok(())
@@ -374,15 +365,15 @@ impl<'s> JSParseState<'s> {
                         {
                             return Err(-1);
                         }
-                        emit_op(self, OpCode::PRIVATE_SYMBOL);
-                        emit_atom_dup(self, name);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        emit_atom_dup(self, name);
-                        emit_u16(self, self.cur_func().scope_level as _);
+                        self.emit_op(OpCode::PRIVATE_SYMBOL);
+                        self.emit_atom_dup(name);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                        self.emit_atom_dup(name);
+                        self.emit_u16(self.cur_func().scope_level as _);
                     }
 
                     if cf.fields_init_fd.is_null() {
-                        emit_class_init_start(self, cf)?;
+                        self.emit_class_init_start(cf)?;
                     }
 
                     if name == JS_ATOM_NULL {
@@ -407,27 +398,27 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
 
-                        emit_op(self, OpCode::TO_PROPKEY);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        emit_atom_dup(self, field_var_name);
-                        emit_u16(self, self.cur_func().scope_level as _);
+                        self.emit_op(OpCode::TO_PROPKEY);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                        self.emit_atom_dup(field_var_name);
+                        self.emit_u16(self.cur_func().scope_level as _);
                     }
 
                     self.cur_func_ptr = cf.fields_init_fd;
-                    emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                    emit_atom_dup(self, JS_ATOM_this);
-                    emit_u16(self, 0);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    self.emit_atom_dup(JS_ATOM_this);
+                    self.emit_u16(0);
 
                     if name == JS_ATOM_NULL {
-                        emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                        emit_atom_dup(self, field_var_name);
-                        emit_u16(self, self.cur_func().scope_level as _);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_atom_dup(field_var_name);
+                        self.emit_u16(self.cur_func().scope_level as _);
                         cf.computed_fields_count += 1;
                         JS_FreeAtom(&self.ctx, field_var_name);
                     } else if is_private {
-                        emit_op_temp(self, OpCodeTemp::SCOPE_GET_VAR);
-                        emit_atom_dup(self, name);
-                        emit_u16(self, self.cur_func().scope_level as _);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_atom_dup(name);
+                        self.emit_u16(self.cur_func().scope_level as _);
                     }
 
                     if self.token.val == '=' as i32 {
@@ -509,20 +500,20 @@ impl<'s> JSParseState<'s> {
                         {
                             return Err(-1);
                         }
-                        emit_op(self, OpCode::SET_HOME_OBJECT);
-                        emit_op(self, OpCode::SET_NAME);
-                        emit_atom_dup(self, name);
-                        emit_op_temp(self, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        emit_atom_dup(self, name);
-                        emit_u16(self, self.cur_func().scope_level as _);
+                        self.emit_op(OpCode::SET_HOME_OBJECT);
+                        self.emit_op(OpCode::SET_NAME);
+                        self.emit_atom_dup(name);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                        self.emit_atom_dup(name);
+                        self.emit_u16(self.cur_func().scope_level as _);
                     } else {
                         if name == JS_ATOM_NULL {
-                            emit_op(self, OpCode::DEFINE_METHOD_COMPUTED);
+                            self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
                         } else {
-                            emit_op(self, OpCode::DEFINE_METHOD);
-                            emit_atom_dup(self, name);
+                            self.emit_op(OpCode::DEFINE_METHOD);
+                            self.emit_atom_dup(name);
                         }
-                        emit_u8(self, OP_DEFINE_METHOD_METHOD);
+                        self.emit_u8(OP_DEFINE_METHOD_METHOD);
                     }
                 }
             }
@@ -643,7 +634,7 @@ pub unsafe fn js_parse_class(
             fail!();
         }
     } else {
-        emit_op(s, OpCode::UNDEFINED);
+        s.emit_op(OpCode::UNDEFINED);
     }
 
     // add a 'const' definition for the class name
@@ -686,491 +677,20 @@ pub unsafe fn js_parse_class(
         fail!();
     };
 
-    // // start of class body
-
-    // let mut method_fd = std::ptr::null_mut::<JSFunctionDef>();
-    // let mut prop_type: i32;
-
-    // let define_class_offset: i32;
-    // let mut is_static: bool;
-    // let mut is_private: bool;
-    // let class_start_ptr: *const u8 = s.token.ptr;
-    // let mut start_ptr: *const u8;
-    // let mut class_fields = [ClassFieldsDef::default(); 2];
-
-    // // this scope contains the private fields
-    // s.push_scope();
-
-    // emit_op(s, OpCode::PUSH_CONST);
-    // let ctor_cpool_offset = s.cur_func_mut().byte_code.len();
-    // emit_u32(s, 0); // will be patched at the end of the class parsing
-
-    // emit_op(s, OpCode::DEFINE_CLASS);
-    // emit_atom_dup(
-    //     s,
-    //     if class_name == JS_ATOM_NULL {
-    //         if class_var_name != JS_ATOM_NULL {
-    //             JS_ATOM_default
-    //         } else {
-    //             JS_ATOM_empty_string
-    //         }
-    //     } else {
-    //         class_name
-    //     },
-    // );
-    // emit_u8(s, class_flags as u8);
-    // define_class_offset = s.cur_func_mut().last_opcode_pos;
-
-    // for i in 0..2 {
-    //     let cf = &mut class_fields[i as usize];
-    //     cf.fields_init_fd = std::ptr::null_mut();
-    //     cf.computed_fields_count = 0;
-    //     cf.need_brand = false;
-    //     cf.is_static = i != 0;
-    // }
-
-    // let mut ctor_fd: *mut JSFunctionDef = std::ptr::null_mut();
-    // while s.token.val != '}' as i32 {
-    //     if s.token.val == ';' as i32 {
-    //         if s.next_token().is_err() {
-    //             fail!();
-    //         }
-    //         continue;
-    //     }
-    //     is_static = s.token.val == TOK_STATIC;
-    //     prop_type = -1;
-    //     if is_static {
-    //         if s.next_token().is_err() {
-    //             fail!();
-    //         }
-    //         if s.token.val == '{' as i32 {
-    //             let cf = &mut class_fields[is_static as usize];
-    //             let mut init = std::ptr::null_mut::<JSFunctionDef>();
-
-    //             if cf.fields_init_fd.is_null() {
-    //                 if emit_class_init_start(s, cf).is_err() {
-    //                     fail!();
-    //                 }
-    //             }
-
-    //             s.cur_func_ptr = (*cf).fields_init_fd;
-
-    //             // XXX: could try to avoid creating a new function and
-    //             // reuse 'fields_init_fd' with a specific 'var'
-    //             // scope
-    //             // stack is now: <empty>
-    //             if s.parse_function_decl2(
-    //                 JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT,
-    //                 JSFunctionKindEnum::JS_FUNC_NORMAL,
-    //                 JS_ATOM_NULL,
-    //                 (*s).token.ptr,
-    //                 (*s).token.line_num,
-    //                 JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-    //                 std::ptr::addr_of_mut!(init),
-    //             )
-    //             .is_err()
-    //             {
-    //                 fail!();
-    //             }
-    //             // stack is now: fclosure
-    //             s.push_scope();
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-    //             emit_atom_dup(s, JS_ATOM_this);
-    //             emit_u16(s, 0);
-    //             // stack is now: fclosure this
-    //             emit_op(s, OpCode::SWAP);
-    //             // stack is now: this fclosure
-    //             emit_op(s, OpCode::CALL_METHOD);
-    //             emit_u16(s, 0);
-    //             // stack is now: returnvalue
-    //             emit_op(s, OpCode::DROP);
-    //             // stack is now: <empty>
-    //             s.pop_scope();
-    //             s.cur_func_ptr = s.cur_func().parent;
-
-    //             continue;
-    //         }
-    //         // allow "static" field name
-    //         if s.token.val == ';' as i32 || s.token.val == '=' as i32 {
-    //             is_static = false;
-    //             name = JS_ATOM_static.dup(&s.ctx.rt());
-    //             prop_type = PROP_TYPE_IDENT;
-    //         }
-    //     }
-    //     if is_static {
-    //         emit_op(s, OpCode::SWAP);
-    //     }
-    //     start_ptr = s.token.ptr;
-    //     if prop_type < 0 {
-    //         prop_type = js_parse_property_name(s, &mut name, true, false, true);
-    //         if prop_type < 0 {
-    //             fail!();
-    //         }
-    //     }
-    //     is_private = prop_type & PROP_TYPE_PRIVATE != 0;
-    //     prop_type &= !PROP_TYPE_PRIVATE;
-
-    //     if (name == JS_ATOM_constructor && !is_static && prop_type != PROP_TYPE_IDENT)
-    //         || (name == JS_ATOM_prototype && is_static)
-    //         || name == JS_ATOM_hash_constructor
-    //     {
-    //         s.throw_syntax_error(c"invalid method name");
-    //         fail!();
-    //     }
-    //     if prop_type == PROP_TYPE_GET || prop_type == PROP_TYPE_SET {
-    //         let is_set: bool = prop_type - PROP_TYPE_GET != 0;
-
-    //         if is_private {
-    //             let fd = s.cur_func_mut();
-    //             let idx = find_private_class_field(&s.ctx, fd, name, fd.scope_level);
-    //             if idx >= 0 {
-    //                 let vd = fd.vars.get_mut(idx as usize).unwrap();
-    //                 let var_kind = vd.var_kind();
-
-    //                 if matches!(
-    //                     var_kind,
-    //                     JSVarKindEnum::JS_VAR_PRIVATE_FIELD
-    //                         | JSVarKindEnum::JS_VAR_PRIVATE_METHOD
-    //                         | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER
-    //                 ) || var_kind
-    //                     == if is_set {
-    //                         JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-    //                     } else {
-    //                         JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-    //                     }
-    //                     || (var_kind
-    //                         == if is_set {
-    //                             JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-    //                         } else {
-    //                             JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-    //                         }
-    //                         && is_static != vd.is_static_private())
-    //                 {
-    //                     private_field_already_defined!();
-    //                 }
-
-    //                 vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
-    //             } else {
-    //                 if add_private_class_field(
-    //                     s,
-    //                     fd,
-    //                     name,
-    //                     if is_set {
-    //                         JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-    //                     } else {
-    //                         JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-    //                     },
-    //                     is_static,
-    //                 ) < 0
-    //                 {
-    //                     fail!();
-    //                 }
-    //             }
-    //             class_fields[is_static as usize].need_brand = true;
-    //         }
-
-    //         if s.parse_function_decl2(
-    //             if is_set {
-    //                 JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
-    //             } else {
-    //                 JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
-    //             },
-    //             JSFunctionKindEnum::JS_FUNC_NORMAL,
-    //             JS_ATOM_NULL,
-    //             start_ptr,
-    //             (*s).token.line_num,
-    //             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-    //             &mut method_fd,
-    //         )
-    //         .is_err()
-    //         {
-    //             fail!();
-    //         }
-
-    //         if is_private {
-    //             (*method_fd).need_home_object = true; // needed for brand check
-    //             emit_op(s, OpCode::SET_HOME_OBJECT);
-    //             // XXX: missing function name
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //             if is_set {
-    //                 let setter_name = get_private_setter_name(&s.ctx, name);
-    //                 if setter_name == JS_ATOM_NULL {
-    //                     fail!();
-    //                 }
-    //                 emit_atom_dup(s, setter_name);
-    //                 let ret = add_private_class_field(
-    //                     s,
-    //                     s.cur_func_mut(),
-    //                     setter_name,
-    //                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
-    //                     is_static,
-    //                 );
-    //                 JS_FreeAtom(&s.ctx, setter_name);
-    //                 if ret < 0 {
-    //                     fail!();
-    //                 }
-    //             } else {
-    //                 emit_atom_dup(s, name);
-    //             }
-    //             emit_u16(s, s.cur_func().scope_level as _);
-    //         } else {
-    //             if name == JS_ATOM_NULL {
-    //                 emit_op(s, OpCode::DEFINE_METHOD_COMPUTED);
-    //             } else {
-    //                 emit_op(s, OpCode::DEFINE_METHOD);
-    //                 emit_atom_dup(s, name);
-    //             }
-    //             emit_u8(
-    //                 s,
-    //                 if is_set {
-    //                     OP_DEFINE_METHOD_SETTER
-    //                 } else {
-    //                     OP_DEFINE_METHOD_GETTER
-    //                 },
-    //             );
-    //         }
-    //     } else if prop_type == PROP_TYPE_IDENT && s.token.val != '(' as i32 {
-    //         let cf = &mut class_fields[is_static as usize];
-    //         let mut field_var_name: JSAtom = JS_ATOM_NULL;
-
-    //         // class field
-
-    //         // XXX: spec: not consistent with method name checks
-    //         if name == JS_ATOM_constructor || name == JS_ATOM_prototype {
-    //             s.throw_syntax_error(c"invalid field name");
-    //             fail!();
-    //         }
-
-    //         if is_private {
-    //             if find_private_class_field(&s.ctx, fd, name, fd.scope_level) >= 0 {
-    //                 private_field_already_defined!();
-    //             }
-    //             if add_private_class_field(
-    //                 s,
-    //                 fd,
-    //                 name,
-    //                 JSVarKindEnum::JS_VAR_PRIVATE_FIELD,
-    //                 is_static,
-    //             ) < 0
-    //             {
-    //                 fail!();
-    //             }
-    //             emit_op(s, OpCode::PRIVATE_SYMBOL);
-    //             emit_atom_dup(s, name);
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //             emit_atom_dup(s, name);
-    //             emit_u16(s, (*s).cur_func().scope_level as _);
-    //         }
-
-    //         if cf.fields_init_fd.is_null() {
-    //             if emit_class_init_start(s, cf).is_err() {
-    //                 fail!();
-    //             }
-    //         }
-    //         if name == JS_ATOM_NULL {
-    //             // save the computed field name into a variable
-    //             field_var_name = js_atom_concat_num(
-    //                 &s.ctx,
-    //                 if is_static {
-    //                     JS_ATOM_static_computed_field
-    //                 } else {
-    //                     JS_ATOM_computed_field
-    //                 },
-    //                 (*cf).computed_fields_count as u32,
-    //             );
-    //             if field_var_name == JS_ATOM_NULL {
-    //                 fail!();
-    //             }
-    //             if define_var(s, fd, field_var_name, JSVarDefEnum::JS_VAR_DEF_CONST) < 0 {
-    //                 JS_FreeAtom(&s.ctx, field_var_name);
-    //                 fail!();
-    //             }
-    //             emit_op(s, OpCode::TO_PROPKEY);
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //             emit_atom_dup(s, field_var_name);
-    //             emit_u16(s, s.cur_func().scope_level as _);
-    //         }
-    //         s.cur_func_ptr = (*cf).fields_init_fd;
-    //         emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-    //         emit_atom_dup(s, JS_ATOM_this);
-    //         emit_u16(s, 0);
-
-    //         if name == JS_ATOM_NULL {
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-    //             emit_atom_dup(s, field_var_name);
-    //             emit_u16(s, s.cur_func().scope_level as _);
-    //             cf.computed_fields_count += 1;
-    //             JS_FreeAtom(&s.ctx, field_var_name);
-    //         } else if is_private {
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-    //             emit_atom_dup(s, name);
-    //             emit_u16(s, s.cur_func().scope_level as _);
-    //         }
-
-    //         if s.token.val == '=' as i32 {
-    //             if s.next_token().is_err() {
-    //                 fail!();
-    //             }
-    //             if s.parse_assign_expr().is_err() {
-    //                 fail!();
-    //             }
-    //         } else {
-    //             emit_op(s, OpCode::UNDEFINED);
-    //         }
-    //         if is_private {
-    //             set_object_name_computed(s);
-    //             emit_op(s, OpCode::DEFINE_PRIVATE_FIELD);
-    //         } else if name == JS_ATOM_NULL {
-    //             set_object_name_computed(s);
-    //             emit_op(s, OpCode::DEFINE_ARRAY_EL);
-    //             emit_op(s, OpCode::DROP);
-    //         } else {
-    //             set_object_name(s, name);
-    //             emit_op(s, OpCode::DEFINE_FIELD);
-    //             emit_atom_dup(s, name);
-    //         }
-    //         s.cur_func_ptr = s.cur_func().parent;
-    //         if s.parse_expect_semi().is_err() {
-    //             fail!();
-    //         }
-    //     } else {
-    //         let mut func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
-    //         let mut func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
-
-    //         if prop_type == PROP_TYPE_STAR {
-    //             func_kind = JSFunctionKindEnum::JS_FUNC_GENERATOR;
-    //         } else if prop_type == PROP_TYPE_ASYNC {
-    //             func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
-    //         } else if prop_type == PROP_TYPE_ASYNC_STAR {
-    //             func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
-    //         } else if name == JS_ATOM_constructor && !is_static {
-    //             if !ctor_fd.is_null() {
-    //                 s.throw_syntax_error(c"property constructor appears more than once");
-    //                 fail!();
-    //             }
-    //             func_type = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
-    //                 JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
-    //             } else {
-    //                 JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
-    //             };
-    //         }
-    //         if is_private {
-    //             class_fields[is_static as usize].need_brand = true;
-    //         }
-    //         if s.parse_function_decl2(
-    //             func_type,
-    //             func_kind,
-    //             JS_ATOM_NULL,
-    //             start_ptr,
-    //             s.token.line_num,
-    //             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-    //             &mut method_fd,
-    //         )
-    //         .is_err()
-    //         {
-    //             fail!();
-    //         }
-    //         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
-    //             || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
-    //         {
-    //             ctor_fd = method_fd;
-    //         } else if is_private {
-    //             (*method_fd).need_home_object = true; // needed for brand check
-    //             if find_private_class_field(&s.ctx, fd, name, fd.scope_level) >= 0 {
-    //                 private_field_already_defined!();
-    //             }
-    //             if add_private_class_field(
-    //                 s,
-    //                 fd,
-    //                 name,
-    //                 JSVarKindEnum::JS_VAR_PRIVATE_METHOD,
-    //                 is_static,
-    //             ) < 0
-    //             {
-    //                 fail!();
-    //             }
-    //             emit_op(s, OpCode::SET_HOME_OBJECT);
-    //             emit_op(s, OpCode::SET_NAME);
-    //             emit_atom_dup(s, name);
-    //             emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-    //             emit_atom_dup(s, name);
-    //             emit_u16(s, (*s).cur_func().scope_level as _);
-    //         } else {
-    //             if name == JS_ATOM_NULL {
-    //                 emit_op(s, OpCode::DEFINE_METHOD_COMPUTED);
-    //             } else {
-    //                 emit_op(s, OpCode::DEFINE_METHOD);
-    //                 emit_atom_dup(s, name);
-    //             }
-    //             emit_u8(s, OP_DEFINE_METHOD_METHOD);
-    //         }
-    //     }
-    //     if is_static {
-    //         emit_op(s, OpCode::SWAP);
-    //     }
-    //     JS_FreeAtom(&s.ctx, name);
-    //     name = JS_ATOM_NULL;
-    // }
-
-    // if s.token.val != '}' as i32 {
-    //     s.throw_syntax_error(c"expecting '}'");
-    //     fail!();
-    // }
-
-    // if ctor_fd.is_null() {
-    //     if js_parse_class_default_ctor(
-    //         s,
-    //         class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0,
-    //         &mut ctor_fd,
-    //     ) != 0
-    //     {
-    //         fail!();
-    //     }
-    // }
-    // // patch the constant pool index for the constructor
-    // write_to_ptr::<u32>(
-    //     fd.byte_code.as_mut_ptr().add(ctor_cpool_offset),
-    //     (*ctor_fd).parent_cpool_idx as u32,
-    // );
-
-    // // store the class source code in the constructor.
-    // if fd.js_mode & JS_MODE_STRIP as u8 == 0 {
-    //     debug_assert!(s.buf_ptr >= class_start_ptr);
-
-    //     let src_len = s.buf_ptr.offset_from(class_start_ptr) as usize;
-    //     if src_len > 0 {
-    //         let mut src = Vec::<u8>::new();
-    //         if src.try_reserve_exact(src_len).is_err() {
-    //             &s.ctx.JS_ThrowOutOfMemory();
-    //             fail!();
-    //         }
-    //         src.extend_from_slice(std::slice::from_raw_parts(class_start_ptr, src_len));
-    //         (*ctor_fd).source.replace(String::from_utf8_unchecked(src));
-    //     } else {
-    //         (*ctor_fd).source.take();
-    //     }
-    // }
-
-    // // consume the '}'
-    // if s.next_token().is_err() {
-    //     fail!();
-    // }
-
     // out of class body
-
     {
         let cf = &mut class_fields[0];
 
         if cf.need_brand {
             // add a private brand to the prototype
-            emit_op(s, OpCode::DUP);
-            emit_op(s, OpCode::NULL);
-            emit_op(s, OpCode::SWAP);
-            emit_op(s, OpCode::ADD_BRAND);
+            s.emit_op(OpCode::DUP);
+            s.emit_op(OpCode::NULL);
+            s.emit_op(OpCode::SWAP);
+            s.emit_op(OpCode::ADD_BRAND);
 
             // define the brand field in 'this' of the initializer
             if cf.fields_init_fd.is_null() {
-                if emit_class_init_start(s, cf).is_err() {
+                if s.emit_class_init_start(cf).is_err() {
                     fail!();
                 }
             }
@@ -1185,43 +705,43 @@ pub unsafe fn js_parse_class(
             fail!();
         }
         if !cf.fields_init_fd.is_null() {
-            emit_class_init_end(s, cf);
+            s.emit_class_init_end(cf);
         } else {
-            emit_op(s, OpCode::UNDEFINED);
+            s.emit_op(OpCode::UNDEFINED);
         }
-        emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-        emit_atom_dup(s, JS_ATOM_class_fields_init);
-        emit_u16(s, (*s).cur_func().scope_level as _);
+        s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+        s.emit_atom_dup(JS_ATOM_class_fields_init);
+        s.emit_u16(s.cur_func().scope_level as _);
     }
 
     // drop the prototype
-    emit_op(s, OpCode::DROP);
+    s.emit_op(OpCode::DROP);
 
     if class_fields[1].need_brand {
         // add a private brand to the class
-        emit_op(s, OpCode::DUP);
-        emit_op(s, OpCode::DUP);
-        emit_op(s, OpCode::ADD_BRAND);
+        s.emit_op(OpCode::DUP);
+        s.emit_op(OpCode::DUP);
+        s.emit_op(OpCode::ADD_BRAND);
     }
 
     if class_name != JS_ATOM_NULL {
         /* store the class name in the scoped class name variable (it
         is independent from the class statement variable
         definition) */
-        emit_op(s, OpCode::DUP);
-        emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-        emit_atom_dup(s, class_name);
-        emit_u16(s, s.cur_func().scope_level as _);
+        s.emit_op(OpCode::DUP);
+        s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+        s.emit_atom_dup(class_name);
+        s.emit_u16(s.cur_func().scope_level as _);
     }
 
     /* initialize the static fields */
     if !class_fields[1].fields_init_fd.is_null() {
         let cf = &class_fields[1];
-        emit_op(s, OpCode::DUP);
-        emit_class_init_end(s, cf);
-        emit_op(s, OpCode::CALL_METHOD);
-        emit_u16(s, 0);
-        emit_op(s, OpCode::DROP);
+        s.emit_op(OpCode::DUP);
+        s.emit_class_init_end(cf);
+        s.emit_op(OpCode::CALL_METHOD);
+        s.emit_u16(0);
+        s.emit_op(OpCode::DROP);
     }
 
     s.pop_scope();
@@ -1234,19 +754,16 @@ pub unsafe fn js_parse_class(
         {
             fail!();
         }
-        emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-        emit_atom_dup(s, class_var_name);
-        emit_u16(s, s.cur_func().scope_level as _);
+        s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+        s.emit_atom_dup(class_var_name);
+        s.emit_u16(s.cur_func().scope_level as _);
     } else {
         if class_name == JS_ATOM_NULL {
             /* cannot use OP_set_name because the name of the class
             must be defined before the static initializers are
             executed */
-            emit_op_temp(s, OpCodeTemp::SET_CLASS_NAME);
-            emit_u32(
-                s,
-                s.cur_func().last_opcode_pos as u32 + 1 - define_class_offset as u32,
-            );
+            s.emit_op_temp(OpCodeTemp::SET_CLASS_NAME);
+            s.emit_u32(s.cur_func().last_opcode_pos as u32 + 1 - define_class_offset as u32);
         }
     }
 
@@ -1483,58 +1000,6 @@ pub unsafe fn js_parse_function_class_fields_init(
     fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
 
     Ok(fd)
-}
-
-pub unsafe fn emit_class_init_start(
-    s: *mut JSParseState,
-    cf: *mut ClassFieldsDef,
-) -> Result<(), i32> {
-    let label_add_brand: i32;
-
-    (*cf).fields_init_fd = Box::into_raw(js_parse_function_class_fields_init(s)?);
-
-    (*s).cur_func_ptr = (*cf).fields_init_fd;
-
-    if !(*cf).is_static {
-        // add the brand to the newly created instance
-        // XXX: would be better to add the code only if needed, maybe in a
-        // later pass
-        emit_op(s, OpCode::PUSH_FALSE); // will be patched later
-        (*cf).brand_push_pos = (*(*cf).fields_init_fd).last_opcode_pos;
-        label_add_brand = emit_goto(s, OpCode::IF_FALSE, -1);
-
-        emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-        emit_atom_dup(s, JS_ATOM_this);
-        emit_u16(s, 0);
-
-        emit_op_temp(s, OpCodeTemp::SCOPE_GET_VAR);
-        emit_atom_dup(s, JS_ATOM__home_object_);
-        emit_u16(s, 0);
-
-        emit_op(s, OpCode::ADD_BRAND);
-
-        emit_label(s, label_add_brand);
-    }
-    (*s).cur_func_ptr = (*s).cur_func().parent;
-
-    Ok(())
-}
-
-pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {
-    (*s).cur_func_ptr = (*cf).fields_init_fd;
-    emit_op(s, OpCode::RETURN_UNDEF);
-    (*s).cur_func_ptr = (*s).cur_func().parent;
-
-    let cpool_idx = (*s)
-        .cur_func_mut()
-        .cpool_add(JSValue::NULL)
-        .map_or(-1, |x| x as i32);
-
-    (*(*cf).fields_init_fd).parent_cpool_idx = cpool_idx;
-    emit_op(s, OpCode::FCLOSURE);
-    emit_u32(s, cpool_idx as _);
-
-    emit_op(s, OpCode::SET_HOME_OBJECT);
 }
 
 // add a private field variable in the current scope

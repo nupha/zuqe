@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ops::Deref, ptr::NonNull};
+use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     JS_CLASS_C_FUNCTION,

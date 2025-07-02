@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, JS_Call},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     map::JSMapState,
-    value::{JS_FreeValue, JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst, object::JSObjectIsa},
 };
 
 const MAGIC_SET: i32 = 1 << 0;
@@ -97,7 +97,6 @@ pub unsafe fn js_map_constructor(
             }
 
             if done {
-                JS_FreeValue(ctx, &item);
                 break;
             }
 

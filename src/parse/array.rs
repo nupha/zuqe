@@ -3,11 +3,7 @@ use crate::{
     bytecode::OpCode,
 };
 
-use super::{
-    emit::{emit_atom_dup, emit_op, emit_u16, emit_u32},
-    state::JSParseState,
-    token::TOK_ELLIPSIS,
-};
+use super::{state::JSParseState, token::TOK_ELLIPSIS};
 
 // -1: error, 0: success
 pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
@@ -42,8 +38,8 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
         }
     }
 
-    emit_op(s, OpCode::ARRAY_FROM);
-    emit_u16(s, idx as _);
+    (*s).emit_op(OpCode::ARRAY_FROM);
+    (*s).emit_u16(idx as _);
 
     // larger arrays and holes are handled with explicit indices
     let mut need_length = false;
@@ -56,8 +52,8 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
             if (*s).parse_assign_expr().is_err() {
                 return -1;
             }
-            emit_op(s, OpCode::DEFINE_FIELD);
-            emit_u32(s, JSAtom::new_u32(idx).0);
+            (*s).emit_op(OpCode::DEFINE_FIELD);
+            (*s).emit_u32(JSAtom::new_u32(idx).0);
             need_length = false;
         }
         idx += 1;
@@ -72,18 +68,18 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
         if need_length {
             // Set the length: Cannot use OP_define_field because
             // length is not configurable
-            emit_op(s, OpCode::DUP);
-            emit_op(s, OpCode::PUSH_I32);
-            emit_u32(s, idx);
-            emit_op(s, OpCode::PUT_FIELD);
-            emit_atom_dup(s, JS_ATOM_length);
+            (*s).emit_op(OpCode::DUP);
+            (*s).emit_op(OpCode::PUSH_I32);
+            (*s).emit_u32(idx);
+            (*s).emit_op(OpCode::PUT_FIELD);
+            (*s).emit_atom_dup(JS_ATOM_length);
         }
         done!();
     }
 
     // huge arrays and spread elements require a dynamic index on the stack
-    emit_op(s, OpCode::PUSH_I32);
-    emit_u32(s, idx);
+    (*s).emit_op(OpCode::PUSH_I32);
+    (*s).emit_u32(idx);
 
     // stack has array, index
     while (*s).token.val != ']' as i32 {
@@ -95,7 +91,7 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
                 return -1;
             }
 
-            emit_op(s, OpCode::APPEND);
+            (*s).emit_op(OpCode::APPEND);
 
             // debug?
             // {
@@ -131,10 +127,10 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
                     return -1;
                 }
                 // a idx val
-                emit_op(s, OpCode::DEFINE_ARRAY_EL);
+                (*s).emit_op(OpCode::DEFINE_ARRAY_EL);
                 need_length = false;
             }
-            emit_op(s, OpCode::INC);
+            (*s).emit_op(OpCode::INC);
         }
         if (*s).token.val != ',' as i32 {
             break;
@@ -147,11 +143,11 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
     if need_length {
         // Set the length: cannot use OP_define_field because
         // length is not configurable
-        emit_op(s, OpCode::DUP1); // array length - array array length
-        emit_op(s, OpCode::PUT_FIELD);
-        emit_atom_dup(s, JS_ATOM_length);
+        (*s).emit_op(OpCode::DUP1); // array length - array array length
+        (*s).emit_op(OpCode::PUT_FIELD);
+        (*s).emit_atom_dup(JS_ATOM_length);
     } else {
-        emit_op(s, OpCode::DROP); // array length - array
+        (*s).emit_op(OpCode::DROP); // array length - array
     }
 
     done!();

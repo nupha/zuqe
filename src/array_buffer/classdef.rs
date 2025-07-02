@@ -1,7 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
     JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
-    array_buffer::js_array_buffer_constructor2,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -87,18 +86,15 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
 
     let new_obj = if ctor.is_undefined() {
-        unsafe {
-            js_array_buffer_constructor2(
-                ctx,
-                &JSValue::UNDEFINED,
-                new_len as usize,
-                cc.magic() as JSClassID,
-            )
-        }
+        ctx.create_array_buffer(
+            &JSValue::UNDEFINED,
+            cc.magic() as JSClassID,
+            new_len as usize,
+            std::ptr::null_mut(),
+        )
     } else {
-        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)])
-    }
-    .check_exception()?;
+        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).check_exception()
+    }?;
 
     if new_obj.is_same(cc.this()) {
         ctx.JS_ThrowTypeError("cannot use identical ArrayBuffer");

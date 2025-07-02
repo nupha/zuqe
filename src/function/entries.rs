@@ -1,8 +1,4 @@
-use std::{
-    ffi::{CStr, c_char},
-    mem::ManuallyDrop,
-    ptr::NonNull,
-};
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
     JS_CLASS_ARRAY,
