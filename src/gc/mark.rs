@@ -236,16 +236,17 @@ impl JSVarRef {
 
 impl JSAsyncFunctionState {
     pub fn gc_mark(&self) {
-        self.0.borrow().this_val.gc_mark();
-        self.0.borrow().resolving_funcs[0].gc_mark();
-        self.0.borrow().resolving_funcs[1].gc_mark();
+        let s = self.0.borrow();
+        s.this_val.gc_mark();
+        s.resolving_funcs[0].gc_mark();
+        s.resolving_funcs[1].gc_mark();
     }
 
     pub fn gc_sweep(&self) {
-        let mut b = self.0.borrow_mut();
-        b.this_val = JSValue::UNDEFINED;
-        b.resolving_funcs[0] = JSValue::UNDEFINED;
-        b.resolving_funcs[1] = JSValue::UNDEFINED;
+        let mut s = self.0.borrow_mut();
+        s.this_val = JSValue::UNDEFINED;
+        s.resolving_funcs[0] = JSValue::UNDEFINED;
+        s.resolving_funcs[1] = JSValue::UNDEFINED;
     }
 }
 

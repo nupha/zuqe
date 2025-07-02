@@ -272,8 +272,8 @@ impl JSAsyncFunctionStateWeakref {
     }
 }
 
-pub fn async_func_resume(ctx: &JSContext, s: &JSAsyncFunctionState) -> JSValue {
-    debug_assert!(!s.0.borrow().is_completed);
+pub fn async_func_resume(ctx: &JSContext, af: &JSAsyncFunctionState) -> JSValue {
+    debug_assert!(!af.0.borrow().is_completed);
 
     let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx);
@@ -281,30 +281,29 @@ pub fn async_func_resume(ctx: &JSContext, s: &JSAsyncFunctionState) -> JSValue {
     } else {
         JS_CallInternal(
             ctx,
-            &JSValue::AsyncFuncResume(s.clone()), // <-- use special value type `::AsyncFuncResume`
-            &s.0.borrow().this_val,
+            &JSValue::AsyncFuncResume(af.clone()), // <-- use special value type `::AsyncFuncResume`
+            &af.0.borrow().this_val,               // FIXME: this will cause borrow conflict.
             JSValue::UNDEFINED,
-            s.0.borrow().arg_slice(),
+            af.0.borrow().arg_slice(), // FIXME: this will cause borrow conflict.
             JS_CALL_FLAG_GENERATOR,
         )
     };
 
     if ret.is_exception() || ret.is_undefined() {
         if ret.is_undefined() {
-            debug_assert!(s.0.borrow().frame.cur_sp_offset > 0);
-            let mut stack_ptr = s.0.borrow().frame.stack_cur_ptr();
+            debug_assert!(af.0.borrow().frame.cur_sp_offset > 0);
+            let mut stack_ptr = af.0.borrow().frame.stack_cur_ptr();
             ret = unsafe { stack_ptr.as_mut().replace(JSValue::UNDEFINED) };
         }
 
         // end of execution
         {
-            let mut state = s.0.borrow_mut();
+            let mut state = af.0.borrow_mut();
             let state = unsafe { state.as_mut().get_unchecked_mut() };
 
             state.is_completed = true;
             // close the closure variables.
             state.frame.close_var_refs(ctx);
-            // state.free_frame(ctx.rt_mut());
         }
     }
 
@@ -407,7 +406,7 @@ pub fn js_async_function_resume(ctx: &JSContext, s: &JSAsyncFunctionState) {
     let func_ret = async_func_resume(ctx, s);
 
     if s.0.borrow().is_completed {
-        let ret2: JSValue = if func_ret.is_exception() {
+        if func_ret.is_exception() {
             let error = ctx.take_exception();
             JS_Call(
                 ctx,

@@ -32,12 +32,12 @@ pub fn JS_CallInternal(
     let rt = caller_ctx.rt_mut();
 
     if !func_obj.is_object() {
-        return if let JSValue::AsyncFuncResume(s) = func_obj {
+        return if let JSValue::AsyncFuncResume(af) = func_obj {
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
             debug_assert!(flags & JS_CALL_FLAG_GENERATOR != 0);
 
-            let mut s = s.0.borrow_mut();
+            let mut s = af.0.borrow_mut();
             let throw_flag = s.throw_flag;
             let sf = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
