@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY,
-    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
+    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
     error::JS_ThrowReferenceErrorUninitialized,
     function::{JS_Call, JSVarRef},
@@ -303,38 +303,22 @@ impl JSObject {
         Ok(false)
     }
 
-    // /// Updates flag of object's shape property.
-    // /// if object's shape was changed, returns true
-    // pub fn js_update_property_flags(
-    //     &self,
-    //     ctx: &JSContext,
-    //     prop: JSAtom,
-    //     flags: u32,
-    // ) -> Result<bool, i32> {
-    //     let sh = self.shape().unwrap();
-
-    //     let cur_flags = sh.0.borrow().props.get(&prop).map(|p| p.flags()).unwrap();
-    //     if cur_flags != flags {
-    //         let changed = self.shape_prepare_update(ctx)?;
-
-    //         sh.0.borrow_mut()
-    //             .props
-    //             .get_mut(&prop)
-    //             .unwrap()
-    //             .set_flags(flags);
-
-    //         Ok(changed)
-    //     } else {
-    //         Ok(false)
-    //     }
-    // }
-
     /// Check if shape property `atom` exists.
-    /// atom is not consumed.
+    /// `prop` is not consumed.
     #[inline]
     pub fn has_own_property(&self, prop: JSAtom) -> bool {
         self.shape()
             .is_some_and(|sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
+    }
+
+    pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
+        if let Ok(atom) = ctx.create_atom(prop) {
+            let b = self.has_own_property(atom);
+            JS_FreeAtom(ctx, atom);
+            Ok(b)
+        } else {
+            Err(-1)
+        }
     }
 
     /// Find own property by prop atom.
@@ -446,6 +430,24 @@ impl JSValue {
             p.has_property(ctx, prop)
         } else {
             Ok(false)
+        }
+    }
+
+    pub fn has_own_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+        if let JSValue::Object(p) = self {
+            Ok(p.has_own_property(prop))
+        } else {
+            ctx.JS_ThrowTypeErrorNotAnObject();
+            Err(-1)
+        }
+    }
+
+    pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
+        if let JSValue::Object(p) = self {
+            p.has_own_property_str(ctx, prop)
+        } else {
+            ctx.JS_ThrowTypeErrorNotAnObject();
+            Err(-1)
         }
     }
 

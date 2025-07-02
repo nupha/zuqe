@@ -32,7 +32,6 @@ impl JSParseState<'_> {
         } else {
             0
         };
-
         self.ctx.build_backtrace_to(
             &self.ctx.rt().current_exception,
             Some((self.filename, self.line_num)),

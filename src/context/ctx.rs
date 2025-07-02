@@ -358,7 +358,6 @@ impl JSContext {
     /// No JSAtom should be allocated by this function.
     pub fn add_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
         // Object
-        println!("[O.o] create base object ctor");
         let object_proto = self
             .create_instance_from_proto(&JSValue::NULL, JSObjectIsa::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);

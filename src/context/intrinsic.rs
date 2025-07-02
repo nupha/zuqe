@@ -376,7 +376,6 @@ impl JSContext {
 
     /// create global object
     pub fn intrinsic_global_object(&self, fields: &[JSCFunctionListEntry]) {
-        println!("[O.o] create global object");
         let global = self.create_base_object().unwrap();
 
         // define global fields
@@ -394,7 +393,6 @@ impl JSContext {
             .unwrap();
 
         // global var object
-        println!("[O.o] create global var object");
         let gvobj = self.create_base_object_with_proto(&JSValue::NULL).unwrap();
 
         {

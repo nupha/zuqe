@@ -304,11 +304,9 @@ impl JSContext {
             }
         }
 
-        let tmp = self.create_string(str).check_exception()?;
-        self.rt_mut().register_atom_jsstring(
-            unsafe { tmp.into_string_unchecked() },
-            JSAtomTypeHint::String,
-        )
+        let s = self.create_string(str).check_exception()?;
+        self.rt_mut()
+            .register_atom_jsstring(unsafe { s.into_string_unchecked() }, JSAtomTypeHint::String)
     }
 
     pub fn create_atom_string(&self, str: &str) -> JSResult {

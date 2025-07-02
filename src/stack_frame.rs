@@ -128,9 +128,7 @@ impl JSStackFrame {
                         // enumerator: close it with a throw
                         let iter =
                             unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
-                        unsafe {
-                            JS_IteratorClose(ctx, &iter, true).unwrap();
-                        }
+                        JS_IteratorClose(ctx, &iter, true).unwrap();
                         sp -= 1;
                     } else {
                         unsafe {
@@ -140,20 +138,6 @@ impl JSStackFrame {
                         return Some((pos as usize, sp));
                     }
                 }
-
-                // if val.tag() == JS_TAG_CATCH_OFFSET {
-                //     let pos = JS_VALUE_GET_INT(val);
-                //     if pos == 0 {
-                //         // enumerator: close it with a throw
-                //         JS_FreeValue(ctx, *sp_base.add(sp - 1)); // drop the `next` method
-                //         sp -= 1;
-                //         JS_IteratorClose(ctx, *sp_base.add(sp - 1), true).unwrap();
-                //     } else {
-                //         *sp_base.add(sp) = ctx.rt_mut().current_exception.replace(JSValue::NULL);
-                //         sp += 1;
-                //         return Some((pos as usize, sp));
-                //     }
-                // }
             }
         }
 

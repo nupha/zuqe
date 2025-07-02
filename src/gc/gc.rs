@@ -29,9 +29,6 @@ impl JSRuntime {
     /// Adds a GC object to the garbage collector's tracking list
     /// Initializes the object's mark and type, then adds it to the GC object list
     pub fn gc_add_object(&mut self, id: usize, gcob: GCObjectWeakref) {
-        // ob.set_gc_mark(0);
-        println!("[O.o][+gc] id={:p}, {gcob:?}", id as *const c_void);
-
         self.gc_obj_list.insert(id, gcob);
     }
 
@@ -54,7 +51,6 @@ impl JSRuntime {
         self.gc_obj_list.retain(|_, w| {
             if let Some(o) = w.upgrade() {
                 if o.gc_has_mark() {
-                    println!("[O.o] has mark: {o:?}");
                     true
                 } else {
                     zero_list.push(o);

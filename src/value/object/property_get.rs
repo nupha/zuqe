@@ -58,8 +58,6 @@ impl JSObject {
                     JS_PROP_AUTOINIT => {
                         // Lazy instantiate property.
                         let mut pr = std::mem::take(&mut cur_obj.0.prop_values.borrow_mut()[idx]);
-                        println!("[O.o] lazy init {:?} {:?}", prop.to_str(ctx.rt()), pr);
-
                         let val = pr
                             .instantiate(&cur_obj, prop, self)
                             .unwrap_or(JSValue::EXCEPTION);
@@ -151,11 +149,13 @@ impl JSObject {
     }
 
     /// get property with atom name.
+    /// returns EXCEPTION when fail
     #[inline(always)]
     pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSValue {
         self.get_property_in_shape_or_exotic(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
+    /// returns EXCEPTION when fail
     pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSValue {
         // check fast path: fast array and index within slice bound.
         if prop.is_int() {
@@ -249,6 +249,17 @@ impl JSObject {
                 JS_FreeAtom(ctx, atom);
                 ret
             }
+        }
+    }
+
+    /// returns Exception when fail.
+    pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSValue {
+        if let Ok(atom) = ctx.create_atom(prop) {
+            let ret = self.get_property(ctx, atom);
+            JS_FreeAtom(ctx, atom);
+            ret
+        } else {
+            JSValue::EXCEPTION
         }
     }
 }

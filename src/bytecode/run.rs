@@ -1479,7 +1479,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::LNOT => {
                     let op_1 = SP_REF!(-1);
-                    let res = match op_1 {
+                    let b = match op_1 {
                         JSValue::Int(i) => *i != 0,
                         JSValue::Bool(b) => *b,
                         JSValue::NULL | JSValue::UNDEFINED => false,
@@ -1491,7 +1491,7 @@ pub unsafe fn run_bytecodes(
                             }
                         }
                     };
-                    SP_PUT!(-1, JSValue::Bool(res));
+                    SP_PUT!(-1, JSValue::Bool(!b)); // not
                 }
                 OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
                     let atom = JSAtom(PC_FETCH!(u32));

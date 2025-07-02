@@ -9,7 +9,10 @@ use std::{
 use serde::Deserialize;
 use zhuque::{
     array_buffer::JS_DetachArrayBuffer,
-    atom::{JS_FreeAtom, consts::JS_ATOM_stack},
+    atom::{
+        JS_FreeAtom,
+        consts::{JS_ATOM_globalThis, JS_ATOM_stack},
+    },
     context::JSContext,
     error::{JS_ThrowReferenceError, JSResult},
     eval::{
@@ -18,6 +21,8 @@ use zhuque::{
     function::{CallContext, JSCFunctionEnum},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
+    obsoletes::JS_DumpObject,
+    promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
     value::{JSValue, StringContent, object::JS_PROP_C_W_E},
 };
@@ -292,46 +297,43 @@ fn run_test_content(
 
     if ret_promise && !ret_val.is_exception() {
         // ret_val is Promise, execute pending jobs
-        // loop {
-        //     match ctx.rt_mut().execute_pending_job() {
-        //         Ok((None, false)) => {
-        //             if is_async {
-        //                 // test if the test called $DONE() once
-        //                 ret_val = if async_done != 1 {
-        //                     ctx.JS_ThrowTypeError(c"$DONE() not called")
-        //                 } else {
-        //                     JSValue::UNDEFINED
-        //                 }
-        //                 .into_rc(ctx.rt());
-        //             } else {
-        //                 // check that the returned promise is fulfilled
-        //                 let promise: PromiseValue =
-        //                     TryFrom::try_from(JSValue::from(ret_val)).unwrap();
+        loop {
+            match ctx.rt_mut().execute_job_once() {
+                Ok(None) => {
+                    if is_async {
+                        // test if the test called $DONE() once
+                        if async_done != 1 {
+                            ctx.JS_ThrowTypeError("$DONE() not called")
+                        }
+                        ret_val = JSValue::UNDEFINED;
+                    } else {
+                        // check that the returned promise is fulfilled
+                        let promise: PromiseValue =
+                            TryFrom::try_from(JSValue::from(ret_val)).unwrap();
 
-        //                 ret_val = match promise.state() {
-        //                     Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
-        //                     Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
-        //                         ctx.throw(promise.result())
-        //                     }
-        //                     Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
-        //                         ctx.JS_ThrowTypeError(c"promise not fulfilled")
-        //                     }
-        //                 }
-        //                 .into_rc(ctx.rt());
+                        ret_val = match promise.state() {
+                            Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
+                            Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
+                                ctx.throw(promise.result());
+                                JSValue::EXCEPTION
+                            }
+                            Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
+                                ctx.JS_ThrowTypeError("promise not fulfilled");
+                                JSValue::EXCEPTION
+                            }
+                        };
+                    }
+                    break;
+                }
+                Err(_) => {
+                    ret_val = JSValue::EXCEPTION;
+                    break;
+                }
+                _ => {}
+            }
 
-        //                 JS_FreeValue(ctx, promise.into());
-        //             }
-        //             break;
-        //         }
-        //         Err(_) => {
-        //             ret_val = JSValue::EXCEPTION.into_rc(ctx.rt());
-        //             break;
-        //         }
-        //         _ => {}
-        //     }
-
-        //     std::thread::sleep(std::time::Duration::from_millis(5));
-        // }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
     if ret_val.is_exception() {
@@ -411,6 +413,28 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
 
             has_err = true;
         }
+
+        // O.o
+        {
+            let glo = ctx.global_obj();
+
+            println!(
+                "[O.o] globalThis={:?}, global={:?}",
+                glo.get_property(&ctx, JS_ATOM_globalThis),
+                ctx.global_obj()
+            );
+
+            glo.dump(ctx.rt());
+
+            println!(
+                "[O.o] globalThis.$DONE={:?}",
+                glo.get_property_str(&ctx, "$DONE")
+            );
+            println!(
+                "[O.o] globalThis.hasOwnProperty('$DONE')={:?}",
+                glo.has_own_property_str(&ctx, "$DONE")
+            );
+        }
     }
 
     if !has_err {
@@ -457,6 +481,11 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
                 is_async,
             ) {
+                println!("[O.o][msg] {:?}", exc);
+                unsafe {
+                    exc.object_unchecked().dump(ctx.rt());
+                }
+
                 let msg = exc.coerce_to_utf8(&ctx).unwrap();
 
                 if let Some(neg) = &negative {

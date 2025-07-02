@@ -544,8 +544,7 @@ pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_FreeAtomRT(rt.as_ptr(), _a);
     });
 
-    let b = obj.get_own_property_descr(ctx, atom)?.is_some();
-    Ok(JSValue::Bool(b))
+    Ok(JSValue::Bool(obj.has_own_property(ctx, atom)?))
 }
 
 pub const js_object_funcs: [JSCFunctionListEntry; 23] = [
