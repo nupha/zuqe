@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
     JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
     array_buffer::js_array_buffer_constructor2,
     class::JSClassID,
@@ -24,12 +24,12 @@ pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_array_buffer_funcs: [JSCFunctionListEntry; 2] = [
-    JS_CFUNC_NATIVE_DEF!(c"isView", 1, js_array_buffer_isView, 0),
-    JS_CGETSET_DEF!(c"[Symbol.species]", js_get_this, NONE),
+    JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
+    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
 ];
 
 pub const js_shared_array_buffer_funcs: [JSCFunctionListEntry; 1] =
-    [JS_CGETSET_DEF!(c"[Symbol.species]", js_get_this, NONE)];
+    [JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE)];
 
 //
 // Prototype
@@ -154,40 +154,36 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub const js_array_buffer_proto_funcs: [JSCFunctionListEntry; 3] = [
     JS_CGETSET_MAGIC_DEF!(
-        c"byteLength",
+        "byteLength",
         js_array_buffer_get_byteLength,
         NONE,
         JS_CLASS_ARRAY_BUFFER as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"slice",
+        "slice",
         2,
         js_array_buffer_slice,
         JS_CLASS_ARRAY_BUFFER as i16
     ),
-    JS_PROP_STRING_DEF!(
-        c"[Symbol.toStringTag]",
-        c"ArrayBuffer",
-        JS_PROP_CONFIGURABLE
-    ),
+    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 
 pub const js_shared_array_buffer_proto_funcs: [JSCFunctionListEntry; 3] = [
     JS_CGETSET_MAGIC_DEF!(
-        c"byteLength",
+        "byteLength",
         js_array_buffer_get_byteLength,
         NONE,
         JS_CLASS_SHARED_ARRAY_BUFFER as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"slice",
+        "slice",
         2,
         js_array_buffer_slice,
         JS_CLASS_SHARED_ARRAY_BUFFER as i16
     ),
     JS_PROP_STRING_DEF!(
-        c"[Symbol.toStringTag]",
-        c"SharedArrayBuffer",
+        "[Symbol.toStringTag]",
+        "SharedArrayBuffer",
         JS_PROP_CONFIGURABLE as i16
     ),
 ];

@@ -268,13 +268,11 @@ pub unsafe fn skip_spaces(pc: *const u8) -> usize {
                 break;
             }
             p = p.offset(1);
-        } else {
-            if let Ok(uc) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p_next) {
-                if !uc.is_whitespace() {
-                    break;
-                } else {
-                    p = p_next;
-                }
+        } else if let Ok(uc) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p_next) {
+            if !uc.is_whitespace() {
+                break;
+            } else {
+                p = p_next;
             }
         }
     }
@@ -313,7 +311,7 @@ pub unsafe fn skip_spaces(pc: *const u8) -> usize {
 #[macro_export]
 macro_rules! JS_CFUNC_NATIVE_DEF {
     ($name:expr, $length:expr, $func:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: (crate::value::object::JS_PROP_WRITABLE
                 | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
@@ -335,7 +333,7 @@ macro_rules! JS_CFUNC_NATIVE_DEF {
 #[macro_export]
 macro_rules! JS_CGETSET_NATIVE_DEF {
     ($name:expr, $getter:expr, NONE, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET_MAGIC,
@@ -352,7 +350,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     };
 
     ($name:expr, NONE, $setter:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET_MAGIC,
@@ -369,17 +367,17 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     };
 
     ($name:expr, $getter:expr, $setter:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
-            prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
-            def_type: crate::function::JS_DEF_CGETSET_MAGIC,
+            prop_flags: $crate::value::object::JS_PROP_CONFIGURABLE as u8,
+            def_type: $crate::function::JS_DEF_CGETSET_MAGIC,
             magic: $magic,
-            u: crate::function::JSCFunctionListEntryUnion {
-                getset: crate::function::JSCFunctionListEntryGetSet {
-                    get: Some(crate::function::JSCFunctionType {
+            u: $crate::function::JSCFunctionListEntryUnion {
+                getset: $crate::function::JSCFunctionListEntryGetSet {
+                    get: Some($crate::function::JSCFunctionType {
                         native_getter: $getter,
                     }),
-                    set: Some(crate::function::JSCFunctionType {
+                    set: Some($crate::function::JSCFunctionType {
                         native_setter: $setter,
                     }),
                 },
@@ -391,17 +389,17 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
 #[macro_export]
 macro_rules! JS_NATIVE_ITERATOR_NEXT_DEF {
     ($name:expr, $length:expr, $callback:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
-            prop_flags: (crate::value::object::JS_PROP_WRITABLE
-                | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
-            def_type: crate::function::JS_DEF_CFUNC,
+            prop_flags: ($crate::value::object::JS_PROP_WRITABLE
+                | $crate::value::object::JS_PROP_CONFIGURABLE) as u8,
+            def_type: $crate::function::JS_DEF_CFUNC,
             magic: $magic,
-            u: crate::function::JSCFunctionListEntryUnion {
-                func: crate::function::JSCFunctionListEntryFunc {
+            u: $crate::function::JSCFunctionListEntryUnion {
+                func: $crate::function::JSCFunctionListEntryFunc {
                     length: $length,
-                    cproto: crate::function::JSCFunctionEnum::NativeIteratorNext,
-                    cfunc: crate::function::JSCFunctionType {
+                    cproto: $crate::function::JSCFunctionEnum::NativeIteratorNext,
+                    cfunc: $crate::function::JSCFunctionType {
                         native_iterator_next: $callback,
                     },
                 },
@@ -417,17 +415,17 @@ macro_rules! JS_NATIVE_ITERATOR_NEXT_DEF {
 #[macro_export]
 macro_rules! JS_CFUNC_DEF {
     ($name:expr, $length:expr, $func1:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
-            prop_flags: (crate::value::object::JS_PROP_WRITABLE
-                | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
-            def_type: crate::function::JS_DEF_CFUNC,
+            prop_flags: ($crate::value::object::JS_PROP_WRITABLE
+                | $crate::value::object::JS_PROP_CONFIGURABLE) as u8,
+            def_type: $crate::function::JS_DEF_CFUNC,
             magic: 0,
-            u: crate::function::JSCFunctionListEntryUnion {
-                func: crate::function::JSCFunctionListEntryFunc {
+            u: $crate::function::JSCFunctionListEntryUnion {
+                func: $crate::function::JSCFunctionListEntryFunc {
                     length: $length,
-                    cproto: crate::function::JSCFunctionEnum::Generic,
-                    cfunc: crate::function::JSCFunctionType { generic: $func1 },
+                    cproto: $crate::function::JSCFunctionEnum::Generic,
+                    cfunc: $crate::function::JSCFunctionType { generic: $func1 },
                 },
             },
         }
@@ -437,7 +435,7 @@ macro_rules! JS_CFUNC_DEF {
 #[macro_export]
 macro_rules! JS_CFUNC_MAGIC_DEF {
     ($name:expr, $length:expr, $func1:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: (crate::value::object::JS_PROP_WRITABLE
                 | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
@@ -459,7 +457,7 @@ macro_rules! JS_CFUNC_MAGIC_DEF {
 #[macro_export]
 macro_rules! JS_CGETSET_DEF {
     ($name:expr, NONE, $setter:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::property::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET,
@@ -474,7 +472,7 @@ macro_rules! JS_CGETSET_DEF {
     };
 
     ($name:expr, $getter:expr, NONE) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET,
@@ -489,7 +487,7 @@ macro_rules! JS_CGETSET_DEF {
     };
 
     ($name:expr, $getter:expr, $setter:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET,
@@ -507,7 +505,7 @@ macro_rules! JS_CGETSET_DEF {
 #[macro_export]
 macro_rules! JS_CGETSET_MAGIC_DEF {
     ($name:expr, NONE, $setter:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET_MAGIC,
@@ -524,7 +522,7 @@ macro_rules! JS_CGETSET_MAGIC_DEF {
     };
 
     ($name:expr, $getter:expr, NONE, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET_MAGIC,
@@ -541,7 +539,7 @@ macro_rules! JS_CGETSET_MAGIC_DEF {
     };
 
     ($name:expr, $getter:expr, $setter:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: crate::value::object::JS_PROP_CONFIGURABLE as u8,
             def_type: crate::function::JS_DEF_CGETSET_MAGIC,
@@ -563,7 +561,7 @@ macro_rules! JS_CGETSET_MAGIC_DEF {
 #[macro_export]
 macro_rules! JS_PROP_STRING_DEF {
     ($name:expr, $cstr:expr, $prop_flags:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: $prop_flags as u8,
             def_type: crate::function::JS_DEF_PROP_STRING,
@@ -576,7 +574,7 @@ macro_rules! JS_PROP_STRING_DEF {
 #[macro_export]
 macro_rules! JS_PROP_INT32_DEF {
     ($name:expr, $val:expr, $prop_flags:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: $prop_flags as u8,
             def_type: crate::function::JS_DEF_PROP_INT32,
@@ -589,7 +587,7 @@ macro_rules! JS_PROP_INT32_DEF {
 #[macro_export]
 macro_rules! JS_ALIAS_DEF {
     ($name:expr, $from:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: (crate::value::object::JS_PROP_WRITABLE
                 | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
@@ -608,7 +606,7 @@ macro_rules! JS_ALIAS_DEF {
 #[macro_export]
 macro_rules! JS_ITERATOR_NEXT_DEF {
     ($name:expr, $length:expr, $func1:expr, $magic:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: (crate::value::object::JS_PROP_WRITABLE
                 | crate::value::object::JS_PROP_CONFIGURABLE) as u8,
@@ -630,7 +628,7 @@ macro_rules! JS_ITERATOR_NEXT_DEF {
 #[macro_export]
 macro_rules! JS_PROP_DOUBLE_DEF {
     ($name:expr, $val:expr, $flags:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: $flags as u8,
             def_type: crate::function::JS_DEF_PROP_DOUBLE,
@@ -643,7 +641,7 @@ macro_rules! JS_PROP_DOUBLE_DEF {
 #[macro_export]
 macro_rules! JS_PROP_UNDEFINED_DEF {
     ($name:expr, $flags:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: $flags as u8,
             def_type: crate::function::JS_DEF_PROP_UNDEFINED,
@@ -656,7 +654,7 @@ macro_rules! JS_PROP_UNDEFINED_DEF {
 #[macro_export]
 macro_rules! JS_ALIAS_BASE_DEF {
     ($name:expr, $from:expr, $base:expr) => {
-        crate::function::JSCFunctionListEntry {
+        $crate::function::JSCFunctionListEntry {
             name: $name,
             prop_flags: (crate::value::object::JS_PROP_WRITABLE
                 | crate::value::object::JS_PROP_CONFIGURABLE) as u8,

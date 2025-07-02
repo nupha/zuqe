@@ -539,26 +539,26 @@ pub fn js_iterator_proto_iterator(ctx: &JSContext, cc: CallContext) -> JSResult 
 }
 
 pub const js_async_iterator_proto_funcs: [JSCFunctionListEntry; 1] = [JS_CFUNC_NATIVE_DEF!(
-    c"[Symbol.asyncIterator]",
+    "[Symbol.asyncIterator]",
     0,
     js_iterator_proto_iterator,
     0
 )];
 
 pub const js_async_generator_proto_funcs: [JSCFunctionListEntry; 4] = [
-    JS_CFUNC_NATIVE_DEF!(c"next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
-    JS_CFUNC_NATIVE_DEF!(c"return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
-    JS_CFUNC_NATIVE_DEF!(c"throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
+    JS_CFUNC_NATIVE_DEF!("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
+    JS_CFUNC_NATIVE_DEF!("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
+    JS_CFUNC_NATIVE_DEF!("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
     JS_PROP_STRING_DEF!(
-        c"[Symbol.toStringTag]",
-        c"AsyncGeneratorValue",
+        "[Symbol.toStringTag]",
+        "AsyncGeneratorValue",
         JS_PROP_CONFIGURABLE
     ),
 ];
 
 pub const js_async_generator_function_proto_funcs: [JSCFunctionListEntry; 1] =
     [JS_PROP_STRING_DEF!(
-        c"[Symbol.toStringTag]",
-        c"AsyncGeneratorFunction",
+        "[Symbol.toStringTag]",
+        "AsyncGeneratorFunction",
         JS_PROP_CONFIGURABLE
     )];

@@ -450,7 +450,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     enums.push("}".to_string());
     cdefs.push("];".to_string());
 
-    let lines = vec![
+    let lines = [
         "use crate::{atom::consts::*, class::{JSClassID, JSClassShortDef}};\n".to_string(),
         // enums.join("\n"),
         // "".to_string(),
@@ -492,7 +492,7 @@ pub fn gen_object_isa(outfile: &Path) {
         items.push(if let Some(p) = cdef.payload {
             format!("{}({})", cdef.const_name, p)
         } else {
-            format!("{}", cdef.const_name)
+            format!("{}", cdef.const_name.to_string())
         });
 
         getid_arms.push(if cdef.payload.is_some() {
@@ -511,7 +511,7 @@ pub fn gen_object_isa(outfile: &Path) {
     items.push("OTHER(JSClassID)".to_string());
     getid_arms.push("Self::OTHER(id)=>*id".to_string());
 
-    let mut lines: Vec<String> = vec![
+    let lines: Vec<String> = vec![
         "use crate::{  class::{JSClassID }};\n".to_string(),
         "#[repr(u8)]\n#[derive(Debug)]\npub enum JSObjectIsa {".to_string(),
         items.join(",\n"),

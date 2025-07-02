@@ -90,7 +90,7 @@ pub struct JSRuntime {
     pub host_promise_rejection_tracker_opaque: *mut c_void,
 
     /// list of JSJobEntry.link
-    /// TODO: use VecDeque<Box<JSJobEntry>> or LinedList<Box<JSJobEntry>>
+    /// TODO: use VecDeque<Box<JSJobEntry>>
     pub job_list: list_head,
 
     pub module_normalize_func: Option<JSModuleNormalizeFunc>,
@@ -220,9 +220,9 @@ impl JSRuntime {
         Ok(rt)
     }
 
-    unsafe fn finalize(&mut self) {
+    fn finalize(&mut self) {
         // free jobs
-        {
+        unsafe {
             list_foreach_safe(&mut self.job_list, |el| {
                 let job_ent = list_entry!(el, JSJobEntry, link);
                 drop(Box::from_raw(job_ent));
@@ -412,8 +412,8 @@ impl JSRuntime {
             // }
 
             {
-                let s: *mut JSMallocState = &mut self.malloc_state;
-                println!("MemState: {:?}", *s);
+                let s = &mut self.malloc_state;
+                println!("MemState: {:?}", s);
 
                 // TODO:
                 // if (*s).malloc_count > 1 {
@@ -437,9 +437,7 @@ impl JSRuntime {
 
 impl Drop for JSRuntime {
     fn drop(&mut self) {
-        unsafe {
-            self.finalize();
-        }
+        self.finalize();
     }
 }
 

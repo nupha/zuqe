@@ -20,7 +20,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     value::{
-        JSValue, JSValueConst,
+        JSValue,
         object::{JS_PROP_C_W_E, JSObject, JSObjectIsa},
     },
 };

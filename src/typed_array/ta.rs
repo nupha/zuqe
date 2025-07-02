@@ -85,11 +85,9 @@ impl JSTypedArray {
                     return Err(-1);
                 }
                 count = (byte_length - offset) >> size_log2;
-            } else {
-                if (offset + (count << size_log2)) > byte_length {
-                    JS_ThrowRangeError(ctx, "invalid length");
-                    return Err(-1);
-                }
+            } else if (offset + (count << size_log2)) > byte_length {
+                JS_ThrowRangeError(ctx, "invalid length");
+                return Err(-1);
             }
 
             let ta = Self {
@@ -421,11 +419,9 @@ impl JSValue {
                     ctx.JS_ThrowTypeError("not a DataView");
                     return Err(-1);
                 }
-            } else {
-                if !(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&ob.class_id()) {
-                    ctx.JS_ThrowTypeError("not a TypedArray");
-                    return Err(-1);
-                }
+            } else if !(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&ob.class_id()) {
+                ctx.JS_ThrowTypeError("not a TypedArray");
+                return Err(-1);
             }
 
             Ok(unsafe { self.unchecked_into() })

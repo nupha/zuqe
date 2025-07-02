@@ -549,57 +549,57 @@ pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_object_funcs: [JSCFunctionListEntry; 23] = [
-    JS_CFUNC_NATIVE_DEF!(c"create", 2, js_object_create, 0),
-    JS_CFUNC_NATIVE_DEF!(c"getPrototypeOf", 1, js_object_getPrototypeOf, 0),
-    JS_CFUNC_NATIVE_DEF!(c"setPrototypeOf", 2, js_object_setPrototypeOf, 0),
-    JS_CFUNC_NATIVE_DEF!(c"defineProperty", 3, js_object_defineProperty, 0),
-    JS_CFUNC_NATIVE_DEF!(c"defineProperties", 2, js_object_defineProperties, 0),
-    JS_CFUNC_NATIVE_DEF!(c"getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
+    JS_CFUNC_NATIVE_DEF!("create", 2, js_object_create, 0),
+    JS_CFUNC_NATIVE_DEF!("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
+    JS_CFUNC_NATIVE_DEF!("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
+    JS_CFUNC_NATIVE_DEF!("defineProperty", 3, js_object_defineProperty, 0),
+    JS_CFUNC_NATIVE_DEF!("defineProperties", 2, js_object_defineProperties, 0),
+    JS_CFUNC_NATIVE_DEF!("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
     JS_CFUNC_NATIVE_DEF!(
-        c"getOwnPropertySymbols",
+        "getOwnPropertySymbols",
         1,
         js_object_getOwnPropertySymbols,
         0
     ),
-    JS_CFUNC_NATIVE_DEF!(c"groupBy", 2, js_object_groupBy, 0),
+    JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_object_groupBy, 0),
     JS_CFUNC_NATIVE_DEF!(
-        c"keys",
+        "keys",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"values",
+        "values",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"entries",
+        "entries",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16
     ),
-    JS_CFUNC_NATIVE_DEF!(c"isExtensible", 1, js_object_isExtensible, 0),
-    JS_CFUNC_NATIVE_DEF!(c"preventExtensions", 1, js_object_preventExtensions, 0),
+    JS_CFUNC_NATIVE_DEF!("isExtensible", 1, js_object_isExtensible, 0),
+    JS_CFUNC_NATIVE_DEF!("preventExtensions", 1, js_object_preventExtensions, 0),
     JS_CFUNC_NATIVE_DEF!(
-        c"getOwnPropertyDescriptor",
+        "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,
         0
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getOwnPropertyDescriptors",
+        "getOwnPropertyDescriptors",
         1,
         js_object_getOwnPropertyDescriptors,
         0
     ),
-    JS_CFUNC_NATIVE_DEF!(c"is", 2, js_object_is, 0),
-    JS_CFUNC_NATIVE_DEF!(c"assign", 2, js_object_assign, 0),
-    JS_CFUNC_NATIVE_DEF!(c"seal", 1, js_object_seal, 0),
-    JS_CFUNC_NATIVE_DEF!(c"freeze", 1, js_object_seal, 1),
-    JS_CFUNC_NATIVE_DEF!(c"isSealed", 1, js_object_isSealed, 0),
-    JS_CFUNC_NATIVE_DEF!(c"isFrozen", 1, js_object_isSealed, 1),
+    JS_CFUNC_NATIVE_DEF!("is", 2, js_object_is, 0),
+    JS_CFUNC_NATIVE_DEF!("assign", 2, js_object_assign, 0),
+    JS_CFUNC_NATIVE_DEF!("seal", 1, js_object_seal, 0),
+    JS_CFUNC_NATIVE_DEF!("freeze", 1, js_object_seal, 1),
+    JS_CFUNC_NATIVE_DEF!("isSealed", 1, js_object_isSealed, 0),
+    JS_CFUNC_NATIVE_DEF!("isFrozen", 1, js_object_isSealed, 1),
     //JS_CFUNC_DEF!(c"__getClass", 1, js_object___getClass),
     //JS_CFUNC_DEF(c"__isObject", 1, js_object___isObject ),
     //JS_CFUNC_DEF(c"__isConstructor", 1, js_object___isConstructor ),
@@ -611,6 +611,6 @@ pub const js_object_funcs: [JSCFunctionListEntry; 23] = [
     //JS_CFUNC_DEF(c"__isSameValueZero", 2, js_object___isSameValueZero ),
     //JS_CFUNC_DEF(c"__getObjectData", 1, js_object___getObjectData ),
     //JS_CFUNC_DEF(c"__setObjectData", 2, js_object___setObjectData ),
-    JS_CFUNC_NATIVE_DEF!(c"fromEntries", 1, js_object_fromEntries, 0),
-    JS_CFUNC_NATIVE_DEF!(c"hasOwn", 2, js_object_hasOwn, 0),
+    JS_CFUNC_NATIVE_DEF!("fromEntries", 1, js_object_fromEntries, 0),
+    JS_CFUNC_NATIVE_DEF!("hasOwn", 2, js_object_hasOwn, 0),
 ];

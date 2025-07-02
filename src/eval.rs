@@ -1,6 +1,6 @@
 use std::{
     ffi::{CStr, CString},
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     ptr::NonNull,
 };
 

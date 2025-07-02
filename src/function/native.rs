@@ -595,7 +595,7 @@ impl JSContext {
 pub unsafe fn JS_NewCFunction3(
     ctx: &JSContext,
     func: JSCFunction,
-    name: &CStr,
+    name: &str,
     length: u8,
     cproto: JSCFunctionEnum,
     magic: i16,
@@ -623,7 +623,7 @@ pub unsafe fn JS_NewCFunction3(
             }
 
             // define propperties on func_obj: length and name.
-            let name_atom = ctx.create_atom(name.to_string_lossy().as_ref()).unwrap();
+            let name_atom = ctx.create_atom(name).unwrap();
 
             js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
             JS_FreeAtom(ctx, name_atom);
@@ -640,7 +640,7 @@ pub unsafe fn JS_NewCFunction3(
 pub fn JS_NewCFunction2(
     ctx: &JSContext,
     func: JSCFunction,
-    name: &CStr,
+    name: &str,
     length: u8,
     cproto: JSCFunctionEnum,
     magic: i16,
@@ -660,7 +660,7 @@ pub fn JS_NewCFunction2(
 
 #[inline(always)]
 #[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
-pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &CStr, length: u8) -> JSValue {
+pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &str, length: u8) -> JSValue {
     unsafe { JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0) }
 }
 
@@ -669,7 +669,7 @@ pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &CStr, length: 
 pub fn JS_NewCFunctionMagic(
     ctx: &JSContext,
     func: JSCFunctionMagic,
-    name: &CStr,
+    name: &str,
     length: u8,
     cproto: JSCFunctionEnum,
     magic: i16,

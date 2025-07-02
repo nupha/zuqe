@@ -6,8 +6,8 @@ use crate::{
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     utils::skip_spaces,
     value::{
-        JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, JS_ToNumeric, JSValue, JSValueConst,
-        is_safe_integer, object::JSObjectIsa,
+        JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, JSValue, JSValueConst, is_safe_integer,
+        object::JSObjectIsa,
     },
 };
 
@@ -252,22 +252,17 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_number_proto_funcs: [JSCFunctionListEntry; 6] = [
-    JS_CFUNC_NATIVE_DEF!(c"toFixed", 1, js_number_fmt, FMT_TO_FIXED as i16),
-    JS_CFUNC_NATIVE_DEF!(c"toPrecision", 1, js_number_fmt, FMT_TO_PRECISION as i16),
+    JS_CFUNC_NATIVE_DEF!("toFixed", 1, js_number_fmt, FMT_TO_FIXED as i16),
+    JS_CFUNC_NATIVE_DEF!("toPrecision", 1, js_number_fmt, FMT_TO_PRECISION as i16),
+    JS_CFUNC_NATIVE_DEF!("toExponential", 1, js_number_fmt, FMT_TO_EXPONENTIAL as i16),
+    JS_CFUNC_NATIVE_DEF!("toString", 1, js_number_fmt, FMT_TO_STRING as i16),
     JS_CFUNC_NATIVE_DEF!(
-        c"toExponential",
-        1,
-        js_number_fmt,
-        FMT_TO_EXPONENTIAL as i16
-    ),
-    JS_CFUNC_NATIVE_DEF!(c"toString", 1, js_number_fmt, FMT_TO_STRING as i16),
-    JS_CFUNC_NATIVE_DEF!(
-        c"toLocaleString",
+        "toLocaleString",
         0,
         js_number_fmt,
         FMT_TO_LOCALE_STRING as i16
     ),
-    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_number_valueOf, 0),
+    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_number_valueOf, 0),
 ];
 
 pub fn js_number_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult {
@@ -299,25 +294,25 @@ pub fn js_number_isSafeInteger(ctx: &JSContext, args: CallContext) -> JSResult {
 
 pub const js_number_funcs: [JSCFunctionListEntry; 14] = [
     // global ParseInt and parseFloat should be defined already or delayed
-    JS_ALIAS_BASE_DEF!(c"parseInt", c"parseInt", 0),
-    JS_ALIAS_BASE_DEF!(c"parseFloat", c"parseFloat", 0),
-    JS_CFUNC_NATIVE_DEF!(c"isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    JS_ALIAS_BASE_DEF!("parseInt", "parseInt", 0),
+    JS_ALIAS_BASE_DEF!("parseFloat", "parseFloat", 0),
+    JS_CFUNC_NATIVE_DEF!("isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
     JS_CFUNC_NATIVE_DEF!(
-        c"isFinite",
+        "isFinite",
         1,
         js_number_isNaN_isFinite,
         MAGIC_NUM_IS_FINITE as _
     ),
-    JS_CFUNC_NATIVE_DEF!(c"isInteger", 1, js_number_isInteger, 0),
-    JS_CFUNC_NATIVE_DEF!(c"isSafeInteger", 1, js_number_isSafeInteger, 0),
-    JS_PROP_DOUBLE_DEF!(c"MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
-    JS_PROP_DOUBLE_DEF!(c"MIN_VALUE", 5e-324, 0),
-    JS_PROP_DOUBLE_DEF!(c"NaN", f64::NAN, 0),
-    JS_PROP_DOUBLE_DEF!(c"NEGATIVE_INFINITY", -f64::INFINITY, 0),
-    JS_PROP_DOUBLE_DEF!(c"POSITIVE_INFINITY", f64::INFINITY, 0),
-    JS_PROP_DOUBLE_DEF!(c"EPSILON", 2.220446049250313e-16, 0), /* ES6 */
-    JS_PROP_DOUBLE_DEF!(c"MAX_SAFE_INTEGER", 9007199254740991.0, 0), /* ES6 */
-    JS_PROP_DOUBLE_DEF!(c"MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
+    JS_CFUNC_NATIVE_DEF!("isInteger", 1, js_number_isInteger, 0),
+    JS_CFUNC_NATIVE_DEF!("isSafeInteger", 1, js_number_isSafeInteger, 0),
+    JS_PROP_DOUBLE_DEF!("MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
+    JS_PROP_DOUBLE_DEF!("MIN_VALUE", 5e-324, 0),
+    JS_PROP_DOUBLE_DEF!("NaN", f64::NAN, 0),
+    JS_PROP_DOUBLE_DEF!("NEGATIVE_INFINITY", -f64::INFINITY, 0),
+    JS_PROP_DOUBLE_DEF!("POSITIVE_INFINITY", f64::INFINITY, 0),
+    JS_PROP_DOUBLE_DEF!("EPSILON", 2.220446049250313e-16, 0), /* ES6 */
+    JS_PROP_DOUBLE_DEF!("MAX_SAFE_INTEGER", 9007199254740991.0, 0), /* ES6 */
+    JS_PROP_DOUBLE_DEF!("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
 pub fn js_number_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {

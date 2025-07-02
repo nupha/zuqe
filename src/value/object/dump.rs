@@ -75,7 +75,7 @@ impl JSObject {
     /// print object debug info to console
     pub fn dump(&self, rt: &JSRuntime) {
         // XXX: should encode atoms with special characters
-        print!("{:14p} ", self);
+        print!("{self:14p} ");
 
         // NOTE: the shape can be NULL while freeing an object
         if let Some(sh) = self.shape() {

@@ -11,7 +11,7 @@ use crate::{
     function::{JS_NewCFunction2, JSCFunctionEnum, JSCFunctionType},
     value::{
         JSValue, JSValueConst,
-        object::{LazyInit, JS_PROP_CONFIGURABLE},
+        object::{JS_PROP_CONFIGURABLE, LazyInit},
     },
 };
 
@@ -28,7 +28,7 @@ pub const JS_DEF_OBJECT: u8 = 8;
 pub const JS_DEF_ALIAS: u8 = 9;
 
 pub struct JSCFunctionListEntry {
-    pub name: &'static CStr,
+    pub name: &'static str,
     pub prop_flags: u8,
     pub def_type: u8,
     pub magic: i16,
@@ -40,7 +40,7 @@ pub union JSCFunctionListEntryUnion {
     pub getset: JSCFunctionListEntryGetSet,
     pub alias: JSCFunctionListEntryAlias,
     pub prop_list: ManuallyDrop<Vec<JSCFunctionListEntry>>, //JSCFunctionListEntryPropList,
-    pub str: &'static CStr,
+    pub str: &'static str,
     pub i32: i32,
     pub i64: i64,
     pub f64: f64,
@@ -62,7 +62,7 @@ pub struct JSCFunctionListEntryGetSet {
 
 #[derive(Copy, Clone)]
 pub struct JSCFunctionListEntryAlias {
-    pub name: &'static CStr,
+    pub name: &'static str,
     pub base: i32,
 }
 
@@ -79,7 +79,7 @@ impl JSValue {
         tab: &[JSCFunctionListEntry],
     ) -> Result<(), i32> {
         for item in tab {
-            let atom = ctx.create_atom(item.name.to_string_lossy().as_ref())?;
+            let atom = ctx.create_atom(item.name)?;
             self.install_property_entry(ctx, atom, item)?;
             JS_FreeAtom(ctx, atom);
         }
@@ -118,44 +118,32 @@ impl JSValue {
             }
             JS_DEF_CGETSET | JS_DEF_CGETSET_MAGIC => unsafe {
                 // XXX: use autoinit again ?
-                let mut buf: [c_char; 64] = [0; 64];
+                //let mut buf: [c_char; 64] = [0; 64];
 
                 let getter = if let Some(f) = e.u.getset.get {
-                    libc::snprintf(
-                        buf.as_mut_ptr(),
-                        std::mem::size_of::<[c_char; 64]>(),
-                        c"get %s".as_ptr(),
-                        (*e).name,
-                    );
                     JS_NewCFunction2(
                         ctx,
                         f.generic,
-                        CStr::from_ptr(buf.as_ptr()),
+                        &format!("get {}", e.name),
                         0,
-                        if (*e).def_type == JS_DEF_CGETSET_MAGIC {
+                        if e.def_type == JS_DEF_CGETSET_MAGIC {
                             JSCFunctionEnum::GetterMagic
                         } else {
                             JSCFunctionEnum::Getter
                         },
-                        (*e).magic,
+                        e.magic,
                     )
                 } else {
                     JSValue::UNDEFINED
                 };
 
                 let setter = if let Some(t) = e.u.getset.set {
-                    libc::snprintf(
-                        buf.as_mut_ptr(),
-                        std::mem::size_of::<[c_char; 64]>(),
-                        c"set %s".as_ptr(),
-                        (*e).name,
-                    );
                     JS_NewCFunction2(
                         ctx,
                         t.generic,
-                        CStr::from_ptr(buf.as_ptr()),
+                        &format!("set {}", e.name),
                         1,
-                        if (*e).def_type == JS_DEF_CGETSET_MAGIC {
+                        if e.def_type == JS_DEF_CGETSET_MAGIC {
                             JSCFunctionEnum::SetterMagic
                         } else {
                             JSCFunctionEnum::Setter
@@ -171,7 +159,7 @@ impl JSValue {
             },
             JS_DEF_ALIAS => unsafe {
                 // using autoinit for aliases is not safe
-                let atom1 = ctx.create_atom(&e.u.alias.name.to_string_lossy().to_string())?;
+                let atom1 = ctx.create_atom(e.u.alias.name)?;
 
                 val = match e.u.alias.base {
                     -1 => self.get_property(ctx, atom1),
@@ -254,9 +242,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
     match (*e).def_type {
         JS_DEF_ALIAS => {
             // using autoinit for aliases is not safe
-            let atom1 = ctx
-                .create_atom((*e).u.alias.name.to_string_lossy().as_ref())
-                .expect("TODO");
+            let atom1 = ctx.create_atom((*e).u.alias.name).expect("TODO");
 
             val = match (*e).u.alias.base {
                 -1 => obj.get_property(ctx, atom1),
@@ -302,19 +288,11 @@ pub unsafe fn JS_InstantiateFunctionListItem(
         }
         JS_DEF_CGETSET | JS_DEF_CGETSET_MAGIC => {
             // XXX: use autoinit again ?
-            let mut buf: [c_char; 64] = [0; 64];
-
             let getter = if let Some(f) = (*e).u.getset.get {
-                libc::snprintf(
-                    buf.as_mut_ptr(),
-                    std::mem::size_of::<[c_char; 64]>(),
-                    c"get %s".as_ptr(),
-                    (*e).name,
-                );
                 JS_NewCFunction2(
                     ctx,
                     f.generic,
-                    CStr::from_ptr(buf.as_ptr()),
+                    &format!("get {}", (*e).name),
                     0,
                     if (*e).def_type == JS_DEF_CGETSET_MAGIC {
                         JSCFunctionEnum::GetterMagic
@@ -328,16 +306,10 @@ pub unsafe fn JS_InstantiateFunctionListItem(
             };
 
             let setter = if let Some(t) = (*e).u.getset.set {
-                libc::snprintf(
-                    buf.as_mut_ptr(),
-                    std::mem::size_of::<[c_char; 64]>(),
-                    c"set %s".as_ptr(),
-                    (*e).name,
-                );
                 JS_NewCFunction2(
                     ctx,
                     t.generic,
-                    CStr::from_ptr(buf.as_ptr()),
+                    &format!("set {}", (*e).name),
                     1,
                     if (*e).def_type == JS_DEF_CGETSET_MAGIC {
                         JSCFunctionEnum::SetterMagic

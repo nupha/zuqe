@@ -306,9 +306,9 @@ pub fn js_typed_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_typed_array_base_funcs: [JSCFunctionListEntry; 3] = [
-    JS_CFUNC_NATIVE_DEF!(c"from", 1, js_typed_array_from, 0),
-    JS_CFUNC_NATIVE_DEF!(c"of", 0, js_typed_array_of, 0),
-    JS_CGETSET_DEF!(c"[Symbol.species]", js_get_this, NONE),
+    JS_CFUNC_NATIVE_DEF!("from", 1, js_typed_array_from, 0),
+    JS_CFUNC_NATIVE_DEF!("of", 0, js_typed_array_of, 0),
+    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
 ];
 
 //
@@ -812,7 +812,7 @@ pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let byte_offset = ta.array_buffer_byte_offset(ctx, false)?;
     let log2_shift = typed_array_size_log2(ta.class_id());
-    let offset = byte_offset + (start as usize) << log2_shift;
+    let offset = byte_offset + ((start as usize) << log2_shift);
 
     js_typed_array___speciesCreate(
         ctx,
@@ -1226,112 +1226,103 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_typed_array_base_proto_funcs: [JSCFunctionListEntry; 36] = [
-    JS_CGETSET_DEF!(c"length", js_typed_array_get_length, NONE),
-    JS_CFUNC_NATIVE_DEF!(c"at", 1, js_typed_array_at, 0),
-    JS_CFUNC_NATIVE_DEF!(c"with", 2, js_typed_array_with, 0),
-    JS_CGETSET_MAGIC_DEF!(c"buffer", js_typed_array_get_buffer, NONE, 0),
-    JS_CGETSET_MAGIC_DEF!(c"byteLength", js_typed_array_get_byteLength, NONE, 0),
-    JS_CGETSET_MAGIC_DEF!(c"byteOffset", js_typed_array_get_byteOffset, NONE, 0),
-    JS_CFUNC_NATIVE_DEF!(c"set", 1, js_typed_array_set, 0),
+    JS_CGETSET_DEF!("length", js_typed_array_get_length, NONE),
+    JS_CFUNC_NATIVE_DEF!("at", 1, js_typed_array_at, 0),
+    JS_CFUNC_NATIVE_DEF!("with", 2, js_typed_array_with, 0),
+    JS_CGETSET_MAGIC_DEF!("buffer", js_typed_array_get_buffer, NONE, 0),
+    JS_CGETSET_MAGIC_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 0),
+    JS_CGETSET_MAGIC_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 0),
+    JS_CFUNC_NATIVE_DEF!("set", 1, js_typed_array_set, 0),
     JS_CFUNC_NATIVE_DEF!(
-        c"values",
+        "values",
         0,
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16
     ),
-    JS_ALIAS_DEF!(c"[Symbol.iterator]", c"values"),
+    JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
     JS_CFUNC_NATIVE_DEF!(
-        c"keys",
+        "keys",
         0,
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"entries",
+        "entries",
         0,
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16
     ),
-    JS_CGETSET_DEF!(
-        c"[Symbol.toStringTag]",
-        js_typed_array_get_toStringTag,
-        NONE
-    ),
-    JS_CFUNC_NATIVE_DEF!(c"copyWithin", 2, js_typed_array_copyWithin, 0),
+    JS_CGETSET_DEF!("[Symbol.toStringTag]", js_typed_array_get_toStringTag, NONE),
+    JS_CFUNC_NATIVE_DEF!("copyWithin", 2, js_typed_array_copyWithin, 0),
     JS_CFUNC_NATIVE_DEF!(
-        c"every",
+        "every",
         1,
         js_array_every,
         (special_every | special_TA) as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"some",
+        "some",
         1,
         js_array_every,
         (special_some | special_TA) as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"forEach",
+        "forEach",
         1,
         js_array_every,
         (special_forEach | special_TA) as i16
     ),
-    JS_CFUNC_NATIVE_DEF!(c"map", 1, js_array_every, (special_map | special_TA) as i16),
+    JS_CFUNC_NATIVE_DEF!("map", 1, js_array_every, (special_map | special_TA) as i16),
     JS_CFUNC_NATIVE_DEF!(
-        c"filter",
+        "filter",
         1,
         js_array_every,
         (special_filter | special_TA) as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"reduce",
+        "reduce",
         1,
         js_array_reduce,
         (special_reduce | special_TA) as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"reduceRight",
+        "reduceRight",
         1,
         js_array_reduce,
         (special_reduceRight | special_TA) as i16
     ),
-    JS_CFUNC_NATIVE_DEF!(c"fill", 1, js_typed_array_fill, 0),
-    JS_CFUNC_NATIVE_DEF!(c"find", 1, js_typed_array_find, special_find as i16),
+    JS_CFUNC_NATIVE_DEF!("fill", 1, js_typed_array_fill, 0),
+    JS_CFUNC_NATIVE_DEF!("find", 1, js_typed_array_find, special_find as i16),
     JS_CFUNC_NATIVE_DEF!(
-        c"findIndex",
+        "findIndex",
         1,
         js_typed_array_find,
         special_findIndex as i16
     ),
-    JS_CFUNC_NATIVE_DEF!(c"findLast", 1, js_typed_array_find, special_findLast as i16),
+    JS_CFUNC_NATIVE_DEF!("findLast", 1, js_typed_array_find, special_findLast as i16),
     JS_CFUNC_NATIVE_DEF!(
-        c"findLastIndex",
+        "findLastIndex",
         1,
         js_typed_array_find,
         special_findLastIndex as i16
     ),
-    JS_CFUNC_NATIVE_DEF!(c"reverse", 0, js_typed_array_reverse, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toReversed", 0, js_typed_array_toReversed, 0),
-    JS_CFUNC_NATIVE_DEF!(c"slice", 2, js_typed_array_slice, 0),
-    JS_CFUNC_NATIVE_DEF!(c"subarray", 2, js_typed_array_subarray, 0),
-    JS_CFUNC_NATIVE_DEF!(c"sort", 1, js_typed_array_sort, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toSorted", 1, js_typed_array_toSorted, 0),
-    JS_CFUNC_NATIVE_DEF!(c"join", 1, js_typed_array_join, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_typed_array_join, 1),
+    JS_CFUNC_NATIVE_DEF!("reverse", 0, js_typed_array_reverse, 0),
+    JS_CFUNC_NATIVE_DEF!("toReversed", 0, js_typed_array_toReversed, 0),
+    JS_CFUNC_NATIVE_DEF!("slice", 2, js_typed_array_slice, 0),
+    JS_CFUNC_NATIVE_DEF!("subarray", 2, js_typed_array_subarray, 0),
+    JS_CFUNC_NATIVE_DEF!("sort", 1, js_typed_array_sort, 0),
+    JS_CFUNC_NATIVE_DEF!("toSorted", 1, js_typed_array_toSorted, 0),
+    JS_CFUNC_NATIVE_DEF!("join", 1, js_typed_array_join, 0),
+    JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_typed_array_join, 1),
+    JS_CFUNC_NATIVE_DEF!("indexOf", 1, js_typed_array_indexOf, special_indexOf as i16),
     JS_CFUNC_NATIVE_DEF!(
-        c"indexOf",
-        1,
-        js_typed_array_indexOf,
-        special_indexOf as i16
-    ),
-    JS_CFUNC_NATIVE_DEF!(
-        c"lastIndexOf",
+        "lastIndexOf",
         1,
         js_typed_array_indexOf,
         special_lastIndexOf as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"includes",
+        "includes",
         1,
         js_typed_array_indexOf,
         special_includes as i16

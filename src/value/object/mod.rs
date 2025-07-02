@@ -16,5 +16,5 @@ mod shape;
 
 pub use {
     dump::*, gcobj::*, isa::*, obj::*, private::*, property::*, property_autoinit::*,
-    property_create::*, property_def::*, property_name::*, property_set::*, shape::*,
+    property_create::*, property_def::*, property_name::*, shape::*,
 };

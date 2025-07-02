@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     ptr::NonNull,

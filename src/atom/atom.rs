@@ -2,6 +2,7 @@ use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, rc::Rc};
 
 use crate::{
     context::JSContext,
+    error::JSResult,
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
@@ -309,6 +310,13 @@ impl JSContext {
             JSAtomTypeHint::String,
         )
     }
+
+    pub fn create_atom_string(&self, str: &str) -> JSResult {
+        let atom = self.create_atom(str)?;
+        let val = atom.to_value(self, true).check_exception();
+        JS_FreeAtom(self, atom);
+        val
+    }
 }
 
 #[deprecated(note = "use JSAtom::to_value() instead")]
@@ -335,14 +343,9 @@ pub unsafe fn JS_NewAtom(ctx: &JSContext, str: &CStr) -> JSAtom {
         .unwrap_or(JS_ATOM_NULL)
 }
 
-pub unsafe fn JS_NewAtomString(ctx: &JSContext, str: &CStr) -> JSValue {
-    let atom = JS_NewAtom(ctx, str);
-    if atom == JS_ATOM_NULL {
-        return JSValue::EXCEPTION;
-    }
-    let val = atom.to_value(ctx, true);
-    JS_FreeAtom(ctx, atom);
-    val
+#[deprecated(note = "use JSContext::create_atom_string() instead")]
+pub unsafe fn JS_NewAtomString(ctx: &JSContext, str: &str) -> JSValue {
+    ctx.create_atom_string(str).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSRuntime::add_atom_u32() instead")]
@@ -465,7 +468,7 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
 
     let aptr = unsafe {
         std::ptr::replace(
-            &mut (*rt).atom_slots[aid as usize],
+            &mut (&mut (*rt).atom_slots)[aid as usize],
             std::ptr::null::<JSStringInner>(),
         )
     };

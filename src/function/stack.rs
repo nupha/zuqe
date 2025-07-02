@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     bytecode::{OP_COUNT_FINAL, OpCode, opcode_info_final, opcodes},
     context::JSContext,

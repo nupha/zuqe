@@ -107,14 +107,12 @@ impl JSObject {
                             /* XXX: should pass throw_ref_error */
                             /* Note: if 'p' is a prototype, it can be
                             freed in the called function */
-                            return unsafe {
-                                cb(
-                                    ctx,
-                                    JSValue::Object(cur_obj.clone()),
-                                    prop,
-                                    this_obj.clone(),
-                                )
-                            };
+                            return cb(
+                                ctx,
+                                JSValue::Object(cur_obj.clone()),
+                                prop,
+                                this_obj.clone(),
+                            );
                         }
 
                         if let Some(cb) = unsafe { (*em).get_own_property } {
@@ -272,18 +270,16 @@ impl JSValue {
                     "cannot read property '{}' of null",
                     prop.to_str(ctx.rt())
                 ));
-                return JSValue::EXCEPTION;
+                JSValue::EXCEPTION
             }
             Self::UNDEFINED => {
                 ctx.JS_ThrowTypeError(&format!(
                     "cannot read property '{}' of undefined",
                     prop.to_str(ctx.rt())
                 ));
-                return JSValue::EXCEPTION;
+                JSValue::EXCEPTION
             }
-            Self::EXCEPTION => {
-                return JSValue::EXCEPTION;
-            }
+            Self::EXCEPTION => JSValue::EXCEPTION,
             Self::String(ss) => {
                 if prop.is_int_type() {
                     let idx = __JS_AtomToUInt32(prop);

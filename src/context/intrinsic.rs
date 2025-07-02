@@ -172,7 +172,7 @@ impl JSContext {
             let func_obj = self
                 .create_native_function_from_proto(
                     js_error_constructor,
-                    NATIVE_ERROR_NAMES[i as usize].to_string_lossy().as_ref(),
+                    NATIVE_ERROR_NAMES[i as usize],
                     n_args as _,
                     JSCFunctionEnum::NativeConstructorOrFunc,
                     i as _,
@@ -181,7 +181,7 @@ impl JSContext {
                 .unwrap();
 
             self.add_global_constructor(
-                NATIVE_ERROR_NAMES[i as usize].to_string_lossy().as_ref(),
+                NATIVE_ERROR_NAMES[i as usize],
                 &func_obj,
                 &self.0.borrow().native_error_proto[i as usize],
             );

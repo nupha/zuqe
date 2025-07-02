@@ -199,11 +199,11 @@ pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResul
 }
 
 pub const js_function_proto_funcs: [JSCFunctionListEntry; 7] = [
-    JS_CFUNC_NATIVE_DEF!(c"call", 1, js_function_call, 0),
-    JS_CFUNC_NATIVE_DEF!(c"apply", 2, js_function_apply, 0),
-    JS_CFUNC_NATIVE_DEF!(c"bind", 1, js_function_bind, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_function_toString, 0),
-    JS_CFUNC_NATIVE_DEF!(c"[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
-    JS_CGETSET_NATIVE_DEF!(c"fileName", js_function_proto_fileName, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!(c"lineNumber", js_function_proto_lineNumber, NONE, 0),
+    JS_CFUNC_NATIVE_DEF!("call", 1, js_function_call, 0),
+    JS_CFUNC_NATIVE_DEF!("apply", 2, js_function_apply, 0),
+    JS_CFUNC_NATIVE_DEF!("bind", 1, js_function_bind, 0),
+    JS_CFUNC_NATIVE_DEF!("toString", 0, js_function_toString, 0),
+    JS_CFUNC_NATIVE_DEF!("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
+    JS_CGETSET_NATIVE_DEF!("fileName", js_function_proto_fileName, NONE, 0),
+    JS_CGETSET_NATIVE_DEF!("lineNumber", js_function_proto_lineNumber, NONE, 0),
 ];

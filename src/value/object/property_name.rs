@@ -194,10 +194,10 @@ impl JSObject {
 
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if lst.len() == lst.capacity() {
-                if lst.try_reserve_exact(16).is_err() {
+                lst.try_reserve_exact(16).map_err(|_| {
                     cx.JS_ThrowOutOfMemory();
-                    return Err(-1);
-                }
+                    -1
+                })?;
             }
 
             if !pp.exotic {

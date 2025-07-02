@@ -339,41 +339,41 @@ pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub const js_dataview_proto_funcs: [JSCFunctionListEntry; 20] = [
-    JS_CGETSET_MAGIC_DEF!(c"buffer", js_typed_array_get_buffer, NONE, 1),
-    JS_CGETSET_MAGIC_DEF!(c"byteLength", js_typed_array_get_byteLength, NONE, 1),
-    JS_CGETSET_MAGIC_DEF!(c"byteOffset", js_typed_array_get_byteOffset, NONE, 1),
+    JS_CGETSET_MAGIC_DEF!("buffer", js_typed_array_get_buffer, NONE, 1),
+    JS_CGETSET_MAGIC_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 1),
+    JS_CGETSET_MAGIC_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 1),
     JS_CFUNC_NATIVE_DEF!(
-        c"getInt8",
+        "getInt8",
         1,
         js_dataview_getValue,
         JS_CLASS_INT8_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getUint8",
+        "getUint8",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT8_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getInt16",
+        "getInt16",
         1,
         js_dataview_getValue,
         JS_CLASS_INT16_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getUint16",
+        "getUint16",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT16_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getInt32",
+        "getInt32",
         1,
         js_dataview_getValue,
         JS_CLASS_INT32_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getUint32",
+        "getUint32",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT32_ARRAY as i16
@@ -391,49 +391,49 @@ pub const js_dataview_proto_funcs: [JSCFunctionListEntry; 20] = [
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getFloat32",
+        "getFloat32",
         1,
         js_dataview_getValue,
         JS_CLASS_FLOAT32_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"getFloat64",
+        "getFloat64",
         1,
         js_dataview_getValue,
         JS_CLASS_FLOAT64_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setInt8",
+        "setInt8",
         2,
         js_dataview_setValue,
         JS_CLASS_INT8_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setUint8",
+        "setUint8",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT8_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setInt16",
+        "setInt16",
         2,
         js_dataview_setValue,
         JS_CLASS_INT16_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setUint16",
+        "setUint16",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT16_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setInt32",
+        "setInt32",
         2,
         js_dataview_setValue,
         JS_CLASS_INT32_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setUint32",
+        "setUint32",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT32_ARRAY as i16
@@ -451,16 +451,16 @@ pub const js_dataview_proto_funcs: [JSCFunctionListEntry; 20] = [
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setFloat32",
+        "setFloat32",
         2,
         js_dataview_setValue,
         JS_CLASS_FLOAT32_ARRAY as i16
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"setFloat64",
+        "setFloat64",
         2,
         js_dataview_setValue,
         JS_CLASS_FLOAT64_ARRAY as i16
     ),
-    JS_PROP_STRING_DEF!(c"[Symbol.toStringTag]", c"DataView", JS_PROP_CONFIGURABLE),
+    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "DataView", JS_PROP_CONFIGURABLE),
 ];

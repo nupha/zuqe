@@ -228,19 +228,19 @@ pub fn js_async_from_sync_iterator_mark(val: JSValue) {
 
 pub const js_async_from_sync_iterator_proto_funcs: [JSCFunctionListEntry; 3] = [
     JS_CFUNC_NATIVE_DEF!(
-        c"next",
+        "next",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_NEXT as _
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"return",
+        "return",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_RETURN as _
     ),
     JS_CFUNC_NATIVE_DEF!(
-        c"throw",
+        "throw",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_THROW as _

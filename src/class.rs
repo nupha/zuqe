@@ -18,7 +18,6 @@ use crate::{
             JSPropertyDescriptor, PropertyEnum,
         },
     },
-    *,
 };
 
 pub const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;

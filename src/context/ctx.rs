@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     ops::DerefMut,
-    os::raw::{c_char, c_void},
+    os::raw::c_void,
     pin::Pin,
     ptr::{self, NonNull},
     rc::{Rc, Weak},
@@ -10,10 +10,7 @@ use std::{
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     array::JSObjectArray,
-    atom::{
-        JS_NewAtomString,
-        consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
-    },
+    atom::consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
     error::{JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFunc,
     function::{JSCFunctionEnum, js_function_proto},
@@ -401,7 +398,7 @@ impl JSContext {
                     .create_instance_from_proto(&err_proto, JSObjectIsa::OBJECT)
                     .unwrap();
 
-                let name = unsafe { JS_NewAtomString(self, NATIVE_ERROR_NAMES[i]) };
+                let name = self.create_atom_string(NATIVE_ERROR_NAMES[i]).unwrap();
                 proto
                     .define_property_value(
                         self,

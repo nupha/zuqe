@@ -60,7 +60,7 @@ impl JSObject {
                                     .with_fast_array_values_mut(|lst| -> Result<bool, i32> {
                                         if idx == lst.len() - 1 {
                                             lst.pop();
-                                            return Ok(true);
+                                            Ok(true)
                                         } else if idx < lst.len() {
                                             // convert to slow array, then delete property
                                             if unsafe { convert_fast_array_to_array(ctx, self) }
@@ -68,7 +68,7 @@ impl JSObject {
                                             {
                                                 return Err(-1);
                                             }
-                                            return Ok(false);
+                                            Ok(false)
                                         } else {
                                             unreachable!()
                                         }

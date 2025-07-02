@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_PROP_STRING_DEF,
     atom::consts::*,
     context::JSContext,
     error::JSResult,
@@ -428,19 +428,19 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
-    JS_CFUNC_NATIVE_DEF!(c"resolve", 1, js_promise_resolve, 0),
-    JS_CFUNC_NATIVE_DEF!(c"reject", 1, js_promise_resolve, 1),
-    JS_CFUNC_NATIVE_DEF!(c"all", 1, js_promise_all, PROMISE_MAGIC_all as _),
+    JS_CFUNC_NATIVE_DEF!("resolve", 1, js_promise_resolve, 0),
+    JS_CFUNC_NATIVE_DEF!("reject", 1, js_promise_resolve, 1),
+    JS_CFUNC_NATIVE_DEF!("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
     JS_CFUNC_NATIVE_DEF!(
-        c"allSettled",
+        "allSettled",
         1,
         js_promise_all,
         PROMISE_MAGIC_allSettled as _
     ),
-    JS_CFUNC_NATIVE_DEF!(c"any", 1, js_promise_all, PROMISE_MAGIC_any as _),
-    JS_CFUNC_NATIVE_DEF!(c"race", 1, js_promise_race, 0),
-    JS_CFUNC_NATIVE_DEF!(c"withResolvers", 0, js_promise_withResolvers, 0),
-    JS_CGETSET_DEF!(c"[Symbol.species]", js_get_this, NONE),
+    JS_CFUNC_NATIVE_DEF!("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
+    JS_CFUNC_NATIVE_DEF!("race", 1, js_promise_race, 0),
+    JS_CFUNC_NATIVE_DEF!("withResolvers", 0, js_promise_withResolvers, 0),
+    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
 ];
 
 //
@@ -456,8 +456,8 @@ pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
 // }
 
 pub const js_promise_proto_funcs: [JSCFunctionListEntry; 4] = [
-    JS_CFUNC_NATIVE_DEF!(c"then", 2, js_promise_then, 0),
-    JS_CFUNC_NATIVE_DEF!(c"catch", 1, js_promise_catch, 0),
-    JS_CFUNC_NATIVE_DEF!(c"finally", 1, js_promise_finally, 0),
-    JS_PROP_STRING_DEF!(c"[Symbol.toStringTag]", c"Promise", JS_PROP_CONFIGURABLE),
+    JS_CFUNC_NATIVE_DEF!("then", 2, js_promise_then, 0),
+    JS_CFUNC_NATIVE_DEF!("catch", 1, js_promise_catch, 0),
+    JS_CFUNC_NATIVE_DEF!("finally", 1, js_promise_finally, 0),
+    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

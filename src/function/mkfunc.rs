@@ -9,9 +9,7 @@ use crate::{
         JSFunctionBytecodeInner, JSVarDef, JSVarKindEnum, is_var_in_arg_scope, resolve_labels,
     },
     gc::GCObjectHeader,
-    list_entry,
     module::add_module_variables,
-    utils::list_foreach_safe_with_ret,
     value::{JSValue, object::GCObjectWeakref},
 };
 

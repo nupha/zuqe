@@ -405,19 +405,14 @@ pub unsafe fn js_object___lookupGetter__(
 }
 
 pub const js_object_proto_funcs: [JSCFunctionListEntry; 7] = [
-    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_object_toString, 0),
-    JS_CFUNC_NATIVE_DEF!(c"toLocaleString", 0, js_object_toLocaleString, 0),
-    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_object_valueOf, 0),
-    JS_CFUNC_NATIVE_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty, 0),
-    JS_CFUNC_NATIVE_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf, 0),
-    JS_CFUNC_NATIVE_DEF!(
-        c"propertyIsEnumerable",
-        1,
-        js_object_propertyIsEnumerable,
-        0
-    ),
+    JS_CFUNC_NATIVE_DEF!("toString", 0, js_object_toString, 0),
+    JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_object_toLocaleString, 0),
+    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_object_valueOf, 0),
+    JS_CFUNC_NATIVE_DEF!("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
+    JS_CFUNC_NATIVE_DEF!("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
+    JS_CFUNC_NATIVE_DEF!("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
     JS_CGETSET_NATIVE_DEF!(
-        c"__proto__",
+        "__proto__",
         js_object_getset___proto__,
         js_object_getset___proto__,
         0

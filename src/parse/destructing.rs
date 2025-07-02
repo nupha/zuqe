@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JSAtom,

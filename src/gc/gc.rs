@@ -121,40 +121,6 @@ pub fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
     }
 }
 
-/// Frees a GC object based on its type
-/// Handles different types of GC objects with their specific cleanup logic.
-///
-/// returns:
-/// - True if the pointer was freed
-/// - False if the object is not freed, its status changed to Zeroed
-// pub(super) unsafe fn gc_free(rt: *mut JSRuntime, mut gp: Box<dyn GCObject>) -> bool {
-//     gp.before_drop_clean_up(rt.as_mut().unwrap());
-
-//     if (*rt).gc_phase == JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES && gp.as_ref().ref_count() != 0 {
-//         // we are in free cycles process,
-//         // where Temp status object does not always have ref_count==0, it could be 1 sometimes.
-//         // in this case, we put this object in Zeroed state to let it be freed in later
-//         // gc_free_cycles() call.
-//         gp.as_mut().gc_set_status(GCStatus::Zeroed);
-//         false
-//     } else {
-//         {
-//             print!(
-//                 "[O.o] gc state={:?} ref_count={}",
-//                 gp.as_ref().gc_status(),
-//                 gp.as_ref().ref_count()
-//             );
-//             gp.as_ref().gc_dump(rt.as_ref().unwrap());
-//         }
-
-//         debug_assert_eq!(gp.as_ref().ref_count(), 0);
-//         gp.as_mut().before_drop_clean_up(rt.as_mut().unwrap());
-
-//         drop(Box::from_raw(gp.as_ptr()));
-//         true
-//     }
-// }
-
 /// Marks an object as potentially part of a function prototype cycle
 pub fn set_cycle_flag(ctx: &JSContext, obj: &JSValueConst) {
     // to nothing

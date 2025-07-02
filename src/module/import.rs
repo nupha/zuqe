@@ -1,4 +1,4 @@
-use crate::{atom::JSAtom, module::JSModuleDef};
+use crate::atom::JSAtom;
 
 #[repr(C)]
 pub struct JSImportEntry {

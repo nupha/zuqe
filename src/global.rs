@@ -1,5 +1,3 @@
-use std::{ffi::CStr, ops::Deref};
-
 use crate::{
     atom::JSAtom,
     context::{JSContext, is_strict_mode},

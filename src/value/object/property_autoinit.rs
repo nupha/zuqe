@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::{JS_NewAtomString, JSAtom, consts::JS_ATOM_constructor},
+    atom::{JSAtom, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
     function::{
@@ -61,7 +61,7 @@ impl LazyInit {
                         unsafe { entry.u.func.cproto },
                         entry.magic,
                     ),
-                    JS_DEF_PROP_STRING => unsafe { JS_NewAtomString(ctx, entry.u.str) },
+                    JS_DEF_PROP_STRING => ctx.create_atom_string(unsafe { entry.u.str })?,
                     JS_DEF_OBJECT => {
                         let obj = ctx.create_base_object().unwrap();
                         obj.install_property_entries(ctx, unsafe { entry.u.prop_list.as_slice() })?;

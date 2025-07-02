@@ -52,6 +52,6 @@ pub fn js_boolean_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub const js_boolean_proto_funcs: [JSCFunctionListEntry; 2] = [
-    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_boolean_toString, 0),
-    JS_CFUNC_NATIVE_DEF!(c"valueOf", 0, js_boolean_valueOf, 0),
+    JS_CFUNC_NATIVE_DEF!("toString", 0, js_boolean_toString, 0),
+    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_boolean_valueOf, 0),
 ];

@@ -2,7 +2,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     utils::skip_spaces,
-    value::{HINT_NUMBER, JS_FreeValue, JSValue, JSValueConst},
+    value::{HINT_NUMBER, JSValue, JSValueConst},
 };
 
 use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
@@ -560,14 +560,12 @@ pub unsafe fn JS_ToInt32SatFree(ctx: &JSContext, pres: *mut i32, mut val: JSValu
             JSValue::Float64(d) => {
                 break if d.is_nan() {
                     0
+                } else if d < i32::MIN as f64 {
+                    i32::MIN
+                } else if d > i32::MAX as f64 {
+                    i32::MAX
                 } else {
-                    if d < i32::MIN as f64 {
-                        i32::MIN
-                    } else if d > i32::MAX as f64 {
-                        i32::MAX
-                    } else {
-                        d as i32
-                    }
+                    d as i32
                 };
             }
             JSValue::EXCEPTION => {
@@ -609,10 +607,8 @@ pub unsafe fn JS_ToInt32Clamp(
             if *pres < min {
                 *pres = min;
             }
-        } else {
-            if *pres > max {
-                *pres = max;
-            }
+        } else if *pres > max {
+            *pres = max;
         }
     }
     res

@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct list_head {

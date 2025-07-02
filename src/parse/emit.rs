@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom, JSAtomTypeHint, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},

@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
     atom::{JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    value::object::{JS_PROP_AUTOINIT, JSObject, call_setter},
+    value::object::{JS_PROP_AUTOINIT, JSObject, property_set::call_setter},
 };
 
 use super::{

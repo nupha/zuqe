@@ -1,13 +1,8 @@
-use std::{
-    borrow::Cow,
-    ffi::CStr,
-    io::Write,
-    ops::{Deref, DerefMut},
-};
+use std::{borrow::Cow, io::Write};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
-    atom::{ATOM_GET_STR_BUF_SIZE, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
     function::{CallContext, JSCFunctionListEntry, JSFunctionBytecode, get_func_name},
@@ -40,15 +35,15 @@ pub const JS_NATIVE_ERROR_COUNT: usize = JSErrorEnum::NativeErrorCount as usize;
 
 pub type JSResult = Result<JSValue, i32>;
 
-pub const NATIVE_ERROR_NAMES: [&CStr; JS_NATIVE_ERROR_COUNT] = [
-    c"EvalError",
-    c"RangeError",
-    c"ReferenceError",
-    c"SyntaxError",
-    c"TypeError",
-    c"URIError",
-    c"InternalError",
-    c"AggregateError",
+pub const NATIVE_ERROR_NAMES: [&str; JS_NATIVE_ERROR_COUNT] = [
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+    "InternalError",
+    "AggregateError",
 ];
 
 pub const JS_THROW_VAR_RO: u8 = 0;
@@ -470,7 +465,7 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub const js_error_proto_funcs: [JSCFunctionListEntry; 3] = [
-    JS_CFUNC_NATIVE_DEF!(c"toString", 0, js_error_toString, 0),
-    JS_PROP_STRING_DEF!(c"name", c"Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
-    JS_PROP_STRING_DEF!(c"message", c"", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
+    JS_CFUNC_NATIVE_DEF!("toString", 0, js_error_toString, 0),
+    JS_PROP_STRING_DEF!("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
+    JS_PROP_STRING_DEF!("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];

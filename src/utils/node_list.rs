@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use std::{
     marker::PhantomData,
     mem::ManuallyDrop,
@@ -59,7 +61,7 @@ impl<T: Deref> Node<T> {
         }
     }
 
-    pub fn into_inner(self) -> T {
+    pub const fn into_inner(self) -> T {
         unsafe {
             let r = std::ptr::read(&self.data);
             std::mem::forget(self);

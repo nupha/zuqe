@@ -227,16 +227,12 @@ pub unsafe fn js_atof(
         if *p == b'n' {
             p = p.offset(1);
             atod_type = ATOD_TYPE_BIG_INT;
-        } else {
-            if is_float && radix != 10 {
-                fail!();
-            }
+        } else if is_float && radix != 10 {
+            fail!();
         }
-    } else {
-        if atod_type == ATOD_TYPE_FLOAT64 {
-            if is_float && radix != 10 {
-                fail!();
-            }
+    } else if atod_type == ATOD_TYPE_FLOAT64 {
+        if is_float && radix != 10 {
+            fail!();
         }
     }
 

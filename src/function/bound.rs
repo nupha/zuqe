@@ -1,10 +1,10 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 use crate::{
     context::JSContext,
     error::JSResult,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, object::JSObjectIsa},
 };
 
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_Call, JS_CallConstructor2};

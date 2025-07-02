@@ -35,11 +35,11 @@ pub fn js_global_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult 
 
 // global objects
 pub const js_global_props: [JSCFunctionListEntry; 7] = [
-    JS_CFUNC_NATIVE_DEF!(c"parseInt", 2, js_parseInt, 0),
-    JS_CFUNC_NATIVE_DEF!(c"parseFloat", 1, js_parseFloat, 0),
-    JS_CFUNC_NATIVE_DEF!(c"isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    JS_CFUNC_NATIVE_DEF!("parseInt", 2, js_parseInt, 0),
+    JS_CFUNC_NATIVE_DEF!("parseFloat", 1, js_parseFloat, 0),
+    JS_CFUNC_NATIVE_DEF!("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
     JS_CFUNC_NATIVE_DEF!(
-        c"isFinite",
+        "isFinite",
         1,
         js_global_isNaN_isFinite,
         MAGIC_NUM_IS_FINITE as _
@@ -50,7 +50,7 @@ pub const js_global_props: [JSCFunctionListEntry; 7] = [
     // JS_CFUNC_MAGIC_DEF("encodeURIComponent", 1, js_global_encodeURI, 1),
     // JS_CFUNC_DEF("escape", 1, js_global_escape),
     // JS_CFUNC_DEF("unescape", 1, js_global_unescape),
-    JS_PROP_DOUBLE_DEF!(c"Infinity", f64::INFINITY, 0),
-    JS_PROP_DOUBLE_DEF!(c"NaN", f64::NAN, 0),
-    JS_PROP_UNDEFINED_DEF!(c"undefined", 0),
+    JS_PROP_DOUBLE_DEF!("Infinity", f64::INFINITY, 0),
+    JS_PROP_DOUBLE_DEF!("NaN", f64::NAN, 0),
+    JS_PROP_UNDEFINED_DEF!("undefined", 0),
 ];

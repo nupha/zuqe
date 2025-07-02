@@ -649,8 +649,6 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
     if !vars.is_empty() {
         println!("  locals:");
         for (i, vd) in vars.iter().enumerate() {
-            use std::ops::Deref;
-
             let kind_str = match vd.var_kind() {
                 JSVarKindEnum::JS_VAR_CATCH => "catch",
                 JSVarKindEnum::JS_VAR_FUNCTION_DECL | JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL => {
