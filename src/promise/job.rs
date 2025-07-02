@@ -2,19 +2,15 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call},
-    list_entry,
     promise::PromiseValue,
     runtime::JSRuntime,
-    utils::{UncheckedInto, list_add_tail, list_del, list_empty, list_head},
+    utils::UncheckedInto,
     value::JSValue,
 };
 
 pub type JobCallback = for<'a> fn(ctx: &'a JSContext, args: CallContext<'a>) -> JSResult;
 
-#[repr(C)]
 pub struct JSJobEntry {
-    pub link: list_head,
-
     pub ctx: JSContext,
     pub callback: JobCallback,
 
@@ -27,10 +23,9 @@ impl JSContext {
     /// Append a job to queue.
     /// Note: `args` values are not consumed, args count must not greater than 5.
     pub(super) fn queue_job(&self, callback: JobCallback, args: &[JSValue]) -> Result<(), i32> {
-        debug_assert!(args.len() <= 5);
+        debug_assert!(args.len() < 6);
 
         let mut job = Box::new(JSJobEntry {
-            link: list_head::default(),
             ctx: self.clone(),
             callback,
             args: [const { JSValue::UNDEFINED }; 5],
@@ -41,10 +36,7 @@ impl JSContext {
             job.args[i] = v.clone();
         }
 
-        let ent = Box::into_raw(job);
-        unsafe {
-            list_add_tail(&mut (*ent).link, &mut self.rt_mut().job_list);
-        }
+        self.rt_mut().job_list.push_back(job);
 
         Ok(())
     }
@@ -55,7 +47,7 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
 
     let handler = args.arg(2);
     let mut is_reject = args.arg(3).coerce_to_bool(ctx)?;
-    let mut arg = args.arg(4);
+    let arg = args.arg(4);
 
     #[cfg(DUMP_PROMISE)]
     println!("promise_reaction_job: is_reject={}", is_reject);
@@ -121,16 +113,8 @@ impl JSRuntime {
     /// None: there is no pending job.
     /// Err: fail in execute job. ctx is the context of the executed job.
     pub fn execute_job_once(&mut self) -> Result<Option<JSContext>, (JSContext, i32)> {
-        if list_empty(&self.job_list) {
-            return Ok(None); // no job to run
-        }
-
         // fetch the first pending job and execute it
-        unsafe {
-            let ent = list_entry!(self.job_list.next, JSJobEntry, link);
-            list_del(&mut (*ent).link);
-
-            let job = Box::from_raw(ent);
+        if let Some(job) = self.job_list.pop_front() {
             let res = {
                 let cc = CallContext::new(
                     &job.ctx,
@@ -142,11 +126,13 @@ impl JSRuntime {
                 (job.callback)(&job.ctx, cc)
             };
 
-            if let Ok(r) = res {
+            if res.is_ok() {
                 Ok(Some(job.ctx))
             } else {
                 Err((job.ctx, -1))
             }
+        } else {
+            Ok(None) // no job to run
         }
     }
 }

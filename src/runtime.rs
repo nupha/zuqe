@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::{c_char, c_void},
     num::NonZeroU16,
     pin::Pin,
@@ -22,12 +22,11 @@ use crate::{
     },
     gc::JSGCPhaseEnum,
     generator::{AsyncGeneratorValue, js_generator_function_call},
-    list_entry,
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
     stack_frame::JSStackFrame,
-    utils::{init_list_head, js_get_stack_pointer, list_foreach_safe, list_head},
+    utils::js_get_stack_pointer,
     value::{
         JSStringInner, JSValue, js_string_exotic_methods,
         object::{GCObjectWeakref, JSShapeWeakref},
@@ -89,9 +88,8 @@ pub struct JSRuntime {
     pub host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     pub host_promise_rejection_tracker_opaque: *mut c_void,
 
-    /// list of JSJobEntry.link
-    /// TODO: use VecDeque<Box<JSJobEntry>>
-    pub job_list: list_head,
+    /// queued jobs
+    pub job_list: VecDeque<Box<JSJobEntry>>,
 
     pub module_normalize_func: Option<JSModuleNormalizeFunc>,
     pub module_loader_func: Option<JSModuleLoaderFunc>,
@@ -155,7 +153,7 @@ impl JSRuntime {
             in_out_of_memory: false,
             interrupt_handler: None,
             host_promise_rejection_tracker: None,
-            job_list: list_head::default(),
+            job_list: VecDeque::with_capacity(8),
             module_normalize_func: None,
             module_loader_func: None,
             module_async_evaluation_next_timestamp: 0,
@@ -171,10 +169,7 @@ impl JSRuntime {
             interrupt_opaque: std::ptr::null_mut(),
         });
 
-        init_list_head(&mut rt.job_list);
-
         rt.init_default_atoms()?;
-
         rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
 
         // register intrinsic classes
@@ -221,18 +216,8 @@ impl JSRuntime {
     }
 
     fn finalize(&mut self) {
-        // free jobs
-        unsafe {
-            list_foreach_safe(&mut self.job_list, |el| {
-                let job_ent = list_entry!(el, JSJobEntry, link);
-                drop(Box::from_raw(job_ent));
-            });
-            init_list_head(&mut self.job_list);
-        }
-
+        self.job_list.clear();
         self.current_exception = JSValue::UNDEFINED;
-
-        // free contexts
         self.context_list.clear();
 
         self.gc();
