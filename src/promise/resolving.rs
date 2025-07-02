@@ -18,6 +18,7 @@ pub struct JSPromiseFunctionData {
 }
 
 /// Represent a promise resolve or reject function.
+#[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct PromiseResolvingFuncValue(JSValue);
 

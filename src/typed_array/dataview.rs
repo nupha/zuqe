@@ -137,7 +137,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
     let isa = unsafe { this_obj.object_unchecked().0.isa.borrow() };
     let ta = isa.typed_array().unwrap();
 
-    let res = unsafe {
+    unsafe {
         let abuf = ta.buffer.0.isa.borrow().array_buffer().cloned().unwrap();
 
         if abuf.0.borrow().detached {
@@ -223,9 +223,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
                 }
             }
         })
-    };
-
-    res
+    }
 }
 
 pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {

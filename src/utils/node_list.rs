@@ -71,7 +71,7 @@ impl<T: Deref> Node<T> {
 
     /// check if this node is linked in a node list
     #[inline(always)]
-    pub fn is_linked(&self) -> bool {
+    pub const fn is_linked(&self) -> bool {
         !self.prev.is_null()
     }
 

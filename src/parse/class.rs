@@ -1033,7 +1033,7 @@ pub unsafe fn find_private_class_field(
 ) -> i32 {
     let mut idx = (*fd).scopes[scope_level as usize].first;
     while idx != -1 {
-        let vd = (*fd).vars.get(idx as usize).unwrap();
+        let vd = (&(*fd).vars).get(idx as usize).unwrap();
         if vd.scope_level != scope_level {
             break;
         }

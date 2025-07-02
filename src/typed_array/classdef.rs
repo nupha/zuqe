@@ -774,7 +774,7 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
                     });
                 });
 
-                return Ok(arr.into());
+                return Ok(arr);
             }
         }
 
@@ -922,9 +922,7 @@ pub fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
     let arr = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
 
     let cc = CallContext::new(ctx, arr, &[], 0, None);
-    let ret = js_typed_array_sort(ctx, cc);
-
-    ret
+    js_typed_array_sort(ctx, cc)
 }
 
 pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {

@@ -3,7 +3,7 @@ use std::{
     cmp::Ordering,
     collections::TryReserveError,
     ops::Range,
-    str::{self, CharIndices, Chars},
+    str::{self, CharIndices, Chars, FromStr},
 };
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
@@ -23,19 +23,22 @@ pub enum StringContent {
     Utf16(Vec<u16>),
 }
 
-impl StringContent {
-    /// create string content from utf8 encoded str
-    pub fn from_str(str: &str) -> Result<Self, TryReserveError> {
+impl FromStr for StringContent {
+    type Err = i32;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
         debug_assert!(str.len() < JS_STRING_LEN_MAX);
 
         if str.is_empty() {
             Ok(Self::Empty)
         } else if str.is_ascii() {
-            let mut s = Vec::<u8>::try_with_capacity(str.len())?;
-            s.try_extend_from_slice(str.as_bytes())?;
+            let mut s = Vec::<u8>::new();
+            s.try_reserve_exact(str.len()).map_err(|_| -1)?;
+            s.try_extend_from_slice(str.as_bytes()).map_err(|_| -1)?;
             Ok(Self::Utf8(s))
         } else {
-            let mut b = Vec::<u16>::try_with_capacity(str.len())?;
+            let mut b = Vec::<u16>::new();
+            b.try_reserve_exact(str.len()).map_err(|_| -1)?;
             for el in str.encode_utf16() {
                 b.push(el);
             }
@@ -43,7 +46,9 @@ impl StringContent {
             Ok(Self::Utf16(b))
         }
     }
+}
 
+impl StringContent {
     /// Creates StringContent from UTF-8 encoded bytes
     ///
     /// Handles both ASCII and non-ASCII UTF-8 content:

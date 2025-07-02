@@ -90,7 +90,8 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                 0x80..=0xBF => Some(0xFFFD),    // 无效的UTF-8后续字节
                 0xC0..=0xDF => {
                     // 2字节UTF-8序列
-                    if self.index < self.size && self.size > self.index {
+                    if self.index < self.size {
+                        //same to: self.index < self.size && self.size > self.index
                         let b2 = self.bytes[self.index];
                         self.index += 1;
 

@@ -278,7 +278,7 @@ impl<'s> JSParseState<'s> {
                     pass ? */
                     if (*fd).has_with_scope(scope as _) {
                         opcode = opcodes::op_scope_get_ref;
-                        (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcode;
+                        (&mut (*fd).byte_code)[(*fd).last_opcode_pos as usize] = opcode;
                     }
                 }
                 drop_count = 1;
