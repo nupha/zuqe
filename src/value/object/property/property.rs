@@ -296,86 +296,6 @@ impl JSObject {
 
         Ok(false)
     }
-
-    /// get description of own property.
-    /// Returns None if own property does not exist.
-    pub fn get_own_property(
-        &self,
-        ctx: &JSContext,
-        prop: JSAtom,
-    ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-            let mut desc = JSPropertyDescriptor {
-                flags: prs_flags & JS_PROP_C_W_E,
-                ..Default::default()
-            };
-
-            match prs_flags & JS_PROP_TMASK {
-                JS_PROP_NORMAL => {
-                    desc.value = self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED);
-                }
-                JS_PROP_GETSET => {
-                    desc.flags |= JS_PROP_GETSET;
-                    if let JSProperty::GetSet { getter, setter } =
-                        self.0.prop_values.borrow()[idx].clone()
-                    {
-                        desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                        desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                    } else {
-                        unreachable!()
-                    }
-                }
-                JS_PROP_VARREF => {
-                    desc.value = self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED);
-                    if desc.value.is_uninitialized() {
-                        JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                        return Err(-1);
-                    }
-                }
-                JS_PROP_AUTOINIT => {
-                    // Instantiate property
-                    let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                    desc.value = pr.instantiate(self, prop, self)?;
-                    debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                    debug_assert_eq!(
-                        self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-                        JS_PROP_NORMAL
-                    );
-                    self.0.prop_values.borrow_mut()[idx] = pr;
-                }
-                _ => {}
-            }
-
-            return Ok(Some(desc));
-        }
-
-        let flags = self.flags();
-        if flags.is_exotic() {
-            if flags.fast_array() {
-                // specific case for fast arrays
-                if prop.is_int_type() {
-                    let idx = __JS_AtomToUInt32(prop);
-                    if idx < self.array_length_unchecked() as u32 {
-                        return Ok(Some(JSPropertyDescriptor {
-                            flags: JS_PROP_WRITABLE | JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE,
-                            value: JSValue::Object(self.clone()).get_property_u32(ctx, idx),
-                            getter: JSValue::UNDEFINED,
-                            setter: JSValue::UNDEFINED,
-                        }));
-                    }
-                }
-            } else {
-                let em = ctx.rt().class_defs[self.class_id() as usize].exotic;
-                if !em.is_null() {
-                    if let Some(cb) = unsafe { (*em).get_own_property } {
-                        return cb(ctx, JSValue::Object(self.clone()), prop);
-                    }
-                }
-            }
-        }
-
-        Ok(None)
-    }
 }
 
 impl JSValue {
@@ -393,20 +313,6 @@ impl JSValue {
             p.has_property(ctx, prop)
         } else {
             Ok(false)
-        }
-    }
-
-    /// get description of own property.
-    pub fn get_own_property(
-        &self,
-        ctx: &JSContext,
-        prop: JSAtom,
-    ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        if let JSValue::Object(p) = self {
-            p.get_own_property(ctx, prop)
-        } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
-            Err(-1)
         }
     }
 

@@ -4,6 +4,7 @@ mod delete;
 mod get;
 mod lazy;
 mod name;
+mod own;
 mod property;
 mod set;
 mod shape;

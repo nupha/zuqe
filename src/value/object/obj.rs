@@ -325,6 +325,11 @@ impl JSObjectInner {
         unsafe { self.rt.as_ref() }
     }
 
+    #[inline(always)]
+    pub const fn rt_mut(&self) -> &mut JSRuntime {
+        unsafe { self.rt.as_ptr().as_mut().unwrap() }
+    }
+
     pub fn class_id(&self) -> JSClassID {
         self.isa.borrow().class_id()
     }
@@ -403,8 +408,14 @@ impl JSObject {
         self.0.id()
     }
 
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         self.0.rt()
+    }
+
+    #[inline(always)]
+    pub fn rt_mut(&self) -> &mut JSRuntime {
+        self.0.rt_mut()
     }
 
     /// Get object class_id

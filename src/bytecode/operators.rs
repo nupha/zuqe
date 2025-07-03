@@ -550,16 +550,6 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     }
                 }
 
-                // check if the property was deleted
-                // match it.obj.has_own_property(ctx, prop){
-                //     Ok(true)=>{
-                //         break;
-                //     }
-                //     Ok(false)=>{}
-                //     Err(_)=>{
-                //         return -1;
-                //     }
-                // }
                 match it.obj.get_own_property(ctx, prop) {
                     Ok(Some(_)) => {
                         break;

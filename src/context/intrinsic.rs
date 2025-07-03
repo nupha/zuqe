@@ -619,18 +619,6 @@ impl JSContext {
                     .to_utf8_string(self)
                     .unwrap();
 
-                // let func_obj = JS_NewCFunction3(
-                //     self,
-                //     std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
-                //         js_typed_array_constructor,
-                //     ),
-                //     CStr::from_ptr(format!("{}\0", name.as_ref()).as_ptr().cast()),
-                //     3,
-                //     JSCFunctionEnum::ConstructorMagic,
-                //     i as i16,
-                //     typed_array_base_func,
-                // );
-
                 let func_obj = self
                     .create_native_function_from_proto(
                         js_typed_array_constructor,

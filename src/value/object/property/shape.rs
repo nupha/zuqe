@@ -14,13 +14,10 @@ impl JSObject {
     }
 
     pub fn has_shape_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
-        if let Ok(atom) = ctx.create_atom(prop) {
-            let b = self.has_shape_property(atom);
-            JS_FreeAtom(ctx, atom);
-            Ok(b)
-        } else {
-            Err(-1)
-        }
+        let atom = ctx.create_atom(prop)?;
+        let b = self.has_shape_property(atom);
+        JS_FreeAtom(ctx, atom);
+        Ok(b)
     }
 
     /// Find shape property by prop atom.
