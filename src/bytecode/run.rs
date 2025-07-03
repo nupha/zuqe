@@ -1188,7 +1188,7 @@ pub unsafe fn run_bytecodes(
                         Ok(vr) => {
                             if SP_REF!(-1)
                                 .object_unchecked()
-                                .add_own_property_then(
+                                .add_shape_property_then(
                                     ctx,
                                     atom,
                                     JS_PROP_WRITABLE | JS_PROP_VARREF,

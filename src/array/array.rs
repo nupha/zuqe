@@ -386,7 +386,7 @@ pub unsafe fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i3
     for (i, v) in items.into_iter().enumerate() {
         // add_property cannot fail here
         // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
-        obj.add_own_property_then(
+        obj.add_shape_property_then(
             ctx,
             JSAtom::new_u32(i as _), // int as property name
             JS_PROP_C_W_E,

@@ -139,7 +139,7 @@ impl JSObject {
             prop.to_str(ctx.rt())
         );
 
-        self.add_own_property_then(
+        self.add_shape_property_then(
             ctx,
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_AUTOINIT,

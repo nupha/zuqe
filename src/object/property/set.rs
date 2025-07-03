@@ -312,7 +312,7 @@ impl JSValue {
                             state = SetPropState::CreateProp;
                             continue;
                         } else {
-                            target.add_own_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
+                            target.add_shape_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
                                 *pr = JSProperty::Normal(val);
                             })?;
                             return Ok(true);

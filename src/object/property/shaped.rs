@@ -151,6 +151,22 @@ impl JSObject {
                 .map(|(i, _, pr)| (i, pr.flags()))
         })
     }
+
+    /// Add a own property to shape and enlarge prop value slots.
+    /// This function implies that the new prop should be add to shape (owned property),
+    /// and it does not exist yet.
+    /// Returns Err if memory error.
+    /// `prop` is not consumed.
+    #[inline(always)]
+    pub fn add_shape_property_then<R>(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        prop_flags: u32,
+        then: impl FnOnce(&mut JSProperty) -> R,
+    ) -> Result<R, i32> {
+        self.0.add_shape_property_then(ctx, prop, prop_flags, then)
+    }
 }
 
 impl JSValue {

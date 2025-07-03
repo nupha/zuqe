@@ -3,7 +3,6 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::JSContext,
-    object::{JSObjectInner, JSShape},
     value::JSValue,
 };
 
@@ -14,40 +13,6 @@ use super::{
 };
 
 impl JSObject {
-    /// Add an own property to shape and enlarge prop value slots.
-    /// This function implies that the new prop should be add to shape (owned property),
-    /// and it does not exist yet.
-    /// Returns Err if memory error.
-    /// `prop` is not consumed.
-    #[inline]
-    pub fn add_own_property_then<R>(
-        &self,
-        ctx: &JSContext,
-        prop: JSAtom,
-        prop_flags: u32,
-        then: impl FnOnce(&mut JSProperty) -> R,
-    ) -> Result<R, i32> {
-        self.0.add_shape_property_then(ctx, prop, prop_flags, then)
-    }
-
-    // /// Add a property to shape and enlarge prop value slots,
-    // /// the property value is initialized to undefined.
-    // /// Usually used to add a get/set or lazy prop.
-    // ///
-    // /// Returns Err if memory error.
-    // /// `prop` is not consumed.
-    // #[inline]
-    // pub fn add_property(&self, ctx: &JSContext, prop: JSAtom, prop_flags: u32) -> Result<(), i32> {
-    //     self.0
-    //         .do_add_property(
-    //             ctx,
-    //             prop,
-    //             prop_flags,
-    //             Option::<Box<dyn FnOnce(&mut JSProperty)>>::None,
-    //         )
-    //         .map(|r| r.unwrap())
-    // }
-
     /// Similar to define_property(), usually for new instance property initialization.
     /// If property already exists, modify its slot value; otherwise add own property and set slot value.
     /// `prop` is not consumed.
@@ -204,7 +169,7 @@ impl JSObject {
             flags & JS_PROP_C_W_E
         };
 
-        self.add_own_property_then(ctx, prop, prop_flags, |pr| {
+        self.add_shape_property_then(ctx, prop, prop_flags, |pr| {
             *pr = if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                 // getset property
                 JSProperty::GetSet {
