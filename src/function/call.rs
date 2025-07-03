@@ -39,9 +39,9 @@ pub fn JS_CallInternal(
 
             let mut s = af.0.borrow_mut();
             let throw_flag = s.throw_flag;
-            let sf = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
+            let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
-            let p = unsafe { sf.cur_func.object_unchecked().clone() };
+            let p = unsafe { frame.cur_func.object_unchecked().clone() };
             let (b, home_obj) =
                 p.0.isa
                     .borrow()
@@ -49,18 +49,18 @@ pub fn JS_CallInternal(
                     .map(|f| (f.function_bytecode.clone().unwrap(), f.home_object.clone()))
                     .unwrap();
 
-            let pc_offset = sf.cur_pc_offset;
-            let sp_offset = std::mem::replace(&mut sf.cur_sp_offset, -1);
+            let pc_offset = frame.cur_pc_offset;
+            let sp_offset = std::mem::replace(&mut frame.cur_sp_offset, -1);
             debug_assert!(sp_offset >= 0);
 
-            sf.prev_frame = rt.current_stack_frame;
-            rt.current_stack_frame = (sf.deref_mut() as *mut JSStackFrame).cast();
+            frame.prev_frame = rt.current_stack_frame;
+            rt.current_stack_frame = (frame.deref_mut() as *mut JSStackFrame).cast();
 
             unsafe {
                 run_bytecodes(
                     &b,
                     home_obj.as_ref(),
-                    sf,
+                    frame,
                     caller_ctx,
                     this_obj.clone(),
                     new_target,

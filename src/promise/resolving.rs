@@ -25,74 +25,74 @@ pub struct PromiseResolvingFuncValue(JSValue);
 impl PromiseResolvingFuncValue {
     pub fn hook_call(
         ctx: &JSContext,
-        func_obj: &JSValueConst,
-        this_val: &JSValueConst,
+        func_obj: &JSValue,
+        this_val: &JSValue,
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
         let p = unsafe { func_obj.object_unchecked() };
         let mut isa = p.0.isa.borrow_mut();
+        let class_id = isa.class_id();
 
-        let s = if let Some(s) = isa.promise_func_data_mut() {
+        if let Some(s) = isa.promise_func_data_mut() {
             if s.resolved.get() {
                 return Ok(JSValue::UNDEFINED);
             }
-            s
+
+            s.resolved.set(true);
+
+            let is_reject = class_id - JS_CLASS_PROMISE_RESOLVE_FUNCTION != 0;
+            let resolution = if args.len() > 0 {
+                args[0].clone()
+            } else {
+                JSValue::UNDEFINED
+            };
+
+            #[cfg(DUMP_PROMISE)]
+            {
+                printf(
+                    c"js_promise_resolving_function_call: is_reject=%d resolution=",
+                    is_reject as i32,
+                );
+                JS_DumpValue(ctx, resolution);
+                printf(c"\n");
+            }
+
+            if is_reject || !resolution.is_object() {
+                s.promise
+                    .clone()
+                    .fulfill_or_reject(ctx, resolution, is_reject);
+                return Ok(JSValue::UNDEFINED);
+            }
+
+            if resolution.is_same(&s.promise.0) {
+                ctx.JS_ThrowTypeError("promise self resolution");
+                let error = ctx.take_exception();
+                s.promise.clone().fulfill_or_reject(ctx, error, true);
+                return Ok(JSValue::UNDEFINED);
+            }
+
+            let then = resolution.get_property(ctx, JS_ATOM_then);
+
+            if then.is_exception() {
+                let error = ctx.take_exception();
+                s.promise.clone().fulfill_or_reject(ctx, error, true);
+            } else if !then.is_callable() {
+                s.promise
+                    .clone()
+                    .fulfill_or_reject(ctx, resolution, is_reject);
+            } else {
+                ctx.queue_job(
+                    js_promise_resolve_thenable_job,
+                    &[s.promise.clone().0, resolution, then], // arg values are not consumed
+                )
+                .unwrap();
+            }
+
+            Ok(JSValue::UNDEFINED)
         } else {
-            return Ok(JSValue::UNDEFINED);
-        };
-
-        s.resolved.set(true);
-
-        let is_reject = p.class_id() - JS_CLASS_PROMISE_RESOLVE_FUNCTION != 0;
-        let resolution = if args.len() > 0 {
-            args[0].clone()
-        } else {
-            JSValue::UNDEFINED
-        };
-
-        #[cfg(DUMP_PROMISE)]
-        {
-            printf(
-                c"js_promise_resolving_function_call: is_reject=%d resolution=",
-                is_reject as i32,
-            );
-            JS_DumpValue(ctx, resolution);
-            printf(c"\n");
+            Ok(JSValue::UNDEFINED)
         }
-
-        if is_reject || !resolution.is_object() {
-            s.promise
-                .clone()
-                .fulfill_or_reject(ctx, resolution, is_reject);
-            return Ok(JSValue::UNDEFINED);
-        }
-
-        if resolution.is_same(&s.promise.0) {
-            ctx.JS_ThrowTypeError("promise self resolution");
-            let error = ctx.take_exception();
-            s.promise.clone().fulfill_or_reject(ctx, error, true);
-            return Ok(JSValue::UNDEFINED);
-        }
-
-        let then = resolution.get_property(ctx, JS_ATOM_then);
-
-        if then.is_exception() {
-            let error = ctx.take_exception();
-            s.promise.clone().fulfill_or_reject(ctx, error, true);
-        } else if !then.is_callable() {
-            s.promise
-                .clone()
-                .fulfill_or_reject(ctx, resolution, is_reject);
-        } else {
-            ctx.queue_job(
-                js_promise_resolve_thenable_job,
-                &[s.promise.clone().0, resolution, then], // arg values are not consumed
-            )
-            .unwrap();
-        }
-
-        Ok(JSValue::UNDEFINED)
     }
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}

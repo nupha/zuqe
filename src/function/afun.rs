@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     pin::Pin,
+    ptr::NonNull,
     rc::{Rc, Weak},
 };
 
@@ -120,6 +121,16 @@ impl JSAsyncFunctionStateInner {
         self as *const Self as usize
     }
 
+    #[inline(always)]
+    pub fn arg_ptr(&self) -> NonNull<JSValue> {
+        unsafe { NonNull::new_unchecked(self.frame.arg_base_ptr) }
+    }
+
+    #[inline(always)]
+    pub fn arg_count(&self) -> usize {
+        self.frame.arg_count as usize
+    }
+
     pub fn arg_slice(&self) -> &[JSValue] {
         unsafe {
             std::slice::from_raw_parts(self.frame.arg_base_ptr, self.frame.arg_count as usize)
@@ -203,12 +214,19 @@ impl JSAsyncFunctionState {
         Ok(s)
     }
 
+    #[inline]
     pub fn id(&self) -> usize {
         self.0.borrow().id()
     }
 
+    #[inline]
     pub fn rt(&self) -> &JSRuntime {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+    }
+
+    #[inline]
+    pub fn is_completed(&self) -> bool {
+        self.0.borrow().is_completed
     }
 
     pub fn downgrade(&self) -> JSAsyncFunctionStateWeakref {
@@ -229,12 +247,19 @@ impl JSAsyncFunctionState {
             JS_ThrowStackOverflow(ctx);
             Err(-1)
         } else {
+            // short borrow to avoid conflict
+            let (this_val, arg_list) = {
+                let b = self.0.borrow();
+                (b.this_val.clone(), unsafe {
+                    std::slice::from_raw_parts(b.arg_ptr().as_ptr(), b.arg_count())
+                })
+            };
             JS_CallInternal(
                 ctx,
                 &JSValue::AsyncFuncResume(self.clone()), // <-- use special value type `::AsyncFuncResume`
-                &self.0.borrow().this_val,               // FIXME: this will cause borrow conflict.
+                &this_val,
                 JSValue::UNDEFINED,
-                self.0.borrow().arg_slice(), // FIXME: this will cause borrow conflict.
+                arg_list,
                 JS_CALL_FLAG_GENERATOR,
             )
             .check_exception()
@@ -407,39 +432,26 @@ pub fn js_async_function_call(
 pub fn js_async_function_resume(ctx: &JSContext, s: &JSAsyncFunctionState) {
     let func_ret = s.resume(ctx);
 
-    if s.0.borrow().is_completed {
+    if s.is_completed() {
         match func_ret {
             Ok(val) => {
                 // normal return
-                JS_Call(
-                    ctx,
-                    &s.0.borrow().resolving_funcs[0], // resolve
-                    &JSValue::UNDEFINED,
-                    std::slice::from_ref(&val),
-                );
+                let func = s.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
+                JS_Call(ctx, &func, &JSValue::UNDEFINED, std::slice::from_ref(&val));
             }
             Err(_) => {
+                let func = s.0.borrow().resolving_funcs[1].clone(); // reject: short borrow
                 let error = ctx.take_exception();
-                JS_Call(
-                    ctx,
-                    &s.0.borrow().resolving_funcs[1], // reject
-                    &JSValue::UNDEFINED,
-                    &[error],
-                );
+                JS_Call(ctx, &func, &JSValue::UNDEFINED, &[error]);
             }
         }
     } else {
         let cur_sp = s.0.borrow().frame.stack_cur_ptr();
         let value = unsafe { std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED) };
+        let promise_ctor = ctx.0.borrow().promise_ctor.clone();
 
         let promise = {
-            let cc = CallContext::new(
-                ctx,
-                ctx.0.borrow().promise_ctor.clone(),
-                std::slice::from_ref(&value),
-                0,
-                None,
-            );
+            let cc = CallContext::new(ctx, promise_ctor, std::slice::from_ref(&value), 0, None);
             js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
         };
         if promise.is_exception() {
@@ -448,7 +460,7 @@ pub fn js_async_function_resume(ctx: &JSContext, s: &JSAsyncFunctionState) {
                 ctx,
                 &s.0.borrow().resolving_funcs[1],
                 &JSValue::UNDEFINED,
-                &[error],
+                std::slice::from_ref(&error),
             );
         }
 

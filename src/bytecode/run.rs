@@ -104,15 +104,6 @@ pub unsafe fn run_bytecodes(
         }
     }
 
-    // macro_rules! SP {
-    //     [0] => {
-    //         unsafe { (*sp) }
-    //     };
-    //     [$idx:expr] => {
-    //         unsafe { (*sp.offset(($idx) as isize)) }
-    //     };
-    // }
-
     /// get value ref at position `idx`
     #[cfg(debug_assertions)]
     macro_rules! SP_REF {

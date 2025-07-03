@@ -288,7 +288,7 @@ impl JSObject {
                     }
                 }
                 JSProperty::AutoInit { .. } => {
-                    unreachable!()
+                    unreachable!();
                 }
             }
         }
