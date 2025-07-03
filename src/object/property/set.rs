@@ -6,6 +6,7 @@ use crate::{
     atom::{
         __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom, JSAtom,
     },
+    class::JSClassID,
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
     function::JS_Call,
@@ -28,7 +29,7 @@ enum SetPropState {
     /// Try exotic set handler, and walk up through proto chain
     ExoticAndGoUp,
     /// Set property value or instantiate property
-    SetOrInit,
+    SetSlotValue,
     /// Add or update property
     Add,
     /// Create new property on object
@@ -36,7 +37,7 @@ enum SetPropState {
     /// Read-only error
     ErrReadOnly,
     /// TypedArray out of bounds error
-    ErrTypedArrayOOB,
+    ErrTypedArrayOOB(JSClassID),
 }
 
 pub(crate) fn call_setter(
@@ -93,7 +94,7 @@ impl JSObject {
                 } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                     .contains(&self.class_id())
                 {
-                    new_state = SetPropState::ErrTypedArrayOOB;
+                    new_state = SetPropState::ErrTypedArrayOOB(self.class_id());
                 }
             } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
                 let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
@@ -101,7 +102,7 @@ impl JSObject {
                     if ret < 0 {
                         return Err(None);
                     }
-                    new_state = SetPropState::ErrTypedArrayOOB;
+                    new_state = SetPropState::ErrTypedArrayOOB(self.class_id());
                 }
             }
         } else {
@@ -121,28 +122,31 @@ impl JSObject {
                         flags as _,
                     )
                     .map_err(|_| None);
-                } else if let Some(cb) = em.get_own_property {
+                }
+
+                if let Some(cb) = em.get_own_property {
                     if let Some(desc) =
                         cb(ctx, JSValue::Object(self.clone()), prop).map_err(|_| None)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             return call_setter(ctx, desc.setter.object(), &this_obj, val, flags)
                                 .map_err(|_| None);
-                        } else if desc.flags & JS_PROP_WRITABLE == 0 {
+                        }
+
+                        if desc.flags & JS_PROP_WRITABLE == 0 {
                             new_state = SetPropState::ErrReadOnly;
+                        } else if this_obj.object() == Some(self) {
+                            return self
+                                .define_property(
+                                    ctx,
+                                    prop,
+                                    &val,
+                                    &JSValue::UNDEFINED,
+                                    &JSValue::UNDEFINED,
+                                    JS_PROP_HAS_VALUE,
+                                )
+                                .map_err(|_| None);
                         } else {
-                            if this_obj.object() == Some(self) {
-                                return this_obj
-                                    .define_property(
-                                        ctx,
-                                        prop,
-                                        &val,
-                                        &JSValue::UNDEFINED,
-                                        &JSValue::UNDEFINED,
-                                        JS_PROP_HAS_VALUE,
-                                    )
-                                    .map_err(|_| None);
-                            }
                             new_state = SetPropState::Add;
                         }
                     }
@@ -152,6 +156,253 @@ impl JSObject {
 
         Err(Some(new_state))
     }
+
+    /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
+    /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
+    ///
+    /// In most cases, self==this_obj, except in case of Reflect.set(target, prop, val, [[receiver]]),
+    /// where `self` is _target_, and `this_obj` is _receiver_.
+    pub(crate) fn set_property_ex(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        val: JSValue,
+        this_obj: &JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        match this_obj {
+            JSValue::Object(this) => {
+                let mut state = if self == this {
+                    if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
+                        return self.put_prop_slot(
+                            ctx,
+                            prs_flags,
+                            prop,
+                            idx,
+                            val.clone(),
+                            self,
+                            flags,
+                        );
+                    } else {
+                        SetPropState::ExoticAndGoUp
+                    }
+                } else {
+                    SetPropState::SetSlotValue
+                };
+
+                // proto chain walker
+                let mut ob_obj = self.clone();
+
+                loop {
+                    match state {
+                        SetPropState::ExoticAndGoUp => {
+                            // target: ob_obj
+                            if ob_obj.flags().is_exotic() {
+                                match ob_obj.set_property_exotic(
+                                    ctx,
+                                    prop,
+                                    val.clone(),
+                                    this_obj.clone(),
+                                    flags,
+                                ) {
+                                    Ok(b) => {
+                                        return Ok(b);
+                                    }
+                                    Err(None) => {
+                                        return Err(-1);
+                                    }
+                                    Err(Some(next_state)) => {
+                                        state = next_state;
+                                    }
+                                }
+                            }
+
+                            if SetPropState::ExoticAndGoUp == state {
+                                // walk up proto chain
+                                state = if let Some(up) =
+                                    ob_obj.shape().unwrap().0.borrow().proto.clone()
+                                {
+                                    ob_obj = up;
+                                    SetPropState::SetSlotValue
+                                } else {
+                                    // end of proto chain, prop was not found on `obj`
+                                    // ob_obj = None;
+                                    SetPropState::Add
+                                };
+                            }
+
+                            continue;
+                        }
+                        SetPropState::SetSlotValue => {
+                            // target: ob_obj
+                            if let Some((idx, prs_flags)) = ob_obj.find_shape_property(prop) {
+                                return ob_obj.put_prop_slot(
+                                    ctx,
+                                    prs_flags,
+                                    prop,
+                                    idx,
+                                    val.clone(),
+                                    this,
+                                    flags,
+                                );
+                            } else {
+                                state = SetPropState::ExoticAndGoUp;
+                                continue;
+                            }
+                        }
+
+                        SetPropState::Add => {
+                            // update or add property on this_obj.
+                            // target: this_obj
+                            if flags & JS_PROP_NO_ADD != 0 {
+                                JS_ThrowReferenceErrorNotDefined(ctx, prop);
+                                return Err(-1);
+                            }
+
+                            if !this.flags().extensible() {
+                                return if ctx.JS_ThrowTypeErrorOrFalse(
+                                    flags as _,
+                                    "object is not extensible",
+                                ) {
+                                    Err(-1)
+                                } else {
+                                    Ok(false)
+                                };
+                            }
+
+                            if this == self {
+                                let ob_flags = this.flags();
+                                if ob_flags.is_exotic() {
+                                    if ob_flags.fast_array()
+                                        && self.class_id() == JS_CLASS_ARRAY
+                                        && prop.is_int_type()
+                                    {
+                                        // fast array
+                                        let idx = __JS_AtomToUInt32(prop);
+                                        if idx == self.array_length_unchecked() as u32 {
+                                            return self.add_fast_array_element(ctx, val, flags);
+                                        }
+                                    }
+
+                                    state = SetPropState::CreateProp;
+                                    continue;
+                                } else {
+                                    return self.add_shape_property_then(
+                                        ctx,
+                                        prop,
+                                        JS_PROP_C_W_E,
+                                        |pr| {
+                                            *pr = JSProperty::Normal(val);
+                                            true
+                                        },
+                                    );
+                                }
+                            } else {
+                                // generic case: modify the property in this_obj if it already exists
+                                match this.get_own_property(ctx, prop)? {
+                                    Some(desc) => {
+                                        // already exists, update the value
+                                        if desc.flags & JS_PROP_GETSET != 0 {
+                                            return if ctx.JS_ThrowTypeErrorOrFalse(
+                                                flags as _,
+                                                "setter is forbidden",
+                                            ) {
+                                                Err(-1)
+                                            } else {
+                                                Ok(false)
+                                            };
+                                        } else if desc.flags & JS_PROP_WRITABLE == 0
+                                            || this.class_id() == JS_CLASS_MODULE_NS
+                                        {
+                                            state = SetPropState::ErrReadOnly;
+                                            continue;
+                                        }
+
+                                        return this_obj.define_property(
+                                            ctx,
+                                            prop,
+                                            &val,
+                                            &JSValue::UNDEFINED,
+                                            &JSValue::UNDEFINED,
+                                            JS_PROP_HAS_VALUE,
+                                        );
+                                    }
+                                    None => {
+                                        // not found on this_obj, should create
+                                        state = SetPropState::CreateProp;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        SetPropState::CreateProp => {
+                            // create property on this_obj.
+                            // target: ob_this
+                            return this.create_property(
+                                ctx,
+                                prop,
+                                val,
+                                JSValue::UNDEFINED,
+                                JSValue::UNDEFINED,
+                                flags
+                                    | JS_PROP_HAS_VALUE
+                                    | JS_PROP_HAS_ENUMERABLE
+                                    | JS_PROP_HAS_WRITABLE
+                                    | JS_PROP_HAS_CONFIGURABLE
+                                    | JS_PROP_C_W_E,
+                            );
+                        }
+
+                        SetPropState::ErrReadOnly => {
+                            return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                                Err(-1)
+                            } else {
+                                Ok(false)
+                            };
+                        }
+                        SetPropState::ErrTypedArrayOOB(class_id) => {
+                            // must convert the argument even if out of bound access
+                            if matches!(
+                                class_id,
+                                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
+                            ) {
+                                unimplemented!()
+                                // let mut v:i64;
+                                // if JS_ToBigInt64Free(ctx, &v, val)!=0{
+                                //     return -1;
+                                // }
+                            } else {
+                                //let _ = val.coerce_to_number_free(ctx)?; // consume val
+                            }
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+
+            JSValue::EXCEPTION => {
+                return Err(-1);
+            }
+            _ => {
+                return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "receiver must be an object") {
+                    Err(-1)
+                } else {
+                    Ok(false)
+                };
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
+        self.set_property_ex(
+            ctx,
+            prop,
+            val,
+            &JSValue::Object(self.clone()),
+            JS_PROP_THROW,
+        )
+    }
 }
 
 impl JSValue {
@@ -160,7 +411,7 @@ impl JSValue {
     ///
     /// **In most cases, obj==this_obj, except in case of Reflect.set(obj, val, [receiver]),
     /// where obj (must be an object), and this_obj is for receiver.**
-    pub(crate) unsafe fn set_property_internal(
+    pub(crate) fn set_property_internal(
         ctx: &JSContext,
         obj: &JSValue,
         prop: JSAtom,
@@ -168,239 +419,246 @@ impl JSValue {
         this_obj: &JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let mut ob_obj: Option<JSObject>;
-        let ob_this: Option<&JSObject>;
-
-        // pre check
-        let mut state = match (obj, this_obj) {
-            (JSValue::Object(o), JSValue::Object(this)) => {
-                ob_obj = Some(o.clone());
-                ob_this = Some(this);
-
-                if o == this {
-                    if let Some((idx, prs_flags)) = o.find_shape_property(prop) {
-                        return o.put_prop_slot(ctx, prs_flags, prop, idx, val.clone(), o, flags);
-                    }
-                    SetPropState::ExoticAndGoUp
+        if let Self::Object(o) = obj {
+            o.set_property_ex(ctx, prop, val, this_obj, flags)
+        } else {
+            if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, obj) } {
+                p.set_property_ex(ctx, prop, val, this_obj, flags)
+            } else {
+                if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "target must be an object") {
+                    Err(-1)
                 } else {
-                    SetPropState::SetOrInit
-                }
-            }
-            (JSValue::NULL, _) | (_, JSValue::NULL) => {
-                ctx.JS_ThrowTypeError(&format!(
-                    "cannot set property '{}' of null",
-                    prop.to_str(ctx.rt())
-                ));
-                return Err(-1);
-            }
-            (JSValue::UNDEFINED, _) | (_, JSValue::UNDEFINED) => {
-                ctx.JS_ThrowTypeError(&format!(
-                    "cannot set property '{}' of undefined",
-                    prop.to_str(ctx.rt())
-                ));
-                return Err(-1);
-            }
-            _ => {
-                // even on a primitive type we can have setters on the prototype
-                ob_this = None;
-                if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, obj) {
-                    ob_obj = Some(p);
-                    SetPropState::SetOrInit
-                } else {
-                    ob_obj = None;
-                    SetPropState::Add
-                }
-            }
-        };
-
-        // process states
-        loop {
-            match state {
-                SetPropState::ExoticAndGoUp => {
-                    let target = ob_obj.clone().unwrap();
-
-                    if target.flags().is_exotic() {
-                        match target.set_property_exotic(
-                            ctx,
-                            prop,
-                            val.clone(),
-                            this_obj.clone(),
-                            flags,
-                        ) {
-                            Ok(b) => {
-                                return Ok(b);
-                            }
-                            Err(None) => {
-                                return Err(-1);
-                            }
-                            Err(Some(next_state)) => {
-                                state = next_state;
-                            }
-                        }
-                    } // is_exotic()
-
-                    if SetPropState::ExoticAndGoUp == state {
-                        // walk up proto chain
-                        state = if let Some(up) = target.shape().unwrap().0.borrow().proto.clone() {
-                            ob_obj = Some(up);
-                            SetPropState::SetOrInit
-                        } else {
-                            ob_obj = None;
-                            SetPropState::Add
-                        };
-                    }
-
-                    continue;
-                }
-                SetPropState::SetOrInit => {
-                    let target = ob_obj.as_ref().unwrap();
-                    if let Some((idx, prs_flags)) = target.find_shape_property(prop) {
-                        return target.put_prop_slot(
-                            ctx,
-                            prs_flags,
-                            prop,
-                            idx,
-                            val.clone(),
-                            ob_this.unwrap(),
-                            flags,
-                        );
-                    }
-
-                    state = SetPropState::ExoticAndGoUp;
-                    continue;
-                }
-
-                SetPropState::Add => {
-                    // to add or update a property on `this_obj`
-                    if flags & JS_PROP_NO_ADD != 0 {
-                        JS_ThrowReferenceErrorNotDefined(ctx, prop);
-                        return Err(-1);
-                    }
-                    if ob_this.is_none() {
-                        return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "not an object") {
-                            Err(-1)
-                        } else {
-                            Ok(false)
-                        };
-                    }
-
-                    let target = ob_this.unwrap();
-
-                    if !target.flags().extensible() {
-                        return if ctx
-                            .JS_ThrowTypeErrorOrFalse(flags as _, "object is not extensible")
-                        {
-                            Err(-1)
-                        } else {
-                            Ok(false)
-                        };
-                    }
-
-                    if ob_this == ob_obj.as_ref() {
-                        if target.flags().is_exotic() {
-                            if target.class_id() == JS_CLASS_ARRAY
-                                && target.flags().fast_array()
-                                && prop.is_int_type()
-                            {
-                                // fast array
-                                let idx = __JS_AtomToUInt32(prop);
-                                if idx == target.array_length_unchecked() as u32 {
-                                    return target.add_fast_array_element(ctx, val, flags);
-                                }
-                            }
-
-                            state = SetPropState::CreateProp;
-                            continue;
-                        } else {
-                            target.add_shape_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
-                                *pr = JSProperty::Normal(val);
-                            })?;
-                            return Ok(true);
-                        }
-                    } else {
-                        // generic case: modify the property in this_obj if it already exists
-                        match target.get_own_property(ctx, prop)? {
-                            Some(desc) => {
-                                // already exists, update the value
-                                if desc.flags & JS_PROP_GETSET != 0 {
-                                    return if ctx
-                                        .JS_ThrowTypeErrorOrFalse(flags as _, "setter is forbidden")
-                                    {
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
-                                    };
-                                } else if desc.flags & JS_PROP_WRITABLE == 0
-                                    || target.class_id() == JS_CLASS_MODULE_NS
-                                {
-                                    state = SetPropState::ErrReadOnly;
-                                    continue;
-                                }
-
-                                return this_obj.define_property(
-                                    ctx,
-                                    prop,
-                                    &val,
-                                    &JSValue::UNDEFINED,
-                                    &JSValue::UNDEFINED,
-                                    JS_PROP_HAS_VALUE,
-                                );
-                            }
-                            None => {
-                                // not exist, should create
-                                state = SetPropState::CreateProp;
-                                continue;
-                            }
-                        }
-                    }
-                }
-                SetPropState::CreateProp => {
-                    // create property on this_obj
-                    return ob_this.unwrap().create_property(
-                        ctx,
-                        prop,
-                        val,
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        flags
-                            | JS_PROP_HAS_VALUE
-                            | JS_PROP_HAS_ENUMERABLE
-                            | JS_PROP_HAS_WRITABLE
-                            | JS_PROP_HAS_CONFIGURABLE
-                            | JS_PROP_C_W_E,
-                    );
-                }
-
-                SetPropState::ErrReadOnly => {
-                    return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    };
-                }
-                SetPropState::ErrTypedArrayOOB => {
-                    // must convert the argument even if out of bound access
-                    if matches!(
-                        ob_obj.unwrap().class_id(),
-                        JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
-                    ) {
-                        unimplemented!()
-                        // let mut v:i64;
-                        // if JS_ToBigInt64Free(ctx, &v, val)!=0{
-                        //     return -1;
-                        // }
-                    } else {
-                        let v = val.coerce_to_number_free(ctx)?; // consume val
-                    }
-                    return Ok(true);
+                    Ok(false)
                 }
             }
         }
+
+        // let mut ob_obj: Option<JSObject>;
+        // let ob_this: Option<&JSObject>;
+
+        // // pre check
+        // let mut state = match (obj, this_obj) {
+        //     (JSValue::Object(o), JSValue::Object(this)) => {
+        //         ob_obj = Some(o.clone());
+        //         ob_this = Some(this);
+
+        //         if o == this {
+        //             if let Some((idx, prs_flags)) = o.find_shape_property(prop) {
+        //                 return o.put_prop_slot(ctx, prs_flags, prop, idx, val.clone(), o, flags);
+        //             }
+        //             SetPropState::ExoticAndGoUp
+        //         } else {
+        //             SetPropState::SetSlotValue
+        //         }
+        //     }
+        //     (JSValue::UNDEFINED, _) | (JSValue::NULL, _) => {
+        //         ctx.JS_ThrowTypeError(&format!(
+        //             "cannot set property '{}' of non-object",
+        //             prop.to_str(ctx.rt())
+        //         ));
+        //         return Err(-1);
+        //     }
+        //     _ => {
+        //         // even on a primitive type we can have setters on the prototype
+        //         ob_this = None;
+        //         if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, obj) {
+        //             ob_obj = Some(p);
+        //             SetPropState::SetSlotValue
+        //         } else {
+        //             ob_obj = None;
+        //             SetPropState::Add
+        //         }
+        //     }
+        // };
+
+        // // process states
+        // loop {
+        //     match state {
+        //         SetPropState::ExoticAndGoUp => {
+        //             let target = ob_obj.clone().unwrap();
+
+        //             if target.flags().is_exotic() {
+        //                 match target.set_property_exotic(
+        //                     ctx,
+        //                     prop,
+        //                     val.clone(),
+        //                     this_obj.clone(),
+        //                     flags,
+        //                 ) {
+        //                     Ok(b) => {
+        //                         return Ok(b);
+        //                     }
+        //                     Err(None) => {
+        //                         return Err(-1);
+        //                     }
+        //                     Err(Some(next_state)) => {
+        //                         state = next_state;
+        //                     }
+        //                 }
+        //             } // is_exotic()
+
+        //             if SetPropState::ExoticAndGoUp == state {
+        //                 // walk up proto chain
+        //                 state = if let Some(up) = target.shape().unwrap().0.borrow().proto.clone() {
+        //                     ob_obj = Some(up);
+        //                     SetPropState::SetSlotValue
+        //                 } else {
+        //                     ob_obj = None;
+        //                     SetPropState::Add
+        //                 };
+        //             }
+
+        //             continue;
+        //         }
+        //         SetPropState::SetSlotValue => {
+        //             let target = ob_obj.as_ref().unwrap();
+        //             if let Some((idx, prs_flags)) = target.find_shape_property(prop) {
+        //                 return target.put_prop_slot(
+        //                     ctx,
+        //                     prs_flags,
+        //                     prop,
+        //                     idx,
+        //                     val.clone(),
+        //                     ob_this.unwrap(),
+        //                     flags,
+        //                 );
+        //             }
+
+        //             state = SetPropState::ExoticAndGoUp;
+        //             continue;
+        //         }
+
+        //         SetPropState::Add => {
+        //             // to add or update a property on `this_obj`
+        //             if flags & JS_PROP_NO_ADD != 0 {
+        //                 JS_ThrowReferenceErrorNotDefined(ctx, prop);
+        //                 return Err(-1);
+        //             }
+        //             if ob_this.is_none() {
+        //                 return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "not an object") {
+        //                     Err(-1)
+        //                 } else {
+        //                     Ok(false)
+        //                 };
+        //             }
+
+        //             let target = ob_this.unwrap();
+
+        //             if !target.flags().extensible() {
+        //                 return if ctx
+        //                     .JS_ThrowTypeErrorOrFalse(flags as _, "object is not extensible")
+        //                 {
+        //                     Err(-1)
+        //                 } else {
+        //                     Ok(false)
+        //                 };
+        //             }
+
+        //             if ob_this == ob_obj.as_ref() {
+        //                 if target.flags().is_exotic() {
+        //                     if target.class_id() == JS_CLASS_ARRAY
+        //                         && target.flags().fast_array()
+        //                         && prop.is_int_type()
+        //                     {
+        //                         // fast array
+        //                         let idx = __JS_AtomToUInt32(prop);
+        //                         if idx == target.array_length_unchecked() as u32 {
+        //                             return target.add_fast_array_element(ctx, val, flags);
+        //                         }
+        //                     }
+
+        //                     state = SetPropState::CreateProp;
+        //                     continue;
+        //                 } else {
+        //                     target.add_shape_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
+        //                         *pr = JSProperty::Normal(val);
+        //                     })?;
+        //                     return Ok(true);
+        //                 }
+        //             } else {
+        //                 // generic case: modify the property in this_obj if it already exists
+        //                 match target.get_own_property(ctx, prop)? {
+        //                     Some(desc) => {
+        //                         // already exists, update the value
+        //                         if desc.flags & JS_PROP_GETSET != 0 {
+        //                             return if ctx
+        //                                 .JS_ThrowTypeErrorOrFalse(flags as _, "setter is forbidden")
+        //                             {
+        //                                 Err(-1)
+        //                             } else {
+        //                                 Ok(false)
+        //                             };
+        //                         } else if desc.flags & JS_PROP_WRITABLE == 0
+        //                             || target.class_id() == JS_CLASS_MODULE_NS
+        //                         {
+        //                             state = SetPropState::ErrReadOnly;
+        //                             continue;
+        //                         }
+
+        //                         return this_obj.define_property(
+        //                             ctx,
+        //                             prop,
+        //                             &val,
+        //                             &JSValue::UNDEFINED,
+        //                             &JSValue::UNDEFINED,
+        //                             JS_PROP_HAS_VALUE,
+        //                         );
+        //                     }
+        //                     None => {
+        //                         // not exist, should create
+        //                         state = SetPropState::CreateProp;
+        //                         continue;
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //         SetPropState::CreateProp => {
+        //             // create property on this_obj
+        //             return ob_this.unwrap().create_property(
+        //                 ctx,
+        //                 prop,
+        //                 val,
+        //                 JSValue::UNDEFINED,
+        //                 JSValue::UNDEFINED,
+        //                 flags
+        //                     | JS_PROP_HAS_VALUE
+        //                     | JS_PROP_HAS_ENUMERABLE
+        //                     | JS_PROP_HAS_WRITABLE
+        //                     | JS_PROP_HAS_CONFIGURABLE
+        //                     | JS_PROP_C_W_E,
+        //             );
+        //         }
+
+        //         SetPropState::ErrReadOnly => {
+        //             return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+        //                 Err(-1)
+        //             } else {
+        //                 Ok(false)
+        //             };
+        //         }
+        //         SetPropState::ErrTypedArrayOOB(class_id) => {
+        //             // must convert the argument even if out of bound access
+        //             if matches!(
+        //                 class_id,
+        //                 JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
+        //             ) {
+        //                 unimplemented!()
+        //                 // let mut v:i64;
+        //                 // if JS_ToBigInt64Free(ctx, &v, val)!=0{
+        //                 //     return -1;
+        //                 // }
+        //             } else {
+        //                 let v = val.coerce_to_number_free(ctx)?; // consume val
+        //             }
+        //             return Ok(true);
+        //         }
+        //     }
+        // }
     }
 
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
-        unsafe { Self::set_property_internal(ctx, self, prop, val, self, JS_PROP_THROW) }
+        Self::set_property_internal(ctx, self, prop, val, self, JS_PROP_THROW)
     }
 
     pub fn set_property_value(

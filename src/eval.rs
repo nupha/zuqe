@@ -14,7 +14,7 @@ use crate::{
     object::JSObject,
     parse::{JS_DetectModule, JSParseState, skip_shebang},
     stack_frame::JSStackFrame,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 /// Native function to handle `eval`, returns eval result.
@@ -216,7 +216,7 @@ impl JSContext {
 
     // pub fn eval_hook(
     //     ctx: &JSContext,
-    //     this_obj: JSValueConst,
+    //     this_obj: JSValue,
     //     input: &[u8],
     //     filename: &str,
     //     flags: u32,
@@ -321,7 +321,7 @@ impl JSValue {
 pub unsafe fn JS_EvalFunctionInternal(
     ctx: &JSContext,
     fun_obj: JSValue,
-    this_obj: &JSValueConst,
+    this_obj: &JSValue,
     var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {

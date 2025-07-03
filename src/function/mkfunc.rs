@@ -231,8 +231,12 @@ impl JSFunctionDef {
                 .cast::<JSValue>();
 
             for v in self.cpool.drain(..) {
-                // *dst=v;
-                std::ptr::replace(dst, v);
+                println!("[O.o] const={:?}", v.repr());
+
+                *dst = v;
+                //let o = std::ptr::replace(dst, v);
+                //println!("[O.o] old={:?}", o.repr());
+
                 dst = dst.add(1);
             }
         }
