@@ -7,7 +7,7 @@ mod name;
 mod own;
 mod property;
 mod set;
-mod shape;
+mod shaped;
 mod slot;
 
 pub use {define::*, lazy::*, name::*, property::*};

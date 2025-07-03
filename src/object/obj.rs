@@ -294,7 +294,7 @@ impl JSObjectInner {
 
         if add_length_prop {
             // only used for the fast array, cannot fail
-            obj.add_own_property_then(
+            obj.add_shape_property_then(
                 ctx,
                 JS_ATOM_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
