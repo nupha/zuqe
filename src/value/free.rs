@@ -1,4 +1,4 @@
-use crate::{context::JSContext, runtime::JSRuntime, value::object::GCObject};
+use crate::{context::JSContext, object::GCObject, runtime::JSRuntime};
 
 use super::JSValue;
 

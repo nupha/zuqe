@@ -4,9 +4,10 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
+    object::JSObjectIsa,
     parse::JSParseState,
     runtime::JSRuntime,
-    value::{JSString, JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSString, JSValue, JSValueConst},
 };
 
 #[derive(Debug)]

@@ -5,8 +5,9 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
+    object::JSObjectIsa,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst},
 };
 
 use super::{PromiseValue, js_promise_resolve_thenable_job};

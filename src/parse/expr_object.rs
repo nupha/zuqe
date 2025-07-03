@@ -3,15 +3,15 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
     function::JSFunctionKindEnum,
+    object::{
+        PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_SET, PROP_TYPE_STAR,
+        PROP_TYPE_VAR,
+    },
     parse::{
         JSParseFunctionEnum,
         class::js_parse_property_name,
         obj::set_object_name_computed,
         token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
-    },
-    value::object::{
-        PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_SET, PROP_TYPE_STAR,
-        PROP_TYPE_VAR,
     },
 };
 

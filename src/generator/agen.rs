@@ -7,13 +7,11 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, JSAsyncFunctionState, JSCFunctionListEntry},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
+    object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
-    value::{
-        JSValue, JSValueConst,
-        object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
-    },
+    value::{JSValue, JSValueConst},
 };
 
 use super::{FUNC_RET_AWAIT, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR};

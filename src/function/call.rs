@@ -7,8 +7,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, build_arg_list},
+    object::JSObjectIsa,
     stack_frame::JSStackFrame,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst},
 };
 
 pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;

@@ -3,10 +3,8 @@ use crate::{
     context::JSContext,
     function::{JSAsyncFunctionState, JSFunctionBytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, JSModuleDef},
-    value::{
-        JSString, JSValue,
-        object::{JSObject, JSProperty, JSShape, LazyInit},
-    },
+    object::{JSObject, JSProperty, JSShape, LazyInit},
+    value::{JSString, JSValue},
 };
 
 impl JSObject {

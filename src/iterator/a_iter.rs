@@ -6,10 +6,11 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call, JSCFunctionListEntry},
+    object::JSObjectIsa,
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst},
 };
 
 use super::{JS_IteratorGetCompleteValue, JS_IteratorNext2, js_create_iterator_result};

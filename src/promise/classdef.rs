@@ -6,11 +6,9 @@ use crate::{
     function::{CallContext, JS_Call, JS_Invoke, JSCFunctionListEntry},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     utils::UncheckedInto,
-    value::{
-        JSValue,
-        object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
-    },
+    value::JSValue,
 };
 
 use super::{

@@ -4,10 +4,8 @@ use crate::{
         JSAsyncFunctionState, JSAsyncFunctionStateWeakref, JSFunctionBytecode,
         JSFunctionBytecodeWeakref, JSVarRef, JSVarRefWeakref,
     },
-    value::{
-        JSString, JSStringWeakref,
-        object::{JSObjectWeakref, JSShapeWeakref},
-    },
+    object::{JSObjectWeakref, JSShapeWeakref},
+    value::{JSString, JSStringWeakref},
 };
 
 use super::{JSObject, JSShape};

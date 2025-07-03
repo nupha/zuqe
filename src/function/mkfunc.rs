@@ -10,7 +10,8 @@ use crate::{
     },
     gc::GCObjectHeader,
     module::add_module_variables,
-    value::{JSValue, object::GCObjectWeakref},
+    object::GCObjectWeakref,
+    value::JSValue,
 };
 
 use super::JSFunctionDef;

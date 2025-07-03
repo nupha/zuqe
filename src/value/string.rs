@@ -11,17 +11,15 @@ use crate::{
     context::JSContext,
     error::JSResult,
     gc::GCObjectHeader,
+    object::{
+        GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
+        JSPropertyDescriptor, check_define_prop_flags,
+    },
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, object::GCObjectWeakref},
+    value::{JSValue, JSValueConst},
 };
 
-use super::{
-    StringContent,
-    object::{
-        JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor,
-        check_define_prop_flags,
-    },
-};
+use super::StringContent;
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;

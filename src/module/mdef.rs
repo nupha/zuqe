@@ -17,12 +17,10 @@ use crate::{
         JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, JSReqModuleEntry,
         JSStarExportEntry,
     },
+    object::{JS_PROP_C_W_E, JSObject, JSObjectIsa},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    value::{
-        JSValue,
-        object::{JS_PROP_C_W_E, JSObject, JSObjectIsa},
-    },
+    value::JSValue,
 };
 
 pub type JSModuleNormalizeFunc = for<'a> fn(

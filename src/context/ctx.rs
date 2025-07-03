@@ -15,15 +15,13 @@ use crate::{
     eval::EvalFunc,
     function::{JSCFunctionEnum, js_function_proto},
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
+        JSObject, JSObjectIsa, JSShape,
+    },
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    value::{
-        JSValue,
-        object::{
-            JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
-            JSObject, JSObjectIsa, JSShape,
-        },
-    },
+    value::JSValue,
 };
 
 /// Execution context

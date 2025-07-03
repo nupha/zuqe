@@ -8,12 +8,10 @@ use crate::{
         JSFunctionBytecode, JSFunctionKindEnum, JSObjectFunc, JSVarRef, func_kind_to_class_id,
         js_function_set_properties,
     },
+    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa, LazyInit},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
-    value::{
-        JSValue,
-        object::{LazyInit, JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa},
-    },
+    value::JSValue,
 };
 
 use super::{ARG_SCOPE_END, JSFunctionDef, JSVarDef, JSVarKindEnum, is_var_in_arg_scope};

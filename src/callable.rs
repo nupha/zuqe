@@ -7,8 +7,9 @@ use crate::{
     error::JSResult,
     function::{CallContext, JSNativeCallback, js_function_set_properties},
     mem::js_malloc_typed,
+    object::JSObjectIsa,
     runtime::JSRuntime,
-    value::{JSValue, object::JSObjectIsa},
+    value::JSValue,
 };
 
 #[derive(Debug)]

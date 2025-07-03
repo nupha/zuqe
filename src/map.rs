@@ -2,11 +2,9 @@ use std::collections::HashMap;
 
 use crate::{
     context::JSContext,
+    object::{JSObject, JSObjectInner, JSObjectIsa, JSObjectWeakref},
     runtime::JSRuntime,
-    value::{
-        JSValue, JSValueConst,
-        object::{JSObject, JSObjectInner, JSObjectIsa, JSObjectWeakref},
-    },
+    value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug, Clone)]

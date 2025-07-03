@@ -6,12 +6,10 @@ use crate::{
     context::{JSContext, JSContextWeakref},
     error::JS_ThrowReferenceErrorUninitialized,
     function::{JS_Call, JSVarRef},
+    object::{JSObject, JSShapeProperty, LazyInit},
     proxy::js_proxy_isExtensible,
     runtime::JSRuntime,
-    value::{
-        JS_ToLengthFree, JS_ToUint32Free, JSValue,
-        object::{JSObject, JSShapeProperty, LazyInit},
-    },
+    value::{JS_ToLengthFree, JS_ToUint32Free, JSValue},
 };
 
 // Property flags

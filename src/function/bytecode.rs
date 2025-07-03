@@ -17,13 +17,11 @@ use crate::{
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
     gc::GCObjectHeader,
+    object::{GCObject, JS_SetPrototypeInternal},
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
-    value::{
-        JSValue,
-        object::{GCObject, JS_SetPrototypeInternal},
-    },
+    value::JSValue,
 };
 
 use super::{JSFunctionKindEnum, clousure::JSClosureVar, var::JSVarDef};

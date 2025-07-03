@@ -1,11 +1,9 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    object::{GCObject, JSProperty, JSShapeInner},
     runtime::JSRuntime,
     typed_array::typed_array_size_log2,
-    value::{
-        JSValue,
-        object::{GCObject, JSProperty, JSShapeInner},
-    },
+    value::JSValue,
 };
 
 use super::{JSObject, JSShape};

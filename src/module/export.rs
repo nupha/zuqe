@@ -12,7 +12,7 @@ use crate::{
     module::{
         JSModuleDef, JSModuleDefInner, JSResolveResultEnum, JSResolveState, ModuleResolveExport,
     },
-    value::object::{
+    object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObjectIsa, JSProperty, LazyInit,
     },
 };

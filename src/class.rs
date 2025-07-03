@@ -10,14 +10,12 @@ use crate::{
     error::JSResult,
     function::{JS_GetFunctionRealm, JSCFunctionEnum, JSFunctionDef, JSNativeCallback},
     gc::set_cycle_flag,
-    runtime::JSRuntime,
-    value::{
-        JSValue,
-        object::{
-            JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
-            JSPropertyDescriptor, PropertyEnum,
-        },
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
+        JSPropertyDescriptor, PropertyEnum,
     },
+    runtime::JSRuntime,
+    value::JSValue,
 };
 
 pub const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;

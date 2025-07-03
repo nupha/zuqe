@@ -6,15 +6,12 @@ use crate::{
     class::JSClassID,
     context::{JSContext, is_strict_mode},
     function::{CallContext, JSCFunctionListEntry, JSFunctionBytecode, get_func_name},
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JSObjectIsa,
+    },
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    value::{
-        JS_ConcatString, JS_ConcatString3, JS_IsEmptyString, JSValue, JSValueConst,
-        object::{
-            JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
-            JSObjectIsa,
-        },
-    },
+    value::{JS_ConcatString, JS_ConcatString3, JS_IsEmptyString, JSValue, JSValueConst},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

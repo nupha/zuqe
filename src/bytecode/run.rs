@@ -37,19 +37,17 @@ use crate::{
     },
     iterator::JS_IteratorClose,
     module::{js_dynamic_import, js_import_meta},
+    object::{
+        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
+        JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
+        JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW,
+        JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE, JS_SetPrototypeInternal, JSObject,
+        JSProperty,
+    },
     regexp::js_regexp_constructor_internal,
     stack_frame::JSStackFrame,
     utils::read_from_ptr,
-    value::{
-        HINT_NONE, JS_NewSymbolFromAtom, JSValue,
-        object::{
-            JS_DefineObjectName, JS_DefineObjectNameComputed, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-            JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD,
-            JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE,
-            JS_SetPrototypeInternal, JSObject, JSProperty,
-        },
-    },
+    value::{HINT_NONE, JS_NewSymbolFromAtom, JSValue},
 };
 
 pub unsafe fn run_bytecodes(

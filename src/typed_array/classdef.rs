@@ -20,12 +20,12 @@ use crate::{
     function::{CallContext, JS_Call, JS_CallConstructor, JSCFunctionListEntry},
     iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     typed_array::{Float32Array, Float64Array, typed_array_size_log2},
     utils::UncheckedInto,
     value::{
         HINT_NUMBER, JS_ToFloat64, JS_ToIndex, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree,
         JS_ToUint8ClampFree, JS_ToUint32, JSValue, JSValueConst, StringContent,
-        object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     },
 };
 

@@ -10,14 +10,12 @@ use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     error::{JS_ThrowStackOverflow, JSResult},
     gc::GCObjectHeader,
+    object::{GCObjectWeakref, JS_PROP_CONFIGURABLE, JSObjectIsa},
     promise::{PromiseValue, js_promise_resolve},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
-    value::{
-        JSValue,
-        object::{GCObjectWeakref, JS_PROP_CONFIGURABLE, JSObjectIsa},
-    },
+    value::JSValue,
 };
 
 use super::{

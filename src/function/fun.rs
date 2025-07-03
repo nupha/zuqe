@@ -8,13 +8,11 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorRevokedProxy, JSResult},
     function::JSVarRef,
-    runtime::JSRuntime,
-    value::{
-        JSValue, JSValueConst,
-        object::{
-            JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSObjectIsa, JSProperty,
-        },
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSObjectIsa, JSProperty,
     },
+    runtime::JSRuntime,
+    value::{JSValue, JSValueConst},
 };
 
 use super::{CallContext, JSFunctionBytecode};

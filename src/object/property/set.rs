@@ -9,15 +9,13 @@ use crate::{
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
     function::JS_Call,
+    object::{JS_PROP_THROW_STRICT, JSObject, JSProperty},
     typed_array::{
         Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array,
         Uint32Array,
     },
     utils::UncheckedInto,
-    value::{
-        JS_GetPrototypePrimitive, JS_ToFloat64, JS_ToUint8Clamp, JSValue,
-        object::{JS_PROP_THROW_STRICT, JSObject, JSProperty},
-    },
+    value::{JS_GetPrototypePrimitive, JS_ToFloat64, JS_ToUint8Clamp, JSValue},
 };
 
 use super::{

@@ -13,16 +13,14 @@ use crate::{
         JSIteratorKindEnum, build_for_in_iterator, js_array_iterator_next,
         js_create_array_iterator, js_for_in_prepare_prototype_chain_enum,
     },
-    stack_frame::JSStackFrame,
-    value::{
-        JS_AtomSymbolHasDescription, JS_ConcatString3, JSValue, JSValueConst,
-        object::{
-            JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
-            JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
-            JS_SetConstructorBit, JSObjectIsa, js_get_length32,
-        },
+    object::{
+        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+        JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa,
+        js_get_length32,
     },
+    stack_frame::JSStackFrame,
+    value::{JS_AtomSymbolHasDescription, JS_ConcatString3, JSValue, JSValueConst},
 };
 
 pub unsafe fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {

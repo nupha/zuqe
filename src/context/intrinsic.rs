@@ -38,19 +38,17 @@ use crate::{
             js_string_proto_funcs,
         },
     },
+    object::{
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSObjectIsa, js_object_seal,
+    },
     promise::{PromiseValue, js_promise_funcs, js_promise_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
         js_typed_array_base_constructor, js_typed_array_base_funcs,
         js_typed_array_base_proto_funcs, js_typed_array_constructor, typed_array_size_log2,
     },
-    value::{
-        JSValue, js_number_constructor, js_number_funcs, js_number_proto_funcs,
-        object::{
-            JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-            JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSObjectIsa, js_object_seal,
-        },
-    },
+    value::{JSValue, js_number_constructor, js_number_funcs, js_number_proto_funcs},
 };
 
 impl JSContext {

@@ -14,12 +14,12 @@ use crate::{
     defer,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::JSExportTypeEnum,
-    parse::{esm::add_export_entry, obj::set_object_name_computed, token::CHAR_SQUARE_L},
-    utils::write_to_ptr,
-    value::object::{
+    object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
     },
+    parse::{esm::add_export_entry, obj::set_object_name_computed, token::CHAR_SQUARE_L},
+    utils::write_to_ptr,
 };
 
 use super::{

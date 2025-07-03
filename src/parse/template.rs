@@ -1,12 +1,10 @@
 use crate::{
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,
+    object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::TokenData,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
-    value::{
-        JSValue, StringContent,
-        object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
-    },
+    value::{JSValue, StringContent},
 };
 
 use super::{state::JSParseState, token::TOK_TEMPLATE};

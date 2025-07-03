@@ -6,14 +6,12 @@ use crate::{
     error::JSResult,
     function::{JS_Call, JSCFunctionEnum},
     map::MapKV,
-    runtime::JSRuntime,
-    value::{
-        JSValue, JSValueConst,
-        object::{
-            JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E,
-            JS_PROP_ENUMERABLE, JS_PROP_THROW, JSObjectIsa, PropertyEnum,
-        },
+    object::{
+        JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+        JS_PROP_THROW, JSObjectIsa, PropertyEnum,
     },
+    runtime::JSRuntime,
+    value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

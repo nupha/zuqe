@@ -6,10 +6,8 @@ use crate::{
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, JS_CallConstructor, JSCFunctionListEntry},
     js_core::js_get_this,
-    value::{
-        JS_ToInt64Clamp, JSValue,
-        object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
+    value::{JS_ToInt64Clamp, JSValue},
 };
 
 pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {

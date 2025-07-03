@@ -10,10 +10,8 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::JS_Call,
-    value::{
-        JS_GetPrototypePrimitive, JSValue,
-        object::{JSObject, JSProperty},
-    },
+    object::{JSObject, JSProperty},
+    value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 use super::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};

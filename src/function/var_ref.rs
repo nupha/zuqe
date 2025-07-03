@@ -7,9 +7,10 @@ use std::{
 use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     gc::GCObjectHeader,
+    object::GCObjectWeakref,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    value::{JSValue, object::GCObjectWeakref},
+    value::JSValue,
 };
 
 use super::JSAsyncFunctionState;

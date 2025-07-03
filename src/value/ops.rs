@@ -5,7 +5,8 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     function::JS_Call,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    object::JSObjectIsa,
+    value::{JSValue, JSValueConst},
 };
 
 // Value operators

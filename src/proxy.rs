@@ -5,11 +5,9 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JS_ThrowTypeErrorRevokedProxy},
     function::JS_Call,
+    object::{JS_PreventExtensions, JS_SetPrototypeInternal, JSObjectIsa},
     runtime::{JSRuntime, js_check_stack_overflow},
-    value::{
-        JSValue, JSValueConst,
-        object::{JS_PreventExtensions, JS_SetPrototypeInternal, JSObjectIsa},
-    },
+    value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug)]

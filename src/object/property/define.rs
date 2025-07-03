@@ -7,11 +7,11 @@ use crate::{
     },
     bytecode::js_get_function_name,
     context::JSContext,
-    value::object::{JS_PROP_NORMAL, JSObject, js_object_has_name},
+    object::{JS_PROP_NORMAL, JSObject, js_object_has_name},
+    value::{JS_NumberIsNegativeOrMinusZero, JSValue},
 };
 
 use super::{
-    super::super::{JS_NumberIsNegativeOrMinusZero, JSValue, JSValueConst},
     JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -438,12 +438,7 @@ pub unsafe fn js_free_desc(ctx: &JSContext, desc: *mut JSPropertyDescriptor) {
     unreachable!("unused");
 }
 
-pub unsafe fn JS_DefineObjectName(
-    ctx: &JSContext,
-    obj: &JSValueConst,
-    name: JSAtom,
-    flags: u32,
-) -> i32 {
+pub unsafe fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: JSAtom, flags: u32) -> i32 {
     if name != JS_ATOM_NULL
         && obj.is_object()
         && !js_object_has_name(obj)
@@ -460,8 +455,8 @@ pub unsafe fn JS_DefineObjectName(
 /// Note: `obj` and `str_val` are not consumed.
 pub unsafe fn JS_DefineObjectNameComputed(
     ctx: &JSContext,
-    obj: &JSValueConst,
-    str_val: &JSValueConst,
+    obj: &JSValue,
+    str_val: &JSValue,
     flags: u32,
 ) -> i32 {
     if obj.is_object() && !js_object_has_name(obj) {

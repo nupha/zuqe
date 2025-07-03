@@ -1,10 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    context::JSContext,
-    error::JSResult,
-    runtime::JSRuntime,
-    value::{JSValue, object::JSObjectIsa},
+    context::JSContext, error::JSResult, object::JSObjectIsa, runtime::JSRuntime, value::JSValue,
 };
 
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_Call, JS_CallConstructor2};

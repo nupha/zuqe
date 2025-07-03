@@ -11,9 +11,10 @@ use crate::{
         JS_Call, JSFunctionDef, JSFunctionKindEnum, JSVarRef, add_closure_variables, js_closure,
     },
     module::{JSModuleDef, js_create_module_function, js_link_module},
+    object::JSObject,
     parse::{JS_DetectModule, JSParseState, skip_shebang},
     stack_frame::JSStackFrame,
-    value::{JSValue, JSValueConst, object::JSObject},
+    value::{JSValue, JSValueConst},
 };
 
 /// Native function to handle `eval`, returns eval result.

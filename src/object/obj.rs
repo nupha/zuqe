@@ -12,22 +12,19 @@ use crate::{
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING,
     JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
-    atom::{JSAtom, consts::*},
+    atom::consts::*,
     class::JSClassID,
     context::JSContext,
     error::JSResult,
     function::{CallContext, JSCFunction},
     gc::js_trigger_gc,
+    object::GCObjectWeakref,
     proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
-    value::object::GCObjectWeakref,
+    value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 use super::{
-    super::{
-        JS_AtomSymbolHasDescription, JS_ConcatString3, JS_GetPrototypePrimitive, JSValue,
-        JSValueConst,
-    },
     GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
     JS_PROP_WRITABLE, JSObjectIsa, JSProperty, JSShape,
@@ -832,12 +829,12 @@ pub fn JS_SetPrototypeInternal(
 /// Checks if a JSValue is a specific C function.
 /// Verifies both the function pointer and magic value match.
 #[deprecated(note = "use JSValue::match_native_callback() instead")]
-pub unsafe fn JS_IsCFunction(val: &JSValueConst, func: JSCFunction, magic: i32) -> bool {
+pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bool {
     val.match_native_callback(std::mem::transmute(func), magic)
 }
 
 /// `func_obj` is not consumed.
-pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValueConst, val: bool) -> bool {
+pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> bool {
     if let JSValue::Object(p) = func_obj {
         unsafe {
             (*p.0.detailed.as_ptr()).set_constructor(val);
@@ -852,7 +849,7 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValueConst, val: bool)
 /// Only works for primitive wrapper objects (Number, String, Boolean, etc.)
 /// Returns -1 on error (invalid object type)
 /// Note: `val` is consumed.
-pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValueConst, val: JSValue) -> i32 {
+pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
     if let Some(o) = obj.object() {
         if let Ok(old) = o.0.isa.borrow_mut().replace_value(val) {
             drop(old);
@@ -889,7 +886,7 @@ pub fn js_object_has_name(obj: &JSValue) -> bool {
 }
 
 /// Note: all the fields are already sealed except length
-pub fn seal_template_obj(ctx: &JSContext, obj: JSValueConst) -> i32 {
+pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
     let p = unsafe { obj.object_unchecked() };
 
     let (_, cur_flags) = p

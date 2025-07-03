@@ -5,10 +5,8 @@ use crate::{
     error::{JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSErrorEnum, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
-    value::{
-        JSValue,
-        object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObjectIsa},
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObjectIsa},
+    value::JSValue,
 };
 
 pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {

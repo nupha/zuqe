@@ -11,7 +11,7 @@ use zhuque::{
     array_buffer::JS_DetachArrayBuffer,
     atom::{
         JS_FreeAtom,
-        consts::{JS_ATOM_globalThis, JS_ATOM_message, JS_ATOM_stack},
+        consts::{JS_ATOM_message, JS_ATOM_stack},
     },
     context::JSContext,
     error::{JS_ThrowReferenceError, JSResult},
@@ -21,9 +21,10 @@ use zhuque::{
     function::{CallContext, JSCFunctionEnum},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
+    object::JS_PROP_C_W_E,
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
-    value::{JSValue, StringContent, object::JS_PROP_C_W_E},
+    value::{JSValue, StringContent},
 };
 
 fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {

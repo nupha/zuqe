@@ -5,7 +5,8 @@ use crate::{
     error::JSResult,
     iterator::JSIteratorKindEnum,
     mem::js_free,
-    value::{JSValue, js_string_obj_get_length, object::JSObject},
+    object::JSObject,
+    value::{JSValue, js_string_obj_get_length},
 };
 
 use super::{JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW};

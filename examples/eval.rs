@@ -1,7 +1,4 @@
-use std::{
-    ffi::{CStr, CString},
-    path::PathBuf,
-};
+use std::{ffi::CString, path::PathBuf};
 
 use zhuque::{
     atom::JS_FreeAtom,
@@ -13,10 +10,11 @@ use zhuque::{
     },
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
+    object::JS_PROP_C_W_E,
     parse::JS_DetectModule,
     promise::PromiseValue,
     runtime::JSRuntime,
-    value::{JSValue, object::JS_PROP_C_W_E},
+    value::JSValue,
 };
 
 fn main() {

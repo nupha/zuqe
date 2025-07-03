@@ -5,10 +5,11 @@ use crate::{
     error::JS_ThrowRangeError,
     function::{JSAsyncFunctionState, JSFunctionBytecode},
     module::JSModuleDef,
+    object::JSObject,
     runtime::JSRuntime,
 };
 
-use super::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER, object::JSObject, string::JSString};
+use super::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER, string::JSString};
 
 // #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 // #[repr(i32)]

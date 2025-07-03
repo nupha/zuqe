@@ -2,11 +2,9 @@ use std::os::raw::c_void;
 
 use crate::{
     context::JSContext,
+    object::{GCObject, GCObjectWeakref},
     runtime::JSRuntime,
-    value::{
-        JSValueConst,
-        object::{GCObject, GCObjectWeakref},
-    },
+    value::JSValueConst,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

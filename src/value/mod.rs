@@ -8,8 +8,6 @@ mod string_content;
 mod symbol;
 mod value;
 
-pub mod object;
-
 pub use {
     free::*,
     number::*,

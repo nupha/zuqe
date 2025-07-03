@@ -8,14 +8,12 @@ use crate::{
         JS_DEF_CFUNC, JS_DEF_OBJECT, JS_DEF_PROP_STRING, JS_NewCFunction2, JSCFunctionListEntry,
     },
     module::JSModuleDef,
-    runtime::JSRuntime,
-    value::{
-        JSValue,
-        object::{
-            JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
-            JSObject, JSShapeProperty,
-        },
+    object::{
+        JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
+        JSObject, JSShapeProperty,
     },
+    runtime::JSRuntime,
+    value::JSValue,
 };
 
 use super::JSProperty;

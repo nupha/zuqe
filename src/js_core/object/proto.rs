@@ -6,15 +6,13 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Invoke, JSCFunctionListEntry},
-    utils::unlikely,
-    value::{
-        JS_ConcatString3, JSValue, JSValueConst,
-        object::{
-            JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
-            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-            JS_SetPrototypeInternal, JSPropertyDescriptor,
-        },
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+        JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+        JS_SetPrototypeInternal, JSPropertyDescriptor,
     },
+    utils::unlikely,
+    value::{JS_ConcatString3, JSValue, JSValueConst},
 };
 
 //

@@ -3,15 +3,13 @@ use crate::{
     array::JSObjectArray,
     atom::{JSAtom, consts::*},
     context::JSContext,
+    object::{
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
+        JS_PROP_WRITABLE, JSObjectIsa, JSProperty, js_get_length32,
+    },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::JSStackFrame,
-    value::{
-        JSValue,
-        object::{
-            JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-            JS_PROP_WRITABLE, JSObjectIsa, JSProperty, js_get_length32,
-        },
-    },
+    value::JSValue,
 };
 
 pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {

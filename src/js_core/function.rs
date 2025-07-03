@@ -7,10 +7,8 @@ use crate::{
         CallContext, JS_Call, JSBoundFunction, JSCFunctionListEntry, JSFunctionKindEnum,
         js_function_apply,
     },
-    value::{
-        JS_ConcatString3, JSValue,
-        object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
-    },
+    object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
+    value::{JS_ConcatString3, JSValue},
 };
 
 pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {

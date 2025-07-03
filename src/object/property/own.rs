@@ -2,13 +2,11 @@ use crate::{
     atom::{__JS_AtomToUInt32, JS_FreeAtom, JSAtom},
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
-    value::{
-        JSValue,
-        object::{
-            JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK,
-            JS_PROP_VARREF, JSObject, JSProperty, JSPropertyDescriptor,
-        },
+    object::{
+        JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK,
+        JS_PROP_VARREF, JSObject, JSProperty, JSPropertyDescriptor,
     },
+    value::JSValue,
 };
 
 impl JSObject {

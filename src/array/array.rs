@@ -5,16 +5,14 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
     error::{JS_ThrowRangeError, JSErrorEnum, JSResult},
+    object::{
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
+        JSObject, JSObjectIsa, JSProperty,
+    },
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     typed_array::JSTypedArray,
-    value::{
-        JS_ToUint32, JSValue, JSValueConst,
-        object::{
-            JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
-            JSObject, JSObjectIsa, JSProperty,
-        },
-    },
+    value::{JS_ToUint32, JSValue, JSValueConst},
 };
 
 #[derive(Debug, Default)]

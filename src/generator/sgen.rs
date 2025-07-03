@@ -2,8 +2,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::JSAsyncFunctionState,
+    object::JSObjectIsa,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

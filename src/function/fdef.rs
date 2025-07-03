@@ -12,12 +12,10 @@ use crate::{
     },
     mem::js_malloc_typed,
     module::JSModuleDef,
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     parse::JSParseFunctionEnum,
     utils::{push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
-    value::{
-        JSValue,
-        object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-    },
+    value::JSValue,
 };
 
 use super::LabelSlot;

@@ -2,10 +2,8 @@ use std::ops::DerefMut;
 
 use crate::{
     context::JSContext,
-    value::{
-        JSValue,
-        object::{JS_SpeciesConstructor, JSObjectIsa},
-    },
+    object::{JS_SpeciesConstructor, JSObjectIsa},
+    value::JSValue,
 };
 
 use super::{JSPromiseStateEnum, PromiseValue, job::promise_reaction_job};

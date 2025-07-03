@@ -4,7 +4,8 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JSCFunctionListEntry},
-    value::{JSValue, object::JSObjectIsa},
+    object::JSObjectIsa,
+    value::JSValue,
 };
 
 pub fn js_boolean_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {

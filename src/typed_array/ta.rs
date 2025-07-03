@@ -8,12 +8,10 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
+    object::{JSObject, JSObjectIsa, JSObjectWeakref, js_get_length64},
     runtime::JSRuntime,
     utils::{UncheckedFrom, UncheckedInto},
-    value::{
-        JS_ToInt64Sat, JSValue, JSValueConst,
-        object::{JSObject, JSObjectIsa, JSObjectWeakref, js_get_length64},
-    },
+    value::{JS_ToInt64Sat, JSValue, JSValueConst},
 };
 
 pub const JS_TYPED_ARRAY_COUNT: usize =

@@ -8,9 +8,10 @@ use crate::{
     error::{JS_ThrowStackOverflow, JSResult},
     function::JS_CALL_FLAG_CONSTRUCTOR,
     iterator::js_create_iterator_result,
+    object::JSObjectIsa,
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
-    value::{JS_ToFloat64, JSValue, JSValueConst, object::JSObjectIsa},
+    value::{JS_ToFloat64, JSValue, JSValueConst},
 };
 
 use super::js_function_set_properties;

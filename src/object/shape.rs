@@ -11,11 +11,9 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom},
     context::JSContext,
     gc::GCObjectHeader,
+    object::{GCObject, GCObjectWeakref, JSObjectIsa},
     runtime::JSRuntime,
-    value::{
-        JSValue,
-        object::{GCObject, GCObjectWeakref, JSObjectIsa},
-    },
+    value::JSValue,
 };
 
 use super::{

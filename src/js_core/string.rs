@@ -12,12 +12,12 @@ use crate::{
         CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, JSCFunctionListEntry,
     },
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
+    object::{JS_PROP_CONFIGURABLE, JSObjectIsa, js_get_length32, js_get_length64},
     regexp::js_is_regexp,
     value::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToFloat64, JS_ToInt32,
         JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat, JS_ToStringCheckObject, JS_ToUint32,
         JSString, JSValue, JSValueConst, StringContent,
-        object::{JS_PROP_CONFIGURABLE, JSObjectIsa, js_get_length32, js_get_length64},
     },
 };
 
@@ -719,9 +719,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
             return -1;
         }
 
-        flags = flags
-            .coerce_to_string(ctx)
-            .unwrap_or(JSValue::EXCEPTION);
+        flags = flags.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
         if flags.is_exception() {
             return -1;
         }

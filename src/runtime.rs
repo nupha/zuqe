@@ -24,13 +24,11 @@ use crate::{
     generator::{AsyncGeneratorValue, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
+    object::{GCObjectWeakref, JSShapeWeakref},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
     stack_frame::JSStackFrame,
     utils::js_get_stack_pointer,
-    value::{
-        JSStringInner, JSValue, js_string_exotic_methods,
-        object::{GCObjectWeakref, JSShapeWeakref},
-    },
+    value::{JSStringInner, JSValue, js_string_exotic_methods},
 };
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;

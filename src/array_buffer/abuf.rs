@@ -13,11 +13,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::CallContext,
+    object::{JSObjectIsa, JSObjectWeakref},
     runtime::JSRuntime,
-    value::{
-        JS_ToIndex, JSValue, JSValueConst,
-        object::{JSObjectIsa, JSObjectWeakref},
-    },
+    value::{JS_ToIndex, JSValue, JSValueConst},
 };
 
 pub type JSFreeArrayBufferDataFunc =

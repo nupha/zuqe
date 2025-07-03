@@ -6,8 +6,8 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     function::{BlockEnv, pop_break_entry, push_break_entry},
+    object::PROP_TYPE_IDENT,
     parse::token::{CHAR_COMMA, CHAR_CURLY_R},
-    value::object::PROP_TYPE_IDENT,
 };
 
 use super::{

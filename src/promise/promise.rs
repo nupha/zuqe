@@ -11,13 +11,11 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, JS_CallConstructor, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
+    object::{JS_PROP_C_W_E, JSObjectIsa},
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     utils::{UncheckedFrom, UncheckedInto},
-    value::{
-        JS_NewString, JS_ToInt32, JSValue, JSValueConst,
-        object::{JS_PROP_C_W_E, JSObjectIsa},
-    },
+    value::{JS_NewString, JS_ToInt32, JSValue, JSValueConst},
 };
 
 use super::{JSPromiseFunctionData, job::promise_reaction_job};

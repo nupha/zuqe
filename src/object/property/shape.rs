@@ -1,7 +1,8 @@
 use crate::{
     atom::{JS_FreeAtom, JSAtom},
     context::JSContext,
-    value::{JSValue, object::JSObject},
+    object::JSObject,
+    value::JSValue,
 };
 
 impl JSObject {

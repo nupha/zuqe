@@ -2,13 +2,11 @@ use crate::{
     atom::{JS_FreeAtom, JSAtomTypeHint, consts::*, js_symbol_to_atom},
     context::JSContext,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
-    value::object::{JSObject, JSProperty},
+    object::{JSObject, JSProperty},
+    value::{JS_NewSymbolFromAtom, JSValue},
 };
 
-use super::{
-    super::{JS_NewSymbolFromAtom, JSValue, JSValueConst},
-    JS_PROP_C_W_E,
-};
+use super::JS_PROP_C_W_E;
 
 impl JSObject {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
@@ -126,7 +124,7 @@ impl JSObject {
 
 impl JSValue {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    pub fn check_brand(&self, ctx: &JSContext, func: &JSValueConst) -> Result<bool, i32> {
+    pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
         if let JSValue::Object(ob) = self {
             ob.check_brand(ctx, func)
         } else {
@@ -223,11 +221,7 @@ impl JSValue {
 
 // check if the brand of the home object of 'func' is present on 'obj'
 #[deprecated(note = "use JSValue::check_brand() instead")]
-pub unsafe fn JS_CheckBrand(
-    ctx: &JSContext,
-    obj: &JSValueConst,
-    func: &JSValueConst,
-) -> Result<bool, i32> {
+pub unsafe fn JS_CheckBrand(ctx: &JSContext, obj: &JSValue, func: &JSValue) -> Result<bool, i32> {
     obj.check_brand(ctx, func)
 }
 

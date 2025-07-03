@@ -4,10 +4,10 @@ use crate::{
     error::{JS_ThrowRangeError, JSResult},
     function::{CallContext, JSCFunctionListEntry},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
+    object::JSObjectIsa,
     utils::skip_spaces,
     value::{
         JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, JSValue, JSValueConst, is_safe_integer,
-        object::JSObjectIsa,
     },
 };
 

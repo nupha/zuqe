@@ -9,7 +9,8 @@ use crate::{
     function::{CallContext, JS_Call},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     map::JSMapState,
-    value::{JSValue, JSValueConst, object::JSObjectIsa},
+    object::JSObjectIsa,
+    value::{JSValue, JSValueConst},
 };
 
 const MAGIC_SET: i32 = 1 << 0;

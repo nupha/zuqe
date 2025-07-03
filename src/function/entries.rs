@@ -5,10 +5,8 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom, consts::*},
     context::JSContext,
     function::{JS_NewCFunction2, JSCFunctionEnum, JSCFunctionType},
-    value::{
-        JSValue, JSValueConst,
-        object::{JS_PROP_CONFIGURABLE, LazyInit},
-    },
+    object::{JS_PROP_CONFIGURABLE, LazyInit},
+    value::{JSValue, JSValueConst},
 };
 
 // Property definition types

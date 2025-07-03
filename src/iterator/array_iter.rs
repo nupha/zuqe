@@ -6,12 +6,10 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
+    object::{JSObjectIsa, js_get_length32},
     runtime::JSRuntime,
     typed_array::TypedArrayValue,
-    value::{
-        JS_ToStringCheckObject, JSValue,
-        object::{JSObjectIsa, js_get_length32},
-    },
+    value::{JS_ToStringCheckObject, JSValue},
 };
 
 use super::JSIteratorKindEnum;

@@ -3,8 +3,9 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     function::JS_Call,
+    object::JSObjectIsa,
     runtime::JSRuntime,
-    value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue, object::JSObjectIsa},
+    value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
 impl From<bool> for JSValue {

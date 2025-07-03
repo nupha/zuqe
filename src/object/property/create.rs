@@ -3,13 +3,14 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::JSContext,
-    value::object::{JSObjectInner, JSShape},
+    object::{JSObjectInner, JSShape},
+    value::JSValue,
 };
 
 use super::{
-    super::super::JSValue, super::JSObject, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-    JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSProperty, get_prop_flags,
+    super::JSObject, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
+    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
+    JSProperty, get_prop_flags,
 };
 
 impl JSObjectInner {
@@ -118,7 +119,7 @@ impl JSObjectInner {
     /// Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub(crate) fn add_own_property_then<R>(
+    pub fn add_own_property_then<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -137,7 +138,7 @@ impl JSObject {
     /// Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline]
-    pub(crate) fn add_own_property_then<R>(
+    pub fn add_own_property_then<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
