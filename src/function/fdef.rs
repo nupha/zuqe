@@ -434,21 +434,21 @@ impl JSFunctionDef {
         JS_FreeAtomRT(rt, self.func_name);
         JS_FreeAtomRT(rt, self.filename);
 
-        // // remove from parent's children list
-        // if let Some(upper) = unsafe { self.parent.as_mut() } {
-        //     upper.child_list.retain(|f| !std::ptr::eq(f.as_ptr(), self))
-        // }
-
-        // dropped function def must not exist in parent's children list
-        #[cfg(debug_assertions)]
+        // remove from parent's children list
         if let Some(upper) = unsafe { self.parent.as_mut() } {
-            debug_assert!(
-                !upper
-                    .child_list
-                    .iter()
-                    .any(|f| std::ptr::eq(f.as_ptr(), self))
-            );
+            upper.child_list.retain(|f| !std::ptr::eq(f.as_ptr(), self))
         }
+
+        // // dropped function def must not exist in parent's children list
+        // #[cfg(debug_assertions)]
+        // if let Some(upper) = unsafe { self.parent.as_mut() } {
+        //     debug_assert!(
+        //         !upper
+        //             .child_list
+        //             .iter()
+        //             .any(|f| std::ptr::eq(f.as_ptr(), self))
+        //     );
+        // }
     }
 }
 

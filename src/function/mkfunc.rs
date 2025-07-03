@@ -230,7 +230,8 @@ impl JSFunctionDef {
                 .cast::<JSValue>();
 
             for v in self.cpool.drain(..) {
-                *dst = v;
+                // *dst=v;
+                std::ptr::replace(dst, v);
                 dst = dst.add(1);
             }
         }

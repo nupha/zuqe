@@ -21,7 +21,6 @@ use zhuque::{
     function::{CallContext, JSCFunctionEnum},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
-    obsoletes::JS_DumpObject,
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
     value::{JSValue, StringContent, object::JS_PROP_C_W_E},
@@ -399,7 +398,7 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     unsafe {
         JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
     }
-    let mut ctx = rt.create_context().unwrap();
+    let ctx = rt.create_context().unwrap();
     let obj262 = setup_ctx_helpers(&ctx).unwrap();
 
     let mut has_err = false;
@@ -412,28 +411,6 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
             dump_error(&ctx, &exc, msg.as_ref(), outf);
 
             has_err = true;
-        }
-
-        // O.o
-        {
-            let glo = ctx.global_obj();
-
-            println!(
-                "[O.o] globalThis={:?}, global={:?}",
-                glo.get_property(&ctx, JS_ATOM_globalThis),
-                ctx.global_obj()
-            );
-
-            glo.dump(ctx.rt());
-
-            println!(
-                "[O.o] globalThis.$DONE={:?}",
-                glo.get_property_str(&ctx, "$DONE")
-            );
-            println!(
-                "[O.o] globalThis.hasOwnProperty('$DONE')={:?}",
-                glo.has_shape_property_str(&ctx, "$DONE")
-            );
         }
     }
 
@@ -551,22 +528,22 @@ fn main() {
         .open("test262-result.txt")
         .unwrap();
 
-    run_test_file(
-        &Path::new(
-            //"/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
-            "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js",
-            // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-incorrect-ctor.js",
-        ),
-        true,
-        &mut fp,
-    );
-    fp.flush().unwrap();
+    // run_test_file(
+    //     &Path::new(
+    //         //"/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
+    //         "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js",
+    //         // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-incorrect-ctor.js",
+    //     ),
+    //     true,
+    //     &mut fp,
+    // );
+    // fp.flush().unwrap();
 
-    // for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
-    //     let fname = fname.unwrap();
-    //     if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
-    //         run_test_file(&fname, true, &mut fp);
-    //         fp.flush().unwrap();
-    //     }
-    // }
+    for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
+        let fname = fname.unwrap();
+        if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
+            run_test_file(&fname, true, &mut fp);
+            fp.flush().unwrap();
+        }
+    }
 }
