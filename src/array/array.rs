@@ -21,17 +21,7 @@ pub struct JSObjectArray {
     pub values: Vec<JSValue>,
 }
 
-// TODO: replace with this
-// pub enum JSObjectArray {
-//     Empty,
-//     Owned(Vec<JSValue>),
-//     Borrowed {
-//         ptr: NonNull<c_void>,
-//         len: usize,
-//         typed_array: *const JSTypedArray,
-//     },
-// }
-
+#[deprecated]
 #[derive(Clone, Copy)]
 pub union JSObjectArrayU1 {
     /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
@@ -42,6 +32,7 @@ pub union JSObjectArrayU1 {
     pub typed_array: *mut JSTypedArray,
 }
 
+#[deprecated]
 pub union JSObjectArrayDataUnion {
     /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
     pub values: ManuallyDrop<Vec<JSValue>>,
@@ -108,6 +99,21 @@ impl JSContext {
 }
 
 impl JSObject {
+    // return Err if exception (proxy case) or TRUE/FALSE
+    pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
+        let class_id = self.class_id();
+        if class_id == JS_CLASS_PROXY {
+            js_proxy_isArray(ctx, &JSValue::Object(self.clone()))
+        } else {
+            Ok(class_id == JS_CLASS_ARRAY)
+        }
+    }
+
+    /// test if object is fast array (could be one of Array, Argument, TypedArray fast array).
+    pub fn is_fast_array(&self) -> bool {
+        self.flags().fast_array()
+    }
+
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         if self.flags().fast_array() {
@@ -328,11 +334,7 @@ impl JSValue {
     // return Err if exception (proxy case) or TRUE/FALSE
     pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
-            if p.class_id() == JS_CLASS_PROXY {
-                js_proxy_isArray(ctx, self)
-            } else {
-                Ok(p.class_id() == JS_CLASS_ARRAY)
-            }
+            p.is_array(ctx)
         } else {
             Ok(false)
         }
@@ -341,7 +343,7 @@ impl JSValue {
     /// test if value is fast array (could be one of Array, Argument, TypedArray fast array).
     pub fn is_fast_array(&self) -> bool {
         if let JSValue::Object(p) = self {
-            p.flags().fast_array()
+            p.is_fast_array()
         } else {
             false
         }
@@ -363,29 +365,6 @@ impl JSValue {
     ) -> Option<R> {
         self.object().and_then(|o| o.with_fast_array_values_mut(f))
     }
-}
-
-// return Err if exception (proxy case) or TRUE/FALSE
-#[deprecated(note = "use JSValue::is_array() instead")]
-pub unsafe fn JS_IsArray(ctx: &JSContext, val: &JSValueConst) -> Result<bool, i32> {
-    if let JSValue::Object(p) = val {
-        if p.class_id() == JS_CLASS_PROXY {
-            js_proxy_isArray(ctx, val)
-        } else {
-            Ok(p.class_id() == JS_CLASS_ARRAY)
-        }
-    } else {
-        Ok(false)
-    }
-}
-
-/// set the array length and remove the array elements if necessary.
-/// returns 0,1,-1
-#[deprecated(note = "use JSObject::set_array_length() instead")]
-pub unsafe fn set_array_length(ctx: &JSContext, p: *mut JSValue, val: JSValue, flags: u32) -> i32 {
-    (*p).object_unchecked()
-        .set_array_length(ctx, val, flags)
-        .map_or(-1, |b| b as i32)
 }
 
 /// can be called on Array or Arguments objects. return < 0 if memory alloc error.
@@ -422,19 +401,6 @@ pub unsafe fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i3
         (*obj.0.detailed.as_ptr()).set_fast_array(false);
     }
     0
-}
-
-/// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p is fast_array and p is extensible.
-/// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
-/// Note: `val` is consumed.
-#[deprecated(note = "use JSObjectInner::add_fast_array_element() instead")]
-pub unsafe fn add_fast_array_element(
-    ctx: &JSContext,
-    p: *mut JSValue,
-    val: JSValue,
-    flags: u32,
-) -> Result<bool, i32> {
-    unreachable!("unused");
 }
 
 pub unsafe fn JS_ToArrayLengthFree(
@@ -572,29 +538,6 @@ pub unsafe fn js_create_array(ctx: &JSContext, len: i32, tab: *const JSValueCons
     } else {
         JSValue::EXCEPTION
     }
-}
-
-/// Access an Array's internal JSValue array if available
-#[deprecated(note = "use JSValue::fast_array_values_mut() instead")]
-pub unsafe fn js_get_fast_array(
-    ctx: &JSContext,
-    mut obj: JSValueConst,
-    arrpp: *mut *mut JSValue,
-    countp: *mut u32,
-) -> bool {
-    unreachable!("unused");
-    // if let Some(lst) = obj.fast_array_values_mut() {
-    //     *countp = lst.len() as _;
-    //     *arrpp = lst.as_mut_ptr();
-    //     true
-    // } else {
-    //     false
-    // }
-}
-
-#[deprecated(note = "use JSValue::is_fast_array() instead")]
-pub unsafe fn js_is_fast_array(ctx: &JSContext, obj: JSValueConst) -> bool {
-    obj.is_fast_array()
 }
 
 pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}

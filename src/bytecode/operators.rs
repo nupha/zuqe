@@ -64,11 +64,6 @@ pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
     Ok(())
 }
 
-#[deprecated(note = "use JSValue::type_of() instead")]
-pub fn js_operator_typeof(ctx: &JSContext, op1: &JSValueConst) -> JSAtom {
-    op1.type_of()
-}
-
 pub unsafe fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
     let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };

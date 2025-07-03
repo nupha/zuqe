@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ERROR, JS_CLASS_OBJECT,
+    JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     atom::{JS_ATOM_NULL, JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
     bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
@@ -23,6 +23,7 @@ use crate::{
     object::{JSProperty, JSPropertyDescriptor, JSShape, PropertyEnum},
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
+    proxy::js_proxy_isArray,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
@@ -2213,4 +2214,86 @@ pub unsafe fn JS_CopyDataProperties(
     setprop: bool,
 ) -> Result<(), i32> {
     target.copy_properties_from(ctx, &source, &excluded, setprop)
+}
+
+#[deprecated(note = "use JSValue::ordinary_instance_of() instead")]
+pub unsafe fn JS_OrdinaryIsInstanceOf(
+    ctx: &JSContext,
+    val: &JSValueConst,
+    obj: &JSValueConst,
+) -> Result<bool, i32> {
+    obj.ordinary_instance_of(ctx, val)
+}
+
+#[deprecated(note = "use JSValue::instance_of() instead")]
+pub unsafe fn JS_IsInstanceOf(
+    ctx: &JSContext,
+    val: &JSValueConst,
+    obj: &JSValueConst,
+) -> Result<bool, i32> {
+    obj.instance_of(ctx, val)
+}
+
+#[deprecated(note = "use JSValue::type_of() instead")]
+pub fn js_operator_typeof(ctx: &JSContext, op1: &JSValueConst) -> JSAtom {
+    op1.type_of()
+}
+
+/// Access an Array's internal JSValue array if available
+#[deprecated(note = "use JSValue::fast_array_values_mut() instead")]
+pub unsafe fn js_get_fast_array(
+    ctx: &JSContext,
+    mut obj: JSValueConst,
+    arrpp: *mut *mut JSValue,
+    countp: *mut u32,
+) -> bool {
+    unreachable!("unused");
+    // if let Some(lst) = obj.fast_array_values_mut() {
+    //     *countp = lst.len() as _;
+    //     *arrpp = lst.as_mut_ptr();
+    //     true
+    // } else {
+    //     false
+    // }
+}
+
+#[deprecated(note = "use JSValue::is_fast_array() instead")]
+pub unsafe fn js_is_fast_array(ctx: &JSContext, obj: JSValueConst) -> bool {
+    obj.is_fast_array()
+}
+
+/// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p is fast_array and p is extensible.
+/// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
+/// Note: `val` is consumed.
+#[deprecated(note = "use JSObjectInner::add_fast_array_element() instead")]
+pub unsafe fn add_fast_array_element(
+    ctx: &JSContext,
+    p: *mut JSValue,
+    val: JSValue,
+    flags: u32,
+) -> Result<bool, i32> {
+    unreachable!("unused");
+}
+
+// return Err if exception (proxy case) or TRUE/FALSE
+#[deprecated(note = "use JSValue::is_array() instead")]
+pub unsafe fn JS_IsArray(ctx: &JSContext, val: &JSValueConst) -> Result<bool, i32> {
+    if let JSValue::Object(p) = val {
+        if p.class_id() == JS_CLASS_PROXY {
+            js_proxy_isArray(ctx, val)
+        } else {
+            Ok(p.class_id() == JS_CLASS_ARRAY)
+        }
+    } else {
+        Ok(false)
+    }
+}
+
+/// set the array length and remove the array elements if necessary.
+/// returns 0,1,-1
+#[deprecated(note = "use JSObject::set_array_length() instead")]
+pub unsafe fn set_array_length(ctx: &JSContext, p: *mut JSValue, val: JSValue, flags: u32) -> i32 {
+    (*p).object_unchecked()
+        .set_array_length(ctx, val, flags)
+        .map_or(-1, |b| b as i32)
 }
