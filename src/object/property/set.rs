@@ -24,22 +24,6 @@ use super::{
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_WRITABLE,
 };
 
-#[derive(Debug, Clone, PartialEq)]
-enum SetPropState {
-    /// Try exotic set handler, and walk up through proto chain
-    ExoticAndGoUp,
-    /// Set property value or instantiate property
-    SetSlotValue,
-    /// Add or update property
-    Add,
-    /// Create new property on object
-    CreateProp,
-    /// Read-only error
-    ErrReadOnly,
-    /// TypedArray out of bounds error
-    ErrTypedArrayOOB(JSClassID),
-}
-
 pub(crate) fn call_setter(
     ctx: &JSContext,
     setter: Option<&JSObject>,
@@ -64,6 +48,22 @@ pub(crate) fn call_setter(
         }
         Ok(false)
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SetPropState {
+    /// Try exotic set handler, and walk up through proto chain
+    ExoticAndGoUp,
+    /// Set property value or instantiate property
+    SetSlotValue,
+    /// Add or update property
+    Add,
+    /// Create new property on object
+    CreateProp,
+    /// Read-only error
+    ErrReadOnly,
+    /// TypedArray out of bounds error
+    ErrTypedArrayOOB(JSClassID),
 }
 
 impl JSObject {
@@ -938,7 +938,7 @@ impl JSValue {
         if atom == JS_ATOM_NULL {
             return Err(-1);
         }
-        let ret = unsafe { Self::set_property_internal(ctx, self, atom, val, self, flags) };
+        let ret = Self::set_property_internal(ctx, self, atom, val, self, flags);
         JS_FreeAtom(ctx, atom);
         ret
     }
