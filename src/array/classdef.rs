@@ -749,7 +749,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut p: Option<&JSString> = None;
 
     if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
-        sep = cc.arg(0).coerce_to_string_value(ctx)?;
+        sep = cc.arg(0).coerce_to_string(ctx)?;
         let ss = unsafe { sep.string_unchecked() };
         c = if ss.len() == 1 && !ss.is_wide_char() {
             ss.content().as_bytes()[0] as i32
@@ -776,7 +776,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             if toLocaleString != 0 {
                 el = el.to_locale_string(ctx)?;
             } else if !el.is_string() {
-                el = el.coerce_to_string_value(ctx)?;
+                el = el.coerce_to_string(ctx)?;
             }
 
             content

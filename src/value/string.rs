@@ -400,7 +400,7 @@ pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValueConst) -> JSResult {
         ctx.JS_ThrowTypeError("null or undefined are forbidden");
         Err(-1)
     } else {
-        val.coerce_to_string_value(ctx)
+        val.coerce_to_string(ctx)
     }
 }
 
@@ -420,9 +420,7 @@ pub unsafe fn JS_ConcatString3(
     str3: &CStr,
 ) -> JSValue {
     if !matches!(str2, JSValue::String(_)) {
-        str2 = str2
-            .coerce_to_string_value(ctx)
-            .unwrap_or(JSValue::EXCEPTION);
+        str2 = str2.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
         if str2.is_exception() {
             return JSValue::EXCEPTION;
         }
@@ -456,9 +454,7 @@ pub unsafe fn JS_ConcatString3(
 /// op1 and op2 are consumed
 pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JSValue {
     let str1 = if !op1.is_string() {
-        let v = op1
-            .coerce_to_string_value(ctx)
-            .unwrap_or(JSValue::EXCEPTION);
+        let v = op1.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
         if v.is_exception() {
             return JSValue::EXCEPTION;
         }
@@ -468,9 +464,7 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
     };
 
     let str2 = if !op2.is_string() {
-        let v = op2
-            .coerce_to_string_value(ctx)
-            .unwrap_or(JSValue::EXCEPTION);
+        let v = op2.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
         if v.is_exception() {
             return JSValue::EXCEPTION;
         }
@@ -586,7 +580,7 @@ impl JSValue {
             };
             Ok(ret)
         } else {
-            let str_val = self.coerce_to_string_value(ctx)?;
+            let str_val = self.coerce_to_string(ctx)?;
             Ok(Cow::Owned(unsafe {
                 str_val
                     .into_string_unchecked()

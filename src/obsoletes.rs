@@ -327,7 +327,7 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
 /// `val` is consumed.
 #[deprecated(note = "use JSValue::coerce_to_string_value() instead")]
 pub fn JS_ToStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_string_value(ctx)
+    val.coerce_to_string(ctx)
         .unwrap_or(JSValue::EXCEPTION)
 }
 

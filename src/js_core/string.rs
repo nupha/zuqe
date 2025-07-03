@@ -42,7 +42,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 unreachable!()
             }
         } else {
-            cc.arg(0).coerce_to_string_value(ctx)?
+            cc.arg(0).coerce_to_string(ctx)?
         }
     };
 
@@ -175,8 +175,8 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let lastIndexOf = cc.magic();
 
-    let str = cc.this().coerce_to_string_value(ctx)?;
-    let v = cc.arg(0).coerce_to_string_value(ctx)?;
+    let str = cc.this().coerce_to_string(ctx)?;
+    let v = cc.arg(0).coerce_to_string(ctx)?;
 
     let p = unsafe { str.string_unchecked() };
     let p1 = unsafe { v.string_unchecked() };
@@ -266,12 +266,12 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let str = O.coerce_to_string_value(ctx)?;
-    let search_str = searchValue.coerce_to_string_value(ctx)?;
+    let str = O.coerce_to_string(ctx)?;
+    let search_str = searchValue.coerce_to_string(ctx)?;
 
     let functionalReplace = replaceValue.is_callable();
     let replaceValue_str = if !functionalReplace {
-        replaceValue.coerce_to_string_value(ctx)?
+        replaceValue.coerce_to_string(ctx)?
     } else {
         JSValue::UNDEFINED
     };
@@ -334,7 +334,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             )
         }?;
 
-        let repl_val = repl_str.coerce_to_string_value(ctx)?;
+        let repl_val = repl_str.coerce_to_string(ctx)?;
         let repl = unsafe { repl_val.string_unchecked() };
 
         res_string
@@ -400,7 +400,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let S = O.coerce_to_string_value(ctx)?;
+    let S = O.coerce_to_string(ctx)?;
     let sp = unsafe { S.string_unchecked() };
     let s = sp.len() as i32;
 
@@ -413,7 +413,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         unsafe { JS_ToUint32(ctx, limit)? }
     };
 
-    let R = separator.coerce_to_string_value(ctx)?;
+    let R = separator.coerce_to_string(ctx)?;
     let rp = unsafe { R.string_unchecked() };
     let r = rp.len() as i32;
 
@@ -559,7 +559,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        v = cc.arg(1).coerce_to_string_value(ctx)?;
+        v = cc.arg(1).coerce_to_string(ctx)?;
         let s = unsafe { v.string_unchecked() };
         if s.is_empty() {
             return Ok(str);
@@ -654,7 +654,7 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let v = cc.arg(0).coerce_to_string_value(ctx)?;
+    let v = cc.arg(0).coerce_to_string(ctx)?;
     let p = unsafe { str.string_unchecked() };
     let p1 = unsafe { v.string_unchecked() };
 
@@ -720,7 +720,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
         }
 
         flags = flags
-            .coerce_to_string_value(ctx)
+            .coerce_to_string(ctx)
             .unwrap_or(JSValue::EXCEPTION);
         if flags.is_exception() {
             return -1;
@@ -759,7 +759,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut S = O.coerce_to_string_value(ctx)?;
+    let mut S = O.coerce_to_string(ctx)?;
 
     let mut args_len = 1;
     let mut args = [const { JSValue::UNDEFINED }; 2];
@@ -843,7 +843,7 @@ pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult
                 -1
             })?;
         } else if c == '&' {
-            let sval = matched.coerce_to_string_value(ctx)?;
+            let sval = matched.coerce_to_string(ctx)?;
             res_string
                 .push(unsafe { sval.string_unchecked().content() })
                 .map_err(|_| {
@@ -883,7 +883,7 @@ pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult
             if k >= 1 && k < captures_len {
                 let s = captures.get_property_i64(ctx, k as i64).check_exception()?;
                 if !s.is_undefined() {
-                    let sval = s.coerce_to_string_value(ctx)?;
+                    let sval = s.coerce_to_string(ctx)?;
                     let r = res_string
                         .push(unsafe { sval.string_unchecked().content() })
                         .map_err(|_| {
@@ -906,7 +906,7 @@ pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult
                     .get_property_value(ctx, &name)
                     .check_exception()?;
                 if !capture.is_undefined() {
-                    let sval = capture.coerce_to_string_value(ctx)?;
+                    let sval = capture.coerce_to_string(ctx)?;
                     res_string
                         .push(unsafe { sval.string_unchecked().content() })
                         .map_err(|_| {
@@ -1251,7 +1251,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
         let str = raw
             .get_property_i64(ctx, i)
             .check_exception()?
-            .coerce_to_string_value(ctx)?;
+            .coerce_to_string(ctx)?;
 
         res_string
             .push(unsafe { str.string_unchecked().content() })
@@ -1262,7 +1262,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if i < n - 1 && i + 1 < cc.length() as i64 {
             let val = cc.arg(i as usize + 1);
-            let s = val.coerce_to_string_value(ctx)?;
+            let s = val.coerce_to_string(ctx)?;
             res_string
                 .push(unsafe { s.string_unchecked().content() })
                 .map_err(|_| {

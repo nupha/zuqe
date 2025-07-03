@@ -11,7 +11,7 @@ use zhuque::{
     array_buffer::JS_DetachArrayBuffer,
     atom::{
         JS_FreeAtom,
-        consts::{JS_ATOM_globalThis, JS_ATOM_stack},
+        consts::{JS_ATOM_globalThis, JS_ATOM_message, JS_ATOM_stack},
     },
     context::JSContext,
     error::{JS_ThrowReferenceError, JSResult},
@@ -463,7 +463,8 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                     exc.object_unchecked().dump(ctx.rt());
                 }
 
-                let msg = exc.coerce_to_utf8(&ctx).unwrap();
+                let msg = exc.get_property(&ctx, JS_ATOM_message);
+                let msg = msg.coerce_to_utf8(&ctx).unwrap();
 
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {

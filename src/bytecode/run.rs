@@ -2077,7 +2077,7 @@ pub unsafe fn run_bytecodes(
                     match SP_REF!(-1) {
                         JSValue::Int(_) | JSValue::String(_) | JSValue::Symbol(_) => {}
                         _ => {
-                            if let Ok(prop_key) = SP_REF!(-1).coerce_to_propkey_value(ctx) {
+                            if let Ok(prop_key) = SP_REF!(-1).coerce_to_propkey(ctx) {
                                 SP_PUT!(-1, prop_key);
                             } else {
                                 break State::Exception;

@@ -141,7 +141,7 @@ impl JSValue {
     // }
 
     /// Convert value `self` to string value.
-    fn do_coerce_to_string_value(&self, ctx: &JSContext, as_propkey: bool) -> Result<JSValue, i32> {
+    fn do_coerce_to_string(&self, ctx: &JSContext, as_propkey: bool) -> Result<JSValue, i32> {
         let ret: JSValue = match self {
             Self::String(s) => s.clone().into(),
             Self::Int(i) => ctx.create_string_from_utf8(format!("{}", *i).into_bytes()),
@@ -153,7 +153,7 @@ impl JSValue {
             }
             Self::Object(_) => {
                 let t = self.coerce_to_primitive(ctx, HINT_STRING)?;
-                t.do_coerce_to_string_value(ctx, as_propkey)?
+                t.do_coerce_to_string(ctx, as_propkey)?
             }
             Self::FunctionBytecode(_) => ctx.create_string("[function bytecode]"),
             Self::Symbol(_) => {
@@ -180,15 +180,15 @@ impl JSValue {
     /// Coerce `self` value to string value.
     /// `self` is not consumed.
     #[inline(always)]
-    pub fn coerce_to_string_value(&self, ctx: &JSContext) -> JSResult {
-        self.do_coerce_to_string_value(ctx, false)
+    pub fn coerce_to_string(&self, ctx: &JSContext) -> JSResult {
+        self.do_coerce_to_string(ctx, false)
     }
 
     /// Invoking `toLocaleString()` method, returns result value.
     /// `self` is not consumed.
     pub fn to_locale_string(&self, ctx: &JSContext) -> JSResult {
         if self.is_undefined_or_null() {
-            self.coerce_to_string_value(ctx)
+            self.coerce_to_string(ctx)
         } else {
             JS_Invoke(ctx, self, JS_ATOM_toLocaleString, &[]).check_exception()
         }
@@ -197,8 +197,8 @@ impl JSValue {
     /// Coerce `self` value to property key value.
     /// `self` is not consumed.
     #[inline(always)]
-    pub fn coerce_to_propkey_value(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.do_coerce_to_string_value(ctx, true)
+    pub fn coerce_to_propkey(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+        self.do_coerce_to_string(ctx, true)
     }
 }
 

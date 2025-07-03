@@ -464,7 +464,7 @@ pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
         JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => JSAtom::new_u32(*i as u32),
         JSValue::Symbol(_) => js_symbol_to_atom(ctx, val).dup(ctx.rt()),
         _ => {
-            if let Ok(tmp) = val.coerce_to_propkey_value(ctx) {
+            if let Ok(tmp) = val.coerce_to_propkey(ctx) {
                 if let JSValue::Symbol(_) = tmp {
                     js_symbol_to_atom(ctx, &tmp)
                 } else {
@@ -576,7 +576,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         // this is ECMA CanonicalNumericIndexString primitive
         if let Ok(num) = JSValue::String(p.clone()).coerce_to_number_free(ctx) {
             // test num as string is same to original value
-            if let Ok(JSValue::String(str)) = num.coerce_to_string_value(ctx) {
+            if let Ok(JSValue::String(str)) = num.coerce_to_string(ctx) {
                 if p.content().eq(str.content()) {
                     num
                 } else {

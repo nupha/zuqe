@@ -957,7 +957,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             let v = if to_locale {
                 el.to_locale_string(ctx)
             } else {
-                el.coerce_to_string_value(ctx)
+                el.coerce_to_string(ctx)
             };
 
             match v {

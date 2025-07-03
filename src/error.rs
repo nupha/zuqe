@@ -447,14 +447,14 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     name = if name.is_undefined() {
         JS_ATOM_Error.to_value(ctx, true)
     } else {
-        name.coerce_to_string_value(ctx)?
+        name.coerce_to_string(ctx)?
     };
 
     let mut msg = cc.this().get_property(ctx, JS_ATOM_message);
     msg = if msg.is_undefined() {
         JS_ATOM_empty_string.to_value(ctx, true)
     } else {
-        msg.coerce_to_string_value(ctx)?
+        msg.coerce_to_string(ctx)?
     };
 
     if !JS_IsEmptyString(&name) && !JS_IsEmptyString(&msg) {
