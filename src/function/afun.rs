@@ -15,7 +15,7 @@ use crate::{
     stack_frame::JSStackFrame,
     utils::UncheckedInto,
     value::{
-        JSValue, JSValueConst,
+        JSValue,
         object::{GCObjectWeakref, JS_PROP_CONFIGURABLE, JSObjectIsa},
     },
 };
@@ -360,15 +360,10 @@ pub unsafe fn js_async_function_resolve_create(
     return Ok(resolving_funcs);
 }
 
-#[deprecated(note = "use JSAsyncFunctionState::free_frame() instead")]
-pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
-    unreachable!("unused");
-}
-
 pub fn js_async_function_resolve_call(
     ctx: &JSContext,
-    func_obj: &JSValueConst,
-    this_obj: &JSValueConst,
+    func_obj: &JSValue,
+    this_obj: &JSValue,
     args: &[JSValue],
     flags: i32,
 ) -> JSResult {

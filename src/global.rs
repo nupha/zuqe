@@ -23,7 +23,7 @@ impl JSContext {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 
-        let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_own_property(prop) {
+        let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // check writable flag
             if prs_flags & JS_PROP_WRITABLE == 0 {
                 return if self.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
@@ -63,7 +63,7 @@ impl JSContext {
 pub fn JS_CheckDefineGlobalVar(ctx: &JSContext, prop: JSAtom, flags: u32) -> i32 {
     let gobj = ctx.global_obj();
 
-    if let Some((_, prs_flags)) = gobj.find_own_property(prop) {
+    if let Some((_, prs_flags)) = gobj.find_shape_property(prop) {
         // XXX: should handle JS_PROP_AUTOINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             if prs_flags & JS_PROP_CONFIGURABLE == 0 {
@@ -96,7 +96,7 @@ pub fn JS_CheckDefineGlobalVar(ctx: &JSContext, prop: JSAtom, flags: u32) -> i32
     }
 
     // check if there already is a lexical declaration
-    if ctx.global_var_obj().has_own_property(prop) {
+    if ctx.global_var_obj().has_shape_property(prop) {
         JS_ThrowSyntaxErrorVarRedeclaration(ctx, prop);
         return -1;
     }
@@ -122,7 +122,7 @@ pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: JSAtom, def_flags: u32) -> i32 
         val = JSValue::UNDEFINED;
     }
 
-    if p.has_own_property(prop) {
+    if p.has_shape_property(prop) {
         0
     } else if !p.flags().extensible() {
         0
@@ -152,7 +152,7 @@ pub fn JS_DefineGlobalFunction(
     let mut flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
 
     let writable = gobj
-        .find_own_property(prop)
+        .find_shape_property(prop)
         .map(|(_, flags)| flags & JS_PROP_CONFIGURABLE != 0)
         .unwrap_or(false);
 
@@ -185,7 +185,7 @@ pub fn JS_DefineGlobalFunction(
 pub fn JS_GetGlobalVar(ctx: &JSContext, prop: JSAtom, throw_ref_error: bool) -> JSValue {
     // no exotic behavior is possible in global_var_obj
     let gvobj = ctx.global_var_obj();
-    if let Some((idx, _)) = gvobj.find_own_property(prop) {
+    if let Some((idx, _)) = gvobj.find_shape_property(prop) {
         // found prop in global var object
         // XXX: should handle JS_PROP_TMASK properties
         match gvobj.0.prop_values.borrow().get(idx).unwrap() {
@@ -228,7 +228,7 @@ pub unsafe fn JS_GetGlobalVarRef(ctx: &JSContext, prop: JSAtom, sp: *mut JSValue
 pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: JSAtom) -> i32 {
     // no exotic behavior is possible in global_var_obj
     let p = ctx.global_var_obj();
-    if p.has_own_property(prop) {
+    if p.has_shape_property(prop) {
         1
     } else {
         if let Ok(ret) = ctx.global_obj().has_property(ctx, prop) {
@@ -245,7 +245,7 @@ pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: JSAtom) -> i32 {
 pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -> i32 {
     // no exotic behavior is possible in global_var_obj
     let gvobj = ctx.global_var_obj();
-    if let Some((idx, prs_flags)) = gvobj.find_own_property(prop) {
+    if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
         // XXX: should handle JS_PROP_AUTOINIT properties?
         let pr = &mut gvobj.0.prop_values.borrow_mut()[idx];
 

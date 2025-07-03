@@ -70,7 +70,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
         /* XXX: the spec could be simpler by only using GetOwnProperty */
         let len_val = if args
             .this_raw()
-            .get_own_property_descr(ctx, JS_ATOM_length)?
+            .get_own_property(ctx, JS_ATOM_length)?
             .is_none()
         {
             JSValue::Int(0)

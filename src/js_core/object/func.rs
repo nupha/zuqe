@@ -361,7 +361,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
     });
 
     if let JSValue::Object(p) = &obj {
-        if let Some(desc) = p.get_own_property_descr(ctx, atom)? {
+        if let Some(desc) = p.get_own_property(ctx, atom)? {
             let ret = ctx.create_base_object()?;
 
             let flags = JS_PROP_C_W_E | JS_PROP_THROW;
@@ -544,7 +544,7 @@ pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_FreeAtomRT(rt.as_ptr(), _a);
     });
 
-    Ok(JSValue::Bool(obj.has_own_property(ctx, atom)?))
+    Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
 }
 
 pub const js_object_funcs: [JSCFunctionListEntry; 23] = [

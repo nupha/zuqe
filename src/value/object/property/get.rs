@@ -32,7 +32,7 @@ impl JSObject {
 
         loop {
             // 1. find own property in shape
-            if let Some((idx, prs_flags)) = cur_obj.find_own_property(prop) {
+            if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
                         if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
@@ -63,7 +63,7 @@ impl JSObject {
                             .unwrap_or(JSValue::EXCEPTION);
                         debug_assert!(matches!(pr, JSProperty::Normal(_)));
                         debug_assert_eq!(
-                            cur_obj.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                            cur_obj.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                             JS_PROP_NORMAL
                         );
                         cur_obj.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back

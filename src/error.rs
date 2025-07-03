@@ -213,7 +213,7 @@ pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
         if p.class_id() != JS_CLASS_ERROR {
             false
         } else {
-            !p.has_own_property(JS_ATOM_stack)
+            !p.has_shape_property(JS_ATOM_stack)
         }
     } else {
         false

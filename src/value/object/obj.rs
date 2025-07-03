@@ -621,7 +621,7 @@ impl JSValue {
                     let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
                     if freeze {
-                        if let Some(desc) = p.get_own_property_descr(ctx, prop)? {
+                        if let Some(desc) = p.get_own_property(ctx, prop)? {
                             if desc.flags & JS_PROP_WRITABLE != 0 {
                                 flags |= JS_PROP_HAS_WRITABLE;
                             }
@@ -655,7 +655,7 @@ impl JSValue {
 
         p.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
             if check_unsealed.is_none() {
-                if let Some(desc) = p.get_own_property_descr(cx, name.atom)? {
+                if let Some(desc) = p.get_own_property(cx, name.atom)? {
                     if desc.flags & JS_PROP_CONFIGURABLE != 0
                         || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
                     {
@@ -865,7 +865,7 @@ pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValueConst, val: JSValue)
 /// 3. 'name' is a symbol with description
 pub fn js_object_has_name(obj: &JSValue) -> bool {
     let ob = unsafe { obj.object_unchecked() };
-    if let Some((idx, _)) = ob.find_own_property(JS_ATOM_name) {
+    if let Some((idx, _)) = ob.find_shape_property(JS_ATOM_name) {
         if let JSProperty::Normal(JSValue::String(ss)) = ob.0.prop_values.borrow().get(idx).unwrap()
         {
             !ss.is_empty()
@@ -882,7 +882,7 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValueConst) -> i32 {
     let p = unsafe { obj.object_unchecked() };
 
     let (_, cur_flags) = p
-        .find_own_property(JS_ATOM_length)
+        .find_shape_property(JS_ATOM_length)
         .expect("length property must exist");
 
     if p.js_update_property_flags(

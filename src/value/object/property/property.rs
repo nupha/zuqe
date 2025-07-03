@@ -268,7 +268,7 @@ impl JSObject {
                 }
             }
 
-            match p.get_own_property_descr(ctx, prop)? {
+            match p.get_own_property(ctx, prop)? {
                 None => {
                     if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id()) {
                         match unsafe { JS_AtomIsNumericIndex(ctx, prop) } {
@@ -300,14 +300,14 @@ impl JSObject {
     /// Check if shape property `atom` exists.
     /// `prop` is not consumed.
     #[inline]
-    pub fn has_own_property(&self, prop: JSAtom) -> bool {
+    pub fn has_shape_property(&self, prop: JSAtom) -> bool {
         self.shape()
             .is_some_and(|sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
     }
 
-    pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
+    pub fn has_shape_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
         if let Ok(atom) = ctx.create_atom(prop) {
-            let b = self.has_own_property(atom);
+            let b = self.has_shape_property(atom);
             JS_FreeAtom(ctx, atom);
             Ok(b)
         } else {
@@ -319,7 +319,7 @@ impl JSObject {
     /// Returns shape property index and flags if the prop exists.
     /// `prop` atom is not consumed.
     #[inline]
-    pub fn find_own_property(&self, prop: JSAtom) -> Option<(usize, u32)> {
+    pub fn find_shape_property(&self, prop: JSAtom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.0.borrow()
                 .prop_defs
@@ -328,14 +328,14 @@ impl JSObject {
         })
     }
 
-    /// Returns None if the property does not exist,
-    /// Some property descriptor 'desc' is filled present.
-    pub fn get_own_property_descr(
+    /// get description of own property.
+    /// Returns None if own property does not exist.
+    pub fn get_own_property(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        if let Some((idx, prs_flags)) = self.find_own_property(prop) {
+        if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
             let mut desc = JSPropertyDescriptor {
                 flags: prs_flags & JS_PROP_C_W_E,
                 ..Default::default()
@@ -369,7 +369,7 @@ impl JSObject {
                     desc.value = pr.instantiate(self, prop, self)?;
                     debug_assert!(matches!(pr, JSProperty::Normal(_)));
                     debug_assert_eq!(
-                        self.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                        self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                         JS_PROP_NORMAL
                     );
                     self.0.prop_values.borrow_mut()[idx] = pr;
@@ -427,31 +427,32 @@ impl JSValue {
         }
     }
 
-    pub fn has_own_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub fn has_shape_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
-            Ok(p.has_own_property(prop))
+            Ok(p.has_shape_property(prop))
         } else {
             ctx.JS_ThrowTypeErrorNotAnObject();
             Err(-1)
         }
     }
 
-    pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
+    pub fn has_shape_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
-            p.has_own_property_str(ctx, prop)
+            p.has_shape_property_str(ctx, prop)
         } else {
             ctx.JS_ThrowTypeErrorNotAnObject();
             Err(-1)
         }
     }
 
-    pub fn get_own_property_descr(
+    /// get description of own property.
+    pub fn get_own_property(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
         if let JSValue::Object(p) = self {
-            p.get_own_property_descr(ctx, prop)
+            p.get_own_property(ctx, prop)
         } else {
             ctx.JS_ThrowTypeErrorNotAnObject();
             Err(-1)
@@ -491,13 +492,13 @@ impl JSValue {
 
             src_obj.own_property_names_foreach(ctx, gpn_flags, |cx, name| -> Result<(), i32> {
                 if let Some(excl) = pexcl {
-                    if excl.get_own_property_descr(ctx, name.atom)?.is_some() {
+                    if excl.get_own_property(ctx, name.atom)?.is_some() {
                         return Ok(()); // excluded prop, skip
                     }
                 }
 
                 if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-                    if let Some(desc) = src_obj.get_own_property_descr(ctx, name.atom)? {
+                    if let Some(desc) = src_obj.get_own_property(ctx, name.atom)? {
                         if desc.flags & JS_PROP_ENUMERABLE == 0 {
                             return Ok(()); // skip if non enumerable
                         }
@@ -589,65 +590,6 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
         }
     }
     true
-}
-
-/* return Err() if exception (Proxy object only) or TRUE/FALSE */
-#[deprecated(note = "use JSValue::is_extensible() instead")]
-pub unsafe fn JS_IsExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
-    obj.is_extensible(ctx)
-}
-
-/* Return -1 if exception,
-FALSE if the property does not exist, TRUE if it exists. If TRUE is
-returned, the property descriptor 'desc' is filled present. */
-#[deprecated(note = "use JSObject::get_own_property_descr() instead")]
-pub unsafe fn JS_GetOwnPropertyInternal(
-    ctx: &JSContext,
-    desc: *mut JSPropertyDescriptor,
-    p: &JSValue,
-    prop: JSAtom,
-) -> i32 {
-    match p.get_own_property_descr(ctx, prop) {
-        Ok(Some(d)) => {
-            if !desc.is_null() {
-                *desc = d;
-            }
-            1
-        }
-        Ok(None) => 0,
-        Err(_) => -1,
-    }
-}
-
-/// returned value has its ref_count incremented by 1
-#[deprecated(note = "JSValue::get_own_property_descr() instead")]
-pub unsafe fn JS_GetOwnProperty(
-    ctx: &JSContext,
-    desc: *mut JSPropertyDescriptor,
-    obj: JSValue,
-    prop: JSAtom,
-) -> i32 {
-    match obj.get_own_property_descr(ctx, prop) {
-        Ok(Some(d)) => {
-            if !desc.is_null() {
-                *desc = d;
-            }
-            1
-        }
-        Ok(None) => 0,
-        Err(_) => -1,
-    }
-}
-
-#[deprecated(note = "use JSValue::copy_properties_from() instead")]
-pub unsafe fn JS_CopyDataProperties(
-    ctx: &JSContext,
-    target: JSValue,
-    source: JSValue,
-    excluded: JSValue,
-    setprop: bool,
-) -> Result<(), i32> {
-    target.copy_properties_from(ctx, &source, &excluded, setprop)
 }
 
 /// Get object `length` property as u32

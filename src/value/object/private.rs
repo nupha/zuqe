@@ -17,10 +17,10 @@ impl JSObject {
             .object()
             .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.home_object.clone()))
         {
-            if let Some((idx, _)) = home_obj.find_own_property(JS_ATOM_Private_brand) {
+            if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
                     JSProperty::Normal(sym @ JSValue::Symbol(_)) => {
-                        Ok(self.has_own_property(js_symbol_to_atom(ctx, &sym)))
+                        Ok(self.has_shape_property(js_symbol_to_atom(ctx, &sym)))
                     }
                     _ => {
                         ctx.JS_ThrowTypeErrorNotAnObject();
@@ -47,7 +47,7 @@ impl JSObject {
 
         let prop = js_symbol_to_atom(ctx, name);
 
-        if let Some((idx, _)) = self.find_own_property(prop) {
+        if let Some((idx, _)) = self.find_shape_property(prop) {
             self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
             Ok(())
         } else {
@@ -62,7 +62,7 @@ impl JSObject {
             Err(-1)
         } else {
             let prop = js_symbol_to_atom(ctx, name);
-            if let Some((idx, _)) = self.find_own_property(prop) {
+            if let Some((idx, _)) = self.find_shape_property(prop) {
                 if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
                     Ok(val.clone())
                 } else {
@@ -110,7 +110,7 @@ impl JSObject {
 
         let prop = js_symbol_to_atom(ctx, name);
 
-        if self.has_own_property(prop) {
+        if self.has_shape_property(prop) {
             ctx.JS_ThrowTypeError(&format!(
                 "private class field '{}' already exists",
                 prop.to_str(ctx.rt())
@@ -140,7 +140,7 @@ impl JSValue {
     pub fn add_brand(&self, ctx: &JSContext, home_obj: &JSValue) -> Result<(), i32> {
         if let JSValue::Object(home) = home_obj {
             let brand: JSValue =
-                if let Some((idx, _)) = home.find_own_property(JS_ATOM_Private_brand) {
+                if let Some((idx, _)) = home.find_shape_property(JS_ATOM_Private_brand) {
                     if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
                         val.clone()
                     } else {
@@ -161,7 +161,7 @@ impl JSValue {
             let brand_atom = js_symbol_to_atom(ctx, &brand);
 
             if let Some(p1) = self.object() {
-                if p1.has_own_property(brand_atom) {
+                if p1.has_shape_property(brand_atom) {
                     JS_FreeAtom(ctx, brand_atom);
                     ctx.JS_ThrowTypeError("private method is already present");
                     Err(-1)

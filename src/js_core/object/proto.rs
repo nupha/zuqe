@@ -10,9 +10,9 @@ use crate::{
     value::{
         JS_ConcatString3, JSValue, JSValueConst,
         object::{
-            JS_GetOwnPropertyInternal, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
-            JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-            JS_PROP_THROW, JS_SetPrototypeInternal, JSPropertyDescriptor,
+            JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
+            JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
+            JS_SetPrototypeInternal, JSPropertyDescriptor,
         },
     },
 };
@@ -151,17 +151,9 @@ pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_FreeAtom(ctx, atom);
     })?;
 
-    unsafe {
-        let p = obj.object_unchecked();
-        let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), &obj, atom);
-        JS_FreeAtom(ctx, atom);
-
-        if ret < 0 {
-            Err(-1)
-        } else {
-            Ok(JSValue::Bool(ret != 0))
-        }
-    }
+    let ret = obj.get_own_property(ctx, atom);
+    JS_FreeAtom(ctx, atom);
+    Ok(JSValue::Bool(ret?.is_some()))
 }
 
 pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -188,45 +180,6 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-// pub unsafe fn js_object_propertyIsEnumerable(
-//     ctx: &JSContext,
-//     this_val: JSValueConst,
-//     argc: i32,
-//     argv: *mut JSValueConst,
-// ) -> JSValue {
-//     let obj = JS_ToObject(ctx, this_val);
-//     if JS_IsException(obj) {
-//         JS_FreeValue(ctx, obj);
-//         return JSValue::EXCEPTION;
-//     }
-
-//     let prop = JS_ValueToAtom(ctx, *argv.offset(0));
-//     if unlikely(prop == JS_ATOM_NULL) {
-//         JS_FreeValue(ctx, obj);
-//         return JSValue::EXCEPTION;
-//     }
-
-//     let mut desc: JSPropertyDescriptor = std::mem::zeroed();
-//     let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, JS_VALUE_GET_OBJ(obj), prop);
-//     if has_prop < 0 {
-//         JS_FreeAtom(ctx, prop);
-//         JS_FreeValue(ctx, obj);
-//         return JSValue::EXCEPTION;
-//     }
-//     let res = if has_prop != 0 {
-//         let r = JS_NewBool(desc.flags & JS_PROP_ENUMERABLE != 0);
-//         js_free_desc(ctx, &mut desc);
-//         r
-//     } else {
-//         JSValue::FALSE
-//     };
-
-//     JS_FreeAtom(ctx, prop);
-//     JS_FreeValue(ctx, obj);
-
-//     res
-// }
-
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
     let prop = JS_ValueToAtom(ctx, cc.arg(0));
@@ -234,27 +187,14 @@ pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSRes
         return Err(-1);
     }
 
-    let mut desc = JSPropertyDescriptor {
-        flags: 0,
-        value: JSValue::UNDEFINED,
-        getter: JSValue::UNDEFINED,
-        setter: JSValue::UNDEFINED,
-    };
+    let ret = obj.get_own_property(ctx, prop);
+    JS_FreeAtom(ctx, prop);
 
-    let has_prop = unsafe { JS_GetOwnPropertyInternal(ctx, &mut desc, &obj, prop) };
-    if has_prop < 0 {
-        JS_FreeAtom(ctx, prop);
-        return Err(-1);
-    }
-
-    let res = if has_prop != 0 {
+    Ok(if let Some(desc) = ret? {
         JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0)
     } else {
         JSValue::Bool(false)
-    };
-
-    JS_FreeAtom(ctx, prop);
-    Ok(res)
+    })
 }
 
 pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -347,59 +287,60 @@ pub unsafe fn js_object___lookupGetter__(
     }
 
     let prop = JS_ValueToAtom(ctx, &*argv.offset(0));
-    if unlikely(prop == JS_ATOM_NULL) {
+    if prop == JS_ATOM_NULL {
         JS_FreeAtom(ctx, prop);
         return JSValue::EXCEPTION;
     }
 
-    let mut res: JSValue;
-    let mut desc = JSPropertyDescriptor {
-        flags: 0,
-        value: JSValue::UNDEFINED,
-        getter: JSValue::UNDEFINED,
-        setter: JSValue::UNDEFINED,
+    let res = loop {
+        match obj.get_own_property(ctx, prop) {
+            Ok(Some(desc)) => {
+                break if desc.flags & JS_PROP_GETSET != 0 {
+                    if setter != 0 {
+                        desc.setter
+                    } else {
+                        desc.getter
+                    }
+                } else {
+                    JSValue::UNDEFINED
+                };
+            }
+            Ok(None) => {
+                obj = obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
+                if obj.is_exception() {
+                    // obj is Proxy
+                    break JSValue::EXCEPTION;
+                } else if obj.is_null() {
+                    break JSValue::UNDEFINED;
+                }
+
+                // avoid infinite loop (possible with proxies)
+                if ctx.poll_interrupts().is_err() {
+                    break JSValue::EXCEPTION;
+                }
+            }
+            Err(_) => {
+                break JSValue::EXCEPTION;
+            }
+        }
+
+        // obj = obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
+        // if obj.is_exception() {
+        //     // obj is Proxy
+        //     JS_FreeAtom(ctx, prop);
+        //     return JSValue::EXCEPTION;
+        // } else if obj.is_null() {
+        //     res = JSValue::UNDEFINED;
+        //     break;
+        // }
+
+        // // avoid infinite loop (possible with proxies)
+        // if ctx.poll_interrupts().is_err() {
+        //     JS_FreeAtom(ctx, prop);
+        //     return JSValue::EXCEPTION;
+        // }
     };
 
-    loop {
-        let prop: JSAtom = JS_ATOM_NULL;
-        let has_prop = JS_GetOwnPropertyInternal(ctx, &mut desc, &obj, prop);
-
-        if has_prop < 0 {
-            JS_FreeAtom(ctx, prop);
-            return JSValue::EXCEPTION;
-        }
-
-        if has_prop != 0 {
-            if desc.flags & JS_PROP_GETSET != 0 {
-                res = if setter != 0 {
-                    desc.setter
-                } else {
-                    desc.getter
-                };
-            } else {
-                res = JSValue::UNDEFINED;
-            }
-            break;
-        }
-
-        obj = obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
-        if obj.is_exception() {
-            // obj is Proxy
-            JS_FreeAtom(ctx, prop);
-            return JSValue::EXCEPTION;
-        } else if obj.is_null() {
-            res = JSValue::UNDEFINED;
-            break;
-        }
-
-        // avoid infinite loop (possible with proxies)
-        if ctx.poll_interrupts().is_err() {
-            JS_FreeAtom(ctx, prop);
-            return JSValue::EXCEPTION;
-        }
-    }
-
-    // Cleanup and return result
     JS_FreeAtom(ctx, prop);
     res
 }

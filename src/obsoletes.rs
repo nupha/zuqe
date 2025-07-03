@@ -27,7 +27,7 @@ use crate::{
     utils::UncheckedInto,
     value::{
         JSString, JSStringInner, JSValue, JSValueConst,
-        object::{JSProperty, JSShape, PropertyEnum},
+        object::{JSProperty, JSPropertyDescriptor, JSShape, PropertyEnum},
     },
 };
 
@@ -2153,4 +2153,67 @@ pub unsafe fn JS_NewAtomUInt32(ctx: &JSContext, n: u32) -> JSAtom {
 #[deprecated(note = "use JSRuntime::register_atom_i64() instead")]
 pub unsafe fn JS_NewAtomInt64(ctx: &JSContext, n: i64) -> JSAtom {
     ctx.rt_mut().register_atom_i64(n)
+}
+
+#[deprecated(note = "use JSAsyncFunctionState::free_frame() instead")]
+pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+    unreachable!("unused");
+}
+
+/* return Err() if exception (Proxy object only) or TRUE/FALSE */
+#[deprecated(note = "use JSValue::is_extensible() instead")]
+pub unsafe fn JS_IsExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+    obj.is_extensible(ctx)
+}
+
+/* Return -1 if exception,
+FALSE if the property does not exist, TRUE if it exists. If TRUE is
+returned, the property descriptor 'desc' is filled present. */
+#[deprecated(note = "use JSObject::get_own_property() instead")]
+pub unsafe fn JS_GetOwnPropertyInternal(
+    ctx: &JSContext,
+    desc: *mut JSPropertyDescriptor,
+    p: &JSValue,
+    prop: JSAtom,
+) -> i32 {
+    match p.get_own_property(ctx, prop) {
+        Ok(Some(d)) => {
+            if !desc.is_null() {
+                *desc = d;
+            }
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[deprecated(note = "JSValue::get_own_property() instead")]
+pub unsafe fn JS_GetOwnProperty(
+    ctx: &JSContext,
+    desc: *mut JSPropertyDescriptor,
+    obj: JSValue,
+    prop: JSAtom,
+) -> i32 {
+    match obj.get_own_property(ctx, prop) {
+        Ok(Some(d)) => {
+            if !desc.is_null() {
+                *desc = d;
+            }
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[deprecated(note = "use JSValue::copy_properties_from() instead")]
+pub unsafe fn JS_CopyDataProperties(
+    ctx: &JSContext,
+    target: JSValue,
+    source: JSValue,
+    excluded: JSValue,
+    setprop: bool,
+) -> Result<(), i32> {
+    target.copy_properties_from(ctx, &source, &excluded, setprop)
 }

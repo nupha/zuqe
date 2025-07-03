@@ -432,7 +432,7 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
             );
             println!(
                 "[O.o] globalThis.hasOwnProperty('$DONE')={:?}",
-                glo.has_own_property_str(&ctx, "$DONE")
+                glo.has_shape_property_str(&ctx, "$DONE")
             );
         }
     }

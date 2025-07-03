@@ -269,7 +269,7 @@ impl JSObject {
         let mut has_err = false;
         for name in lst.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {
-                match self.get_own_property_descr(ctx, name.atom) {
+                match self.get_own_property(ctx, name.atom) {
                     Ok(Some(desc)) => {
                         if desc.flags & JS_PROP_ENUMERABLE == 0 {
                             continue; // skip non enumerable

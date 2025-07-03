@@ -40,7 +40,7 @@ impl JSObject {
         let mut val = val.clone();
 
         loop {
-            if let Some((idx, prs_flags)) = self.find_own_property(prop) {
+            if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
                 if (prs_flags & JS_PROP_LENGTH != 0) && (flags & JS_PROP_HAS_VALUE != 0) {
                     // is `length` property
                     // the range of the Array length property is always tested before
@@ -63,7 +63,7 @@ impl JSObject {
                     val = pr.instantiate(self, prop, self)?;
                     debug_assert!(matches!(pr, JSProperty::Normal(_)));
                     debug_assert_eq!(
-                        self.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                        self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                         JS_PROP_NORMAL
                     );
                     self.0.prop_values.borrow_mut()[idx] = pr;

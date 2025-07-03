@@ -448,7 +448,7 @@ pub fn js_default_module_normalize_name(
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
 fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: JSAtom) -> i32 {
-    (!obj.has_own_property(prop)) as i32
+    (!obj.has_shape_property(prop)) as i32
 }
 
 pub static js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

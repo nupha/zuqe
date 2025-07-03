@@ -135,7 +135,7 @@ impl JSObject {
         flags: u32,
     ) -> Result<(), i32> {
         debug_assert!(
-            !self.has_own_property(prop),
+            !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
             prop.0,
             prop.to_str(ctx.rt())

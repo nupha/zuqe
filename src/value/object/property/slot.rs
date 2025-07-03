@@ -248,7 +248,7 @@ impl JSObject {
             pr.instantiate(self, prop, this_obj)?;
             debug_assert!(matches!(pr, JSProperty::Normal(_)));
             debug_assert_eq!(
-                self.find_own_property(prop).unwrap().1 & JS_PROP_TMASK,
+                self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                 JS_PROP_NORMAL
             );
             self.0.prop_values.borrow_mut()[slot_idx] = pr;

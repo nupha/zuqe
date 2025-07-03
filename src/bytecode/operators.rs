@@ -18,9 +18,9 @@ use crate::{
         JS_AtomSymbolHasDescription, JS_ConcatString3, JSValue, JSValueConst,
         object::{
             JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
-            JS_GetOwnPropertyInternal, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
-            JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-            JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa, js_get_length32,
+            JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET,
+            JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+            JS_SetConstructorBit, JSObjectIsa, js_get_length32,
         },
     },
 };
@@ -113,7 +113,7 @@ pub unsafe fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Resul
             return Err(-1);
         }
 
-        let b = op1.object_unchecked().has_own_property(atom);
+        let b = op1.object_unchecked().has_shape_property(atom);
         JS_FreeAtom(ctx, atom);
         b
     };
@@ -522,11 +522,7 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     it.idx += 1;
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match unsafe {
-                            enum_obj
-                                .object_unchecked()
-                                .get_own_property_descr(ctx, prop)
-                        } {
+                        match unsafe { enum_obj.object_unchecked().get_own_property(ctx, prop) } {
                             Ok(Some(_)) => {
                                 continue; // already visited
                             }
@@ -555,12 +551,23 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                 }
 
                 // check if the property was deleted
-                let ret = JS_GetOwnPropertyInternal(ctx, std::ptr::null_mut(), &(*it).obj, prop);
-                if ret < 0 {
-                    return ret;
-                }
-                if ret != 0 {
-                    break;
+                // match it.obj.has_own_property(ctx, prop){
+                //     Ok(true)=>{
+                //         break;
+                //     }
+                //     Ok(false)=>{}
+                //     Err(_)=>{
+                //         return -1;
+                //     }
+                // }
+                match it.obj.get_own_property(ctx, prop) {
+                    Ok(Some(_)) => {
+                        break;
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        return -1;
+                    }
                 }
             }
         }

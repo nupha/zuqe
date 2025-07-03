@@ -180,7 +180,7 @@ impl JSValue {
                 ob_this = Some(this);
 
                 if o == this {
-                    if let Some((idx, prs_flags)) = o.find_own_property(prop) {
+                    if let Some((idx, prs_flags)) = o.find_shape_property(prop) {
                         return o.put_prop_slot(ctx, prs_flags, prop, idx, val.clone(), o, flags);
                     }
                     SetPropState::ExoticAndGoUp
@@ -256,7 +256,7 @@ impl JSValue {
                 }
                 SetPropState::SetOrInit => {
                     let target = ob_obj.as_ref().unwrap();
-                    if let Some((idx, prs_flags)) = target.find_own_property(prop) {
+                    if let Some((idx, prs_flags)) = target.find_shape_property(prop) {
                         return target.put_prop_slot(
                             ctx,
                             prs_flags,
@@ -321,7 +321,7 @@ impl JSValue {
                         }
                     } else {
                         // generic case: modify the property in this_obj if it already exists
-                        match target.get_own_property_descr(ctx, prop)? {
+                        match target.get_own_property(ctx, prop)? {
                             Some(desc) => {
                                 // already exists, update the value
                                 if desc.flags & JS_PROP_GETSET != 0 {
