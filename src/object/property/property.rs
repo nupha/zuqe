@@ -2,13 +2,11 @@ use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY,
-    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
+    atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
-    error::JS_ThrowReferenceErrorUninitialized,
     function::{JS_Call, JSVarRef},
-    object::{JSObject, JSShapeProperty, LazyInit},
+    object::{JSObject, LazyInit},
     proxy::js_proxy_isExtensible,
-    runtime::JSRuntime,
     value::{JS_ToLengthFree, JS_ToUint32Free, JSValue},
 };
 
@@ -234,11 +232,6 @@ impl JSProperty {
     }
 }
 
-#[deprecated(note = "use JSValue::has_property() instead")]
-pub unsafe fn JS_HasProperty(ctx: &JSContext, obj: JSValue, prop: JSAtom) -> Result<bool, i32> {
-    obj.has_property(ctx, prop)
-}
-
 impl JSObject {
     pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
         if self.class_id() == JS_CLASS_PROXY {
@@ -280,9 +273,8 @@ impl JSObject {
                         }
                     }
 
-                    // walk up proto
-                    let up = p.shape().unwrap().0.borrow().proto.clone();
-                    if let Some(up) = up {
+                    // walk up proto chain
+                    if let Some(up) = p.shape().unwrap().0.borrow().proto.clone() {
                         p = up;
                     } else {
                         break;
@@ -377,36 +369,12 @@ impl JSValue {
     }
 }
 
-#[deprecated(note = "use JSProperty::free() instead")]
-pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags: u32) {
-    unreachable!("use JSProperty::free() instead");
-}
-
 /// Computes the effective property flags by combining input flags with default flags
 /// If a flag is specified in JS_PROP_HAS_x, it takes precedence over def_flags
 #[inline(always)]
 pub const fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
     let mask = (flags >> JS_PROP_HAS_SHIFT) & JS_PROP_C_W_E;
     (flags & mask) | (def_flags & !mask)
-}
-
-/// Finds a property in an object by its atom name
-#[deprecated(note = "use JSObject::find_own_property1() instead")]
-pub unsafe fn find_own_property1(p: *mut JSValue, atom: JSAtom) -> *mut JSShapeProperty {
-    unreachable!("unused");
-}
-
-/// Finds a property and its value in an object by atom name
-/// Sets ppr to the property value pointer if found, null otherwise
-/// Returns the property shape pointer if found, null otherwise
-#[inline(always)]
-#[deprecated(note = "use JSObject::find_own_property() instead")]
-pub unsafe fn find_own_property(
-    ppr: *mut *mut JSProperty,
-    p: *mut JSValue,
-    atom: JSAtom,
-) -> *mut JSShapeProperty {
-    unreachable!("unused");
 }
 
 /// Checks if property flags are valid for property definition

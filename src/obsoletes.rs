@@ -20,7 +20,7 @@ use crate::{
     generator::JSAsyncGeneratorData,
     iterator::JSIteratorKindEnum,
     module::JSModuleDef,
-    object::{JSProperty, JSPropertyDescriptor, JSShape, PropertyEnum},
+    object::{JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, PropertyEnum},
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     proxy::js_proxy_isArray,
@@ -2296,4 +2296,48 @@ pub unsafe fn set_array_length(ctx: &JSContext, p: *mut JSValue, val: JSValue, f
     (*p).object_unchecked()
         .set_array_length(ctx, val, flags)
         .map_or(-1, |b| b as i32)
+}
+
+/// `val` is duplicated inside
+#[deprecated(note = "use JSObject::create_property() instead")]
+pub unsafe fn JS_CreateProperty(
+    ctx: &JSContext,
+    p: *mut JSValue,
+    prop: JSAtom,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
+    flags: u32,
+) -> Result<bool, i32> {
+    (*p).object_unchecked()
+        .create_property(ctx, prop, val, getter, setter, flags)
+}
+
+#[deprecated(note = "use JSValue::has_property() instead")]
+pub unsafe fn JS_HasProperty(ctx: &JSContext, obj: JSValue, prop: JSAtom) -> Result<bool, i32> {
+    obj.has_property(ctx, prop)
+}
+
+#[deprecated(note = "use JSProperty::free() instead")]
+pub unsafe fn free_property(rt: *mut JSRuntime, pr: *mut JSProperty, prop_flags: u32) {
+    unreachable!("use JSProperty::free() instead");
+}
+
+/// Finds a property in an object by its atom name
+#[deprecated(note = "use JSObject::find_own_property1() instead")]
+pub unsafe fn find_own_property1(p: *mut JSValue, atom: JSAtom) -> *mut JSShapeProperty {
+    unreachable!("unused");
+}
+
+/// Finds a property and its value in an object by atom name
+/// Sets ppr to the property value pointer if found, null otherwise
+/// Returns the property shape pointer if found, null otherwise
+#[inline(always)]
+#[deprecated(note = "use JSObject::find_own_property() instead")]
+pub unsafe fn find_own_property(
+    ppr: *mut *mut JSProperty,
+    p: *mut JSValue,
+    atom: JSAtom,
+) -> *mut JSShapeProperty {
+    unreachable!("unused");
 }

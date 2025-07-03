@@ -197,18 +197,3 @@ impl JSObject {
         Ok(true)
     }
 }
-
-/// `val` is duplicated inside
-#[deprecated(note = "use JSObject::create_property() instead")]
-pub unsafe fn JS_CreateProperty(
-    ctx: &JSContext,
-    p: *mut JSValue,
-    prop: JSAtom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
-    flags: u32,
-) -> Result<bool, i32> {
-    (*p).object_unchecked()
-        .create_property(ctx, prop, val, getter, setter, flags)
-}
