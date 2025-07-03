@@ -219,8 +219,10 @@ impl JSFunctionDef {
             ctx.JS_ThrowOutOfMemory();
             -1
         })?;
-        bin.fill(0);
+
+        // initialize buf with zero: don't change order.
         bin.set_len(bin_size);
+        bin.fill(0);
 
         // 1. cpool section
         if inner.cpool_start >= 0 {
@@ -231,12 +233,7 @@ impl JSFunctionDef {
                 .cast::<JSValue>();
 
             for v in self.cpool.drain(..) {
-                println!("[O.o] const={:?}", v.repr());
-
                 *dst = v;
-                //let o = std::ptr::replace(dst, v);
-                //println!("[O.o] old={:?}", o.repr());
-
                 dst = dst.add(1);
             }
         }
