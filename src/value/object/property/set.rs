@@ -15,16 +15,14 @@ use crate::{
     },
     utils::UncheckedInto,
     value::{
-        JS_ToFloat64, JS_ToUint8Clamp,
-        object::{JS_PROP_THROW_STRICT, JSProperty},
+        JS_GetPrototypePrimitive, JS_ToFloat64, JS_ToUint8Clamp, JSValue,
+        object::{JS_PROP_THROW_STRICT, JSObject, JSProperty},
     },
 };
 
 use super::{
-    super::{JS_GetPrototypePrimitive, JSValue},
     JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_WRITABLE,
-    obj::JSObject,
 };
 
 #[derive(Debug, Clone, PartialEq)]

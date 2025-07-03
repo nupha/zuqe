@@ -7,16 +7,16 @@ use crate::{
 };
 
 use super::{
-    super::JSValue, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET,
-    JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE,
-    JSObject, JSProperty, get_prop_flags,
+    super::super::JSValue, super::JSObject, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
+    JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+    JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSProperty, get_prop_flags,
 };
 
 impl JSObjectInner {
     /// Grows the property values array to accommodate more properties.
     /// Takes a new length and extends the array with undefined values if needed.
     /// Returns error if memory allocation fails.
-    pub(super) fn grow_prop_value_slots(&self, total_length: usize) -> Result<(), i32> {
+    pub(crate) fn grow_prop_value_slots(&self, total_length: usize) -> Result<(), i32> {
         let mut slots = self.prop_values.borrow_mut();
 
         let len = slots.len();
@@ -118,7 +118,7 @@ impl JSObjectInner {
     /// Returns Err if memory error.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub(super) fn add_own_property_then<R>(
+    pub(crate) fn add_own_property_then<R>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,

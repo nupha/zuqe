@@ -5,17 +5,17 @@ use crate::{
         __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JS_ValueToAtom,
         JSAtom, consts::*,
     },
+    bytecode::js_get_function_name,
     context::JSContext,
-    value::object::{JS_PROP_NORMAL, JSObject},
+    value::object::{JS_PROP_NORMAL, JSObject, js_object_has_name},
 };
 
 use super::{
-    super::{JS_NumberIsNegativeOrMinusZero, JSValue, JSValueConst},
+    super::super::{JS_NumberIsNegativeOrMinusZero, JSValue, JSValueConst},
     JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_WRITABLE,
     JSProperty, JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
-    js_get_function_name, js_object_has_name,
 };
 
 impl JSObject {

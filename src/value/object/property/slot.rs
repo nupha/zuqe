@@ -2,13 +2,16 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
     atom::{JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    value::object::{JS_PROP_AUTOINIT, JSObject, property_set::call_setter},
+    value::{
+        JSValue,
+        object::{JS_PROP_AUTOINIT, JSObject, property::set::call_setter},
+    },
 };
 
 use super::{
-    super::JSValue, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
-    JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL,
-    JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty,
+    JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
+    JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty,
 };
 
 impl JSObject {

@@ -3,10 +3,10 @@ use crate::{
     array::convert_fast_array_to_array,
     atom::{JS_ATOM_MAX_INT, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
-    value::object::JSObject,
+    value::{JSValue, object::JSObject},
 };
 
-use super::{super::JSValue, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT};
+use super::{JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT};
 
 impl JSObject {
     /// delete a property in shape or by exotic handler.

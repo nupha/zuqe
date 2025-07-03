@@ -13,12 +13,12 @@ use crate::{
         JSValue,
         object::{
             JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
-            JSShapeProperty,
+            JSObject, JSShapeProperty,
         },
     },
 };
 
-use super::{JSObject, JSProperty};
+use super::JSProperty;
 
 #[repr(u8)]
 #[derive(Debug, Clone)]

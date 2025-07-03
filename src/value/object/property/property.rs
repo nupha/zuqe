@@ -8,12 +8,10 @@ use crate::{
     function::{JS_Call, JSVarRef},
     proxy::js_proxy_isExtensible,
     runtime::JSRuntime,
-    value::object::{JSObject, LazyInit},
-};
-
-use super::{
-    super::{JS_ToLengthFree, JS_ToUint32Free, JSValue, JSValueConst},
-    JSShapeProperty,
+    value::{
+        JS_ToLengthFree, JS_ToUint32Free, JSValue,
+        object::{JSObject, JSShapeProperty, LazyInit},
+    },
 };
 
 // Property flags
@@ -239,11 +237,7 @@ impl JSProperty {
 }
 
 #[deprecated(note = "use JSValue::has_property() instead")]
-pub unsafe fn JS_HasProperty(
-    ctx: &JSContext,
-    obj: JSValueConst,
-    prop: JSAtom,
-) -> Result<bool, i32> {
+pub unsafe fn JS_HasProperty(ctx: &JSContext, obj: JSValue, prop: JSAtom) -> Result<bool, i32> {
     obj.has_property(ctx, prop)
 }
 
@@ -557,12 +551,6 @@ pub unsafe fn find_own_property(
     atom: JSAtom,
 ) -> *mut JSShapeProperty {
     unreachable!("unused");
-    // (*p).find_own_property_mut(atom)
-    //     .map(|(prs, pr)| {
-    //         *ppr = pr;
-    //         prs as *mut JSShapeProperty
-    //     })
-    //     .unwrap_or(std::ptr::null_mut())
 }
 
 /// Checks if property flags are valid for property definition
@@ -605,7 +593,7 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
 
 /* return Err() if exception (Proxy object only) or TRUE/FALSE */
 #[deprecated(note = "use JSValue::is_extensible() instead")]
-pub unsafe fn JS_IsExtensible(ctx: &JSContext, obj: &JSValueConst) -> Result<bool, i32> {
+pub unsafe fn JS_IsExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     obj.is_extensible(ctx)
 }
 
@@ -636,7 +624,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
 pub unsafe fn JS_GetOwnProperty(
     ctx: &JSContext,
     desc: *mut JSPropertyDescriptor,
-    obj: JSValueConst,
+    obj: JSValue,
     prop: JSAtom,
 ) -> i32 {
     match obj.get_own_property_descr(ctx, prop) {
@@ -654,16 +642,16 @@ pub unsafe fn JS_GetOwnProperty(
 #[deprecated(note = "use JSValue::copy_properties_from() instead")]
 pub unsafe fn JS_CopyDataProperties(
     ctx: &JSContext,
-    target: JSValueConst,
-    source: JSValueConst,
-    excluded: JSValueConst,
+    target: JSValue,
+    source: JSValue,
+    excluded: JSValue,
     setprop: bool,
 ) -> Result<(), i32> {
     target.copy_properties_from(ctx, &source, &excluded, setprop)
 }
 
 /// Get object `length` property as u32
-pub fn js_get_length32(ctx: &JSContext, obj: &JSValueConst) -> Result<u32, i32> {
+pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
     unsafe {
         JS_ToUint32Free(
             ctx,
@@ -673,7 +661,7 @@ pub fn js_get_length32(ctx: &JSContext, obj: &JSValueConst) -> Result<u32, i32> 
 }
 
 /// Get object `length` property as i64
-pub fn js_get_length64(ctx: &JSContext, obj: &JSValueConst) -> Result<i64, i32> {
+pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
     let len_val = obj.get_property(ctx, JS_ATOM_length);
     if len_val.is_exception() {
         Err(-1)

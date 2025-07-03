@@ -877,14 +877,6 @@ pub fn js_object_has_name(obj: &JSValue) -> bool {
     }
 }
 
-pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
-    let mut name_str = name.to_value(ctx, true);
-    if JS_AtomSymbolHasDescription(ctx, name) {
-        name_str = unsafe { JS_ConcatString3(ctx, c"[", name_str, c"]") };
-    }
-    name_str
-}
-
 /// Note: all the fields are already sealed except length
 pub fn seal_template_obj(ctx: &JSContext, obj: JSValueConst) -> i32 {
     let p = unsafe { obj.object_unchecked() };

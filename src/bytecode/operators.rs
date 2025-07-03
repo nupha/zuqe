@@ -248,10 +248,10 @@ pub unsafe fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAto
     ret
 }
 
-pub unsafe fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
+pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
     let mut name_str = name.to_value(ctx, true);
     if JS_AtomSymbolHasDescription(ctx, name) {
-        name_str = JS_ConcatString3(ctx, c"[", name_str, c"]");
+        name_str = unsafe { JS_ConcatString3(ctx, c"[", name_str, c"]") };
     }
     name_str
 }
