@@ -401,6 +401,11 @@ impl std::fmt::Debug for JSObject {
 
 impl JSObject {
     #[inline(always)]
+    pub(crate) fn inner(&self) -> &Rc<JSObjectInner> {
+        &self.0
+    }
+
+    #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.id()
     }

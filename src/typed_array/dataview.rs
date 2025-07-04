@@ -278,7 +278,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
         false
     };
 
-    let (is_detached, byte_length) = ta.with_typed_array(|ta| (ta.is_detached(), ta.byte_length));
+    let (is_detached, byte_length) = ta.with(|ta| (ta.is_detached(), ta.byte_length));
     if is_detached {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);

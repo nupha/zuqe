@@ -142,49 +142,65 @@ impl JSTypedArray {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct TypedArrayValue(JSValue);
+pub struct TypedArrayValue(pub(crate) JSObject);
+
+impl From<TypedArrayValue> for JSValue {
+    fn from(value: TypedArrayValue) -> Self {
+        Self::Object(value.0)
+    }
+}
+
+impl TryFrom<JSObject> for TypedArrayValue {
+    type Error = i32;
+
+    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&obj.class_id()) {
+            Ok(Self(obj))
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl TryFrom<JSValue> for TypedArrayValue {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if let JSValue::Object(ob) = value
+            && matches!(
+                ob.class_id(),
+                (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) | JS_CLASS_DATAVIEW
+            )
+        {
+            Ok(Self(ob))
+        } else {
+            Err(-1)
+        }
+    }
+}
 
 impl TypedArrayValue {
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
-        unsafe { self.0.object_unchecked().class_id() }
+        self.0.class_id()
     }
 
-    /// get typed array data.
-    #[inline(always)]
-    pub fn with_typed_array<R>(&self, f: impl FnOnce(&JSTypedArray) -> R) -> R {
-        unsafe {
-            self.0
-                .object_unchecked()
-                .0
-                .isa
-                .borrow()
-                .typed_array()
-                .map(f)
-                .unwrap()
-        }
+    /// run closure with typed array data.
+    pub fn with<R>(&self, f: impl FnOnce(&JSTypedArray) -> R) -> R {
+        self.0.inner().isa.borrow().typed_array().map(f).unwrap()
     }
 
     /// check if the TypedArray is detached.
-    #[inline(always)]
+    #[inline]
     pub fn is_detached(&self) -> bool {
-        self.with_typed_array(|ta| ta.is_detached())
+        self.with(|ta| ta.is_detached())
     }
 
     /// Get elements count of typed array.
     /// If underlaying array buffer is detached, returns 0.
-    #[inline(always)]
+    #[inline]
     pub fn length(&self) -> usize {
-        unsafe {
-            self.0
-                .object_unchecked()
-                .0
-                .isa
-                .borrow()
-                .typed_array()
-                .unwrap()
-                .count as usize
-        }
+        self.with(|ta| ta.count as usize)
     }
 
     /// Get elements count of typed array. (calculated by underlying array buffer space).
@@ -192,7 +208,7 @@ impl TypedArrayValue {
     /// this will still return rated count, but .length() will return 0.
     pub fn capacity(&self) -> usize {
         let size_log2 = typed_array_size_log2(self.class_id());
-        self.with_typed_array(|ta| (ta.byte_length >> size_log2) as usize)
+        self.with(|ta| (ta.byte_length >> size_log2) as usize)
     }
 
     /// Get underlying array buffer byte offset.
@@ -212,25 +228,25 @@ impl TypedArrayValue {
                 Ok(0)
             }
         } else {
-            Ok(self.with_typed_array(|ta| ta.offset as usize))
+            Ok(self.with(|ta| ta.offset as usize))
         }
     }
 
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        self.with_typed_array(|ta| ta.with_bytes(f))
+        self.with(|ta| ta.with_bytes(f))
     }
 
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
     pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.with_typed_array(|ta| ta.with_bytes_mut(f))
+        self.with(|ta| ta.with_bytes_mut(f))
     }
 
     /// create a new TypedArray value with content copied from `self` typed array.
     pub fn create_to_new(
-        &mut self,
+        &self,
         ctx: &JSContext,
         new_target: &JSValueConst,
         class_id: JSClassID,
@@ -254,14 +270,15 @@ impl TypedArrayValue {
             return Err(-1);
         }
 
-        // create empty typed array
-        let new_ta = ctx.create_typed_array_from(new_target, &new_buf, 0, count, class_id)?;
-        let new_ta = TypedArrayValue(new_ta);
+        // create an empty typed array with count capacity.
+        let new_ta = ctx
+            .create_typed_array_from(new_target, &new_buf, 0, count, class_id)
+            .and_then(TryInto::<TypedArrayValue>::try_into)?;
 
-        // copy content from src_ta to new_ta
+        // copy data from src_ta to new_ta
         if typed_array_size_log2(self.class_id()) == size_log2 {
             // fast path for same element size: copy bytes
-            self.with_typed_array(|src_ta| {
+            self.with(|src_ta| {
                 src_ta.with_bytes(|src| {
                     new_ta.with_bytes_mut(|dst| unsafe {
                         std::ptr::copy_nonoverlapping(
@@ -280,7 +297,7 @@ impl TypedArrayValue {
             }
         }
 
-        Ok(new_ta.0)
+        Ok(new_ta.into())
     }
 }
 
@@ -288,7 +305,7 @@ macro_rules! typed_array_obj_of {
     ($name:ident, $ty:ident, $class_id:pat) => {
         #[repr(transparent)]
         #[derive(Clone)]
-        pub struct $name(TypedArrayValue);
+        pub struct $name(pub(crate) TypedArrayValue);
 
         impl $name {
             #[inline(always)]
@@ -297,7 +314,6 @@ macro_rules! typed_array_obj_of {
             }
 
             /// run closure with data slice.
-            #[inline(always)]
             pub fn with_data<R>(&self, f: impl FnOnce(&[$ty]) -> R) -> R {
                 let len = self.length();
                 self.0.with_bytes(|b| {
@@ -306,7 +322,6 @@ macro_rules! typed_array_obj_of {
             }
 
             /// run closure with data slice.
-            #[inline(always)]
             pub fn with_data_mut<R>(&self, f: impl FnOnce(&mut [$ty]) -> R) -> R {
                 let len = self.length();
                 self.0.with_bytes_mut(|b| {
@@ -342,16 +357,12 @@ macro_rules! typed_array_obj_of {
             }
         }
 
-        impl<'a> TryFrom<JSValue> for $name {
+        impl TryFrom<JSObject> for $name {
             type Error = i32;
 
-            fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-                if let Some(ob) = value.object() {
-                    if matches!(ob.class_id(), $class_id) {
-                        Ok(unsafe { std::mem::transmute::<JSValue, $name>(value) })
-                    } else {
-                        Err(-1)
-                    }
+            fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+                if matches!(obj.class_id(), $class_id) {
+                    Ok(Self(TypedArrayValue(obj)))
                 } else {
                     Err(-1)
                 }
@@ -362,31 +373,23 @@ macro_rules! typed_array_obj_of {
             type Error = i32;
 
             fn try_from(value: TypedArrayValue) -> Result<Self, Self::Error> {
-                if matches!(value.class_id(), $class_id) {
-                    Ok(unsafe { std::mem::transmute::<TypedArrayValue, $name>(value) })
+                if matches!(value.0.class_id(), $class_id) {
+                    Ok(Self(value))
                 } else {
                     Err(-1)
                 }
             }
         }
 
-        impl UncheckedFrom<JSValue> for $name {
-            #[inline(always)]
-            unsafe fn unchecked_from(value: JSValue) -> $name {
-                debug_assert!(value.is_object());
-                debug_assert!(matches!(
-                    unsafe { value.object_unchecked().class_id() },
-                    $class_id
-                ));
-                unsafe { std::mem::transmute(value) }
-            }
-        }
+        impl TryFrom<JSValue> for $name {
+            type Error = i32;
 
-        impl UncheckedFrom<TypedArrayValue> for $name {
-            #[inline(always)]
-            unsafe fn unchecked_from(value: TypedArrayValue) -> $name {
-                debug_assert!(matches!(value.class_id(), $class_id));
-                unsafe { std::mem::transmute(value) }
+            fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+                if let JSValue::Object(ob) = value {
+                    ob.try_into()
+                } else {
+                    Err(-1)
+                }
             }
         }
     };
@@ -409,9 +412,7 @@ impl JSValue {
         ctx: &JSContext,
         is_dataview: bool,
     ) -> Result<TypedArrayValue, i32> {
-        if self.is_object() {
-            let ob = unsafe { self.object_unchecked() };
-
+        if let Self::Object(ob) = self {
             if is_dataview {
                 if ob.class_id() != JS_CLASS_DATAVIEW {
                     ctx.JS_ThrowTypeError("not a DataView");
@@ -422,51 +423,10 @@ impl JSValue {
                 return Err(-1);
             }
 
-            Ok(unsafe { self.unchecked_into() })
+            Ok(TypedArrayValue(ob))
         } else {
             Err(-1)
         }
-    }
-}
-
-impl UncheckedFrom<JSValue> for TypedArrayValue {
-    /// Inteprete JSValue as TypedArrayValue.
-    /// If value is not a TypedArray or DataView, behavior is undefined.
-    #[inline(always)]
-    unsafe fn unchecked_from(val: JSValue) -> Self {
-        debug_assert!(val.is_object());
-        debug_assert!(matches!(
-            unsafe { val.object_unchecked().class_id() },
-            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW
-        ));
-
-        unsafe { std::mem::transmute(val) }
-    }
-}
-
-impl TryFrom<JSValue> for TypedArrayValue {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let Some(ob) = value.object() {
-            if matches!(
-                ob.class_id(),
-                JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY | JS_CLASS_DATAVIEW
-            ) {
-                Ok(unsafe { std::mem::transmute::<JSValue, TypedArrayValue>(value) })
-            } else {
-                Err(-1)
-            }
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl From<TypedArrayValue> for JSValue {
-    #[inline(always)]
-    fn from(value: TypedArrayValue) -> Self {
-        value.0
     }
 }
 
@@ -569,10 +529,9 @@ impl JSContext {
                             length,
                             class_id,
                         ),
-                    JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => unsafe {
-                        UncheckedInto::<TypedArrayValue>::unchecked_into(source.clone())
-                            .create_to_new(self, new_target, class_id)
-                    },
+                    JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                        TypedArrayValue(p.clone()).create_to_new(self, new_target, class_id)
+                    }
                     _ => {
                         // source is an enumetable object.
                         // get property from source object and set to new array.
@@ -667,9 +626,9 @@ pub fn js_typed_array_set_internal(
 
     match src_p.class_id() {
         JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-            let src = TypedArrayValue(src_obj);
+            let src = TypedArrayValue(src_p.clone());
 
-            let (src_abuf, shift, cnt) = src.with_typed_array(|ta| {
+            let (src_abuf, shift, cnt) = src.with(|ta| {
                 (
                     ta.array_buffer(),
                     typed_array_size_log2(p.class_id()),
@@ -703,7 +662,7 @@ pub fn js_typed_array_set_internal(
                 return Ok(JSValue::UNDEFINED);
             }
 
-            let dest_abuf = p.with_typed_array(|ta| ta.array_buffer());
+            let dest_abuf = p.with(|ta| ta.array_buffer());
 
             if dest_abuf.content().id() == src_abuf.content().id() {
                 // copying between the same buffer using different types of mappings

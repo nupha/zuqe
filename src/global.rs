@@ -274,9 +274,6 @@ pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -
         }
 
         let gobj = &ctx.0.borrow().global_obj;
-        unsafe {
-            JSValue::set_property_internal(ctx, gobj, prop, val, gobj, flags1)
-                .map_or(-1, |b| b as i32)
-        }
+        JSValue::set_property_internal(ctx, gobj, prop, val, gobj, flags1).map_or(-1, |b| b as i32)
     }
 }

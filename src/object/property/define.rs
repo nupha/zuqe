@@ -218,7 +218,7 @@ impl JSObject {
                             };
                         }
                         if flags & JS_PROP_HAS_VALUE != 0 {
-                            return JSValue::Object(self.clone()).set_property_value(
+                            return self.set_property_value(
                                 ctx,
                                 &JSValue::Int(idx as i32),
                                 val,

@@ -338,10 +338,10 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             ret = JSValue::Bool(false);
         }
         special_map => {
-            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, &JSValue::from_i64(len))? };
+            ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::from_i64(len))?;
         }
         special_filter => {
-            ret = unsafe { JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))? };
+            ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))?;
         }
         s if s == special_map | special_TA => {
             ret = js_typed_array___speciesCreate(
