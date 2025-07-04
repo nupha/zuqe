@@ -84,12 +84,6 @@ impl JSValue {
     }
 }
 
-/* return NULL without exception if not a function or no bytecode */
-#[deprecated(note = "use JSObjectIsa::func() to get JSFunctionBytecode")]
-pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut JSFunctionBytecode {
-    unreachable!("unused");
-}
-
 pub const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
     matches!(
         class_id,
@@ -191,12 +185,6 @@ pub unsafe fn js_function_set_properties(
 
 pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
-}
-
-#[deprecated(note = "use JSValue::ensure_callable() instead")]
-pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i32> {
-    obj.ensure_callable(ctx)?;
-    Ok(())
 }
 
 pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}

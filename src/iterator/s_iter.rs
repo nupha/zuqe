@@ -4,7 +4,7 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, JS_Call, JSCFunctionEnum, NativeFunctionType},
+    function::{CallContext, IteratorState, JS_Call, NativeFunctionType},
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
@@ -116,7 +116,7 @@ pub fn JS_IteratorNext2(
     {
         // fast path for the built-in iterators (avoid creating the
         // intermediate result object)
-        match nfunc.c_function {
+        match nfunc.handler {
             NativeFunctionType::IteratorNext(f) => {
                 let cc = CallContext::new(ctx, enum_obj.clone(), args, nfunc.magic as _, None);
                 let mut state = IteratorState::HasMore;

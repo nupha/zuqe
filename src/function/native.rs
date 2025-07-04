@@ -8,10 +8,10 @@ use crate::{
     error::{JS_ThrowStackOverflow, JSResult},
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
-    object::JSObjectIsa,
+    object::{JSObject, JSObjectIsa},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
-    value::{JS_ToFloat64, JSValue, JSValueConst},
+    value::{JS_ToFloat64, JSValue},
 };
 
 use super::js_function_set_properties;
@@ -80,39 +80,47 @@ pub enum NativeFunctionType {
 impl PartialEq for NativeFunctionType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Func(a), Self::Func(b)) => a == b,
-            (Self::Getter(a), Self::Getter(b)) => a == b,
-            (Self::Setter(a), Self::Setter(b)) => a == b,
-            (Self::Constructor(a), Self::Constructor(b)) => a == b,
-            (Self::ConstructorOrFunc(a), Self::ConstructorOrFunc(b)) => a == b,
-            (Self::IteratorNext(a), Self::IteratorNext(b)) => a == b,
-            (Self::CFunc(a), Self::CFunc(b)) => a == b,
-            (Self::CFuncMagic(a), Self::CFuncMagic(b)) => a == b,
-            (Self::CConstructor(a), Self::CConstructor(b)) => a == b,
-            (Self::CConstructorOrFunc(a), Self::CConstructorOrFunc(b)) => a == b,
-            (Self::CConstructorMagic(a), Self::CConstructorMagic(b)) => a == b,
-            (Self::CConstructorOrFuncMagic(a), Self::CConstructorOrFuncMagic(b)) => a == b,
-            (Self::CGetter(a), Self::CGetter(b)) => a == b,
-            (Self::CGetterMagic(a), Self::CGetterMagic(b)) => a == b,
-            (Self::CSetter(a), Self::CSetter(b)) => a == b,
-            (Self::CSetterMagic(a), Self::CSetterMagic(b)) => a == b,
-            (Self::CIteratorNext(a), Self::CIteratorNext(b)) => a == b,
-            (Self::FF(a), Self::FF(b)) => a == b,
-            (Self::FFF(a), Self::FFF(b)) => a == b,
+            (Self::Func(a), Self::Func(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::Getter(a), Self::Getter(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::Setter(a), Self::Setter(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::Constructor(a), Self::Constructor(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::ConstructorOrFunc(a), Self::ConstructorOrFunc(b)) => {
+                std::ptr::fn_addr_eq(*a, *b)
+            }
+            (Self::IteratorNext(a), Self::IteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CFunc(a), Self::CFunc(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CFuncMagic(a), Self::CFuncMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CConstructor(a), Self::CConstructor(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CConstructorOrFunc(a), Self::CConstructorOrFunc(b)) => {
+                std::ptr::fn_addr_eq(*a, *b)
+            }
+            (Self::CConstructorMagic(a), Self::CConstructorMagic(b)) => {
+                std::ptr::fn_addr_eq(*a, *b)
+            }
+            (Self::CConstructorOrFuncMagic(a), Self::CConstructorOrFuncMagic(b)) => {
+                std::ptr::fn_addr_eq(*a, *b)
+            }
+            (Self::CGetter(a), Self::CGetter(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CGetterMagic(a), Self::CGetterMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CSetter(a), Self::CSetter(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CSetterMagic(a), Self::CSetterMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::CIteratorNext(a), Self::CIteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::FF(a), Self::FF(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::FFF(a), Self::FFF(b)) => std::ptr::fn_addr_eq(*a, *b),
             _ => false,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct JSObjectCFunc {
-    pub c_function: NativeFunctionType,
+pub struct ObjectNativeFunc {
+    pub handler: NativeFunctionType,
     pub realm: JSContextWeakref,
     pub length: u8,
     pub magic: i16,
 }
 
-impl JSObjectCFunc {
+impl ObjectNativeFunc {
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -129,7 +137,7 @@ impl JSObjectCFunc {
                 .borrow()
                 .deref()
         {
-            (c.c_function, c.length, c.magic, c.realm.upgrade())
+            (c.handler, c.length, c.magic, c.realm.upgrade())
         } else {
             unreachable!()
         };
@@ -345,29 +353,39 @@ impl JSObjectCFunc {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct NativeFunctionValue(JSValue);
+// #[repr(transparent)]
+// #[derive(Debug, Clone)]
+// pub struct NativeFunction(JSValue);
+
+impl JSObject {
+    /// Checks if Object is native function of specific type.
+    /// Matches both the callback pointer and magic.
+    pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
+        if let JSObjectIsa::C_FUNCTION(cfunc) = self.0.isa.borrow().deref() {
+            cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
+        } else {
+            false
+        }
+    }
+}
 
 impl JSValue {
-    #[inline(always)]
-    pub unsafe fn as_native_function_unchecked(self) -> NativeFunctionValue {
-        debug_assert!(self.is_object());
-        debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
-        std::mem::transmute(self)
-    }
-
     /// Checks if a JSValue is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
-        self.object().is_some_and(|o| {
-            if let JSObjectIsa::C_FUNCTION(cfunc) = o.0.isa.borrow().deref() {
-                cfunc.magic == magic as i16 && callback.eq(&cfunc.c_function)
-            } else {
-                false
-            }
-        })
+        if let Self::Object(o) = self {
+            o.match_native_callback(callback, magic)
+        } else {
+            false
+        }
     }
+
+    // #[inline(always)]
+    // pub unsafe fn as_native_function_unchecked(self) -> NativeFunction {
+    //     debug_assert!(self.is_object());
+    //     debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
+    //     std::mem::transmute(self)
+    // }
 }
 
 impl JSContext {
@@ -384,8 +402,8 @@ impl JSContext {
         let func_obj = self
             .create_instance_from_proto(
                 proto_val,
-                JSObjectIsa::C_FUNCTION(JSObjectCFunc {
-                    c_function: handler,
+                JSObjectIsa::C_FUNCTION(ObjectNativeFunc {
+                    handler,
                     length,
                     magic,
                     realm: self.downgrade(),
@@ -435,115 +453,4 @@ impl JSContext {
             &self.0.borrow().function_proto,
         )
     }
-}
-
-#[deprecated]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum JSCFunctionEnum {
-    Generic = 0,
-    GenericMagic,
-    Constructor,
-    ConstructorMagic,
-    ConstructorOrFunc,
-    ConstructorOrFuncMagic,
-    FF,
-    FFF,
-    Getter,
-    Setter,
-    GetterMagic,
-    SetterMagic,
-    IteratorNext,
-
-    NativeFunc,
-    NativeConstructor,
-    NativeConstructorOrFunc,
-    NativeSetter,
-    NativeGetter,
-}
-
-// Note: at least 'length' arguments will be readable in 'argv'
-#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
-pub unsafe fn JS_NewCFunction3(
-    ctx: &JSContext,
-    func: JSCFunction,
-    name: &str,
-    length: u8,
-    cproto: JSCFunctionEnum,
-    magic: i16,
-    proto_val: JSValueConst,
-) -> JSValue {
-    match ctx.create_instance_from_proto(
-        &proto_val,
-        JSObjectIsa::C_FUNCTION(JSObjectCFunc {
-            realm: ctx.downgrade(),
-            c_function: NativeFunctionType::CFunc(func),
-            length,
-            magic,
-        }),
-    ) {
-        Ok(func_obj) => {
-            unsafe {
-                (*func_obj.object_unchecked().0.detailed.as_ptr()).set_constructor(matches!(
-                    cproto,
-                    JSCFunctionEnum::Constructor
-                        | JSCFunctionEnum::ConstructorMagic
-                        | JSCFunctionEnum::ConstructorOrFunc
-                        | JSCFunctionEnum::ConstructorOrFuncMagic
-                ));
-            }
-
-            // define propperties on func_obj: length and name.
-            let name_atom = ctx.create_atom(name).unwrap();
-
-            js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
-            JS_FreeAtom(ctx, name_atom);
-
-            func_obj
-        }
-        Err(_) => JSValue::EXCEPTION,
-    }
-}
-
-/* Note: at least 'length' arguments will be readable in 'argv' */
-#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
-#[inline(always)]
-pub fn JS_NewCFunction2(
-    ctx: &JSContext,
-    func: JSCFunction,
-    name: &str,
-    length: u8,
-    cproto: JSCFunctionEnum,
-    magic: i16,
-) -> JSValue {
-    unsafe {
-        JS_NewCFunction3(
-            ctx,
-            func,
-            name,
-            length,
-            cproto,
-            magic,
-            ctx.0.borrow().function_proto.clone(),
-        )
-    }
-}
-
-#[inline(always)]
-#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
-pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &str, length: u8) -> JSValue {
-    JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0)
-}
-
-#[inline(always)]
-#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
-pub fn JS_NewCFunctionMagic(
-    ctx: &JSContext,
-    func: JSCFunctionMagic,
-    name: &str,
-    length: u8,
-    cproto: JSCFunctionEnum,
-    magic: i16,
-) -> JSValue {
-    unsafe { JS_NewCFunction2(ctx, std::mem::transmute(func), name, length, cproto, magic) }
 }

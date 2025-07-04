@@ -18,7 +18,7 @@ use zhuque::{
     eval::{
         JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE,
     },
-    function::{CallContext, JSCFunctionEnum, NativeFunctionType},
+    function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
     object::JS_PROP_C_W_E,

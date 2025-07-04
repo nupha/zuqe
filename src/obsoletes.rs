@@ -7,19 +7,23 @@ use std::{
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
-    atom::{JS_ATOM_NULL, JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomInfo, JSAtomStruct, JSAtomTypeHint},
     bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{
-        JSAsyncFunctionState, JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
-        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, RelocEntry,
+        JSAsyncFunctionState, JSCFunction, JSCFunctionMagic, JSFunctionBytecode, JSFunctionDef,
+        JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
+        NativeCallback, NativeFunctionType, ObjectNativeFunc, RelocEntry,
+        js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
     iterator::JSIteratorKindEnum,
     module::JSModuleDef,
-    object::{JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, PropertyEnum},
+    object::{
+        JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, PropertyEnum,
+    },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     proxy::js_proxy_isArray,
@@ -2339,4 +2343,127 @@ pub unsafe fn find_own_property(
     atom: JSAtom,
 ) -> *mut JSShapeProperty {
     unreachable!("unused");
+}
+
+#[deprecated]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum JSCFunctionEnum {
+    Generic = 0,
+    GenericMagic,
+    Constructor,
+    ConstructorMagic,
+    ConstructorOrFunc,
+    ConstructorOrFuncMagic,
+    FF,
+    FFF,
+    Getter,
+    Setter,
+    GetterMagic,
+    SetterMagic,
+    IteratorNext,
+
+    NativeFunc,
+    NativeConstructor,
+    NativeConstructorOrFunc,
+    NativeSetter,
+    NativeGetter,
+}
+
+// Note: at least 'length' arguments will be readable in 'argv'
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
+pub unsafe fn JS_NewCFunction3(
+    ctx: &JSContext,
+    func: JSCFunction,
+    name: &str,
+    length: u8,
+    cproto: JSCFunctionEnum,
+    magic: i16,
+    proto_val: JSValueConst,
+) -> JSValue {
+    match ctx.create_instance_from_proto(
+        &proto_val,
+        JSObjectIsa::C_FUNCTION(ObjectNativeFunc {
+            realm: ctx.downgrade(),
+            handler: NativeFunctionType::CFunc(func),
+            length,
+            magic,
+        }),
+    ) {
+        Ok(func_obj) => {
+            unsafe {
+                (*func_obj.object_unchecked().0.detailed.as_ptr()).set_constructor(matches!(
+                    cproto,
+                    JSCFunctionEnum::Constructor
+                        | JSCFunctionEnum::ConstructorMagic
+                        | JSCFunctionEnum::ConstructorOrFunc
+                        | JSCFunctionEnum::ConstructorOrFuncMagic
+                ));
+            }
+
+            // define propperties on func_obj: length and name.
+            let name_atom = ctx.create_atom(name).unwrap();
+
+            js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
+            JS_FreeAtom(ctx, name_atom);
+
+            func_obj
+        }
+        Err(_) => JSValue::EXCEPTION,
+    }
+}
+
+/* Note: at least 'length' arguments will be readable in 'argv' */
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
+#[inline(always)]
+pub fn JS_NewCFunction2(
+    ctx: &JSContext,
+    func: JSCFunction,
+    name: &str,
+    length: u8,
+    cproto: JSCFunctionEnum,
+    magic: i16,
+) -> JSValue {
+    unsafe {
+        JS_NewCFunction3(
+            ctx,
+            func,
+            name,
+            length,
+            cproto,
+            magic,
+            ctx.0.borrow().function_proto.clone(),
+        )
+    }
+}
+
+#[inline(always)]
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
+pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &str, length: u8) -> JSValue {
+    JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0)
+}
+
+#[inline(always)]
+#[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
+pub fn JS_NewCFunctionMagic(
+    ctx: &JSContext,
+    func: JSCFunctionMagic,
+    name: &str,
+    length: u8,
+    cproto: JSCFunctionEnum,
+    magic: i16,
+) -> JSValue {
+    unsafe { JS_NewCFunction2(ctx, std::mem::transmute(func), name, length, cproto, magic) }
+}
+
+/* return NULL without exception if not a function or no bytecode */
+#[deprecated(note = "use JSObjectIsa::func() to get JSFunctionBytecode")]
+pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut JSFunctionBytecode {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSValue::ensure_callable() instead")]
+pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i32> {
+    obj.ensure_callable(ctx)?;
+    Ok(())
 }

@@ -80,9 +80,9 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Function",
             "C_FUNCTION",
-            Some("crate::function::JSObjectCFunc"),
-            Some("crate::function::JSObjectCFunc::hook_finalizer"),
-            Some("crate::function::JSObjectCFunc::hook_mark")
+            Some("crate::function::ObjectNativeFunc"),
+            Some("crate::function::ObjectNativeFunc::hook_finalizer"),
+            Some("crate::function::ObjectNativeFunc::hook_mark")
         ),
         class_def!(
             "Function",
