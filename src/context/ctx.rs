@@ -13,7 +13,7 @@ use crate::{
     atom::consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
     error::{JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFunc,
-    function::{JSCFunctionEnum, js_function_proto},
+    function::{JSCFunctionEnum, NativeFunctionType, js_function_proto},
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
@@ -365,10 +365,9 @@ impl JSContext {
             // Function
             let func_proto = self
                 .create_native_function_from_proto(
-                    js_function_proto,
+                    NativeFunctionType::Func(js_function_proto),
                     "",
                     0,
-                    JSCFunctionEnum::NativeFunc,
                     0,
                     &object_proto,
                 )

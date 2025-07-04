@@ -285,7 +285,7 @@ pub unsafe fn js_closure(
         unsafe {
             closure
                 .object_unchecked()
-                .define_auto_init_property(
+                .define_lazy_property(
                     ctx,
                     JS_ATOM_prototype,
                     LazyInit::Prototype,

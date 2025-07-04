@@ -4,9 +4,7 @@ use crate::{
     atom::{JSAtom, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
-    function::{
-        JS_DEF_CFUNC, JS_DEF_OBJECT, JS_DEF_PROP_STRING, JS_NewCFunction2, JSCFunctionListEntry,
-    },
+    function::{JSCFunctionListEntry, NativeFieldDetail},
     module::JSModuleDef,
     object::{
         JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -48,27 +46,42 @@ impl LazyInit {
 
             Self::ModuleNS(md) => md.ns(ctx),
 
-            Self::Prop(entry) => {
-                let entry = unsafe { entry.as_ref() };
-                let val = match entry.def_type {
-                    JS_DEF_CFUNC => JS_NewCFunction2(
-                        ctx,
-                        unsafe { entry.u.func.cfunc.generic },
-                        entry.name,
-                        unsafe { entry.u.func.length },
-                        unsafe { entry.u.func.cproto },
-                        entry.magic,
-                    ),
-                    JS_DEF_PROP_STRING => ctx.create_atom_string(unsafe { entry.u.str })?,
-                    JS_DEF_OBJECT => {
-                        let obj = ctx.create_base_object().unwrap();
-                        obj.install_property_entries(ctx, unsafe { entry.u.prop_list.as_slice() })?;
+            Self::Prop(field) => {
+                let field = unsafe { field.as_ref() };
+                let val = match &field.detail {
+                    NativeFieldDetail::Func { handler, length } => {
+                        ctx.create_native_function(*handler, field.name, *length, field.magic)?
+                    }
+                    NativeFieldDetail::Str(s) => ctx.create_atom_string(s)?,
+                    NativeFieldDetail::Object(list) => {
+                        let obj = ctx.create_base_object()?;
+                        obj.install_property_entries(ctx, &list)?;
                         obj
                     }
-                    t => {
-                        unreachable!("invalid def_type {t}");
+                    _ => {
+                        unreachable!();
                     }
                 };
+
+                // let val = match entry.def_type {
+                //     JS_DEF_CFUNC => JS_NewCFunction2(
+                //         ctx,
+                //         unsafe { entry.u.func.cfunc.generic },
+                //         entry.name,
+                //         unsafe { entry.u.func.length },
+                //         unsafe { entry.u.func.cproto },
+                //         entry.magic,
+                //     ),
+                //     JS_DEF_PROP_STRING => ctx.create_atom_string(unsafe { entry.u.str })?,
+                //     JS_DEF_OBJECT => {
+                //         let obj = ctx.create_base_object().unwrap();
+                //         obj.install_property_entries(ctx, unsafe { entry.u.prop_list.as_slice() })?;
+                //         obj
+                //     }
+                //     t => {
+                //         unreachable!("invalid def_type {t}");
+                //     }
+                // };
 
                 Ok(val)
             }
@@ -125,7 +138,7 @@ impl JSProperty {
 
 impl JSObject {
     /// define an AutoInit property on object
-    pub fn define_auto_init_property(
+    pub fn define_lazy_property(
         &self,
         ctx: &JSContext,
         prop: JSAtom,

@@ -8,7 +8,9 @@ use crate::{
     },
     context::JSContext,
     error::JSResult,
-    function::{JS_GetFunctionRealm, JSCFunctionEnum, JSFunctionDef, NativeCallback},
+    function::{
+        JS_GetFunctionRealm, JSCFunctionEnum, JSFunctionDef, NativeCallback, NativeFunctionType,
+    },
     gc::set_cycle_flag,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
@@ -251,92 +253,89 @@ impl JSContext {
         JS_SetConstructor(self, func_obj, proto);
     }
 
-    /// create a new native constructor, add it to global namespace.
-    /// `proto` is the prototype object, it is **NOT CONSUMED**.
-    /// returns new constructor function.
-    pub(crate) fn create_global_native_constructor_ex(
-        &self,
-        name: &CStr,
-        callback: NativeCallback,
-        length: i32,
-        proto: &JSValue,
-        cproto: JSCFunctionEnum,
-        magic: i32,
-    ) -> JSResult {
-        debug_assert!(matches!(
-            cproto,
-            JSCFunctionEnum::NativeConstructorOrFunc | JSCFunctionEnum::NativeConstructor
-        ));
+    // /// create a new native constructor, add it to global namespace.
+    // /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    // /// returns new constructor function.
+    // pub(crate) fn create_global_native_constructor_ex(
+    //     &self,
+    //     name: &CStr,
+    //     handler: NativeFunctionType,
+    //     length: i32,
+    //     proto: &JSValue,
+    //     magic: i32,
+    // ) -> JSResult {
+    //     matches!(
+    //         handler,
+    //         NativeFunctionType::Constructor(_) | NativeFunctionType::ConstructorOrFunc(_)
+    //     );
 
-        let name = name.to_str().unwrap();
-        let func_obj =
-            self.create_native_function(callback, name, length as _, cproto, magic as _)?;
-        self.add_global_constructor(name, &func_obj, proto);
-        Ok(func_obj)
-    }
+    //     let name = name.to_str().unwrap();
+    //     let func_obj = self.create_native_function(handler, name, length as _, magic as _)?;
+    //     self.add_global_constructor(name, &func_obj, proto);
+    //     Ok(func_obj)
+    // }
 
     /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
-    pub fn create_global_native_constructor(
-        &self,
-        name: &CStr,
-        callback: NativeCallback,
-        length: i32,
-        proto: &JSValue,
-    ) -> JSResult {
-        self.create_global_native_constructor_ex(
-            name,
-            callback,
-            length,
-            proto,
-            JSCFunctionEnum::NativeConstructorOrFunc,
-            0,
-        )
-    }
-
-    /// create a new native constructor, add it to global namespace.
-    /// `proto` is the prototype object, it is **NOT CONSUMED**.
-    /// returns new constructor function.
-    pub fn create_global_native_constructor_only(
-        &self,
-        name: &CStr,
-        callback: NativeCallback,
-        length: i32,
-        proto: &JSValue,
-    ) -> JSResult {
-        self.create_global_native_constructor_ex(
-            name,
-            callback,
-            length,
-            proto,
-            JSCFunctionEnum::NativeConstructor,
-            0,
-        )
-    }
-
-    /// create a new native constructor, add it to global namespace.
-    /// `proto` is the prototype object, it is **NOT CONSUMED**.
-    /// returns new constructor function.
-    fn do_create_global_constructor(
+    pub fn create_global_constructor_ex(
         &self,
         name: &str,
-        callback: NativeCallback,
+        handler: NativeFunctionType,
         length: i32,
         proto: &JSValue,
-        cproto: JSCFunctionEnum,
         magic: i16,
     ) -> JSResult {
         debug_assert!(matches!(
-            cproto,
-            JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+            handler,
+            NativeFunctionType::Constructor(_) | NativeFunctionType::ConstructorOrFunc(_)
         ));
 
-        let func_obj = self.create_native_function(callback, name, length as _, cproto, magic)?;
+        let func_obj = self.create_native_function(handler, name, length as _, magic)?;
         self.add_global_constructor(name, &func_obj, proto);
 
         Ok(func_obj)
     }
+
+    // /// create a new native constructor, add it to global namespace.
+    // /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    // /// returns new constructor function.
+    // #[inline(always)]
+    // pub fn create_global_native_constructor(
+    //     &self,
+    //     name: &CStr,
+    //     callback: NativeCallback,
+    //     length: i32,
+    //     proto: &JSValue,
+    // ) -> JSResult {
+    //     self.create_global_constructor_ex(
+    //         name,
+    //         NativeFunctionType::ConstructorOrFunc(callback),
+    //         length,
+    //         proto,
+    //         0,
+    //     )
+    // }
+
+    // /// create a new native constructor, add it to global namespace.
+    // /// `proto` is the prototype object, it is **NOT CONSUMED**.
+    // /// returns new constructor function.
+    // #[inline(always)]
+    // pub fn create_global_native_constructor_only(
+    //     &self,
+    //     name: &CStr,
+    //     callback: NativeCallback,
+    //     length: i32,
+    //     proto: &JSValue,
+    // ) -> JSResult {
+    //     self.create_global_constructor_ex(
+    //         name,
+    //         NativeFunctionType::Constructor(callback),
+    //         length,
+    //         proto,
+    //         0,
+    //     )
+    // }
 
     /// create a new native constructor, add it to global namespace.
     /// `proto` is the prototype object, it is **NOT CONSUMED**.
@@ -350,12 +349,11 @@ impl JSContext {
         proto: &JSValue,
         magic: i16,
     ) -> JSResult {
-        self.do_create_global_constructor(
+        self.create_global_constructor_ex(
             name,
-            callback,
+            NativeFunctionType::ConstructorOrFunc(callback),
             length,
             proto,
-            JSCFunctionEnum::NativeConstructorOrFunc,
             magic,
         )
     }
@@ -372,12 +370,11 @@ impl JSContext {
         proto: &JSValue,
         magic: i16,
     ) -> JSResult {
-        self.do_create_global_constructor(
+        self.create_global_constructor_ex(
             name,
-            callback,
+            NativeFunctionType::Constructor(callback),
             length,
             proto,
-            JSCFunctionEnum::NativeConstructor,
             magic,
         )
     }

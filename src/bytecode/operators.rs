@@ -4,7 +4,8 @@ use crate::{
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
     function::{
-        JSFunctionKindEnum, JSObjectFunc, JSVarRef, NativeCallback, NativeIteratorNext, js_closure2,
+        JSFunctionKindEnum, JSObjectFunc, JSVarRef, NativeFunctionType, NativeIteratorNext,
+        js_closure2,
     },
     gc::set_cycle_flag,
     iterator::{
@@ -324,19 +325,9 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         .check_exception()?;
 
     let is_array_iterator = iterator.match_native_callback(
-        unsafe { std::mem::transmute(js_create_array_iterator as NativeCallback) },
+        NativeFunctionType::Func(js_create_array_iterator),
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
     );
-
-    // let is_array_iterator = JS_IsCFunction(
-    //     ctx,
-    //     &iterator,
-    //     std::mem::transmute(
-    //         js_create_array_iterator
-    //             as *const fn(&JSContext, JSValueConst, i32, *const JSValueConst, i32) -> JSValue,
-    //     ),
-    //     JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
-    // );
 
     let enumobj = JS_GetIterator(ctx, src, false).check_exception()?;
     let method = enumobj.get_property(ctx, JS_ATOM_next).check_exception()?;
@@ -356,10 +347,8 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
     };
 
     let slow_array = if is_array_iterator
-        && method.match_native_callback(
-            unsafe { std::mem::transmute(js_array_iterator_next as NativeIteratorNext) },
-            0,
-        ) {
+        && method.match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
+    {
         match src.with_fast_array_values(|lst| {
             if lst.len() == len {
                 // `src` is a fast array

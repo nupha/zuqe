@@ -4,7 +4,7 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{JS_Call, JSCFunctionEnum},
+    function::{CallContext, IteratorState, JS_Call, JSCFunctionEnum, NativeFunctionType},
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
@@ -111,22 +111,24 @@ pub fn JS_IteratorNext2(
     args: &[JSValue],
     pdone: &mut i32,
 ) -> JSValue {
-    // fast path for the built-in iterators (avoid creating the
-    // intermediate result object)
-    if let JSValue::Object(p) = method {
-        if let JSObjectIsa::C_FUNCTION(cfunc) = p.0.isa.borrow().deref() {
-            if cfunc.cproto == JSCFunctionEnum::IteratorNext {
-                let ret = unsafe {
-                    (cfunc.c_function.iterator_next)(
-                        ctx,
-                        enum_obj.clone(),
-                        args,
-                        pdone,
-                        cfunc.magic as _,
-                    )
-                };
+    if let JSValue::Object(p) = method
+        && let JSObjectIsa::C_FUNCTION(nfunc) = p.0.isa.borrow().deref()
+    {
+        // fast path for the built-in iterators (avoid creating the
+        // intermediate result object)
+        match nfunc.c_function {
+            NativeFunctionType::IteratorNext(f) => {
+                let cc = CallContext::new(ctx, enum_obj.clone(), args, nfunc.magic as _, None);
+                let mut state = IteratorState::HasMore;
+                let ret = f(ctx, cc, &mut state).unwrap_or(JSValue::EXCEPTION);
+                *pdone = state as i32;
                 return ret;
             }
+            NativeFunctionType::CIteratorNext(f) => {
+                let ret = f(ctx, enum_obj.clone(), args, pdone, nfunc.magic as _);
+                return ret;
+            }
+            _ => {}
         }
     }
 

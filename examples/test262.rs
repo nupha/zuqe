@@ -18,7 +18,7 @@ use zhuque::{
     eval::{
         JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE,
     },
-    function::{CallContext, JSCFunctionEnum},
+    function::{CallContext, JSCFunctionEnum, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
     object::JS_PROP_C_W_E,
@@ -93,7 +93,7 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
     let global = JSValue::Object(ctx.global_obj());
 
     {
-        let s = ctx.create_native_function(js_print, "print", 1, JSCFunctionEnum::NativeFunc, 0)?;
+        let s = ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 1, 0)?;
         global.set_property_str(ctx, "print", s)?;
     }
 
@@ -102,10 +102,9 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
 
     {
         let f = ctx.create_native_function(
-            js_detachArrayBuffer,
+            NativeFunctionType::Func(js_detachArrayBuffer),
             "detachArrayBuffer",
             1,
-            JSCFunctionEnum::NativeFunc,
             0,
         )?;
         obj262.set_property_str(ctx, "detachArrayBuffer", f)?;
@@ -113,10 +112,9 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
 
     {
         let f = ctx.create_native_function(
-            js_evalScript,
+            NativeFunctionType::Func(js_evalScript),
             "evalScript",
             1,
-            JSCFunctionEnum::NativeFunc,
             0,
         )?;
         obj262.set_property_str(ctx, "evalScript", f)?;
@@ -124,10 +122,9 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
 
     {
         let f = ctx.create_native_function(
-            js_string_codePointRange,
+            NativeFunctionType::Func(js_string_codePointRange),
             "codePointRange",
             1,
-            JSCFunctionEnum::NativeFunc,
             0,
         )?;
         obj262.set_property_str(ctx, "codePointRange", f)?;
@@ -135,10 +132,9 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
 
     {
         let f = ctx.create_native_function(
-            js_createRealm,
+            NativeFunctionType::Func(js_createRealm),
             "createRealm",
             1,
-            JSCFunctionEnum::NativeFunc,
             0,
         )?;
         obj262.set_property_str(ctx, "createRealm", f)?;

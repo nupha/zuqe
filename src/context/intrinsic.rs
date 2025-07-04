@@ -19,8 +19,8 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{JS_NATIVE_ERROR_COUNT, JSErrorEnum, JSResult, NATIVE_ERROR_NAMES},
     function::{
-        BytecodeFunctionValue, CallContext, JSCFunctionEnum, JSCFunctionListEntry,
-        JSFunctionKindEnum, js_async_function_proto_funcs,
+        BytecodeFunctionValue, CallContext, JSCFunctionListEntry, JSFunctionKindEnum,
+        NativeFunctionType, js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -55,19 +55,13 @@ impl JSContext {
     unsafe fn intrinsic_throw_error(&self) {
         // throw TypeError()
         let throw_type_error = self
-            .create_native_function(js_throw_type_error, "", 0, JSCFunctionEnum::NativeFunc, 0)
+            .create_native_function(NativeFunctionType::Func(js_throw_type_error), "", 0, 0)
             .unwrap();
         self.0.borrow_mut().throw_type_error = throw_type_error.clone();
 
         // add `caller` and `arguments` properties to throw a TypeError
         let obj1 = self
-            .create_native_function(
-                js_function_proto_caller,
-                "",
-                0,
-                JSCFunctionEnum::NativeFunc,
-                0,
-            )
+            .create_native_function(NativeFunctionType::Func(js_function_proto_caller), "", 0, 0)
             .unwrap();
         self.0
             .borrow()
@@ -110,11 +104,12 @@ impl JSContext {
 
     unsafe fn intrinsic_object(&self) {
         let obj_ctor = self
-            .create_global_native_constructor(
-                c"Object",
+            .create_global_constructor(
+                "Object",
                 js_object_constructor,
                 1,
                 &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
+                0,
             )
             .unwrap();
         obj_ctor
@@ -135,10 +130,9 @@ impl JSContext {
 
         let function_ctor = self
             .create_native_function(
-                BytecodeFunctionValue::hook_constructor,
+                NativeFunctionType::ConstructorOrFunc(BytecodeFunctionValue::hook_constructor),
                 "Function",
                 1,
-                JSCFunctionEnum::NativeConstructorOrFunc,
                 JSFunctionKindEnum::JS_FUNC_NORMAL as _,
             )
             .unwrap();
@@ -150,10 +144,9 @@ impl JSContext {
     unsafe fn intrinsic_error(&self) {
         let error_ctor = self
             .create_native_function(
-                js_error_constructor,
+                NativeFunctionType::ConstructorOrFunc(js_error_constructor),
                 "Error",
                 1,
-                JSCFunctionEnum::NativeConstructorOrFunc,
                 -1,
             )
             .unwrap();
@@ -169,10 +162,9 @@ impl JSContext {
 
             let func_obj = self
                 .create_native_function_from_proto(
-                    js_error_constructor,
+                    NativeFunctionType::ConstructorOrFunc(js_error_constructor),
                     NATIVE_ERROR_NAMES[i as usize],
                     n_args as _,
-                    JSCFunctionEnum::NativeConstructorOrFunc,
                     i as _,
                     &error_ctor,
                 )
@@ -192,11 +184,12 @@ impl JSContext {
             .unwrap();
 
         let array_ctor = self
-            .create_global_native_constructor(
-                c"Array",
+            .create_global_constructor(
+                "Array",
                 js_array_constructor,
                 1,
                 &self.0.borrow().class_proto[JS_CLASS_ARRAY as usize],
+                0,
             )
             .unwrap();
         array_ctor
@@ -318,7 +311,7 @@ impl JSContext {
             .unwrap();
 
         let string_ctor = self
-            .create_global_native_constructor(c"String", js_string_constructor, 1, &string_proto)
+            .create_global_constructor("String", js_string_constructor, 1, &string_proto, 0)
             .unwrap();
         string_ctor
             .install_property_entries(self, &js_string_funcs)
@@ -359,7 +352,7 @@ impl JSContext {
         );
 
         self.0.borrow_mut().eval_func = self
-            .create_native_function(js_global_eval, "eval", 1, JSCFunctionEnum::NativeFunc, 0)
+            .create_native_function(NativeFunctionType::Func(js_global_eval), "eval", 1, 0)
             .unwrap();
 
         self.global_obj()
@@ -585,10 +578,9 @@ impl JSContext {
 
             let typed_array_base_func = self
                 .create_native_function(
-                    js_typed_array_base_constructor,
+                    NativeFunctionType::Func(js_typed_array_base_constructor),
                     "TypedArray",
                     0,
-                    JSCFunctionEnum::NativeFunc,
                     0,
                 )
                 .unwrap();
@@ -619,10 +611,9 @@ impl JSContext {
 
                 let func_obj = self
                     .create_native_function_from_proto(
-                        js_typed_array_constructor,
-                        name.as_ref(),
+                        NativeFunctionType::Func(js_typed_array_constructor),
+                        &name,
                         3,
-                        JSCFunctionEnum::NativeFunc,
                         i as i16,
                         &typed_array_base_func,
                     )
@@ -650,10 +641,9 @@ impl JSContext {
 
             let dv_ctor = self
                 .create_native_function(
-                    js_dataview_constructor,
+                    NativeFunctionType::Constructor(js_dataview_constructor),
                     "DataView",
                     1,
-                    JSCFunctionEnum::NativeConstructor,
                     0,
                 )
                 .unwrap();
@@ -676,10 +666,9 @@ impl JSContext {
 
             let promise_ctor = self
                 .create_native_function(
-                    PromiseValue::hook_constructor,
+                    NativeFunctionType::Constructor(PromiseValue::hook_constructor),
                     "Promise",
                     1,
-                    JSCFunctionEnum::NativeConstructor,
                     0,
                 )
                 .unwrap();
@@ -705,10 +694,9 @@ impl JSContext {
 
             let af_ctor = self
                 .create_native_function_from_proto(
-                    BytecodeFunctionValue::hook_constructor,
+                    NativeFunctionType::ConstructorOrFunc(BytecodeFunctionValue::hook_constructor),
                     "AsyncFunction",
                     1,
-                    JSCFunctionEnum::NativeConstructorOrFunc,
                     JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
                     &self.0.borrow().function_ctor,
                 )
@@ -772,10 +760,9 @@ impl JSContext {
 
             let agf_ctor = self
                 .create_native_function_from_proto(
-                    BytecodeFunctionValue::hook_constructor,
+                    NativeFunctionType::ConstructorOrFunc(BytecodeFunctionValue::hook_constructor),
                     "AsyncGeneratorFunction",
                     1,
-                    JSCFunctionEnum::NativeConstructorOrFunc,
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
                     &self.0.borrow().function_ctor,
                 )

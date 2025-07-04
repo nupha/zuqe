@@ -835,7 +835,7 @@ pub fn JS_SetPrototypeInternal(
 /// Verifies both the function pointer and magic value match.
 #[deprecated(note = "use JSValue::match_native_callback() instead")]
 pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bool {
-    val.match_native_callback(std::mem::transmute(func), magic)
+    unreachable!("unused");
 }
 
 /// `func_obj` is not consumed.

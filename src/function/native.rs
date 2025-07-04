@@ -1,4 +1,4 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::{ops::Deref, os::raw::c_void, ptr::NonNull};
 
 use crate::{
     JS_CLASS_C_FUNCTION,
@@ -16,6 +16,7 @@ use crate::{
 
 use super::js_function_set_properties;
 
+#[deprecated]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSCFunctionEnum {
@@ -77,14 +78,60 @@ pub type JSCFunctionIteratorNext =
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 
-#[derive(Clone, Copy)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
 pub enum NativeFunctionType {
-    Callback(NativeCallback),
+    Func(NativeCallback),
     Getter(NativeGetter),
     Setter(NativeSetter),
+    Constructor(NativeCallback),
+    ConstructorOrFunc(NativeCallback),
     IteratorNext(NativeIteratorNext),
+
+    CFunc(JSCFunction),
+    CFuncMagic(JSCFunctionMagic),
+    CConstructor(JSCFunction),
+    CConstructorOrFunc(JSCFunction),
+    CConstructorMagic(JSCFunctionMagic),
+    CConstructorOrFuncMagic(JSCFunctionMagic),
+    CGetter(JSCFunctionGetter),
+    CGetterMagic(JSCFunctionGetterMagic),
+    CSetter(JSCFunctionSetter),
+    CSetterMagic(JSCFunctionSetterMagic),
+    CIteratorNext(JSCFunctionIteratorNext),
+
+    FF(JSCFunctionFF),
+    FFF(JSCFunctionFFF),
 }
 
+impl PartialEq for NativeFunctionType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Func(a), Self::Func(b)) => a == b,
+            (Self::Getter(a), Self::Getter(b)) => a == b,
+            (Self::Setter(a), Self::Setter(b)) => a == b,
+            (Self::Constructor(a), Self::Constructor(b)) => a == b,
+            (Self::ConstructorOrFunc(a), Self::ConstructorOrFunc(b)) => a == b,
+            (Self::IteratorNext(a), Self::IteratorNext(b)) => a == b,
+            (Self::CFunc(a), Self::CFunc(b)) => a == b,
+            (Self::CFuncMagic(a), Self::CFuncMagic(b)) => a == b,
+            (Self::CConstructor(a), Self::CConstructor(b)) => a == b,
+            (Self::CConstructorOrFunc(a), Self::CConstructorOrFunc(b)) => a == b,
+            (Self::CConstructorMagic(a), Self::CConstructorMagic(b)) => a == b,
+            (Self::CConstructorOrFuncMagic(a), Self::CConstructorOrFuncMagic(b)) => a == b,
+            (Self::CGetter(a), Self::CGetter(b)) => a == b,
+            (Self::CGetterMagic(a), Self::CGetterMagic(b)) => a == b,
+            (Self::CSetter(a), Self::CSetter(b)) => a == b,
+            (Self::CSetterMagic(a), Self::CSetterMagic(b)) => a == b,
+            (Self::CIteratorNext(a), Self::CIteratorNext(b)) => a == b,
+            (Self::FF(a), Self::FF(b)) => a == b,
+            (Self::FFF(a), Self::FFF(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+#[deprecated(note = "use NativeFunctionType instead")]
 #[derive(Clone, Copy)]
 pub union JSCFunctionType {
     pub native_callback: NativeCallback,
@@ -113,13 +160,12 @@ impl std::fmt::Debug for JSCFunctionType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JSObjectCFunc {
-    pub realm: JSContextWeakref,
-    pub c_function: JSCFunctionType,
+    pub c_function: NativeFunctionType,
     pub length: u8,
-    pub cproto: JSCFunctionEnum,
     pub magic: i16,
+    pub realm: JSContextWeakref,
 }
 
 impl JSObjectCFunc {
@@ -132,29 +178,17 @@ impl JSObjectCFunc {
     ) -> JSResult {
         let rt = ctx.rt_mut();
 
-        let (callback, cproto, arg_length, magic, realm) = if let JSObjectIsa::C_FUNCTION(c) =
+        let (callback, arg_length, magic, realm) = if let JSObjectIsa::C_FUNCTION(c) =
             unsafe { func_obj.object_unchecked() }
                 .0
                 .isa
                 .borrow()
                 .deref()
         {
-            (c.c_function, c.cproto, c.length, c.magic, c.realm.upgrade())
+            (c.c_function, c.length, c.magic, c.realm.upgrade())
         } else {
             unreachable!()
         };
-
-        // let cfunc = if let JSObjectIsa::C_FUNCTION(c) =
-        //     unsafe { func_obj.object_unchecked() }.isa().deref()
-        // {
-        //     c
-        // } else {
-        //     unreachable!()
-        // };
-        // let cproto = cfunc.cproto;
-        // let arg_length = cfunc.length;
-        // let func = &cfunc.c_function;
-        // let realm = cfunc.realm.upgrade();
 
         let realm = realm.as_ref().unwrap_or(ctx); // change the current realm
 
@@ -208,53 +242,46 @@ impl JSObjectCFunc {
             sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 
-        macro_rules! fail {
-            () => {
-                // this is done in defer!()
-                // rt.current_stack_frame = sf.prev_frame;
-                return Err(-1);
-            };
-        }
-
-        let ret_val: JSValue = match cproto {
-            JSCFunctionEnum::NativeFunc
-            | JSCFunctionEnum::NativeConstructor
-            | JSCFunctionEnum::NativeConstructorOrFunc => {
-                if matches!(
-                    cproto,
-                    JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
-                ) {
-                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        if cproto == JSCFunctionEnum::NativeConstructor {
-                            realm.JS_ThrowTypeError("must be called with new");
-                            fail!();
-                        } else {
-                            this_obj = &JSValue::UNDEFINED;
-                        }
-                    }
-                }
-
+        let ret_val: JSValue = match callback {
+            NativeFunctionType::Func(f) => {
                 let cc =
                     CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                unsafe { (callback.native_callback)(realm, cc).unwrap_or(JSValue::EXCEPTION) }
+                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
-            JSCFunctionEnum::NativeGetter => {
+            NativeFunctionType::Constructor(f) => {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    realm.JS_ThrowTypeError("must be called with new");
+                    return Err(-1);
+                }
+                let cc =
+                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+            }
+            NativeFunctionType::ConstructorOrFunc(f) => {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    this_obj = &JSValue::UNDEFINED;
+                }
+                let cc =
+                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+            }
+            NativeFunctionType::Getter(f) => {
                 debug_assert_eq!(sf.arg_count, 0);
                 let cc =
                     CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                unsafe { (callback.native_getter)(realm, cc).unwrap_or(JSValue::EXCEPTION) }
+                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
-            JSCFunctionEnum::NativeSetter => {
+            NativeFunctionType::Setter(f) => {
                 debug_assert_eq!(sf.arg_count, 1);
                 let cc =
                     CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                unsafe { (callback.native_setter)(realm, cc).unwrap_or(JSValue::EXCEPTION) }
+                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
-            JSCFunctionEnum::NativeIteratorNext => {
+            NativeFunctionType::IteratorNext(f) => {
                 let cc =
                     CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
                 let mut state = IteratorState::HasMore;
-                let mut r = unsafe { (callback.native_iterator_next)(realm, cc, &mut state) };
+                let mut r = f(realm, cc, &mut state);
                 if !r.is_err() && state != IteratorState::Uninitialized {
                     r = js_create_iterator_result(realm, r.unwrap(), state == IteratorState::Done);
                 }
@@ -264,82 +291,61 @@ impl JSObjectCFunc {
             //
             // LEGACIES
             //
-            JSCFunctionEnum::Constructor
-            | JSCFunctionEnum::ConstructorOrFunc
-            | JSCFunctionEnum::Generic => {
+            NativeFunctionType::CConstructor(f)
+            | NativeFunctionType::CConstructorOrFunc(f)
+            | NativeFunctionType::CFunc(f) => {
                 if matches!(
-                    cproto,
-                    JSCFunctionEnum::ConstructorOrFunc | JSCFunctionEnum::Constructor
+                    callback,
+                    NativeFunctionType::CConstructorOrFunc(_) | NativeFunctionType::CConstructor(_)
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        if cproto == JSCFunctionEnum::Constructor {
+                        if matches!(callback, NativeFunctionType::Constructor(_)) {
                             realm.JS_ThrowTypeError("must be called with new");
-                            fail!();
+                            return Err(-1);
                         } else {
                             this_obj = &JSValue::UNDEFINED;
                         }
                     }
                 }
-                unsafe { (callback.generic)(realm, this_obj.clone(), sf.args_slice()) }
+                unsafe { f(realm, this_obj.clone(), sf.args_slice()) }
             }
-            JSCFunctionEnum::ConstructorMagic
-            | JSCFunctionEnum::ConstructorOrFuncMagic
-            | JSCFunctionEnum::GenericMagic => {
+            NativeFunctionType::CConstructorMagic(f)
+            | NativeFunctionType::CConstructorOrFuncMagic(f)
+            | NativeFunctionType::CFuncMagic(f) => {
                 if matches!(
-                    cproto,
-                    JSCFunctionEnum::ConstructorMagic | JSCFunctionEnum::ConstructorOrFuncMagic
+                    callback,
+                    NativeFunctionType::CConstructorMagic(_)
+                        | NativeFunctionType::CConstructorOrFuncMagic(_)
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        if cproto == JSCFunctionEnum::ConstructorMagic {
+                        if matches!(callback, NativeFunctionType::CConstructorMagic(_)) {
                             realm.JS_ThrowTypeError("must be called with new");
-                            fail!();
+                            return Err(-1);
                         } else {
                             this_obj = &JSValue::UNDEFINED;
                         }
                     }
                 }
-                unsafe {
-                    (callback.generic_magic)(realm, this_obj.clone(), sf.args_slice(), magic as i32)
-                }
+                unsafe { f(realm, this_obj.clone(), sf.args_slice(), magic as i32) }
             }
-            JSCFunctionEnum::Getter => unsafe { (callback.getter)(realm, this_obj.clone()) },
-            JSCFunctionEnum::Setter => unsafe {
-                (callback.setter)(realm, this_obj.clone(), sf.args_slice()[0].clone())
+            NativeFunctionType::CGetter(f) => unsafe { f(realm, this_obj.clone()) },
+            NativeFunctionType::CSetter(f) => unsafe {
+                f(realm, this_obj.clone(), sf.args_slice()[0].clone())
             },
-            JSCFunctionEnum::GetterMagic => unsafe {
-                (callback.getter_magic)(realm, this_obj.clone(), magic as _)
+            NativeFunctionType::CGetterMagic(f) => unsafe {
+                f(realm, this_obj.clone(), magic as _)
             },
-            JSCFunctionEnum::SetterMagic => unsafe {
-                (callback.setter_magic)(
+            NativeFunctionType::CSetterMagic(f) => unsafe {
+                f(
                     realm,
                     this_obj.clone(),
                     sf.args_slice().first().cloned().unwrap(),
                     magic as _,
                 )
             },
-            JSCFunctionEnum::FF => unsafe {
-                let mut d1: f64 = 0.0;
-                if JS_ToFloat64(realm, &mut d1, &sf.args_slice()[0]) != 0 {
-                    JSValue::EXCEPTION
-                } else {
-                    JSValue::from((callback.f_f)(d1))
-                }
-            },
-            JSCFunctionEnum::FFF => unsafe {
-                let mut d1: f64 = 0.0;
-                let mut d2: f64 = 0.0;
-                let args = sf.args_slice();
-                if JS_ToFloat64(realm, &mut d1, &args[0]) != 0
-                    || JS_ToFloat64(realm, &mut d2, &args[1]) != 0
-                {
-                    JSValue::EXCEPTION
-                } else {
-                    JSValue::from((callback.f_f_f)(d1, d2))
-                }
-            },
-            JSCFunctionEnum::IteratorNext => unsafe {
+            NativeFunctionType::CIteratorNext(f) => unsafe {
                 let mut done = 0;
-                let mut r = (callback.iterator_next)(
+                let mut r = f(
                     realm,
                     this_obj.clone(),
                     sf.args_slice(),
@@ -351,6 +357,27 @@ impl JSObjectCFunc {
                         .unwrap_or(JSValue::EXCEPTION);
                 }
                 r
+            },
+
+            NativeFunctionType::FF(f) => unsafe {
+                let mut d1: f64 = 0.0;
+                if JS_ToFloat64(realm, &mut d1, &sf.args_slice()[0]) != 0 {
+                    JSValue::EXCEPTION
+                } else {
+                    JSValue::from(f(d1))
+                }
+            },
+            NativeFunctionType::FFF(f) => unsafe {
+                let mut d1: f64 = 0.0;
+                let mut d2: f64 = 0.0;
+                let args = sf.args_slice();
+                if JS_ToFloat64(realm, &mut d1, &args[0]) != 0
+                    || JS_ToFloat64(realm, &mut d2, &args[1]) != 0
+                {
+                    JSValue::EXCEPTION
+                } else {
+                    JSValue::from(f(d1, d2))
+                }
             },
         };
 
@@ -388,17 +415,10 @@ impl JSValue {
 
     /// Checks if a JSValue is native function of specific type.
     /// Matches both the callback pointer and magic.
-    pub fn match_native_callback(&self, callback: fn(), magic: i32) -> bool {
+    pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
         self.object().is_some_and(|o| {
             if let JSObjectIsa::C_FUNCTION(cfunc) = o.0.isa.borrow().deref() {
-                unsafe {
-                    // let ptr1 = std::mem::transmute::<_, *const c_void>(cfunc.c_function.generic);
-                    // let ptr2 = std::mem::transmute::<_, *const c_void>(callback);
-                    // ptr1 == ptr2 && cfunc.magic == magic as i16
-
-                    std::ptr::fn_addr_eq(cfunc.c_function.generic, callback)
-                        && cfunc.magic == magic as i16
-                }
+                cfunc.magic == magic as i16 && callback.eq(&cfunc.c_function)
             } else {
                 false
             }
@@ -411,31 +431,20 @@ impl JSContext {
     /// at least `length` arguments will be readable in arguments.
     pub fn create_native_function_from_proto(
         &self,
-        callback: NativeCallback,
+        handler: NativeFunctionType,
         name: &str,
         length: u8,
-        cproto: JSCFunctionEnum,
         magic: i16,
         proto_val: &JSValue,
     ) -> JSResult {
-        debug_assert!(matches!(
-            cproto,
-            JSCFunctionEnum::NativeFunc
-                | JSCFunctionEnum::NativeConstructor
-                | JSCFunctionEnum::NativeConstructorOrFunc
-        ));
-
         let func_obj = self
             .create_instance_from_proto(
                 proto_val,
                 JSObjectIsa::C_FUNCTION(JSObjectCFunc {
-                    realm: self.downgrade(),
-                    c_function: JSCFunctionType {
-                        native_callback: callback,
-                    },
+                    c_function: handler,
                     length,
-                    cproto,
                     magic,
+                    realm: self.downgrade(),
                 }),
             )
             .map_err(|_| -1)?;
@@ -444,8 +453,13 @@ impl JSContext {
 
         unsafe {
             (*ob.0.detailed.as_ptr()).set_constructor(matches!(
-                cproto,
-                JSCFunctionEnum::NativeConstructor | JSCFunctionEnum::NativeConstructorOrFunc
+                handler,
+                NativeFunctionType::Constructor(_)
+                    | NativeFunctionType::ConstructorOrFunc(_)
+                    | NativeFunctionType::CConstructor(_)
+                    | NativeFunctionType::CConstructorMagic(_)
+                    | NativeFunctionType::CConstructorOrFunc(_)
+                    | NativeFunctionType::CConstructorOrFuncMagic(_)
             ));
         }
 
@@ -461,20 +475,18 @@ impl JSContext {
 
     /// Create new function object with native callback. using function proto as proto object.
     /// at least `length` arguments will be readable in arguments.
-    #[inline(always)]
+    #[inline]
     pub fn create_native_function(
         &self,
-        callback: NativeCallback,
+        handler: NativeFunctionType,
         name: &str,
         length: u8,
-        cproto: JSCFunctionEnum,
         magic: i16,
     ) -> JSResult {
         self.create_native_function_from_proto(
-            callback,
+            handler,
             name,
             length,
-            cproto,
             magic,
             &self.0.borrow().function_proto,
         )
@@ -496,9 +508,8 @@ pub unsafe fn JS_NewCFunction3(
         &proto_val,
         JSObjectIsa::C_FUNCTION(JSObjectCFunc {
             realm: ctx.downgrade(),
-            c_function: JSCFunctionType { generic: func },
+            c_function: NativeFunctionType::CFunc(func),
             length,
-            cproto,
             magic,
         }),
     ) {
@@ -552,7 +563,7 @@ pub fn JS_NewCFunction2(
 #[inline(always)]
 #[deprecated(note = "use native callback instead. see JSContext::create_native_function()")]
 pub fn JS_NewCFunction(ctx: &JSContext, func: JSCFunction, name: &str, length: u8) -> JSValue {
-    unsafe { JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0) }
+    JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0)
 }
 
 #[inline(always)]

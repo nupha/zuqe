@@ -264,7 +264,7 @@ impl JSModuleDef {
                     // the exported namespace must be created on demand
                     if obj
                         .object_unchecked()
-                        .define_auto_init_property(
+                        .define_lazy_property(
                             ctx,
                             en.export_name,
                             LazyInit::ModuleNS(module),
