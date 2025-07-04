@@ -101,12 +101,11 @@ pub unsafe fn js_map_constructor(
                 break;
             }
 
-            let ret = if is_set {
+            if is_set {
                 let r = JS_Call(ctx, &adder, &obj, &[item]);
                 if r.is_exception() {
                     fail!(&iter, next_method, adder);
                 }
-                r
             } else {
                 if !item.is_object() {
                     ctx.JS_ThrowTypeErrorNotAnObject();
@@ -127,9 +126,7 @@ pub unsafe fn js_map_constructor(
                 if r.is_exception() {
                     fail!(&iter, next_method, adder);
                 }
-
-                r
-            };
+            }
         }
     }
 

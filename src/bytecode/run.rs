@@ -106,10 +106,10 @@ pub unsafe fn run_bytecodes(
     #[cfg(debug_assertions)]
     macro_rules! SP_REF {
         (0) => {
-            unsafe { sp.as_mut().unwrap() }
+            sp.as_mut().unwrap()
         };
         ($idx:expr) => {
-            unsafe { sp.offset($idx as isize).as_mut().unwrap() }
+            sp.offset($idx as isize).as_mut().unwrap()
         };
     }
     #[cfg(not(debug_assertions))]

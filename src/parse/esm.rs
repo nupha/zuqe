@@ -15,7 +15,6 @@ use crate::{
 
 use super::{
     class::js_parse_class,
-    emit::{emit_atom_dup, emit_op_temp, emit_u16},
     function::JSParseFunctionEnum,
     parse::skip_shebang,
     state::JSParseState,
@@ -434,9 +433,9 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             {
                 return -1;
             }
-            emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            emit_atom_dup(s, local_name);
-            emit_u16(s, 0);
+            (*s).emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+            (*s).emit_atom_dup(local_name);
+            (*s).emit_u16(0);
 
             if add_export_entry(
                 s.as_mut().unwrap(),

@@ -18,7 +18,7 @@ impl JSObject {
             if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
                     JSProperty::Normal(sym @ JSValue::Symbol(_)) => {
-                        Ok(self.has_shape_property(js_symbol_to_atom(ctx, &sym)))
+                        Ok(self.has_shape_property(js_symbol_to_atom(&sym)))
                     }
                     _ => {
                         ctx.JS_ThrowTypeErrorNotAnObject();
@@ -43,7 +43,7 @@ impl JSObject {
             return Err(-1);
         }
 
-        let prop = js_symbol_to_atom(ctx, name);
+        let prop = js_symbol_to_atom(name);
 
         if let Some((idx, _)) = self.find_shape_property(prop) {
             self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
@@ -59,7 +59,7 @@ impl JSObject {
             ctx.JS_ThrowTypeErrorNotASymbol();
             Err(-1)
         } else {
-            let prop = js_symbol_to_atom(ctx, name);
+            let prop = js_symbol_to_atom(name);
             if let Some((idx, _)) = self.find_shape_property(prop) {
                 if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
                     Ok(val.clone())
@@ -106,7 +106,7 @@ impl JSObject {
             return Err(-1);
         }
 
-        let prop = js_symbol_to_atom(ctx, name);
+        let prop = js_symbol_to_atom(name);
 
         if self.has_shape_property(prop) {
             ctx.JS_ThrowTypeError(&format!(
@@ -157,7 +157,7 @@ impl JSValue {
                 br
             };
 
-            let brand_atom = js_symbol_to_atom(ctx, &brand);
+            let brand_atom = js_symbol_to_atom(&brand);
 
             if let Some(p1) = self.object() {
                 if p1.has_shape_property(brand_atom) {

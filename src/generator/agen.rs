@@ -392,7 +392,7 @@ pub unsafe fn js_async_generator_reject(
 pub unsafe fn js_async_generator_resolve_or_reject(
     ctx: &JSContext,
     s: *mut JSAsyncGeneratorData,
-    mut result: JSValueConst,
+    result: JSValueConst,
     is_reject: bool,
 ) {
     (*s).resolve_or_reject(ctx, &result, is_reject);

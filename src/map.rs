@@ -86,7 +86,7 @@ impl JSMapState {
             .entry(hash)
             .and_modify(|slots| {
                 if let Some(i) = slots.iter().position(|kv| {
-                    if let MapKV::Strong { key: k, value } = kv {
+                    if let MapKV::Strong { key: k, .. } = kv {
                         key.is_same0(k)
                     } else {
                         unreachable!()
@@ -201,7 +201,7 @@ impl JSMapState {
         }
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+    pub fn hook_finalizer(_: &mut JSRuntime, _: &JSObjectIsa, _: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };

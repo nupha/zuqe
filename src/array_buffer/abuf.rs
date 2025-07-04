@@ -148,15 +148,15 @@ impl JSArrayBufferInner {
         self.content.with_bytes_mut(f)
     }
 
-    #[inline(always)]
-    pub unsafe fn with_bytes_ptr<R>(&self, f: impl FnOnce(*const u8) -> R) -> R {
-        self.content.with_bytes_ptr(f)
-    }
+    // #[inline(always)]
+    // pub unsafe fn with_bytes_ptr<R>(&self, f: impl FnOnce(*const u8) -> R) -> R {
+    //     self.content.with_bytes_ptr(f)
+    // }
 
-    #[inline(always)]
-    pub unsafe fn with_bytes_mut_ptr<R>(&mut self, f: impl FnOnce(*mut u8) -> R) -> R {
-        self.content.with_bytes_mut_ptr(f)
-    }
+    // #[inline(always)]
+    // pub unsafe fn with_bytes_mut_ptr<R>(&mut self, f: impl FnOnce(*mut u8) -> R) -> R {
+    //     self.content.with_bytes_mut_ptr(f)
+    // }
 }
 
 #[derive(Debug, Clone)]

@@ -11,7 +11,6 @@ mod value;
 pub use {
     free::*,
     number::*,
-    ops::*,
     primitives::*,
     repr::*,
     string::*,

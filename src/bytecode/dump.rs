@@ -54,26 +54,31 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
             print!(" {}", tab[pos] as i8);
         }
         "u16" | "npop" => {
-            print!(
-                " {}",
+            print!(" {}", unsafe {
                 read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize))
-            );
+            });
         }
         "npop_u16" => {
             print!(
                 " {},{}",
-                read_from_ptr::<u16>(tab.as_ptr().offset(pos as _)),
-                read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize + 2)),
+                unsafe { read_from_ptr::<u16>(tab.as_ptr().offset(pos as _)) },
+                unsafe { read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize + 2)) },
             );
         }
         "i16" => {
-            print!(" {}", read_from_ptr::<i16>(tab.as_ptr().offset(pos as _)));
+            print!(" {}", unsafe {
+                read_from_ptr::<i16>(tab.as_ptr().offset(pos as _))
+            });
         }
         "i32" => {
-            print!(" {}", read_from_ptr::<i32>(tab.as_ptr().offset(pos as _)));
+            print!(" {}", unsafe {
+                read_from_ptr::<i32>(tab.as_ptr().offset(pos as _))
+            });
         }
         "u32" => {
-            print!(" {}", read_from_ptr::<u32>(tab.as_ptr().offset(pos as _)));
+            print!(" {}", unsafe {
+                read_from_ptr::<u32>(tab.as_ptr().offset(pos as _))
+            });
         }
 
         #[cfg(feature = "short_opcode")]
@@ -797,7 +802,7 @@ pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_n
 }
 
 /// print source code in index ranges from_line..to_line, line index is 0-based.
-unsafe fn print_lines(source: &str, from_line: usize, to_line: usize) {
+fn print_lines(source: &str, from_line: usize, to_line: usize) {
     debug_assert!(from_line < to_line);
 
     for ln in source.lines().skip(from_line).take(to_line - from_line) {

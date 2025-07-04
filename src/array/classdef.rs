@@ -449,7 +449,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func = cc.arg(0);
     func.ensure_callable(ctx)?;
 
-    let mut acc = JSValue::UNDEFINED;
+    let mut acc: JSValue;
     let mut k = 0;
 
     if cc.length() > 1 {
@@ -743,18 +743,17 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let n = js_get_length64(ctx, &obj)?;
 
     let mut c = ',' as i32; // default separator
-    let mut sep = JSValue::UNDEFINED;
-    let mut p: Option<&JSString> = None;
+    let mut p: Option<JSString> = None;
 
     if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
-        sep = cc.arg(0).coerce_to_string(ctx)?;
+        let sep = cc.arg(0).coerce_to_string(ctx)?;
         let ss = unsafe { sep.string_unchecked() };
         c = if ss.len() == 1 && !ss.is_wide_char() {
             ss.content().as_bytes()[0] as i32
         } else {
             -1
         };
-        p.replace(ss);
+        p.replace(ss.clone());
     }
 
     let mut content = StringContent::Empty;
@@ -765,7 +764,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             if c >= 0 {
                 let _ = content.push_u8(c as u8);
             } else {
-                let _ = content.push(p.unwrap().content());
+                let _ = content.push(p.as_ref().unwrap().content());
             }
         }
 
@@ -988,12 +987,12 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(res_arr)
 }
 
-pub fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_sort(ctx: &JSContext, _: CallContext) -> JSResult {
     ctx.JS_ThrowInternalError("sort is not implemented yet");
     Err(-1)
 }
 
-pub fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_toSorted(ctx: &JSContext, _: CallContext) -> JSResult {
     ctx.JS_ThrowInternalError("toSorted is not implemented yet");
     Err(-1)
 }
@@ -1469,9 +1468,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     macro_rules! exception_close {
         () => {
             if !stack[0].is_undefined() {
-                unsafe {
-                    JS_IteratorClose(ctx, &stack[0], true).unwrap();
-                }
+                JS_IteratorClose(ctx, &stack[0], true);
             }
             return Err(-1);
         };

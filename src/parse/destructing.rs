@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_DupAtom, JS_FreeAtom, JSAtom,
+        JS_ATOM_NULL, JS_FreeAtom, JSAtom,
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
     },
     bytecode::{OpCode, OpCodeTemp, opcodes},
@@ -12,9 +12,6 @@ use crate::{
 
 use super::{
     class::js_parse_property_name,
-    emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u8, emit_u16, emit_u32,
-    },
     expr_lvalue::PutLValueEnum,
     function::js_parse_check_duplicate_parameter,
     parse::js_parse_skip_parens_token,
@@ -70,13 +67,13 @@ pub unsafe fn js_parse_destructuring_element(
             }
 
             if (*s).token.val == '=' as i32 {
-                let label_hasval = emit_goto(s, OpCode::IF_FALSE, -1);
+                let label_hasval = (*s).emit_goto(OpCode::IF_FALSE, -1);
                 if (*s).next_token().is_err() {
                     JS_FreeAtom(ctx, var_name);
                     JS_FreeAtom(ctx, prop_name);
                     return -1;
                 }
-                emit_op(s, OpCode::DROP);
+                (*s).emit_op(OpCode::DROP);
                 if (*s).parse_assign_expr().is_err() {
                     JS_FreeAtom(ctx, var_name);
                     JS_FreeAtom(ctx, prop_name);
@@ -129,16 +126,16 @@ pub unsafe fn js_parse_destructuring_element(
                 match depth_lvalue {
                     1 => {
                         /* source prop x -> x source prop */
-                        emit_op(s, OpCode::ROT3R);
+                        (*s).emit_op(OpCode::ROT3R);
                     }
                     2 => {
                         /* source prop x y -> x y source prop */
-                        emit_op(s, OpCode::SWAP2); /* t p2 s p1 */
+                        (*s).emit_op(OpCode::SWAP2); /* t p2 s p1 */
                     }
                     3 => {
                         /* source prop x y z -> x y z source prop */
-                        emit_op(s, OpCode::ROT5L);
-                        emit_op(s, OpCode::ROT5L);
+                        (*s).emit_op(OpCode::ROT5L);
+                        (*s).emit_op(OpCode::ROT5L);
                     }
                     _ => {}
                 }
@@ -146,15 +143,15 @@ pub unsafe fn js_parse_destructuring_element(
                 match depth_lvalue {
                     1 => {
                         /* source x -> x source */
-                        emit_op(s, OpCode::SWAP);
+                        (*s).emit_op(OpCode::SWAP);
                     }
                     2 => {
                         /* source x y -> x y source */
-                        emit_op(s, OpCode::ROT3L);
+                        (*s).emit_op(OpCode::ROT3L);
                     }
                     3 => {
                         /* source x y z -> x y z source */
-                        emit_op(s, OpCode::ROT4L);
+                        (*s).emit_op(OpCode::ROT4L);
                     }
                     _ => {}
                 }
@@ -176,15 +173,15 @@ pub unsafe fn js_parse_destructuring_element(
     start_addr = (*s).cur_func().byte_code.len() as i32;
     if hasval {
         // Consume value from stack
-        emit_op(s, OpCode::DUP);
-        emit_op(s, OpCode::UNDEFINED);
-        emit_op(s, OpCode::STRICT_EQ);
-        emit_goto(s, OpCode::IF_TRUE, label_parse);
-        emit_label(s, label_assign);
+        (*s).emit_op(OpCode::DUP);
+        (*s).emit_op(OpCode::UNDEFINED);
+        (*s).emit_op(OpCode::STRICT_EQ);
+        (*s).emit_goto(OpCode::IF_TRUE, label_parse);
+        (*s).emit_label(label_assign);
     } else {
-        emit_goto(s, OpCode::GOTO, label_parse);
-        emit_label(s, label_assign);
-        emit_op(s, OpCode::DUP);
+        (*s).emit_goto(OpCode::GOTO, label_parse);
+        (*s).emit_label(label_assign);
+        (*s).emit_op(OpCode::DUP);
     }
     assign_addr = (*s).cur_func().byte_code.len() as i32;
 
@@ -192,10 +189,10 @@ pub unsafe fn js_parse_destructuring_element(
         if (*s).next_token().is_err() {
             return -1;
         }
-        emit_op(s, OpCode::OBJECT);
+        (*s).emit_op(OpCode::OBJECT);
         if has_ellipsis != 0 {
-            emit_op(s, OpCode::OBJECT);
-            emit_op(s, OpCode::SWAP);
+            (*s).emit_op(OpCode::OBJECT);
+            (*s).emit_op(OpCode::SWAP);
         }
         while (*s).token.val != '}' as i32 {
             if (*s).token.val == TOK_ELLIPSIS {
@@ -240,12 +237,9 @@ pub unsafe fn js_parse_destructuring_element(
                     (*s).throw_syntax_error("assignment rest property must be last");
                     var_error!();
                 }
-                emit_op(s, OpCode::OBJECT);
-                emit_op(s, OpCode::COPY_DATA_PROPERTIES);
-                emit_u8(
-                    s,
-                    (((depth_lvalue + 1) << 2) | ((depth_lvalue + 2) << 5)) as u8,
-                );
+                (*s).emit_op(OpCode::OBJECT);
+                (*s).emit_op(OpCode::COPY_DATA_PROPERTIES);
+                (*s).emit_u8((((depth_lvalue + 1) << 2) | ((depth_lvalue + 2) << 5)) as u8);
 
                 set_val!(); // #79 goto set_val
                 continue;
@@ -417,7 +411,7 @@ pub unsafe fn js_parse_destructuring_element(
                 }
 
                 if !goto_lvalue {
-                    var_name = JS_DupAtom(ctx, prop_name);
+                    var_name = prop_name.dup(ctx.rt());
                     /* source -- source val */
                     (*s).emit_op(OpCode::GET_FIELD2);
                     (*s).emit_u32(prop_name.0);
@@ -545,7 +539,7 @@ pub unsafe fn js_parse_destructuring_element(
                     (*s).emit_op(OpCode::DUP);
                     (*s).emit_op(OpCode::UNDEFINED);
                     (*s).emit_op(OpCode::STRICT_EQ);
-                    let label_hasval = emit_goto(s, OpCode::IF_FALSE, -1);
+                    let label_hasval = (*s).emit_goto(OpCode::IF_FALSE, -1);
                     if (*s).next_token().is_err() {
                         var_error!();
                     }

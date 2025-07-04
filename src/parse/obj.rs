@@ -4,10 +4,7 @@ use crate::{
     utils::{read_from_ptr, write_to_ptr},
 };
 
-use super::{
-    emit::{emit_op, get_prev_opcode},
-    state::JSParseState,
-};
+use super::{emit::get_prev_opcode, state::JSParseState};
 
 impl<'s> JSParseState<'s> {
     pub fn set_object_name(&mut self, name: JSAtom) {
@@ -67,7 +64,7 @@ pub unsafe fn set_object_name_computed(s: *mut JSParseState) {
         // XXX: should free atom after OP_set_name?
         fd.byte_code.truncate(fd.last_opcode_pos as usize); //  (*fd).byte_code.size = (*fd).last_opcode_pos;
         fd.last_opcode_pos = -1;
-        emit_op(s, OpCode::SET_NAME_COMPUTED);
+        (*s).emit_op(OpCode::SET_NAME_COMPUTED);
     } else if opcode == opcodes::op_set_class_name {
         let define_class_pos = fd.last_opcode_pos + 1
             - read_from_ptr::<i32>(

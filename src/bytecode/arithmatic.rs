@@ -512,7 +512,7 @@ pub fn js_eq_slow(ctx: &JSContext, sp: *mut JSValue, is_neq: bool) -> Result<boo
     let mut op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
 
     let res = loop {
-        let b: bool = match (&op1, &op2) {
+        let test: bool = match (&op1, &op2) {
             (JSValue::Int(a), JSValue::Int(b)) => *a == *b,
             (JSValue::Int(a), JSValue::Float64(b)) => *a as f64 == *b,
             (JSValue::Float64(a), JSValue::Int(b)) => *a == *b as f64,
@@ -521,11 +521,11 @@ pub fn js_eq_slow(ctx: &JSContext, sp: *mut JSValue, is_neq: bool) -> Result<boo
             (JSValue::Bool(a), JSValue::Bool(b)) => *a == *b,
             (JSValue::Bool(a), _) => {
                 op1 = JSValue::Int(*a as i32);
-                continue; // redo
+                continue;
             }
             (_, JSValue::Bool(b)) => {
                 op2 = JSValue::Int(*b as i32);
-                continue; // redo
+                continue;
             }
 
             (JSValue::String(_), JSValue::Int(_) | JSValue::Float64(_))
@@ -559,16 +559,13 @@ pub fn js_eq_slow(ctx: &JSContext, sp: *mut JSValue, is_neq: bool) -> Result<boo
                     unreachable!()
                 }
 
+                (_, JSValue::NULL | JSValue::UNDEFINED) if a.is_htmldda() => true,
+                (JSValue::NULL | JSValue::UNDEFINED, _) if b.is_htmldda() => true,
                 _ => false,
             },
-
-            _ => {
-                (op1.is_htmldda() && matches!(op2, JSValue::NULL | JSValue::UNDEFINED))
-                    || (op2.is_htmldda() && matches!(op1, JSValue::NULL | JSValue::UNDEFINED))
-            }
         };
 
-        break b; // done
+        break test; // done
     };
 
     Ok(res ^ is_neq)

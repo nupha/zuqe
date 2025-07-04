@@ -128,10 +128,7 @@ pub unsafe fn js_op_define_class(
 ) -> Result<(), i32> {
     let mut bfunc = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
     let mut parent_class = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-
-    let mut proto = JSValue::UNDEFINED;
-    let mut ctor = JSValue::UNDEFINED;
-    let mut parent_proto = JSValue::UNDEFINED;
+    let parent_proto: JSValue;
 
     if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
         if parent_class.is_null() {
@@ -158,7 +155,7 @@ pub unsafe fn js_op_define_class(
         parent_class = ctx.0.borrow().function_proto.clone();
     }
 
-    proto = ctx.create_base_object_with_proto(&parent_proto)?;
+    let proto = ctx.create_base_object_with_proto(&parent_proto)?;
 
     let bc = unsafe {
         bfunc
@@ -172,7 +169,7 @@ pub unsafe fn js_op_define_class(
     };
     debug_assert_eq!(bc.0.borrow().func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
 
-    ctor = ctx
+    let mut ctor = ctx
         .create_instance_from_proto(
             &parent_class,
             JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default()),

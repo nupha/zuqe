@@ -462,11 +462,11 @@ pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> boo
 pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
     match val {
         JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => JSAtom::new_u32(*i as u32),
-        JSValue::Symbol(_) => js_symbol_to_atom(ctx, val).dup(ctx.rt()),
+        JSValue::Symbol(_) => js_symbol_to_atom(val).dup(ctx.rt()),
         _ => {
             if let Ok(tmp) = val.coerce_to_propkey(ctx) {
                 if let JSValue::Symbol(_) = tmp {
-                    js_symbol_to_atom(ctx, &tmp)
+                    js_symbol_to_atom(&tmp)
                 } else {
                     ctx.rt_mut()
                         .register_atom_jsstring(
@@ -498,7 +498,7 @@ pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
 }
 
 /// returned atom is not cloned. if caller want keep reference, should clone it.
-pub fn js_symbol_to_atom(ctx: &JSContext, val: &JSValue) -> JSAtom {
+pub fn js_symbol_to_atom(val: &JSValue) -> JSAtom {
     if let JSValue::Symbol(s) = val {
         match s.atom_info() {
             Some(JSAtomInfo::Symbol(a)) | Some(JSAtomInfo::GlobalSymbol(a)) => {
@@ -509,13 +509,6 @@ pub fn js_symbol_to_atom(ctx: &JSContext, val: &JSValue) -> JSAtom {
     } else {
         unreachable!()
     }
-
-    // match (*JS_VALUE_GET_PTR(val).cast::<JSAtomStruct>()).atom_info() {
-    //     Some(JSAtomInfo::Symbol(a)) | Some(JSAtomInfo::GlobalSymbol(a)) => {
-    //         JSAtom(u16::from(a) as u32)
-    //     }
-    //     _ => unreachable!(),
-    // }
 }
 
 // This test must be fast if atom is not a numeric index (e.g. a

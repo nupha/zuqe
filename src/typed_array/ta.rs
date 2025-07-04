@@ -10,7 +10,6 @@ use crate::{
     iterator::js_array_from_iterator,
     object::{JSObject, JSObjectIsa, JSObjectWeakref, js_get_length64},
     runtime::JSRuntime,
-    utils::{UncheckedFrom, UncheckedInto},
     value::{JS_ToInt64Sat, JSValue, JSValueConst},
 };
 
@@ -673,7 +672,7 @@ pub fn js_typed_array_set_internal(
                 todo!()
             }
 
-            return Ok(JSValue::UNDEFINED);
+            // Ok(JSValue::UNDEFINED)
         }
 
         _ => {

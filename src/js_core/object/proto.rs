@@ -2,14 +2,14 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
     JS_CLASS_STRING,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Invoke, JSCFunctionListEntry},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-        JS_SetPrototypeInternal, JSPropertyDescriptor,
+        JS_SetPrototypeInternal,
     },
     utils::unlikely,
     value::{JS_ConcatString3, JSValue, JSValueConst},
@@ -131,7 +131,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 // }
 
 pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    unsafe { JS_Invoke(ctx, cc.this(), JS_ATOM_toString, &[]).check_exception() }
+    JS_Invoke(ctx, cc.this(), JS_ATOM_toString, &[]).check_exception()
 }
 
 pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -140,7 +140,7 @@ pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
-    let atom = unsafe { JS_ValueToAtom(ctx, cc.arg(0)) };
+    let atom = JS_ValueToAtom(ctx, cc.arg(0));
     if atom == JS_ATOM_NULL {
         return Err(-1);
     }
@@ -215,9 +215,7 @@ pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult 
             Ok(JSValue::UNDEFINED)
         } else {
             // `proto` is an object or null
-            unsafe {
-                JS_SetPrototypeInternal(ctx, &this_val, proto.clone(), true)?;
-            }
+            JS_SetPrototypeInternal(ctx, &this_val, proto.clone(), true)?;
             Ok(JSValue::UNDEFINED)
         }
     }

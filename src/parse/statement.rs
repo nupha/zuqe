@@ -5,16 +5,13 @@ use crate::{
     function::{
         BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE, pop_break_entry, push_break_entry,
     },
-    parse::emit::emit_return,
     utils::write_to_ptr,
 };
 
 use super::{
     class::js_parse_class,
     destructing::js_parse_destructuring_element,
-    emit::{
-        emit_atom_dup, emit_goto, emit_label, emit_op, emit_op_temp, emit_u16, js_is_live_code,
-    },
+    emit::js_is_live_code,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -97,7 +94,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             if js_parse_statement_or_decl(s, mask) != 0 {
                 fail!();
             }
-            emit_label(s, label_break);
+            s.emit_label(label_break);
 
             pop_break_entry(s.cur_func_mut());
 
@@ -134,9 +131,9 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 if s.parse_expr().is_err() {
                     fail!();
                 }
-                emit_return(s, true);
+                s.emit_return(true);
             } else {
-                emit_return(s, false);
+                s.emit_return(false);
             }
             if s.parse_expect_semi().is_err() {
                 fail!();
@@ -153,7 +150,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
             if s.parse_expr().is_err() {
                 fail!();
             }
-            emit_op(s, OpCode::THROW);
+            s.emit_op(OpCode::THROW);
             if s.parse_expect_semi().is_err() {
                 fail!();
             }
@@ -519,7 +516,7 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
             s.parse_var(0, tok, false)?;
         } else {
             s.parse_expr2(0)?;
-            emit_op(s, OpCode::DROP);
+            s.emit_op(OpCode::DROP);
         }
 
         // close the closures before the first iteration
@@ -727,7 +724,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
     let mut block_env: BlockEnv = std::mem::zeroed();
 
-    emit_goto(s, OpCode::CATCH, label_catch);
+    s.emit_goto(OpCode::CATCH, label_catch);
 
     push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
     block_env.label_finally = label_finally;
@@ -906,9 +903,9 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
             label1 = -1;
             if label_case >= 0 {
                 // skip the case if needed
-                label1 = emit_goto(s, OpCode::GOTO, -1);
+                label1 = s.emit_goto(OpCode::GOTO, -1);
             }
-            emit_label(s, label_case);
+            s.emit_label(label_case);
             label_case = -1;
 
             loop {
@@ -938,7 +935,7 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
             }
             if label_case < 0 {
                 // falling thru direct from switch expression
-                label_case = emit_goto(s, OpCode::GOTO, -1);
+                label_case = s.emit_goto(OpCode::GOTO, -1);
             }
             // Emit a dummy label opcode. Label will be patched after
             // the end of the switch body. Do not use emit_label(s, 0)
@@ -1091,10 +1088,10 @@ pub unsafe fn js_parse_for_in_of(
     );
     break_entry.scope_level = block_scope_level;
 
-    let label_expr = emit_goto(s, OpCode::GOTO, -1);
+    let label_expr = s.emit_goto(OpCode::GOTO, -1);
 
     let pos_next = s.cur_func().byte_code.len();
-    emit_label(s, label_next);
+    s.emit_label(label_next);
 
     let tok = if is_let(s, DECL_MASK_OTHER)? {
         TOK_LET
@@ -1126,16 +1123,13 @@ pub unsafe fn js_parse_for_in_of(
                 JS_FreeAtom(&s.ctx, var_name);
                 return Err(-1);
             }
-            emit_op_temp(
-                s,
-                if tok == TOK_CONST || tok == TOK_LET {
-                    OpCodeTemp::SCOPE_PUT_VAR_INIT
-                } else {
-                    OpCodeTemp::SCOPE_PUT_VAR
-                },
-            );
-            emit_atom_dup(s, var_name);
-            emit_u16(s, s.cur_func().scope_level as _);
+            s.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
+                OpCodeTemp::SCOPE_PUT_VAR_INIT
+            } else {
+                OpCodeTemp::SCOPE_PUT_VAR
+            });
+            s.emit_atom_dup(var_name);
+            s.emit_u16(s.cur_func().scope_level as _);
         }
     } else if !is_async && s.token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(false) == TOK_OF
     {
@@ -1188,10 +1182,10 @@ pub unsafe fn js_parse_for_in_of(
         var_name = JS_ATOM_NULL;
     }
 
-    emit_goto(s, OpCode::GOTO, label_body);
+    s.emit_goto(OpCode::GOTO, label_body);
 
     let pos_expr = s.cur_func().byte_code.len();
-    emit_label(s, label_expr);
+    s.emit_label(label_expr);
 
     if s.token.val == CHAR_EQUAL {
         // XXX: potential scoping issue if inside `with` statement
@@ -1204,9 +1198,9 @@ pub unsafe fn js_parse_for_in_of(
             return Err(-1);
         }
         if var_name != JS_ATOM_NULL {
-            emit_op_temp(s, OpCodeTemp::SCOPE_PUT_VAR);
-            emit_atom_dup(s, var_name);
-            emit_u16(s, s.cur_func().scope_level as _);
+            s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
+            s.emit_atom_dup(var_name);
+            s.emit_u16(s.cur_func().scope_level as _);
         }
     }
     JS_FreeAtom(&s.ctx, var_name);

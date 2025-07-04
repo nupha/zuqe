@@ -125,15 +125,14 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     let p = unsafe { this_val.object_unchecked() };
 
     let func_kind = if let Some(func) = p.0.isa.borrow().func() {
-        unsafe {
-            let b = func.function_bytecode.as_ref().unwrap();
-            if b.0.borrow().has_debug {
-                if let Some(s) = b.0.borrow().debug.source.as_deref() {
-                    return ctx.create_string(s).check_exception();
-                }
+        let bc = func.function_bytecode.as_ref().unwrap();
+        let b = bc.0.borrow();
+        if b.has_debug {
+            if let Some(s) = b.debug.source.as_deref() {
+                return ctx.create_string(s).check_exception();
             }
-            b.0.borrow().func_kind
         }
+        b.func_kind
     } else {
         JSFunctionKindEnum::JS_FUNC_NORMAL
     };
