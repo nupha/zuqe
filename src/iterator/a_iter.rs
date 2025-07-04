@@ -5,7 +5,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Call, JSCFunctionListEntry},
+    function::{CallContext, JS_Call, NativeFieldDef},
     object::JSObjectIsa,
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
@@ -227,7 +227,7 @@ pub fn js_async_from_sync_iterator_mark(val: JSValue) {
     }
 }
 
-pub const js_async_from_sync_iterator_proto_funcs: [JSCFunctionListEntry; 3] = [
+pub const js_async_from_sync_iterator_proto_funcs: [NativeFieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!(
         "next",
         1,

@@ -4,7 +4,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, JS_CallConstructor, JSCFunctionListEntry},
+    function::{CallContext, JS_CallConstructor, NativeFieldDef},
     js_core::js_get_this,
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::{JS_ToInt64Clamp, JSValue},
@@ -20,12 +20,12 @@ pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-pub const js_array_buffer_funcs: [JSCFunctionListEntry; 2] = [
+pub const js_array_buffer_funcs: [NativeFieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
     JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
 ];
 
-pub const js_shared_array_buffer_funcs: [JSCFunctionListEntry; 1] =
+pub const js_shared_array_buffer_funcs: [NativeFieldDef; 1] =
     [JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE)];
 
 //
@@ -146,7 +146,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(new_obj.into())
 }
 
-pub const js_array_buffer_proto_funcs: [JSCFunctionListEntry; 3] = [
+pub const js_array_buffer_proto_funcs: [NativeFieldDef; 3] = [
     JS_CGETSET_MAGIC_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,
@@ -162,7 +162,7 @@ pub const js_array_buffer_proto_funcs: [JSCFunctionListEntry; 3] = [
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 
-pub const js_shared_array_buffer_proto_funcs: [JSCFunctionListEntry; 3] = [
+pub const js_shared_array_buffer_proto_funcs: [NativeFieldDef; 3] = [
     JS_CGETSET_MAGIC_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,

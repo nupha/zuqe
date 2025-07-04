@@ -311,7 +311,7 @@ pub unsafe fn skip_spaces(pc: *const u8) -> usize {
 #[macro_export]
 macro_rules! JS_CFUNC_NATIVE_DEF {
     ($name:expr, $length:expr, $func:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::Func($func),
@@ -327,7 +327,7 @@ macro_rules! JS_CFUNC_NATIVE_DEF {
 #[macro_export]
 macro_rules! JS_CGETSET_NATIVE_DEF {
     ($name:expr, $getter:expr, NONE, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::Getter($getter)),
@@ -339,7 +339,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     };
 
     ($name:expr, NONE, $setter:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: NONE,
@@ -351,7 +351,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     };
 
     ($name:expr, $getter:expr, $setter:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::Getter($getter)),
@@ -366,7 +366,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
 #[macro_export]
 macro_rules! JS_NATIVE_ITERATOR_NEXT_DEF {
     ($name:expr, $length:expr, $callback:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::IteratorNext($callback),
@@ -386,7 +386,7 @@ macro_rules! JS_NATIVE_ITERATOR_NEXT_DEF {
 #[macro_export]
 macro_rules! JS_CFUNC_DEF {
     ($name:expr, $length:expr, $func1:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
                 as u8,
@@ -406,7 +406,7 @@ macro_rules! JS_CFUNC_DEF {
 #[macro_export]
 macro_rules! JS_CFUNC_MAGIC_DEF {
     ($name:expr, $length:expr, $func1:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
                 as u8,
@@ -428,7 +428,7 @@ macro_rules! JS_CFUNC_MAGIC_DEF {
 #[macro_export]
 macro_rules! JS_CGETSET_DEF {
     ($name:expr, NONE, $setter:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: None,
@@ -440,7 +440,7 @@ macro_rules! JS_CGETSET_DEF {
     };
 
     ($name:expr, $getter:expr, NONE) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::CGetter($getter)),
@@ -452,7 +452,7 @@ macro_rules! JS_CGETSET_DEF {
     };
 
     ($name:expr, $getter:expr, $setter:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::Getter($getter)),
@@ -467,7 +467,7 @@ macro_rules! JS_CGETSET_DEF {
 #[macro_export]
 macro_rules! JS_CGETSET_MAGIC_DEF {
     ($name:expr, NONE, $setter:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: None,
@@ -479,7 +479,7 @@ macro_rules! JS_CGETSET_MAGIC_DEF {
     };
 
     ($name:expr, $getter:expr, NONE, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::CGetterMagic($getter)),
@@ -491,7 +491,7 @@ macro_rules! JS_CGETSET_MAGIC_DEF {
     };
 
     ($name:expr, $getter:expr, $setter:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             prop_flags: $crate::object::JS_PROP_CONFIGURABLE as u8,
             def_type: $crate::function::JS_DEF_CGETSET_MAGIC,
@@ -513,7 +513,7 @@ macro_rules! JS_CGETSET_MAGIC_DEF {
 #[macro_export]
 macro_rules! JS_PROP_STRING_DEF {
     ($name:expr, $str:expr, $prop_flags:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             prop_flags: $prop_flags as u8,
             detail: $crate::function::NativeFieldDetail::Str($str),
@@ -525,7 +525,7 @@ macro_rules! JS_PROP_STRING_DEF {
 #[macro_export]
 macro_rules! JS_PROP_INT32_DEF {
     ($name:expr, $val:expr, $prop_flags:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Int32($val),
             prop_flags: $prop_flags as u8,
@@ -537,7 +537,7 @@ macro_rules! JS_PROP_INT32_DEF {
 #[macro_export]
 macro_rules! JS_ALIAS_DEF {
     ($name:expr, $from:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Alias {
                 name: $from,
@@ -553,7 +553,7 @@ macro_rules! JS_ALIAS_DEF {
 #[macro_export]
 macro_rules! JS_ITERATOR_NEXT_DEF {
     ($name:expr, $length:expr, $func1:expr, $magic:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
                 as u8,
@@ -575,7 +575,7 @@ macro_rules! JS_ITERATOR_NEXT_DEF {
 #[macro_export]
 macro_rules! JS_PROP_DOUBLE_DEF {
     ($name:expr, $val:expr, $flags:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Float64($val),
             prop_flags: $flags as u8,
@@ -587,7 +587,7 @@ macro_rules! JS_PROP_DOUBLE_DEF {
 #[macro_export]
 macro_rules! JS_PROP_UNDEFINED_DEF {
     ($name:expr, $flags:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Undefined,
             prop_flags: $flags as u8,
@@ -599,7 +599,7 @@ macro_rules! JS_PROP_UNDEFINED_DEF {
 #[macro_export]
 macro_rules! JS_ALIAS_BASE_DEF {
     ($name:expr, $from:expr, $base:expr) => {
-        $crate::function::JSCFunctionListEntry {
+        $crate::function::NativeFieldDef {
             name: $name,
             detail: $crate::function::NativeFieldDetail::Alias {
                 name: $from,

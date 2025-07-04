@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
-    function::{JSCFunctionListEntry, NativeFieldDetail},
+    function::{NativeFieldDef, NativeFieldDetail},
     module::JSModuleDef,
     object::{
         JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -24,7 +24,7 @@ pub enum LazyInit {
     /// Build module namespace object
     ModuleNS(JSModuleDef),
     /// Build base object installed with given entries.
-    Prop(NonNull<JSCFunctionListEntry>),
+    Prop(NonNull<NativeFieldDef>),
 }
 
 impl LazyInit {

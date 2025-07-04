@@ -1,4 +1,4 @@
-use std::{ops::Deref, os::raw::c_void, ptr::NonNull};
+use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     JS_CLASS_C_FUNCTION,
@@ -15,33 +15,6 @@ use crate::{
 };
 
 use super::js_function_set_properties;
-
-#[deprecated]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum JSCFunctionEnum {
-    Generic = 0,
-    GenericMagic,
-    Constructor,
-    ConstructorMagic,
-    ConstructorOrFunc,
-    ConstructorOrFuncMagic,
-
-    FF,
-    FFF,
-    Getter,
-    Setter,
-    GetterMagic,
-    SetterMagic,
-    IteratorNext,
-
-    NativeFunc,
-    NativeConstructor,
-    NativeConstructorOrFunc,
-    NativeSetter,
-    NativeGetter,
-    NativeIteratorNext,
-}
 
 pub type NativeCallback = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
 pub type NativeGetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
@@ -131,41 +104,12 @@ impl PartialEq for NativeFunctionType {
     }
 }
 
-#[deprecated(note = "use NativeFunctionType instead")]
-#[derive(Clone, Copy)]
-pub union JSCFunctionType {
-    pub native_callback: NativeCallback,
-    pub native_getter: NativeGetter,
-    pub native_setter: NativeSetter,
-    pub native_iterator_next: NativeIteratorNext,
-
-    //
-    pub generic: JSCFunction,
-    pub generic_magic: JSCFunctionMagic,
-    pub constructor: JSCFunction,
-    pub constructor_magic: JSCFunctionMagic,
-    pub constructor_or_func: JSCFunction,
-    pub f_f: JSCFunctionFF,
-    pub f_f_f: JSCFunctionFFF,
-    pub getter: JSCFunctionGetter,
-    pub setter: JSCFunctionSetter,
-    pub getter_magic: JSCFunctionGetterMagic,
-    pub setter_magic: JSCFunctionSetterMagic,
-    pub iterator_next: JSCFunctionIteratorNext,
-}
-
-impl std::fmt::Debug for JSCFunctionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<JSCFunctionType>")
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct JSObjectCFunc {
     pub c_function: NativeFunctionType,
+    pub realm: JSContextWeakref,
     pub length: u8,
     pub magic: i16,
-    pub realm: JSContextWeakref,
 }
 
 impl JSObjectCFunc {
@@ -491,6 +435,31 @@ impl JSContext {
             &self.0.borrow().function_proto,
         )
     }
+}
+
+#[deprecated]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum JSCFunctionEnum {
+    Generic = 0,
+    GenericMagic,
+    Constructor,
+    ConstructorMagic,
+    ConstructorOrFunc,
+    ConstructorOrFuncMagic,
+    FF,
+    FFF,
+    Getter,
+    Setter,
+    GetterMagic,
+    SetterMagic,
+    IteratorNext,
+
+    NativeFunc,
+    NativeConstructor,
+    NativeConstructorOrFunc,
+    NativeSetter,
+    NativeGetter,
 }
 
 // Note: at least 'length' arguments will be readable in 'argv'

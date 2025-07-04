@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
-    function::{CallContext, JSCFunctionListEntry},
+    function::{CallContext, NativeFieldDef},
     value::{JS_ToFloat64, JSValue, js_parseFloat, js_parseInt},
 };
 
@@ -34,7 +34,7 @@ pub fn js_global_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult 
 }
 
 // global objects
-pub const js_global_props: [JSCFunctionListEntry; 7] = [
+pub const js_global_props: [NativeFieldDef; 7] = [
     JS_CFUNC_NATIVE_DEF!("parseInt", 2, js_parseInt, 0),
     JS_CFUNC_NATIVE_DEF!("parseFloat", 1, js_parseFloat, 0),
     JS_CFUNC_NATIVE_DEF!("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),

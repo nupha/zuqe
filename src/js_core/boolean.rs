@@ -3,7 +3,7 @@ use crate::{
     atom::consts::{JS_ATOM_false, JS_ATOM_true},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JSCFunctionListEntry},
+    function::{CallContext, NativeFieldDef},
     object::JSObjectIsa,
     value::JSValue,
 };
@@ -52,7 +52,7 @@ pub fn js_boolean_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
     js_thisBooleanValue(ctx, args.this_raw())
 }
 
-pub const js_boolean_proto_funcs: [JSCFunctionListEntry; 2] = [
+pub const js_boolean_proto_funcs: [NativeFieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_boolean_toString, 0),
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_boolean_valueOf, 0),
 ];

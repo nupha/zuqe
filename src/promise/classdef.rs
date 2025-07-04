@@ -3,7 +3,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Call, JS_Invoke, JSCFunctionListEntry},
+    function::{CallContext, JS_Call, JS_Invoke, NativeFieldDef},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -425,7 +425,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
+pub const js_promise_funcs: [NativeFieldDef; 8] = [
     JS_CFUNC_NATIVE_DEF!("resolve", 1, js_promise_resolve, 0),
     JS_CFUNC_NATIVE_DEF!("reject", 1, js_promise_resolve, 1),
     JS_CFUNC_NATIVE_DEF!("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
@@ -453,7 +453,7 @@ pub const js_promise_funcs: [JSCFunctionListEntry; 8] = [
 //     Err(-1)
 // }
 
-pub const js_promise_proto_funcs: [JSCFunctionListEntry; 4] = [
+pub const js_promise_proto_funcs: [NativeFieldDef; 4] = [
     JS_CFUNC_NATIVE_DEF!("then", 2, js_promise_then, 0),
     JS_CFUNC_NATIVE_DEF!("catch", 1, js_promise_catch, 0),
     JS_CFUNC_NATIVE_DEF!("finally", 1, js_promise_finally, 0),

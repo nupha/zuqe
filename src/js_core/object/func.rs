@@ -5,7 +5,7 @@ use crate::{
     context::{JS_GetActiveFunction, JSContext},
     defer,
     error::JSResult,
-    function::{CallContext, JS_Call, JSCFunctionListEntry},
+    function::{CallContext, JS_Call, NativeFieldDef},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum},
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
     object::{
@@ -544,7 +544,7 @@ pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
 }
 
-pub const js_object_funcs: [JSCFunctionListEntry; 23] = [
+pub const js_object_funcs: [NativeFieldDef; 23] = [
     JS_CFUNC_NATIVE_DEF!("create", 2, js_object_create, 0),
     JS_CFUNC_NATIVE_DEF!("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
     JS_CFUNC_NATIVE_DEF!("setPrototypeOf", 2, js_object_setPrototypeOf, 0),

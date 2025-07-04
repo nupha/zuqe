@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    CallContext, JS_Call, JSCFunctionListEntry,
+    CallContext, JS_Call, NativeFieldDef,
     call::{JS_CALL_FLAG_GENERATOR, JS_CallInternal},
 };
 
@@ -491,7 +491,7 @@ pub fn js_async_function_resume(ctx: &JSContext, s: &JSAsyncFunctionState) {
     }
 }
 
-pub const js_async_function_proto_funcs: [JSCFunctionListEntry; 1] = [JS_PROP_STRING_DEF!(
+pub const js_async_function_proto_funcs: [NativeFieldDef; 1] = [JS_PROP_STRING_DEF!(
     "[Symbol.toStringTag]",
     "AsyncFunction",
     JS_PROP_CONFIGURABLE

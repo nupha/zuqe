@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ARRAY,
     atom::{JS_FreeAtom, JSAtom, consts::*},
     context::JSContext,
-    function::{JSCFunctionEnum, JSCFunctionType, NativeFunctionType},
+    function::NativeFunctionType,
     object::{JS_PROP_CONFIGURABLE, LazyInit},
     value::{JSValue, JSValueConst},
 };
@@ -21,7 +21,7 @@ pub const JS_DEF_PROP_UNDEFINED: u8 = 7;
 pub const JS_DEF_OBJECT: u8 = 8;
 pub const JS_DEF_ALIAS: u8 = 9;
 
-pub struct JSCFunctionListEntry {
+pub struct NativeFieldDef {
     pub name: &'static str,
     pub detail: NativeFieldDetail,
     pub prop_flags: u8,
@@ -42,7 +42,7 @@ pub enum NativeFieldDetail {
         name: &'static str,
         base: i32,
     },
-    Object(Vec<JSCFunctionListEntry>),
+    Object(Vec<NativeFieldDef>),
     Str(&'static str),
     Int32(i32),
     Int64(i64),
@@ -50,52 +50,11 @@ pub enum NativeFieldDetail {
     Undefined,
 }
 
-#[deprecated]
-pub union JSCFunctionListEntryUnion {
-    pub func: JSCFunctionListEntryFunc,
-    pub getset: JSCFunctionListEntryGetSet,
-    pub alias: JSCFunctionListEntryAlias,
-    pub prop_list: ManuallyDrop<Vec<JSCFunctionListEntry>>, //JSCFunctionListEntryPropList,
-    pub str: &'static str,
-    pub i32: i32,
-    pub i64: i64,
-    pub f64: f64,
-}
-
-#[derive(Clone, Copy)]
-#[deprecated]
-pub struct JSCFunctionListEntryFunc {
-    pub length: u8,
-    pub cproto: JSCFunctionEnum,
-    pub cfunc: JSCFunctionType,
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-#[deprecated]
-pub struct JSCFunctionListEntryGetSet {
-    pub get: Option<JSCFunctionType>,
-    pub set: Option<JSCFunctionType>,
-}
-
-#[derive(Copy, Clone)]
-#[deprecated]
-pub struct JSCFunctionListEntryAlias {
-    pub name: &'static str,
-    pub base: i32,
-}
-
-#[deprecated]
-pub struct JSCFunctionListEntryPropList {
-    pub tab: *const JSCFunctionListEntry,
-    pub len: i32,
-}
-
 impl JSValue {
     pub fn install_property_entries(
         &self,
         ctx: &JSContext,
-        tab: &[JSCFunctionListEntry],
+        tab: &[NativeFieldDef],
     ) -> Result<(), i32> {
         for item in tab {
             let atom = ctx.create_atom(item.name)?;
@@ -109,7 +68,7 @@ impl JSValue {
         &self,
         ctx: &JSContext,
         atom: JSAtom,
-        e: &JSCFunctionListEntry,
+        e: &NativeFieldDef,
     ) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = e.prop_flags;
@@ -157,7 +116,7 @@ impl JSValue {
                         ctx,
                         atom,
                         LazyInit::Prop(NonNull::new_unchecked(
-                            e as *const JSCFunctionListEntry as *mut JSCFunctionListEntry,
+                            e as *const NativeFieldDef as *mut NativeFieldDef,
                         )),
                         prop_flags as _,
                     )
@@ -211,7 +170,7 @@ impl JSValue {
 pub unsafe fn JS_SetPropertyFunctionList(
     ctx: &JSContext,
     obj: &JSValueConst,
-    tab: *const JSCFunctionListEntry,
+    tab: *const NativeFieldDef,
     len: usize,
 ) {
     unreachable!("unused");
@@ -224,7 +183,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
     ctx: &JSContext,
     obj: &JSValueConst,
     atom: JSAtom,
-    e: *const JSCFunctionListEntry,
+    e: *const NativeFieldDef,
 ) -> i32 {
     unreachable!("unused");
 

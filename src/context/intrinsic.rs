@@ -19,8 +19,8 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{JS_NATIVE_ERROR_COUNT, JSErrorEnum, JSResult, NATIVE_ERROR_NAMES},
     function::{
-        BytecodeFunctionValue, CallContext, JSCFunctionListEntry, JSFunctionKindEnum,
-        NativeFunctionType, js_async_function_proto_funcs,
+        BytecodeFunctionValue, CallContext, JSFunctionKindEnum, NativeFieldDef, NativeFunctionType,
+        js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -366,7 +366,7 @@ impl JSContext {
     }
 
     /// create global object
-    pub fn intrinsic_global_object(&self, fields: &[JSCFunctionListEntry]) {
+    pub fn intrinsic_global_object(&self, fields: &[NativeFieldDef]) {
         let global = self.create_base_object().unwrap();
 
         // define global fields

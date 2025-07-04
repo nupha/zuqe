@@ -6,7 +6,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, JSCFunctionListEntry},
+    function::{CallContext, NativeFieldDef},
     mem::js_malloc_typed,
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
     typed_array::TypedArrayValue,
@@ -334,7 +334,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub const js_dataview_proto_funcs: [JSCFunctionListEntry; 20] = [
+pub const js_dataview_proto_funcs: [NativeFieldDef; 20] = [
     JS_CGETSET_MAGIC_DEF!("buffer", js_typed_array_get_buffer, NONE, 1),
     JS_CGETSET_MAGIC_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 1),
     JS_CGETSET_MAGIC_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 1),
