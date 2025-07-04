@@ -5,7 +5,7 @@ use crate::{
     atom::consts::JS_ATOM_empty_string,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JSNativeCallback, js_function_set_properties},
+    function::{CallContext, NativeCallback, js_function_set_properties},
     mem::js_malloc_typed,
     object::JSObjectIsa,
     runtime::JSRuntime,
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct JSCFunctionDataRecord {
-    pub func: JSNativeCallback,
+    pub func: NativeCallback,
     pub length: u8,
     pub magic: u16,
     pub data: Vec<JSValue>,
@@ -24,7 +24,7 @@ impl JSCFunctionDataRecord {
     /// `data` values are not consumed.
     pub fn new(
         ctx: &JSContext,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: u8,
         magic: i32,
         data: &[JSValue],
@@ -88,7 +88,7 @@ impl JSContext {
     /// Note: `data` values are not consumed.
     pub fn create_native_callable_object(
         &self,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: u8,
         magic: i32,
         data: &[JSValue],

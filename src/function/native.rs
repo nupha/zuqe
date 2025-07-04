@@ -6,7 +6,7 @@ use crate::{
     context::{JSContext, JSContextWeakref},
     defer,
     error::{JS_ThrowStackOverflow, JSResult},
-    function::JS_CALL_FLAG_CONSTRUCTOR,
+    function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
     object::JSObjectIsa,
     runtime::{JSRuntime, js_check_stack_overflow},
@@ -42,128 +42,10 @@ pub enum JSCFunctionEnum {
     NativeIteratorNext,
 }
 
-pub struct CallContext<'a> {
-    ctx: &'a JSContext,
-
-    this_value: JSValue,
-    args: &'a [JSValue],
-    magic: i32,
-
-    /// additional binding values
-    data: Option<&'a mut [JSValue]>,
-}
-
-impl<'a> CallContext<'a> {
-    /// `this_value` is not consumed, `args` values are not consumed, `data` values are not consumed.
-    pub(crate) fn new(
-        ctx: &'a JSContext,
-        this_value: JSValue,
-        args: &'a [JSValue],
-        magic: i32,
-        data: Option<&'a mut [JSValue]>,
-    ) -> Self {
-        Self {
-            ctx,
-            this_value,
-            args,
-            magic,
-            data,
-        }
-    }
-
-    pub fn ctx(&self) -> &JSContext {
-        self.ctx
-    }
-
-    pub fn magic(&self) -> i32 {
-        self.magic
-    }
-
-    /// get arguments count
-    #[inline(always)]
-    pub fn length(&self) -> usize {
-        self.args.len()
-    }
-
-    /// get `this` value ref
-    pub fn this(&self) -> &JSValue {
-        &self.this_value
-    }
-
-    /// get `this` value, cloned
-    pub fn this_raw(&self) -> JSValue {
-        self.this_value.clone()
-    }
-
-    /// set new `this` value, drop old `this`.
-    /// Note: `this_val` is consumed.
-    pub fn set_this(&mut self, this_val: JSValue) {
-        self.this_value = this_val;
-    }
-
-    /// get nth argument value ref
-    #[inline(always)]
-    pub fn arg(&self, nth: usize) -> &JSValue {
-        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
-    }
-
-    /// get nth argument value, cloned
-    #[inline(always)]
-    pub fn get_raw(&self, nth: usize) -> JSValue {
-        self.args.get(nth).cloned().unwrap_or(JSValue::UNDEFINED)
-    }
-
-    /// get argument values slice
-    #[inline(always)]
-    pub fn arguments(&self) -> &[JSValue] {
-        self.args
-    }
-
-    /// get nth extra data value.
-    /// if you are referencing the value, must dup it by yourself.
-    /// returned value is cloned.
-    #[inline(always)]
-    pub fn data_raw(&self, nth: usize) -> JSValue {
-        self.data
-            .as_deref()
-            .and_then(|d| d.get(nth))
-            .cloned()
-            .unwrap_or(JSValue::UNDEFINED)
-    }
-
-    /// set nth data value. returns old value, or Err if nth is out of range.
-    /// Note: `val` is consumed.
-    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Result<JSValue, i32> {
-        if let Some(lst) = self.data.as_deref_mut() {
-            if nth < lst.len() {
-                return Ok(lst[nth].replace(val));
-            }
-        }
-
-        Err(-1)
-    }
-
-    #[inline(always)]
-    pub fn data_slice(&self) -> Option<&[JSValue]> {
-        self.data.as_deref()
-    }
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IteratorState {
-    /// iterator is not done
-    HasMore,
-    /// iterator is done
-    Done,
-    /// iterator object is not parsed
-    Uninitialized,
-}
-
-pub type JSNativeCallback = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
-pub type JSNativeGetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
-pub type JSNativeSetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
-pub type JSNativeIteratorNext =
+pub type NativeCallback = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
+pub type NativeGetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
+pub type NativeSetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
+pub type NativeIteratorNext =
     fn(ctx: &JSContext, cc: CallContext, state: &mut IteratorState) -> JSResult;
 
 pub type JSCFunction = unsafe fn(ctx: &JSContext, this_val: JSValue, args: &[JSValue]) -> JSValue;
@@ -196,11 +78,19 @@ pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 
 #[derive(Clone, Copy)]
+pub enum NativeFunctionType {
+    Callback(NativeCallback),
+    Getter(NativeGetter),
+    Setter(NativeSetter),
+    IteratorNext(NativeIteratorNext),
+}
+
+#[derive(Clone, Copy)]
 pub union JSCFunctionType {
-    pub native_callback: JSNativeCallback,
-    pub native_getter: JSNativeGetter,
-    pub native_setter: JSNativeSetter,
-    pub native_iterator_next: JSNativeIteratorNext,
+    pub native_callback: NativeCallback,
+    pub native_getter: NativeGetter,
+    pub native_setter: NativeSetter,
+    pub native_iterator_next: NativeIteratorNext,
 
     //
     pub generic: JSCFunction,
@@ -521,7 +411,7 @@ impl JSContext {
     /// at least `length` arguments will be readable in arguments.
     pub fn create_native_function_from_proto(
         &self,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         name: &str,
         length: u8,
         cproto: JSCFunctionEnum,
@@ -574,7 +464,7 @@ impl JSContext {
     #[inline(always)]
     pub fn create_native_function(
         &self,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         name: &str,
         length: u8,
         cproto: JSCFunctionEnum,

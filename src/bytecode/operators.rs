@@ -4,8 +4,7 @@ use crate::{
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
     function::{
-        JSFunctionKindEnum, JSNativeCallback, JSNativeIteratorNext, JSObjectFunc, JSVarRef,
-        js_closure2,
+        JSFunctionKindEnum, JSObjectFunc, JSVarRef, NativeCallback, NativeIteratorNext, js_closure2,
     },
     gc::set_cycle_flag,
     iterator::{
@@ -325,7 +324,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         .check_exception()?;
 
     let is_array_iterator = iterator.match_native_callback(
-        unsafe { std::mem::transmute(js_create_array_iterator as JSNativeCallback) },
+        unsafe { std::mem::transmute(js_create_array_iterator as NativeCallback) },
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
     );
 
@@ -358,7 +357,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
 
     let slow_array = if is_array_iterator
         && method.match_native_callback(
-            unsafe { std::mem::transmute(js_array_iterator_next as JSNativeIteratorNext) },
+            unsafe { std::mem::transmute(js_array_iterator_next as NativeIteratorNext) },
             0,
         ) {
         match src.with_fast_array_values(|lst| {

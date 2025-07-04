@@ -8,7 +8,7 @@ use crate::{
     },
     context::JSContext,
     error::JSResult,
-    function::{JS_GetFunctionRealm, JSCFunctionEnum, JSFunctionDef, JSNativeCallback},
+    function::{JS_GetFunctionRealm, JSCFunctionEnum, JSFunctionDef, NativeCallback},
     gc::set_cycle_flag,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
@@ -257,7 +257,7 @@ impl JSContext {
     pub(crate) fn create_global_native_constructor_ex(
         &self,
         name: &CStr,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: i32,
         proto: &JSValue,
         cproto: JSCFunctionEnum,
@@ -281,7 +281,7 @@ impl JSContext {
     pub fn create_global_native_constructor(
         &self,
         name: &CStr,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: i32,
         proto: &JSValue,
     ) -> JSResult {
@@ -301,7 +301,7 @@ impl JSContext {
     pub fn create_global_native_constructor_only(
         &self,
         name: &CStr,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: i32,
         proto: &JSValue,
     ) -> JSResult {
@@ -321,7 +321,7 @@ impl JSContext {
     fn do_create_global_constructor(
         &self,
         name: &str,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: i32,
         proto: &JSValue,
         cproto: JSCFunctionEnum,
@@ -345,7 +345,7 @@ impl JSContext {
     pub fn create_global_constructor(
         &self,
         name: &str,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: i32,
         proto: &JSValue,
         magic: i16,
@@ -367,7 +367,7 @@ impl JSContext {
     pub fn create_global_constructor_only(
         &self,
         name: &str,
-        callback: JSNativeCallback,
+        callback: NativeCallback,
         length: i32,
         proto: &JSValue,
         magic: i16,

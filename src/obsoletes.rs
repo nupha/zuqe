@@ -13,8 +13,7 @@ use crate::{
     context::JSContext,
     function::{
         JSAsyncFunctionState, JSCFunction, JSFunctionBytecode, JSFunctionDef, JSFunctionKindEnum,
-        JSGlobalVar, JSNativeCallback, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
-        RelocEntry,
+        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, RelocEntry,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
@@ -256,7 +255,7 @@ pub unsafe fn JS_AtomToCString(ctx: &JSContext, atom: JSAtom) -> *const c_char {
 #[deprecated(note = "use JSContext::create_native_callable_object() instead")]
 pub unsafe fn JS_NewCFunctionData(
     ctx: &JSContext,
-    func: JSNativeCallback,
+    func: NativeCallback,
     length: u8,
     magic: i32,
     data_count: u8,

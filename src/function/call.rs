@@ -6,11 +6,129 @@ use crate::{
     bytecode::run_bytecodes,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, build_arg_list},
+    function::build_arg_list,
     object::JSObjectIsa,
     stack_frame::JSStackFrame,
     value::{JSValue, JSValueConst},
 };
+
+pub struct CallContext<'a> {
+    ctx: &'a JSContext,
+
+    this_value: JSValue,
+    args: &'a [JSValue],
+    magic: i32,
+
+    /// additional binding values
+    data: Option<&'a mut [JSValue]>,
+}
+
+impl<'a> CallContext<'a> {
+    /// `this_value` is not consumed, `args` values are not consumed, `data` values are not consumed.
+    pub(crate) fn new(
+        ctx: &'a JSContext,
+        this_value: JSValue,
+        args: &'a [JSValue],
+        magic: i32,
+        data: Option<&'a mut [JSValue]>,
+    ) -> Self {
+        Self {
+            ctx,
+            this_value,
+            args,
+            magic,
+            data,
+        }
+    }
+
+    pub fn ctx(&self) -> &JSContext {
+        self.ctx
+    }
+
+    pub fn magic(&self) -> i32 {
+        self.magic
+    }
+
+    /// get arguments count
+    #[inline(always)]
+    pub fn length(&self) -> usize {
+        self.args.len()
+    }
+
+    /// get `this` value ref
+    pub fn this(&self) -> &JSValue {
+        &self.this_value
+    }
+
+    /// get `this` value, cloned
+    pub fn this_raw(&self) -> JSValue {
+        self.this_value.clone()
+    }
+
+    /// set new `this` value, drop old `this`.
+    /// Note: `this_val` is consumed.
+    pub fn set_this(&mut self, this_val: JSValue) {
+        self.this_value = this_val;
+    }
+
+    /// get nth argument value ref
+    #[inline(always)]
+    pub fn arg(&self, nth: usize) -> &JSValue {
+        self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
+    }
+
+    /// get nth argument value, cloned
+    #[inline(always)]
+    pub fn get_raw(&self, nth: usize) -> JSValue {
+        self.args.get(nth).cloned().unwrap_or(JSValue::UNDEFINED)
+    }
+
+    /// get argument values slice
+    #[inline(always)]
+    pub fn arguments(&self) -> &[JSValue] {
+        self.args
+    }
+
+    /// get nth extra data value.
+    /// if you are referencing the value, must dup it by yourself.
+    /// returned value is cloned.
+    #[inline(always)]
+    pub fn data_raw(&self, nth: usize) -> JSValue {
+        self.data
+            .as_deref()
+            .and_then(|d| d.get(nth))
+            .cloned()
+            .unwrap_or(JSValue::UNDEFINED)
+    }
+
+    /// set nth data value. returns old value, or Err if nth is out of range.
+    /// Note: `val` is consumed.
+    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Result<JSValue, i32> {
+        if let Some(lst) = self.data.as_deref_mut() {
+            if nth < lst.len() {
+                return Ok(lst[nth].replace(val));
+            }
+        }
+
+        Err(-1)
+    }
+
+    #[inline(always)]
+    pub fn data_slice(&self) -> Option<&[JSValue]> {
+        self.data.as_deref()
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IteratorState {
+    /// iterator is not done
+    HasMore,
+    /// iterator is done
+    Done,
+    /// iterator object is not parsed
+    Uninitialized,
+}
 
 pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
 pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
@@ -241,10 +359,10 @@ pub fn js_function_apply(ctx: &JSContext, args: CallContext) -> JSResult {
     let array_arg = args.get_raw(1);
 
     if array_arg.is_undefined_or_null() && args.magic() != 2 {
-        return Ok(unsafe { JS_Call(ctx, &this_val, &this_arg, &[]) });
+        return Ok(JS_Call(ctx, &this_val, &this_arg, &[]));
     }
 
-    let mut arg_list = build_arg_list(ctx, &array_arg)?;
+    let arg_list = build_arg_list(ctx, &array_arg)?;
     let ret = if args.magic() & 1 != 0 {
         JS_CallConstructor2(ctx, &this_val, this_arg, arg_list.as_ref())
     } else {
