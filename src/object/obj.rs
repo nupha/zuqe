@@ -831,13 +831,6 @@ pub fn JS_SetPrototypeInternal(
     }
 }
 
-/// Checks if a JSValue is a specific C function.
-/// Verifies both the function pointer and magic value match.
-#[deprecated(note = "use JSValue::match_native_callback() instead")]
-pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bool {
-    unreachable!("unused");
-}
-
 /// `func_obj` is not consumed.
 pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> bool {
     if let JSValue::Object(p) = func_obj {

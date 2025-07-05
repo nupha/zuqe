@@ -483,13 +483,26 @@ impl JSFunctionBytecode {
     }
 
     /// get const pool values slice
-    pub fn cpools_slice(&self) -> Ref<'_, [JSValue]> {
-        Ref::map(self.0.borrow(), |b| b.cpools_slice())
+    pub fn cpools_slice(&self) -> &[JSValue] {
+        let r = self.0.borrow();
+        if r.cpool_count > 0 {
+            unsafe {
+                std::slice::from_raw_parts(
+                    r.binary
+                        .as_ptr()
+                        .add(r.cpool_start as usize)
+                        .cast::<JSValue>(),
+                    r.cpool_count as usize,
+                )
+            }
+        } else {
+            &[]
+        }
     }
 
     /// get a value by index in cpool
     #[inline(always)]
-    pub fn get_cpool(&self, idx: usize) -> Option<JSValue> {
+    pub fn load_const(&self, idx: usize) -> Option<JSValue> {
         self.0.borrow().cpools_slice().get(idx).cloned()
     }
 

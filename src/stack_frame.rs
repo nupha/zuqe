@@ -27,7 +27,7 @@ pub struct JSStackFrame {
 
     /// variables base pointer and count.
     /// may point to local_buf, self referenced.
-    pub var_base_ptr: *mut JSValue, // TODO: use *const ?
+    pub var_base_ptr: *mut JSValue,
     pub var_count: u16,
 
     /// PC of the instruction after the call (only used in bytecode functions).

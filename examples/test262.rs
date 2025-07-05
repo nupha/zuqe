@@ -539,7 +539,7 @@ fn main() {
 
     for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
         let fname = fname.unwrap();
-        if !fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
+        if fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
             run_test_file(&fname, true, &mut fp);
             fp.flush().unwrap();
         }

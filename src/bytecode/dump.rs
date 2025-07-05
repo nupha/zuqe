@@ -113,7 +113,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc:
 
         "const" => {
             let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos));
-            print!(" {idx}:{}", b.get_cpool(idx as usize).unwrap().repr());
+            print!(" {idx}:{}", b.load_const(idx as usize).unwrap().repr());
         }
         "atom" => {
             let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));

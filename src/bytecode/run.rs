@@ -72,9 +72,10 @@ pub unsafe fn run_bytecodes(
         bytecodes.len()
     );
 
-    let cpools = b.cpools_slice();
     let realm = b.0.borrow().realm.upgrade().unwrap();
     let ctx = &realm;
+
+    let cpools = b.cpools_slice();
 
     let sp_base = sf.stack_base_ptr().as_ptr();
     let pc_base = bytecodes.as_ptr();
@@ -224,17 +225,17 @@ pub unsafe fn run_bytecodes(
         };
     }
 
-    // macro_rules! VAR {
-    //     [$idx:expr] => {
-    //         (*sf.var_base_ptr.offset(($idx) as isize))
-    //     };
-    // }
-
+    #[cfg(debug_assertions)]
+    macro_rules! CPOOL {
+        [$idx:expr] => {
+            &cpools.as_ref()[($idx) as usize]
+        };
+    }
+    #[cfg(not(debug_assertions))]
     macro_rules! CPOOL {
         [$idx:expr] => {
             {
-                debug_assert!(($idx  as usize) < cpools.as_ref().len());
-                &cpools.as_ref()[($idx) as usize]
+                &*cpools.as_ref().as_ptr().add(($idx) as usize)
             }
         };
     }

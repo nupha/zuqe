@@ -2467,3 +2467,10 @@ pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i
     obj.ensure_callable(ctx)?;
     Ok(())
 }
+
+/// Checks if a JSValue is a specific C function.
+/// Verifies both the function pointer and magic value match.
+#[deprecated(note = "use JSValue::match_native_callback() instead")]
+pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bool {
+    unreachable!("unused");
+}
