@@ -1,3 +1,4 @@
+use core::f64;
 use std::cmp::Ordering;
 
 use crate::{
@@ -10,6 +11,7 @@ use crate::{
 pub(super) enum BinaryOp {
     Int(i32, i32),
     Float(f64, f64),
+    Bool(bool, bool),
     /// at least one string
     HasString(JSValue, JSValue),
 }
@@ -20,6 +22,7 @@ impl BinaryOp {
     #[inline(always)]
     pub fn new_fast(op1: JSValue, op2: JSValue, allow_float: bool) -> Option<Self> {
         match (op1, op2) {
+            (JSValue::Bool(a), JSValue::Bool(b)) => Some(Self::Bool(a, b)),
             (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(a, b)),
             (JSValue::Float64(a), JSValue::Float64(b)) if allow_float => Some(Self::Float(a, b)),
             (JSValue::Int(a), JSValue::Float64(b)) if allow_float => Some(Self::Float(a as f64, b)),
@@ -103,6 +106,7 @@ impl BinaryOp {
                 Ok(JSValue::from(r))
             }
             BinaryOp::Float(a, b) => Ok(JSValue::from(a + b)),
+            BinaryOp::Bool(a, b) => Ok(JSValue::Int(a as i32 + b as i32)),
             BinaryOp::HasString(a, b) => unsafe { JS_ConcatString(ctx, a, b).check_exception() },
         }
     }
@@ -111,7 +115,8 @@ impl BinaryOp {
         match self {
             BinaryOp::Int(a, b) => Ok(JSValue::from(a - b)),
             BinaryOp::Float(a, b) => Ok(JSValue::from(a + b)),
-            BinaryOp::HasString(a, b) => Err(-1),
+            BinaryOp::Bool(a, b) => Ok(JSValue::Int(a as i32 - b as i32)),
+            BinaryOp::HasString(_, _) => Err(-1),
         }
     }
 
@@ -126,7 +131,8 @@ impl BinaryOp {
                 }
             }
             BinaryOp::Float(a, b) => Ok(JSValue::Float64(a * b)),
-            BinaryOp::HasString(a, b) => Err(-1),
+            BinaryOp::Bool(a, b) => Ok(JSValue::Int(a as i32 * b as i32)),
+            BinaryOp::HasString(_, _) => Err(-1),
         }
     }
 
@@ -134,6 +140,11 @@ impl BinaryOp {
         match self {
             BinaryOp::Int(a, b) => Ok(JSValue::from_f64((a as f64) / (b as f64))),
             BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a / b)),
+            BinaryOp::Bool(a, b) => Ok(if b {
+                JSValue::Int(a as i32)
+            } else {
+                JSValue::Float64(f64::INFINITY)
+            }),
             BinaryOp::HasString(a, b) => Err(-1),
         }
     }
@@ -162,6 +173,11 @@ impl BinaryOp {
                     Ok(JSValue::from(m))
                 }
             }
+            BinaryOp::Bool(_, b) => Ok(if b {
+                JSValue::Int(0)
+            } else {
+                JSValue::Float64(f64::NAN)
+            }),
             BinaryOp::HasString(a, b) => Err(-1),
         }
     }
@@ -188,6 +204,7 @@ impl BinaryOp {
                     Ok(JSValue::from(a.powf(b)))
                 }
             }
+            BinaryOp::Bool(_, _) => Ok(JSValue::Int(1)),
             BinaryOp::HasString(a, b) => Err(-1),
         }
     }
@@ -195,6 +212,7 @@ impl BinaryOp {
     pub fn shl(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) << (v2 & 0x1f))),
+            Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) << (v2 as i32))),
             _ => Err(-1),
         }
     }
@@ -202,6 +220,7 @@ impl BinaryOp {
     pub fn shr(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) >> (v2 & 0x1f))),
+            Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) >> (v2 as i32))),
             _ => Err(-1),
         }
     }
@@ -209,6 +228,7 @@ impl BinaryOp {
     pub fn sar(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from_i32(v1 >> (v2 & 0x1f))),
+            Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) >> (v2 as i32))),
             _ => Err(-1),
         }
     }
@@ -216,6 +236,7 @@ impl BinaryOp {
     pub fn and(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) & (v2 as u32))),
+            Self::Bool(v1, v2) => Ok(JSValue::Int((v1 & v2) as i32)),
             _ => unreachable!(),
         }
     }
@@ -223,6 +244,7 @@ impl BinaryOp {
     pub fn or(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) | (v2 as u32))),
+            Self::Bool(v1, v2) => Ok(JSValue::Int((v1 | v2) as i32)),
             _ => unreachable!(),
         }
     }
@@ -230,6 +252,7 @@ impl BinaryOp {
     pub fn xor(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) ^ (v2 as u32))),
+            Self::Bool(v1, v2) => Ok(JSValue::Int((v1 ^ v2) as i32)),
             _ => unreachable!(),
         }
     }
@@ -240,6 +263,7 @@ macro_rules! rel {
         match $self {
             Self::Int(a, b) => matches!(a.cmp(&b), $op),
             Self::Float(a, b) => a.partial_cmp(&b).map_or(false, |c|matches!(c , $op)), // false if NaN
+            Self::Bool(a, b) => matches!(a.cmp(&b), $op),
             Self::HasString(s1, s2) => {
                 if let (JSValue::String(s1), JSValue::String(s2)) = (s1,s2) {
                     // both is string
@@ -484,41 +508,41 @@ impl JSValue {
     }
 }
 
-/// test equality for SP[-2] and SP[-1].
-/// SP[-2] and SP[-1] are consumed.
-#[inline(always)]
-pub fn js_eq(ctx: &JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
-    let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
+/// test equality for op1 and op2.
+pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue, is_neq: bool) -> Result<bool, i32> {
+    if !is_neq && op1 == op2 {
+        return Ok(true);
+    }
 
-    if let Some(bop) = BinaryOp::new_fast(op1, op2, true) {
+    if let Some(bop) = BinaryOp::new_fast(op1.clone(), op2.clone(), true) {
         // fast path: numbers
         let res = match bop {
             BinaryOp::Int(a, b) => a == b,
             BinaryOp::Float(a, b) => a == b,
+            BinaryOp::Bool(a, b) => a == b,
             _ => unreachable!(),
         };
-
         Ok(res ^ is_neq)
     } else {
-        js_eq_slow(ctx, sp, is_neq)
+        js_eq_slow(ctx, op1, op2, is_neq)
     }
 }
 
-/// slow test equality for SP[-2] and SP[-1].
-/// SP[-2] and SP[-1] are consumed.
-pub fn js_eq_slow(ctx: &JSContext, sp: *mut JSValue, is_neq: bool) -> Result<bool, i32> {
-    let mut op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let mut op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
-
+/// slow test equality for op1 and op2.
+fn js_eq_slow(
+    ctx: &JSContext,
+    mut op1: JSValue,
+    mut op2: JSValue,
+    is_neq: bool,
+) -> Result<bool, i32> {
     let res = loop {
         let test: bool = match (&op1, &op2) {
-            (JSValue::Int(a), JSValue::Int(b)) => *a == *b,
+            // (JSValue::Int(a), JSValue::Int(b)) => *a == *b,
+            // (JSValue::Bool(a), JSValue::Bool(b)) => *a == *b,
+            // (JSValue::Float64(a), JSValue::Float64(b)) => *a == *b,
             (JSValue::Int(a), JSValue::Float64(b)) => *a as f64 == *b,
             (JSValue::Float64(a), JSValue::Int(b)) => *a == *b as f64,
-            (JSValue::Float64(a), JSValue::Float64(b)) => *a == *b,
             (JSValue::NULL | JSValue::UNDEFINED, JSValue::NULL | JSValue::UNDEFINED) => true,
-            (JSValue::Bool(a), JSValue::Bool(b)) => *a == *b,
             (JSValue::Bool(a), _) => {
                 op1 = JSValue::Int(*a as i32);
                 continue;

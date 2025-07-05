@@ -11,57 +11,6 @@ use crate::{
 
 use super::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER, string::JSString};
 
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-// #[repr(i32)]
-// pub enum JSTag {
-//     BigDecimal = -11,
-//     BigInt = -10,
-//     BigFloat = -9,
-//     Symbol = -8,
-//     String = -7,
-//     Module = -3,
-//     FunctionBytecode = -2,
-//     Object = -1,
-
-//     //
-//     // these types are not ref counted
-//     //
-//     Int = 0,
-//     Bool = 1,
-//     Null = 2,
-//     Undefined = 3,
-//     Uninitialized = 4,
-//     CatchOffset = 5,
-//     Exception = 6,
-//     Float64 = 7,
-// }
-
-// impl Default for JSTag {
-//     fn default() -> Self {
-//         Self::Int
-//     }
-// }
-
-// pub const JS_TAG_BIG_DECIMAL: i32 = JSTag::BigDecimal as i32;
-// pub const JS_TAG_BIG_INT: i32 = JSTag::BigInt as i32;
-// pub const JS_TAG_BIG_FLOAT: i32 = JSTag::BigFloat as i32;
-// pub const JS_TAG_SYMBOL: i32 = JSTag::Symbol as i32;
-// pub const JS_TAG_STRING: i32 = JSTag::String as i32;
-// pub const JS_TAG_MODULE: i32 = JSTag::Module as i32;
-// pub const JS_TAG_FUNCTION_BYTECODE: i32 = JSTag::FunctionBytecode as i32;
-// pub const JS_TAG_OBJECT: i32 = JSTag::Object as i32;
-// pub const JS_TAG_INT: i32 = JSTag::Int as i32;
-// pub const JS_TAG_BOOL: i32 = JSTag::Bool as i32;
-// pub const JS_TAG_NULL: i32 = JSTag::Null as i32;
-// pub const JS_TAG_UNDEFINED: i32 = JSTag::Undefined as i32;
-// pub const JS_TAG_UNINITIALIZED: i32 = JSTag::Uninitialized as i32;
-// pub const JS_TAG_CATCH_OFFSET: i32 = JSTag::CatchOffset as i32;
-// pub const JS_TAG_EXCEPTION: i32 = JSTag::Exception as i32;
-// pub const JS_TAG_FLOAT64: i32 = JSTag::Float64 as i32;
-
-// pub const JS_TAG_FIRST: i32 = JSTag::BigDecimal as i32;
-// pub const JS_TAG_LAST: i32 = JSTag::Float64 as i32;
-
 #[cfg(feature = "nan_boxing")]
 mod nb_value {
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]

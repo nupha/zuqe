@@ -1239,9 +1239,10 @@ pub unsafe fn run_bytecodes(
 
                 OpCode::IF_TRUE | OpCode::IF_FALSE => {
                     let b = opcode == OpCode::IF_TRUE;
-                    let op_1 = SP_PUT!(-1, JSValue::UNDEFINED);
+                    let op_1 = SP_TAKE!(-1);
                     SP_GO!(-1);
 
+                    // skip jump offset
                     PC_GO!(4);
 
                     let res = match op_1 {
@@ -1997,7 +1998,9 @@ pub unsafe fn run_bytecodes(
                     }
                 }
                 OpCode::EQ | OpCode::NEQ => {
-                    if let Ok(b) = js_eq(ctx, sp, opcode == OpCode::NEQ) {
+                    let op1 = SP_TAKE!(-2);
+                    let op2 = SP_TAKE!(-1);
+                    if let Ok(b) = js_eq(ctx, op1, op2, opcode == OpCode::NEQ) {
                         SP_PUT!(-2, JSValue::Bool(b));
                         SP_GO!(-1);
                     } else {
