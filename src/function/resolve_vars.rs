@@ -49,15 +49,16 @@ impl JSFunctionDef {
 
             push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
             push_vec_u32(bc_buf, hf.var_name.dup(ctx.rt()).0);
-
-            let mut flags = 0;
-            if hf.is_lexical() {
-                flags |= DEFINE_GLOBAL_LEX_VAR;
-            }
-            if hf.cpool_idx >= 0 {
-                flags |= DEFINE_GLOBAL_FUNC_VAR;
-            }
-            push_vec_u8(bc_buf, flags);
+            push_vec_u8(bc_buf, {
+                let mut flags = 0;
+                if hf.is_lexical() {
+                    flags |= DEFINE_GLOBAL_LEX_VAR;
+                }
+                if hf.cpool_idx >= 0 {
+                    flags |= DEFINE_GLOBAL_FUNC_VAR;
+                }
+                flags
+            });
         }
     }
 

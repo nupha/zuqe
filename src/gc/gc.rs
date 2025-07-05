@@ -58,7 +58,7 @@ impl JSRuntime {
         });
 
         for obj in zero_list {
-            println!("[O.o] sweep gc obj {obj:?}");
+            // println!("[O.o] sweep gc obj {obj:?}");
             obj.gc_sweep();
         }
     }

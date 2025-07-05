@@ -31,10 +31,6 @@ use crate::{
         js_build_mapped_arguments, js_build_rest, js_closure, js_function_apply,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
-    global::{
-        JS_CheckDefineGlobalVar, JS_CheckGlobalVar, JS_DefineGlobalFunction, JS_DefineGlobalVar,
-        JS_GetGlobalVar, JS_SetGlobalVar,
-    },
     iterator::JS_IteratorClose,
     module::{js_dynamic_import, js_import_meta},
     object::{
@@ -975,17 +971,16 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::CHECK_VAR => {
                     let atom = JSAtom(PC_FETCH!(u32));
-                    let ret = JS_CheckGlobalVar(ctx, atom);
-                    if ret < 0 {
-                        break State::Exception;
-                    } else {
-                        SP_PUT!(0, JSValue::Bool(ret != 0));
+                    if let Ok(b) = ctx.check_global_var(atom) {
+                        SP_PUT!(0, JSValue::Bool(b));
                         SP_GO!(1);
+                    } else {
+                        break State::Exception;
                     }
                 }
                 OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
                     let atom = JSAtom(PC_FETCH!(u32));
-                    let val = JS_GetGlobalVar(ctx, atom, opcode == OpCode::GET_VAR);
+                    let val = ctx.get_global_var(atom, opcode == OpCode::GET_VAR);
                     if val.is_exception() {
                         break State::Exception;
                     } else {
@@ -995,14 +990,13 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                     let atom = JSAtom(PC_FETCH!(u32));
-                    let res = JS_SetGlobalVar(
-                        ctx,
+                    let res = ctx.set_global_var(
                         atom,
                         SP_TAKE!(-1),
                         (opcode as u8 - OpCode::PUT_VAR as u8) as _,
                     );
                     SP_GO!(-1);
-                    if res < 0 {
+                    if res.is_err() {
                         break State::Exception;
                     }
                 }
@@ -1013,9 +1007,9 @@ pub unsafe fn run_bytecodes(
                         JS_ThrowReferenceErrorNotDefined(ctx, atom);
                         break State::Exception;
                     } else {
-                        let ret = JS_SetGlobalVar(ctx, atom, SP_TAKE!(-1), 2);
+                        let ret = ctx.set_global_var(atom, SP_TAKE!(-1), 2);
                         SP_GO!(-2);
-                        if ret < 0 {
+                        if ret.is_err() {
                             break State::Exception;
                         }
                     }
@@ -1023,14 +1017,14 @@ pub unsafe fn run_bytecodes(
                 OpCode::CHECK_DEFINE_VAR => {
                     let atom = JSAtom(PC_FETCH!(u32));
                     let flags = PC_FETCH!(u8);
-                    if JS_CheckDefineGlobalVar(ctx, atom, flags as _) != 0 {
+                    if ctx.define_global_var_checked(atom, flags as _).is_err() {
                         break State::Exception;
                     }
                 }
                 OpCode::DEFINE_VAR => {
                     let atom = JSAtom(PC_FETCH!(u32));
                     let flags = PC_FETCH!(u8);
-                    if JS_DefineGlobalVar(ctx, atom, flags as _) != 0 {
+                    if ctx.define_global_var(atom, flags as _).is_err() {
                         break State::Exception;
                     }
                 }
@@ -1039,7 +1033,7 @@ pub unsafe fn run_bytecodes(
                     let flags = PC_FETCH!(u8);
                     let op_1 = SP_TAKE!(-1);
                     SP_GO!(-1);
-                    if JS_DefineGlobalFunction(ctx, atom, &op_1, flags as _) != 0 {
+                    if ctx.define_global_function(atom, &op_1, flags as _).is_err() {
                         break State::Exception;
                     }
                 }

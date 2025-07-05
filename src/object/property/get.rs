@@ -19,7 +19,7 @@ use super::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK, JS_
 impl JSObject {
     /// walk up proto chain and get property value by shape or exotic handler.
     /// Note: returned value is duplicated.
-    pub(crate) fn get_property_in_shape_or_exotic(
+    pub(crate) fn get_property_from_shape_or_exotic(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -73,8 +73,9 @@ impl JSObject {
             }
 
             // 2. try array or exotic handler
-            if cur_obj.flags().is_exotic() {
-                if cur_obj.flags().fast_array() {
+            let ob_flags = cur_obj.flags();
+            if ob_flags.is_exotic() {
+                if ob_flags.fast_array() {
                     if prop.is_int_type() {
                         let idx = __JS_AtomToUInt32(prop);
                         if idx < cur_obj.array_length_unchecked() as u32 {
@@ -96,34 +97,35 @@ impl JSObject {
                             };
                         }
                     }
-                } else {
-                    let em = ctx.rt().class_defs[cur_obj.class_id() as usize].exotic;
-                    if !em.is_null() {
-                        if let Some(cb) = unsafe { (*em).get_property } {
-                            /* XXX: should pass throw_ref_error */
-                            /* Note: if 'p' is a prototype, it can be
-                            freed in the called function */
-                            return cb(
-                                ctx,
-                                JSValue::Object(cur_obj.clone()),
-                                prop,
-                                this_obj.clone(),
-                            );
-                        }
-
-                        if let Some(cb) = unsafe { (*em).get_own_property } {
-                            match cb(ctx, JSValue::Object(cur_obj.clone()), prop) {
-                                Ok(Some(desc)) => {
-                                    return if desc.flags & JS_PROP_GETSET != 0 {
-                                        JS_Call(ctx, &desc.getter, this_obj, &[])
-                                    } else {
-                                        desc.value
-                                    };
-                                }
-                                Ok(None) => {}
-                                Err(_) => {
-                                    return JSValue::EXCEPTION;
-                                }
+                } else if let Some(xm) = unsafe {
+                    ctx.rt().class_defs[cur_obj.class_id() as usize]
+                        .exotic
+                        .as_ref()
+                } {
+                    // use exotic handlers
+                    if let Some(cb) = xm.get_property {
+                        /* XXX: should pass throw_ref_error */
+                        /* Note: if 'p' is a prototype, it can be
+                        freed in the called function */
+                        return cb(
+                            ctx,
+                            JSValue::Object(cur_obj.clone()),
+                            prop,
+                            this_obj.clone(),
+                        );
+                    }
+                    if let Some(cb) = xm.get_own_property {
+                        match cb(ctx, JSValue::Object(cur_obj.clone()), prop) {
+                            Ok(Some(desc)) => {
+                                return if desc.flags & JS_PROP_GETSET != 0 {
+                                    JS_Call(ctx, &desc.getter, this_obj, &[])
+                                } else {
+                                    desc.value
+                                };
+                            }
+                            Ok(None) => {}
+                            Err(_) => {
+                                return JSValue::EXCEPTION;
                             }
                         }
                     }
@@ -150,7 +152,7 @@ impl JSObject {
     /// returns EXCEPTION when fail
     #[inline(always)]
     pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSValue {
-        self.get_property_in_shape_or_exotic(ctx, prop, &JSValue::Object(self.clone()), false)
+        self.get_property_from_shape_or_exotic(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
     /// returns EXCEPTION when fail
@@ -277,7 +279,7 @@ impl JSValue {
     ) -> JSValue {
         match self {
             Self::Object(o) => {
-                o.get_property_in_shape_or_exotic(ctx, prop, this_obj, throw_ref_error)
+                o.get_property_from_shape_or_exotic(ctx, prop, this_obj, throw_ref_error)
             }
             Self::NULL => {
                 ctx.JS_ThrowTypeError(&format!(
@@ -309,7 +311,12 @@ impl JSValue {
                     JS_GetPrototypePrimitive(ctx, self)
                         .object()
                         .map(|o| {
-                            o.get_property_in_shape_or_exotic(ctx, prop, this_obj, throw_ref_error)
+                            o.get_property_from_shape_or_exotic(
+                                ctx,
+                                prop,
+                                this_obj,
+                                throw_ref_error,
+                            )
                         })
                         .unwrap_or(JSValue::UNDEFINED)
                 }
@@ -318,7 +325,7 @@ impl JSValue {
                 JS_GetPrototypePrimitive(ctx, self)
                     .object()
                     .map(|o| {
-                        o.get_property_in_shape_or_exotic(ctx, prop, this_obj, throw_ref_error)
+                        o.get_property_from_shape_or_exotic(ctx, prop, this_obj, throw_ref_error)
                     })
                     .unwrap_or(JSValue::UNDEFINED)
             },

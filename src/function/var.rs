@@ -168,7 +168,8 @@ pub fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
 
 #[derive(Debug)]
 pub struct JSGlobalVar {
-    pub cpool_idx: i32, // if >= 0, index in the constant pool for hoisted
+    /// if >= 0, index in the constant pool for hoisted
+    pub cpool_idx: i32,
 
     // function definition
     // force_init: 1

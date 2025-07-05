@@ -2474,3 +2474,75 @@ pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i
 pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bool {
     unreachable!("unused");
 }
+
+/// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
+/// XXX: could support exotic global object.
+#[deprecated(note = "use JSContext::define_global_var_checked() instead")]
+pub fn JS_CheckDefineGlobalVar(ctx: &JSContext, prop: JSAtom, flags: u32) -> i32 {
+    ctx.define_global_var_checked(prop, flags).map_or(-1, |_| 0)
+}
+
+// def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
+//   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
+// XXX: could support exotic global object.
+#[deprecated(note = "use JSontext::define_global_var() instead")]
+pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: JSAtom, def_flags: u32) -> i32 {
+    ctx.define_global_var(prop, def_flags).map_or(-1, |_| 0)
+}
+
+/// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
+/// `func` is not consumed.
+/// XXX: could support exotic global object.
+#[deprecated(note = "use JSContext::define_global_function() instead")]
+pub fn JS_DefineGlobalFunction(
+    ctx: &JSContext,
+    prop: JSAtom,
+    func: &JSValueConst,
+    def_flags: u32,
+) -> i32 {
+    ctx.define_global_function(prop, func, def_flags)
+        .map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use JSContext::get_global_var() instead")]
+pub fn JS_GetGlobalVar(ctx: &JSContext, prop: JSAtom, throw_ref_error: bool) -> JSValue {
+    ctx.get_global_var(prop, throw_ref_error)
+}
+
+// construct a reference to a global variable
+#[deprecated(note = "use JSContextInner::build_global_varref() instead")]
+pub unsafe fn JS_GetGlobalVarRef(ctx: &JSContext, prop: JSAtom, sp: *mut JSValue) -> i32 {
+    if let Ok(vs) = ctx.build_global_varref(prop) {
+        if let Some((v0, v1)) = vs {
+            std::ptr::replace(sp, v0);
+            std::ptr::replace(sp.add(1), v1);
+        }
+        0
+    } else {
+        -1
+    }
+}
+
+/// used for strict variable access: test if the variable exists
+#[deprecated(note = "JSContext::check_global_var() instead")]
+pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: JSAtom) -> i32 {
+    // no exotic behavior is possible in global_var_obj
+    let p = ctx.global_var_obj();
+    if p.has_shape_property(prop) {
+        1
+    } else {
+        if let Ok(ret) = ctx.global_obj().has_property(ctx, prop) {
+            ret as i32
+        } else {
+            -1
+        }
+    }
+}
+
+// flag = 0: normal variable write
+// flag = 1: initialize lexical variable
+// flag = 2: normal variable write, strict check was done before
+#[deprecated(note = "use JSContext::set_global_var() instead")]
+pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -> i32 {
+    ctx.set_global_var(prop, val, flag).map_or(-1, |_| 0)
+}
