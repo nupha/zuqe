@@ -8,49 +8,46 @@ use crate::{
     value::JSValue,
 };
 
-/// Represents a stack frame in the JavaScript execution context
+/// Represents a call stack frame in JavaScript execution, tracking function state and local variables
 #[derive(Debug)]
 pub struct JSStackFrame {
-    /// NULL if first stack frame
+    /// Pointer to previous stack frame (NULL for first frame)
     pub prev_frame: *mut Pin<Self>,
 
-    /// current function, JS_UNDEFINED if the frame is detached
+    /// Current executing function (JS_UNDEFINED if frame is detached)
     pub cur_func: JSValue,
 
-    /// buffer for arguments, variables, and stack space.
-    /// TODO: use Box<[JSValue]>
+    /// Buffer storing arguments, local variables, and stack space
+    /// TODO: Replace with Box<[JSValue]> for better memory efficiency
     pub local_buf: Vec<JSValue>,
 
-    /// arguments base pointer and count.
-    /// may point to local_buf, self referenced.
-    pub arg_base_ptr: *mut JSValue, // TODO: use *const ?
+    /// Arguments array base pointer and count
+    /// Points into local_buf (self-referencing)
+    pub arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
     pub arg_count: u16,
 
-    /// variables base pointer and count.
-    /// may point to local_buf, self referenced.
+    /// Local variables base pointer and count
+    /// Points into local_buf (self-referencing)
     pub var_base_ptr: *mut JSValue,
     pub var_count: u16,
 
-    /// PC of the instruction after the call (only used in bytecode functions).
-    /// this denotes a position in local_buf biased to pc_base.
-    ///
-    /// for what **pc_base** means, see JSFunctionBytecode::bytecode_start.
+    /// Program counter offset for bytecode functions
+    /// Position in local_buf relative to pc_base (see JSFunctionBytecode::bytecode_start)
     pub cur_pc_offset: usize,
 
-    /// Current stack pointer value (only used in generators).
-    /// -1 if the function is running.
-    /// this denotes a position in local_buf biased to `stack_base_ptr()`,
-    /// use `stack_cur_ptr()` can get raw pointer to the position.
+    /// Stack pointer offset (used for generator functions)
+    /// -1 when function is actively executing
+    /// Position in local_buf relative to stack_base_ptr()
+    /// Use stack_cur_ptr() to get raw pointer to this position
     pub cur_sp_offset: i32,
 
-    /// registered var refs in stack frame
+    /// List of variable references registered in this frame
     pub var_ref_list: Vec<JSVarRef>,
 
-    /// for C functions, only JS_MODE_MATH may be set
+    /// Execution mode flags (only JS_MODE_MATH is valid for C functions)
     pub js_mode: i32,
 
-    /// if the stack frame is decicated for an async function,
-    /// this field hold a weakref of async function state.
+    /// Weak reference to async function state (for async frames only)
     pub async_func: AsyncStateWeakref,
 
     pub _mark: PhantomPinned,
@@ -77,7 +74,7 @@ impl Default for JSStackFrame {
 }
 
 impl JSStackFrame {
-    /// get argument values slice
+    /// Returns a slice of argument values for this frame
     #[inline(always)]
     pub const fn args_slice(&self) -> &[JSValue] {
         if self.arg_count == 0 {
@@ -87,27 +84,30 @@ impl JSStackFrame {
         }
     }
 
-    /// get stack base pointer
+    /// Returns the base pointer of the stack in this frame
     #[inline(always)]
     pub const fn stack_base_ptr(&self) -> NonNull<JSValue> {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
-    /// Get stack current pointer, which advances the stack top value pointer by 1.
+    /// Returns the current stack pointer position (points one past top value)
     ///
-    /// NOTE:
-    /// Because current stack pointer advances the top stack value addr by 1,
-    /// the top value on stack is at stack_cur_ptr - 1.
+    /// Note: The returned pointer cannot be dereferenced directly as it refers to
+    /// an invalid position. To access the top stack value, use offset(-1):
+    ///
+    /// ```rust
+    /// let stack_top_val = self.stack_cur_ptr().offset(-1).as_ref();
+    /// ```
     #[inline(always)]
     pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
         debug_assert!(self.cur_sp_offset >= 0);
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
     }
 
-    /// processing current exception, add backtrace information for example.
-    /// return value:
-    /// - Some((pc, sp)): exception was catched, continue execution with updated (pc, sp);
-    /// - None: exception is unrecovable, abort execution
+    /// Handles current exception by adding backtrace information if needed
+    /// Returns:
+    /// - Some((pc, sp)) if exception was caught (continue execution at new position)
+    /// - None if exception is uncaught (abort execution)
     pub fn handle_exception(
         &mut self,
         ctx: &JSContext,
@@ -149,7 +149,7 @@ impl JSStackFrame {
         None // exception is uncatched, abort with sp=0, pc unchanged
     }
 
-    /// clean-ups before exit
+    /// Performs cleanup operations before exiting the stack frame
     pub fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_async: bool) {
         debug_assert!(std::ptr::eq(
             ctx.rt_mut().current_stack_frame as *mut Self,
@@ -199,6 +199,7 @@ impl JSStackFrame {
         ctx.rt_mut().current_stack_frame = self.prev_frame;
     }
 
+    /// Cleans up resources when frame is no longer needed
     pub fn finalize(&mut self) {
         self.cur_func = JSValue::UNDEFINED;
         self.local_buf.clear();
