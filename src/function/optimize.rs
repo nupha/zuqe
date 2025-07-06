@@ -623,7 +623,7 @@ pub fn optimize_scope_make_global_ref(
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
     label: &LabelSlot,
-    pos_next: u32,
+    mut pos_next: u32,
     var_name: JSAtom,
 ) -> u32 {
     let is_strict = js_mode & JS_MODE_STRICT as u8 != 0;
@@ -637,6 +637,7 @@ pub fn optimize_scope_make_global_ref(
     if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, opcodes::OP_get_var);
         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
+        pos_next += 1;
     }
 
     let label_pos = label.pos as usize;
@@ -674,8 +675,8 @@ pub fn optimize_scope_make_global_ref(
         };
         write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.dup(ctx.rt()).0);
     }
-
     pos += 5;
+
     while pos < end_pos {
         // fill with nop as placeholder
         unsafe {
