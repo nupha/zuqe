@@ -1,9 +1,9 @@
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
     function::AsyncState,
-    object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
+    object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectIsa},
     promise::{PromiseValue, js_promise_resolve},
     utils::UncheckedInto,
     value::JSValue,
@@ -11,16 +11,62 @@ use crate::{
 
 use super::{CallContext, JS_Call, NativeFieldDef};
 
-impl AsyncState {
-    /// call an async function
-    pub fn async_function_call(
+/// An async function object
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct AsyncFunction(pub(crate) JSObject);
+
+impl TryFrom<JSObject> for AsyncFunction {
+    type Error = i32;
+
+    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+        if obj.class_id() == JS_CLASS_ASYNC_FUNCTION {
+            Ok(Self(obj))
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl TryFrom<JSValue> for AsyncFunction {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if let JSValue::Object(o) = value {
+            o.try_into()
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl From<AsyncFunction> for JSObject {
+    #[inline(always)]
+    fn from(value: AsyncFunction) -> Self {
+        value.0
+    }
+}
+
+impl From<AsyncFunction> for JSValue {
+    #[inline(always)]
+    fn from(value: AsyncFunction) -> Self {
+        Self::Object(value.0)
+    }
+}
+
+impl AsyncFunction {
+    /// call async function
+    pub fn call(
+        &self,
         ctx: &JSContext,
-        func_obj: &JSValue,
         this_obj: &JSValue,
         args: &[JSValue],
         flags: i32,
-    ) -> JSResult {
-        let state = Self::new(ctx, func_obj, this_obj, args)?;
+    ) -> Result<PromiseValue, i32> {
+        // create state for async function execution
+        let state = AsyncState::new(ctx, &JSValue::Object(self.0.clone()), this_obj, args)?;
+
+        // create promise and resolving handlers
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
         unsafe {
@@ -32,8 +78,22 @@ impl AsyncState {
                 .resolving_funcs = resolving_funcs;
         }
 
+        // start execution
         js_async_function_resume(ctx, &state);
-        Ok(promise.into())
+
+        Ok(promise)
+    }
+
+    /// hook to call an async function
+    pub fn hook_call(
+        ctx: &JSContext,
+        func_obj: &JSValue,
+        this_obj: &JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        let afunc: AsyncFunction = func_obj.clone().try_into()?;
+        afunc.call(ctx, this_obj, args, flags).map(|p| p.into())
     }
 }
 
@@ -99,18 +159,6 @@ pub fn js_async_function_resolve_call(
 
     js_async_function_resume(ctx, &s);
     Ok(JSValue::UNDEFINED)
-}
-
-/// call an async function
-#[deprecated(note = "use AsyncState::hook_call() instead")]
-pub fn js_async_function_call(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    this_obj: &JSValue,
-    args: &[JSValue],
-    flags: i32,
-) -> JSResult {
-    AsyncState::async_function_call(ctx, func_obj, this_obj, args, flags)
 }
 
 pub fn js_async_function_resume(ctx: &JSContext, s: &AsyncState) {

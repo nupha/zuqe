@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JSResult},
-    function::{CallContext, JS_Call, AsyncState},
+    function::{AsyncFunction, AsyncState, CallContext, JS_Call},
     module::{JSModuleDefInner, JSModuleStatus},
     promise::{JSPromiseStateEnum, PromiseValue, js_promise_then},
     runtime::js_check_stack_overflow,
@@ -262,8 +262,8 @@ impl JSModuleDef {
 
     /// execute module async
     pub fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
-        let func_obj = self.0.borrow().func_obj.clone();
-        let promise = AsyncState::async_function_call(ctx, &func_obj, &JSValue::UNDEFINED, &[], 0)?;
+        let afunc_obj: AsyncFunction = self.0.borrow().func_obj.clone().try_into().unwrap();
+        let promise = afunc_obj.call(ctx, &JSValue::UNDEFINED, &[], 0)?;
 
         let data = [JSValue::Module(self.clone())];
 
@@ -282,8 +282,7 @@ impl JSModuleDef {
             )?,
         ];
 
-        let cc = CallContext::new(ctx, promise, &resolve_funcs, 0, None);
-
+        let cc = CallContext::new(ctx, promise.into(), &resolve_funcs, 0, None);
         // TODO: use PromiseValue::then()
         js_promise_then(ctx, cc)?;
 
@@ -423,11 +422,11 @@ impl JSModuleDef {
                 return Err(ctx.take_exception());
             }
         } else {
-            let promise: PromiseValue = unsafe {
-                let func_obj = self.0.borrow().func_obj.clone();
-                AsyncState::async_function_call(ctx, &func_obj, &JSValue::UNDEFINED, &[], 0)
+            let promise = {
+                let afunc: AsyncFunction = self.0.borrow().func_obj.clone().try_into().unwrap();
+                afunc
+                    .call(ctx, &JSValue::UNDEFINED, &[], 0)
                     .map_err(|_| ctx.take_exception())? // return Err with current exception
-                    .unchecked_into()
             };
 
             match promise.state().unwrap() {

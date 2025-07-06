@@ -17,7 +17,10 @@ use crate::{
     callable::CallableValue,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
-    function::{AsyncState, BoundFunctionValue, ObjectNativeFunc, js_async_function_resolve_call},
+    function::{
+        AsyncFunction, AsyncState, BoundFunctionValue, ObjectNativeFunc,
+        js_async_function_resolve_call,
+    },
     gc::JSGCPhaseEnum,
     generator::{AsyncGeneratorValue, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
@@ -197,8 +200,7 @@ impl JSRuntime {
                 Some(PromiseResolvingFunc::hook_call);
             rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
                 Some(PromiseResolvingFunc::hook_call);
-            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call =
-                Some(AsyncState::async_function_call);
+            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(AsyncFunction::hook_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
                 Some(js_async_function_resolve_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =

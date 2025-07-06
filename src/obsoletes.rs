@@ -11,6 +11,7 @@ use crate::{
     bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
     context::JSContext,
+    error::JSResult,
     function::{
         AsyncState, JSCFunction, JSCFunctionMagic, JSFunctionBytecode, JSFunctionDef,
         JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
@@ -2550,4 +2551,16 @@ pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -
 #[deprecated(note = "use AsyncState::resume() instead")]
 pub fn async_func_resume(ctx: &JSContext, af: &AsyncState) -> JSValue {
     af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
+}
+
+/// call an async function
+#[deprecated(note = "use AsyncFunction::call() instead")]
+pub fn js_async_function_call(
+    ctx: &JSContext,
+    func_obj: &JSValue,
+    this_obj: &JSValue,
+    args: &[JSValue],
+    flags: i32,
+) -> JSResult {
+    unreachable!("unused");
 }
