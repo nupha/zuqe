@@ -151,7 +151,7 @@ pub fn JS_CallInternal(
     let rt = caller_ctx.rt_mut();
 
     if !func_obj.is_object() {
-        return if let JSValue::AsyncFuncResume(state) = func_obj {
+        return if let JSValue::AsyncStateResume(state) = func_obj {
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
             debug_assert!(flags & JS_CALL_FLAG_GENERATOR != 0);

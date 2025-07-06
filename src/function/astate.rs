@@ -232,8 +232,7 @@ impl AsyncState {
         }
     }
 
-    /// Resume async execution.
-    /// async state could be of async function or generator.
+    /// Resume async state execution.
     pub fn resume(&self, ctx: &JSContext) -> JSResult {
         debug_assert!(!self.0.borrow().is_completed);
 
@@ -250,7 +249,7 @@ impl AsyncState {
             };
             JS_CallInternal(
                 ctx,
-                &JSValue::AsyncFuncResume(self.clone()), // <-- use special value type `::AsyncFuncResume`
+                &JSValue::AsyncStateResume(self.clone()), // <-- use special value type
                 &this_val,
                 JSValue::UNDEFINED,
                 arg_list,

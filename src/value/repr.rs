@@ -78,7 +78,7 @@ impl JSValue {
             }
             Self::Module(_) => "[module]".into(),
             Self::CatchOffset(n) => format!("[catchoffset({})]", *n).into(),
-            Self::AsyncFuncResume(_) => "[asyncfuncresume]".into(),
+            Self::AsyncStateResume(_) => "[asyncfuncresume]".into(),
         }
     }
 
@@ -171,7 +171,7 @@ impl JSValue {
             }
             Self::UNINITIALIZED => ctx.create_string("[uninitialized]"),
             Self::CatchOffset(_) => ctx.create_string("[cacthoffset]"),
-            Self::AsyncFuncResume(_) => ctx.create_string("[asyncfuncresume]"),
+            Self::AsyncStateResume(_) => ctx.create_string("[asyncfuncresume]"),
         };
 
         ret.check_exception()

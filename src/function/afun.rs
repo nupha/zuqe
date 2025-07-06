@@ -79,7 +79,7 @@ impl AsyncFunction {
         }
 
         // start execution
-        js_async_function_resume(ctx, &state);
+        async_function_resume(ctx, &state);
 
         Ok(promise)
     }
@@ -94,6 +94,79 @@ impl AsyncFunction {
     ) -> JSResult {
         let afunc: AsyncFunction = func_obj.clone().try_into()?;
         afunc.call(ctx, this_obj, args, flags).map(|p| p.into())
+    }
+}
+
+/// Resume an async function on its execution state
+fn async_function_resume(ctx: &JSContext, state: &AsyncState) {
+    let func_ret = state.resume(ctx);
+
+    if state.is_completed() {
+        match func_ret {
+            Ok(val) => {
+                // normal return
+                println!("[O.o] afunc resume fullfil value={:?}", val); // FIXME: may panic sometimes.
+
+                let func = state.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
+                JS_Call(ctx, &func, &JSValue::UNDEFINED, std::slice::from_ref(&val));
+            }
+            Err(_) => {
+                let func = state.0.borrow().resolving_funcs[1].clone(); // reject: short borrow
+                let error = ctx.take_exception();
+                JS_Call(ctx, &func, &JSValue::UNDEFINED, &[error]);
+            }
+        }
+    } else {
+        let cur_sp = state.0.borrow().frame.stack_cur_ptr();
+        let value = unsafe { std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED) };
+        let promise_ctor = ctx.0.borrow().promise_ctor.clone();
+
+        let promise = {
+            let cc = CallContext::new(ctx, promise_ctor, std::slice::from_ref(&value), 0, None);
+            js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+        };
+        if promise.is_exception() {
+            let error = ctx.take_exception();
+            JS_Call(
+                ctx,
+                &state.0.borrow().resolving_funcs[1],
+                &JSValue::UNDEFINED,
+                std::slice::from_ref(&error),
+            );
+        }
+
+        let resolving_funcs =
+            if let Ok(rr) = unsafe { js_async_function_resolve_create(ctx, state) } {
+                rr
+            } else {
+                let error = ctx.take_exception();
+                JS_Call(
+                    ctx,
+                    &state.0.borrow().resolving_funcs[1],
+                    &JSValue::UNDEFINED,
+                    &[error],
+                );
+                [const { JSValue::UNDEFINED }; 2]
+            };
+
+        let res = unsafe {
+            UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
+                ctx,
+                &resolving_funcs,
+                // no need to create 'thrownawayCapability' as in the spec
+                &[const { JSValue::UNDEFINED }; 2],
+            )
+        };
+
+        if res.is_err() {
+            let error = ctx.take_exception();
+            JS_Call(
+                ctx,
+                &state.0.borrow().resolving_funcs[1],
+                &JSValue::UNDEFINED,
+                &[error],
+            );
+        }
     }
 }
 
@@ -157,79 +230,8 @@ pub fn js_async_function_resolve_call(
         }
     }
 
-    js_async_function_resume(ctx, &s);
+    async_function_resume(ctx, &s);
     Ok(JSValue::UNDEFINED)
-}
-
-pub fn js_async_function_resume(ctx: &JSContext, s: &AsyncState) {
-    let func_ret = s.resume(ctx);
-
-    if s.is_completed() {
-        match func_ret {
-            Ok(val) => {
-                // normal return
-                println!("[O.o] afunc resume fullfil value={:?}", val);
-
-                let func = s.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
-                JS_Call(ctx, &func, &JSValue::UNDEFINED, std::slice::from_ref(&val));
-            }
-            Err(_) => {
-                let func = s.0.borrow().resolving_funcs[1].clone(); // reject: short borrow
-                let error = ctx.take_exception();
-                JS_Call(ctx, &func, &JSValue::UNDEFINED, &[error]);
-            }
-        }
-    } else {
-        let cur_sp = s.0.borrow().frame.stack_cur_ptr();
-        let value = unsafe { std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED) };
-        let promise_ctor = ctx.0.borrow().promise_ctor.clone();
-
-        let promise = {
-            let cc = CallContext::new(ctx, promise_ctor, std::slice::from_ref(&value), 0, None);
-            js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
-        };
-        if promise.is_exception() {
-            let error = ctx.take_exception();
-            JS_Call(
-                ctx,
-                &s.0.borrow().resolving_funcs[1],
-                &JSValue::UNDEFINED,
-                std::slice::from_ref(&error),
-            );
-        }
-
-        let resolving_funcs = if let Ok(rr) = unsafe { js_async_function_resolve_create(ctx, s) } {
-            rr
-        } else {
-            let error = ctx.take_exception();
-            JS_Call(
-                ctx,
-                &s.0.borrow().resolving_funcs[1],
-                &JSValue::UNDEFINED,
-                &[error],
-            );
-            [const { JSValue::UNDEFINED }; 2]
-        };
-
-        let res = unsafe {
-            UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
-                ctx,
-                &resolving_funcs,
-                // no need to create 'thrownawayCapability' as in the spec
-                &[const { JSValue::UNDEFINED }; 2],
-            )
-        };
-
-        if res.is_err() {
-            let error = ctx.take_exception();
-            JS_Call(
-                ctx,
-                &s.0.borrow().resolving_funcs[1],
-                &JSValue::UNDEFINED,
-                &[error],
-            );
-        }
-    }
 }
 
 pub const js_async_function_proto_funcs: [NativeFieldDef; 1] = [JS_PROP_STRING_DEF!(

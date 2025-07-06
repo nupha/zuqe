@@ -18,8 +18,7 @@ use crate::{
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
     function::{
-        AsyncFunction, AsyncState, BoundFunctionValue, ObjectNativeFunc,
-        js_async_function_resolve_call,
+        AsyncFunction, BoundFunctionValue, ObjectNativeFunc, js_async_function_resolve_call,
     },
     gc::JSGCPhaseEnum,
     generator::{AsyncGeneratorValue, js_generator_function_call},

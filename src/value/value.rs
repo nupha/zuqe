@@ -112,8 +112,8 @@ pub enum JSValue {
     Object(JSObject),
     FunctionBytecode(JSFunctionBytecode),
 
-    /// Special: for async_function_resume() only
-    AsyncFuncResume(AsyncState),
+    /// Special for async state resume execution only
+    AsyncStateResume(AsyncState),
 }
 
 impl PartialEq for JSValue {
@@ -393,7 +393,7 @@ impl JSValue {
                 let u = JSFloat64Union { u64: *i as u64 };
                 unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
             }
-            Self::AsyncFuncResume(f) => Self::id_to_hash(f.id()),
+            Self::AsyncStateResume(f) => Self::id_to_hash(f.id()),
         };
 
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };
