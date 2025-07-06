@@ -81,7 +81,7 @@ impl JSContext {
                 .borrow()
                 .func()
                 .unwrap()
-                .function_bytecode
+                .bytecode
                 .clone();
 
             js_mode = b.as_ref().unwrap().0.borrow().js_mode as _;

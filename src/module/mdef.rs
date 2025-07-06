@@ -531,7 +531,7 @@ pub unsafe fn js_create_module_bytecode_function(
             .isa
             .borrow()
             .func()
-            .and_then(|f| f.function_bytecode.clone())
+            .and_then(|f| f.bytecode.clone())
             .unwrap()
     };
 
@@ -565,7 +565,7 @@ pub unsafe fn js_create_module_bytecode_function(
         }
 
         JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
-            function_bytecode: Some(b),
+            bytecode: Some(b),
             var_refs,
             home_object: None,
         })
@@ -607,7 +607,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
                 p.0.isa
                     .borrow()
                     .func()
-                    .map(|f| f.function_bytecode.as_ref().unwrap())
+                    .map(|f| f.bytecode.as_ref().unwrap())
             {
                 let b = b.0.borrow();
                 if !b.is_direct_or_indirect_eval {

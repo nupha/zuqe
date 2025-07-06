@@ -161,7 +161,7 @@ pub unsafe fn js_op_define_class(
             .isa
             .borrow()
             .func()
-            .and_then(|f| f.function_bytecode.clone())
+            .and_then(|f| f.bytecode.clone())
             .unwrap()
     };
     debug_assert_eq!(bc.0.borrow().func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
@@ -253,7 +253,7 @@ pub fn js_method_set_home_object(
     if let JSValue::Object(o) = func_obj {
         if let Some(fo) = o.0.isa.borrow_mut().func_mut() {
             let need_home_object = fo
-                .function_bytecode
+                .bytecode
                 .as_ref()
                 .map_or(false, |b| b.0.borrow().need_home_object);
 

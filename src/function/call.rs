@@ -165,7 +165,7 @@ pub fn JS_CallInternal(
                 p.0.isa
                     .borrow()
                     .func()
-                    .map(|f| (f.function_bytecode.clone().unwrap(), f.home_object.clone()))
+                    .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
                     .unwrap();
 
             let pc_offset = frame.cur_pc_offset;
@@ -282,14 +282,7 @@ pub fn JS_CallConstructorInternal(
         };
     }
 
-    let bc =
-        p.0.isa
-            .borrow()
-            .func()
-            .unwrap()
-            .function_bytecode
-            .clone()
-            .unwrap();
+    let bc = p.0.isa.borrow().func().unwrap().bytecode.clone().unwrap();
     if bc.0.borrow().is_derived_class_constructor {
         JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
     } else {

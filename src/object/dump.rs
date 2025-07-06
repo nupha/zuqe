@@ -189,7 +189,7 @@ impl JSObject {
         }
 
         if let Some(func) = self.0.isa.borrow().func() {
-            func.function_bytecode.as_ref().unwrap().with_mut(|b| {
+            func.bytecode.as_ref().unwrap().with_mut(|b| {
                 if b.closure_var_count != 0 {
                     print!(" Closure:");
                     for vr in func.var_refs.iter() {

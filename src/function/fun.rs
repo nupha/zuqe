@@ -60,7 +60,7 @@ pub enum FuncCallType {
 
 #[derive(Debug, Default)]
 pub struct JSObjectFunc {
-    pub function_bytecode: Option<JSFunctionBytecode>,
+    pub bytecode: Option<JSFunctionBytecode>,
 
     /// closure variable refrences
     pub var_refs: Vec<JSVarRef>,
@@ -111,7 +111,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
         | JSObjectIsa::ASYNC_FUNCTION(func)
         | JSObjectIsa::ASYNC_GENERATOR_FUNCTION(func) => {
             realm = func
-                .function_bytecode
+                .bytecode
                 .as_ref()
                 .unwrap()
                 .0
@@ -200,7 +200,7 @@ pub fn js_bytecode_function_mark(val: JSValue) {
                 for vr in f.var_refs.iter() {
                     vr.gc_mark();
                 }
-                (f.function_bytecode.clone(), f.home_object.clone())
+                (f.bytecode.clone(), f.home_object.clone())
             })
             .unwrap();
 

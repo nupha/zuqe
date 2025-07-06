@@ -51,12 +51,12 @@ impl AsyncStateInner {
         ctx: &JSContext,
         resolvings: [JSValue; 2],
         func_obj: &JSValue,
-        this_obj: &JSValue,
+        this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
             let isa = unsafe { func_obj.object_unchecked().0.isa.borrow() };
-            let bc = isa.func().unwrap().function_bytecode.clone().unwrap();
+            let bc = isa.func().unwrap().bytecode.as_ref().unwrap();
             let b = bc.0.borrow();
 
             (b.arg_count, b.var_count, b.stack_size, b.js_mode)
@@ -65,29 +65,32 @@ impl AsyncStateInner {
         // alloc local buf, set up arguments, variables and stack pointer
         let arg_count = std::cmp::max(arg_count as usize, args.len());
         let buf_len = arg_count + var_count as usize + stack_size as usize;
+
         let mut local_buf = {
             let mut lst = Vec::<JSValue>::new();
             lst.try_reserve_exact(buf_len).map_err(|_| {
                 ctx.JS_ThrowOutOfMemory();
                 -1
             })?;
+
+            // initialize with undefined
+            unsafe {
+                lst.set_len(buf_len);
+            }
+            lst.fill(JSValue::UNDEFINED);
+
+            // copy arg values
+            for (i, a) in args.iter().enumerate() {
+                lst[i] = a.clone();
+            }
+
             lst
         };
-        for a in args {
-            local_buf.push(a.clone());
-        }
-        if buf_len > args.len() {
-            local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                buf_len - args.len() as usize,
-            ));
-        }
-        debug_assert_eq!(local_buf.len(), buf_len);
 
         let o = Self {
             header: GCObjectHeader::new(ctx.rt_mut(), 1),
             argc: args.len() as _,
-            this_val: this_obj.clone(),
+            this_val: this_obj,
             resolving_funcs: resolvings,
             throw_flag: false,
             is_completed: false,
@@ -170,18 +173,12 @@ impl AsyncState {
     /// create new AsyncState, register to gc tracking list.
     pub fn new_with_resolvings(
         ctx: &JSContext,
-        resolvings: Option<[JSValue; 2]>,
+        resolvings: [JSValue; 2],
         func_obj: &JSValue,
-        this_obj: &JSValue,
+        this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<AsyncState, i32> {
-        let inner = AsyncStateInner::new(
-            ctx,
-            resolvings.unwrap_or([JSValue::UNDEFINED, JSValue::UNDEFINED]),
-            func_obj,
-            this_obj,
-            args,
-        )?;
+        let inner = AsyncStateInner::new(ctx, resolvings, func_obj, this_obj, args)?;
 
         // fix var_base_ptr field: it's self referenced
         let mut pinned = Box::pin(inner);
@@ -219,10 +216,16 @@ impl AsyncState {
     pub fn new(
         ctx: &JSContext,
         func_obj: &JSValue,
-        this_obj: &JSValue,
+        this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<AsyncState, i32> {
-        Self::new_with_resolvings(ctx, None, func_obj, this_obj, args)
+        Self::new_with_resolvings(
+            ctx,
+            [const { JSValue::UNDEFINED }; 2],
+            func_obj,
+            this_obj,
+            args,
+        )
     }
 
     #[inline]
@@ -254,33 +257,50 @@ impl AsyncState {
     pub fn resume(&self, ctx: &JSContext) -> JSResult {
         debug_assert!(!self.0.borrow().is_completed);
 
-        let mut ret = if js_check_stack_overflow(ctx.rt(), 0) {
+        if js_check_stack_overflow(ctx.rt(), 0) {
             JS_ThrowStackOverflow(ctx);
-            Err(-1)
-        } else {
-            // short borrow to avoid conflict
-            let (this_val, arg_list) = {
-                let b = self.0.borrow();
-                (b.this_val.clone(), unsafe {
-                    std::slice::from_raw_parts(b.arg_ptr().as_ptr(), b.arg_count())
-                })
-            };
-            JS_CallInternal(
-                ctx,
-                &JSValue::AsyncStateResume(self.clone()), // <-- use special value type
-                &this_val,
-                JSValue::UNDEFINED,
-                arg_list,
-                JS_CALL_FLAG_GENERATOR,
-            )
-            .check_exception()
+            return Err(-1);
+        }
+
+        // short borrow to avoid conflict
+        let (this_val, arg_list) = {
+            let b = self.0.borrow();
+
+            // O.o
+            unsafe {
+                for i in 0..b.arg_count() {
+                    let a = &*b.arg_ptr().as_ptr().add(i);
+                    println!("[O.o] async state arg {i}: {:?}", a.repr());
+                }
+            }
+
+            (b.this_val.clone(), unsafe {
+                std::slice::from_raw_parts(b.arg_ptr().as_ptr(), b.arg_count())
+            })
         };
+
+        let mut ret = JS_CallInternal(
+            ctx,
+            &JSValue::AsyncStateResume(self.clone()), // <-- use special value type
+            &this_val,
+            JSValue::UNDEFINED,
+            arg_list,
+            JS_CALL_FLAG_GENERATOR,
+        )
+        .check_exception();
 
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.0.borrow().frame.cur_sp_offset > 0);
-                let mut stack_ptr = self.0.borrow().frame.stack_cur_ptr();
-                ret = Ok(unsafe { stack_ptr.as_mut().replace(JSValue::UNDEFINED) });
+
+                ret = Ok(unsafe {
+                    std::ptr::replace(
+                        // HINT: stack_cur_ptr advances the addr of stack top value by 1.
+                        // subtract 1 to access stack top value addr.
+                        self.0.borrow().frame.stack_cur_ptr().offset(-1).as_ptr(),
+                        JSValue::UNDEFINED,
+                    )
+                });
                 true
             }
             Err(_) => true,

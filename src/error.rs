@@ -132,7 +132,7 @@ impl JSContext {
                             o.0.isa
                                 .borrow()
                                 .func()
-                                .and_then(|f| f.function_bytecode.clone())
+                                .and_then(|f| f.bytecode.clone())
                         })
                         .is_none()
                 });
@@ -282,7 +282,7 @@ impl JSContext {
                     .isa
                     .borrow()
                     .func()
-                    .and_then(|f| f.function_bytecode.clone())
+                    .and_then(|f| f.bytecode.clone())
             } {
                 backtrace_barrier = b.0.borrow().backtrace_barrier;
 

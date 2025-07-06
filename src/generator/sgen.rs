@@ -55,7 +55,7 @@ pub fn js_generator_function_call(
 ) -> JSResult {
     let s = JSGeneratorData {
         state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
-        func_state: AsyncState::new(ctx, func_obj, this_obj, args)?,
+        func_state: AsyncState::new(ctx, func_obj, this_obj.clone(), args)?,
     };
 
     // execute the function up to 'OP_initial_yield'

@@ -315,7 +315,7 @@ pub fn js_closure2(
         let func = isa.func_mut().unwrap();
         debug_assert!(func.var_refs.is_empty());
 
-        func.function_bytecode.replace(bc.clone());
+        func.bytecode.replace(bc.clone());
         func.home_object.take();
 
         let closure_var_count = bc.0.borrow().closure_var_count;

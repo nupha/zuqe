@@ -59,7 +59,7 @@ impl AsyncFunction {
     pub fn call(
         &self,
         ctx: &JSContext,
-        this_obj: &JSValue,
+        this_obj: JSValue,
         args: &[JSValue],
         flags: i32,
     ) -> Result<PromiseValue, i32> {
@@ -67,16 +67,13 @@ impl AsyncFunction {
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
         // create state for async function execution
-        let state = AsyncState::new(ctx, &JSValue::Object(self.0.clone()), this_obj, args)?;
-
-        unsafe {
-            state
-                .0
-                .borrow_mut()
-                .as_mut()
-                .get_unchecked_mut()
-                .resolving_funcs = resolving_funcs;
-        }
+        let state = AsyncState::new_with_resolvings(
+            ctx,
+            resolving_funcs,
+            &JSValue::Object(self.0.clone()),
+            this_obj,
+            args,
+        )?;
 
         // start to execute async func
         async_function_resume(ctx, &state);
@@ -94,7 +91,9 @@ impl AsyncFunction {
         flags: i32,
     ) -> JSResult {
         let afunc: AsyncFunction = func_obj.clone().try_into()?;
-        afunc.call(ctx, this_obj, args, flags).map(|p| p.into())
+        afunc
+            .call(ctx, this_obj.clone(), args, flags)
+            .map(|p| p.into())
     }
 }
 

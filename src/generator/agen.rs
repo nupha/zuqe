@@ -5,7 +5,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Call, AsyncState, NativeFieldDef},
+    function::{AsyncState, CallContext, JS_Call, NativeFieldDef},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
     promise::{PromiseValue, js_promise_resolve},
@@ -83,7 +83,7 @@ impl AsyncGeneratorValue {
         let s = Box::new(JSAsyncGeneratorData {
             generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            func_state: Some(AsyncState::new(ctx, func_obj, this_obj, args)?),
+            func_state: Some(AsyncState::new(ctx, func_obj, this_obj.clone(), args)?),
             queue: Vec::with_capacity(1),
         });
 
@@ -184,18 +184,21 @@ impl JSAsyncGeneratorData {
                             unsafe {
                                 let mut s = self.func_state.as_ref().unwrap().0.borrow_mut();
                                 let s = s.as_mut().get_unchecked_mut();
+                                s.throw_flag = false;
 
+                                // stack change:
+                                // SP[-1] <- value
+                                // SP[0] <- next completion type
+                                // SP++
                                 std::ptr::replace(
                                     s.frame.stack_cur_ptr().offset(-1).as_ptr(),
                                     value,
                                 );
                                 std::ptr::replace(
                                     s.frame.stack_cur_ptr().as_ptr(),
-                                    JSValue::from (next.completion_type),
+                                    JSValue::from(next.completion_type),
                                 );
-
                                 s.frame.cur_sp_offset += 1;
-                                s.throw_flag = false;
                             }
                         }
                         self.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING;
@@ -233,18 +236,22 @@ impl JSAsyncGeneratorData {
                             unreachable!()
                         };
 
-                        // take value at stack top
+                        // take stack top value.
                         let value = unsafe {
-                            self.func_state
-                                .as_ref()
-                                .unwrap()
-                                .0
-                                .borrow_mut()
-                                .frame
-                                .stack_cur_ptr()
-                                .offset(-1)
-                                .as_mut()
-                                .replace(JSValue::UNDEFINED)
+                            std::ptr::replace(
+                                self.func_state
+                                    .as_ref()
+                                    .unwrap()
+                                    .0
+                                    .borrow_mut()
+                                    .frame
+                                    // HINT: stack_cur_ptr advances the addr of stack top value by 1.
+                                    // subtract 1 to access stack top value addr.
+                                    .stack_cur_ptr()
+                                    .offset(-1)
+                                    .as_ptr(),
+                                JSValue::UNDEFINED,
+                            )
                         };
 
                         match code {
@@ -530,7 +537,7 @@ pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -
             if is_reject {
                 ctx.throw(val.clone());
             } else {
-                // return value of await
+                // return value of await.
                 unsafe {
                     std::ptr::replace(
                         p.func_state
@@ -539,6 +546,8 @@ pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -
                             .0
                             .borrow_mut()
                             .frame
+                            // HINT: stack_cur_ptr advances the addr of stack top value by 1.
+                            // subtract 1 to access stack top value addr.
                             .stack_cur_ptr()
                             .offset(-1)
                             .as_ptr(),
@@ -609,9 +618,8 @@ pub const js_async_generator_proto_funcs: [NativeFieldDef; 4] = [
     ),
 ];
 
-pub const js_async_generator_function_proto_funcs: [NativeFieldDef; 1] =
-    [JS_PROP_STRING_DEF!(
-        "[Symbol.toStringTag]",
-        "AsyncGeneratorFunction",
-        JS_PROP_CONFIGURABLE
-    )];
+pub const js_async_generator_function_proto_funcs: [NativeFieldDef; 1] = [JS_PROP_STRING_DEF!(
+    "[Symbol.toStringTag]",
+    "AsyncGeneratorFunction",
+    JS_PROP_CONFIGURABLE
+)];

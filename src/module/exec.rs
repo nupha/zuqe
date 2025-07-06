@@ -262,7 +262,7 @@ impl JSModuleDef {
     /// execute module async
     pub fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
         let afunc_obj: AsyncFunction = self.0.borrow().func_obj.clone().try_into().unwrap();
-        let promise = afunc_obj.call(ctx, &JSValue::UNDEFINED, &[], 0)?;
+        let promise = afunc_obj.call(ctx, JSValue::UNDEFINED, &[], 0)?;
 
         let data = [JSValue::Module(self.clone())];
 
@@ -424,7 +424,7 @@ impl JSModuleDef {
             let promise = {
                 let afunc: AsyncFunction = self.0.borrow().func_obj.clone().try_into().unwrap();
                 afunc
-                    .call(ctx, &JSValue::UNDEFINED, &[], 0)
+                    .call(ctx, JSValue::UNDEFINED, &[], 0)
                     .map_err(|_| ctx.take_exception())? // return Err with current exception
             };
 

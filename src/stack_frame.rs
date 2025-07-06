@@ -18,6 +18,7 @@ pub struct JSStackFrame {
     pub cur_func: JSValue,
 
     /// buffer for arguments, variables, and stack space.
+    /// TODO: use Box<[JSValue]>
     pub local_buf: Vec<JSValue>,
 
     /// arguments base pointer and count.
@@ -92,7 +93,11 @@ impl JSStackFrame {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
-    /// get stack current pointer
+    /// Get stack current pointer, which advances the stack top value pointer by 1.
+    ///
+    /// NOTE:
+    /// Because current stack pointer advances the top stack value addr by 1,
+    /// the top value on stack is at stack_cur_ptr - 1.
     #[inline(always)]
     pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
         debug_assert!(self.cur_sp_offset >= 0);
@@ -145,12 +150,32 @@ impl JSStackFrame {
     }
 
     /// clean-ups before exit
-    pub fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_generator: bool) {
-        if is_generator {
-            // the local variables are freed by the caller in the generator
-            // case. Hence the label 'done' should never be reached in a generator function.
+    pub fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_async: bool) {
+        debug_assert!(std::ptr::eq(
+            ctx.rt_mut().current_stack_frame as *mut Self,
+            self
+        ));
+
+        if is_async {
+            // the local variables are freed by the caller in the async
+            // case. Hence the label 'done' should never be reached in async execution.
             self.cur_pc_offset = pc;
             self.cur_sp_offset = sp as i32;
+
+            // O.o
+            unsafe {
+                let buf_base = self.local_buf.as_mut_ptr();
+                let mut pval = buf_base;
+                let sp_base = self.stack_base_ptr();
+                let end_ptr = sp_base.add(sp).as_ptr();
+                while pval < end_ptr {
+                    println!(
+                        "[O.o][local_buf] buf_base={buf_base:p}, sp_base={sp_base:p}, @{pval:p}: {:?}",
+                        pval.as_ref()
+                    );
+                    pval = pval.add(1);
+                }
+            }
         } else {
             // is normal function
             if !self.var_ref_list.is_empty() {
@@ -158,7 +183,7 @@ impl JSStackFrame {
                 self.close_var_refs(ctx);
             }
 
-            // free local buf to stack top (sp)
+            // free local buf up to stack top (sp)
             if !self.local_buf.is_empty() {
                 let mut pval = self.local_buf.as_mut_ptr();
                 let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
