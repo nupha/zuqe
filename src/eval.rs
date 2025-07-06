@@ -240,7 +240,6 @@ impl JSContext {
         unsafe { self.eval_internal(this_obj, input, filename, flags, -1) }
     }
 
-    #[inline(always)]
     pub fn eval(&self, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
         let global = self.0.borrow().global_obj.clone();
         self.eval_this(global, input, filename, eval_flags)

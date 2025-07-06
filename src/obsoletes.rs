@@ -12,7 +12,7 @@ use crate::{
     class::{JSClassDef, JSClassID},
     context::JSContext,
     function::{
-        JSAsyncFunctionState, JSCFunction, JSCFunctionMagic, JSFunctionBytecode, JSFunctionDef,
+        AsyncState, JSCFunction, JSCFunctionMagic, JSFunctionBytecode, JSFunctionDef,
         JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
         NativeCallback, NativeFunctionType, ObjectNativeFunc, RelocEntry,
         js_function_set_properties,
@@ -1586,27 +1586,27 @@ pub unsafe fn JS_DumpGCObjects(rt: *mut JSRuntime) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSAsyncFunctionState::finalize() instead")]
-pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+#[deprecated(note = "use AsyncState::finalize() instead")]
+pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut AsyncState) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSAsyncFunctionState::free() instead")]
-pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+#[deprecated(note = "use AsyncState::free() instead")]
+pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut AsyncState) {
     unreachable!("unused");
 }
 
-/// make new JSAsyncFunctionState (used by generator and async functions)
-#[deprecated(note = "use JSAsyncFunctionState::new() instead")]
+/// make new AsyncState (used by generator and async functions)
+#[deprecated(note = "use AsyncState::new() instead")]
 pub unsafe fn async_func_init(
     ctx: &JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
     argv: *const JSValueConst,
-) -> *mut JSAsyncFunctionState {
-    unreachable!("use JSAsyncFunctionState::new() instead");
-    // JSAsyncFunctionState::new(
+) -> *mut AsyncState {
+    unreachable!("use AsyncState::new() instead");
+    // AsyncState::new(
     //     ctx,
     //     func_obj,
     //     this_obj,
@@ -2156,8 +2156,8 @@ pub unsafe fn JS_NewAtomInt64(ctx: &JSContext, n: i64) -> JSAtom {
     ctx.rt_mut().register_atom_i64(n)
 }
 
-#[deprecated(note = "use JSAsyncFunctionState::free_frame() instead")]
-pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut JSAsyncFunctionState) {
+#[deprecated(note = "use AsyncState::free_frame() instead")]
+pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut AsyncState) {
     unreachable!("unused");
 }
 
@@ -2545,4 +2545,9 @@ pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: JSAtom) -> i32 {
 #[deprecated(note = "use JSContext::set_global_var() instead")]
 pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -> i32 {
     ctx.set_global_var(prop, val, flag).map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use AsyncState::resume() instead")]
+pub fn async_func_resume(ctx: &JSContext, af: &AsyncState) -> JSValue {
+    af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
 }

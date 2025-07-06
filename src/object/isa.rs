@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     array::JSObjectArray,
     array_buffer::JSArrayBuffer,
-    function::{JSAsyncFunctionState, JSObjectFunc},
+    function::{AsyncState, JSObjectFunc},
     map::JSMapState,
     promise::JSPromiseFunctionData,
     typed_array::JSTypedArray,
@@ -155,7 +155,7 @@ impl JSObjectIsa {
         }
     }
 
-    pub const fn async_func_state(&self) -> Option<&JSAsyncFunctionState> {
+    pub const fn async_func_state(&self) -> Option<&AsyncState> {
         match self {
             Self::ASYNC_FUNCTION_RESOLVE(a) | Self::ASYNC_FUNCTION_REJECT(a) => Some(a),
             _ => None,

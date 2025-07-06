@@ -3,11 +3,12 @@ use std::{ffi::CString, path::PathBuf};
 use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
-    error::JS_ThrowReferenceError,
+    error::{JS_ThrowReferenceError, JSResult},
     eval::{
         JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
         JS_EvalFunction,
     },
+    function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, JSModuleDef},
     object::JS_PROP_C_W_E,
@@ -16,6 +17,19 @@ use zhuque::{
     runtime::JSRuntime,
     value::JSValue,
 };
+
+fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
+    for i in 0..args.length() {
+        if i > 0 {
+            print!(" ");
+        }
+        let arg = args.get_raw(i);
+        print!("{}", arg.coerce_to_utf8(ctx)?);
+    }
+    println!();
+
+    Ok(JSValue::UNDEFINED)
+}
 
 fn main() {
     unsafe {
@@ -38,6 +52,23 @@ fn main() {
             JS_SetModuleLoaderFunc(js.as_mut(), None, js_module_loader, std::ptr::null_mut());
 
             let ctx = js.create_context().unwrap();
+
+            {
+                let global = JSValue::Object(ctx.global_obj());
+                global
+                    .set_property_str(
+                        &ctx,
+                        "print",
+                        ctx.create_native_function(
+                            NativeFunctionType::Func(js_print),
+                            "print",
+                            1,
+                            0,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+            }
 
             let eval_flags = if filename.ends_with(".mjs") {
                 JS_EVAL_TYPE_MODULE
@@ -92,8 +123,8 @@ fn main() {
             // JS_DumpGCObjects(js.as_mut());
             // JS_DumpAtoms(js.as_mut());
 
-            drop(ctx);
-            drop(js);
+            // drop(ctx);
+            // drop(js);
         } else {
             println!("can't create runtime");
         }

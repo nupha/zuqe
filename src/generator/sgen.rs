@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     error::JSResult,
-    function::JSAsyncFunctionState,
+    function::AsyncState,
     object::JSObjectIsa,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -25,14 +25,14 @@ pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 #[derive(Debug)]
 pub struct JSGeneratorData {
     pub state: JSGeneratorStateEnum,
-    pub func_state: JSAsyncFunctionState,
+    pub func_state: AsyncState,
 }
 
 // impl JSGeneratorData {
 //     pub fn free_generator_stack_rt(&mut self, rt: &mut JSRuntime) {
 //         if self.state != JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
 //             if !self.func_state.is_null() {
-//                 JSAsyncFunctionState::free(rt, self.func_state);
+//                 AsyncState::free(rt, self.func_state);
 //                 self.func_state = std::ptr::null_mut();
 //             }
 //             self.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
@@ -55,7 +55,7 @@ pub fn js_generator_function_call(
 ) -> JSResult {
     let s = JSGeneratorData {
         state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
-        func_state: JSAsyncFunctionState::new(ctx, func_obj, this_obj, args)?,
+        func_state: AsyncState::new(ctx, func_obj, this_obj, args)?,
     };
 
     // execute the function up to 'OP_initial_yield'

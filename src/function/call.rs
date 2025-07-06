@@ -151,12 +151,12 @@ pub fn JS_CallInternal(
     let rt = caller_ctx.rt_mut();
 
     if !func_obj.is_object() {
-        return if let JSValue::AsyncFuncResume(af) = func_obj {
+        return if let JSValue::AsyncFuncResume(state) = func_obj {
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
             debug_assert!(flags & JS_CALL_FLAG_GENERATOR != 0);
 
-            let mut s = af.0.borrow_mut();
+            let mut s = state.0.borrow_mut();
             let throw_flag = s.throw_flag;
             let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
@@ -198,25 +198,24 @@ pub fn JS_CallInternal(
         };
     }
 
-    let p = unsafe { func_obj.object_unchecked() };
-    let class_id = p.class_id();
-
-    if class_id != JS_CLASS_BYTECODE_FUNCTION {
-        // for non-bytecode function (e.g. bound function, native function, async function etc),
+    let class_id = unsafe { func_obj.object_unchecked().class_id() };
+    if class_id == JS_CLASS_BYTECODE_FUNCTION {
+        // bytecode function
+        unsafe {
+            func_obj
+                .clone()
+                .as_bytecode_function_unchecked()
+                .call_internal(caller_ctx, this_obj.clone(), new_target, args, flags)
+        }
+    } else {
+        // non-bytecode function: bound function, native function, async function etc.
         // use callback defined on the class.
-        return if let Some(cb) = rt.class_defs[class_id as usize].call {
+        if let Some(cb) = rt.class_defs[class_id as usize].call {
             cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
         } else {
             caller_ctx.JS_ThrowTypeError("not a function");
             JSValue::EXCEPTION
-        };
-    }
-
-    unsafe {
-        func_obj
-            .clone()
-            .as_bytecode_function_unchecked()
-            .call_internal(caller_ctx, this_obj.clone(), new_target, args, flags)
+        }
     }
 }
 

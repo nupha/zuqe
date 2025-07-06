@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JSResult},
-    function::{CallContext, JS_Call, js_async_function_call},
+    function::{CallContext, JS_Call, AsyncState},
     module::{JSModuleDefInner, JSModuleStatus},
     promise::{JSPromiseStateEnum, PromiseValue, js_promise_then},
     runtime::js_check_stack_overflow,
@@ -262,8 +262,8 @@ impl JSModuleDef {
 
     /// execute module async
     pub fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
-        let promise =
-            js_async_function_call(ctx, &self.0.borrow().func_obj, &JSValue::UNDEFINED, &[], 0)?;
+        let func_obj = self.0.borrow().func_obj.clone();
+        let promise = AsyncState::async_function_call(ctx, &func_obj, &JSValue::UNDEFINED, &[], 0)?;
 
         let data = [JSValue::Module(self.clone())];
 
@@ -424,10 +424,11 @@ impl JSModuleDef {
             }
         } else {
             let promise: PromiseValue = unsafe {
-                js_async_function_call(ctx, &self.0.borrow().func_obj, &JSValue::UNDEFINED, &[], 0)
+                let func_obj = self.0.borrow().func_obj.clone();
+                AsyncState::async_function_call(ctx, &func_obj, &JSValue::UNDEFINED, &[], 0)
                     .map_err(|_| ctx.take_exception())? // return Err with current exception
                     .unchecked_into()
-            }; // return val must be a Promise
+            };
 
             match promise.state().unwrap() {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}

@@ -332,15 +332,15 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
             Some("crate::promise::JSPromiseFunctionData"),
-            Some("crate::promise::PromiseResolvingFuncValue::hook_finalizer"),
-            Some("crate::promise::PromiseResolvingFuncValue::hook_mark")
+            Some("crate::promise::PromiseResolvingFunc::hook_finalizer"),
+            Some("crate::promise::PromiseResolvingFunc::hook_mark")
         ),
         class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
             Some("crate::promise::JSPromiseFunctionData"),
-            Some("crate::promise::PromiseResolvingFuncValue::hook_finalizer"),
-            Some("crate::promise::PromiseResolvingFuncValue::hook_mark")
+            Some("crate::promise::PromiseResolvingFunc::hook_finalizer"),
+            Some("crate::promise::PromiseResolvingFunc::hook_mark")
         ),
         class_def!(
             "AsyncFunction",
@@ -352,16 +352,16 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
-            Some("crate::function::JSAsyncFunctionState"),
-            Some("crate::function::JSAsyncFunctionState::hook_finalizer"),
-            Some("crate::function::JSAsyncFunctionState::hook_mark")
+            Some("crate::function::AsyncState"),
+            Some("crate::function::AsyncState::hook_finalizer"),
+            Some("crate::function::AsyncState::hook_mark")
         ),
         class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
-            Some("crate::function::JSAsyncFunctionState"),
-            Some("crate::function::JSAsyncFunctionState::hook_finalizer"),
-            Some("crate::function::JSAsyncFunctionState::hook_mark")
+            Some("crate::function::AsyncState"),
+            Some("crate::function::AsyncState::hook_finalizer"),
+            Some("crate::function::AsyncState::hook_mark")
         ),
         class_def!(
             "empty_string", // JS_ATOM_empty_string

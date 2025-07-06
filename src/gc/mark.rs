@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_OBJECT,
     context::JSContext,
-    function::{JSAsyncFunctionState, JSFunctionBytecode, JSVarRef, VarRefState},
+    function::{AsyncState, JSFunctionBytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, JSModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
     value::{JSString, JSValue},
@@ -232,7 +232,7 @@ impl JSVarRef {
     }
 }
 
-impl JSAsyncFunctionState {
+impl AsyncState {
     pub fn gc_mark(&self) {
         let s = self.0.borrow();
         s.this_val.gc_mark();

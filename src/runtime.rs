@@ -17,16 +17,13 @@ use crate::{
     callable::CallableValue,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
-    function::{
-        BoundFunctionValue, ObjectNativeFunc, js_async_function_call,
-        js_async_function_resolve_call,
-    },
+    function::{AsyncState, BoundFunctionValue, ObjectNativeFunc, js_async_function_resolve_call},
     gc::JSGCPhaseEnum,
     generator::{AsyncGeneratorValue, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{GCObjectWeakref, JSShapeWeakref},
-    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFuncValue},
+    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFunc},
     stack_frame::JSStackFrame,
     utils::js_get_stack_pointer,
     value::{JSStringInner, JSValue, js_string_exotic_methods},
@@ -51,7 +48,7 @@ pub struct JSRuntime {
     /// index 0 is reserved not for use; index 1 is for atom 1; index 2 is for atom 2, ...
     pub(super) atom_slots: Vec<*const JSStringInner>,
     /// JSString hash to atom vec dict.
-    /// Value is a list of atom index. Note: JSString hash may have collison.
+    /// Value is list of atom indecies because JSString hash may have collison.
     pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
     /// registered classes
@@ -197,10 +194,11 @@ impl JSRuntime {
         // setup async related classes
         {
             rt.class_defs[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
-                Some(PromiseResolvingFuncValue::hook_call);
+                Some(PromiseResolvingFunc::hook_call);
             rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
-                Some(PromiseResolvingFuncValue::hook_call);
-            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(js_async_function_call);
+                Some(PromiseResolvingFunc::hook_call);
+            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call =
+                Some(AsyncState::async_function_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
                 Some(js_async_function_resolve_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =

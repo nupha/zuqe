@@ -21,9 +21,9 @@ pub struct JSPromiseFunctionData {
 /// Represent a promise resolve or reject function.
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct PromiseResolvingFuncValue(JSValue);
+pub struct PromiseResolvingFunc(JSValue);
 
-impl PromiseResolvingFuncValue {
+impl PromiseResolvingFunc {
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -107,7 +107,7 @@ impl PromiseResolvingFuncValue {
 }
 
 impl JSValue {
-    pub unsafe fn as_promise_resolving_func_unchecked(self) -> PromiseResolvingFuncValue {
+    pub unsafe fn as_promise_resolving_func_unchecked(self) -> PromiseResolvingFunc {
         debug_assert!(self.is_object());
         debug_assert!(matches!(
             self.object_unchecked().class_id(),

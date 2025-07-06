@@ -3,7 +3,7 @@ use crate::{
     atom::{JSAtomStruct, JSAtomTypeHint},
     context::JSContext,
     error::JS_ThrowRangeError,
-    function::{JSAsyncFunctionState, JSFunctionBytecode},
+    function::{AsyncState, JSFunctionBytecode},
     module::JSModuleDef,
     object::JSObject,
     runtime::JSRuntime,
@@ -113,7 +113,7 @@ pub enum JSValue {
     FunctionBytecode(JSFunctionBytecode),
 
     /// Special: for async_function_resume() only
-    AsyncFuncResume(JSAsyncFunctionState),
+    AsyncFuncResume(AsyncState),
 }
 
 impl PartialEq for JSValue {
