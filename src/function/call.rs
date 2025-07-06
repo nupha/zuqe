@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
     atom::JSAtom,
     bytecode::run_bytecodes,
     context::JSContext,
@@ -199,6 +199,7 @@ pub fn JS_CallInternal(
     }
 
     let class_id = unsafe { func_obj.object_unchecked().class_id() };
+
     if class_id == JS_CLASS_BYTECODE_FUNCTION {
         // bytecode function
         unsafe {
@@ -213,7 +214,7 @@ pub fn JS_CallInternal(
         if let Some(cb) = rt.class_defs[class_id as usize].call {
             cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
         } else {
-            caller_ctx.JS_ThrowTypeError("not a function");
+            caller_ctx.JS_ThrowTypeError("not callable");
             JSValue::EXCEPTION
         }
     }

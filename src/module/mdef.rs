@@ -62,6 +62,7 @@ pub(crate) struct JSModuleDefInner {
     pub import_entries_size: i32,
 
     pub module_ns: JSValue,
+
     /// for JS modules only
     pub func_obj: JSValue,
     /// for C modules only

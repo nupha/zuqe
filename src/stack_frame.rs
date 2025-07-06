@@ -3,7 +3,7 @@ use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use crate::{
     context::JSContext,
     error::{JS_IsUncatchableError, is_backtrace_needed},
-    function::{JSAsyncFunctionStateWeakref, JSVarRef},
+    function::{AsyncStateWeakref, JSVarRef},
     iterator::JS_IteratorClose,
     value::JSValue,
 };
@@ -50,7 +50,7 @@ pub struct JSStackFrame {
 
     /// if the stack frame is decicated for an async function,
     /// this field hold a weakref of async function state.
-    pub async_func: JSAsyncFunctionStateWeakref,
+    pub async_func: AsyncStateWeakref,
 
     pub _mark: PhantomPinned,
 }
@@ -69,7 +69,7 @@ impl Default for JSStackFrame {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: 0,
-            async_func: JSAsyncFunctionStateWeakref::new(),
+            async_func: AsyncStateWeakref::new(),
             _mark: PhantomPinned,
         }
     }

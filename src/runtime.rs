@@ -199,11 +199,13 @@ impl JSRuntime {
                 Some(PromiseResolvingFunc::hook_call);
             rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
                 Some(PromiseResolvingFunc::hook_call);
+
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(AsyncFunction::hook_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
                 Some(js_async_function_resolve_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
                 Some(js_async_function_resolve_call);
+
             rt.class_defs[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
                 Some(AsyncGeneratorValue::hook_call);
         }

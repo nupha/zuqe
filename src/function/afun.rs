@@ -63,11 +63,11 @@ impl AsyncFunction {
         args: &[JSValue],
         flags: i32,
     ) -> Result<PromiseValue, i32> {
-        // create state for async function execution
-        let state = AsyncState::new(ctx, &JSValue::Object(self.0.clone()), this_obj, args)?;
-
         // create promise and resolving handlers
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+
+        // create state for async function execution
+        let state = AsyncState::new(ctx, &JSValue::Object(self.0.clone()), this_obj, args)?;
 
         unsafe {
             state
@@ -78,13 +78,14 @@ impl AsyncFunction {
                 .resolving_funcs = resolving_funcs;
         }
 
-        // start execution
+        // start to execute async func
         async_function_resume(ctx, &state);
 
         Ok(promise)
     }
 
     /// hook to call an async function
+    #[inline(always)]
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,

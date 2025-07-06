@@ -1,11 +1,10 @@
 use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JSResult},
-    function::{AsyncFunction, AsyncState, CallContext, JS_Call},
+    function::{AsyncFunction, CallContext, JS_Call},
     module::{JSModuleDefInner, JSModuleStatus},
-    promise::{JSPromiseStateEnum, PromiseValue, js_promise_then},
+    promise::{JSPromiseStateEnum, js_promise_then},
     runtime::js_check_stack_overflow,
-    utils::UncheckedInto,
     value::JSValue,
 };
 

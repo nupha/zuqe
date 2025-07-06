@@ -33,7 +33,7 @@ pub(crate) struct AsyncStateInner {
     /* TRUE if the function has returned. The stack frame is no longer valid */
     pub is_completed: bool,
 
-    /// only used in JS async functions
+    /// for async function only
     pub resolving_funcs: [JSValue; 2],
 
     /// stack frame to run async function
@@ -47,10 +47,9 @@ impl Drop for AsyncStateInner {
 }
 
 impl AsyncStateInner {
-    /// create new AsyncState.
-    /// `func_obj`, `this_obj`, `args` are not consumed.
-    pub fn new(
+    fn new(
         ctx: &JSContext,
+        resolvings: [JSValue; 2],
         func_obj: &JSValue,
         this_obj: &JSValue,
         args: &[JSValue],
@@ -89,7 +88,7 @@ impl AsyncStateInner {
             header: GCObjectHeader::new(ctx.rt_mut(), 1),
             argc: args.len() as _,
             this_val: this_obj.clone(),
-            resolving_funcs: [JSValue::UNDEFINED, JSValue::UNDEFINED],
+            resolving_funcs: resolvings,
             throw_flag: false,
             is_completed: false,
 
@@ -168,15 +167,21 @@ impl AsyncStateInner {
 pub struct AsyncState(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner>>>>);
 
 impl AsyncState {
-    /// make new AsyncState, register to gc tracking list.
-    /// `func_obj`, `this_obj`, `args` are not consumed.
-    pub fn new(
+    /// create new AsyncState, register to gc tracking list.
+    pub fn new_with_resolvings(
         ctx: &JSContext,
+        resolvings: Option<[JSValue; 2]>,
         func_obj: &JSValue,
         this_obj: &JSValue,
         args: &[JSValue],
     ) -> Result<AsyncState, i32> {
-        let inner = AsyncStateInner::new(ctx, func_obj, this_obj, args)?;
+        let inner = AsyncStateInner::new(
+            ctx,
+            resolvings.unwrap_or([JSValue::UNDEFINED, JSValue::UNDEFINED]),
+            func_obj,
+            this_obj,
+            args,
+        )?;
 
         // fix var_base_ptr field: it's self referenced
         let mut pinned = Box::pin(inner);
@@ -189,22 +194,35 @@ impl AsyncState {
                 .add(a.frame.arg_count as usize);
         }
 
-        let s = Self(Rc::new(RefCell::new(pinned)));
-        let w = s.downgrade();
+        let sframe = Self(Rc::new(RefCell::new(pinned)));
+        let w = sframe.downgrade();
 
         // associate stack frame with async state
         unsafe {
-            s.0.borrow_mut()
+            sframe
+                .0
+                .borrow_mut()
                 .as_mut()
                 .get_unchecked_mut()
                 .frame
-                .async_func = s.downgrade();
+                .async_func = sframe.downgrade();
         }
 
         // register to gc
-        ctx.rt_mut().gc_obj_list.insert(s.id(), w.into());
+        ctx.rt_mut().gc_obj_list.insert(sframe.id(), w.into());
 
-        Ok(s)
+        Ok(sframe)
+    }
+
+    /// create new AsyncState, register to gc tracking list.
+    #[inline(always)]
+    pub fn new(
+        ctx: &JSContext,
+        func_obj: &JSValue,
+        this_obj: &JSValue,
+        args: &[JSValue],
+    ) -> Result<AsyncState, i32> {
+        Self::new_with_resolvings(ctx, None, func_obj, this_obj, args)
     }
 
     #[inline]
@@ -222,8 +240,8 @@ impl AsyncState {
         self.0.borrow().is_completed
     }
 
-    pub fn downgrade(&self) -> JSAsyncFunctionStateWeakref {
-        JSAsyncFunctionStateWeakref(Rc::downgrade(&self.0))
+    pub fn downgrade(&self) -> AsyncStateWeakref {
+        AsyncStateWeakref(Rc::downgrade(&self.0))
     }
 
     pub fn set_throw_flag(&self, b: bool) {
@@ -232,7 +250,7 @@ impl AsyncState {
         }
     }
 
-    /// Resume async state execution.
+    /// Resume execution of the async state.
     pub fn resume(&self, ctx: &JSContext) -> JSResult {
         debug_assert!(!self.0.borrow().is_completed);
 
@@ -307,15 +325,15 @@ impl AsyncState {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSAsyncFunctionStateWeakref(Weak<RefCell<Pin<Box<AsyncStateInner>>>>);
+pub struct AsyncStateWeakref(Weak<RefCell<Pin<Box<AsyncStateInner>>>>);
 
-impl From<JSAsyncFunctionStateWeakref> for GCObjectWeakref {
-    fn from(value: JSAsyncFunctionStateWeakref) -> Self {
+impl From<AsyncStateWeakref> for GCObjectWeakref {
+    fn from(value: AsyncStateWeakref) -> Self {
         Self::AsyncFunction(value)
     }
 }
 
-impl JSAsyncFunctionStateWeakref {
+impl AsyncStateWeakref {
     pub fn new() -> Self {
         Self(Weak::new())
     }

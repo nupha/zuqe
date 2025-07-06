@@ -1,8 +1,8 @@
 use crate::{
     context::{JSContext, JSContextWeakref},
     function::{
-        AsyncState, JSAsyncFunctionStateWeakref, JSFunctionBytecode,
-        JSFunctionBytecodeWeakref, JSVarRef, JSVarRefWeakref,
+        AsyncState, AsyncStateWeakref, JSFunctionBytecode, JSFunctionBytecodeWeakref, JSVarRef,
+        JSVarRefWeakref,
     },
     object::{JSObjectWeakref, JSShapeWeakref},
     value::{JSString, JSStringWeakref},
@@ -111,7 +111,7 @@ pub enum GCObjectWeakref {
     String(JSStringWeakref),
     Shape(JSShapeWeakref),
     VarRef(JSVarRefWeakref),
-    AsyncFunction(JSAsyncFunctionStateWeakref),
+    AsyncFunction(AsyncStateWeakref),
     Context(JSContextWeakref),
 }
 
