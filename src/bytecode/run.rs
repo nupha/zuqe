@@ -47,7 +47,7 @@ use crate::{
 };
 
 pub unsafe fn run_bytecodes(
-    b: &Bytecode,
+    bc: &Bytecode,
     func_home_obj: Option<&JSObject>,
     sf: &mut JSStackFrame, // Execution stack frame for managing function call state
     caller_ctx: &JSContext, // Context of the calling environment
@@ -68,10 +68,10 @@ pub unsafe fn run_bytecodes(
         bytecodes.len()
     );
 
-    let realm = b.0.borrow().realm.upgrade().unwrap();
+    let realm = bc.0.borrow().realm.upgrade().unwrap();
     let ctx = &realm;
 
-    let cpools = b.cpools_slice();
+    let cpools = bc.cpools_slice();
 
     let sp_base = sf.stack_base_ptr().as_ptr();
     let pc_base = bytecodes.as_ptr();
@@ -93,7 +93,7 @@ pub unsafe fn run_bytecodes(
                 ctx,
                 cur_pc,
                 0,
-                b.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
+                bc.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
             );
             return JSValue::EXCEPTION;
         }
@@ -197,17 +197,6 @@ pub unsafe fn run_bytecodes(
         };
     }
 
-    // macro_rules! ARG {
-    //     [$idx:expr] => {
-    //         *ARG_REF![$idx]
-    //     };
-    // }
-
-    // macro_rules! VAR_PTR {
-    //     [$idx:expr] => {
-    //         sf.var_base_ptr.offset(($idx) as isize)
-    //     };
-    // }
     #[cfg(debug_assertions)]
     macro_rules! VAR_REF {
         [$idx:expr] => {
@@ -249,7 +238,7 @@ pub unsafe fn run_bytecodes(
             unsafe {
                 let pos = pc.offset_from(pc_base) as usize;
                 print!("[O.o] RUN {:5}: ", pos);
-                crate::bytecode::dump::debug_dump_opcode_one(ctx, b, pos);
+                crate::bytecode::dump::debug_dump_opcode_one(ctx, bc, pos);
                 println!();
             }
 
@@ -367,7 +356,10 @@ pub unsafe fn run_bytecodes(
                                     ctx,
                                     args,
                                     sf,
-                                    std::cmp::min(args.len() as i32, b.0.borrow().arg_count as i32),
+                                    std::cmp::min(
+                                        args.len() as i32,
+                                        bc.0.borrow().arg_count as i32
+                                    ),
                                 )
                             );
                             SP_GO!(1);
@@ -1097,7 +1089,7 @@ pub unsafe fn run_bytecodes(
                     let idx = PC_FETCH!(u16);
                     let val = var_refs[idx as usize].value();
                     if val.is_uninitialized() {
-                        JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
+                        JS_ThrowReferenceErrorUninitialized2(ctx, bc, idx, true);
                         break State::Exception;
                     }
 
@@ -1114,7 +1106,7 @@ pub unsafe fn run_bytecodes(
                 OpCode::PUT_VAR_REF_CHECK_INIT => {
                     let idx = PC_FETCH!(u16);
                     if !var_refs[idx as usize].value().is_uninitialized() {
-                        JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, true);
+                        JS_ThrowReferenceErrorUninitialized2(ctx, bc, idx, true);
                         break State::Exception;
                     } else {
                         var_refs[idx as usize].set_value(SP_TAKE!(-1));
@@ -1132,7 +1124,7 @@ pub unsafe fn run_bytecodes(
                             } else {
                                 caller_ctx
                             },
-                            b,
+                            bc,
                             idx,
                             false,
                         );
@@ -1147,7 +1139,7 @@ pub unsafe fn run_bytecodes(
                     let pval = VAR_REF![idx];
                     if pval.is_uninitialized() {
                         if opcode == OpCode::PUT_LOC_CHECK {
-                            JS_ThrowReferenceErrorUninitialized2(ctx, b, idx, false);
+                            JS_ThrowReferenceErrorUninitialized2(ctx, bc, idx, false);
                         } else {
                             JS_ThrowReferenceError(ctx, "'this' can be initialized only once");
                         }
@@ -2261,7 +2253,7 @@ pub unsafe fn run_bytecodes(
                         ctx,
                         pc_offset,
                         0,
-                        b.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        bc.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
                     );
                     return JSValue::EXCEPTION;
                 }

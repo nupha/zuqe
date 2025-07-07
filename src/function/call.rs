@@ -161,7 +161,7 @@ pub fn JS_CallInternal(
             let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
             let p = unsafe { frame.cur_func.object_unchecked().clone() };
-            let (b, home_obj) =
+            let (bc, home_obj) =
                 p.0.isa
                     .borrow()
                     .func()
@@ -177,18 +177,18 @@ pub fn JS_CallInternal(
 
             unsafe {
                 run_bytecodes(
-                    &b,
+                    &bc,
                     home_obj.as_ref(),
                     frame,
                     caller_ctx,
                     this_obj,
                     new_target,
-                    b.bytecode_slice().deref(),
+                    bc.bytecode_slice().deref(),
                     pc_offset,
                     sp_offset as usize,
                     p.0.isa.borrow().func().unwrap().var_refs.as_slice(),
                     args,
-                    b.0.borrow().js_mode as _,
+                    bc.0.borrow().js_mode as _,
                     throw_flag,
                 )
             }
