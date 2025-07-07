@@ -75,9 +75,8 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        let bfunc_ob = &self.0;
-
-        let (bc, home_obj) = bfunc_ob
+        let (bc, home_obj) = self
+            .0
             .0
             .isa
             .borrow()
@@ -106,7 +105,7 @@ impl BytecodeFunction {
         };
 
         let mut sframe = JSStackFrame {
-            cur_func: JSValue::Object(bfunc_ob.clone()),
+            cur_func: JSValue::Object(self.0.clone()),
             js_mode,
             ..Default::default()
         };
@@ -163,20 +162,17 @@ impl BytecodeFunction {
         caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
 
         let retval = unsafe {
-            let b = bc.0.borrow();
             run_bytecodes(
                 &bc,
+                caller_ctx,
                 home_obj.as_ref(),
                 sf,
-                caller_ctx,
                 this_obj,
                 new_target,
-                &b.binary[b.bytecode_start as usize..],
                 0,
                 0,
-                &bfunc_ob.0.isa.borrow().func().unwrap().var_refs,
+                &self.0.0.isa.borrow().func().unwrap().var_refs,
                 args,
-                js_mode,
                 false,
             )
         };

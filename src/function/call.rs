@@ -1,7 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION,
     atom::JSAtom,
     bytecode::run_bytecodes,
     context::JSContext,
@@ -151,6 +151,7 @@ pub fn JS_CallInternal(
     let rt = caller_ctx.rt_mut();
 
     if !func_obj.is_object() {
+        // must be async state resume: the special value.
         return if let JSValue::AsyncStateResume(state) = func_obj {
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
@@ -178,17 +179,15 @@ pub fn JS_CallInternal(
             unsafe {
                 run_bytecodes(
                     &bc,
+                    caller_ctx,
                     home_obj.as_ref(),
                     frame,
-                    caller_ctx,
                     this_obj,
                     new_target,
-                    bc.bytecode_slice().deref(),
                     pc_offset,
                     sp_offset as usize,
                     p.0.isa.borrow().func().unwrap().var_refs.as_slice(),
                     args,
-                    bc.0.borrow().js_mode as _,
                     throw_flag,
                 )
             }

@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, JSAtomTypeHint,
@@ -48,28 +50,28 @@ use crate::{
 
 pub unsafe fn run_bytecodes(
     bc: &Bytecode,
+    caller_ctx: &JSContext, // Context of the calling environment
     func_home_obj: Option<&JSObject>,
     sf: &mut JSStackFrame, // Execution stack frame for managing function call state
-    caller_ctx: &JSContext, // Context of the calling environment
     this_obj: &JSValue,    // The 'this' value for the function execution
     new_target: JSValue,   // The new.target value for constructor calls
-    bytecodes: &[u8],      // Array of bytecode instructions to execute
     pc_offset: usize,      // Current instruction pointer (program counter) offset
     sp_offset: usize,      // Current stack pointer offset
     var_refs: &[JSVarRef],
     args: &[JSValue], // actual calling arguments pass in by caller, not padded length
-    mode: i32,
-    throwed: bool, // Indicates if an exception has been thrown
+    throwed: bool,    // Indicates if an exception has been thrown
 ) -> JSValue {
+    let mode = sf.js_mode;
+    let realm = bc.0.borrow().realm.upgrade().unwrap();
+    let ctx = &realm;
+
+    let bytecodes = bc.bytecodes();
     debug_assert!(
         pc_offset < bytecodes.len(),
         "pc_offset={}, bytecodes.len()={}",
         pc_offset,
         bytecodes.len()
     );
-
-    let realm = bc.0.borrow().realm.upgrade().unwrap();
-    let ctx = &realm;
 
     let cpools = bc.cpools_slice();
 

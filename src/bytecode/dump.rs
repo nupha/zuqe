@@ -2,7 +2,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
-        JSClosureVar, Bytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
+        Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
@@ -18,7 +18,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
     use crate::utils::read_from_ptr;
 
     let mut pos = pc;
-    let tab = b.bytecode_slice();
+    let tab = b.bytecodes();
     let op = tab[pos];
 
     if op >= OP_COUNT_FINAL {

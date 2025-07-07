@@ -565,8 +565,8 @@ impl Bytecode {
     }
 
     /// get bytecode opcodes slice
-    #[inline]
-    pub fn bytecode_slice(&self) -> Ref<'_, [u8]> {
+    #[inline(always)]
+    pub fn bytecodes(&self) -> Ref<'_, [u8]> {
         Ref::map(self.0.borrow(), |b| b.bytecode_slice())
     }
 
