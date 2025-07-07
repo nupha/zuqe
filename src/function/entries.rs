@@ -1,4 +1,4 @@
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::ptr::NonNull;
 
 use crate::{
     JS_CLASS_ARRAY,
