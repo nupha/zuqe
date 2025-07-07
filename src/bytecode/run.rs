@@ -1934,7 +1934,7 @@ pub unsafe fn run_bytecodes(
                 }
                 OpCode::POST_INC | OpCode::POST_DEC => {
                     let op1 = SP_TAKE!(-1);
-                    if let Ok(n1) = op1.coerce_to_number_free(ctx) {
+                    if let Ok(n1) = op1.coerce_to_number(ctx) {
                         SP_PUT!(-1, n1.clone());
                         if let Ok(res) = UnaryOp::new(ctx, n1, true).map(|unary| match opcode {
                             OpCode::POST_INC => unary.inc(),

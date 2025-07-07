@@ -36,7 +36,6 @@ impl BinaryOp {
     /// 将两个JSValue创建双目操作(int,float,string)
     /// mode: 0 = allow int, 1 = allow int/float, 2 = allow int/float/string
     /// primitive_hint: Some(_) 使用toPrimitive(), None 不使用toPrimitive()
-    /// Note: op1, op2 are consumed
     pub fn new_slow(
         ctx: &JSContext,
         op1: JSValue,
@@ -92,8 +91,8 @@ impl BinaryOp {
                             op1 = op1.coerce_to_primitive(ctx, hint)?;
                             op2 = op2.coerce_to_primitive(ctx, hint)?;
                         } else {
-                            op1 = op1.coerce_to_numeric_free(ctx)?;
-                            op2 = op2.coerce_to_number_free(ctx)?;
+                            op1 = op1.coerce_to_numeric(ctx)?;
+                            op2 = op2.coerce_to_numeric(ctx)?;
                         }
                     }
                 }
@@ -309,7 +308,7 @@ impl UnaryOp {
             JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
             _ => {
                 if allow_float {
-                    match val.coerce_to_number_free(ctx)? {
+                    match val.coerce_to_number(ctx)? {
                         JSValue::Int(i) => Ok(UnaryOp::Int(i)),
                         JSValue::Float64(f) => Ok(UnaryOp::Float(f)),
                         _ => unreachable!(),
@@ -557,7 +556,7 @@ fn js_eq_slow(
             (JSValue::String(_), JSValue::Int(_) | JSValue::Float64(_))
             | (JSValue::Int(_) | JSValue::Float64(_), JSValue::String(_)) => {
                 op1 = op1.coerce_to_numeric(ctx)?;
-                op2 = op2.coerce_to_numeric_free(ctx)?;
+                op2 = op2.coerce_to_numeric(ctx)?;
                 op1.strict_eq(&op2)
             }
 

@@ -2662,15 +2662,14 @@ pub unsafe fn JS_ToInt32Clamp(
     }
 }
 
-#[deprecated(note = "use JSValue::coerce_number_free() instead")]
+#[deprecated(note = "use JSValue::coerce_number() instead")]
 pub unsafe fn JS_ToNumberFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_number_free(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.coerce_to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::coerce_numeric_free() instead")]
+#[deprecated(note = "use JSValue::coerce_numeric() instead")]
 pub unsafe fn JS_ToNumericFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_numeric_free(ctx)
-        .unwrap_or(JSValue::EXCEPTION)
+    val.coerce_to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric() instead")]

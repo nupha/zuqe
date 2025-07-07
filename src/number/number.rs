@@ -18,7 +18,7 @@ pub fn is_safe_integer(d: f64) -> bool {
 pub(crate) union JSFloat64Union {
     pub d: f64,
     pub uint64: u64,
-    pub u32: [u32; 2],
+    pub uint32: [u32; 2],
 }
 
 impl From<i32> for JSValue {
@@ -100,13 +100,10 @@ impl JSValue {
         }
     }
 
-    /// coerce `val` value to number value according to converting hint.
-    /// Note: `val` is consumed.
-    fn do_coerce_to_number_free(
-        ctx: &JSContext,
-        mut val: JSValue,
-        flag: JSToNumberHintEnum,
-    ) -> JSResult {
+    /// coerce value to number value according to converting hint.
+    fn do_coerce_to_num(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
+        let mut val = self.clone();
+
         loop {
             match val {
                 Self::Int(_) | Self::Float64(_) => {
@@ -123,12 +120,10 @@ impl JSValue {
                     val = val.coerce_to_primitive(ctx, HINT_NUMBER)?;
                     continue;
                 }
-                Self::String(_) => {
-                    let (str_ptr0, len) = {
-                        let str = val.coerce_to_utf8(ctx)?;
-                        let len = str.len();
-                        (str.as_ptr(), len)
-                    };
+                Self::String(s) => {
+                    let str = s.content().to_str();
+                    let str_ptr0 = str.as_ptr();
+                    let len = str.len();
 
                     let mut p = unsafe { str_ptr0.add(skip_spaces(str_ptr0)) };
 
@@ -169,28 +164,14 @@ impl JSValue {
         }
     }
 
-    /// Note: `self` is consumed regardless of success or failure.
-    #[inline(always)]
-    pub fn coerce_to_number_free(self, ctx: &JSContext) -> Result<JSValue, i32> {
-        Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMBER)
-    }
-
-    /// Note: `self` is consumed regardless of success or failure.
-    #[inline(always)]
-    pub fn coerce_to_numeric_free(self, ctx: &JSContext) -> Result<JSValue, i32> {
-        Self::do_coerce_to_number_free(ctx, self, JSToNumberHintEnum::TON_FLAG_NUMERIC)
-    }
-
-    /// Note: `self` is not consumed.
     #[inline(always)]
     pub fn coerce_to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.clone().coerce_to_number_free(ctx)
+        self.do_coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
-    /// Note: `self` is not consumed.
     #[inline(always)]
     pub fn coerce_to_numeric(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.clone().coerce_to_numeric_free(ctx)
+        self.do_coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
     pub fn coerce_to_u8_clamp(&self, ctx: &JSContext) -> Result<u8, i32> {
@@ -220,7 +201,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number_free(ctx)?;
+                    val = val.coerce_to_number(ctx)?;
                 }
             }
         };
@@ -270,7 +251,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number_free(ctx)?;
+                    val = val.coerce_to_number(ctx)?;
                 }
             }
         };
@@ -308,7 +289,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number_free(ctx)?;
+                    val = val.coerce_to_number(ctx)?;
                 }
             }
         };
@@ -371,7 +352,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number_free(ctx)?;
+                    val = val.coerce_to_number(ctx)?;
                 }
             }
         };
@@ -422,7 +403,7 @@ impl JSValue {
             JSValue::NULL => Ok(0.0),
             JSValue::UNDEFINED => Ok(f64::NAN),
             JSValue::EXCEPTION => Err(-1),
-            _ => match self.clone().coerce_to_number_free(ctx) {
+            _ => match self.clone().coerce_to_number(ctx) {
                 Ok(JSValue::Int(v)) => Ok(v as f64),
                 Ok(JSValue::Float64(v)) => Ok(v),
                 Err(_) => Ok(f64::NAN),

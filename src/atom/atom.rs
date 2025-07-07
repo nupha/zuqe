@@ -568,7 +568,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         // XXX: bignum: would be better to only accept integer to avoid
         // relying on current floating point precision
         // this is ECMA CanonicalNumericIndexString primitive
-        if let Ok(num) = JSValue::String(p.clone()).coerce_to_number_free(ctx) {
+        if let Ok(num) = JSValue::String(p.clone()).coerce_to_number(ctx) {
             // test num as string is same to original value
             if let Ok(JSValue::String(str)) = num.coerce_to_string(ctx) {
                 if p.content().eq(str.content()) {
