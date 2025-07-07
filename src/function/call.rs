@@ -175,20 +175,18 @@ pub fn JS_CallInternal(
             frame.prev_frame = rt.current_stack_frame;
             rt.current_stack_frame = (frame.deref_mut() as *mut JSStackFrame).cast();
 
-            unsafe {
-                bc.run(
-                    caller_ctx,
-                    home_obj.as_ref(),
-                    frame,
-                    this_obj,
-                    new_target,
-                    pc_offset,
-                    sp_offset as usize,
-                    p.0.isa.borrow().func().unwrap().var_refs.as_slice(),
-                    args,
-                    throw_flag,
-                )
-            }
+            bc.run(
+                caller_ctx,
+                home_obj.as_ref(),
+                frame,
+                this_obj,
+                new_target,
+                pc_offset,
+                sp_offset as usize,
+                p.0.isa.borrow().func().unwrap().var_refs.as_slice(),
+                args,
+                throw_flag,
+            )
         } else {
             caller_ctx.JS_ThrowTypeError("not a function");
             JSValue::EXCEPTION

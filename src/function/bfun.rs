@@ -160,20 +160,18 @@ impl BytecodeFunction {
         sf.prev_frame = caller_ctx.rt().current_stack_frame;
         caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
 
-        let retval = unsafe {
-            bc.run(
-                caller_ctx,
-                home_obj.as_ref(),
-                sf,
-                this_obj,
-                new_target,
-                0,
-                0,
-                &self.0.0.isa.borrow().func().unwrap().var_refs,
-                args,
-                false,
-            )
-        };
+        let retval = bc.run(
+            caller_ctx,
+            home_obj.as_ref(),
+            sf,
+            this_obj,
+            new_target,
+            0,
+            0,
+            &self.0.0.isa.borrow().func().unwrap().var_refs,
+            args,
+            false,
+        );
 
         // stack frame is about to drop
         sf.finalize();
