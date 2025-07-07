@@ -495,12 +495,12 @@ pub fn JS_CopySubArray(
                 if dir > 0 {
                     for i in 0..cnt {
                         let v1 = lst[from_pos + i].clone();
-                        lst[to_pos + i].replace(v1);
+                        lst[to_pos + i] = v1;
                     }
                 } else {
                     for i in (0..cnt).rev() {
                         let v1 = lst[from_pos + i].clone();
-                        lst[to_pos + i].replace(v1);
+                        lst[to_pos + i] = v1;
                     }
                 }
             }

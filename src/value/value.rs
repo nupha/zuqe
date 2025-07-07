@@ -138,9 +138,14 @@ impl PartialEq for JSValue {
     }
 }
 
-impl std::fmt::Debug for JSValue {
+impl std::fmt::Display for JSValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.repr())
+    }
+}
+impl std::fmt::Debug for JSValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 
@@ -231,30 +236,7 @@ impl std::fmt::Debug for JSValue {
 
 pub type JSValueConst = JSValue;
 
-// #[inline(always)]
-// pub const fn JS_VALUE_GET_TAG(v: JSValue) -> i32 {
-//     v.tag()
-// }
-
-// /// same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing
-// #[inline(always)]
-// pub fn JS_VALUE_GET_NORM_TAG(v: JSValue) -> JSTag {
-//     v.tag_norm()
-// }
-
 impl JSValue {
-    /// set new value and returns the old value.
-    #[inline(always)]
-    pub const fn replace(&mut self, new_val: JSValue) -> JSValue {
-        std::mem::replace(self, new_val)
-    }
-
-    /// set new value and free the old value.
-    #[inline(always)]
-    pub fn replace_free(&mut self, rt: *mut JSRuntime, new_val: JSValue) {
-        drop(std::mem::replace(self, new_val));
-    }
-
     #[inline(always)]
     pub const fn is_exception(&self) -> bool {
         matches!(self, Self::EXCEPTION)
@@ -342,7 +324,6 @@ impl JSValue {
         }
     }
 
-    #[inline]
     pub fn is_error(&self) -> bool {
         if let JSValue::Object(o) = self {
             o.class_id() == JS_CLASS_ERROR
@@ -361,6 +342,7 @@ impl JSValue {
         }
     }
 
+    /// calculate hash for given `id`
     #[inline(always)]
     pub(crate) const fn id_to_hash(id: usize) -> u32 {
         (id * 3163) as u32
@@ -399,14 +381,6 @@ impl JSValue {
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };
         h ^ (tag as u32) // XOR
     }
-}
-
-/// set new value and free the old value.
-/// (freeing the value can reallocate the object data)
-#[deprecated(note = "use JSValue::replace_free() instead")]
-#[inline(always)]
-pub unsafe fn set_value(ctx: &JSContext, pval: *mut JSValue, new_val: JSValue) {
-    (*pval).replace_free(ctx.rt_mut(), new_val);
 }
 
 pub unsafe fn JS_ToIndex(ctx: &JSContext, plen: *mut u64, val: &JSValueConst) -> i32 {

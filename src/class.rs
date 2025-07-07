@@ -230,7 +230,7 @@ impl JSContext {
         debug_assert!(class_id < self.0.borrow().class_proto.len() as JSClassID);
         debug_assert!(self.0.borrow().class_proto[class_id as usize].is_null());
 
-        self.0.borrow_mut().class_proto[class_id as usize].replace(proto_obj);
+        self.0.borrow_mut().class_proto[class_id as usize] = proto_obj;
     }
 
     /// make function `func_obj` to be a constructor, set `proto` as its prototype,

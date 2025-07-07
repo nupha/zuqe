@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
-    function::{CallContext, NativeFieldDef, JSFunctionBytecode, get_func_name},
+    function::{CallContext, JSFunctionBytecode, NativeFieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JSObjectIsa,
     },
@@ -54,7 +54,7 @@ impl JSRuntime {
     /// Note: returnd value should be freed by caller
     #[inline(always)]
     pub fn set_exception(&mut self, obj: JSValue) -> JSValue {
-        self.current_exception.replace(obj)
+        std::mem::replace(&mut self.current_exception, obj)
     }
 
     /// get current exception value, then reset current_exception to null.
@@ -128,12 +128,7 @@ impl JSContext {
                     (*sf)
                         .cur_func
                         .object()
-                        .and_then(|o| {
-                            o.0.isa
-                                .borrow()
-                                .func()
-                                .and_then(|f| f.bytecode.clone())
-                        })
+                        .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
                         .is_none()
                 });
 

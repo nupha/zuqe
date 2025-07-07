@@ -103,10 +103,10 @@ impl<'a> CallContext<'a> {
 
     /// set nth data value. returns old value, or Err if nth is out of range.
     /// Note: `val` is consumed.
-    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Result<JSValue, i32> {
+    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> JSResult {
         if let Some(lst) = self.data.as_deref_mut() {
             if nth < lst.len() {
-                return Ok(lst[nth].replace(val));
+                return Ok(std::mem::replace(lst.get_mut(nth).unwrap(), val));
             }
         }
 

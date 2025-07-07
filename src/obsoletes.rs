@@ -42,6 +42,14 @@ pub enum JSAutoInitIDEnum {
     JS_AUTOINIT_ID_PROP,
 }
 
+/// set new value and free the old value.
+/// (freeing the value can reallocate the object data)
+#[deprecated(note = "use JSValue::replace_free() instead")]
+#[inline(always)]
+pub unsafe fn set_value(ctx: &JSContext, pval: *mut JSValue, new_val: JSValue) {
+    unreachable!("unused")
+}
+
 #[deprecated(note = "use JSRuntime::finalize() instead")]
 unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
     unreachable!("unused");
