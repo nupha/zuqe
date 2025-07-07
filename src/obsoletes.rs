@@ -2825,3 +2825,51 @@ pub unsafe fn free_function_bytecode(
 ) -> Option<NonNull<Bytecode>> {
     unreachable!("unused")
 }
+
+/// Make function closure with bytecode and captured variables.
+/// Returns closure function object.
+#[deprecated(note = "use Bytecode::make_closure() instead")]
+pub unsafe fn js_closure(
+    ctx: &JSContext,
+    bc: &Bytecode,
+    cur_var_refs: &[JSVarRef],
+    parent_frame: Option<&mut StackFrame>,
+) -> JSValue {
+    bc.make_closure(ctx, cur_var_refs, parent_frame)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use Bytecode::make_closure_to() instead")]
+pub(crate) unsafe fn js_closure2(
+    ctx: &JSContext,
+    func_obj: JSValue,
+    bc: Bytecode,
+    cur_var_refs: &[JSVarRef],
+    parent_frame: Option<&mut StackFrame>,
+) -> JSValue {
+    bc.make_closure_to(
+        ctx,
+        func_obj.object_unchecked().clone(),
+        cur_var_refs,
+        parent_frame,
+    )
+    .map_or(JSValue::EXCEPTION, JSValue::Object)
+}
+
+#[deprecated(note = "use JSFunctionDef::add_closure_var() instead")]
+/// returns added closure var index, or Err for error.
+pub unsafe fn add_closure_var(
+    ctx: &JSContext,
+    s: &mut JSFunctionDef,
+    is_local: bool,
+    is_arg: bool,
+    var_idx: u16,
+    var_name: JSAtom,
+    is_const: bool,
+    is_lexical: bool,
+    var_kind: JSVarKindEnum,
+) -> Result<u16, i32> {
+    s.add_closure_var(
+        ctx, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    )
+}

@@ -3,7 +3,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
-    function::{JSFunctionKindEnum, JSObjectFunc, JSVarRef, NativeFunctionType, js_closure2},
+    function::{JSFunctionKindEnum, JSObjectFunc, JSVarRef, NativeFunctionType},
     gc::set_cycle_flag,
     iterator::{
         JS_GetIterator, JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,

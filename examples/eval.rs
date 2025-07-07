@@ -87,7 +87,7 @@ fn main() {
                 );
                 if !esm_func.is_exception() {
                     js_module_set_import_meta(&ctx, &esm_func, 1, true);
-                    JS_EvalFunction(&ctx, esm_func)
+                    JS_EvalFunction(&ctx, &esm_func)
                 } else {
                     JSValue::EXCEPTION
                 }
