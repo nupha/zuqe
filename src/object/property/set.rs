@@ -10,7 +10,6 @@ use crate::{
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
     function::JS_Call,
-    number::{JS_ToFloat64, JS_ToUint8Clamp},
     object::{JS_PROP_THROW_STRICT, JSObject, JSProperty},
     typed_array::{
         Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArrayValue, Uint8Array,
@@ -86,7 +85,7 @@ impl JSObject {
                 if idx < self.array_length_unchecked() as u32 {
                     if this_obj.object() == Some(self) {
                         return this_obj
-                            .set_property_value(ctx, &JSValue::from_i32(idx as _), val, flags)
+                            .set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
                             .map_err(|_| None);
                     } else {
                         new_state = SetPropState::Add;
@@ -510,13 +509,9 @@ impl JSObject {
                 // typed array
                 //
                 JS_CLASS_UINT8C_ARRAY => {
-                    let mut v = 0;
-                    if unsafe { JS_ToUint8Clamp(ctx, &mut v, &val) } != 0 {
-                        return Err(-1);
-                    }
-
+                    let v = val.coerce_to_u8_clamp(ctx)?;
                     if Uint8Array(TypedArrayValue(self.clone()))
-                        .set_element(idx as _, v as _)
+                        .set_element(idx as _, v)
                         .is_err()
                     {
                         ta_out_of_bound = true;
@@ -582,11 +577,7 @@ impl JSObject {
                     }
                 }
                 JS_CLASS_FLOAT32_ARRAY => {
-                    let mut d = 0.0;
-                    if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
-                        return Err(-1);
-                    }
-
+                    let d = val.coerce_to_f64(ctx)?;
                     let r =
                         Float32Array(TypedArrayValue(self.clone())).set_element(idx as _, d as _);
 
@@ -597,11 +588,7 @@ impl JSObject {
                     }
                 }
                 JS_CLASS_FLOAT64_ARRAY => {
-                    let mut d = 0.0;
-                    if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
-                        return Err(-1);
-                    }
-
+                    let d = val.coerce_to_f64(ctx)?;
                     let r = Float64Array(TypedArrayValue(self.clone())).set_element(idx as _, d);
                     if r.is_err() {
                         ta_out_of_bound = true;

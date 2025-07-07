@@ -182,7 +182,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if resolve_element_env
-        .define_property_value_u32(ctx, 0, JSValue::from_i32(1), 0x7)
+        .define_property_value_u32(ctx, 0, JSValue::Int(1), 0x7)
         .is_err()
     {
         return fail_reject(promise_resolve);

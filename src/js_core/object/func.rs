@@ -211,7 +211,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx,
             &cb,
             &ctx.0.borrow().global_obj,
-            &[val.clone(), JSValue::from_i64(idx)],
+            &[val.clone(), JSValue::from(idx)],
         )
         .check_exception()
         .inspect_err(|_| {

@@ -15,7 +15,7 @@ use crate::{
     function::CallContext,
     object::{JSObjectIsa, JSObjectWeakref},
     runtime::JSRuntime,
-    value::{JS_ToIndex, JSValue, JSValueConst},
+    value::{JSValue, JSValueConst},
 };
 
 pub type JSFreeArrayBufferDataFunc =
@@ -367,26 +367,18 @@ pub unsafe fn js_array_buffer_constructor1(
 }
 
 pub fn js_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut len: u64 = 0;
-    if unsafe { JS_ToIndex(ctx, &mut len, cc.arg(0)) } != 0 {
-        Err(-1)
-    } else {
-        unsafe { js_array_buffer_constructor1(ctx, cc.this(), len as _).check_exception() }
-    }
+    let size = cc.arg(0).coerce_to_index(ctx)?;
+    unsafe { js_array_buffer_constructor1(ctx, cc.this(), size).check_exception() }
 }
 
 pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut len: u64 = 0;
-    if unsafe { JS_ToIndex(ctx, &mut len, cc.arg(0)) } != 0 {
-        Err(-1)
-    } else {
-        ctx.create_array_buffer(
-            cc.this(),
-            JS_CLASS_SHARED_ARRAY_BUFFER,
-            len as usize,
-            std::ptr::null_mut(),
-        )
-    }
+    let len = cc.arg(0).coerce_to_index(ctx)?;
+    ctx.create_array_buffer(
+        cc.this(),
+        JS_CLASS_SHARED_ARRAY_BUFFER,
+        len,
+        std::ptr::null_mut(),
+    )
 }
 
 pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {

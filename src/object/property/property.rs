@@ -5,7 +5,6 @@ use crate::{
     atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
     function::{JS_Call, JSVarRef},
-    number::{JS_ToLengthFree, JS_ToUint32Free},
     object::{JSObject, LazyInit},
     proxy::js_proxy_isExtensible,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -486,22 +485,16 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
 
 /// Get object `length` property as u32
 pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
-    unsafe {
-        JS_ToUint32Free(
-            ctx,
-            obj.get_property(ctx, JS_ATOM_length).check_exception()?,
-        )
-    }
+    obj.get_property(ctx, JS_ATOM_length)
+        .check_exception()
+        .and_then(|v| v.coerce_to_u32(ctx))
 }
 
 /// Get object `length` property as i64
 pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
-    let len_val = obj.get_property(ctx, JS_ATOM_length);
-    if len_val.is_exception() {
-        Err(-1)
-    } else {
-        unsafe { JS_ToLengthFree(ctx, len_val) }
-    }
+    obj.get_property(ctx, JS_ATOM_length)
+        .check_exception()?
+        .coerce_to_length(ctx)
 }
 
 /* Note: the property value is not initialized. Return NULL if memory

@@ -517,7 +517,7 @@ pub fn js_symbol_to_atom(val: &JSValue) -> JSAtom {
 // index. JS_EXCEPTION can also be returned.
 pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
     if atom.is_int_type() {
-        return JSValue::from_i32(__JS_AtomToUInt32(atom) as _);
+        return JSValue::Int(__JS_AtomToUInt32(atom) as _);
     }
 
     let p = ctx.rt().get_atom_desc(atom).expect("INVLID ATOM");

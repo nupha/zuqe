@@ -7,7 +7,6 @@ use crate::{
     error::{JS_ThrowStackOverflow, JSResult},
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
-    number::JS_ToFloat64,
     object::{JSObject, JSObjectIsa},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
@@ -311,26 +310,20 @@ impl ObjectNativeFunc {
                 r
             },
 
-            NativeFunctionType::FF(f) => unsafe {
-                let mut d1: f64 = 0.0;
-                if JS_ToFloat64(realm, &mut d1, &sf.args_slice()[0]) != 0 {
-                    JSValue::EXCEPTION
-                } else {
-                    JSValue::from(f(d1))
-                }
-            },
-            NativeFunctionType::FFF(f) => unsafe {
-                let mut d1: f64 = 0.0;
-                let mut d2: f64 = 0.0;
+            NativeFunctionType::FF(f) => sf.args_slice()[0]
+                .coerce_to_f64(realm)
+                .map(|n| JSValue::from(unsafe { f(n) }))
+                .unwrap_or(JSValue::EXCEPTION),
+            NativeFunctionType::FFF(f) => {
                 let args = sf.args_slice();
-                if JS_ToFloat64(realm, &mut d1, &args[0]) != 0
-                    || JS_ToFloat64(realm, &mut d2, &args[1]) != 0
+                if let Ok(d1) = args[0].coerce_to_f64(realm)
+                    && let Ok(d2) = args[1].coerce_to_f64(realm)
                 {
-                    JSValue::EXCEPTION
+                    JSValue::from(unsafe { f(d1, d2) })
                 } else {
-                    JSValue::from(f(d1, d2))
+                    JSValue::EXCEPTION
                 }
-            },
+            }
         };
 
         // THIS IS DONE in defer!()

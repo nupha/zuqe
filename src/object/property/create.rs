@@ -29,7 +29,7 @@ impl JSObject {
             ($p:expr, $idx:expr) => {
                 let len = $p.0.prop_values.borrow()[0]
                     .value(ctx, &JSValue::UNDEFINED)
-                    .coerce_to_i32_free(ctx)? as usize;
+                    .coerce_to_i32(ctx)? as usize;
 
                 if ($idx as usize + 1) > len {
                     // prop #0 of Array is length

@@ -366,7 +366,7 @@ impl JSValue {
 
     #[inline(always)]
     pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSValue {
-        self.get_property_value(ctx, &JSValue::from_u32(idx))
+        self.get_property_value(ctx, &JSValue::from(idx))
     }
 
     pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSValue {
@@ -401,7 +401,7 @@ impl JSValue {
                 self.has_property(ctx, prop).and_then(|b| {
                     if b {
                         let val = self
-                            .get_property_value(ctx, &JSValue::from_i32(idx as i32))
+                            .get_property_value(ctx, &JSValue::Int(idx as i32))
                             .check_exception()?;
                         Ok(Some(val))
                     } else {

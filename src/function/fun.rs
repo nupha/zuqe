@@ -171,7 +171,7 @@ pub unsafe fn js_function_set_properties(
     let _ = func_obj.define_property_value(
         ctx,
         JS_ATOM_length,
-        JSValue::from_i32(len),
+        JSValue::Int(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non compatible with ES5.1: length is configurable
     );
 

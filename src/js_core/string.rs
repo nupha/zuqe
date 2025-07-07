@@ -12,9 +12,6 @@ use crate::{
         CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, NativeFieldDef,
     },
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    number::{
-        JS_ToFloat64, JS_ToInt32, JS_ToInt32Clamp, JS_ToInt32Sat, JS_ToInt64Sat, JS_ToUint32,
-    },
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, js_get_length32, js_get_length64},
     regexp::js_is_regexp,
     string::{
@@ -61,11 +58,7 @@ pub fn js_string_charCodeAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let p = unsafe { val.string_unchecked() };
 
-    let mut idx: i32 = 0;
-    if unsafe { JS_ToInt32Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let idx: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
     if idx < 0 || idx >= p.len() as i32 {
         Ok(JSValue::Float64(f64::NAN))
     } else {
@@ -80,11 +73,7 @@ pub fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let p = unsafe { val.string_unchecked() };
 
-    let mut idx: i32 = 0;
-    if unsafe { JS_ToInt32Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let mut idx: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
     if idx < 0 && is_at != 0 {
         idx += p.len() as i32;
     }
@@ -105,11 +94,7 @@ pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let p = unsafe { val.string_unchecked() };
 
-    let mut idx: i32 = 0;
-    if unsafe { JS_ToInt32Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let idx: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
     if idx < 0 || idx >= (*p).len() as i32 {
         Ok(JSValue::UNDEFINED)
     } else {
@@ -193,11 +178,7 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if lastIndexOf != 0 {
         let mut pos = len - v_len;
         if cc.length() > 1 {
-            let mut d: f64 = 0.0;
-            if unsafe { JS_ToFloat64(ctx, &mut d, cc.arg(1)) } != 0 {
-                return Err(-1);
-            }
-
+            let d: f64 = cc.arg(1).coerce_to_f64(ctx)?;
             if !d.is_nan() {
                 if d <= 0.0 {
                     pos = 0;
@@ -210,13 +191,11 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         stop = 0;
         inc = -1;
     } else {
-        let mut pos = 0;
-        if cc.length() > 1 {
-            if unsafe { JS_ToInt32Clamp(ctx, &mut pos, cc.arg(1), 0, len, 0) } != 0 {
-                return Err(-1);
-            }
-        }
-        start = pos;
+        start = if cc.length() > 1 {
+            cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, 0)?
+        } else {
+            0
+        };
         stop = len - v_len;
         inc = 1;
     }
@@ -413,7 +392,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let lim = if limit.is_undefined() {
         u32::MAX
     } else {
-        unsafe { JS_ToUint32(ctx, limit)? }
+        limit.coerce_to_u32(ctx)?
     };
 
     let R = separator.coerce_to_string(ctx)?;
@@ -477,27 +456,14 @@ pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let p = unsafe { str.string_unchecked() };
 
-    let mut a = 0_i32;
-    if unsafe { JS_ToInt32Clamp(ctx, &mut a, cc.arg(0), 0, (*p).len() as i32, 0) } != 0 {
-        return Err(-1);
-    }
-
-    let mut b = p.len() as i32;
-    if !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut b, cc.arg(1), 0, (*p).len() as i32, 0) } != 0 {
-            return Err(-1);
-        }
-    }
-
-    let start: i32;
-    let end: i32;
-    if a < b {
-        start = a;
-        end = b;
+    let len = p.len() as i32;
+    let a = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, 0)?;
+    let b = if !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, 0)?
     } else {
-        start = b;
-        end = a;
-    }
+        len
+    };
+    let (start, end) = if a < b { (a, b) } else { (b, a) };
 
     p.sub_string(ctx, start as usize, end as usize)
 }
@@ -506,18 +472,13 @@ pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let p = unsafe { str.string_unchecked() };
     let len = p.len() as i32;
-    let mut a: i32 = 0;
 
-    if unsafe { JS_ToInt32Clamp(ctx, &mut a, cc.arg(0), 0, len, len) } != 0 {
-        return Err(-1);
-    }
-
-    let mut n = len - a;
-    if !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut n, cc.arg(1), 0, len - a, 0) } != 0 {
-            return Err(-1);
-        }
-    }
+    let a: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let n = if !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len - a, 0)?
+    } else {
+        len - a
+    };
 
     p.sub_string(ctx, a as usize, (a + n) as usize)
 }
@@ -525,19 +486,14 @@ pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let p = unsafe { str.string_unchecked() };
+
     let len = p.len() as i32;
-
-    let mut start = 0_i32;
-    if unsafe { JS_ToInt32Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
-        return Err(-1);
-    }
-
-    let mut end = len;
-    if !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut end, cc.arg(1), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let start = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let end = if !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
     p.sub_string(ctx, start as usize, std::cmp::max(end, start) as usize)
 }
@@ -546,32 +502,28 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     let padEnd = cc.magic();
 
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
-    let mut v = JSValue::UNDEFINED;
-    let mut c = ' ';
+    let mut n: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
 
-    let mut n: i32 = 0;
-    if unsafe { JS_ToInt32Sat(ctx, &mut n, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
-    let mut p1: Option<&JSString> = None;
     let p = unsafe { str.string_unchecked() };
     let len = p.len() as i32;
     if len >= n {
         return Ok(str);
     }
 
+    let mut p1: Option<JSString> = None;
+    let mut c = ' ';
+
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        v = cc.arg(1).coerce_to_string(ctx)?;
-        let s = unsafe { v.string_unchecked() };
-        if s.is_empty() {
-            return Ok(str);
-        }
-        if s.len() == 1 {
-            c = s.content().chars().next().unwrap();
-            p1 = None;
-        } else {
-            p1.replace(s);
+        if let JSValue::String(s) = cc.arg(1).coerce_to_string(ctx)? {
+            if s.is_empty() {
+                return Ok(str);
+            }
+
+            if s.len() == 1 {
+                c = s.content().chars().next().unwrap();
+            } else {
+                p1.replace(s);
+            }
         }
     }
 
@@ -616,22 +568,19 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
 
-    let mut val: i64 = 0;
-    if unsafe { JS_ToInt64Sat(ctx, &mut val, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-    if !(0..=2147483647).contains(&val) {
+    let repeat: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
+    if !(0..=2147483647).contains(&repeat) {
         JS_ThrowRangeError(ctx, "invalid repeat count");
         return Err(-1);
     }
 
-    let n = val as usize;
+    let n = repeat as usize;
     let p = unsafe { str.string_unchecked() };
     let len = p.len();
     if len == 0 || n == 1 {
         return Ok(str);
     }
-    if val as usize * len > JS_STRING_LEN_MAX {
+    if repeat as usize * len > JS_STRING_LEN_MAX {
         ctx.JS_ThrowInternalError("string too long");
         return Err(-1);
     }
@@ -664,20 +613,20 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut len = p.len() as i32;
     let v_len = p1.len() as i32;
 
-    let mut pos = if cc.magic() == 2 { len } else { 0 };
-    if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut pos, cc.arg(1), 0, len, 0) } != 0 {
-            return Err(-1);
-        }
-    }
+    let mut pos = if cc.magic() == 2 {
+        len
+    } else if cc.length() > 1 && !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, 0)?
+    } else {
+        0
+    };
 
     len -= v_len;
 
     let mut ret = false;
-    let mut pos: i32 = 0;
+    let start: i32;
+    let stop: i32;
 
-    let mut start: i32 = 0;
-    let mut stop: i32 = 0;
     if cc.magic() == 0 {
         start = pos;
         stop = len;
@@ -806,7 +755,7 @@ pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult
     };
 
     let matched_len = js_get_length32(ctx, matched)?;
-    let position = unsafe { JS_ToUint32(ctx, cc.arg(2))? };
+    let position = cc.arg(2).coerce_to_u32(ctx)?;
     let mut res_string =
         StringContent::with_capacity(sp.len(), sp.is_wide_char()).map_err(|_| {
             ctx.JS_ThrowOutOfMemory();
@@ -1198,7 +1147,7 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res_string = StringContent::Empty;
 
     for a in cc.arguments() {
-        let c = unsafe { JS_ToInt32(ctx, a)? };
+        let c = a.coerce_to_i32(ctx)?;
         res_string.push_u16(c as u16).map_err(|_| {
             ctx.JS_ThrowOutOfMemory();
             -1
@@ -1216,10 +1165,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
         let c: i32 = if let JSValue::Int(i) = a {
             *i
         } else {
-            let mut d: f64 = 0.0;
-            if unsafe { JS_ToFloat64(ctx, &mut d, a) } != 0 {
-                return Err(-1);
-            }
+            let d: f64 = a.coerce_to_f64(ctx)?;
             d as i32
         };
 

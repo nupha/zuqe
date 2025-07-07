@@ -6,7 +6,6 @@ use crate::{
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, JS_CallConstructor, NativeFieldDef},
     js_core::js_get_this,
-    number::JS_ToInt64Clamp,
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
 };
@@ -68,18 +67,12 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let len = abuf.byte_length() as i64;
-
-    let mut start: i64 = 0;
-    if unsafe { JS_ToInt64Clamp(ctx, &mut start, &cc.get_raw(0), 0, len, len) } != 0 {
-        return Err(-1);
-    }
-
-    let mut end = len;
-    if !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut end, &cc.get_raw(1), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let start: i64 = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let end = if !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
     let new_len = std::cmp::max(end - start, 0);
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;

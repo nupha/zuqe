@@ -4,7 +4,7 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, NativeFieldDef},
-    number::{JS_ToFloat64, js_parseFloat, js_parseInt},
+    number::{js_parseFloat, js_parseInt},
     value::JSValue,
 };
 
@@ -19,19 +19,14 @@ pub fn js_global_eval(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
 pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
-pub fn js_global_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult {
-    let mut d: f64 = 0.0;
-
-    if unsafe { JS_ToFloat64(ctx, &mut d, args.arg(0)) } != 0 {
-        Err(-1)
-    } else {
-        let b = match args.magic() {
-            MAGIC_NUM_IS_NAN => f64::is_nan(d),
-            MAGIC_NUM_IS_FINITE => f64::is_finite(d),
-            _ => unreachable!(),
-        };
-        Ok(JSValue::Bool(b))
-    }
+pub fn js_global_isNaN_isFinite(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let d = cc.arg(0).coerce_to_f64(ctx)?;
+    let b = match cc.magic() {
+        MAGIC_NUM_IS_NAN => f64::is_nan(d),
+        MAGIC_NUM_IS_FINITE => f64::is_finite(d),
+        _ => unreachable!(),
+    };
+    Ok(JSValue::Bool(b))
 }
 
 // global objects

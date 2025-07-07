@@ -8,10 +8,10 @@ use crate::{
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, NativeFieldDef},
     mem::js_malloc_typed,
-    number::{JS_ToFloat64, JS_ToUint32},
+    number::JSFloat64Union,
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
     typed_array::TypedArrayValue,
-    value::{JS_ToIndex, JSValue},
+    value::JSValue,
 };
 
 use super::{
@@ -90,23 +90,17 @@ impl JSContext {
 
 pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let buffer = cc.arg(0);
+    let offset = if cc.length() > 1 {
+        cc.arg(1).coerce_to_index(ctx)?
+    } else {
+        0
+    };
 
-    let mut offset = 0;
-    if cc.length() > 1 {
-        if unsafe { JS_ToIndex(ctx, &mut offset, cc.arg(1)) } != 0 {
-            return Err(-1);
-        }
-    }
-
-    let mut length: Option<usize> = None;
-    if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        let mut l: u64 = 0;
-        if unsafe { JS_ToIndex(ctx, &mut l, cc.arg(2)) } != 0 {
-            return Err(-1);
-        }
-        length = Some(l as usize);
-    }
-
+    let length: Option<usize> = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        Some(cc.arg(2).coerce_to_index(ctx)?)
+    } else {
+        None
+    };
     ctx.create_dataview(cc.this(), buffer.clone(), offset as _, length)
 }
 
@@ -121,10 +115,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
 
     let size = 1 << typed_array_size_log2(class_id);
 
-    let mut pos: u64 = 0;
-    if unsafe { JS_ToIndex(ctx, &mut pos, args.arg(0)) } != 0 {
-        return Err(-1);
-    }
+    let pos = args.arg(0).coerce_to_index(ctx)?;
 
     // is little endian? default to BE
     let le = if args.length() > 1 {
@@ -144,7 +135,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        if (pos + size as u64) > ta.byte_length as u64 {
+        if pos + size > ta.byte_length as usize {
             JS_ThrowRangeError(ctx, "out of bound");
             return Err(-1);
         }
@@ -225,9 +216,9 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
     }
 }
 
-pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
-    let this_obj = args.this_raw();
-    let class_id = args.magic() as JSClassID;
+pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_obj = cc.this_raw();
+    let class_id = cc.magic() as JSClassID;
 
     debug_assert_eq!(
         unsafe { this_obj.object_unchecked().class_id() },
@@ -237,25 +228,19 @@ pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
     let ta = TypedArrayValue::try_from(this_obj).unwrap();
 
     let size = 1 << typed_array_size_log2(class_id);
-    let mut pos = 0_u64;
-    if unsafe { JS_ToIndex(ctx, &mut pos, args.arg(0)) } != 0 {
-        return Err(-1);
-    }
+    let pos = cc.arg(0).coerce_to_index(ctx)?;
 
-    let val = args.arg(1);
+    let val = cc.arg(1);
     let mut v = 0_u32;
     let mut v64 = 0_u64;
 
     if class_id <= JS_CLASS_UINT32_ARRAY {
-        v = unsafe { JS_ToUint32(ctx, val)? };
+        v = val.coerce_to_u32(ctx)?;
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
         ctx.JS_ThrowTypeError("BigInt is not supported");
         return Err(-1);
     } else {
-        let mut d: f64 = 0.0;
-        if unsafe { JS_ToFloat64(ctx, &mut d, val) } != 0 {
-            return Err(-1);
-        }
+        let d: f64 = val.coerce_to_f64(ctx)?;
         if class_id == JS_CLASS_FLOAT32_ARRAY {
             union U {
                 f: f32,
@@ -264,17 +249,13 @@ pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
             let u = U { f: d as f32 };
             v = unsafe { u.i };
         } else {
-            union U {
-                d: f64,
-                u64: u64,
-            }
-            let u = U { d };
-            v64 = unsafe { u.u64 };
+            let u = JSFloat64Union { d };
+            v64 = unsafe { u.uint64 };
         }
     }
 
-    let le = if args.length() > 2 {
-        args.arg(2).coerce_to_bool(ctx)?
+    let le = if cc.length() > 2 {
+        cc.arg(2).coerce_to_bool(ctx)?
     } else {
         false
     };
@@ -284,7 +265,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, args: CallContext) -> JSResult {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
-    if (pos + size as u64) > byte_length as u64 {
+    if pos + size > byte_length as usize {
         JS_ThrowRangeError(ctx, "out of bound");
         return Err(-1);
     }

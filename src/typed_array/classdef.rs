@@ -20,14 +20,11 @@ use crate::{
     function::{CallContext, JS_Call, JS_CallConstructor, NativeFieldDef},
     iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
-    number::{
-        JS_ToFloat64, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree, JS_ToUint8ClampFree,
-        JS_ToUint32,
-    },
+    number::JSFloat64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     string::StringContent,
     typed_array::{Float32Array, Float64Array, typed_array_size_log2},
-    value::{HINT_NUMBER, JS_ToIndex, JSValue, JSValueConst},
+    value::{HINT_NUMBER, JSValue, JSValueConst},
 };
 
 use super::{TypedArrayValue, js_typed_array_get_length_internal, js_typed_array_set_internal};
@@ -66,42 +63,22 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             p.class_id(),
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
         ) {
-            let mut offset = 0;
-            if unsafe { JS_ToIndex(ctx, &mut offset, cc.arg(1)) } != 0 {
-                return Err(-1);
-            }
+            let offset = cc.arg(1).coerce_to_index(ctx)?;
 
-            let mut len = 0;
             let a2 = cc.arg(2);
-            if !a2.is_undefined() {
-                if unsafe { JS_ToIndex(ctx, &mut len, a2) } != 0 {
-                    return Err(-1);
-                }
-            }
+            let len = if !a2.is_undefined() {
+                a2.coerce_to_index(ctx)?
+            } else {
+                0
+            };
 
-            ctx.create_typed_array_from(
-                new_target,
-                cc.arg(0),
-                offset as usize,
-                len as usize,
-                class_id as _,
-            )
+            ctx.create_typed_array_from(new_target, cc.arg(0), offset, len, class_id as _)
         } else {
             ctx.create_typed_array_from(new_target, cc.arg(0), 0, 0, class_id as _)
         }
     } else {
-        let mut len = 0;
-        if unsafe { JS_ToIndex(ctx, &mut len, cc.arg(0)) } != 0 {
-            return Err(-1);
-        }
-
-        ctx.create_typed_array_from(
-            new_target,
-            &JSValue::UNDEFINED,
-            0,
-            len as usize,
-            class_id as _,
-        )
+        let len = cc.arg(0).coerce_to_index(ctx)?;
+        ctx.create_typed_array_from(new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
     }
 }
 
@@ -205,7 +182,7 @@ pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) 
 
     if args.len() == 1 {
         // ensure that it is large enough
-        let len = unsafe { JS_ToLengthFree(ctx, args[0].clone())? };
+        let len = args[0].coerce_to_length(ctx)?;
         if new_len < len as u32 {
             ctx.JS_ThrowTypeError("TypedArray length is too small");
             return Err(-1);
@@ -373,11 +350,7 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut idx: i64 = 0;
-    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
     let len = p.length() as i64;
     if idx < 0 {
         idx += len;
@@ -395,11 +368,7 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this().clone();
     let p = this_val.clone().typed_array_must(ctx, false)?;
 
-    let mut idx: i64 = 0;
-    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
     let len = p.length() as i64;
     if idx < 0 {
         idx += len;
@@ -444,49 +413,39 @@ pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueC
 }
 
 pub fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
-    unsafe {
-        let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
+    let len = unsafe { js_typed_array_get_length_internal(ctx, cc.this())? as i32 };
 
-        let mut to: i32 = 0;
-        let mut from: i32 = 0;
+    let to: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let from: i32 = cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        cc.arg(2).coerce_to_i32_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
-        if JS_ToInt32Clamp(ctx, &mut to, cc.arg(0), 0, len, len) != 0 {
+    let count = std::cmp::min(final_ - from, len - to);
+    if count > 0 {
+        let tao: TypedArrayValue = cc.this().clone().try_into()?;
+        if tao.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
-        if JS_ToInt32Clamp(ctx, &mut from, cc.arg(1), 0, len, len) != 0 {
-            return Err(-1);
-        }
 
-        let mut final_ = len;
-        if cc.length() > 2 && !cc.get_raw(2).is_undefined() {
-            if JS_ToInt32Clamp(ctx, &mut final_, cc.arg(2), 0, len, len) != 0 {
-                return Err(-1);
-            }
-        }
+        let shift = typed_array_size_log2(tao.class_id());
 
-        let count = std::cmp::min(final_ - from, len - to);
-        if count > 0 {
-            let tao: TypedArrayValue = cc.this().clone().try_into()?;
-            if tao.is_detached() {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                return Err(-1);
-            }
-
-            let shift = typed_array_size_log2(tao.class_id());
-
-            tao.with_bytes_mut(|buf| {
-                let ptr = buf.as_mut_ptr();
-
+        tao.with_bytes_mut(|buf| {
+            let base = buf.as_mut_ptr();
+            unsafe {
                 std::ptr::copy(
-                    ptr.add((from << shift) as usize),
-                    ptr.add((to << shift) as usize),
+                    base.add((from << shift) as usize),
+                    base.add((to << shift) as usize),
                     (count << shift) as usize,
                 );
-            });
-        }
-
-        Ok(cc.this().clone())
+            }
+        });
     }
+
+    Ok(cc.this().clone())
 }
 
 pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -499,14 +458,10 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     match ta.class_id() {
         JS_CLASS_UINT8C_ARRAY => {
-            let mut v: i32 = 0;
-            if unsafe { JS_ToUint8ClampFree(ctx, &mut v, cc.arg(0).clone()) } != 0 {
-                return Err(-1);
-            }
-            v64 = v as u64;
+            v64 = cc.arg(0).coerce_to_u8_clamp(ctx)? as _;
         }
         JS_CLASS_UINT32_ARRAY => {
-            v64 = unsafe { JS_ToUint32(ctx, cc.arg(0))? as u64 };
+            v64 = cc.arg(0).coerce_to_u32(ctx)? as _;
         }
         JS_CLASS_BIG_UINT64_ARRAY => {
             //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
@@ -514,48 +469,37 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
         cid => {
-            let mut d: f64 = 0.0;
-            if unsafe { JS_ToFloat64(ctx, &mut d, cc.arg(0)) } != 0 {
-                return Err(-1);
-            }
-
+            let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
             if cid == JS_CLASS_FLOAT32_ARRAY {
                 #[repr(C)]
-                union FloatUnion {
+                union Float32Union {
                     f: f32,
-                    u32_: u32,
+                    uint32: u32,
                 }
                 v64 = unsafe {
-                    let u = FloatUnion { f: d as f32 };
-                    u.u32_ as u64
+                    let u = Float32Union { f: d as f32 };
+                    u.uint32 as u64
                 };
             } else {
-                #[repr(C)]
-                union DoubleUnion {
-                    d: f64,
-                    u64_: u64,
-                }
                 v64 = unsafe {
-                    let u = DoubleUnion { d };
-                    u.u64_
+                    let u = JSFloat64Union { d };
+                    u.uint64
                 };
             }
         }
     }
 
-    let mut k = 0;
-    if cc.length() > 1 {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut k, cc.arg(1), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let k = if cc.length() > 1 {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
+    } else {
+        0
+    };
 
-    let mut final_ = len;
-    if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, cc.arg(2), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        cc.arg(2).coerce_to_i32_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
     if ta.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -726,17 +670,12 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         (p.length() as i32, typed_array_size_log2(p.class_id()))
     };
 
-    let mut start: i32 = 0;
-    if unsafe { JS_ToInt32Clamp(ctx, &mut start, cc.arg(0), 0, src_len, src_len) } != 0 {
-        return Err(-1);
-    }
-
-    let mut final_ = src_len;
-    if !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, cc.arg(1), 0, src_len, src_len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let start: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, src_len, src_len)?;
+    let final_ = if !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, src_len, src_len)?
+    } else {
+        src_len
+    };
 
     let count = std::cmp::max(final_ - start, 0);
 
@@ -793,17 +732,12 @@ pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta = this_val.clone().typed_array_must(ctx, false)?;
     let len = ta.length() as i32;
 
-    let mut start: i32 = 0;
-    if unsafe { JS_ToInt32Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
-        return Err(-1);
-    }
-
-    let mut final_ = len;
-    if !cc.get_raw(1).is_undefined() {
-        if unsafe { JS_ToInt32Clamp(ctx, &mut final_, cc.arg(1), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let start: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let final_ = if !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
     let count = std::cmp::max(final_ - start, 0);
 
@@ -853,7 +787,7 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
                                 let r =
                                     JS_Call(ctx, cmp, &JSValue::UNDEFINED, &[$cvt(*a), $cvt(*b)]);
                                 if let Ok(n) =
-                                    r.check_exception().and_then(|v| v.coerce_to_i32_free(ctx))
+                                    r.check_exception().and_then(|v| v.coerce_to_i32(ctx))
                                 {
                                     if n < 0 {
                                         Ordering::Less
@@ -997,7 +931,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         });
     }
 
-    let mut k: i32 = 0;
+    let mut k: i32;
     let stop: i32;
     let inc: i32;
     let mut d = 0.0_f64;
@@ -1005,10 +939,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if special == special_lastIndexOf {
         k = len - 1;
         if cc.length() > 1 {
-            if unsafe { JS_ToFloat64(ctx, &mut d, cc.arg(1)) } != 0 {
-                return Err(-1);
-            }
-
+            d = cc.arg(1).coerce_to_f64(ctx)?;
             if d.is_nan() {
                 k = 0;
             } else {
@@ -1032,12 +963,11 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         stop = -1;
         inc = -1;
     } else {
-        k = 0;
-        if cc.length() > 1 {
-            if unsafe { JS_ToInt32Clamp(ctx, &mut k, cc.arg(1), 0, len, len) } != 0 {
-                return Err(-1);
-            }
-        }
+        k = if cc.length() > 1 {
+            cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
+        } else {
+            0
+        };
         stop = len;
         inc = 1;
     }

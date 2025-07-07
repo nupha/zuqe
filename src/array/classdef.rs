@@ -17,7 +17,7 @@ use crate::{
         js_create_array_iterator,
     },
     js_core::{js_get_this, object::js_object_toString},
-    number::{JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat, MAX_SAFE_INTEGER},
+    number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObjectIsa, js_get_length64},
     runtime::js_check_stack_overflow,
     string::{JSString, StringContent},
@@ -134,21 +134,17 @@ pub unsafe fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bo
 }
 
 pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut idx: i64 = 0;
-
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
 
-    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
     if idx < 0 {
         idx = len + idx;
     }
 
     let ret: JSValue = if idx < 0 {
-        JSValue::UNDEFINED // bad index
+        // bad index
+        JSValue::UNDEFINED
     } else if let Some(val) = obj
         .with_fast_array_values(|a| {
             if a.len() == len as usize {
@@ -174,11 +170,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut idx: i64 = 0;
-    if unsafe { JS_ToInt64Sat(ctx, &mut idx, cc.arg(0)) } != 0 {
-        return Err(-1);
-    }
-
+    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
     if idx < 0 {
         idx = len + idx;
     }
@@ -262,7 +254,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(len))?;
+    arr.set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
     Ok(arr)
 }
 
@@ -336,7 +328,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             ret = JSValue::Bool(false);
         }
         special_map => {
-            ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::from_i64(len))?;
+            ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::from(len))?;
         }
         special_filter => {
             ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))?;
@@ -378,7 +370,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         if present {
-            let index_val = JSValue::from_i64(k).check_exception()?;
+            let index_val = JSValue::from(k).check_exception()?;
             let res = JS_Call(
                 ctx,
                 &func,
@@ -523,19 +515,17 @@ pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut start = 0_i64;
-    if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut start, cc.arg(1), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let mut start = if cc.length() > 1 && !cc.arg(1).is_undefined() {
+        cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+    } else {
+        0
+    };
 
-    let mut end = len;
-    if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut end, cc.arg(2), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let end = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        cc.arg(2).coerce_to_i64_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
     // XXX: should special case fast arrays
     while start < end {
@@ -614,12 +604,11 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut res = -1;
     if len > 0 {
-        let mut n = 0;
-        if cc.length() > 1 {
-            if unsafe { JS_ToInt64Clamp(ctx, &mut n, cc.arg(1), 0, len, len) } != 0 {
-                return Err(-1);
-            }
-        }
+        let mut n = if cc.length() > 1 {
+            cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+        } else {
+            0
+        };
 
         let target = cc.arg(0).clone();
 
@@ -665,11 +654,7 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if len > 0 {
         let cnt = if cc.length() > 1 {
-            let mut i = 0;
-            if unsafe { JS_ToInt64Clamp(ctx, &mut i, cc.arg(1), -1, len - 1, len) } != 0 {
-                return Err(-1);
-            }
-            i
+            cc.arg(1).coerce_to_i64_clamp(ctx, -1, len - 1, len)?
         } else {
             len - 1
         };
@@ -698,11 +683,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if len > 0 {
         let mut n = if cc.length() > 1 {
-            let mut i = 0;
-            if unsafe { JS_ToInt64Clamp(ctx, &mut i, cc.arg(1), 0, len, len) } != 0 {
-                return Err(-1);
-            }
-            i
+            cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
         } else {
             0
         };
@@ -834,7 +815,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    obj.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
+    obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
 
     Ok(res)
 }
@@ -861,7 +842,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj.set_property_i64(ctx, from + i as i64, cc.arg(i).clone())?;
     }
 
-    obj.set_property(ctx, JS_ATOM_length, JSValue::from_i64(newLen))?;
+    obj.set_property(ctx, JS_ATOM_length, JSValue::from(newLen))?;
 
     Ok(JSValue::from(newLen))
 }
@@ -979,7 +960,7 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-        res_arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
+        res_arr.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
     }
 
     Ok(res_arr)
@@ -1000,11 +981,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut start = 0_i64;
-
-    if unsafe { JS_ToInt64Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
-        return Err(-1);
-    }
+    let mut start = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
 
     let item_count: u32;
     let mut del_count: i64 = 0;
@@ -1018,9 +995,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             del_count = len - start;
         } else {
             item_count = (cc.length() - 2) as u32;
-            if unsafe { JS_ToInt64Clamp(ctx, &mut del_count, cc.arg(1), 0, len - start, 0) } != 0 {
-                return Err(-1);
-            }
+            del_count = cc.arg(1).coerce_to_i64_clamp(ctx, 0, len - start, 0)?;
         }
         if len + item_count as i64 - del_count > MAX_SAFE_INTEGER {
             ctx.JS_ThrowTypeError("Array loo long");
@@ -1029,16 +1004,15 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         del_count
     } else {
         item_count = 0; /* avoid warning */
-        let mut final_ = len;
-        if !cc.arg(1).is_undefined() {
-            if unsafe { JS_ToInt64Clamp(ctx, &mut final_, cc.arg(1), 0, len, len) } != 0 {
-                return Err(-1);
-            }
-        }
+        let final_ = if !cc.arg(1).is_undefined() {
+            cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+        } else {
+            len
+        };
         std::cmp::max(final_ - start, 0)
     };
 
-    let len_val = JSValue::from_i64(count);
+    let len_val = JSValue::from(count);
     let arr = JS_ArraySpeciesCreate(ctx, &obj, &len_val)?;
 
     let final_ = start + count;
@@ -1066,7 +1040,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         n += 1;
     }
 
-    arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(n))?;
+    arr.set_property(ctx, JS_ATOM_length, JSValue::from(n))?;
 
     if splice != 0 {
         let new_len = len + item_count as i64 - del_count;
@@ -1095,7 +1069,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             obj.set_property_i64(ctx, start + i as i64, cc.arg(i as usize + 2).clone())?;
         }
 
-        obj.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
+        obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
     }
 
     Ok(arr)
@@ -1105,21 +1079,18 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut start = 0;
-    if cc.length() > 0 {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut start, cc.arg(0), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let start = if cc.length() > 0 {
+        cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?
+    } else {
+        0
+    };
 
     let mut del = 0;
     if cc.length() > 0 {
         del = len - start;
     }
     if cc.length() > 1 {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut del, cc.arg(1), 0, del, 0) } != 0 {
-            return Err(-1);
-        }
+        del = cc.arg(1).coerce_to_i64_clamp(ctx, 0, del, 0)?;
     }
 
     let mut add = 0_i64;
@@ -1198,7 +1169,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    res_arr.set_property(ctx, JS_ATOM_length, JSValue::from_i64(new_len))?;
+    res_arr.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
 
     Ok(res_arr)
 }
@@ -1207,21 +1178,13 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut from: i64 = 0;
-    let mut to: i64 = 0;
-    if unsafe { JS_ToInt64Clamp(ctx, &mut to, cc.arg(0), 0, len, len) } != 0 {
-        return Err(-1);
-    }
-    if unsafe { JS_ToInt64Clamp(ctx, &mut from, cc.arg(1), 0, len, len) } != 0 {
-        return Err(-1);
-    }
-
-    let mut final_ = len;
-    if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        if unsafe { JS_ToInt64Clamp(ctx, &mut final_, cc.arg(2), 0, len, len) } != 0 {
-            return Err(-1);
-        }
-    }
+    let from: i64 = cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let to: i64 = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        cc.arg(2).coerce_to_i64_clamp(ctx, 0, len, len)?
+    } else {
+        len
+    };
 
     let count = std::cmp::min(final_ - from, len - to);
     JS_CopySubArray(
@@ -1258,9 +1221,7 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
         mapper_func.ensure_callable(ctx)?;
     } else {
         if cc.length() > 0 && !cc.arg(0).is_undefined() {
-            if unsafe { JS_ToInt32Sat(ctx, &mut depth, cc.arg(0)) } < 0 {
-                return Err(-1);
-            }
+            depth = cc.arg(0).coerce_to_i32_saturating(ctx)?;
         }
     }
 

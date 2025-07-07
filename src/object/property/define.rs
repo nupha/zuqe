@@ -151,7 +151,7 @@ impl JSObject {
                                 break; // goto typed_array_done
                             }
 
-                            if let Ok(b) = num.is_integer(ctx) {
+                            if let Ok(b) = num.is_integral(ctx) {
                                 if !b {
                                     return if ctx.JS_ThrowTypeErrorOrFalse(
                                         flags,

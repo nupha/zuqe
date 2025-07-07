@@ -11,7 +11,6 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, JS_CallConstructor, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
-    number::JS_ToInt32,
     object::{JS_PROP_C_W_E, JSObjectIsa},
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
@@ -375,9 +374,9 @@ pub fn remainingElementsCount_add(
         return Err(-1);
     }
 
-    let mut remainingElementsCount = val.coerce_to_i32_free(ctx)?;
+    let mut remainingElementsCount = val.coerce_to_i32(ctx)?;
     remainingElementsCount += addend;
-    resolve_element_env.set_property_u32(ctx, 0, JSValue::from_i32(remainingElementsCount))?;
+    resolve_element_env.set_property_u32(ctx, 0, JSValue::Int(remainingElementsCount))?;
 
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
 }
@@ -390,7 +389,7 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
     let values = cc.data_raw(2);
     let resolve = cc.data_raw(3);
     let resolve_element_env = cc.data_raw(4);
-    let index = unsafe { JS_ToInt32(ctx, &cc.data_raw(1))? };
+    let index = cc.data_raw(1).coerce_to_i32(ctx)?;
 
     if alreadyCalled {
         return Ok(JSValue::UNDEFINED);

@@ -144,7 +144,7 @@ pub unsafe fn js_atof(
                     if !pp.is_null() {
                         *pp = p;
                     }
-                    return JSValue::from_f64(d);
+                    return JSValue::from(d);
                 }
             }
         }
@@ -239,7 +239,7 @@ pub unsafe fn js_atof(
             let s = std::str::from_utf8(buf.as_slice()).unwrap();
             let val = if is_float {
                 if let Ok(f) = s.parse::<f64>() {
-                    JSValue::from_f64(f)
+                    JSValue::from(f)
                 } else {
                     fail!();
                 }
@@ -248,13 +248,13 @@ pub unsafe fn js_atof(
                 if radix == 2 || len <= 8 {
                     // fast path to parse i32
                     if let Ok(i) = i32::from_str_radix(s, radix as _) {
-                        JSValue::from_i32(i)
+                        JSValue::Int(i)
                     } else {
                         fail!();
                     }
                 } else if let Ok(i) = i64::from_str_radix(s, radix as _) {
                     if (i32::MIN as i64..=i32::MAX as i64).contains(&i) {
-                        JSValue::from_i32(i as i32)
+                        JSValue::Int(i as i32)
                     } else {
                         JSValue::from(i)
                     }

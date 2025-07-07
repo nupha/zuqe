@@ -5,7 +5,7 @@ use crate::{
     error::JS_ThrowRangeError,
     function::{AsyncState, JSFunctionBytecode},
     module::JSModuleDef,
-    number::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER},
+    number::{JSFloat64Union, MAX_SAFE_INTEGER},
     object::JSObject,
     string::JSString,
 };
@@ -352,7 +352,7 @@ impl JSValue {
         let h: u32 = match self {
             Self::Object(o) => Self::id_to_hash(o.id()),
             Self::Int(d) => {
-                let u = JSFloat64Union { u64: *d as u64 };
+                let u = JSFloat64Union { uint64: *d as u64 };
                 unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
             }
             Self::String(s) | Self::Symbol(s) => unsafe {
@@ -371,7 +371,7 @@ impl JSValue {
             Self::FunctionBytecode(f) => Self::id_to_hash(f.id()),
             Self::Module(m) => Self::id_to_hash(m.id()),
             Self::CatchOffset(i) => {
-                let u = JSFloat64Union { u64: *i as u64 };
+                let u = JSFloat64Union { uint64: *i as u64 };
                 unsafe { (u.u32[0] ^ u.u32[1]) * 3163 }
             }
             Self::AsyncStateResume(f) => Self::id_to_hash(f.id()),
@@ -380,20 +380,6 @@ impl JSValue {
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };
         h ^ (tag as u32) // XOR
     }
-}
-
-pub unsafe fn JS_ToIndex(ctx: &JSContext, plen: *mut u64, val: &JSValueConst) -> i32 {
-    let mut v: i64 = 0;
-    if JS_ToInt64Sat(ctx, &mut v as *mut i64, val) != 0 {
-        return -1;
-    }
-    if !(0..=MAX_SAFE_INTEGER).contains(&v) {
-        JS_ThrowRangeError(ctx, "invalid array index");
-        *plen = 0;
-        return -1;
-    }
-    *plen = v as u64;
-    0
 }
 
 //

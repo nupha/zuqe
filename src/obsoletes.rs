@@ -11,7 +11,7 @@ use crate::{
     bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
     context::JSContext,
-    error::JSResult,
+    error::{JS_ThrowRangeError, JSResult},
     function::{
         AsyncState, JSCFunction, JSCFunctionMagic, JSFunctionBytecode, JSFunctionDef,
         JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
@@ -22,6 +22,7 @@ use crate::{
     generator::JSAsyncGeneratorData,
     iterator::JSIteratorKindEnum,
     module::JSModuleDef,
+    number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
         JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, PropertyEnum,
     },
@@ -2583,5 +2584,238 @@ pub fn js_async_function_call(
     args: &[JSValue],
     flags: i32,
 ) -> JSResult {
+    unreachable!("unused");
+}
+
+// Note: the integer value is saturated to 32 bits
+#[deprecated(note = "use JSValue::coerce_to_i32_saturating() instead")]
+pub unsafe fn JS_ToInt32SatFree(ctx: &JSContext, pres: *mut i32, mut val: JSValue) -> i32 {
+    let ret: i32 = loop {
+        match val {
+            JSValue::NULL | JSValue::UNDEFINED => {
+                break 0;
+            }
+            JSValue::Int(i) => {
+                break i;
+            }
+            JSValue::Bool(b) => {
+                break b as i32;
+            }
+            JSValue::Float64(d) => {
+                break if d.is_nan() {
+                    0
+                } else if d < i32::MIN as f64 {
+                    i32::MIN
+                } else if d > i32::MAX as f64 {
+                    i32::MAX
+                } else {
+                    d as i32
+                };
+            }
+            JSValue::EXCEPTION => {
+                *pres = 0;
+                return -1;
+            }
+            _ => {
+                val = JS_ToNumberFree(ctx, val);
+                if val.is_exception() {
+                    *pres = 0;
+                    return -1;
+                }
+            }
+        }
+    };
+
+    *pres = ret;
+    0
+}
+
+/// val is not consumed
+#[deprecated(note = "use JSValue::coerce_to_i32_saturating() instead")]
+pub unsafe fn JS_ToInt32Sat(ctx: &JSContext, pres: *mut i32, val: &JSValueConst) -> i32 {
+    JS_ToInt32SatFree(ctx, pres, val.clone())
+}
+
+/// val is not consumed
+#[deprecated(note = "use JSValue::coerce_to_i32_clamp() instead")]
+pub unsafe fn JS_ToInt32Clamp(
+    ctx: &JSContext,
+    pres: *mut i32,
+    val: &JSValueConst,
+    min: i32,
+    max: i32,
+    min_offset: i32,
+) -> i32 {
+    if let Ok(mut res) = val.coerce_to_i32_saturating(ctx) {
+        if res < min {
+            res += min_offset;
+            if res < min {
+                res = min;
+            }
+        } else if res > max {
+            res = max;
+        }
+        *pres = res;
+        0
+    } else {
+        -1
+    }
+}
+
+#[deprecated(note = "use JSValue::coerce_number_free() instead")]
+pub unsafe fn JS_ToNumberFree(ctx: &JSContext, val: JSValue) -> JSValue {
+    val.coerce_to_number_free(ctx).unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSValue::coerce_numeric_free() instead")]
+pub unsafe fn JS_ToNumericFree(ctx: &JSContext, val: JSValue) -> JSValue {
+    val.coerce_to_numeric_free(ctx)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSValue::coerce_numeric() instead")]
+pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValueConst) -> JSValue {
+    val.coerce_to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSValue::coerce_to_i64_saturating() instead")]
+pub unsafe fn JS_ToInt64SatFree(ctx: &JSContext, pres: *mut i64, mut val: JSValue) -> i32 {
+    unreachable!("unused");
+}
+
+/// val is not consumed
+#[deprecated(note = "use JSValue::coerce_to_i64_saturating() instead")]
+pub unsafe fn JS_ToInt64Sat(ctx: &JSContext, pres: *mut i64, val: &JSValueConst) -> i32 {
+    unreachable!("unused");
+}
+
+/// val is not consumed
+#[deprecated(note = "use JSValue::coerce_to_i64_clamp() instead")]
+pub unsafe fn JS_ToInt64Clamp(
+    ctx: &JSContext,
+    pres: *mut i64,
+    val: &JSValueConst,
+    min: i64,
+    max: i64,
+    neg_offset: i64,
+) -> i32 {
+    unreachable!("unused");
+}
+
+/// convert a value to a length between 0 and MAX_SAFE_INTEGER.
+#[deprecated(note = "use JSValue::coerce_to_length() instead")]
+pub unsafe fn JS_ToLengthFree(ctx: &JSContext, val: JSValue) -> Result<i64, i32> {
+    unreachable!("unused");
+}
+
+/// returns value of int, float64, nan, exception
+#[deprecated(note = "use JSValue::do_coerce_number_free() instead")]
+pub unsafe fn JS_ToNumberHintFree(
+    ctx: &JSContext,
+    val: JSValue,
+    flag: JSToNumberHintEnum,
+) -> JSValue {
+    unreachable!("unused");
+    // JSValue::do_coerce_to_number_free(ctx, val, flag).unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "use JSValue::coerce_to_index() instead")]
+pub fn JS_ToIndex(ctx: &JSContext, val: &JSValue) -> Result<u64, i32> {
+    let v: i64 = val.coerce_to_i64_saturating(ctx)?;
+    if !(0..=MAX_SAFE_INTEGER).contains(&v) {
+        JS_ThrowRangeError(ctx, "invalid array index");
+        return Err(-1);
+    }
+    Ok(v as u64)
+}
+
+#[deprecated(note = "use JSValue::from_i32() instead")]
+pub fn JS_NewInt32(ctx: &JSContext, val: i32) -> JSValue {
+    JSValue::Int(val)
+}
+
+#[inline(always)]
+#[deprecated(note = "use JSValue::from_u32() instead")]
+pub fn JS_NewUint32(ctx: &JSContext, val: u32) -> JSValue {
+    JSValue::from(val)
+}
+
+#[deprecated(note = "use JSValue::from_i64() instead")]
+#[inline(always)]
+pub fn JS_NewInt64(ctx: &JSContext, val: i64) -> JSValue {
+    JSValue::from(val)
+}
+
+#[inline(always)]
+#[deprecated(note = "use JSValue::from_f64_as_is() instead")]
+pub fn __JS_NewFloat64(ctx: &JSContext, d: f64) -> JSValue {
+    JSValue::Float64(d)
+}
+
+#[inline(always)]
+#[deprecated(note = "use JSValue::from_f64() instead")]
+pub fn JS_NewFloat64(ctx: &JSContext, d: f64) -> JSValue {
+    JSValue::from(d)
+}
+
+/* Note: can return an exception (-1) */
+#[deprecated(note = "use JSValue::is_integer() instead")]
+pub unsafe fn JS_NumberIsInteger(ctx: &JSContext, val: JSValueConst) -> i32 {
+    val.is_integral(ctx).map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSValue::coerce_to_i32() instead")]
+pub unsafe fn JS_ToInt32Free(ctx: &JSContext, pres: *mut i32, val: JSValue) -> i32 {
+    val.coerce_to_i32(ctx).map_or(-1, |v| {
+        *pres = v;
+        0
+    })
+}
+
+/// `val` is not consumed
+#[deprecated(note = "use JSValue::coerce_to_i32() instead")]
+pub unsafe fn JS_ToInt32(ctx: &JSContext, val: &JSValueConst) -> Result<i32, i32> {
+    let mut n = 0;
+    if JS_ToInt32Free(ctx, &mut n, val.clone()) == -1 {
+        Err(-1)
+    } else {
+        Ok(n)
+    }
+}
+
+#[deprecated(note = "use JSValue::coerce_to_u32() instead")]
+pub unsafe fn JS_ToUint32(ctx: &JSContext, val: &JSValue) -> Result<u32, i32> {
+    val.coerce_to_u32(ctx)
+}
+
+#[inline(always)]
+#[deprecated(note = "use JSValue::coerce_to_u32() instead")]
+pub unsafe fn JS_ToUint32Free(ctx: &JSContext, val: JSValue) -> Result<u32, i32> {
+    val.coerce_to_u32(ctx)
+}
+
+#[deprecated(note = "use JSValue::coerce_to_u8_clamp() instead")]
+pub unsafe fn JS_ToUint8ClampFree(ctx: &JSContext, pres: *mut i32, val: JSValue) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSValue::coerce_to_u8_clamp() instead")]
+pub unsafe fn JS_ToUint8Clamp(ctx: &JSContext, pres: *mut i32, val: &JSValue) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSValue::coerce_to_f64() instead")]
+pub unsafe fn JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSValue::coerce_to_f64() instead")]
+pub unsafe fn JS_ToFloat64(ctx: &JSContext, pres: *mut f64, val: &JSValueConst) -> i32 {
+    JS_ToFloat64Free(ctx, pres, val.clone())
+}
+
+/// Note: `val` is consumed
+#[deprecated(note = "use JSValue::coerce_to_f64() instead")]
+pub unsafe fn __JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
     unreachable!("unused");
 }

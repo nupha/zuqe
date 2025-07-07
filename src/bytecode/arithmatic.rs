@@ -140,8 +140,8 @@ impl BinaryOp {
 
     pub fn div(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
-            BinaryOp::Int(a, b) => Ok(JSValue::from_f64((a as f64) / (b as f64))),
-            BinaryOp::Float(a, b) => Ok(JSValue::from_f64(a / b)),
+            BinaryOp::Int(a, b) => Ok(JSValue::from((a as f64) / (b as f64))),
+            BinaryOp::Float(a, b) => Ok(JSValue::from(a / b)),
             BinaryOp::Bool(a, b) => Ok(if b {
                 JSValue::Int(a as i32)
             } else {
@@ -229,7 +229,7 @@ impl BinaryOp {
 
     pub fn sar(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(v1, v2) => Ok(JSValue::from_i32(v1 >> (v2 & 0x1f))),
+            Self::Int(v1, v2) => Ok(JSValue::Int(v1 >> (v2 & 0x1f))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) >> (v2 as i32))),
             _ => Err(-1),
         }
@@ -237,7 +237,7 @@ impl BinaryOp {
 
     pub fn and(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) & (v2 as u32))),
+            Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) & (v2 as u32))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 & v2) as i32)),
             _ => unreachable!(),
         }
@@ -245,7 +245,7 @@ impl BinaryOp {
 
     pub fn or(self, ctx: &JSContext) -> Result<JSValue, i32> {
         match self {
-            Self::Int(v1, v2) => Ok(JSValue::from_u32((v1 as u32) | (v2 as u32))),
+            Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) | (v2 as u32))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 | v2) as i32)),
             _ => unreachable!(),
         }
@@ -315,7 +315,7 @@ impl UnaryOp {
                         _ => unreachable!(),
                     }
                 } else {
-                    val.coerce_to_i32_free(ctx).map(Self::Int)
+                    val.coerce_to_i32(ctx).map(Self::Int)
                 }
             }
         }
@@ -326,7 +326,7 @@ impl UnaryOp {
     pub fn new_int(ctx: &JSContext, op1: JSValue) -> Result<Self, i32> {
         match op1 {
             JSValue::Int(i) => Ok(Self::Int(i)),
-            _ => op1.coerce_to_i32_free(ctx).map(Self::Int),
+            _ => op1.coerce_to_i32(ctx).map(Self::Int),
         }
     }
 
@@ -339,14 +339,14 @@ impl UnaryOp {
                 } else if a == i32::MIN {
                     JSValue::from_f64_as_is(-(a as f64))
                 } else {
-                    JSValue::from_i32(-a)
+                    JSValue::Int(-a)
                 }
             }
             UnaryOp::Float(a) => {
                 if a == 0.0 {
                     JSValue::from_f64_as_is(-0.0)
                 } else {
-                    JSValue::from_f64(-a)
+                    JSValue::from(-a)
                 }
             }
         }
@@ -376,9 +376,9 @@ impl UnaryOp {
         match self {
             UnaryOp::Int(a) => {
                 if a == i32::MIN {
-                    JSValue::from_i64(a as i64 - 1)
+                    JSValue::from(a as i64 - 1)
                 } else {
-                    JSValue::from_i32(a - 1)
+                    JSValue::Int(a - 1)
                 }
             }
             UnaryOp::Float(a) => JSValue::Float64(a - 1.0),
@@ -467,7 +467,7 @@ impl JSValue {
                     // +0 != -0
                     let u1 = JSFloat64Union { d: d1 };
                     let u2 = JSFloat64Union { d: d2 };
-                    unsafe { u1.u64 == u2.u64 }
+                    unsafe { u1.uint64 == u2.uint64 }
                 }
             } else {
                 d1 == d2 // if NaN return false and +0 == -0

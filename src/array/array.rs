@@ -5,7 +5,6 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
     error::{JS_ThrowRangeError, JSErrorEnum, JSResult},
-    number::JS_ToUint32,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSObject, JSObjectIsa, JSProperty,
@@ -249,7 +248,7 @@ impl JSObject {
                 }
             })
             .unwrap();
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from_u32(len as _));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as u32));
         } else {
             // Note: length is always a uint32 because the object is an array
             let mut cur_len = self
@@ -259,7 +258,7 @@ impl JSObject {
                 .first()
                 .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
                 .ok_or(-1)
-                .and_then(|v| unsafe { JS_ToUint32(ctx, &v) })
+                .and_then(|v| v.coerce_to_u32(ctx))
                 .unwrap() as usize;
 
             if len < cur_len {
@@ -441,7 +440,7 @@ pub unsafe fn JS_ToArrayLengthFree(
         }
         _ => {
             // legacy behavior: must do the conversion twice and compare
-            len = JS_ToUint32(ctx, &val)?;
+            len = val.coerce_to_u32(ctx)?;
             let v = val.coerce_to_number_free(ctx)?;
             if len != JS_ToArrayLengthFree(ctx, v, false)? {
                 JS_ThrowRangeError(ctx, "invalid array length");

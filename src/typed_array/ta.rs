@@ -8,7 +8,6 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
-    number::JS_ToInt64Sat,
     object::{JSObject, JSObjectIsa, JSObjectWeakref, js_get_length64},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -600,9 +599,9 @@ pub unsafe fn js_typed_array_get_length_internal(
 
 pub fn js_typed_array_set_internal(
     ctx: &JSContext,
-    dst: &JSValueConst,
-    src: &JSValueConst,
-    off: &JSValueConst,
+    dst: &JSValue,
+    src: &JSValue,
+    off: &JSValue,
 ) -> JSResult {
     let p = dst.clone().typed_array_must(ctx, false)?;
     if p.is_detached() {
@@ -610,10 +609,7 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let mut offset: i64 = 0;
-    if unsafe { JS_ToInt64Sat(ctx, &mut offset, off) } != 0 {
-        return Err(-1);
-    }
+    let offset: i64 = off.coerce_to_i64_saturating(ctx)?;
     if offset < 0 {
         JS_ThrowRangeError(ctx, "invalid array length");
         return Err(-1);

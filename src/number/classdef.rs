@@ -4,13 +4,13 @@ use crate::{
     error::{JS_ThrowRangeError, JSResult},
     function::{CallContext, NativeFieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
-    number::{JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, is_safe_integer},
+    number::{JS_DTOA_FORCE_EXP, is_safe_integer},
     object::JSObjectIsa,
     utils::skip_spaces,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
-use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_ToInt32, f64_stringify, js_atof};
+use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, f64_stringify, js_atof};
 
 pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     if this_val.is_number() {
@@ -27,13 +27,13 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     }
 }
 
-pub fn js_parseInt(ctx: &JSContext, args: CallContext) -> JSResult {
-    let radix: i32 = unsafe { JS_ToInt32(ctx, args.arg(1))? };
+pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let radix: i32 = cc.arg(1).coerce_to_i32(ctx)?;
 
     let ret = if radix != 0 && !(2..=36).contains(&radix) {
         JSValue::Float64(f64::NAN)
     } else {
-        let str = args.arg(0).coerce_to_utf8(ctx)?;
+        let str = cc.arg(0).coerce_to_utf8(ctx)?;
         let mut p = str.as_ptr();
 
         unsafe {
@@ -68,16 +68,13 @@ pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
     js_thisNumberValue(ctx, args.this_raw())
 }
 
-pub unsafe fn js_get_radix(ctx: &JSContext, val: &JSValueConst) -> i32 {
-    let mut radix: i32 = 0;
-    if JS_ToInt32Sat(ctx, &mut radix, val) != 0 {
-        return -1;
-    }
+pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
+    let radix: i32 = val.coerce_to_i32_saturating(ctx)?;
     if !(2..=36).contains(&radix) {
         JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
-        return -1;
+        return Err(-1);
     }
-    radix
+    Ok(radix)
 }
 
 const FMT_TO_FIXED: i32 = 1;
@@ -143,20 +140,13 @@ const FMT_TO_LOCALE_STRING: i32 = 5;
 
 pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = js_thisNumberValue(ctx, cc.this_raw())?;
-
-    let mut d: f64 = 0.0;
-    if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
-        return Err(-1);
-    }
+    let mut d: f64 = val.coerce_to_f64(ctx)?;
 
     let a0 = cc.arg(0);
     let a = if a0.is_undefined() {
         None
     } else {
-        let mut f: i32 = 0;
-        if unsafe { JS_ToInt32Sat(ctx, &mut f, a0) } != 0 {
-            return Err(-1);
-        }
+        let f: i32 = a0.coerce_to_i32_saturating(ctx)?;
         Some(f)
     };
 
@@ -178,17 +168,12 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
                     a.unwrap_or(10)
                 };
                 if !(2..=36).contains(&base) {
-                    unsafe {
-                        JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
-                    }
+                    JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
+
                     return Err(-1);
                 }
 
-                let mut d: f64 = 0.0;
-                if unsafe { JS_ToFloat64(ctx, &mut d, &val) } != 0 {
-                    return Err(-1);
-                }
-
+                let d: f64 = val.coerce_to_f64(ctx)?;
                 f64_stringify(d, base as _, None, 0).into_owned()
             }
 
@@ -214,9 +199,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
                 10,
                 if let Some(p) = a {
                     if !(1..=100).contains(&p) {
-                        unsafe {
-                            JS_ThrowRangeError(ctx, "invalid number of digits");
-                        }
+                        JS_ThrowRangeError(ctx, "invalid number of digits");
                         return Err(-1);
                     }
                     Some(p as u32)
@@ -229,9 +212,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             FMT_TO_EXPONENTIAL => if let Some(f) = a {
                 if !(0..=20).contains(&f) {
-                    unsafe {
-                        JS_ThrowRangeError(ctx, "invalid number of digits");
-                    }
+                    JS_ThrowRangeError(ctx, "invalid number of digits");
                     return Err(-1);
                 }
                 f64_stringify(d, 10, Some(f as u32 + 1), JS_DTOA_FORCE_EXP)
@@ -273,21 +254,17 @@ pub fn js_number_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult 
 }
 
 pub fn js_number_isInteger(ctx: &JSContext, args: CallContext) -> JSResult {
-    let b = args.arg(0).is_integer(ctx)?;
+    let b = args.arg(0).is_integral(ctx)?;
     Ok(b.into())
 }
 
-pub fn js_number_isSafeInteger(ctx: &JSContext, args: CallContext) -> JSResult {
-    let val = args.arg(0);
+pub fn js_number_isSafeInteger(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = cc.arg(0);
     if !val.is_number() {
         return Ok(JSValue::Bool(false));
     }
 
-    let mut d: f64 = 0.0;
-    if unsafe { JS_ToFloat64(ctx, &mut d, val) } != 0 {
-        return Err(-1);
-    }
-
+    let d: f64 = val.coerce_to_f64(ctx)?;
     Ok(is_safe_integer(d).into())
 }
 
