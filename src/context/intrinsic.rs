@@ -19,7 +19,7 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{JS_NATIVE_ERROR_COUNT, JSErrorEnum, JSResult, NATIVE_ERROR_NAMES},
     function::{
-        BytecodeFunctionValue, CallContext, JSFunctionKindEnum, NativeFieldDef, NativeFunctionType,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeFieldDef, NativeFunctionType,
         js_async_function_proto_funcs,
     },
     generator::{
@@ -131,7 +131,7 @@ impl JSContext {
 
         let function_ctor = self
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(BytecodeFunctionValue::hook_constructor),
+                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::hook_constructor),
                 "Function",
                 1,
                 JSFunctionKindEnum::JS_FUNC_NORMAL as _,
@@ -695,7 +695,7 @@ impl JSContext {
 
             let af_ctor = self
                 .create_native_function_from_proto(
-                    NativeFunctionType::ConstructorOrFunc(BytecodeFunctionValue::hook_constructor),
+                    NativeFunctionType::ConstructorOrFunc(BytecodeFunction::hook_constructor),
                     "AsyncFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
@@ -761,7 +761,7 @@ impl JSContext {
 
             let agf_ctor = self
                 .create_native_function_from_proto(
-                    NativeFunctionType::ConstructorOrFunc(BytecodeFunctionValue::hook_constructor),
+                    NativeFunctionType::ConstructorOrFunc(BytecodeFunction::hook_constructor),
                     "AsyncGeneratorFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,

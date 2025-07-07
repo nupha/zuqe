@@ -1,0 +1,256 @@
+use std::ptr::NonNull;
+
+use smallvec::SmallVec;
+
+use crate::{
+    JS_CLASS_BYTECODE_FUNCTION,
+    atom::consts::JS_ATOM_prototype,
+    bytecode::run_bytecodes,
+    context::JSContext,
+    error::JSResult,
+    eval::JS_EVAL_TYPE_INDIRECT,
+    function::{
+        Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id,
+    },
+    object::JS_SetPrototypeInternal,
+    runtime::JSRuntime,
+    stack_frame::JSStackFrame,
+    value::JSValue,
+};
+
+use super::JSFunctionKindEnum;
+
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct BytecodeFunction(JSValue);
+
+impl JSValue {
+    pub unsafe fn as_bytecode_function_unchecked(self) -> BytecodeFunction {
+        // debug_assert!(matches!(self, Self::FunctionBytecode(_) | Self::Object(_)));
+        debug_assert!(self.is_object());
+        debug_assert_eq!(
+            self.object_unchecked().class_id(),
+            JS_CLASS_BYTECODE_FUNCTION
+        );
+        std::mem::transmute(self)
+    }
+}
+
+impl BytecodeFunction {
+    /// call bytecode function
+    pub fn call_internal(
+        &self,
+        caller_ctx: &JSContext,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSValue {
+        let func_obj = &self.0;
+        let p = unsafe { self.0.object_unchecked() };
+
+        let (bc, home_obj) =
+            p.0.isa
+                .borrow()
+                .func()
+                .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
+                .unwrap();
+
+        // how many args that should be copied to local buf?
+        // `args.len()` is actual argument count
+        // `b.arg_count` is the length when defining the function
+        let arg_copy_num = if flags & JS_CALL_FLAG_COPY_ARGV != 0
+            || args.len() < bc.0.borrow().arg_count as usize
+        {
+            std::cmp::max(args.len(), bc.0.borrow().arg_count as usize)
+        } else {
+            0
+        };
+
+        // how many bytes to allocate for local buf (args+vars+stack)?
+        let (buf_values_count, js_mode) = {
+            let b = bc.0.borrow();
+            (
+                arg_copy_num as usize + b.var_count as usize + b.stack_size as usize,
+                b.js_mode as i32,
+            )
+        };
+
+        let mut sframe = JSStackFrame {
+            cur_func: func_obj.clone(),
+            js_mode,
+            ..Default::default()
+        };
+        let sf = &mut sframe;
+
+        // make local buffer and running bytecodes with it.
+        // local_buf layout:
+        //
+        // +------------------+
+        // | argument values  | <- arg_buf (optional, if need to copy arg)
+        // | variable values  | <- var_buf
+        // | stack space      | <- stack_buf
+        // +------------------+
+        //
+        if sf.local_buf.try_reserve_exact(buf_values_count).is_err() {
+            caller_ctx.JS_ThrowOutOfMemory();
+            return JSValue::EXCEPTION;
+        }
+
+        // initialize args section
+        if arg_copy_num != 0 {
+            debug_assert!(arg_copy_num >= args.len());
+
+            // copy actual arg values - duplicated
+            sf.local_buf.extend(args.iter().map(|x| x.clone()));
+            // padding with undefined
+            sf.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                arg_copy_num - args.len(),
+            ));
+
+            sf.arg_count = arg_copy_num as _;
+            sf.arg_base_ptr = sf.local_buf.as_mut_ptr()
+        } else {
+            sf.arg_count = args.len() as _;
+            sf.arg_base_ptr = args.as_ptr().cast::<JSValue>() as *mut _;
+        }
+
+        // initialize (vars + stack) section
+        {
+            let b = bc.0.borrow();
+
+            sf.local_buf.extend(std::iter::repeat_n(
+                JSValue::UNDEFINED,
+                (b.var_count + b.stack_size) as usize,
+            ));
+            debug_assert_eq!(sf.local_buf.len(), buf_values_count);
+
+            sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
+            sf.var_count = b.var_count;
+        }
+
+        sf.prev_frame = caller_ctx.rt().current_stack_frame;
+        caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
+
+        let retval = unsafe {
+            let b = bc.0.borrow();
+            run_bytecodes(
+                &bc,
+                home_obj.as_ref(),
+                sf,
+                caller_ctx,
+                this_obj,
+                new_target,
+                &b.binary[b.bytecode_start as usize..],
+                0,
+                0,
+                &p.0.isa.borrow().func().unwrap().var_refs,
+                args,
+                js_mode,
+                false,
+            )
+        };
+
+        // stack frame is about to drop
+        sf.finalize();
+
+        retval
+    }
+}
+
+impl BytecodeFunction {
+    /// handle `Function` constructor. For example:
+    ///
+    /// ```js
+    /// const f = new Function("a", "b", "return a+b")
+    /// ```
+    pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+        debug_assert!((0..4).contains(&cc.magic()));
+
+        // XXX: add a specific eval mode so that Function("}), ({") is rejected
+
+        let new_target = cc.this();
+        let func_kind = unsafe { std::mem::transmute::<u8, JSFunctionKindEnum>(cc.magic() as u8) };
+
+        //
+        // make function source script:
+        // ([async] function[*] anonymous(a,b){<body>})
+        //
+        let mut buf = SmallVec::<[u8; 256]>::new();
+        buf.push(b'(');
+
+        if matches!(
+            func_kind,
+            JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+        ) {
+            buf.extend_from_slice(b"async ");
+        }
+
+        buf.extend_from_slice(b"function");
+        if matches!(
+            func_kind,
+            JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+        ) {
+            buf.push(b'*');
+        }
+
+        buf.extend_from_slice(b" anonymous(");
+
+        // Note: the last argument is function body.
+        if let Some((body, arglist)) = cc.arguments().split_last() {
+            // args list
+            for (i, a) in arglist.iter().enumerate() {
+                if i != 0 {
+                    buf.push(b',');
+                }
+                buf.extend_from_slice(a.coerce_to_utf8(ctx)?.as_bytes());
+            }
+            buf.extend_from_slice(b"){");
+
+            // function body
+            buf.extend_from_slice(body.coerce_to_utf8(ctx)?.as_bytes());
+        }
+
+        buf.extend_from_slice(b"})");
+
+        // create script string
+        let src = ctx
+            .create_string_from_utf8(buf.into_vec())
+            .check_exception()?;
+
+        // eval string `src`
+        let func_val = {
+            // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
+            let global = JSValue::Object(ctx.global_obj());
+            src.eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
+                .check_exception()?
+        };
+
+        if !new_target.is_undefined() {
+            // set the prototype
+            let mut proto = new_target
+                .get_property(ctx, JS_ATOM_prototype)
+                .check_exception()?;
+
+            if !proto.is_object() {
+                let realm = JS_GetFunctionRealm(ctx, &new_target)?;
+                proto = realm.0.borrow().class_proto
+                    [func_kind_to_class_id[func_kind as usize] as usize]
+                    .clone();
+            }
+
+            JS_SetPrototypeInternal(ctx, &func_val, proto, true)?;
+        }
+
+        Ok(func_val)
+    }
+}
+
+#[deprecated(note = "unused")]
+pub unsafe fn free_function_bytecode(
+    rt: *mut JSRuntime,
+    mut b: NonNull<Bytecode>,
+) -> Option<NonNull<Bytecode>> {
+    unreachable!("unused")
+}
