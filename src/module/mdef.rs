@@ -585,7 +585,7 @@ pub unsafe fn js_create_module_bytecode_function(
 pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
-    // info in JSFunctionBytecode.
+    // info in Bytecode.
     let mut sf = ctx.rt().current_stack_frame.cast::<JSStackFrame>();
     if sf.is_null() {
         return JS_ATOM_NULL;
@@ -644,7 +644,7 @@ pub unsafe fn js_import_meta(ctx: &JSContext) -> JSValue {
     }
 
     // XXX: inefficient, need to add a module or script pointer in
-    // JSFunctionBytecode
+    // Bytecode
     let m = ctx.find_loaded_module(filename);
     JS_FreeAtom(ctx, filename);
     if let Some(m) = m {

@@ -1,7 +1,7 @@
 use crate::{
     context::{JSContext, JSContextWeakref},
     function::{
-        AsyncState, AsyncStateWeakref, JSFunctionBytecode, JSFunctionBytecodeWeakref, JSVarRef,
+        AsyncState, AsyncStateWeakref, Bytecode, JSFunctionBytecodeWeakref, JSVarRef,
         JSVarRefWeakref,
     },
     object::{JSObjectWeakref, JSShapeWeakref},
@@ -14,7 +14,7 @@ use super::{JSObject, JSShape};
 #[derive(Debug, Clone)]
 pub enum GCObject {
     Object(JSObject),
-    FunctionBytecode(JSFunctionBytecode),
+    FunctionBytecode(Bytecode),
     String(JSString),
     Shape(JSShape),
     VarRef(JSVarRef),

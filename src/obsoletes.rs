@@ -13,10 +13,9 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
     function::{
-        AsyncState, JSCFunction, JSCFunctionMagic, JSFunctionBytecode, JSFunctionDef,
-        JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot,
-        NativeCallback, NativeFunctionType, ObjectNativeFunc, RelocEntry,
-        js_function_set_properties,
+        AsyncState, Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum,
+        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback,
+        NativeFunctionType, ObjectNativeFunc, RelocEntry, js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
@@ -717,8 +716,8 @@ pub unsafe fn js_create_function(ctx: &JSContext, fd: *mut JSFunctionDef) -> JSV
     // Box::from_raw(fd).make_function(ctx)
 }
 
-#[deprecated(note = "use JSFunctionBytecode::find_line_num() instead")]
-pub unsafe fn find_line_num(ctx: &JSContext, b: *mut JSFunctionBytecode, pc_value: u32) -> i32 {
+#[deprecated(note = "use Bytecode::find_line_num() instead")]
+pub unsafe fn find_line_num(ctx: &JSContext, b: *mut Bytecode, pc_value: u32) -> i32 {
     (*b).find_line_num(pc_value).unwrap_or(-1)
 }
 
@@ -2480,8 +2479,8 @@ pub fn JS_NewCFunctionMagic(
 }
 
 /* return NULL without exception if not a function or no bytecode */
-#[deprecated(note = "use JSObjectIsa::func() to get JSFunctionBytecode")]
-pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut JSFunctionBytecode {
+#[deprecated(note = "use JSObjectIsa::func() to get Bytecode")]
+pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut Bytecode {
     unreachable!("unused");
 }
 

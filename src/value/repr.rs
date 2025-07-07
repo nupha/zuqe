@@ -59,7 +59,7 @@ impl JSValue {
                 buf.push(sep as u8);
                 String::from_utf8(buf.to_vec()).unwrap().into()
             }
-            Self::FunctionBytecode(b) => {
+            Self::Bytecode(b) => {
                 format!("[bytecode {}]", b.0.borrow().func_name.to_str(b.rt())).into()
             }
             Self::Object(p) => {
@@ -157,7 +157,7 @@ impl JSValue {
                 let t = self.coerce_to_primitive(ctx, HINT_STRING)?;
                 t.do_coerce_to_string(ctx, as_propkey)?
             }
-            Self::FunctionBytecode(_) => ctx.create_string("[function bytecode]"),
+            Self::Bytecode(_) => ctx.create_string("[function bytecode]"),
             Self::Symbol(_) => {
                 if as_propkey {
                     self.clone()

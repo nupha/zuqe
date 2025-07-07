@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
     function::{
-        JSFunctionBytecode, JSFunctionKindEnum, JSObjectFunc, JSVarRef, func_kind_to_class_id,
+        Bytecode, JSFunctionKindEnum, JSObjectFunc, JSVarRef, func_kind_to_class_id,
         js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa, LazyInit},
@@ -214,7 +214,7 @@ impl JSFunctionDef {
 /// `bfunc` is consumed.
 pub unsafe fn js_closure(
     ctx: &JSContext,
-    bc: &JSFunctionBytecode,
+    bc: &Bytecode,
     cur_var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {
@@ -304,7 +304,7 @@ pub unsafe fn js_closure(
 pub fn js_closure2(
     ctx: &JSContext,
     func_obj: JSValue,
-    bc: JSFunctionBytecode,
+    bc: Bytecode,
     cur_var_refs: &[JSVarRef],
     sf: *mut JSStackFrame,
 ) -> JSValue {
@@ -373,7 +373,7 @@ pub unsafe fn add_closure_var(
 pub unsafe fn add_closure_variables(
     ctx: &JSContext,
     s: &mut JSFunctionDef,
-    bc: &JSFunctionBytecode,
+    bc: &Bytecode,
     scope_idx: i32,
 ) -> Result<(), i32> {
     debug_assert!(s.closure_vars.is_none());

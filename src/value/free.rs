@@ -21,7 +21,7 @@ pub fn JS_FreeValueRT(rt: *mut JSRuntime, v: &JSValue) {
     //     let mut gcobj = match v.tag() {
     //         JS_TAG_OBJECT => v.object_unchecked().gc_node_ptr(),
     //         JS_TAG_FUNCTION_BYTECODE => {
-    //             (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_node_ptr()
+    //             (*JS_VALUE_GET_PTR(v).cast::<Bytecode>()).gc_node_ptr()
     //         }
     //         JS_TAG_STRING | JS_TAG_SYMBOL => {
     //             let s = Rc::from_raw(v.string());
@@ -78,7 +78,7 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut JSRuntime, payload: &GCObject) {
     //     }
     //     JS_TAG_FUNCTION_BYTECODE => {
     //         if (*rt).gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-    //             let node = (*JS_VALUE_GET_PTR(v).cast::<JSFunctionBytecode>()).gc_node_ptr();
+    //             let node = (*JS_VALUE_GET_PTR(v).cast::<Bytecode>()).gc_node_ptr();
     //             debug_assert_eq!(node.as_ref().ref_count(), 0);
 
     //             Node::unlink(node);

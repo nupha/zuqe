@@ -2,7 +2,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
-        JSClosureVar, JSFunctionBytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
+        JSClosureVar, Bytecode, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
@@ -14,7 +14,7 @@ use super::{
 };
 
 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &JSFunctionBytecode, pc: usize) -> usize {
+pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) -> usize {
     use crate::utils::read_from_ptr;
 
     let mut pos = pc;
@@ -233,7 +233,7 @@ pub unsafe fn dump_byte_code(
     source: Option<&str>,
     line_num: i32,
     labels: &[LabelSlot], // for pass 1, 2 only
-    b: *const JSFunctionBytecode,
+    b: *const Bytecode,
 ) {
     use crate::utils::read_from_ptr;
 
@@ -607,7 +607,7 @@ pub unsafe fn dump_byte_code(
 }
 
 #[cfg(feature = "dump_bytecode")]
-pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &JSFunctionBytecode) {
+pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &Bytecode) {
     let b = bc.0.borrow();
 
     if b.has_debug && b.debug.filename != JS_ATOM_NULL {

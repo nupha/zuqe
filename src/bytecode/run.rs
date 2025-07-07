@@ -26,7 +26,7 @@ use crate::{
     },
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
-        CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal, JSFunctionBytecode,
+        Bytecode, CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal,
         JSFunctionKindEnum, JSVarRef, build_arg_list, js_build_arguments,
         js_build_mapped_arguments, js_build_rest, js_closure, js_function_apply,
     },
@@ -47,7 +47,7 @@ use crate::{
 };
 
 pub unsafe fn run_bytecodes(
-    b: &JSFunctionBytecode,
+    b: &Bytecode,
     func_home_obj: Option<&JSObject>,
     sf: &mut JSStackFrame, // Execution stack frame for managing function call state
     caller_ctx: &JSContext, // Context of the calling environment
@@ -621,7 +621,7 @@ pub unsafe fn run_bytecodes(
                     PC_GO!(4);
 
                     let bfunc = CPOOL![id];
-                    if let JSValue::FunctionBytecode(bc) = bfunc {
+                    if let JSValue::Bytecode(bc) = bfunc {
                         SP_PUT!(0, js_closure(ctx, bc, var_refs, sf));
                         SP_GO!(1);
                         if SP_REF!(-1).is_exception() {
@@ -1879,11 +1879,11 @@ pub unsafe fn run_bytecodes(
 
                     if let Ok(res) = binop.and_then(|bop| match opcode {
                         OpCode::ADD => bop.add(ctx),
-                        OpCode::SUB => bop.sub(ctx),
-                        OpCode::MUL => bop.mul(ctx),
-                        OpCode::DIV => bop.div(ctx),
-                        OpCode::MOD => bop.mod_(ctx),
-                        OpCode::POW => bop.pow(ctx),
+                        OpCode::SUB => bop.sub(),
+                        OpCode::MUL => bop.mul(),
+                        OpCode::DIV => bop.div(),
+                        OpCode::MOD => bop.mod_(),
+                        OpCode::POW => bop.pow(),
                         _ => unreachable!(),
                     }) {
                         SP_PUT!(-2, res);

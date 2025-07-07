@@ -325,7 +325,7 @@ pub unsafe fn JS_EvalFunctionInternal(
     sf: *mut JSStackFrame,
 ) -> JSValue {
     match fun_obj {
-        JSValue::FunctionBytecode(bc) => {
+        JSValue::Bytecode(bc) => {
             let fun_closure = js_closure(ctx, &bc, var_refs, sf);
             JS_Call(ctx, &fun_closure, &this_obj, &[])
         }

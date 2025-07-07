@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
-    function::{CallContext, JSFunctionBytecode, NativeFieldDef, get_func_name},
+    function::{CallContext, Bytecode, NativeFieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JSObjectIsa,
     },
@@ -362,7 +362,7 @@ pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
 
 pub fn JS_ThrowReferenceErrorUninitialized2(
     ctx: &JSContext,
-    b: &JSFunctionBytecode,
+    b: &Bytecode,
     idx: u16,
     is_ref: bool,
 ) {

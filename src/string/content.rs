@@ -545,7 +545,7 @@ impl StringContent {
     }
 
     /// if string is correct representation of u32, convert to u32. otherwise, returns Err
-    pub fn parse_u32(&self) -> Result<u32, i32> {
+    pub fn parse_u32_radix(&self, radix: u8) -> Result<u32, i32> {
         let len = self.len();
         if len == 0 || len > 10 {
             return Err(-1);
@@ -559,17 +559,30 @@ impl StringContent {
                     return if len != 1 { Err(-1) } else { Ok(0) };
                 }
 
-                let n64: u64 = (ret as u64) * 10 + (c as u64 - '0' as u64);
-                if (n64 >> 32) != 0 {
-                    return Err(-1); // u32 overflow
+                let n = c as u64 - '0' as u64;
+                if n < radix as u64 {
+                    let n64: u64 = (ret as u64) * 10 + n;
+                    if n64 >> 32 != 0 {
+                        return Err(-1); // u32 overflow
+                    }
+                    ret = n64 as u32;
+                } else {
+                    return Err(-1);
                 }
-                ret = n64 as u32;
+            } else if i > 0 && c == '_' {
+                //skip '_'
             } else {
                 return Err(-1);
             }
         }
 
         Ok(ret)
+    }
+
+    /// if string is correct representation of u32, convert to u32. otherwise, returns Err
+    #[inline(always)]
+    pub fn parse_u32(&self) -> Result<u32, i32> {
+        self.parse_u32_radix(10)
     }
 
     /// find index of `needle` occurance in haystack `self`, starting at index `from`.

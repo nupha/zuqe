@@ -19,8 +19,6 @@ pub(super) enum BinaryOp {
 }
 
 impl BinaryOp {
-    /// value tag check fast path.
-    /// Note: op1, op2 are not consumed.
     #[inline(always)]
     pub fn new_fast(op1: JSValue, op2: JSValue, allow_float: bool) -> Option<Self> {
         match (op1, op2) {
@@ -112,7 +110,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn sub(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn sub(self) -> Result<JSValue, i32> {
         match self {
             BinaryOp::Int(a, b) => Ok(JSValue::from(a - b)),
             BinaryOp::Float(a, b) => Ok(JSValue::from(a + b)),
@@ -121,7 +119,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn mul(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn mul(self) -> Result<JSValue, i32> {
         match self {
             BinaryOp::Int(a, b) => {
                 let v = (a as i64) * (b as i64);
@@ -137,7 +135,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn div(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn div(self) -> Result<JSValue, i32> {
         match self {
             BinaryOp::Int(a, b) => Ok(JSValue::from((a as f64) / (b as f64))),
             BinaryOp::Float(a, b) => Ok(JSValue::from(a / b)),
@@ -150,7 +148,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn mod_(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn mod_(self) -> Result<JSValue, i32> {
         match self {
             BinaryOp::Int(a, b) => {
                 if b == 0 {
@@ -183,7 +181,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn pow(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn pow(self) -> Result<JSValue, i32> {
         match self {
             BinaryOp::Int(a, b) => {
                 if b == 1 || (a == 0 && b == 0) {
@@ -210,7 +208,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn shl(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn shl(self) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) << (v2 & 0x1f))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) << (v2 as i32))),
@@ -218,7 +216,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn shr(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn shr(self) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) >> (v2 & 0x1f))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) >> (v2 as i32))),
@@ -226,7 +224,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn sar(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn sar(self) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::Int(v1 >> (v2 & 0x1f))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 as i32) >> (v2 as i32))),
@@ -234,7 +232,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn and(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn and(self) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) & (v2 as u32))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 & v2) as i32)),
@@ -242,7 +240,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn or(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn or(self) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) | (v2 as u32))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 | v2) as i32)),
@@ -250,7 +248,7 @@ impl BinaryOp {
         }
     }
 
-    pub fn xor(self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn xor(self) -> Result<JSValue, i32> {
         match self {
             Self::Int(v1, v2) => Ok(JSValue::from((v1 as u32) ^ (v2 as u32))),
             Self::Bool(v1, v2) => Ok(JSValue::Int((v1 ^ v2) as i32)),
@@ -260,7 +258,7 @@ impl BinaryOp {
 }
 
 macro_rules! rel {
-    ($self:expr, $ctx:expr, $op:pat) => {
+    ($self:expr, $op:pat) => {
         match $self {
             Self::Int(a, b) => matches!(a.cmp(&b), $op),
             Self::Float(a, b) => a.partial_cmp(&b).map_or(false, |c|matches!(c , $op)), // false if NaN
@@ -279,17 +277,17 @@ macro_rules! rel {
 }
 
 impl BinaryOp {
-    pub fn lt(self, ctx: &JSContext) -> bool {
-        rel!(self, ctx, Ordering::Less)
+    pub fn lt(self) -> bool {
+        rel!(self, Ordering::Less)
     }
-    pub fn lte(self, ctx: &JSContext) -> bool {
-        rel!(self, ctx, Ordering::Less | Ordering::Equal)
+    pub fn lte(self) -> bool {
+        rel!(self, Ordering::Less | Ordering::Equal)
     }
-    pub fn gt(self, ctx: &JSContext) -> bool {
-        rel!(self, ctx, Ordering::Greater)
+    pub fn gt(self) -> bool {
+        rel!(self, Ordering::Greater)
     }
-    pub fn gte(self, ctx: &JSContext) -> bool {
-        rel!(self, ctx, Ordering::Greater | Ordering::Equal)
+    pub fn gte(self) -> bool {
+        rel!(self, Ordering::Greater | Ordering::Equal)
     }
 }
 
@@ -406,12 +404,12 @@ pub(super) unsafe fn op_binary_logic(
         None,
     )
     .and_then(|bop| match opcode {
-        OpCode::SHL => bop.shl(ctx),
-        OpCode::SHR => bop.shr(ctx),
-        OpCode::SAR => bop.sar(ctx),
-        OpCode::AND => bop.and(ctx),
-        OpCode::OR => bop.or(ctx),
-        OpCode::XOR => bop.xor(ctx),
+        OpCode::SHL => bop.shl(),
+        OpCode::SHR => bop.shr(),
+        OpCode::SAR => bop.sar(),
+        OpCode::AND => bop.and(),
+        OpCode::OR => bop.or(),
+        OpCode::XOR => bop.xor(),
         _ => unreachable!(),
     })?;
 
@@ -435,10 +433,10 @@ pub(super) unsafe fn relational(
     };
 
     match opcode {
-        OpCode::LT => Ok(bop.lt(ctx)),
-        OpCode::LTE => Ok(bop.lte(ctx)),
-        OpCode::GT => Ok(bop.gt(ctx)),
-        OpCode::GTE => Ok(bop.gte(ctx)),
+        OpCode::LT => Ok(bop.lt()),
+        OpCode::LTE => Ok(bop.lte()),
+        OpCode::GT => Ok(bop.gt()),
+        OpCode::GTE => Ok(bop.gte()),
         _ => unreachable!(),
     }
 }

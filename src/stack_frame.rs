@@ -32,7 +32,7 @@ pub struct JSStackFrame {
     pub var_count: u16,
 
     /// Program counter offset for bytecode functions
-    /// Position in local_buf relative to pc_base (see JSFunctionBytecode::bytecode_start)
+    /// Position in local_buf relative to pc_base (see Bytecode::bytecode_start)
     pub cur_pc_offset: usize,
 
     /// Stack pointer offset (used for generator functions)

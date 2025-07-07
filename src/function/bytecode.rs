@@ -51,13 +51,13 @@ pub const PC2LINE_RANGE: i32 = 5;
 pub const PC2LINE_OP_FIRST: i32 = 1;
 pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
-#[repr(C)]
 #[derive(Debug)]
-pub(crate) struct JSFunctionBytecodeInner {
+pub(crate) struct BytecodeInner {
     pub header: GCObjectHeader,
 
     pub func_name: JSAtom,
-    pub realm: JSContextWeakref, // function realm
+    /// function realm
+    pub realm: JSContextWeakref,
 
     pub js_mode: u8,
     pub has_prototype: bool, // true if a prototype field is necessary
@@ -98,13 +98,13 @@ pub(crate) struct JSFunctionBytecodeInner {
     pub bytecode_start: u32,
 }
 
-impl Drop for JSFunctionBytecodeInner {
+impl Drop for BytecodeInner {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl JSFunctionBytecodeInner {
+impl BytecodeInner {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
@@ -362,54 +362,58 @@ impl JSFunctionBytecodeInner {
         }
     }
 
-    pub unsafe fn find_line_num(&self, pc_value: u32) -> Option<i32> {
+    pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
         if !self.has_debug || self.debug.pc2line_buf.is_none() {
             // function was stripped
             return None;
         }
 
         let mut p = self.debug.pc2line_buf.as_ref().unwrap().as_ptr();
-        let p_end = p.offset(self.debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap() as isize);
+        let p_end =
+            unsafe { p.offset(self.debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap() as isize) };
 
         let mut pc = 0;
         let mut line_num = self.debug.line_num;
 
         while p < p_end {
-            let mut op = *p as i32;
-            p = p.offset(1);
+            unsafe {
+                let mut op = *p as i32;
+                p = p.offset(1);
 
-            let new_line_num: i32;
+                let new_line_num: i32;
 
-            if op == 0 {
-                let mut val = 0;
-                // FIXME: hard coded len 5
-                let ret = if let Ok(n) = get_leb128(&mut val, std::slice::from_raw_parts(p, 5)) {
-                    n
+                if op == 0 {
+                    let mut val = 0;
+                    // FIXME: hard coded len 5
+                    let ret = if let Ok(n) = get_leb128(&mut val, std::slice::from_raw_parts(p, 5))
+                    {
+                        n
+                    } else {
+                        return Some(self.debug.line_num);
+                    };
+                    pc += val as i32;
+                    p = p.offset(ret as isize);
+
+                    let mut v = 0_i32;
+                    // FIXME: hard coded len 5
+                    let ret = if let Ok(n) = get_sleb128(&mut v, std::slice::from_raw_parts(p, 5)) {
+                        n
+                    } else {
+                        return Some(self.debug.line_num);
+                    };
+                    p = p.offset(ret as isize);
+                    new_line_num = line_num + v;
                 } else {
-                    return Some(self.debug.line_num);
-                };
-                pc += val as i32;
-                p = p.offset(ret as isize);
+                    op -= PC2LINE_OP_FIRST;
+                    pc += op / PC2LINE_RANGE;
+                    new_line_num = line_num + (op as i32 % PC2LINE_RANGE) + PC2LINE_BASE;
+                }
 
-                let mut v = 0_i32;
-                // FIXME: hard coded len 5
-                let ret = if let Ok(n) = get_sleb128(&mut v, std::slice::from_raw_parts(p, 5)) {
-                    n
-                } else {
-                    return Some(self.debug.line_num);
-                };
-                p = p.offset(ret as isize);
-                new_line_num = line_num + v;
-            } else {
-                op -= PC2LINE_OP_FIRST;
-                pc += op / PC2LINE_RANGE;
-                new_line_num = line_num + (op as i32 % PC2LINE_RANGE) + PC2LINE_BASE;
+                if pc_value < pc as u32 {
+                    return Some(line_num);
+                }
+                line_num = new_line_num;
             }
-
-            if pc_value < pc as u32 {
-                return Some(line_num);
-            }
-            line_num = new_line_num;
         }
 
         Some(line_num)
@@ -447,21 +451,21 @@ impl JSFunctionBytecodeInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct JSFunctionBytecode(pub(crate) Rc<RefCell<JSFunctionBytecodeInner>>);
+pub struct Bytecode(pub(crate) Rc<RefCell<BytecodeInner>>);
 
-impl std::fmt::Debug for JSFunctionBytecode {
+impl std::fmt::Debug for Bytecode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Bytecode {:p}>", self.id() as *const c_void)
     }
 }
 
-impl From<JSFunctionBytecode> for GCObject {
-    fn from(value: JSFunctionBytecode) -> Self {
+impl From<Bytecode> for GCObject {
+    fn from(value: Bytecode) -> Self {
         Self::FunctionBytecode(value)
     }
 }
 
-impl JSFunctionBytecode {
+impl Bytecode {
     pub fn id(&self) -> usize {
         self.0.borrow().id()
     }
@@ -470,11 +474,11 @@ impl JSFunctionBytecode {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
     }
 
-    pub fn with<R>(&self, f: impl FnOnce(&JSFunctionBytecodeInner) -> R) -> R {
+    pub fn with<R>(&self, f: impl FnOnce(&BytecodeInner) -> R) -> R {
         f(self.0.borrow().deref())
     }
 
-    pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSFunctionBytecodeInner) -> R) -> R {
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut BytecodeInner) -> R) -> R {
         f(self.0.borrow_mut().deref_mut())
     }
 
@@ -628,11 +632,11 @@ impl JSFunctionBytecode {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct JSFunctionBytecodeWeakref(Weak<RefCell<JSFunctionBytecodeInner>>);
+pub struct JSFunctionBytecodeWeakref(Weak<RefCell<BytecodeInner>>);
 
 impl JSFunctionBytecodeWeakref {
-    pub fn upgrade(&self) -> Option<JSFunctionBytecode> {
-        self.0.upgrade().map(JSFunctionBytecode)
+    pub fn upgrade(&self) -> Option<Bytecode> {
+        self.0.upgrade().map(Bytecode)
     }
 }
 
@@ -866,8 +870,8 @@ impl BytecodeFunctionValue {
 #[deprecated(note = "unused")]
 pub unsafe fn free_function_bytecode(
     rt: *mut JSRuntime,
-    mut b: NonNull<JSFunctionBytecode>,
-) -> Option<NonNull<JSFunctionBytecode>> {
+    mut b: NonNull<Bytecode>,
+) -> Option<NonNull<Bytecode>> {
     unreachable!("unused")
 }
 

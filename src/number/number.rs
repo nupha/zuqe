@@ -10,7 +10,8 @@ use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
 
-pub fn is_safe_integer(d: f64) -> bool {
+#[inline(always)]
+pub(crate) fn is_safe_integer(d: f64) -> bool {
     f64::is_finite(d) && d.floor() == d && d.abs() <= MAX_SAFE_INTEGER as f64
 }
 

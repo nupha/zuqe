@@ -15,7 +15,7 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{CallContext, JSFunctionBytecode};
+use super::{CallContext, Bytecode};
 
 /// Special index for argument scope.
 /// This is same to `JSFunctionDef::body_scope`, which was automatically pushed
@@ -60,7 +60,7 @@ pub enum FuncCallType {
 
 #[derive(Debug, Default)]
 pub struct JSObjectFunc {
-    pub bytecode: Option<JSFunctionBytecode>,
+    pub bytecode: Option<Bytecode>,
 
     /// closure variable refrences
     pub var_refs: Vec<JSVarRef>,

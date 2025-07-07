@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_OBJECT,
     context::JSContext,
-    function::{AsyncState, JSFunctionBytecode, JSVarRef, VarRefState},
+    function::{AsyncState, Bytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, JSModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
     string::JSString,
@@ -189,7 +189,7 @@ impl JSModuleDef {
     }
 }
 
-impl JSFunctionBytecode {
+impl Bytecode {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -319,7 +319,7 @@ impl JSValue {
             JSValue::Object(o) => {
                 o.gc_mark();
             }
-            JSValue::FunctionBytecode(b) => {
+            JSValue::Bytecode(b) => {
                 b.gc_mark();
             }
             _ => {}
@@ -331,7 +331,7 @@ impl JSValue {
             JSValue::Object(o) => {
                 o.gc_sweep();
             }
-            JSValue::FunctionBytecode(b) => {
+            JSValue::Bytecode(b) => {
                 b.gc_sweep();
             }
             JSValue::String(s) | JSValue::Symbol(s) => {

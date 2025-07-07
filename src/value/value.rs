@@ -1,11 +1,9 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{JSAtomStruct, JSAtomTypeHint},
-    context::JSContext,
-    error::JS_ThrowRangeError,
-    function::{AsyncState, JSFunctionBytecode},
+    function::{AsyncState, Bytecode},
     module::JSModuleDef,
-    number::{JSFloat64Union, MAX_SAFE_INTEGER},
+    number::JSFloat64Union,
     object::JSObject,
     string::JSString,
 };
@@ -109,7 +107,7 @@ pub enum JSValue {
     Symbol(JSAtomStruct),
     Module(JSModuleDef),
     Object(JSObject),
-    FunctionBytecode(JSFunctionBytecode),
+    Bytecode(Bytecode),
 
     /// Special for async state resume execution only
     AsyncStateResume(AsyncState),
@@ -129,7 +127,7 @@ impl PartialEq for JSValue {
             }
             (Self::Float64(f0), Self::Float64(f1)) => f0.eq(f1),
             (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
-            (Self::FunctionBytecode(l0), Self::FunctionBytecode(r0)) => l0.id() == r0.id(),
+            (Self::Bytecode(l0), Self::Bytecode(r0)) => l0.id() == r0.id(),
             (Self::Module(m0), Self::Module(m1)) => m0.id() == m1.id(),
             (Self::CatchOffset(a), Self::CatchOffset(b)) => *a == *b,
             _ => false,
@@ -368,7 +366,7 @@ impl JSValue {
             }
             Self::UNDEFINED | Self::NULL | Self::UNINITIALIZED | Self::EXCEPTION => 0,
             Self::Bool(b) => *b as u32,
-            Self::FunctionBytecode(f) => Self::id_to_hash(f.id()),
+            Self::Bytecode(f) => Self::id_to_hash(f.id()),
             Self::Module(m) => Self::id_to_hash(m.id()),
             Self::CatchOffset(i) => {
                 let u = JSFloat64Union { uint64: *i as u64 };

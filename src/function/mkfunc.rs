@@ -5,8 +5,8 @@ use crate::{
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{
-        ARG_SCOPE_END, ARG_SCOPE_INDEX, BytecodeDebugInfo, JSClosureVar, JSFunctionBytecode,
-        JSFunctionBytecodeInner, JSVarDef, JSVarKindEnum, is_var_in_arg_scope, resolve_labels,
+        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeDebugInfo, BytecodeInner, JSClosureVar,
+        JSVarDef, JSVarKindEnum, is_var_in_arg_scope, resolve_labels,
     },
     gc::GCObjectHeader,
     module::add_module_variables,
@@ -84,7 +84,7 @@ impl JSFunctionDef {
             debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
             let bc_val = fd1.make_function_bytecode(ctx)?;
-            debug_assert!(matches!(bc_val, JSValue::FunctionBytecode(_)));
+            debug_assert!(matches!(bc_val, JSValue::Bytecode(_)));
 
             // put child function to parent's constant pool
             self.cpool[cpool_idx as usize] = bc_val;
@@ -128,7 +128,7 @@ impl JSFunctionDef {
 
         let stack_size = self.compute_stack_size(ctx)?;
 
-        let mut inner = JSFunctionBytecodeInner {
+        let mut inner = BytecodeInner {
             header: GCObjectHeader::new(ctx.rt_mut(), 1),
             func_name: self.func_name,
             realm: ctx.downgrade(),
@@ -333,7 +333,7 @@ impl JSFunctionDef {
             }
         }
 
-        let bf = JSFunctionBytecode(Rc::new(RefCell::new(inner)));
+        let bf = Bytecode(Rc::new(RefCell::new(inner)));
 
         #[cfg(feature = "dump_bytecode")]
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
@@ -344,7 +344,7 @@ impl JSFunctionDef {
             .gc_add_object(bf.id(), GCObjectWeakref::FunctionBytecode(bf.downgrade()));
 
         // return bytecode function value
-        Ok(JSValue::FunctionBytecode(bf))
+        Ok(JSValue::Bytecode(bf))
     }
 }
 
