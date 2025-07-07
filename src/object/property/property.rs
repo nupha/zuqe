@@ -5,9 +5,10 @@ use crate::{
     atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
     function::{JS_Call, JSVarRef},
+    number::{JS_ToLengthFree, JS_ToUint32Free},
     object::{JSObject, LazyInit},
     proxy::js_proxy_isExtensible,
-    value::{JS_GetPrototypePrimitive, JS_ToLengthFree, JS_ToUint32Free, JSValue},
+    value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 // Property flags

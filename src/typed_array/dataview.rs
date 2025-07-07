@@ -8,9 +8,10 @@ use crate::{
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, NativeFieldDef},
     mem::js_malloc_typed,
+    number::{JS_ToFloat64, JS_ToUint32},
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
     typed_array::TypedArrayValue,
-    value::{JS_ToFloat64, JS_ToIndex, JS_ToUint32, JSValue},
+    value::{JS_ToIndex, JSValue},
 };
 
 use super::{

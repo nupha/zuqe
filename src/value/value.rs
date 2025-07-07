@@ -5,11 +5,11 @@ use crate::{
     error::JS_ThrowRangeError,
     function::{AsyncState, JSFunctionBytecode},
     module::JSModuleDef,
+    number::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER},
     object::JSObject,
-    runtime::JSRuntime,
 };
 
-use super::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER, string::JSString};
+use super::string::JSString;
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {

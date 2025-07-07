@@ -4,7 +4,8 @@ use std::cmp::Ordering;
 use crate::{
     bytecode::OpCode,
     context::JSContext,
-    value::{HINT_NONE, HINT_NUMBER, JS_ConcatString, JSFloat64Union, JSValue},
+    number::JSFloat64Union,
+    value::{HINT_NONE, HINT_NUMBER, JS_ConcatString, JSValue},
 };
 
 #[derive(Debug, Clone)]

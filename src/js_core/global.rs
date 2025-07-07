@@ -4,7 +4,8 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, NativeFieldDef},
-    value::{JS_ToFloat64, JSValue, js_parseFloat, js_parseInt},
+    number::{JS_ToFloat64, js_parseFloat, js_parseInt},
+    value::JSValue,
 };
 
 pub fn js_global_eval(ctx: &JSContext, cc: CallContext) -> JSResult {

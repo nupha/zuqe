@@ -4,13 +4,14 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom, consts::*},
     context::JS_MODE_STRICT,
     function::JSFunctionKindEnum,
+    number::{
+        ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
+        js_atof,
+    },
     regexp::is_digit,
     runtime::js_check_stack_overflow,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
-    value::{
-        ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
-        JSValue, js_atof,
-    },
+    value::JSValue,
 };
 
 use super::{

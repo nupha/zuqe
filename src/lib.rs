@@ -22,6 +22,7 @@ pub mod js_core;
 pub mod map;
 pub mod mem;
 pub mod module;
+pub mod number;
 pub mod object;
 pub mod parse;
 pub mod promise;

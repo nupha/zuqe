@@ -4,11 +4,10 @@ use crate::{
     error::{JS_ThrowRangeError, JSResult},
     function::{CallContext, NativeFieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
+    number::{JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, is_safe_integer},
     object::JSObjectIsa,
     utils::skip_spaces,
-    value::{
-        JS_DTOA_FORCE_EXP, JS_ToFloat64, JS_ToInt32Sat, JSValue, JSValueConst, is_safe_integer,
-    },
+    value::{JSValue, JSValueConst},
 };
 
 use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_ToInt32, f64_stringify, js_atof};

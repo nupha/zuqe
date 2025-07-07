@@ -1,8 +1,10 @@
 use smallvec::SmallVec;
 
-use crate::{context::JSContext, error::JSErrorEnum, value::JSValue};
-
-use super::super::string::strstart;
+use crate::{
+    context::JSContext,
+    error::JSErrorEnum,
+    value::{JSValue, strstart},
+};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */

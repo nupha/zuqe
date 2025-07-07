@@ -20,12 +20,13 @@ use crate::{
     function::{CallContext, JS_Call, JS_CallConstructor, NativeFieldDef},
     iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
+    number::{
+        JS_ToFloat64, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree, JS_ToUint8ClampFree,
+        JS_ToUint32,
+    },
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     typed_array::{Float32Array, Float64Array, typed_array_size_log2},
-    value::{
-        HINT_NUMBER, JS_ToFloat64, JS_ToIndex, JS_ToInt32Clamp, JS_ToInt64Sat, JS_ToLengthFree,
-        JS_ToUint8ClampFree, JS_ToUint32, JSValue, JSValueConst, StringContent,
-    },
+    value::{HINT_NUMBER, JS_ToIndex, JSValue, JSValueConst, StringContent},
 };
 
 use super::{TypedArrayValue, js_typed_array_get_length_internal, js_typed_array_set_internal};

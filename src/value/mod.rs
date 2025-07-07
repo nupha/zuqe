@@ -1,5 +1,4 @@
 mod free;
-mod number;
 mod ops;
 mod primitives;
 mod repr;
@@ -10,7 +9,6 @@ mod value;
 
 pub use {
     free::*,
-    number::*,
     primitives::*,
     repr::*,
     string::*,

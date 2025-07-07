@@ -10,21 +10,18 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowStackOverflow, JSResult},
     function::{
-        CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke,
-        NativeFieldDef,
+        CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke, NativeFieldDef,
     },
     iterator::{
         JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_array_iterator_next,
         js_create_array_iterator,
     },
     js_core::{js_get_this, object::js_object_toString},
+    number::{JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat, MAX_SAFE_INTEGER},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObjectIsa, js_get_length64},
     runtime::js_check_stack_overflow,
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
-    value::{
-        JS_ToInt32Sat, JS_ToInt64Clamp, JS_ToInt64Sat, JSString, JSValue, MAX_SAFE_INTEGER,
-        StringContent,
-    },
+    value::{JSString, JSValue, StringContent},
 };
 
 use super::JSObjectArray;

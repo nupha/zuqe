@@ -8,13 +8,14 @@ use crate::{
     function::{CallContext, JS_Call, NativeFieldDef},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum},
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
+    number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         JS_PreventExtensions, JS_SetPrototypeInternal, JSObjectIsa, PropertyEnum,
     },
     utils::unlikely,
-    value::{JSValue, MAX_SAFE_INTEGER},
+    value::JSValue,
 };
 
 pub fn JS_ObjectDefineProperties(

@@ -7,8 +7,9 @@ use crate::{
     },
     bytecode::js_get_function_name,
     context::JSContext,
+    number::JS_NumberIsNegativeOrMinusZero,
     object::{JS_PROP_NORMAL, JSObject, js_object_has_name},
-    value::{JS_NumberIsNegativeOrMinusZero, JSValue},
+    value::JSValue,
 };
 
 use super::{

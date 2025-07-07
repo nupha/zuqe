@@ -1,17 +1,17 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    JS_CLASS_C_FUNCTION,
     atom::JS_FreeAtom,
     context::{JSContext, JSContextWeakref},
     defer,
     error::{JS_ThrowStackOverflow, JSResult},
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
+    number::JS_ToFloat64,
     object::{JSObject, JSObjectIsa},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::JSStackFrame,
-    value::{JS_ToFloat64, JSValue},
+    value::JSValue,
 };
 
 use super::js_function_set_properties;
