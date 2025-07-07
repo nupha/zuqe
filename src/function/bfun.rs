@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::ffi::c_void;
 
 use smallvec::SmallVec;
 
@@ -9,11 +9,8 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
-    function::{
-        Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id,
-    },
-    object::JS_SetPrototypeInternal,
-    runtime::JSRuntime,
+    function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
+    object::{JS_SetPrototypeInternal, JSObject},
     stack_frame::JSStackFrame,
     value::JSValue,
 };
@@ -21,40 +18,72 @@ use crate::{
 use super::JSFunctionKindEnum;
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct BytecodeFunction(JSValue);
+#[derive(Clone)]
+pub struct BytecodeFunction(JSObject);
 
-impl JSValue {
-    pub unsafe fn as_bytecode_function_unchecked(self) -> BytecodeFunction {
-        // debug_assert!(matches!(self, Self::FunctionBytecode(_) | Self::Object(_)));
-        debug_assert!(self.is_object());
-        debug_assert_eq!(
-            self.object_unchecked().class_id(),
-            JS_CLASS_BYTECODE_FUNCTION
-        );
-        std::mem::transmute(self)
+impl TryFrom<JSObject> for BytecodeFunction {
+    type Error = i32;
+
+    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+        if obj.class_id() == JS_CLASS_BYTECODE_FUNCTION {
+            Ok(Self(obj))
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl TryFrom<JSValue> for BytecodeFunction {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if let JSValue::Object(o) = value {
+            o.try_into()
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl From<BytecodeFunction> for JSObject {
+    #[inline(always)]
+    fn from(func: BytecodeFunction) -> Self {
+        func.0
+    }
+}
+
+impl From<BytecodeFunction> for JSValue {
+    #[inline(always)]
+    fn from(func: BytecodeFunction) -> Self {
+        JSValue::Object(func.0)
+    }
+}
+
+impl std::fmt::Debug for BytecodeFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<BytecodeFunction {:p}>", self.0.id() as *const c_void)
     }
 }
 
 impl BytecodeFunction {
     /// call bytecode function
-    pub fn call_internal(
+    pub fn call(
         &self,
         caller_ctx: &JSContext,
-        this_obj: JSValue,
+        this_obj: &JSValue,
         new_target: JSValue,
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        let func_obj = &self.0;
-        let p = unsafe { self.0.object_unchecked() };
+        let bfunc_ob = &self.0;
 
-        let (bc, home_obj) =
-            p.0.isa
-                .borrow()
-                .func()
-                .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
-                .unwrap();
+        let (bc, home_obj) = bfunc_ob
+            .0
+            .isa
+            .borrow()
+            .func()
+            .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
+            .unwrap();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
@@ -77,7 +106,7 @@ impl BytecodeFunction {
         };
 
         let mut sframe = JSStackFrame {
-            cur_func: func_obj.clone(),
+            cur_func: JSValue::Object(bfunc_ob.clone()),
             js_mode,
             ..Default::default()
         };
@@ -145,7 +174,7 @@ impl BytecodeFunction {
                 &b.binary[b.bytecode_start as usize..],
                 0,
                 0,
-                &p.0.isa.borrow().func().unwrap().var_refs,
+                &bfunc_ob.0.isa.borrow().func().unwrap().var_refs,
                 args,
                 js_mode,
                 false,
@@ -157,9 +186,7 @@ impl BytecodeFunction {
 
         retval
     }
-}
 
-impl BytecodeFunction {
     /// handle `Function` constructor. For example:
     ///
     /// ```js
@@ -245,12 +272,4 @@ impl BytecodeFunction {
 
         Ok(func_val)
     }
-}
-
-#[deprecated(note = "unused")]
-pub unsafe fn free_function_bytecode(
-    rt: *mut JSRuntime,
-    mut b: NonNull<Bytecode>,
-) -> Option<NonNull<Bytecode>> {
-    unreachable!("unused")
 }

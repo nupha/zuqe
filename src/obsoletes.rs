@@ -2817,3 +2817,11 @@ pub unsafe fn JS_ToFloat64(ctx: &JSContext, pres: *mut f64, val: &JSValueConst) 
 pub unsafe fn __JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
     unreachable!("unused");
 }
+
+#[deprecated(note = "unused")]
+pub unsafe fn free_function_bytecode(
+    rt: *mut JSRuntime,
+    mut b: NonNull<Bytecode>,
+) -> Option<NonNull<Bytecode>> {
+    unreachable!("unused")
+}

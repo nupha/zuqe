@@ -6,7 +6,7 @@ use crate::{
     bytecode::run_bytecodes,
     context::JSContext,
     error::JSResult,
-    function::build_arg_list,
+    function::{BytecodeFunction, build_arg_list},
     object::JSObjectIsa,
     stack_frame::JSStackFrame,
     value::{JSValue, JSValueConst},
@@ -181,7 +181,7 @@ pub fn JS_CallInternal(
                     home_obj.as_ref(),
                     frame,
                     caller_ctx,
-                    this_obj.clone(),
+                    this_obj,
                     new_target,
                     b.bytecode_slice().deref(),
                     pc_offset,
@@ -202,12 +202,9 @@ pub fn JS_CallInternal(
 
     if class_id == JS_CLASS_BYTECODE_FUNCTION {
         // bytecode function
-        unsafe {
-            func_obj
-                .clone()
-                .as_bytecode_function_unchecked()
-                .call_internal(caller_ctx, this_obj.clone(), new_target, args, flags)
-        }
+        TryInto::<BytecodeFunction>::try_into(func_obj.clone())
+            .unwrap()
+            .call(caller_ctx, this_obj, new_target, args, flags)
     } else {
         // non-bytecode function: bound function, native function, async function etc.
         // use callback defined on the class.

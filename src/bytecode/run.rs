@@ -51,7 +51,7 @@ pub unsafe fn run_bytecodes(
     func_home_obj: Option<&JSObject>,
     sf: &mut JSStackFrame, // Execution stack frame for managing function call state
     caller_ctx: &JSContext, // Context of the calling environment
-    this_obj: JSValue,     // The 'this' value for the function execution
+    this_obj: &JSValue,    // The 'this' value for the function execution
     new_target: JSValue,   // The new.target value for constructor calls
     bytecodes: &[u8],      // Array of bytecode instructions to execute
     pc_offset: usize,      // Current instruction pointer (program counter) offset
@@ -312,13 +312,13 @@ pub unsafe fn run_bytecodes(
                 OpCode::PUSH_THIS => {
                     // only called at the start of a function
                     let val = if mode & JS_MODE_STRICT == 0 {
-                        match &this_obj {
+                        match this_obj {
                             JSValue::Object(_) => this_obj.clone(),
                             JSValue::NULL | JSValue::UNDEFINED => {
                                 JSValue::Object(ctx.global_obj().clone())
                             }
                             _ => {
-                                if let Ok(v) = this_obj.clone().coerce_to_object(ctx) {
+                                if let Ok(v) = this_obj.coerce_to_object(ctx) {
                                     v
                                 } else {
                                     break State::Exception;

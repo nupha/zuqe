@@ -14,7 +14,9 @@ pub struct JSStackFrame {
     /// Pointer to previous stack frame (NULL for first frame)
     pub prev_frame: *mut Pin<Self>,
 
-    /// Current executing function (JS_UNDEFINED if frame is detached)
+    /// Currently executing function (JS_UNDEFINED if frame is detached).
+    /// Could be object of bytecode function, native function, async function etc.
+    /// TODO: use Option<JSObject>
     pub cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space
