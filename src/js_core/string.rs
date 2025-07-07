@@ -17,10 +17,11 @@ use crate::{
     },
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, js_get_length32, js_get_length64},
     regexp::js_is_regexp,
-    value::{
+    string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToStringCheckObject, JSString,
-        JSValue, JSValueConst, StringContent,
+        StringContent,
     },
+    value::{JSValue, JSValueConst},
 };
 
 pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {

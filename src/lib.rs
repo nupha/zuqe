@@ -30,6 +30,7 @@ pub mod proxy;
 pub mod regexp;
 pub mod runtime;
 pub mod stack_frame;
+pub mod string;
 pub mod typed_array;
 pub mod unicode;
 pub mod utils;

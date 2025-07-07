@@ -5,7 +5,7 @@ use crate::{
         JSVarRefWeakref,
     },
     object::{JSObjectWeakref, JSShapeWeakref},
-    value::{JSString, JSStringWeakref},
+    string::{JSString, JSStringWeakref},
 };
 
 use super::{JSObject, JSShape};

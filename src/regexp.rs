@@ -7,7 +7,8 @@ use crate::{
     object::JSObjectIsa,
     parse::JSParseState,
     runtime::JSRuntime,
-    value::{JSString, JSValue, JSValueConst},
+    string::JSString,
+    value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug)]

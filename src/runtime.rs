@@ -27,8 +27,9 @@ use crate::{
     object::{GCObjectWeakref, JSShapeWeakref},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFunc},
     stack_frame::JSStackFrame,
+    string::{JSStringInner, js_string_exotic_methods},
     utils::js_get_stack_pointer,
-    value::{JSStringInner, JSValue, js_string_exotic_methods},
+    value::JSValue,
 };
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;

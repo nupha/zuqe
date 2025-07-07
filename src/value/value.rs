@@ -7,9 +7,8 @@ use crate::{
     module::JSModuleDef,
     number::{JS_ToInt64Sat, JSFloat64Union, MAX_SAFE_INTEGER},
     object::JSObject,
+    string::JSString,
 };
-
-use super::string::JSString;
 
 #[cfg(feature = "nan_boxing")]
 mod nb_value {

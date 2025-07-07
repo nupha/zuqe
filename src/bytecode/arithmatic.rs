@@ -5,7 +5,8 @@ use crate::{
     bytecode::OpCode,
     context::JSContext,
     number::JSFloat64Union,
-    value::{HINT_NONE, HINT_NUMBER, JS_ConcatString, JSValue},
+    string::JS_ConcatString,
+    value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
 
 #[derive(Debug, Clone)]

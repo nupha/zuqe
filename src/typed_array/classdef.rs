@@ -25,8 +25,9 @@ use crate::{
         JS_ToUint32,
     },
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
+    string::StringContent,
     typed_array::{Float32Array, Float64Array, typed_array_size_log2},
-    value::{HINT_NUMBER, JS_ToIndex, JSValue, JSValueConst, StringContent},
+    value::{HINT_NUMBER, JS_ToIndex, JSValue, JSValueConst},
 };
 
 use super::{TypedArrayValue, js_typed_array_get_length_internal, js_typed_array_set_internal};

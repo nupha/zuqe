@@ -24,7 +24,8 @@ use zhuque::{
     object::JS_PROP_C_W_E,
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
-    value::{JSValue, StringContent},
+    string::StringContent,
+    value::JSValue,
 };
 
 fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {

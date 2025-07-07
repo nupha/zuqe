@@ -2,7 +2,7 @@ use std::ffi::CStr;
 
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
-    value::StringContent,
+    string::StringContent,
 };
 
 use super::JSParseState;

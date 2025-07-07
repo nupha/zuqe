@@ -16,7 +16,7 @@ use crate::{
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     utils::{UncheckedFrom, UncheckedInto},
-    value::{JS_NewString, JSValue, JSValueConst},
+    value::{JSValue, JSValueConst},
 };
 
 use super::{JSPromiseFunctionData, job::promise_reaction_job};
@@ -400,31 +400,27 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let ob = ctx.create_base_object()?;
-        unsafe {
-            let str = JS_NewString(
-                ctx,
-                if is_reject != 0 {
-                    c"rejected"
-                } else {
-                    c"fulfilled"
-                },
-            )
+        let strval = ctx
+            .create_string(if is_reject != 0 {
+                "rejected"
+            } else {
+                "fulfilled"
+            })
             .check_exception()?;
 
-            ob.define_property_value(ctx, JS_ATOM_status, str, JS_PROP_C_W_E)?;
-            ob.define_property_value(
-                ctx,
-                if is_reject != 0 {
-                    JS_ATOM_reason
-                } else {
-                    JS_ATOM_value
-                },
-                cc.arg(0).clone(),
-                JS_PROP_C_W_E,
-            )?;
+        ob.define_property_value(ctx, JS_ATOM_status, strval, JS_PROP_C_W_E)?;
+        ob.define_property_value(
+            ctx,
+            if is_reject != 0 {
+                JS_ATOM_reason
+            } else {
+                JS_ATOM_value
+            },
+            cc.arg(0).clone(),
+            JS_PROP_C_W_E,
+        )?;
 
-            ob.into()
-        }
+        ob.into()
     } else {
         cc.arg(0).clone()
     };

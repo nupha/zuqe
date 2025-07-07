@@ -4,7 +4,8 @@ use crate::{
     function::{AsyncState, JSFunctionBytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, JSModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
-    value::{JSString, JSValue},
+    string::JSString,
+    value::JSValue,
 };
 
 impl JSObject {

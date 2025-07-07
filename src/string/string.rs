@@ -521,18 +521,6 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
     }
 }
 
-#[deprecated(note = "use JSContext::create_string() instead")]
-pub unsafe fn JS_NewStringLen(ctx: &JSContext, buf: *const u8, buf_len: usize) -> JSValue {
-    ctx.create_string(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-        buf, buf_len,
-    )))
-}
-
-#[deprecated(note = "use JSContext::create_string_utf8() instead")]
-pub unsafe fn JS_NewString(ctx: &JSContext, str: &CStr) -> JSValue {
-    ctx.create_string(str.to_string_lossy().as_ref())
-}
-
 impl JSValue {
     /// get a reference to value's string description. won't effect value's ref_count.
     /// will panic if value is not string type.

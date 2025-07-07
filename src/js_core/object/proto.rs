@@ -11,8 +11,9 @@ use crate::{
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
         JS_SetPrototypeInternal,
     },
+    string::JS_ConcatString3,
     utils::unlikely,
-    value::{JS_ConcatString3, JSValue, JSValueConst},
+    value::{JSValue, JSValueConst},
 };
 
 //

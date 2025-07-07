@@ -11,7 +11,8 @@ use crate::{
     },
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
-    value::{JS_ConcatString, JS_ConcatString3, JS_IsEmptyString, JSValue, JSValueConst},
+    string::{JS_ConcatString, JS_ConcatString3, JS_IsEmptyString},
+    value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
     runtime::JSRuntime,
-    value::{JSString, StringContent},
+    string::{JSString, StringContent},
 };
 
 use super::{

@@ -1,9 +1,10 @@
 use crate::{
     atom::{JSAtom, JSAtomInfo, JSAtomTypeHint},
     context::JSContext,
+    string::JSString,
 };
 
-use super::{string::JSString, value::JSValue};
+use super::value::JSValue;
 
 // `atom` must be a non-numeric string atom
 pub unsafe fn JS_NewSymbolFromAtom(

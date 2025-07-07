@@ -6,7 +6,8 @@ use crate::{
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
-    value::{JSStringInner, JSValue, StringContent},
+    string::{JSStringInner, StringContent},
+    value::JSValue,
 };
 
 use super::{JSAtomStruct, consts::*};

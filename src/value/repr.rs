@@ -11,9 +11,10 @@ use crate::{
     function::JS_Invoke,
     number::f64_stringify,
     runtime::JSRuntime,
+    string::JSString,
 };
 
-use super::{HINT_STRING, JSString, JSValue};
+use super::{HINT_STRING, JSValue};
 
 impl JSValue {
     /// get string representation of value.

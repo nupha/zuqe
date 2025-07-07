@@ -30,8 +30,9 @@ use crate::{
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     stack_frame::JSStackFrame,
+    string::{JSString, JSStringInner},
     utils::UncheckedInto,
-    value::{JSString, JSStringInner, JSValue, JSValueConst},
+    value::{JSValue, JSValueConst},
 };
 
 #[deprecated]
@@ -48,6 +49,18 @@ pub enum JSAutoInitIDEnum {
 #[inline(always)]
 pub unsafe fn set_value(ctx: &JSContext, pval: *mut JSValue, new_val: JSValue) {
     unreachable!("unused")
+}
+
+#[deprecated(note = "use JSContext::create_string() instead")]
+pub unsafe fn JS_NewStringLen(ctx: &JSContext, buf: *const u8, buf_len: usize) -> JSValue {
+    ctx.create_string(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+        buf, buf_len,
+    )))
+}
+
+#[deprecated(note = "use JSContext::create_string_utf8() instead")]
+pub unsafe fn JS_NewString(ctx: &JSContext, str: &CStr) -> JSValue {
+    ctx.create_string(str.to_string_lossy().as_ref())
 }
 
 #[deprecated(note = "use JSRuntime::finalize() instead")]

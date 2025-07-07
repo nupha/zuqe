@@ -17,7 +17,8 @@ use crate::{
         js_get_length32,
     },
     stack_frame::JSStackFrame,
-    value::{JS_AtomSymbolHasDescription, JS_ConcatString3, JSValue, JSValueConst},
+    string::JS_ConcatString3,
+    value::{JS_AtomSymbolHasDescription, JSValue, JSValueConst},
 };
 
 pub unsafe fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {

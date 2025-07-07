@@ -2,8 +2,8 @@ use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
     regexp::{from_hex, is_digit},
+    string::StringContent,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
-    value::StringContent,
 };
 
 use super::{

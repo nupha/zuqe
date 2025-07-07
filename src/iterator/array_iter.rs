@@ -8,8 +8,9 @@ use crate::{
     function::{CallContext, IteratorState},
     object::{JSObjectIsa, js_get_length32},
     runtime::JSRuntime,
+    string::JS_ToStringCheckObject,
     typed_array::TypedArrayValue,
-    value::{JS_ToStringCheckObject, JSValue},
+    value::JSValue,
 };
 
 use super::JSIteratorKindEnum;

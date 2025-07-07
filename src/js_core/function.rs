@@ -4,11 +4,12 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        CallContext, JS_Call, JSBoundFunction, NativeFieldDef, JSFunctionKindEnum,
+        CallContext, JS_Call, JSBoundFunction, JSFunctionKindEnum, NativeFieldDef,
         js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
-    value::{JS_ConcatString3, JSValue},
+    string::JS_ConcatString3,
+    value::JSValue,
 };
 
 pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
@@ -160,12 +161,11 @@ pub fn js_function_hasInstance(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args.this_raw().object().and_then(|o| {
-        o.0.isa
-            .borrow()
-            .func()
-            .and_then(|f| f.bytecode.clone())
-    }) {
+    if let Some(b) = args
+        .this_raw()
+        .object()
+        .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
+    {
         let b = b.0.borrow();
         if b.has_debug {
             b.debug.filename.to_value(ctx, true).check_exception()
@@ -178,12 +178,11 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
 }
 
 pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args.this_raw().object().and_then(|o| {
-        o.0.isa
-            .borrow()
-            .func()
-            .and_then(|f| f.bytecode.clone())
-    }) {
+    if let Some(b) = args
+        .this_raw()
+        .object()
+        .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
+    {
         let b = b.0.borrow();
         if b.has_debug {
             Ok(JSValue::Int(b.debug.line_num as i32))
