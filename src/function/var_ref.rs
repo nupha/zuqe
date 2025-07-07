@@ -9,7 +9,7 @@ use crate::{
     gc::GCObjectHeader,
     object::GCObjectWeakref,
     runtime::JSRuntime,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -305,7 +305,7 @@ pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
 #[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
 pub unsafe fn close_lexical_var(
     ctx: &JSContext,
-    sf: *mut JSStackFrame,
+    sf: *mut StackFrame,
     var_idx: u16,
     is_arg: bool,
 ) {
@@ -313,11 +313,11 @@ pub unsafe fn close_lexical_var(
 }
 
 #[deprecated(note = "use JSStackFrame::close_var_refs() instead")]
-pub unsafe fn close_var_refs(ctx: &JSContext, sf: *mut JSStackFrame) {
+pub unsafe fn close_var_refs(ctx: &JSContext, sf: *mut StackFrame) {
     (*sf).close_var_refs(ctx);
 }
 
-impl JSStackFrame {
+impl StackFrame {
     // fn make_var_ref(
     //     &mut self,
     //     ctx: &JSContext,

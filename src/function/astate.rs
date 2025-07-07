@@ -11,7 +11,7 @@ use crate::{
     gc::GCObjectHeader,
     object::{GCObjectWeakref, JSObjectIsa},
     runtime::{JSRuntime, js_check_stack_overflow},
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -37,7 +37,7 @@ pub(crate) struct AsyncStateInner {
     pub resolving_funcs: [JSValue; 2],
 
     /// stack frame to run async function
-    pub frame: Box<JSStackFrame>,
+    pub frame: Box<StackFrame>,
 }
 
 impl Drop for AsyncStateInner {
@@ -95,7 +95,7 @@ impl AsyncStateInner {
             throw_flag: false,
             is_completed: false,
 
-            frame: Box::new(JSStackFrame {
+            frame: Box::new(StackFrame {
                 js_mode: js_mode as i32 | JS_MODE_ASYNC,
                 cur_func: func_obj.clone(),
                 arg_base_ptr: local_buf.as_mut_ptr(),

@@ -19,7 +19,7 @@ use crate::{
     },
     object::{JS_PROP_C_W_E, JSObject, JSObjectIsa},
     runtime::JSRuntime,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -586,7 +586,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
-    let mut sf = ctx.rt().current_stack_frame.cast::<JSStackFrame>();
+    let mut sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
     if sf.is_null() {
         return JS_ATOM_NULL;
     }
@@ -594,7 +594,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     let mut levels = n_stack_levels;
 
     while levels > 0 {
-        sf = (*sf).prev_frame.cast::<JSStackFrame>();
+        sf = (*sf).prev_frame.cast::<StackFrame>();
         if sf.is_null() {
             return JS_ATOM_NULL;
         }
@@ -616,7 +616,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
                     }
                     return b.debug.filename.dup(ctx.rt());
                 } else {
-                    sf = (*sf).prev_frame.cast::<JSStackFrame>(); // walk up
+                    sf = (*sf).prev_frame.cast::<StackFrame>(); // walk up
                     if sf.is_null() {
                         return JS_ATOM_NULL;
                     }

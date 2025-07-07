@@ -16,7 +16,7 @@ use crate::{
         JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa,
         js_get_length32,
     },
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     string::JS_ConcatString3,
     value::{JS_AtomSymbolHasDescription, JSValue, JSValueConst},
 };
@@ -121,7 +121,7 @@ pub fn js_op_define_class(
     class_name: JSAtom,
     class_flags: i32,
     cur_var_refs: &[JSVarRef],
-    sf: *mut JSStackFrame,
+    sframe: &mut StackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {
     let mut bfunc = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
@@ -174,7 +174,16 @@ pub fn js_op_define_class(
         )
         .map_err(|_| -1)?;
 
-    ctor = js_closure2(ctx, ctor, bc.clone(), cur_var_refs, sf).check_exception()?;
+    ctor = JSValue::Object(bc.make_closure_to(
+        ctx,
+        if let JSValue::Object(o) = ctor {
+            o
+        } else {
+            unreachable!()
+        },
+        cur_var_refs,
+        Some(sframe),
+    )?);
     bfunc = JSValue::UNDEFINED;
 
     js_method_set_home_object(ctx, &ctor, &proto);

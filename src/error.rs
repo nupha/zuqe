@@ -5,12 +5,12 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
-    function::{CallContext, Bytecode, NativeFieldDef, get_func_name},
+    function::{Bytecode, CallContext, NativeFieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JSObjectIsa,
     },
     runtime::JSRuntime,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     string::{JS_ConcatString, JS_ConcatString3, JS_IsEmptyString},
     value::{JSValue, JSValueConst},
 };
@@ -122,7 +122,7 @@ impl JSContext {
         let rt = self.rt();
 
         // the backtrace is added later if called from a bytecode function
-        let sf = rt.current_stack_frame.cast::<JSStackFrame>();
+        let sf = rt.cur_stack_frame.cast::<StackFrame>();
         let add_backtrace = !rt.in_out_of_memory
             && (sf.is_null()
                 || unsafe {
@@ -247,7 +247,7 @@ impl JSContext {
             }
         }
 
-        let mut sf = self.rt().current_stack_frame.cast::<JSStackFrame>();
+        let mut sf = self.rt().cur_stack_frame.cast::<StackFrame>();
         while !sf.is_null() {
             if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
                 backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
@@ -360,12 +360,7 @@ pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
     JS_ThrowReferenceError(ctx, &format!("'{}' is not defined", name.to_str(ctx.rt())))
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized2(
-    ctx: &JSContext,
-    b: &Bytecode,
-    idx: u16,
-    is_ref: bool,
-) {
+pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {
     let atom = if is_ref {
         b.with_closure_var(idx, |c| c.var_name)
     } else {

@@ -20,7 +20,7 @@ use crate::{
         JSObject, JSObjectIsa, JSShape,
     },
     runtime::JSRuntime,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -97,7 +97,7 @@ pub struct JSContextInner {
     pub stack_limit: usize,
     pub stack_pointer: usize,
     pub stack_size: usize,
-    pub stack_frame: *mut Pin<JSStackFrame>,
+    pub stack_frame: *mut Pin<StackFrame>,
 }
 
 impl Drop for JSContextInner {
@@ -306,14 +306,14 @@ impl JSContext {
     ///
     /// # Safety
     /// The caller must ensure the frame pointer is valid
-    pub fn push_stack_frame(&mut self, frame: *mut Pin<JSStackFrame>) {
+    pub fn push_stack_frame(&mut self, frame: *mut Pin<StackFrame>) {
         let mut ctx = self.0.borrow_mut();
 
         if ctx.stack_frame.is_null() {
             ctx.stack_frame = frame;
         } else {
             unsafe {
-                (*frame.cast::<JSStackFrame>()).prev_frame = ctx.stack_frame;
+                (*frame.cast::<StackFrame>()).prev_frame = ctx.stack_frame;
             }
             ctx.stack_frame = frame;
         }
@@ -323,14 +323,14 @@ impl JSContext {
     ///
     /// # Safety
     /// The caller must ensure no references to the popped frame remain
-    pub fn pop_stack_frame(&mut self) -> *mut Pin<JSStackFrame> {
+    pub fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
         let mut ctx = self.0.borrow_mut();
 
         if ctx.stack_frame.is_null() {
             ptr::null_mut()
         } else {
             let frame = ctx.stack_frame;
-            ctx.stack_frame = unsafe { (*frame.cast::<JSStackFrame>()).prev_frame };
+            ctx.stack_frame = unsafe { (*frame.cast::<StackFrame>()).prev_frame };
             frame
         }
     }
@@ -501,7 +501,7 @@ impl JSContextWeakref {
 /* only valid inside C functions */
 #[inline(always)]
 pub unsafe fn JS_GetActiveFunction(ctx: &JSContext) -> &JSValue {
-    &(*ctx.rt().current_stack_frame.cast::<JSStackFrame>()).cur_func
+    &(*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;
@@ -512,7 +512,7 @@ pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
 #[inline(always)]
 pub fn is_strict_mode(ctx: &JSContext) -> bool {
     unsafe {
-        let sf = ctx.rt().current_stack_frame.cast::<JSStackFrame>();
+        let sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
         !sf.is_null() && (*sf).js_mode & JS_MODE_STRICT != 0
     }
 }

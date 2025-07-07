@@ -10,7 +10,7 @@ use crate::{
 
 /// Represents a call stack frame in JavaScript execution, tracking function state and local variables
 #[derive(Debug)]
-pub struct JSStackFrame {
+pub struct StackFrame {
     /// Pointer to previous stack frame (NULL for first frame)
     pub prev_frame: *mut Pin<Self>,
 
@@ -55,7 +55,7 @@ pub struct JSStackFrame {
     pub _mark: PhantomPinned,
 }
 
-impl Default for JSStackFrame {
+impl Default for StackFrame {
     fn default() -> Self {
         Self {
             prev_frame: std::ptr::null_mut(),
@@ -75,7 +75,7 @@ impl Default for JSStackFrame {
     }
 }
 
-impl JSStackFrame {
+impl StackFrame {
     /// Returns a slice of argument values for this frame
     #[inline(always)]
     pub const fn args_slice(&self) -> &[JSValue] {
@@ -110,7 +110,7 @@ impl JSStackFrame {
     /// Returns:
     /// - Some((pc, sp)) if exception was caught (continue execution at new position)
     /// - None if exception is uncaught (abort execution)
-    pub fn handle_exception(
+    pub(crate) fn handle_exception(
         &mut self,
         ctx: &JSContext,
         pc: usize,
@@ -151,33 +151,19 @@ impl JSStackFrame {
         None // exception is uncatched, abort with sp=0, pc unchanged
     }
 
-    /// Performs cleanup operations before exiting the stack frame
-    pub fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_async: bool) {
-        debug_assert!(std::ptr::eq(
-            ctx.rt_mut().current_stack_frame as *mut Self,
-            self
-        ));
+    /// Prepare to exit bytecode running.
+    pub(crate) fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_async: bool) {
+        debug_assert!(
+            std::ptr::eq(ctx.rt_mut().cur_stack_frame as *mut Self, self,),
+            "StackFrame::handle_exit() must be called on current active stack frame"
+        );
 
         if is_async {
-            // the local variables are freed by the caller in the async
-            // case. Hence the label 'done' should never be reached in async execution.
+            // is async function.
+            // the local variables are freed by the caller.
+            // Hence the label 'done' should never be reached in async execution.
             self.cur_pc_offset = pc;
             self.cur_sp_offset = sp as i32;
-
-            // O.o
-            unsafe {
-                let buf_base = self.local_buf.as_mut_ptr();
-                let mut pval = buf_base;
-                let sp_base = self.stack_base_ptr();
-                let end_ptr = sp_base.add(sp).as_ptr();
-                while pval < end_ptr {
-                    println!(
-                        "[O.o][local_buf] buf_base={buf_base:p}, sp_base={sp_base:p}, @{pval:p}: {:?}",
-                        pval.as_ref()
-                    );
-                    pval = pval.add(1);
-                }
-            }
         } else {
             // is normal function
             if !self.var_ref_list.is_empty() {
@@ -186,6 +172,7 @@ impl JSStackFrame {
             }
 
             // free local buf up to stack top (sp)
+            // this is not needed because when local_buf is dropped, rust will automatically do free stuff.
             if !self.local_buf.is_empty() {
                 let mut pval = self.local_buf.as_mut_ptr();
                 let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
@@ -198,11 +185,12 @@ impl JSStackFrame {
             }
         }
 
-        ctx.rt_mut().current_stack_frame = self.prev_frame;
+        // switch back to previous stack frame
+        ctx.rt_mut().cur_stack_frame = self.prev_frame;
     }
 
     /// Cleans up resources when frame is no longer needed
-    pub fn finalize(&mut self) {
+    pub(crate) fn finalize(&mut self) {
         self.cur_func = JSValue::UNDEFINED;
         self.local_buf.clear();
         self.var_ref_list.clear();

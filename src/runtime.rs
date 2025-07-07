@@ -26,7 +26,7 @@ use crate::{
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{GCObjectWeakref, JSShapeWeakref},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFunc},
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     string::{JSStringInner, js_string_exotic_methods},
     utils::js_get_stack_pointer,
     value::JSValue,
@@ -79,7 +79,8 @@ pub struct JSRuntime {
     /* true if inside an out of memory error, to avoid recursing */
     pub in_out_of_memory: bool,
 
-    pub current_stack_frame: *mut Pin<JSStackFrame>,
+    // stack frame of currently executing function
+    pub cur_stack_frame: *mut Pin<StackFrame>,
 
     pub interrupt_handler: Option<JSInterruptHandler>,
     pub interrupt_opaque: *mut c_void,
@@ -133,7 +134,7 @@ impl JSRuntime {
 
             class_defs: Vec::new(),
 
-            current_stack_frame: std::ptr::null_mut(),
+            cur_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             module_loader_opaque: std::ptr::null_mut(),
             sab_funcs: None,

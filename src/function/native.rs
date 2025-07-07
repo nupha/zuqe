@@ -9,7 +9,7 @@ use crate::{
     iterator::js_create_iterator_result,
     object::{JSObject, JSObjectIsa},
     runtime::{JSRuntime, js_check_stack_overflow},
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -150,8 +150,8 @@ impl ObjectNativeFunc {
         }
 
         // build new stack frame, alloc on stack.
-        let mut new_frame = JSStackFrame {
-            prev_frame: rt.current_stack_frame,
+        let mut new_frame = StackFrame {
+            prev_frame: rt.cur_stack_frame,
             cur_func: func_obj.clone(),
             ..Default::default()
         };
@@ -159,13 +159,13 @@ impl ObjectNativeFunc {
 
         // switch current stack frame to new.
         // switch back to original when exit
-        let orig_frame = rt.current_stack_frame;
-        rt.current_stack_frame = (sf as *mut JSStackFrame).cast();
+        let orig_frame = rt.cur_stack_frame;
+        rt.cur_stack_frame = (sf as *mut StackFrame).cast();
 
         // NOTE: switch back to original frame when exit.
         let mut rt_ptr = unsafe { NonNull::new_unchecked(rt) };
         defer!(unsafe {
-            rt_ptr.as_mut().current_stack_frame = orig_frame;
+            rt_ptr.as_mut().cur_stack_frame = orig_frame;
         });
 
         if args.len() < arg_length as usize {

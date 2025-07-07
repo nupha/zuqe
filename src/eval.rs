@@ -7,13 +7,11 @@ use std::{
 use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
-    function::{
-        JS_Call, JSFunctionDef, JSFunctionKindEnum, JSVarRef, add_closure_variables, js_closure,
-    },
+    function::{JS_Call, JSFunctionDef, JSFunctionKindEnum, JSVarRef, add_closure_variables},
     module::{JSModuleDef, js_create_module_function, js_link_module},
     object::JSObject,
     parse::{JS_DetectModule, JSParseState, skip_shebang},
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -42,7 +40,7 @@ pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 impl JSContext {
-    /// evaluate source script `input`.
+    /// evaluate script `input`.
     pub unsafe fn eval_internal(
         &self,
         this_obj: JSValue,
@@ -54,24 +52,24 @@ impl JSContext {
         macro_rules! fail {
             ($s:expr, $fd:expr, $m:expr) => {
                 $s.free_token();
-                // $fd.dispose(self);
                 return JSValue::EXCEPTION;
             };
         }
 
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
-        let mut sf: *mut JSStackFrame = std::ptr::null_mut();
+        let mut sframe: Option<&mut StackFrame> = None;
         let mut func_obj: Option<JSObject> = None;
         let mut js_mode: u32 = 0;
 
-        // get bytecode, module
+        // get bytecode, module from current active stack frame
         let (bc, md) = if eval_type == JS_EVAL_TYPE_DIRECT {
-            sf = self.rt().current_stack_frame.cast::<JSStackFrame>();
-            debug_assert!(!sf.is_null());
-            debug_assert!((*sf).cur_func.is_object());
+            let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
+            debug_assert!(!sf_ptr.is_null());
+            debug_assert!((*sf_ptr).cur_func.is_object());
 
-            func_obj = Some((*sf).cur_func.object_unchecked().clone());
+            func_obj = Some((*sf_ptr).cur_func.object_unchecked().clone());
+            sframe = sf_ptr.as_mut();
 
             let b = func_obj
                 .as_ref()
@@ -207,9 +205,9 @@ impl JSContext {
             if let Some(f) = func_obj.as_ref() {
                 let isa = f.0.isa.borrow();
                 let var_refs = isa.func().unwrap().var_refs.as_slice();
-                JS_EvalFunctionInternal(self, bc_obj, &this_obj, var_refs, sf)
+                JS_EvalFunctionInternal(self, &bc_obj, &this_obj, var_refs, sframe)
             } else {
-                JS_EvalFunctionInternal(self, bc_obj, &this_obj, &[], sf)
+                JS_EvalFunctionInternal(self, &bc_obj, &this_obj, &[], sframe)
             }
         }
     }
@@ -268,7 +266,7 @@ impl JSContext {
                     {
                         JSValue::EXCEPTION
                     } else {
-                        unsafe { JS_EvalFunction(self, module_func) }
+                        unsafe { JS_EvalFunction(self, &module_func) }
                     }
                 } else {
                     unreachable!()
@@ -319,15 +317,18 @@ impl JSValue {
 /// `fun_obj` could be Bytecode or Module.
 pub unsafe fn JS_EvalFunctionInternal(
     ctx: &JSContext,
-    fun_obj: JSValue,
+    fun_obj: &JSValue,
     this_obj: &JSValue,
     var_refs: &[JSVarRef],
-    sf: *mut JSStackFrame,
+    parent_frame: Option<&mut StackFrame>,
 ) -> JSValue {
     match fun_obj {
         JSValue::Bytecode(bc) => {
-            let fun_closure = js_closure(ctx, &bc, var_refs, sf);
-            JS_Call(ctx, &fun_closure, &this_obj, &[])
+            if let Ok(fc) = bc.make_closure(ctx, var_refs, parent_frame) {
+                JS_Call(ctx, &fc, &this_obj, &[])
+            } else {
+                JSValue::EXCEPTION
+            }
         }
         JSValue::Module(m) => {
             if js_create_module_function(ctx, &m) < 0 {
@@ -345,13 +346,6 @@ pub unsafe fn JS_EvalFunctionInternal(
     }
 }
 
-/// `fun_obj` is consumed.
-pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: JSValue) -> JSValue {
-    return JS_EvalFunctionInternal(
-        ctx,
-        fun_obj,
-        &ctx.0.borrow().global_obj.clone(),
-        &[],
-        std::ptr::null_mut(),
-    );
+pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: &JSValue) -> JSValue {
+    return JS_EvalFunctionInternal(ctx, fun_obj, &ctx.0.borrow().global_obj.clone(), &[], None);
 }

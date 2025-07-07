@@ -29,7 +29,7 @@ use crate::{
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     string::{JSString, JSStringInner},
     utils::UncheckedInto,
     value::{JSValue, JSValueConst},
@@ -456,7 +456,7 @@ pub unsafe fn add_scope_var(
 #[deprecated(note = "use JSStackFrame::get_var_ref() instead")]
 pub unsafe fn get_var_ref(
     ctx: &JSContext,
-    sf: *mut JSStackFrame,
+    sf: *mut StackFrame,
     var_idx: u16,
     is_arg: bool,
 ) -> *mut JSVarRef {

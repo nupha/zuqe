@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{BytecodeFunction, build_arg_list},
     object::JSObjectIsa,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
 };
 
@@ -172,10 +172,10 @@ pub fn JS_CallInternal(
             let sp_offset = std::mem::replace(&mut frame.cur_sp_offset, -1);
             debug_assert!(sp_offset >= 0);
 
-            frame.prev_frame = rt.current_stack_frame;
-            rt.current_stack_frame = (frame.deref_mut() as *mut JSStackFrame).cast();
+            frame.prev_frame = rt.cur_stack_frame;
+            rt.cur_stack_frame = (frame.deref_mut() as *mut StackFrame).cast();
 
-            bc.run(
+            let retval = bc.run(
                 caller_ctx,
                 home_obj.as_ref(),
                 frame,
@@ -186,7 +186,15 @@ pub fn JS_CallInternal(
                 p.0.isa.borrow().func().unwrap().var_refs.as_slice(),
                 args,
                 throw_flag,
-            )
+            );
+
+            debug_assert_eq!(
+                caller_ctx.rt().cur_stack_frame,
+                frame.prev_frame,
+                "runtime current stack frame should be restored after running bytecodes"
+            );
+
+            retval
         } else {
             caller_ctx.JS_ThrowTypeError("not a function");
             JSValue::EXCEPTION

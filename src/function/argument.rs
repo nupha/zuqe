@@ -8,7 +8,7 @@ use crate::{
         JS_PROP_WRITABLE, JSObjectIsa, JSProperty, js_get_length32,
     },
     runtime::JS_MAX_LOCAL_VARS,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -75,7 +75,7 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
 pub unsafe fn js_build_mapped_arguments(
     ctx: &JSContext,
     args: &[JSValue],
-    sf: &mut JSStackFrame,
+    sf: &mut StackFrame,
     arg_count: i32,
 ) -> JSValue {
     let val = if let Ok(o) = ctx.create_instance_from_proto(
@@ -143,7 +143,7 @@ pub unsafe fn js_build_mapped_arguments(
     let _ = val.define_property_value(
         ctx,
         JS_ATOM_callee,
-        (*ctx.rt().current_stack_frame.cast::<JSStackFrame>())
+        (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
             .cur_func
             .clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,

@@ -17,7 +17,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JSFunctionKindEnum, clousure::JSClosureVar, var::JSVarDef};
+use super::{JSFunctionKindEnum, closure::JSClosureVar, var::JSVarDef};
 
 #[derive(Debug)]
 pub struct BytecodeDebugInfo {

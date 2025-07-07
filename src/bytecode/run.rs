@@ -28,7 +28,7 @@ use crate::{
     function::{
         Bytecode, CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal,
         JSFunctionKindEnum, JSVarRef, build_arg_list, js_build_arguments,
-        js_build_mapped_arguments, js_build_rest, js_closure, js_function_apply,
+        js_build_mapped_arguments, js_build_rest, js_function_apply,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
     iterator::JS_IteratorClose,
@@ -41,27 +41,29 @@ use crate::{
         JSProperty,
     },
     regexp::js_regexp_constructor_internal,
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     utils::read_from_ptr,
     value::{HINT_NONE, JS_NewSymbolFromAtom, JSValue},
 };
 
 impl Bytecode {
     /// run bytecodes.
+    /// before running, runtime current stack frame will be set to `sframe`.
+    /// when exit, runtime current stack frame will be restored back to the previous frame.
     pub fn run(
         &self,
         caller_ctx: &JSContext, // Context of the calling environment
         func_home_obj: Option<&JSObject>,
-        sf: &mut JSStackFrame, // Execution stack frame
-        this_obj: &JSValue,    // The 'this' value for the function execution
-        new_target: JSValue,   // The new.target value for constructor calls
-        pc_offset: usize,      // Current instruction pointer (program counter) offset
-        sp_offset: usize,      // Current stack pointer offset
-        var_refs: &[JSVarRef],
+        sframe: &mut StackFrame, // The working stack frame
+        this_obj: &JSValue,      // The 'this' value for the function execution
+        new_target: JSValue,     // The new.target value for constructor calls
+        pc_offset: usize,        // Current instruction pointer (program counter) offset
+        sp_offset: usize,        // Current stack pointer offset
+        closure_var_refs: &[JSVarRef],
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let mode = sf.js_mode;
+        let mode = sframe.js_mode;
 
         // use bytecode's context
         let realm = self.0.borrow().realm.upgrade().unwrap();
@@ -77,7 +79,7 @@ impl Bytecode {
 
         let cpools = self.cpools_slice();
 
-        let sp_base = sf.stack_base_ptr().as_ptr();
+        let sp_base = sframe.stack_base_ptr().as_ptr();
         let pc_base = bytecodes.as_ptr();
         // convert index to pointer
         let (mut pc, mut sp) = unsafe { (pc_base.add(pc_offset), sp_base.add(sp_offset)) };
@@ -91,7 +93,7 @@ impl Bytecode {
                 )
             };
 
-            if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, cur_pc, cur_sp) {
+            if let Some((new_pc, new_sp)) = sframe.handle_exception(ctx, cur_pc, cur_sp) {
                 // continue execution: update pc and sp.
                 unsafe {
                     pc = pc_base.offset(new_pc as _);
@@ -99,7 +101,7 @@ impl Bytecode {
                 }
             } else {
                 // abort execution: sp=0, pc unchanged
-                sf.handle_exit(
+                sframe.handle_exit(
                     ctx,
                     cur_pc,
                     0,
@@ -197,7 +199,7 @@ impl Bytecode {
         #[cfg(debug_assertions)]
         macro_rules! ARG_REF {
             ($idx:expr) => {
-                unsafe { sf.arg_base_ptr.offset(($idx) as _).as_mut().unwrap() }
+                unsafe { sframe.arg_base_ptr.offset(($idx) as _).as_mut().unwrap() }
             };
         }
         #[cfg(not(debug_assertions))]
@@ -210,13 +212,13 @@ impl Bytecode {
         #[cfg(debug_assertions)]
         macro_rules! VAR_REF {
         [$idx:expr] => {
-            unsafe { (sf.var_base_ptr.offset(($idx) as isize).as_mut().unwrap()) }
+            unsafe { (sframe.var_base_ptr.offset(($idx) as isize).as_mut().unwrap()) }
         };
     }
         #[cfg(not(debug_assertions))]
         macro_rules! VAR_REF {
         [$idx:expr] => {
-            unsafe { (&mut *sf.var_base_ptr.offset(($idx) as isize)) }
+            unsafe { (&mut *sframe.var_base_ptr.offset(($idx) as isize)) }
         };
     }
 
@@ -365,7 +367,7 @@ impl Bytecode {
                                     js_build_mapped_arguments(
                                         ctx,
                                         args,
-                                        sf,
+                                        sframe,
                                         std::cmp::min(
                                             args.len() as i32,
                                             self.0.borrow().arg_count as i32
@@ -378,7 +380,7 @@ impl Bytecode {
                                 }
                             }
                             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC => {
-                                SP_PUT!(0, sf.cur_func.clone());
+                                SP_PUT!(0, sframe.cur_func.clone());
                                 SP_GO!(1);
                             }
                             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_NEW_TARGET => {
@@ -624,7 +626,11 @@ impl Bytecode {
 
                         let bfunc = CPOOL![id];
                         if let JSValue::Bytecode(bc) = bfunc {
-                            SP_PUT!(0, js_closure(ctx, bc, var_refs, sf));
+                            SP_PUT!(
+                                0,
+                                bc.make_closure(ctx, closure_var_refs, Some(sframe))
+                                    .unwrap_or(JSValue::EXCEPTION)
+                            );
                             SP_GO!(1);
                             if SP_REF!(-1).is_exception() {
                                 break State::Exception;
@@ -643,7 +649,7 @@ impl Bytecode {
                         let call_argc = PC_FETCH!(u16);
                         let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
 
-                        sf.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         let ret_val = JS_CallInternal(
                             ctx,
@@ -674,7 +680,7 @@ impl Bytecode {
                         pc = unsafe { pc.add(2) };
 
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        sf.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         let ret_val = JS_CallConstructorInternal(
                             ctx,
@@ -704,7 +710,7 @@ impl Bytecode {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
 
-                        sf.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         let ret_val = JS_CallInternal(
                             ctx,
@@ -867,7 +873,7 @@ impl Bytecode {
                         let scope_idx = PC_FETCH!(u16) as i32 - 1;
 
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        sf.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         // function val
                         let func_val = unsafe { &*call_argv.offset(-1) };
@@ -1093,23 +1099,23 @@ impl Bytecode {
                         // get value from var_ref, duplicate and push it on stack
                         // Stack operation: [^] -> [value, ^] where ^ is stack top
                         let idx = PC_FETCH!(u16);
-                        SP_PUT!(0, var_refs[idx as usize].value().clone());
+                        SP_PUT!(0, closure_var_refs[idx as usize].value().clone());
                         SP_GO!(1);
                     }
                     OpCode::PUT_VAR_REF => {
                         // [value, ^] -> [^]
                         // consume and store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        var_refs[idx as usize].set_value(SP_TAKE!(-1));
+                        closure_var_refs[idx as usize].set_value(SP_TAKE!(-1));
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        var_refs[idx as usize].set_value(SP_REF!(-1).clone());
+                        closure_var_refs[idx as usize].set_value(SP_REF!(-1).clone());
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
-                        let val = var_refs[idx as usize].value();
+                        let val = closure_var_refs[idx as usize].value();
                         if val.is_uninitialized() {
                             JS_ThrowReferenceErrorUninitialized2(ctx, self, idx, true);
                             break State::Exception;
@@ -1121,17 +1127,17 @@ impl Bytecode {
                             SP_GO!(1);
                         } else {
                             // PUT_VAR_REF_CHECK
-                            var_refs[idx as usize].set_value(SP_TAKE!(-1));
+                            closure_var_refs[idx as usize].set_value(SP_TAKE!(-1));
                             SP_GO!(-1);
                         }
                     }
                     OpCode::PUT_VAR_REF_CHECK_INIT => {
                         let idx = PC_FETCH!(u16);
-                        if !var_refs[idx as usize].value().is_uninitialized() {
+                        if !closure_var_refs[idx as usize].value().is_uninitialized() {
                             JS_ThrowReferenceErrorUninitialized2(ctx, self, idx, true);
                             break State::Exception;
                         } else {
-                            var_refs[idx as usize].set_value(SP_TAKE!(-1));
+                            closure_var_refs[idx as usize].set_value(SP_TAKE!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1173,7 +1179,7 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        sf.close_lexical_var(ctx, idx, false);
+                        sframe.close_lexical_var(ctx, idx, false);
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = JSAtom(PC_FETCH!(u32));
@@ -1184,14 +1190,14 @@ impl Bytecode {
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
-                        if SP_REF![-1].is_exception() {
+                        if SP_REF!(-1).is_exception() {
                             break State::Exception;
                         }
 
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            Ok(var_refs[idx as usize].clone())
+                            Ok(closure_var_refs[idx as usize].clone())
                         } else {
-                            sf.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
+                            sframe.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
                         };
                         match var_ref {
                             Ok(vr) => unsafe {
@@ -1380,7 +1386,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::ITERATOR_CHECK_OBJECT => {
-                        if !SP_REF![-1].is_object() {
+                        if !SP_REF!(-1).is_object() {
                             ctx.JS_ThrowTypeError("iterator must return an object");
                             break State::Exception;
                         }
@@ -1458,7 +1464,7 @@ impl Bytecode {
                             let ret = JS_Call(
                                 ctx,
                                 &method,
-                                SP_REF![-4],
+                                SP_REF!(-4),
                                 if flags & 2 != 0 {
                                     &[]
                                 } else {
@@ -1596,8 +1602,8 @@ impl Bytecode {
                         let ret = unsafe {
                             JS_DefineObjectNameComputed(
                                 ctx,
-                                SP_REF![-1],
-                                SP_REF![-2],
+                                SP_REF!(-1),
+                                SP_REF!(-2),
                                 JS_PROP_CONFIGURABLE,
                             )
                         };
@@ -1609,14 +1615,14 @@ impl Bytecode {
                         // [this_obj, proto, ^] -> [this_obj, ^]
                         let proto = SP_TAKE!(-1);
                         if proto.is_object() || proto.is_null() {
-                            if JS_SetPrototypeInternal(ctx, SP_REF![-2], proto, true).is_err() {
+                            if JS_SetPrototypeInternal(ctx, SP_REF!(-2), proto, true).is_err() {
                                 break State::Exception;
                             }
                             SP_GO!(-1);
                         }
                     }
                     OpCode::SET_HOME_OBJECT => {
-                        js_method_set_home_object(ctx, SP_REF![-1], SP_REF![-2]);
+                        js_method_set_home_object(ctx, SP_REF!(-1), SP_REF!(-2));
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         // DEFINE_METHOD_COMPUTED:
@@ -1649,7 +1655,7 @@ impl Bytecode {
                             flags |= JS_PROP_ENUMERABLE
                         }
 
-                        let this_obj = SP_REF![if is_computed { -3 } else { -2 }];
+                        let this_obj = SP_REF!(if is_computed { -3 } else { -2 });
 
                         let func_obj: &JSValue;
                         let mut value = JSValue::UNDEFINED;
@@ -1700,18 +1706,17 @@ impl Bytecode {
                         let atom = JSAtom(PC_FETCH!(u32));
                         let class_flags = PC_FETCH!(u8) as u32;
 
-                        if unsafe {
-                            js_op_define_class(
-                                ctx,
-                                sp,
-                                atom,
-                                class_flags as _,
-                                var_refs,
-                                sf,
-                                opcode == OpCode::DEFINE_CLASS_COMPUTED,
-                            )
-                            .is_err()
-                        } {
+                        if js_op_define_class(
+                            ctx,
+                            sp,
+                            atom,
+                            class_flags as _,
+                            closure_var_refs,
+                            sframe,
+                            opcode == OpCode::DEFINE_CLASS_COMPUTED,
+                        )
+                        .is_err()
+                        {
                             break State::Exception;
                         }
                     }
@@ -1752,12 +1757,12 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_SUPER_VALUE => {
-                        let atom = JS_ValueToAtom(ctx, SP_REF![-1]);
+                        let atom = JS_ValueToAtom(ctx, SP_REF!(-1));
                         if atom == JS_ATOM_NULL {
                             break State::Exception;
                         }
 
-                        let val = SP_REF![-2].get_property_internal(ctx, atom, SP_REF![-3], false);
+                        let val = SP_REF!(-2).get_property_internal(ctx, atom, SP_REF!(-3), false);
                         JS_FreeAtom(ctx, atom);
                         if val.is_exception() {
                             break State::Exception;
@@ -2236,7 +2241,7 @@ impl Bytecode {
                     }
 
                     OpCode::IS_UNDEFINED_OR_NULL => {
-                        SP_PUT!(-1, JSValue::Bool(SP_REF![-1].is_undefined_or_null()));
+                        SP_PUT!(-1, JSValue::Bool(SP_REF!(-1).is_undefined_or_null()));
                     }
                     OpCode::NOP => {}
 
@@ -2279,7 +2284,9 @@ impl Bytecode {
                         )
                     };
 
-                    if let Some((new_pc, new_sp)) = sf.handle_exception(ctx, pc_offset, sp_offset) {
+                    if let Some((new_pc, new_sp)) =
+                        sframe.handle_exception(ctx, pc_offset, sp_offset)
+                    {
                         // continue running, update pc and sp pointer, and jump
                         unsafe {
                             pc = pc_base.offset(new_pc as _);
@@ -2288,7 +2295,7 @@ impl Bytecode {
                         continue 'restart;
                     } else {
                         // abort with sp=0, pc unchanged
-                        sf.handle_exit(
+                        sframe.handle_exit(
                             ctx,
                             pc_offset,
                             0,
@@ -2298,16 +2305,16 @@ impl Bytecode {
                     }
                 }
 
-                State::Done(ret_val, is_generator) => {
-                    sf.handle_exit(
+                State::Done(ret_val, is_async) => {
+                    sframe.handle_exit(
                         ctx,
                         unsafe { pc.offset_from(pc_base) as usize },
                         unsafe { sp.offset_from(sp_base) as usize },
-                        is_generator,
+                        is_async,
                     );
                     return ret_val;
                 }
             }
-        } // 'restart loop
+        } // bytecode loop
     }
 }

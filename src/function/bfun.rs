@@ -10,7 +10,7 @@ use crate::{
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
     object::{JS_SetPrototypeInternal, JSObject},
-    stack_frame::JSStackFrame,
+    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -103,7 +103,7 @@ impl BytecodeFunction {
             )
         };
 
-        let mut sframe = JSStackFrame {
+        let mut sframe = StackFrame {
             cur_func: JSValue::Object(self.0.clone()),
             js_mode,
             ..Default::default()
@@ -128,7 +128,7 @@ impl BytecodeFunction {
         if arg_copy_num != 0 {
             debug_assert!(arg_copy_num >= args.len());
 
-            // copy actual arg values - duplicated
+            // copy actual arg values
             sf.local_buf.extend(args.iter().map(|x| x.clone()));
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
@@ -157,8 +157,8 @@ impl BytecodeFunction {
             sf.var_count = b.var_count;
         }
 
-        sf.prev_frame = caller_ctx.rt().current_stack_frame;
-        caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
+        sf.prev_frame = caller_ctx.rt().cur_stack_frame;
+        caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();
 
         let retval = bc.run(
             caller_ctx,
@@ -171,6 +171,12 @@ impl BytecodeFunction {
             &self.0.0.isa.borrow().func().unwrap().var_refs,
             args,
             false,
+        );
+
+        debug_assert_eq!(
+            caller_ctx.rt().cur_stack_frame,
+            sf.prev_frame,
+            "runtime current stack frame should be restored after running bytecodes"
         );
 
         // stack frame is about to drop
