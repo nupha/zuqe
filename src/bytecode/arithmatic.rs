@@ -391,7 +391,7 @@ impl UnaryOp {
 }
 
 #[inline(always)]
-pub(super) unsafe fn op_binary_logic(
+pub(super) fn op_binary_logic(
     ctx: &JSContext,
     opcode: OpCode,
     sp: *mut JSValue,
@@ -420,7 +420,7 @@ pub(super) unsafe fn op_binary_logic(
 }
 
 /// op1, op2 are consumed
-pub(super) unsafe fn relational(
+pub(super) fn relational(
     ctx: &JSContext,
     op1: JSValue,
     op2: JSValue,

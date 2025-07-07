@@ -6,7 +6,7 @@ mod run;
 
 pub mod arithmatic;
 
-pub use {operators::*, run::run_bytecodes};
+pub use operators::*;
 
 #[cfg(feature = "dump_bytecode")]
 pub use dump::{dump_byte_code, js_dump_function_bytecode};

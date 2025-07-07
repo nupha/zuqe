@@ -21,7 +21,7 @@ use crate::{
     value::{JS_AtomSymbolHasDescription, JSValue, JSValueConst},
 };
 
-pub unsafe fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     let (op1, op2) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -62,7 +62,7 @@ pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
     Ok(())
 }
 
-pub unsafe fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
     let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
 
@@ -85,7 +85,7 @@ pub unsafe fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i3
     Ok(())
 }
 
-pub unsafe fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
@@ -104,7 +104,7 @@ pub unsafe fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Resul
             return Err(-1);
         }
 
-        let b = op1.object_unchecked().has_shape_property(atom);
+        let b = unsafe { op1.object_unchecked().has_shape_property(atom) };
         JS_FreeAtom(ctx, atom);
         b
     };
@@ -115,7 +115,7 @@ pub unsafe fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Resul
     Ok(())
 }
 
-pub unsafe fn js_op_define_class(
+pub fn js_op_define_class(
     ctx: &JSContext,
     sp: *mut JSValue,
     class_name: JSAtom,
@@ -189,11 +189,13 @@ pub unsafe fn js_op_define_class(
     .unwrap();
 
     if is_computed_name {
-        if JS_DefineObjectNameComputed(ctx, &ctor, &*sp.offset(-3), JS_PROP_CONFIGURABLE) < 0 {
+        if unsafe { JS_DefineObjectNameComputed(ctx, &ctor, &*sp.offset(-3), JS_PROP_CONFIGURABLE) }
+            < 0
+        {
             return Err(-1);
         }
     } else {
-        if JS_DefineObjectName(ctx, &ctor, class_name, JS_PROP_CONFIGURABLE) < 0 {
+        if unsafe { JS_DefineObjectName(ctx, &ctor, class_name, JS_PROP_CONFIGURABLE) } < 0 {
             return Err(-1);
         }
     }
@@ -221,7 +223,7 @@ pub unsafe fn js_op_define_class(
     Ok(())
 }
 
-pub unsafe fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i32 {
+pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i32 {
     let arr = obj.get_property(ctx, JS_ATOM_Symbol_unscopables);
     if arr.is_exception() {
         return -1;
@@ -269,7 +271,7 @@ pub fn js_method_set_home_object(
 // 'flags'. 'flags' is a bitmask of JS_PROP_HAS_GET and
 // JS_PROP_HAS_SET. Also set the home object of the method.
 // Return < 0 if exception.
-pub unsafe fn js_method_set_properties(
+pub fn js_method_set_properties(
     ctx: &JSContext,
     func_obj: &JSValue,
     name: JSAtom,
@@ -278,9 +280,9 @@ pub unsafe fn js_method_set_properties(
 ) -> i32 {
     let mut name_str = js_get_function_name(ctx, name);
     if flags & JS_PROP_HAS_GET != 0 {
-        name_str = JS_ConcatString3(ctx, c"get ", name_str, c"");
+        name_str = unsafe { JS_ConcatString3(ctx, c"get ", name_str, c"") };
     } else if flags & JS_PROP_HAS_SET != 0 {
-        name_str = JS_ConcatString3(ctx, c"set ", name_str, c"");
+        name_str = unsafe { JS_ConcatString3(ctx, c"set ", name_str, c"") };
     }
 
     if name_str.is_exception() {
@@ -552,8 +554,8 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 /// Get enumerate object and next method of sp[-1] object.
 /// Note: new values are updated to sp[-1], sp[0], old value of sp[-1] is consumed.
 /// obj -> enum_rec (3 slots)
-pub unsafe fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> i32 {
-    let op1 = &*sp.offset(-1);
+pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> i32 {
+    let op1 = unsafe { &*sp.offset(-1) };
     let obj = JS_GetIterator(ctx, op1, is_async);
     if obj.is_exception() {
         return -1;

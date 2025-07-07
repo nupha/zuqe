@@ -5,7 +5,6 @@ use smallvec::SmallVec;
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     atom::consts::JS_ATOM_prototype,
-    bytecode::run_bytecodes,
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
@@ -162,8 +161,7 @@ impl BytecodeFunction {
         caller_ctx.rt_mut().current_stack_frame = (sf as *mut JSStackFrame).cast();
 
         let retval = unsafe {
-            run_bytecodes(
-                &bc,
+            bc.run(
                 caller_ctx,
                 home_obj.as_ref(),
                 sf,

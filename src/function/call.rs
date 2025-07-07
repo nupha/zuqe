@@ -3,7 +3,6 @@ use std::ops::DerefMut;
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     atom::JSAtom,
-    bytecode::run_bytecodes,
     context::JSContext,
     error::JSResult,
     function::{BytecodeFunction, build_arg_list},
@@ -177,8 +176,7 @@ pub fn JS_CallInternal(
             rt.current_stack_frame = (frame.deref_mut() as *mut JSStackFrame).cast();
 
             unsafe {
-                run_bytecodes(
-                    &bc,
+                bc.run(
                     caller_ctx,
                     home_obj.as_ref(),
                     frame,
