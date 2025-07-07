@@ -377,11 +377,13 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
             .unwrap_or("".into())
             .join("harness");
 
-        harness_files = vec![
-            harness_path.join("assert.js"),
-            harness_path.join("sta.js"),
-            harness_path.join("doneprintHandle.js"),
-        ];
+        harness_files = vec![harness_path.join("assert.js"), harness_path.join("sta.js")];
+
+        if let Some(lst) = &config.flags {
+            if lst.iter().any(|s| s == "async") {
+                harness_files.push(harness_path.join("doneprintHandle.js"));
+            }
+        }
 
         if let Some(includes) = config.includes {
             for include in includes {
