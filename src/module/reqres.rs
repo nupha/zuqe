@@ -467,7 +467,7 @@ pub unsafe fn js_inner_module_linking(
     let is_c_module = m.0.borrow().init_func.is_some();
     if !is_c_module {
         let inner = m.0.borrow();
-        let mut isa = inner.func_obj.object_unchecked().0.isa.borrow_mut();
+        let mut isa = inner.bytecode.object_unchecked().0.isa.borrow_mut();
         let var_refs = isa.func_mut().unwrap().var_refs.as_mut_slice();
 
         for i in 0..m.0.borrow().import_entries_count {
@@ -546,7 +546,7 @@ pub unsafe fn js_inner_module_linking(
                                     module
                                         .0
                                         .borrow()
-                                        .func_obj
+                                        .bytecode
                                         .object_unchecked()
                                         .0
                                         .isa
@@ -582,7 +582,7 @@ pub unsafe fn js_inner_module_linking(
         }
 
         // initialize the global variables
-        let ret_val = JS_Call(ctx, &m.0.borrow_mut().func_obj, &JSValue::Bool(true), &[]);
+        let ret_val = JS_Call(ctx, &m.0.borrow_mut().bytecode, &JSValue::Bool(true), &[]);
         if ret_val.is_exception() {
             return -1;
         }

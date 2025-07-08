@@ -15,7 +15,7 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{CallContext, Bytecode};
+use super::{Bytecode, CallContext};
 
 /// Special index for argument scope.
 /// This is same to `JSFunctionDef::body_scope`, which was automatically pushed
@@ -84,7 +84,7 @@ impl JSValue {
     }
 }
 
-pub const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
+pub(crate) const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
     matches!(
         class_id,
         JS_CLASS_BYTECODE_FUNCTION

@@ -8,7 +8,7 @@ use crate::{
     error::JSResult,
     function::{
         Bytecode, JSFunctionKindEnum, JSObjectFunc, JSVarRef, func_kind_to_class_id,
-        js_function_set_properties,
+        js_class_has_bytecode, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, JSObjectIsa, LazyInit},
     runtime::JS_MAX_LOCAL_VARS,
@@ -222,13 +222,7 @@ impl Bytecode {
         parent_frame: Option<&mut StackFrame>,
     ) -> Result<JSObject, i32> {
         debug_assert!(
-            matches!(
-                target.class_id(),
-                JS_CLASS_BYTECODE_FUNCTION
-                    | JS_CLASS_GENERATOR_FUNCTION
-                    | JS_CLASS_ASYNC_FUNCTION
-                    | JS_CLASS_ASYNC_GENERATOR_FUNCTION
-            ),
+            js_class_has_bytecode(target.class_id()),
             "class_id: {}",
             target.class_id()
         );

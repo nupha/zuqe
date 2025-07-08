@@ -120,7 +120,7 @@ impl JSModuleDef {
         index: i32,
         pstack_top: &mut Option<JSModuleDef>,
     ) -> Result<i32, JSValue> {
-        if unsafe { js_check_stack_overflow(&ctx.rt(), 0) } {
+        if js_check_stack_overflow(&ctx.rt(), 0) {
             JS_ThrowStackOverflow(ctx);
             return Err(ctx.take_exception());
         }
@@ -261,7 +261,7 @@ impl JSModuleDef {
 
     /// execute module async
     pub fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
-        let afunc_obj: AsyncFunction = self.0.borrow().func_obj.clone().try_into().unwrap();
+        let afunc_obj: AsyncFunction = self.0.borrow().bytecode.clone().try_into().unwrap();
         let promise = afunc_obj.call(ctx, JSValue::UNDEFINED, &[], 0)?;
 
         let data = [JSValue::Module(self.clone())];
@@ -422,7 +422,7 @@ impl JSModuleDef {
             }
         } else {
             let promise = {
-                let afunc: AsyncFunction = self.0.borrow().func_obj.clone().try_into().unwrap();
+                let afunc: AsyncFunction = self.0.borrow().bytecode.clone().try_into().unwrap();
                 afunc
                     .call(ctx, JSValue::UNDEFINED, &[], 0)
                     .map_err(|_| ctx.take_exception())? // return Err with current exception

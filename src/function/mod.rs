@@ -11,7 +11,7 @@ mod entries;
 mod fdef;
 mod fun;
 mod label;
-mod mkfunc;
+mod mkbc;
 mod native;
 mod optimize;
 mod resolve_labels;

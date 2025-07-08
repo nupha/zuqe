@@ -708,7 +708,7 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &Bytecode) {
         dump_byte_code(
             ctx,
             3,
-            b.bytecode_slice(),
+            b.opcodes(),
             b.args_slice(),
             b.vars_slice(),
             b.closure_vars_slice(),

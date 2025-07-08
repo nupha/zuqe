@@ -202,7 +202,7 @@ impl JSModuleDef {
                                 vr
                             } else {
                                 let minner = module.0.borrow();
-                                let p1 = minner.func_obj.object_unchecked();
+                                let p1 = minner.bytecode.object_unchecked();
                                 p1.0.isa.borrow().func().unwrap().var_refs[var_idx as usize].clone()
                             },
                         );

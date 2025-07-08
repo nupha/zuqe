@@ -61,10 +61,12 @@ pub(crate) struct JSModuleDefInner {
     pub import_entries_count: u16,
     pub import_entries_size: i32,
 
+    /// module namespace.
     pub module_ns: JSValue,
 
-    /// for JS modules only
-    pub func_obj: JSValue,
+    /// for JS modules only.
+    /// TODO: use Option<Bytecode>
+    pub bytecode: JSValue,
     /// for C modules only
     pub init_func: Option<JSModuleInitFunc>,
 
@@ -133,7 +135,7 @@ impl JSModuleDefInner {
             import_entries_size: 0,
 
             module_ns: JSValue::UNDEFINED,
-            func_obj: JSValue::UNDEFINED,
+            bytecode: JSValue::UNDEFINED,
             init_func: None,
 
             has_tla: false,
@@ -525,7 +527,7 @@ pub unsafe fn js_create_module_bytecode_function(
     // get bytecode
     let b = unsafe {
         m.0.borrow()
-            .func_obj
+            .bytecode
             .object_unchecked()
             .0
             .isa
@@ -576,7 +578,7 @@ pub unsafe fn js_create_module_bytecode_function(
         .create_instance_from_proto(&ctx.0.borrow().function_proto, isa)
         .map_err(|_| -1)?;
 
-    m.0.borrow_mut().func_obj = func_obj;
+    m.0.borrow_mut().bytecode = func_obj;
     Ok(())
 }
 

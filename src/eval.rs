@@ -182,32 +182,32 @@ impl JSContext {
             m.0.borrow_mut().has_tla = root_fd.has_await;
         }
 
-        // create the bytecode object and all the enclosed functions.
-        let mut bc_obj = if let Ok(bc) = root_fd.make_function_bytecode(self) {
-            bc
+        // convert function def to bytecode.
+        let mut bc_val = if let Ok(bf) = root_fd.into_bytecode(self) {
+            JSValue::Bytecode(bf)
         } else {
             return JSValue::EXCEPTION;
         };
 
         // Could add a flag to avoid resolution if necessary
         if let Some(m) = md.as_ref() {
-            m.0.borrow_mut().func_obj = bc_obj;
+            m.0.borrow_mut().bytecode = bc_val;
             if self.resolve_module(&m).is_err() {
                 return JSValue::EXCEPTION;
             }
-            bc_obj = JSValue::Module(m.clone());
+            bc_val = JSValue::Module(m.clone());
         }
 
         // returns compiled or evaluated
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            bc_obj
+            bc_val
         } else {
             if let Some(f) = func_obj.as_ref() {
                 let isa = f.0.isa.borrow();
                 let var_refs = isa.func().unwrap().var_refs.as_slice();
-                JS_EvalFunctionInternal(self, &bc_obj, &this_obj, var_refs, sframe)
+                JS_EvalFunctionInternal(self, &bc_val, &this_obj, var_refs, sframe)
             } else {
-                JS_EvalFunctionInternal(self, &bc_obj, &this_obj, &[], sframe)
+                JS_EvalFunctionInternal(self, &bc_val, &this_obj, &[], sframe)
             }
         }
     }
@@ -340,7 +340,7 @@ pub unsafe fn JS_EvalFunctionInternal(
             m.eval(ctx)
         }
         _ => {
-            ctx.JS_ThrowTypeError("bytecode function expected");
+            ctx.JS_ThrowTypeError("bytecode expected");
             JSValue::EXCEPTION
         }
     }

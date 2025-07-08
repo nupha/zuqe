@@ -148,7 +148,7 @@ impl JSModuleDef {
             {
                 let m = self.0.borrow();
                 m.module_ns.gc_mark();
-                m.func_obj.gc_mark();
+                m.bytecode.gc_mark();
                 m.eval_exception.gc_mark();
                 m.meta_obj.gc_mark();
                 m.promise.gc_mark();
@@ -171,7 +171,7 @@ impl JSModuleDef {
         let mut m = self.0.borrow_mut();
 
         m.module_ns = JSValue::UNDEFINED;
-        m.func_obj = JSValue::UNDEFINED;
+        m.bytecode = JSValue::UNDEFINED;
         m.eval_exception = JSValue::UNDEFINED;
         m.meta_obj = JSValue::UNDEFINED;
         m.promise = JSValue::UNDEFINED;

@@ -87,8 +87,8 @@ pub(crate) struct BytecodeInner {
     pub vardefs_start: i32,
     /// start index of closure vars >=0 for valid index
     pub closure_var_start: i32,
-    /// index in binary where bytecode starts
-    pub bytecode_start: u32,
+    /// index where opcodes starts
+    pub opcodes_start: u32,
 }
 
 impl Drop for BytecodeInner {
@@ -325,15 +325,10 @@ impl BytecodeInner {
         }
     }
 
-    /// get bytecode starting pointer
-    pub unsafe fn bytecode_ptr(&mut self) -> NonNull<u8> {
-        NonNull::new(unsafe { self.binary.as_mut_ptr().add(self.bytecode_start as usize) }).unwrap()
-    }
-
-    /// get bytecode opcodes slice
+    /// get opcodes slice
     #[inline(always)]
-    pub fn bytecode_slice(&self) -> &[u8] {
-        &self.binary[self.bytecode_start as usize..]
+    pub fn opcodes(&self) -> &[u8] {
+        &self.binary[self.opcodes_start as usize..]
     }
 
     /// get const pool values slice
@@ -417,7 +412,7 @@ impl BytecodeInner {
 
         free_bytecode_atoms(
             rt.as_ptr(),
-            &self.binary[self.bytecode_start as usize..],
+            &self.binary[self.opcodes_start as usize..],
             true,
         );
 
@@ -567,7 +562,7 @@ impl Bytecode {
     /// get bytecode opcodes slice
     #[inline(always)]
     pub fn bytecodes(&self) -> Ref<'_, [u8]> {
-        Ref::map(self.0.borrow(), |b| b.bytecode_slice())
+        Ref::map(self.0.borrow(), |b| b.opcodes())
     }
 
     /// get nth arg or var vardef. for example:
