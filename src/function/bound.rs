@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    context::JSContext, error::JSResult, object::JSObjectIsa, runtime::JSRuntime, value::JSValue,
+    context::JSContext, error::JSResult, object::ObjectDetail, runtime::JSRuntime, value::JSValue,
 };
 
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_Call, JS_CallConstructor2};
@@ -18,11 +18,11 @@ pub struct ObjBoundFunc {
 pub struct BoundFunctionValue(JSValue);
 
 impl BoundFunctionValue {
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let JSObjectIsa::BOUND_FUNCTION(bf) = val.object_unchecked().0.isa.borrow().deref() {
+            if let ObjectDetail::BOUND_FUNCTION(bf) = val.object_unchecked().0.detail.borrow().deref() {
                 val.gc_mark();
                 bf.func_obj.gc_mark();
                 bf.this_val.gc_mark();
@@ -41,9 +41,9 @@ impl BoundFunctionValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let isa = unsafe { func_obj.object_unchecked().0.isa.borrow() };
+        let isa = unsafe { func_obj.object_unchecked().0.detail.borrow() };
 
-        if let JSObjectIsa::BOUND_FUNCTION(bf) = isa.deref() {
+        if let ObjectDetail::BOUND_FUNCTION(bf) = isa.deref() {
             let arg_count = bf.bind_args.len() + args.len() as usize;
 
             // if js_check_stack_overflow(&ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {

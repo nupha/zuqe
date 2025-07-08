@@ -8,7 +8,7 @@ use crate::{
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, JSObjectIsa, PropertyEnum,
+        JS_PROP_THROW, ObjectDetail, PropertyEnum,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -112,7 +112,7 @@ pub fn JS_IteratorNext2(
     pdone: &mut i32,
 ) -> JSValue {
     if let JSValue::Object(p) = method
-        && let JSObjectIsa::C_FUNCTION(nfunc) = p.0.isa.borrow().deref()
+        && let ObjectDetail::C_FUNCTION(nfunc) = p.0.detail.borrow().deref()
     {
         // fast path for the built-in iterators (avoid creating the
         // intermediate result object)
@@ -237,8 +237,8 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     value
 }
 
-pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, _id: usize) {
-    if let JSObjectIsa::FOR_IN_ITERATOR(it) = isa {
+pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, _id: usize) {
+    if let ObjectDetail::FOR_IN_ITERATOR(it) = isa {
         if !it.is_array {
             for x in it.tab_atom.iter() {
                 JS_FreeAtomRT(rt, x.atom);
@@ -249,7 +249,7 @@ pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, _id: 
 
 pub fn js_for_in_iterator_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let JSObjectIsa::FOR_IN_ITERATOR(it) = p.0.isa.borrow().deref() {
+    if let ObjectDetail::FOR_IN_ITERATOR(it) = p.0.detail.borrow().deref() {
         it.obj.gc_mark();
     }
 }
@@ -303,7 +303,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
         }
     }
 
-    if let Ok(o) = ctx.create_instance_from_proto(&JSValue::NULL, JSObjectIsa::FOR_IN_ITERATOR(it))
+    if let Ok(o) = ctx.create_instance_from_proto(&JSValue::NULL, ObjectDetail::FOR_IN_ITERATOR(it))
     {
         o
     } else {
@@ -316,8 +316,8 @@ pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     ctx: &JSContext,
     enum_obj: &JSValueConst,
 ) -> i32 {
-    let mut isa = enum_obj.object_unchecked().0.isa.borrow_mut();
-    let it = if let JSObjectIsa::FOR_IN_ITERATOR(p) = isa.deref_mut() {
+    let mut isa = enum_obj.object_unchecked().0.detail.borrow_mut();
+    let it = if let ObjectDetail::FOR_IN_ITERATOR(p) = isa.deref_mut() {
         p
     } else {
         unreachable!()

@@ -10,9 +10,9 @@ use crate::{
     value::JSValue,
 };
 
-include!(concat!(env!("OUT_DIR"), "/object_isa.rs"));
+include!(concat!(env!("OUT_DIR"), "/object_detail.rs"));
 
-impl JSObjectIsa {
+impl ObjectDetail {
     pub const fn array(&self) -> Option<&JSObjectArray> {
         match self {
             Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),

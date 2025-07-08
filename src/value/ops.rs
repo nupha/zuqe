@@ -5,7 +5,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     function::JS_Call,
-    object::{JSObject, JSObjectIsa},
+    object::{JSObject, ObjectDetail},
     value::JSValue,
 };
 
@@ -17,7 +17,7 @@ impl JSObject {
             return Ok(false);
         }
 
-        if let JSObjectIsa::BOUND_FUNCTION(bfunc) = self.0.isa.borrow().deref() {
+        if let ObjectDetail::BOUND_FUNCTION(bfunc) = self.0.detail.borrow().deref() {
             return bfunc.func_obj.instance_of(ctx, ty);
         }
 

@@ -13,7 +13,7 @@ use crate::{
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-        JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, JSObjectIsa,
+        JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectDetail,
         js_get_length32,
     },
     stack_frame::StackFrame,
@@ -159,7 +159,7 @@ pub fn js_op_define_class(
         bfunc
             .object_unchecked()
             .0
-            .isa
+            .detail
             .borrow()
             .func()
             .and_then(|f| f.bytecode.clone())
@@ -170,7 +170,7 @@ pub fn js_op_define_class(
     let mut ctor = ctx
         .create_instance_from_proto(
             &parent_class,
-            JSObjectIsa::BYTECODE_FUNCTION(ObjFunc::default()),
+            ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default()),
         )
         .map_err(|_| -1)?;
 
@@ -263,7 +263,7 @@ pub fn js_method_set_home_object(
     home_obj: &JSValueConst,
 ) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(fo) = o.0.isa.borrow_mut().func_mut() {
+        if let Some(fo) = o.0.detail.borrow_mut().func_mut() {
             let need_home_object = fo
                 .bytecode
                 .as_ref()
@@ -441,9 +441,9 @@ pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     let enum_obj = &*sp.offset(-1);
 
-    if let Some(JSObjectIsa::FOR_IN_ITERATOR(it)) = enum_obj
+    if let Some(ObjectDetail::FOR_IN_ITERATOR(it)) = enum_obj
         .object()
-        .map(|p| p.0.isa.borrow_mut())
+        .map(|p| p.0.detail.borrow_mut())
         .as_deref_mut()
     {
         let mut prop: JSAtom;

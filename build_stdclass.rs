@@ -482,7 +482,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     }
 }
 
-pub fn gen_object_isa(outfile: &Path) {
+pub fn gen_object_detail(outfile: &Path) {
     let class_defs = Lazy::force(&CLASS_DEF_LIST);
 
     let mut items = Vec::<String>::with_capacity(class_defs.len() + 8);
@@ -513,12 +513,12 @@ pub fn gen_object_isa(outfile: &Path) {
 
     let lines: Vec<String> = vec![
         "use crate::{  class::{JSClassID }};\n".to_string(),
-        "#[repr(u8)]\n#[derive(Debug)]\npub enum JSObjectIsa {".to_string(),
+        "#[repr(u8)]\n#[derive(Debug)]\npub enum ObjectDetail {".to_string(),
         items.join(",\n"),
         "}".to_string(),
         "".to_string(),
         // impl
-        "impl JSObjectIsa {".to_string(),
+        "impl ObjectDetail {".to_string(),
         format!(
             "pub const fn class_id(&self)->JSClassID {{ match self {{ {} }} }}",
             getid_arms.join(",\n")

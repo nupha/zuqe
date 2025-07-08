@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, NativeFieldDef},
     mem::js_malloc_typed,
     number::JSFloat64Union,
-    object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
+    object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
     typed_array::TypedArrayValue,
     value::JSValue,
 };
@@ -30,7 +30,7 @@ impl JSContext {
     ) -> JSResult {
         let abuf = buffer
             .object()
-            .and_then(|o| o.0.isa.borrow().array_buffer().cloned())
+            .and_then(|o| o.0.detail.borrow().array_buffer().cloned())
             .ok_or_else(|| {
                 self.JS_ThrowTypeError("expect an ArrayBuffer");
                 -1
@@ -75,13 +75,13 @@ impl JSContext {
 
         // create dataview instance
         let o = self
-            .create_instance_from_ctor(new_target, JSObjectIsa::DATAVIEW(ta))
+            .create_instance_from_ctor(new_target, ObjectDetail::DATAVIEW(ta))
             .map_err(|_| -1)?;
 
         unsafe {
             // set back ref to the new created DataView object
             let p = o.object_unchecked();
-            p.0.isa.borrow_mut().typed_array_mut().unwrap().obj = p.downgrade();
+            p.0.detail.borrow_mut().typed_array_mut().unwrap().obj = p.downgrade();
         }
 
         Ok(o)
@@ -124,11 +124,11 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
         false // default to BE
     };
 
-    let isa = unsafe { this_obj.object_unchecked().0.isa.borrow() };
+    let isa = unsafe { this_obj.object_unchecked().0.detail.borrow() };
     let ta = isa.typed_array().unwrap();
 
     unsafe {
-        let abuf = ta.buffer.0.isa.borrow().array_buffer().cloned().unwrap();
+        let abuf = ta.buffer.0.detail.borrow().array_buffer().cloned().unwrap();
 
         if abuf.0.borrow().detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);

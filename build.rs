@@ -7,7 +7,7 @@ use std::{env, path::PathBuf};
 
 use build_atoms::gen_atoms;
 use build_opcodes::gen_opcodes;
-use build_stdclass::{gen_object_isa, gen_std_class_defs};
+use build_stdclass::{gen_object_detail, gen_std_class_defs};
 use build_tokens::gen_tokens;
 
 fn build_c_alloca() {
@@ -35,5 +35,5 @@ fn main() {
     gen_opcodes(&out_path.join("opcodes.rs"));
     gen_tokens(&out_path.join("tokens.rs"));
     gen_std_class_defs(&out_path.join("std_class_def.rs"));
-    gen_object_isa(&out_path.join("object_isa.rs"));
+    gen_object_detail(&out_path.join("object_detail.rs"));
 }

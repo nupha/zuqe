@@ -13,7 +13,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::CallContext,
-    object::{JSObjectIsa, JSObjectWeakref},
+    object::{ObjectDetail, JSObjectWeakref},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -225,9 +225,9 @@ impl JSContext {
         self.create_instance_from_ctor(
             new_target,
             if class_id == JS_CLASS_ARRAY_BUFFER {
-                JSObjectIsa::ARRAY_BUFFER(ab)
+                ObjectDetail::ARRAY_BUFFER(ab)
             } else {
-                JSObjectIsa::SHARED_ARRAY_BUFFER(ab)
+                ObjectDetail::SHARED_ARRAY_BUFFER(ab)
             },
         )
         .map_err(|_| -1)
@@ -386,7 +386,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
         return;
     }
 
-    if let Some(abuf) = obj.object_unchecked().0.isa.borrow_mut().array_buffer_mut() {
+    if let Some(abuf) = obj.object_unchecked().0.detail.borrow_mut().array_buffer_mut() {
         if !abuf.0.borrow().detached {
             match abuf.content().deref() {
                 ArrayBufferContent::Raw(ptr, len, fin) => {
@@ -404,7 +404,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified
                     if o.class_id() != JS_CLASS_DATAVIEW {
-                        if let Some(ta) = o.0.isa.borrow_mut().typed_array_mut() {
+                        if let Some(ta) = o.0.detail.borrow_mut().typed_array_mut() {
                             ta.count = 0;
                         } else {
                             unreachable!()
@@ -417,7 +417,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     let abuf = isa.array_buffer().unwrap();
 
     // free content

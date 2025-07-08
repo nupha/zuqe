@@ -17,7 +17,7 @@ use crate::{
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
-        JSObject, JSObjectIsa, JSShape,
+        JSObject, ObjectDetail, JSShape,
     },
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -357,7 +357,7 @@ impl JSContext {
     pub fn add_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
         // Object
         let object_proto = self
-            .create_instance_from_proto(&JSValue::NULL, JSObjectIsa::OBJECT)
+            .create_instance_from_proto(&JSValue::NULL, ObjectDetail::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object_proto.clone();
 
@@ -391,7 +391,7 @@ impl JSContext {
             // standard Errors
             for i in 0..JS_NATIVE_ERROR_COUNT {
                 let proto = self
-                    .create_instance_from_proto(&err_proto, JSObjectIsa::OBJECT)
+                    .create_instance_from_proto(&err_proto, ObjectDetail::OBJECT)
                     .unwrap();
 
                 let name = self.create_atom_string(NATIVE_ERROR_NAMES[i]).unwrap();
@@ -425,7 +425,7 @@ impl JSContext {
             let array_proto = self
                 .create_instance_from_proto(
                     &object_proto,
-                    JSObjectIsa::ARRAY(JSObjectArray::default()),
+                    ObjectDetail::ARRAY(JSObjectArray::default()),
                 )
                 .unwrap();
 

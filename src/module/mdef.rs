@@ -19,7 +19,7 @@ use crate::{
         JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, JSReqModuleEntry,
         JSStarExportEntry,
     },
-    object::{JS_PROP_C_W_E, JSObject, JSObjectIsa},
+    object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
     runtime::JSRuntime,
     stack_frame::StackFrame,
     value::JSValue,
@@ -556,7 +556,7 @@ pub unsafe fn js_create_module_bytecode_function(
             .bytecode
             .object_unchecked()
             .0
-            .isa
+            .detail
             .borrow()
             .func()
             .and_then(|f| f.bytecode.clone())
@@ -592,7 +592,7 @@ pub unsafe fn js_create_module_bytecode_function(
             }
         }
 
-        JSObjectIsa::BYTECODE_FUNCTION(ObjFunc {
+        ObjectDetail::BYTECODE_FUNCTION(ObjFunc {
             bytecode: Some(b),
             var_refs,
             home_object: None,
@@ -632,7 +632,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     loop {
         if let JSValue::Object(p) = &(*sf).cur_running {
             if let Some(b) =
-                p.0.isa
+                p.0.detail
                     .borrow()
                     .func()
                     .map(|f| f.bytecode.as_ref().unwrap())

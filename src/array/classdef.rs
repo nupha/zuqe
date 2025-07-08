@@ -18,7 +18,7 @@ use crate::{
     },
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObjectIsa, js_get_length64},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectDetail, js_get_length64},
     runtime::js_check_stack_overflow,
     string::{JSString, StringContent},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
@@ -50,7 +50,7 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let obj_val = ctx
-        .create_instance_from_ctor(new_target, JSObjectIsa::ARRAY(JSObjectArray::default()))
+        .create_instance_from_ctor(new_target, ObjectDetail::ARRAY(JSObjectArray::default()))
         .map_err(|_| -1)?;
 
     if cc.length() == 1 && cc.arg(0).is_number() {

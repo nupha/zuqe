@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
-    object::{JSObjectIsa, js_get_length32},
+    object::{ObjectDetail, js_get_length32},
     runtime::JSRuntime,
     string::JS_ToStringCheckObject,
     typed_array::TypedArrayValue,
@@ -23,12 +23,12 @@ pub struct JSArrayIteratorData {
 }
 
 impl JSArrayIteratorData {
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
-        if let JSObjectIsa::ARRAY_ITERATOR(it) | JSObjectIsa::STRING_ITERATOR(it) =
-            p.0.isa.borrow().deref()
+        if let ObjectDetail::ARRAY_ITERATOR(it) | ObjectDetail::STRING_ITERATOR(it) =
+            p.0.detail.borrow().deref()
         {
             it.obj.gc_mark();
         }
@@ -56,9 +56,9 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
         idx: 0,
     });
     ctx.create_instance(if class_id == JS_CLASS_STRING_ITERATOR {
-        JSObjectIsa::STRING_ITERATOR(it)
+        ObjectDetail::STRING_ITERATOR(it)
     } else {
-        JSObjectIsa::ARRAY_ITERATOR(it)
+        ObjectDetail::ARRAY_ITERATOR(it)
     })
     .map_err(|_| -1)
 }
@@ -68,9 +68,9 @@ pub fn js_array_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let mut isa = unsafe { cc.this().object_unchecked().0.isa.borrow_mut() };
+    let mut isa = unsafe { cc.this().object_unchecked().0.detail.borrow_mut() };
 
-    if let JSObjectIsa::ARRAY_ITERATOR(it) = isa.deref_mut() {
+    if let ObjectDetail::ARRAY_ITERATOR(it) = isa.deref_mut() {
         if it.obj.is_undefined() {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);

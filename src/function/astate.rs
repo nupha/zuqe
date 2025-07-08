@@ -9,7 +9,7 @@ use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     error::{JS_ThrowStackOverflow, JSResult},
     gc::GCObjectHeader,
-    object::{GCObjectWeakref, JSObjectIsa},
+    object::{GCObjectWeakref, ObjectDetail},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
@@ -55,7 +55,7 @@ impl AsyncStateInner {
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
-            let isa = unsafe { func_obj.object_unchecked().0.isa.borrow() };
+            let isa = unsafe { func_obj.object_unchecked().0.detail.borrow() };
             let bc = isa.func().unwrap().bytecode.as_ref().unwrap();
             let b = bc.0.borrow();
 
@@ -324,12 +324,12 @@ impl ObjAsyncState {
         println!("{:14p} [async_function]", self.id() as *const Self);
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         if let Some(s) = val
             .object()
-            .and_then(|p| p.0.isa.borrow().async_func_state().cloned())
+            .and_then(|p| p.0.detail.borrow().async_func_state().cloned())
         {
             s.gc_mark();
         }

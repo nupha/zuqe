@@ -12,7 +12,7 @@ use crate::{
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JS_PreventExtensions, JS_SetPrototypeInternal, JSObjectIsa, PropertyEnum,
+        JS_PreventExtensions, JS_SetPrototypeInternal, ObjectDetail, PropertyEnum,
     },
     utils::unlikely,
     value::JSValue,
@@ -59,7 +59,7 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let new_target = cc.this();
     if !new_target.is_undefined() && unsafe { !JS_GetActiveFunction(ctx).eq(new_target) } {
-        ctx.create_instance_from_ctor(new_target, JSObjectIsa::OBJECT)
+        ctx.create_instance_from_ctor(new_target, ObjectDetail::OBJECT)
             .map_err(|_| -1)
     } else {
         match cc.arg(0) {

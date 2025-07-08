@@ -11,7 +11,7 @@ use crate::{
     mem::{js_free, js_resize_array},
     module::{JSResolveResultEnum, JSResolveState, ModuleDef, ModuleDefInner, ModuleResolveExport},
     object::{
-        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObjectIsa, JSProperty, LazyInit,
+        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, ObjectDetail, JSProperty, LazyInit,
     },
 };
 
@@ -151,7 +151,7 @@ impl ModuleDef {
         let s = &mut s_s;
 
         let obj = ctx
-            .create_instance(JSObjectIsa::MODULE_NS)
+            .create_instance(ObjectDetail::MODULE_NS)
             .map_err(|_| -1)?;
         let p = obj.object_unchecked();
 
@@ -201,7 +201,7 @@ impl ModuleDef {
                             } else {
                                 let minner = module.0.borrow();
                                 let p1 = minner.bytecode.object_unchecked();
-                                p1.0.isa.borrow().func().unwrap().var_refs[var_idx as usize].clone()
+                                p1.0.detail.borrow().func().unwrap().var_refs[var_idx as usize].clone()
                             },
                         );
                     }

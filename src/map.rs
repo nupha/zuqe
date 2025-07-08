@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     context::JSContext,
-    object::{JSObject, JSObjectInner, JSObjectIsa, JSObjectWeakref},
+    object::{JSObject, JSObjectInner, JSObjectWeakref, ObjectDetail},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -201,11 +201,11 @@ impl JSMapState {
         }
     }
 
-    pub fn hook_finalizer(_: &mut JSRuntime, _: &JSObjectIsa, _: usize) {}
+    pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectDetail, _: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
-        if let Some(s) = p.0.isa.borrow().map_state() {
+        if let Some(s) = p.0.detail.borrow().map_state() {
             for lst in s.items.values() {
                 for kv in lst {
                     match kv {
@@ -274,7 +274,7 @@ pub unsafe fn map_hash_resize(ctx: &JSContext, s: *mut JSMapState) {
 //     *pmr = (*mr1).next_weak_ref;
 // }
 
-pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     unimplemented!();
 }
 

@@ -466,7 +466,7 @@ pub unsafe fn js_inner_module_linking(
     let is_c_module = m.0.borrow().init_func.is_some();
     if !is_c_module {
         let inner = m.0.borrow();
-        let mut isa = inner.bytecode.object_unchecked().0.isa.borrow_mut();
+        let mut isa = inner.bytecode.object_unchecked().0.detail.borrow_mut();
         let var_refs = isa.func_mut().unwrap().var_refs.as_mut_slice();
 
         for i in 0..m.0.borrow().import_entries_count {
@@ -548,7 +548,7 @@ pub unsafe fn js_inner_module_linking(
                                         .bytecode
                                         .object_unchecked()
                                         .0
-                                        .isa
+                                        .detail
                                         .borrow()
                                         .func()
                                         .unwrap()

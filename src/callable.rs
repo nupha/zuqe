@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
     mem::js_malloc_typed,
-    object::JSObjectIsa,
+    object::ObjectDetail,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -93,7 +93,7 @@ impl JSContext {
         magic: i32,
         data: &[JSValue],
     ) -> JSResult {
-        let isa = JSObjectIsa::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
+        let isa = ObjectDetail::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
             self, callback, length, magic, data,
         )?);
         let func_obj = self
@@ -119,8 +119,8 @@ impl CallableValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let mut isa = unsafe { func_obj.object_unchecked().0.isa.borrow_mut() };
-        if let JSObjectIsa::C_FUNCTION_DATA(s) = isa.deref_mut() {
+        let mut isa = unsafe { func_obj.object_unchecked().0.detail.borrow_mut() };
+        if let ObjectDetail::C_FUNCTION_DATA(s) = isa.deref_mut() {
             let f = s.func.clone();
             let cc = CallContext::new(
                 ctx,
@@ -135,11 +135,12 @@ impl CallableValue {
         }
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let JSObjectIsa::C_FUNCTION_DATA(p) = val.object_unchecked().0.isa.borrow().deref() {
+            if let ObjectDetail::C_FUNCTION_DATA(p) = val.object_unchecked().0.detail.borrow().deref()
+            {
                 for d in p.as_ref().data() {
                     d.gc_mark();
                 }

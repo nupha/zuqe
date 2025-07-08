@@ -9,7 +9,7 @@ use crate::{
         Bytecode, JSFunctionKindEnum, JSVarRef, ObjFunc, func_kind_to_class_id,
         js_class_has_bytecode, js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, JSObjectIsa, LazyInit},
+    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectDetail},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
     value::JSValue,
@@ -231,7 +231,7 @@ impl Bytecode {
 
         // borrow func_obj in code block only
         {
-            let mut isa = target.0.isa.borrow_mut();
+            let mut isa = target.0.detail.borrow_mut();
 
             let func = isa.func_mut().unwrap();
             debug_assert!(func.var_refs.is_empty());
@@ -290,16 +290,16 @@ impl Bytecode {
         let func_obj = ctx
             .create_instance(match func_kind {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                    JSObjectIsa::BYTECODE_FUNCTION(ObjFunc::default())
+                    ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => {
                     todo!("[O.o] TODO create generator closure");
-                    //JSObjectIsa::GENERATOR(ObjGenerator::default())
+                    //ObjectDetail::GENERATOR(ObjGenerator::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                    JSObjectIsa::ASYNC_FUNCTION(ObjFunc::default())
+                    ObjectDetail::ASYNC_FUNCTION(ObjFunc::default())
                 }
-                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => JSObjectIsa::ASYNC_GENERATOR(None),
+                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => ObjectDetail::ASYNC_GENERATOR(None),
             })
             .map_err(|_| -1)?;
 
@@ -365,7 +365,7 @@ impl Bytecode {
             }
         }
 
-        debug_assert!(closure.object().unwrap().0.isa.borrow().func().is_some());
+        debug_assert!(closure.object().unwrap().0.detail.borrow().func().is_some());
 
         Ok(closure)
     }

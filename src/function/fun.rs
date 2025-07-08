@@ -9,7 +9,7 @@ use crate::{
     error::{JS_ThrowTypeErrorRevokedProxy, JSResult},
     function::JSVarRef,
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSObjectIsa, JSProperty,
+        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSProperty, ObjectDetail,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -102,14 +102,14 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
     let realm: JSContext;
     let p = unsafe { func_obj.object_unchecked() };
 
-    match p.0.isa.borrow().deref() {
-        JSObjectIsa::C_FUNCTION(cfunc) => {
+    match p.0.detail.borrow().deref() {
+        ObjectDetail::C_FUNCTION(cfunc) => {
             realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
         }
-        JSObjectIsa::BYTECODE_FUNCTION(func)
-        | JSObjectIsa::GENERATOR_FUNCTION(func)
-        | JSObjectIsa::ASYNC_FUNCTION(func)
-        | JSObjectIsa::ASYNC_GENERATOR_FUNCTION(func) => {
+        ObjectDetail::BYTECODE_FUNCTION(func)
+        | ObjectDetail::GENERATOR_FUNCTION(func)
+        | ObjectDetail::ASYNC_FUNCTION(func)
+        | ObjectDetail::ASYNC_GENERATOR_FUNCTION(func) => {
             realm = func
                 .bytecode
                 .as_ref()
@@ -120,7 +120,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
                 .upgrade()
                 .unwrap_or(ctx.clone());
         }
-        JSObjectIsa::PROXY(s) => {
+        ObjectDetail::PROXY(s) => {
             if s.is_revoked {
                 JS_ThrowTypeErrorRevokedProxy(ctx);
                 return Err(-1);
@@ -128,7 +128,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
                 realm = JS_GetFunctionRealm(ctx, &s.target)?;
             }
         }
-        JSObjectIsa::BOUND_FUNCTION(bfunc) => {
+        ObjectDetail::BOUND_FUNCTION(bfunc) => {
             realm = JS_GetFunctionRealm(ctx, &bfunc.func_obj)?;
         }
         _ => {
@@ -187,13 +187,13 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
 pub fn js_bytecode_function_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
 
     let (bf, home_obj) =
-        p.0.isa
+        p.0.detail
             .borrow()
             .func()
             .map(|f| {

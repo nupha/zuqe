@@ -7,7 +7,7 @@ use crate::{
     error::{JS_ThrowStackOverflow, JSResult},
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
-    object::{JSObject, JSObjectIsa},
+    object::{JSObject, ObjectDetail},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
@@ -129,10 +129,10 @@ impl ObjNativeFunc {
     ) -> JSResult {
         let rt = ctx.rt_mut();
 
-        let (callback, arg_length, magic, realm) = if let JSObjectIsa::C_FUNCTION(c) =
+        let (callback, arg_length, magic, realm) = if let ObjectDetail::C_FUNCTION(c) =
             unsafe { func_obj.object_unchecked() }
                 .0
-                .isa
+                .detail
                 .borrow()
                 .deref()
         {
@@ -332,13 +332,13 @@ impl ObjNativeFunc {
         Ok(ret_val)
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
-        debug_assert!(matches!(isa, JSObjectIsa::C_FUNCTION(_)));
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
+        debug_assert!(matches!(isa, ObjectDetail::C_FUNCTION(_)));
     }
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let JSObjectIsa::C_FUNCTION(cfunc) = val.object_unchecked().0.isa.borrow().deref() {
+            if let ObjectDetail::C_FUNCTION(cfunc) = val.object_unchecked().0.detail.borrow().deref() {
                 // println!("[O.o] TODO cfunction mark");
                 // mark_func(rt, &cfunc.realm);
             }
@@ -354,7 +354,7 @@ impl JSObject {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
-        if let JSObjectIsa::C_FUNCTION(cfunc) = self.0.isa.borrow().deref() {
+        if let ObjectDetail::C_FUNCTION(cfunc) = self.0.detail.borrow().deref() {
             cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
         } else {
             false
@@ -395,7 +395,7 @@ impl JSContext {
         let func_obj = self
             .create_instance_from_proto(
                 proto_val,
-                JSObjectIsa::C_FUNCTION(ObjNativeFunc {
+                ObjectDetail::C_FUNCTION(ObjNativeFunc {
                     handler,
                     length,
                     magic,

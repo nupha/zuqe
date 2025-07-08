@@ -11,8 +11,8 @@ use crate::{
     function::{JS_GetFunctionRealm, JSFunctionDef, NativeCallback, NativeFunctionType},
     gc::set_cycle_flag,
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSObjectIsa,
-        JSPropertyDescriptor, PropertyEnum,
+        JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSPropertyDescriptor,
+        ObjectDetail, PropertyEnum,
     },
     runtime::JSRuntime,
     value::JSValue,
@@ -28,7 +28,7 @@ pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
 pub type JSClassID = u32;
 
 /// instance finalizer callback, obj is the object payload.
-pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize);
+pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize);
 
 pub type JSClassGCMark = fn(val: JSValue);
 
@@ -383,8 +383,8 @@ impl JSContext {
     pub fn create_instance_from_ctor(
         &self,
         ctor: &JSValue,
-        isa: JSObjectIsa,
-    ) -> Result<JSValue, JSObjectIsa> {
+        isa: ObjectDetail,
+    ) -> Result<JSValue, ObjectDetail> {
         let class_id = isa.class_id();
 
         let proto = if ctor.is_undefined() {

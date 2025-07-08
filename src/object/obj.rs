@@ -27,7 +27,7 @@ use crate::{
 use super::{
     GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
-    JS_PROP_WRITABLE, JSObjectIsa, JSProperty, JSShape,
+    JS_PROP_WRITABLE, ObjectDetail, JSProperty, JSShape,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -164,8 +164,8 @@ pub(crate) struct JSObjectInner {
     /// this object is weak referenced in state.
     pub weak_refs: RefCell<Vec<JSObjectWeakref>>,
 
-    /// payload data
-    pub isa: RefCell<JSObjectIsa>,
+    /// object detail data
+    pub detail: RefCell<ObjectDetail>,
 
     pub gc_mark: Cell<bool>,
 }
@@ -180,8 +180,8 @@ impl JSObjectInner {
     pub(crate) fn new(
         ctx: &JSContext,
         shape: Option<JSShape>,
-        isa: JSObjectIsa,
-    ) -> Result<Self, JSObjectIsa> {
+        isa: ObjectDetail,
+    ) -> Result<Self, ObjectDetail> {
         js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
         // alloc prop value slots, initializing with default value
@@ -288,7 +288,7 @@ impl JSObjectInner {
             shape: RefCell::new(shape),
             prop_values: RefCell::new(prop_values),
             weak_refs: RefCell::new(Vec::new()),
-            isa: RefCell::new(isa),
+            detail: RefCell::new(isa),
             gc_mark: Cell::new(false),
         };
 
@@ -328,7 +328,7 @@ impl JSObjectInner {
     }
 
     pub fn class_id(&self) -> JSClassID {
-        self.isa.borrow().class_id()
+        self.detail.borrow().class_id()
     }
 
     /// Test if object `self` can be called like a function, that means value is a:
@@ -337,9 +337,9 @@ impl JSObjectInner {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     pub fn is_callable(&self) -> bool {
-        match self.isa.borrow().deref() {
-            JSObjectIsa::BYTECODE_FUNCTION(_) => true,
-            JSObjectIsa::PROXY(x) => x.is_func,
+        match self.detail.borrow().deref() {
+            ObjectDetail::BYTECODE_FUNCTION(_) => true,
+            ObjectDetail::PROXY(x) => x.is_func,
             s => {
                 // check if class proto is callable
                 self.rt()
@@ -360,7 +360,7 @@ impl JSObjectInner {
 
         while let Some(weak) = self.weak_refs.borrow_mut().pop() {
             if let Some(o) = weak.upgrade() {
-                let mut isa = o.0.isa.borrow_mut();
+                let mut isa = o.0.detail.borrow_mut();
                 let ms = isa.map_state_mut().unwrap();
                 ms.remove_weak(self)
             }
@@ -370,7 +370,7 @@ impl JSObjectInner {
 
         // call class finalizer
         if let Some(f) = rt.class_defs[class_id as usize].finalizer {
-            f(rt, self.isa.borrow().deref(), self.id());
+            f(rt, self.detail.borrow().deref(), self.id());
         }
 
         // untrack from gc
@@ -423,7 +423,7 @@ impl JSObject {
     /// Get object class_id
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
-        self.0.isa.borrow().class_id()
+        self.0.detail.borrow().class_id()
     }
 
     #[inline(always)]
@@ -589,13 +589,13 @@ impl JSValue {
         match self {
             Self::Object(_) => Ok(self.clone()),
             Self::Int(_) | Self::Float64(_) => ctx
-                .create_instance(JSObjectIsa::NUMBER(self.clone()))
+                .create_instance(ObjectDetail::NUMBER(self.clone()))
                 .map_err(|_| -1),
             Self::Bool(_) => ctx
-                .create_instance(JSObjectIsa::BOOLEAN(self.clone()))
+                .create_instance(ObjectDetail::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
             Self::String(_) | Self::Symbol(_) => ctx
-                .create_instance(JSObjectIsa::STRING(self.clone()))
+                .create_instance(ObjectDetail::STRING(self.clone()))
                 .map_err(|_| -1),
             Self::NULL | Self::UNDEFINED => {
                 ctx.JS_ThrowTypeError("cannot convert to object");
@@ -705,8 +705,8 @@ impl JSContext {
     pub fn create_instance_from_proto(
         &self,
         proto: &JSValue,
-        isa: JSObjectIsa,
-    ) -> Result<JSValue, JSObjectIsa> {
+        isa: ObjectDetail,
+    ) -> Result<JSValue, ObjectDetail> {
         // find shape by prototype
         let shape = {
             let proto_ob = proto.object();
@@ -727,7 +727,7 @@ impl JSContext {
     /// create new instance with isa payload data.
     /// returns Err if fail.
     #[inline(always)]
-    pub fn create_instance(&self, isa: JSObjectIsa) -> Result<JSValue, JSObjectIsa> {
+    pub fn create_instance(&self, isa: ObjectDetail) -> Result<JSValue, ObjectDetail> {
         self.create_instance_from_proto(&self.0.borrow().class_proto[isa.class_id() as usize], isa)
     }
 
@@ -736,7 +736,7 @@ impl JSContext {
     /// `proto` is not consumed.
     #[inline(always)]
     pub fn create_base_object_with_proto(&self, proto: &JSValue) -> JSResult {
-        self.create_instance_from_proto(proto, JSObjectIsa::OBJECT)
+        self.create_instance_from_proto(proto, ObjectDetail::OBJECT)
             .map_err(|_| -1)
     }
 
@@ -744,7 +744,7 @@ impl JSContext {
     /// returns Err if fail.
     #[inline(always)]
     pub fn create_base_object(&self) -> JSResult {
-        self.create_instance(JSObjectIsa::OBJECT).map_err(|_| -1)
+        self.create_instance(ObjectDetail::OBJECT).map_err(|_| -1)
     }
 }
 
@@ -849,7 +849,7 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> b
 /// Note: `val` is consumed.
 pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
     if let Some(o) = obj.object() {
-        if let Ok(old) = o.0.isa.borrow_mut().replace_value(val) {
+        if let Ok(old) = o.0.detail.borrow_mut().replace_value(val) {
             drop(old);
             0
         } else {

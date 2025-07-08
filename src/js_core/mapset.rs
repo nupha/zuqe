@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, JS_Call},
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     map::JSMapState,
-    object::JSObjectIsa,
+    object::ObjectDetail,
     value::{JSValue, JSValueConst},
 };
 
@@ -32,10 +32,10 @@ pub unsafe fn js_map_constructor(
     });
 
     let isa = match magic {
-        0 => JSObjectIsa::MAP(s),
-        1 => JSObjectIsa::SET(s),
-        2 => JSObjectIsa::WEAKMAP(s),
-        3 => JSObjectIsa::WEAKSET(s),
+        0 => ObjectDetail::MAP(s),
+        1 => ObjectDetail::SET(s),
+        2 => ObjectDetail::WEAKMAP(s),
+        3 => ObjectDetail::WEAKSET(s),
         _ => unreachable!(),
     };
 
@@ -140,7 +140,7 @@ pub unsafe fn js_map_get(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let isa = this_val.object_unchecked().0.isa.borrow();
+    let isa = this_val.object_unchecked().0.detail.borrow();
     if isa.class_id() != JS_CLASS_MAP + magic as JSClassID {
         return JSValue::EXCEPTION;
     }
@@ -152,7 +152,7 @@ pub unsafe fn js_map_get(
 /// insert (key, value) pair to a map or set object
 pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = unsafe { cc.this().object_unchecked() };
-    let mut isa = p.0.isa.borrow_mut();
+    let mut isa = p.0.detail.borrow_mut();
     if isa.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
         return Err(-1);
     }

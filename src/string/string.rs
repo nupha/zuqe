@@ -580,7 +580,7 @@ impl JSValue {
 
 pub unsafe fn js_string_obj_get_length(obj: JSValueConst) -> usize {
     // This is a class exotic method: obj class_id is JS_CLASS_STRING
-    if let Some(v) = obj.object_unchecked().0.isa.borrow().value() {
+    if let Some(v) = obj.object_unchecked().0.detail.borrow().value() {
         if v.is_string() {
             v.string_unchecked().len()
         } else {
@@ -620,7 +620,7 @@ pub fn js_string_get_own_property(
     if prop.is_int_type() {
         if let JSValue::String(p1) = unsafe { obj.object_unchecked() }
             .0
-            .isa
+            .detail
             .borrow()
             .value()
             .unwrap()
@@ -677,7 +677,7 @@ pub fn js_string_define_own_property(
     if prop.is_int_type() {
         let idx = __JS_AtomToUInt32(prop);
         let ob = unsafe { this_obj.object_unchecked() };
-        if let JSValue::String(p1) = ob.0.isa.borrow().value().unwrap() {
+        if let JSValue::String(p1) = ob.0.detail.borrow().value().unwrap() {
             let len = p1.len();
             let nth_char = p1.content().chars().nth(idx as usize);
 

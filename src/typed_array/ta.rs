@@ -8,7 +8,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
-    object::{JSObject, JSObjectIsa, JSObjectWeakref, js_get_length64},
+    object::{JSObject, ObjectDetail, JSObjectWeakref, js_get_length64},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -63,7 +63,7 @@ impl ObjTypedArray {
         let size_log2 = typed_array_size_log2(class_id);
 
         if let JSValue::Object(abo) = buffer {
-            let abuf = abo.0.isa.borrow().array_buffer().cloned().unwrap();
+            let abuf = abo.0.detail.borrow().array_buffer().cloned().unwrap();
 
             if abuf.0.borrow().detached {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -107,7 +107,7 @@ impl ObjTypedArray {
         // (*self.0.u.array).data.ptr.is_null()
         self.buffer
             .0
-            .isa
+            .detail
             .borrow()
             .array_buffer()
             .unwrap()
@@ -119,7 +119,7 @@ impl ObjTypedArray {
     /// get underlaying array buffer.
     #[inline(always)]
     pub fn array_buffer(&self) -> ObjArrayBuffer {
-        self.buffer.0.isa.borrow().array_buffer().cloned().unwrap()
+        self.buffer.0.detail.borrow().array_buffer().cloned().unwrap()
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -186,7 +186,7 @@ impl TypedArrayValue {
 
     /// run closure with typed array data.
     pub fn with<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> R {
-        self.0.inner().isa.borrow().typed_array().map(f).unwrap()
+        self.0.inner().detail.borrow().typed_array().map(f).unwrap()
     }
 
     /// check if the TypedArray is detached.
@@ -443,15 +443,15 @@ impl JSContext {
     ) -> JSResult {
         let arr = Box::new(ObjTypedArray::new(self, buffer, class_id, offset, count)?);
         let isa = match class_id {
-            JS_CLASS_UINT8C_ARRAY => JSObjectIsa::UINT8C_ARRAY(arr),
-            JS_CLASS_UINT8_ARRAY => JSObjectIsa::UINT8_ARRAY(arr),
-            JS_CLASS_INT8_ARRAY => JSObjectIsa::INT8_ARRAY(arr),
-            JS_CLASS_UINT16_ARRAY => JSObjectIsa::UINT16_ARRAY(arr),
-            JS_CLASS_INT16_ARRAY => JSObjectIsa::INT16_ARRAY(arr),
-            JS_CLASS_UINT32_ARRAY => JSObjectIsa::UINT32_ARRAY(arr),
-            JS_CLASS_INT32_ARRAY => JSObjectIsa::UINT32_ARRAY(arr),
-            JS_CLASS_FLOAT32_ARRAY => JSObjectIsa::FLOAT32_ARRAY(arr),
-            JS_CLASS_FLOAT64_ARRAY => JSObjectIsa::FLOAT64_ARRAY(arr),
+            JS_CLASS_UINT8C_ARRAY => ObjectDetail::UINT8C_ARRAY(arr),
+            JS_CLASS_UINT8_ARRAY => ObjectDetail::UINT8_ARRAY(arr),
+            JS_CLASS_INT8_ARRAY => ObjectDetail::INT8_ARRAY(arr),
+            JS_CLASS_UINT16_ARRAY => ObjectDetail::UINT16_ARRAY(arr),
+            JS_CLASS_INT16_ARRAY => ObjectDetail::INT16_ARRAY(arr),
+            JS_CLASS_UINT32_ARRAY => ObjectDetail::UINT32_ARRAY(arr),
+            JS_CLASS_INT32_ARRAY => ObjectDetail::UINT32_ARRAY(arr),
+            JS_CLASS_FLOAT32_ARRAY => ObjectDetail::FLOAT32_ARRAY(arr),
+            JS_CLASS_FLOAT64_ARRAY => ObjectDetail::FLOAT64_ARRAY(arr),
             _ => {
                 unreachable!()
             }
@@ -466,7 +466,7 @@ impl JSContext {
             let w = tao.downgrade();
 
             tao.0
-                .isa
+                .detail
                 .borrow_mut()
                 .typed_array()
                 .map(|x| x.array_buffer())
@@ -476,7 +476,7 @@ impl JSContext {
                 .array_list
                 .push(w.clone());
 
-            tao.0.isa.borrow_mut().typed_array_mut().unwrap().obj = w;
+            tao.0.detail.borrow_mut().typed_array_mut().unwrap().obj = w;
         }
 
         Ok(ta)
@@ -689,7 +689,7 @@ pub fn js_typed_array_set_internal(
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called
@@ -713,7 +713,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize
 
 pub fn js_typed_array_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let Some(ta) = p.0.isa.borrow().typed_array() {
+    if let Some(ta) = p.0.detail.borrow().typed_array() {
         // mark underlaying array buffer
         // println!("[O.o] TODO typed array mark");
         // (*rt).gc_mark_value(JSValue::Object(ta.array_buffer().clone()), mark_func);

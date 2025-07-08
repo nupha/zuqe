@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{BytecodeFunction, build_arg_list},
-    object::JSObjectIsa,
+    object::ObjectDetail,
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
 };
@@ -162,7 +162,7 @@ pub fn JS_CallInternal(
 
             let p = unsafe { frame.cur_running.object_unchecked().clone() };
             let (bc, home_obj) =
-                p.0.isa
+                p.0.detail
                     .borrow()
                     .func()
                     .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
@@ -183,7 +183,7 @@ pub fn JS_CallInternal(
                 new_target,
                 pc_offset,
                 sp_offset as usize,
-                p.0.isa.borrow().func().unwrap().var_refs.as_slice(),
+                p.0.detail.borrow().func().unwrap().var_refs.as_slice(),
                 args,
                 throw_flag,
             );
@@ -282,12 +282,12 @@ pub fn JS_CallConstructorInternal(
         };
     }
 
-    let bc = p.0.isa.borrow().func().unwrap().bytecode.clone().unwrap();
+    let bc = p.0.detail.borrow().func().unwrap().bytecode.clone().unwrap();
     if bc.0.borrow().is_derived_class_constructor {
         JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
     } else {
         // legacy constructor behavior
-        let this = if let Ok(v) = ctx.create_instance_from_ctor(&new_target, JSObjectIsa::OBJECT) {
+        let this = if let Ok(v) = ctx.create_instance_from_ctor(&new_target, ObjectDetail::OBJECT) {
             v
         } else {
             return JSValue::EXCEPTION;

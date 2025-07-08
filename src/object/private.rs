@@ -13,7 +13,7 @@ impl JSObject {
     fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func
             .object()
-            .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.home_object.clone()))
+            .and_then(|o| o.0.detail.borrow().func().and_then(|f| f.home_object.clone()))
         {
             if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {

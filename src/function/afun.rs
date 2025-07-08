@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::ObjAsyncState,
-    object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectIsa},
+    object::{JS_PROP_CONFIGURABLE, JSObject, ObjectDetail},
     promise::{PromiseValue, js_promise_resolve},
     utils::UncheckedInto,
     value::JSValue,
@@ -178,9 +178,9 @@ pub unsafe fn js_async_function_resolve_create(
         let func_obj = ctx
             .create_instance_from_proto(&ctx.0.borrow().function_proto, {
                 if i == 0 {
-                    JSObjectIsa::ASYNC_FUNCTION_RESOLVE(s.clone())
+                    ObjectDetail::ASYNC_FUNCTION_RESOLVE(s.clone())
                 } else {
-                    JSObjectIsa::ASYNC_FUNCTION_REJECT(s.clone())
+                    ObjectDetail::ASYNC_FUNCTION_REJECT(s.clone())
                 }
             })
             .map_err(|_| -1)?;
@@ -199,7 +199,7 @@ pub fn js_async_function_resolve_call(
     flags: i32,
 ) -> JSResult {
     let p = unsafe { func_obj.object_unchecked() };
-    let s = p.0.isa.borrow().async_func_state().cloned().unwrap();
+    let s = p.0.detail.borrow().async_func_state().cloned().unwrap();
     let is_reject = p.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
     let arg = if args.len() > 0 {

@@ -6,7 +6,7 @@ use crate::{
     function::{
         CallContext, JS_Call, JSFunctionKindEnum, NativeFieldDef, ObjBoundFunc, js_function_apply,
     },
-    object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
+    object::{JS_PROP_CONFIGURABLE, ObjectDetail},
     string::JS_ConcatString3,
     value::JSValue,
 };
@@ -54,7 +54,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     let func_obj = ctx
         .create_instance_from_proto(
             &ctx.0.borrow().function_proto,
-            JSObjectIsa::BOUND_FUNCTION(bf),
+            ObjectDetail::BOUND_FUNCTION(bf),
         )
         .map_err(|_| -1)?;
 
@@ -124,7 +124,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     this_val.ensure_callable(ctx)?;
     let p = unsafe { this_val.object_unchecked() };
 
-    let func_kind = if let Some(func) = p.0.isa.borrow().func() {
+    let func_kind = if let Some(func) = p.0.detail.borrow().func() {
         let bc = func.bytecode.as_ref().unwrap();
         let b = bc.0.borrow();
         if b.has_debug {
@@ -163,7 +163,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
     if let Some(b) = args
         .this_raw()
         .object()
-        .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
+        .and_then(|o| o.0.detail.borrow().func().and_then(|f| f.bytecode.clone()))
     {
         let b = b.0.borrow();
         if b.has_debug {
@@ -180,7 +180,7 @@ pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResul
     if let Some(b) = args
         .this_raw()
         .object()
-        .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
+        .and_then(|o| o.0.detail.borrow().func().and_then(|f| f.bytecode.clone()))
     {
         let b = b.0.borrow();
         if b.has_debug {

@@ -41,7 +41,7 @@ use crate::{
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSObjectIsa, js_object_seal,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectDetail, js_object_seal,
     },
     promise::{PromiseValue, js_promise_funcs, js_promise_proto_funcs},
     typed_array::{
@@ -259,7 +259,7 @@ impl JSContext {
         let number_proto = self
             .create_instance_from_proto(
                 &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
-                JSObjectIsa::NUMBER(JSValue::Int(0)),
+                ObjectDetail::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
         number_proto
@@ -280,7 +280,7 @@ impl JSContext {
         let bool_proto = self
             .create_instance_from_proto(
                 &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
-                JSObjectIsa::BOOLEAN(JSValue::Bool(false)),
+                ObjectDetail::BOOLEAN(JSValue::Bool(false)),
             )
             .unwrap();
 
@@ -303,7 +303,7 @@ impl JSContext {
         let string_proto = self
             .create_instance_from_proto(
                 &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
-                JSObjectIsa::STRING(empty_str),
+                ObjectDetail::STRING(empty_str),
             )
             .unwrap();
 
@@ -840,7 +840,7 @@ fn js_function_proto_caller(ctx: &JSContext, cc: CallContext) -> JSResult {
         .this()
         .object()
         .and_then(|o| {
-            o.0.isa.borrow().func().and_then(|f| {
+            o.0.detail.borrow().func().and_then(|f| {
                 f.bytecode.as_ref().map(|bc| {
                     let b = bc.0.borrow();
                     b.js_mode & JS_MODE_STRICT as u8 != 0 || !b.has_prototype

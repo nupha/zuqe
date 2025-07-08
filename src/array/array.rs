@@ -7,7 +7,7 @@ use crate::{
     error::{JS_ThrowRangeError, JSErrorEnum, JSResult},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSObject, JSObjectIsa, JSProperty,
+        JSObject, ObjectDetail, JSProperty,
     },
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
@@ -62,7 +62,7 @@ impl JSContext {
     pub fn create_array(&self) -> JSResult {
         self.create_instance_from_shape(
             self.0.borrow().array_shape.clone().unwrap(),
-            JSObjectIsa::ARRAY(JSObjectArray {
+            ObjectDetail::ARRAY(JSObjectArray {
                 size: 0,
                 values: Vec::new(),
             }),
@@ -117,7 +117,7 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         if self.flags().fast_array() {
-            self.0.isa.borrow().array().map(|a| f(a.values.as_slice()))
+            self.0.detail.borrow().array().map(|a| f(a.values.as_slice()))
         } else {
             None
         }
@@ -130,7 +130,7 @@ impl JSObject {
     ) -> Option<R> {
         if self.flags().fast_array() {
             self.0
-                .isa
+                .detail
                 .borrow_mut()
                 .array_mut()
                 .map(|a| f(&mut a.values))
@@ -197,10 +197,10 @@ impl JSObject {
     /// get array object length.
     /// will panic if `self` is not an Array, Argument, or TypedArray.
     pub fn array_length_unchecked(&self) -> usize {
-        if let Some(array) = self.0.isa.borrow().array() {
+        if let Some(array) = self.0.detail.borrow().array() {
             // ARRAY or ARGUMENT
             array.values.len()
-        } else if let Some(ta) = self.0.isa.borrow().typed_array() {
+        } else if let Some(ta) = self.0.detail.borrow().typed_array() {
             // typed array or dataview
             ta.count as usize
         } else {
@@ -540,7 +540,7 @@ pub unsafe fn js_create_array(ctx: &JSContext, len: i32, tab: *const JSValueCons
     }
 }
 
-pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {

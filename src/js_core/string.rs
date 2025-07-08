@@ -12,7 +12,7 @@ use crate::{
         CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, NativeFieldDef,
     },
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    object::{JS_PROP_CONFIGURABLE, JSObjectIsa, js_get_length32, js_get_length64},
+    object::{JS_PROP_CONFIGURABLE, ObjectDetail, js_get_length32, js_get_length64},
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToStringCheckObject, JSString,
@@ -47,7 +47,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !new_target.is_undefined() {
-        ctx.create_instance_from_ctor(new_target, JSObjectIsa::STRING(str_val))
+        ctx.create_instance_from_ctor(new_target, ObjectDetail::STRING(str_val))
             .map_err(|_| -1)
     } else {
         Ok(str_val)
@@ -976,7 +976,7 @@ pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValueConst) -> JSResult {
         Ok(this_val)
     } else if let Some(d) = this_val
         .object()
-        .and_then(|p| p.0.isa.borrow().value().cloned())
+        .and_then(|p| p.0.detail.borrow().value().cloned())
         .and_then(|x| if x.is_string() { Some(x) } else { None })
     {
         Ok(d)
@@ -1112,9 +1112,9 @@ pub fn js_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let mut isa = unsafe { cc.this().object_unchecked().0.isa.borrow_mut() };
+    let mut isa = unsafe { cc.this().object_unchecked().0.detail.borrow_mut() };
 
-    if let JSObjectIsa::STRING_ITERATOR(it) = isa.deref_mut() {
+    if let ObjectDetail::STRING_ITERATOR(it) = isa.deref_mut() {
         let ss = unsafe { it.obj.string_unchecked() };
         let idx = it.idx;
 

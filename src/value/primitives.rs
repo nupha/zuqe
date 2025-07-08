@@ -3,7 +3,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     function::JS_Call,
-    object::JSObjectIsa,
+    object::ObjectDetail,
     runtime::JSRuntime,
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -105,7 +105,7 @@ pub unsafe fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValu
     })
 }
 
-pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     // free object data
     // JS_FreeValueRT(
     //     rt,
@@ -120,7 +120,7 @@ pub fn js_object_data_mark(val: JSValue) {
     let v = unsafe {
         val.object_unchecked()
             .0
-            .isa
+            .detail
             .borrow()
             .value()
             .unwrap()

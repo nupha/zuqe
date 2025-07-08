@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, NativeFieldDef, ObjAsyncState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
-    object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
+    object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
@@ -92,12 +92,12 @@ impl AsyncGeneratorValue {
 
         // create AsyncGenerator instance
         let obj = ctx
-            .create_instance_from_ctor(func_obj, JSObjectIsa::ASYNC_GENERATOR(Some(s)))
+            .create_instance_from_ctor(func_obj, ObjectDetail::ASYNC_GENERATOR(Some(s)))
             .map_err(|_| -1)?;
 
         let ob = unsafe { obj.object_unchecked() };
         // fix generator field.
-        if let JSObjectIsa::ASYNC_GENERATOR(Some(s)) = ob.0.isa.borrow_mut().deref_mut() {
+        if let ObjectDetail::ASYNC_GENERATOR(Some(s)) = ob.0.detail.borrow_mut().deref_mut() {
             s.generator = ob.downgrade();
         } else {
             unreachable!()
@@ -106,12 +106,12 @@ impl AsyncGeneratorValue {
         Ok(obj)
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
 
-        if let JSObjectIsa::ASYNC_GENERATOR(Some(gd)) = p.0.isa.borrow().deref() {
+        if let ObjectDetail::ASYNC_GENERATOR(Some(gd)) = p.0.detail.borrow().deref() {
             if let Some(st) = &gd.func_state {
                 st.gc_mark();
             }
@@ -508,9 +508,9 @@ pub unsafe fn js_async_generator_resolve_function_create(
 pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -> JSResult {
     let is_reject = args.magic() & 1 != 0;
     let val = args.arg(0);
-    let mut isa = unsafe { val.object_unchecked().0.isa.borrow_mut() };
+    let mut isa = unsafe { val.object_unchecked().0.detail.borrow_mut() };
 
-    if let JSObjectIsa::ASYNC_GENERATOR(Some(p)) = isa.deref_mut() {
+    if let ObjectDetail::ASYNC_GENERATOR(Some(p)) = isa.deref_mut() {
         if args.magic() >= 2 {
             // resume next case in AWAITING_RETURN state
             debug_assert!(matches!(
@@ -568,10 +568,10 @@ pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -
 pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
-    if let Some(JSObjectIsa::ASYNC_GENERATOR(p)) = cc
+    if let Some(ObjectDetail::ASYNC_GENERATOR(p)) = cc
         .this()
         .object()
-        .map(|o| o.0.isa.borrow_mut())
+        .map(|o| o.0.detail.borrow_mut())
         .as_deref_mut()
     {
         let p = p.as_mut().unwrap();

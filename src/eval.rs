@@ -85,7 +85,7 @@ impl JSContext {
                 .as_ref()
                 .unwrap()
                 .0
-                .isa
+                .detail
                 .borrow()
                 .func()
                 .unwrap()
@@ -231,7 +231,7 @@ impl JSContext {
         if let Some(f) = cur_frame_func.as_ref() {
             // direct eval type: eval bytecode directly.
             debug_assert!(sframe.is_some());
-            let isa = f.0.isa.borrow();
+            let isa = f.0.detail.borrow();
             let var_refs = isa.func().unwrap().var_refs.as_slice();
             bc_compiled
                 .eval(self, &this_obj, var_refs, sframe)

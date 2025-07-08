@@ -7,7 +7,7 @@ use crate::{
     context::{JSContext, is_strict_mode},
     function::{Bytecode, CallContext, NativeFieldDef, get_func_name},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JSObjectIsa,
+        JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectDetail,
     },
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -93,7 +93,7 @@ impl JSContext {
     pub fn throw_error_ex(&self, error_num: JSErrorEnum, message: &str, add_backtrace: bool) {
         let obj = if let Ok(o) = self.create_instance_from_proto(
             &self.0.borrow().native_error_proto[error_num as usize],
-            JSObjectIsa::ERROR,
+            ObjectDetail::ERROR,
         ) {
             o
         } else {
@@ -129,7 +129,7 @@ impl JSContext {
                     (*sf)
                         .cur_running
                         .object()
-                        .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
+                        .and_then(|o| o.0.detail.borrow().func().and_then(|f| f.bytecode.clone()))
                         .is_none()
                 });
 
@@ -275,7 +275,7 @@ impl JSContext {
                     .cur_running
                     .object_unchecked()
                     .0
-                    .isa
+                    .detail
                     .borrow()
                     .func()
                     .and_then(|f| f.bytecode.clone())

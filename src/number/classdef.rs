@@ -5,7 +5,7 @@ use crate::{
     function::{CallContext, NativeFieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     number::{JS_DTOA_FORCE_EXP, is_safe_integer},
-    object::JSObjectIsa,
+    object::ObjectDetail,
     utils::skip_spaces,
     value::JSValue,
 };
@@ -18,7 +18,7 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     } else {
         this_val
             .object()
-            .and_then(|p| p.0.isa.borrow().value().cloned())
+            .and_then(|p| p.0.detail.borrow().value().cloned())
             .and_then(|x| if x.is_number() { Some(x) } else { None })
             .ok_or_else(|| {
                 ctx.JS_ThrowTypeError("not a number");
@@ -300,7 +300,7 @@ pub fn js_number_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        ctx.create_instance_from_ctor(new_target, JSObjectIsa::NUMBER(val))
+        ctx.create_instance_from_ctor(new_target, ObjectDetail::NUMBER(val))
             .map_err(|_| -1)
     } else {
         Ok(val)

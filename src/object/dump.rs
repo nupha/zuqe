@@ -117,7 +117,7 @@ impl JSObject {
                     let bytes_per_element = 1 << typed_array_size_log2(class_id);
 
                     self.0
-                        .isa
+                        .detail
                         .borrow()
                         .typed_array()
                         .unwrap()
@@ -188,7 +188,7 @@ impl JSObject {
             print!(" }}");
         }
 
-        if let Some(func) = self.0.isa.borrow().func() {
+        if let Some(func) = self.0.detail.borrow().func() {
             func.bytecode.as_ref().unwrap().with_mut(|b| {
                 if b.closure_var_count != 0 {
                     print!(" Closure:");

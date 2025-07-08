@@ -2,7 +2,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::ObjAsyncState,
-    object::JSObjectIsa,
+    object::ObjectDetail,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -62,11 +62,11 @@ pub fn js_generator_function_call(
     s.func_state.resume(ctx)?;
 
     // create js object of generator class
-    ctx.create_instance_from_ctor(func_obj, JSObjectIsa::GENERATOR(s))
+    ctx.create_instance_from_ctor(func_obj, ObjectDetail::GENERATOR(s))
         .map_err(|_| -1)
 }
 
-pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     unimplemented!();
 }
 

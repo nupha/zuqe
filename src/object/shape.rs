@@ -11,7 +11,7 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom},
     context::JSContext,
     gc::GCObjectHeader,
-    object::{GCObject, GCObjectWeakref, JSObjectIsa},
+    object::{GCObject, GCObjectWeakref, ObjectDetail},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -348,8 +348,8 @@ impl JSContext {
     pub fn create_instance_from_shape(
         &self,
         shape: JSShape,
-        isa: JSObjectIsa,
-    ) -> Result<JSValue, JSObjectIsa> {
+        isa: ObjectDetail,
+    ) -> Result<JSValue, ObjectDetail> {
         let obj = JSObject(Rc::new(JSObjectInner::new(self, Some(shape), isa)?));
         self.rt_mut()
             .gc_add_object(obj.id(), obj.downgrade().into());

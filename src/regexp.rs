@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::consts::JS_ATOM_Symbol_match,
     context::JSContext,
-    object::JSObjectIsa,
+    object::ObjectDetail,
     parse::JSParseState,
     runtime::JSRuntime,
     string::JSString,
@@ -116,7 +116,7 @@ pub unsafe fn js_regexp_constructor_internal(
 
 pub fn js_get_regexp(ctx: &JSContext, obj: &JSValueConst, throw_error: bool) -> Option<JSRegExp> {
     if let JSValue::Object(ob) = obj {
-        if let JSObjectIsa::REGEXP(re) = ob.0.isa.borrow().deref() {
+        if let ObjectDetail::REGEXP(re) = ob.0.detail.borrow().deref() {
             return Some(*re.clone());
         }
     }
@@ -145,11 +145,11 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     }
 }
 
-pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     unimplemented!();
 }
 
-pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
+pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
     unimplemented!();
 }
 

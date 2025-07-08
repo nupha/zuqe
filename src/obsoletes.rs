@@ -23,7 +23,7 @@ use crate::{
     module::ModuleDef,
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
-        JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, PropertyEnum,
+        JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectDetail, PropertyEnum,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
@@ -2405,7 +2405,7 @@ pub unsafe fn JS_NewCFunction3(
 ) -> JSValue {
     match ctx.create_instance_from_proto(
         &proto_val,
-        JSObjectIsa::C_FUNCTION(ObjNativeFunc {
+        ObjectDetail::C_FUNCTION(ObjNativeFunc {
             realm: ctx.downgrade(),
             handler: NativeFunctionType::CFunc(func),
             length,
@@ -2479,7 +2479,7 @@ pub fn JS_NewCFunctionMagic(
 }
 
 /* return NULL without exception if not a function or no bytecode */
-#[deprecated(note = "use JSObjectIsa::func() to get Bytecode")]
+#[deprecated(note = "use ObjectDetail::func() to get Bytecode")]
 pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut Bytecode {
     unreachable!("unused");
 }

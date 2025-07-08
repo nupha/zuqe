@@ -11,7 +11,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, JS_CallConstructor, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
-    object::{JS_PROP_C_W_E, JSObjectIsa},
+    object::{JS_PROP_C_W_E, ObjectDetail},
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     utils::{UncheckedFrom, UncheckedInto},
@@ -109,7 +109,7 @@ impl PromiseValue {
 
         // create js object of promise class
         let promise = Self(
-            ctx.create_instance_from_ctor(new_target, JSObjectIsa::PROMISE(s))
+            ctx.create_instance_from_ctor(new_target, ObjectDetail::PROMISE(s))
                 .map_err(|_| -1)?,
         );
 
@@ -145,7 +145,8 @@ impl PromiseValue {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor)).check_exception()?
         };
 
-        if let JSObjectIsa::C_FUNCTION_DATA(s) = executor.object_unchecked().0.isa.borrow().deref()
+        if let ObjectDetail::C_FUNCTION_DATA(s) =
+            executor.object_unchecked().0.detail.borrow().deref()
         {
             let data = s.data();
             debug_assert!(!data.is_empty());
@@ -183,16 +184,16 @@ impl PromiseValue {
             match ctx.create_instance_from_proto(
                 &function_proto,
                 if i == 0 {
-                    JSObjectIsa::PROMISE_RESOLVE_FUNCTION(s)
+                    ObjectDetail::PROMISE_RESOLVE_FUNCTION(s)
                 } else {
-                    JSObjectIsa::PROMISE_REJECT_FUNCTION(s)
+                    ObjectDetail::PROMISE_REJECT_FUNCTION(s)
                 },
             ) {
                 Ok(func_obj) => unsafe {
                     js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, 1);
                     resolving_funcs[i as usize] = func_obj;
                 },
-                Err(isa) => {
+                Err(_) => {
                     return Err(-1);
                 }
             }
@@ -204,7 +205,7 @@ impl PromiseValue {
     /// get Promise meta data.
     fn with_meta<R>(&self, f: impl FnOnce(&ObjPromise) -> R) -> Option<R> {
         unsafe {
-            if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().0.isa.borrow().deref() {
+            if let ObjectDetail::PROMISE(p) = self.0.object_unchecked().0.detail.borrow().deref() {
                 Some(f(p))
             } else {
                 None
@@ -215,8 +216,8 @@ impl PromiseValue {
     /// get Promise meta data.
     fn with_meta_mut<R>(&self, f: impl FnOnce(&mut ObjPromise) -> R) -> Option<R> {
         unsafe {
-            if let JSObjectIsa::PROMISE(p) =
-                self.0.object_unchecked().0.isa.borrow_mut().deref_mut()
+            if let ObjectDetail::PROMISE(p) =
+                self.0.object_unchecked().0.detail.borrow_mut().deref_mut()
             {
                 Some(f(p))
             } else {
@@ -333,8 +334,8 @@ impl PromiseValue {
         Ok(JSValue::UNDEFINED)
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
-        // if let JSObjectIsa::PROMISE(s) = isa {
+    pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectDetail, _: usize) {
+        // if let ObjectDetail::PROMISE(s) = isa {
         //     for i in 0..2 {
         //         list_foreach_safe(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
         //             let rd = list_entry!(el, JSPromiseReactionData, link);
@@ -346,7 +347,7 @@ impl PromiseValue {
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
-        if let JSObjectIsa::PROMISE(s) = p.0.isa.borrow().deref() {
+        if let ObjectDetail::PROMISE(s) = p.0.detail.borrow().deref() {
             for i in 0..2 {
                 for rd in s.promise_reactions[i].iter() {
                     rd.resolving_funcs[0].gc_mark();

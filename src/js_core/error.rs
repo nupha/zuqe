@@ -5,7 +5,7 @@ use crate::{
     error::{JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSErrorEnum, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObjectIsa},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectDetail},
     value::JSValue,
 };
 
@@ -31,7 +31,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let obj = ctx
-        .create_instance_from_proto(&proto, JSObjectIsa::ERROR)
+        .create_instance_from_proto(&proto, ObjectDetail::ERROR)
         .map_err(|_| -1)?;
 
     let mut arg_index = if cc.magic() == JSErrorEnum::Aggregate as i32 {
@@ -87,7 +87,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
     let obj = if let Ok(o) = ctx.create_instance_from_proto(
         &ctx.0.borrow().native_error_proto[JSErrorEnum::Aggregate as usize],
-        JSObjectIsa::ERROR,
+        ObjectDetail::ERROR,
     ) {
         o
     } else {

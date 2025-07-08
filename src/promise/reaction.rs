@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use crate::{
     context::JSContext,
-    object::{JS_SpeciesConstructor, JSObjectIsa},
+    object::{JS_SpeciesConstructor, ObjectDetail},
     value::JSValue,
 };
 
@@ -34,28 +34,6 @@ impl PromiseValue {
         resolve_reject: &[JSValue; 2],
         cap_resolving_funcs: &[JSValue; 2],
     ) -> Result<(), i32> {
-        // let mut rd_array = [
-        //     Box::new(JSPromiseReactionData::default()),
-        //     Box::new(JSPromiseReactionData::default()),
-        // ];
-        // for i in 0..2 {
-        //     let rd = JSPromiseReactionData {
-        //         resolving_funcs: [
-        //             cap_resolving_funcs[0].clone(),
-        //             cap_resolving_funcs[1].clone(),
-        //         ],
-        //         handler: {
-        //             let h = resolve_reject[i];
-        //             if !h.is_callable() {
-        //                 JSValue::UNDEFINED
-        //             } else {
-        //                 h.clone()
-        //             }
-        //         },
-        //     };
-        //     rd_array[i] = Box::new(rd);
-        // }
-
         let rd1 = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
@@ -85,8 +63,8 @@ impl PromiseValue {
             },
         });
 
-        let mut isa = unsafe { self.0.object_unchecked().0.isa.borrow_mut() };
-        if let JSObjectIsa::PROMISE(p) = isa.deref_mut() {
+        let mut isa = unsafe { self.0.object_unchecked().0.detail.borrow_mut() };
+        if let ObjectDetail::PROMISE(p) = isa.deref_mut() {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // register pending to call later in micro task job
                 p.promise_reactions[0].push(rd1);

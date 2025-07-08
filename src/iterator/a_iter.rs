@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call, NativeFieldDef},
-    object::JSObjectIsa,
+    object::ObjectDetail,
     promise::{PromiseValue, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
@@ -47,7 +47,7 @@ impl JSContext {
             next_method,
         };
 
-        self.create_instance(JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(s))
+        self.create_instance(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(s))
             .map_err(|_| -1)
     }
 }
@@ -87,7 +87,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     let this_val = cc.this();
 
     let p = unsafe { this_val.object_unchecked() };
-    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.isa.borrow().deref() {
+    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.detail.borrow().deref() {
         let method = if cc.magic() == GEN_MAGIC_NEXT {
             p.next_method.clone()
         } else {
@@ -213,15 +213,15 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     }
 }
 
-pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &JSObjectIsa, id: usize) {
-    // if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
+pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
+    // if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
     //     drop(Box::from_raw(p));
     // }
 }
 
 pub fn js_async_from_sync_iterator_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let JSObjectIsa::ASYNC_FROM_SYNC_ITERATOR(it) = p.0.isa.borrow().deref() {
+    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(it) = p.0.detail.borrow().deref() {
         it.sync_iter.gc_mark();
         it.next_method.gc_mark();
     }
