@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_OBJECT,
     context::JSContext,
     function::{AsyncState, Bytecode, JSVarRef, VarRefState},
-    module::{JSExportTypeEnum, JSModuleDef},
+    module::{JSExportTypeEnum, ModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
     string::JSString,
     value::JSValue,
@@ -140,7 +140,7 @@ impl JSString {
     pub fn gc_sweep(&self) {}
 }
 
-impl JSModuleDef {
+impl ModuleDef {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);

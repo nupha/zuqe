@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{NativeFieldDef, NativeFieldDetail},
-    module::JSModuleDef,
+    module::ModuleDef,
     object::{
         JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
         JSObject, JSShapeProperty,
@@ -22,7 +22,7 @@ pub enum LazyInit {
     /// Build prototype and set as construstor for target object
     Prototype,
     /// Build module namespace object
-    ModuleNS(JSModuleDef),
+    ModuleNS(ModuleDef),
     /// Build base object installed with given entries.
     Prop(NonNull<NativeFieldDef>),
 }
@@ -227,7 +227,7 @@ pub unsafe fn JS_AutoInitProperty(
 //     _: JSAtom,
 //     opaque: *mut c_void,
 // ) -> JSResult {
-//     unsafe { (*opaque.cast::<JSModuleDef>()).ns(ctx) }
+//     unsafe { (*opaque.cast::<ModuleDef>()).ns(ctx) }
 // }
 
 // fn js_instantiate_entry(ctx: &JSContext, _: &JSObject, _: JSAtom, opaque: *mut c_void) -> JSResult {

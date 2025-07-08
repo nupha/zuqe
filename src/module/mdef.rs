@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    ffi::CStr,
     ops::{Deref, DerefMut},
     path::PathBuf,
     rc::{Rc, Weak},
@@ -10,6 +11,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
+    eval::{JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::{JSFunctionDef, JSObjectFunc, JSVarKindEnum, JSVarRef},
     gc::GCObjectHeader,
     mem::js_free_rt,
@@ -34,12 +36,12 @@ pub type JSModuleLoaderFunc = fn(
     ctx: &JSContext,
     module_name: &str,
     opaque: *mut ::core::ffi::c_void,
-) -> Result<JSModuleDef, i32>;
+) -> Result<ModuleDef, i32>;
 
-pub type JSModuleInitFunc = fn(ctx: &JSContext, m: &JSModuleDef) -> i32;
+pub type JSModuleInitFunc = fn(ctx: &JSContext, m: &ModuleDef) -> i32;
 
 #[derive(Debug)]
-pub(crate) struct JSModuleDefInner {
+pub(crate) struct ModuleDefInner {
     header: GCObjectHeader,
 
     pub module_name: JSAtom,
@@ -81,13 +83,13 @@ pub(crate) struct JSModuleDefInner {
     pub dfs_index: i32,
     pub dfs_ancestor_index: i32,
 
-    pub stack_prev: Option<JSModuleDef>,
-    pub cycle_root: Option<JSModuleDef>,
+    pub stack_prev: Option<ModuleDef>,
+    pub cycle_root: Option<ModuleDef>,
 
     //
     // temp use during js_module_evaluate()
     //
-    pub async_parent_modules: Vec<JSModuleDef>,
+    pub async_parent_modules: Vec<ModuleDef>,
 
     pub pending_async_dependencies: i32,
     pub async_evaluation: bool,
@@ -105,7 +107,7 @@ pub(crate) struct JSModuleDefInner {
     pub meta_obj: JSValue,
 }
 
-impl Drop for JSModuleDefInner {
+impl Drop for ModuleDefInner {
     fn drop(&mut self) {
         unsafe {
             self.finalize();
@@ -113,7 +115,7 @@ impl Drop for JSModuleDefInner {
     }
 }
 
-impl JSModuleDefInner {
+impl ModuleDefInner {
     /// 'name' is consumed
     pub fn new(ctx: &JSContext, name: JSAtom) -> Self {
         let o = Self {
@@ -167,7 +169,7 @@ impl JSModuleDefInner {
 
     #[inline(always)]
     pub fn id(&self) -> usize {
-        self as *const JSModuleDefInner as usize
+        self as *const Self as usize
     }
 
     /// get module import.meta object.
@@ -228,18 +230,18 @@ impl JSModuleDefInner {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSModuleDef(pub(crate) Rc<RefCell<JSModuleDefInner>>);
+pub struct ModuleDef(pub(crate) Rc<RefCell<ModuleDefInner>>);
 
-impl From<JSModuleDef> for JSValue {
-    fn from(value: JSModuleDef) -> Self {
+impl From<ModuleDef> for JSValue {
+    fn from(value: ModuleDef) -> Self {
         Self::Module(value)
     }
 }
 
-impl JSModuleDef {
+impl ModuleDef {
     /// 'name' is consumed
     pub fn new(ctx: &JSContext, name: JSAtom) -> Self {
-        let inner = JSModuleDefInner::new(ctx, name);
+        let inner = ModuleDefInner::new(ctx, name);
         Self(Rc::new(RefCell::new(inner)))
     }
 
@@ -247,11 +249,11 @@ impl JSModuleDef {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
     }
 
-    pub fn with<R>(&self, f: impl FnOnce(&JSModuleDefInner) -> R) -> R {
+    pub fn with<R>(&self, f: impl FnOnce(&ModuleDefInner) -> R) -> R {
         f(self.0.borrow().deref())
     }
 
-    pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSModuleDefInner) -> R) -> R {
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut ModuleDefInner) -> R) -> R {
         f(self.0.borrow_mut().deref_mut())
     }
 
@@ -281,20 +283,44 @@ impl JSModuleDef {
     pub fn gc_set_mark(&self, mark: bool) {
         self.0.borrow_mut().header.gc_set_mark(mark);
     }
+
+    /// compile source as module, don't run.
+    pub fn compile(
+        ctx: &JSContext,
+        source: &CStr,
+        filename: &str,
+        strip: bool,
+    ) -> Result<ModuleDef, i32> {
+        let global = ctx.0.borrow().global_obj.clone();
+
+        let mut flags = JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY;
+        if strip {
+            flags |= JS_EVAL_FLAG_STRIP
+        }
+
+        if let JSValue::Module(md) = ctx
+            .eval_script(global, source, filename, flags, -1)
+            .check_exception()?
+        {
+            Ok(md)
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct JSModuleDefWeakref(Weak<RefCell<JSModuleDefInner>>);
+pub struct JSModuleDefWeakref(Weak<RefCell<ModuleDefInner>>);
 
 impl JSModuleDefWeakref {
-    pub fn upgrade(&self) -> Option<JSModuleDef> {
-        self.0.upgrade().map(JSModuleDef)
+    pub fn upgrade(&self) -> Option<ModuleDef> {
+        self.0.upgrade().map(ModuleDef)
     }
 }
 
 /// Note: 'name' is freed on error
 #[deprecated(note = "use JSModuleDefInner::new() instead")]
-pub unsafe fn js_new_module_def(ctx: &JSContext, name: JSAtom) -> *mut JSModuleDefInner {
+pub unsafe fn js_new_module_def(ctx: &JSContext, name: JSAtom) -> *mut ModuleDefInner {
     unreachable!("unused");
     // if let Ok(m) = JSModuleDefInner::new(ctx, name) {
     //     Box::into_raw(m) // take ownership
@@ -304,7 +330,7 @@ pub unsafe fn js_new_module_def(ctx: &JSContext, name: JSAtom) -> *mut JSModuleD
 }
 
 #[deprecated(note = "see impl Drop for JSModuleDefInner")]
-pub unsafe fn js_free_module_def(ctx: &JSContext, m: *mut JSModuleDefInner) {
+pub unsafe fn js_free_module_def(ctx: &JSContext, m: *mut ModuleDefInner) {
     unreachable!("unused")
 
     // JS_FreeAtom(ctx, (*m).module_name);
@@ -463,12 +489,12 @@ pub static js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMeth
 };
 
 #[deprecated]
-pub unsafe fn JS_NewModuleValue(m: JSModuleDef) -> JSValue {
+pub unsafe fn JS_NewModuleValue(m: ModuleDef) -> JSValue {
     m.into()
 }
 
 // must be done before js_link_module() because of cyclic references
-pub unsafe fn js_create_module_function(ctx: &JSContext, m: &JSModuleDef) -> i32 {
+pub unsafe fn js_create_module_function(ctx: &JSContext, m: &ModuleDef) -> i32 {
     if m.0.borrow().func_created {
         return 0;
     }
@@ -522,7 +548,7 @@ pub fn js_create_module_var(ctx: &JSContext, is_lexical: bool) -> Result<JSVarRe
 // Create the <eval> function associated with the module
 pub unsafe fn js_create_module_bytecode_function(
     ctx: &JSContext,
-    m: &JSModuleDef,
+    m: &ModuleDef,
 ) -> Result<(), i32> {
     // get bytecode
     let b = unsafe {
@@ -633,7 +659,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
 }
 
 #[deprecated(note = "use JSModuleDefInner::import_meta() instead")]
-pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut JSModuleDefInner) -> JSValue {
+pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut ModuleDefInner) -> JSValue {
     (*m).import_meta(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 

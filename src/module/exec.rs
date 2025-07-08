@@ -2,15 +2,15 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JSResult},
     function::{AsyncFunction, CallContext, JS_Call},
-    module::{JSModuleDefInner, JSModuleStatus, js_create_module_function, js_link_module},
+    module::{JSModuleStatus, ModuleDefInner, js_create_module_function, js_link_module},
     promise::{JSPromiseStateEnum, js_promise_then},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
 
-use super::JSModuleDef;
+use super::ModuleDef;
 
-impl JSModuleDefInner {
+impl ModuleDefInner {
     /// set module status to `evaluated`
     pub fn set_evaluated(&mut self, ctx: &JSContext) {
         self.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
@@ -27,7 +27,7 @@ impl JSModuleDefInner {
     }
 }
 
-impl JSModuleDef {
+impl ModuleDef {
     #[inline(always)]
     pub fn status(&self) -> JSModuleStatus {
         self.0.borrow().status
@@ -75,7 +75,7 @@ impl JSModuleDef {
             return JSValue::EXCEPTION;
         }
 
-        let mut stack_top: Option<JSModuleDef> = None;
+        let mut stack_top: Option<ModuleDef> = None;
 
         match m.do_eval(ctx, 0, &mut stack_top) {
             Ok(_) => {
@@ -139,7 +139,7 @@ impl JSModuleDef {
         &self,
         ctx: &JSContext,
         index: i32,
-        pstack_top: &mut Option<JSModuleDef>,
+        pstack_top: &mut Option<ModuleDef>,
     ) -> Result<i32, JSValue> {
         if js_check_stack_overflow(&ctx.rt(), 0) {
             JS_ThrowStackOverflow(ctx);
@@ -289,13 +289,13 @@ impl JSModuleDef {
 
         let resolve_funcs: [JSValue; 2] = [
             ctx.create_native_callable_object(
-                JSModuleDef::execute_async_resolve_callback,
+                ModuleDef::execute_async_resolve_callback,
                 0,
                 0,
                 &data,
             )?,
             ctx.create_native_callable_object(
-                JSModuleDef::execute_async_reject_callback,
+                ModuleDef::execute_async_reject_callback,
                 0,
                 0,
                 &data,
@@ -332,7 +332,7 @@ impl JSModuleDef {
             Ok(())
         }) {
             Ok(_) => {
-                let mut lst = Vec::<JSModuleDef>::with_capacity(8);
+                let mut lst = Vec::<ModuleDef>::with_capacity(8);
                 unsafe {
                     gather_module_ancestors(ctx, &module, &mut lst)?;
                 }
@@ -478,12 +478,12 @@ impl JSModuleDef {
 }
 
 // spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1, exception)
-#[deprecated(note = "use JSModuleDef::do_eval() instead")]
+#[deprecated(note = "use ModuleDef::do_eval() instead")]
 pub unsafe fn js_inner_module_evaluation(
     ctx: &JSContext,
-    m: *mut JSModuleDef,
+    m: *mut ModuleDef,
     index: i32,
-    pstack_top: &mut Option<JSModuleDef>,
+    pstack_top: &mut Option<ModuleDef>,
     pvalue: *mut JSValue,
 ) -> i32 {
     match (*m).do_eval(ctx, index, pstack_top) {
@@ -498,15 +498,15 @@ pub unsafe fn js_inner_module_evaluation(
     }
 }
 
-#[deprecated(note = "use JSModuleDef::execute_async() instead")]
-pub unsafe fn js_execute_async_module(ctx: &JSContext, m: *mut JSModuleDef) -> i32 {
+#[deprecated(note = "use ModuleDef::execute_async() instead")]
+pub unsafe fn js_execute_async_module(ctx: &JSContext, m: *mut ModuleDef) -> i32 {
     (*m).execute_async(ctx).map_or(-1, |_| -1)
 }
 
-#[deprecated(note = "use JSModuleDef::execute_sync() instead")]
+#[deprecated(note = "use ModuleDef::execute_sync() instead")]
 pub unsafe fn js_execute_sync_module(
     ctx: &JSContext,
-    m: *mut JSModuleDef,
+    m: *mut ModuleDef,
     pvalue: *mut JSValue,
 ) -> i32 {
     match (*m).execute_sync(ctx) {
@@ -521,13 +521,13 @@ pub unsafe fn js_execute_sync_module(
     }
 }
 
-#[deprecated(note = "use JSModuleDef::execute_async_reject_callback() instead")]
+#[deprecated(note = "use ModuleDef::execute_async_reject_callback() instead")]
 pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) -> JSResult {
-    JSModuleDef::execute_async_reject_callback(ctx, args)
+    ModuleDef::execute_async_reject_callback(ctx, args)
 
     // let module = unsafe {
     //     JS_VALUE_GET_PTR(args.data_raw(0))
-    //         .cast::<JSModuleDef>()
+    //         .cast::<ModuleDef>()
     //         .as_mut()
     //         .unwrap()
     // };
@@ -575,8 +575,8 @@ pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) ->
 
     // if !module.promise.is_undefined() {
     //     debug_assert_eq!(
-    //         module.cycle_root as *mut JSModuleDef,
-    //         module as *mut JSModuleDef
+    //         module.cycle_root as *mut ModuleDef,
+    //         module as *mut ModuleDef
     //     );
 
     //     unsafe {
@@ -595,18 +595,18 @@ pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) ->
 }
 
 pub struct ExecModuleList {
-    pub tab: *mut *mut JSModuleDef,
+    pub tab: *mut *mut ModuleDef,
     pub count: i32,
     pub size: i32,
 }
 
-#[deprecated(note = "use JSModuleDef::execute_async_resolve_callback() instead")]
+#[deprecated(note = "use ModuleDef::execute_async_resolve_callback() instead")]
 pub fn js_async_module_execution_fulfilled(ctx: &JSContext, args: CallContext) -> JSResult {
-    JSModuleDef::execute_async_resolve_callback(ctx, args)
+    ModuleDef::execute_async_resolve_callback(ctx, args)
 
     // let module = unsafe {
     //     JS_VALUE_GET_PTR(args.data_raw(0))
-    //         .cast::<JSModuleDef>()
+    //         .cast::<ModuleDef>()
     //         .as_mut()
     //         .unwrap()
     // };
@@ -684,15 +684,15 @@ pub fn js_async_module_execution_fulfilled(ctx: &JSContext, args: CallContext) -
     // Ok(JSValue::UNDEFINED)
 }
 
-#[deprecated(note = "use JSModuleDef::set_evaluated() instead")]
-pub unsafe fn js_set_module_evaluated(ctx: &JSContext, m: &JSModuleDef) {
+#[deprecated(note = "use ModuleDef::set_evaluated() instead")]
+pub unsafe fn js_set_module_evaluated(ctx: &JSContext, m: &ModuleDef) {
     m.0.borrow_mut().set_evaluated(ctx);
 }
 
 fn gather_module_ancestors(
     ctx: &JSContext,
-    module: &JSModuleDef,
-    result: &mut Vec<JSModuleDef>,
+    module: &ModuleDef,
+    result: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
     if js_check_stack_overflow(&ctx.rt(), 0) {
         JS_ThrowStackOverflow(ctx);
@@ -740,7 +740,7 @@ fn gather_module_ancestors(
 #[deprecated(note = "use gather_module_ancestors() instead")]
 pub unsafe fn gather_available_ancestors(
     ctx: &JSContext,
-    module: *mut JSModuleDef,
+    module: *mut ModuleDef,
     exec_list: &mut ExecModuleList,
 ) -> i32 {
     unreachable!("use gather_module_ancestors() instead");
@@ -766,7 +766,7 @@ pub unsafe fn gather_available_ancestors(
     //             if js_resize_array(
     //                 ctx,
     //                 &mut exec_list.tab as *mut _ as *mut *mut _,
-    //                 std::mem::size_of::<*mut JSModuleDef>() as _,
+    //                 std::mem::size_of::<*mut ModuleDef>() as _,
     //                 &mut exec_list.size,
     //                 exec_list.count + 1,
     //             ) != 0
@@ -788,11 +788,8 @@ pub unsafe fn gather_available_ancestors(
     // 0
 }
 
-#[deprecated(note = "use JSModuleDef::in_execution_list() instead")]
-pub unsafe fn find_in_exec_module_list(
-    exec_list: &mut ExecModuleList,
-    m: *mut JSModuleDef,
-) -> bool {
+#[deprecated(note = "use ModuleDef::in_execution_list() instead")]
+pub unsafe fn find_in_exec_module_list(exec_list: &mut ExecModuleList, m: *mut ModuleDef) -> bool {
     (*m).in_execution_list(exec_list)
 
     // for i in 0..(*exec_list).count {

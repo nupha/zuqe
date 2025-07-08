@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ERROR,
     atom::{JSAtomStruct, JSAtomTypeHint},
     function::{AsyncState, Bytecode},
-    module::JSModuleDef,
+    module::ModuleDef,
     number::JSFloat64Union,
     object::JSObject,
     string::JSString,
@@ -105,7 +105,7 @@ pub enum JSValue {
     Float64(f64),
     String(JSString),
     Symbol(JSAtomStruct),
-    Module(JSModuleDef),
+    Module(ModuleDef),
     Object(JSObject),
     Bytecode(Bytecode),
 

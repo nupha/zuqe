@@ -7,7 +7,7 @@ use crate::{
     error::JS_ThrowSyntaxError,
     mem::js_free,
     module::{
-        JSExportEntry, JSExportTypeEnum, JSModuleDef, JSResolveState, add_resolve_entry,
+        JSExportEntry, JSExportTypeEnum, ModuleDef, JSResolveState, add_resolve_entry,
         find_export_entry,
     },
 };
@@ -15,7 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub enum ModuleResolveExport {
     Found {
-        module: JSModuleDef,
+        module: ModuleDef,
         entry: JSExportEntry,
     },
     NotFound,
@@ -26,7 +26,7 @@ pub enum ModuleResolveExport {
 
 impl ModuleResolveExport {
     /// put exception to current_exception according to status
-    pub fn throw_error(&self, ctx: &JSContext, m: &JSModuleDef, export_name: JSAtom) {
+    pub fn throw_error(&self, ctx: &JSContext, m: &ModuleDef, export_name: JSAtom) {
         match self {
             Self::Found { .. } => {}
             Self::Error => {}
@@ -64,12 +64,12 @@ impl ModuleResolveExport {
     }
 }
 
-impl JSModuleDef {
+impl ModuleDef {
     unsafe fn resolve_export1(
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
-        expect: Option<(&JSModuleDef, JSAtom)>, // expected (module, local_name)
+        expect: Option<(&ModuleDef, JSAtom)>, // expected (module, local_name)
         s: &mut JSResolveState,
     ) -> ModuleResolveExport {
         if s.find(self, export_name).is_some() {
@@ -153,7 +153,7 @@ impl JSModuleDef {
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
-        expect: Option<(&JSModuleDef, JSAtom)>, // expected (module, local_name)
+        expect: Option<(&ModuleDef, JSAtom)>, // expected (module, local_name)
     ) -> ModuleResolveExport {
         let mut ss = JSResolveState {
             array: std::ptr::null_mut(),

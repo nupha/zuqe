@@ -11,7 +11,7 @@ use crate::{
         JSVarKindEnum, JSVarScope, free_bytecode_atoms,
     },
     mem::js_malloc_typed,
-    module::JSModuleDef,
+    module::ModuleDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     parse::JSParseFunctionEnum,
     utils::{push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
@@ -178,7 +178,7 @@ pub struct JSFunctionDef {
     pub pc2line: Option<Vec<u8>>,
 
     /// 模块定义（解析模块时非空）
-    pub module: Option<JSModuleDef>,
+    pub module: Option<ModuleDef>,
 
     /// 是否包含await（用于模块eval）
     pub has_await: bool,

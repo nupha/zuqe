@@ -20,7 +20,7 @@ use zhuque::{
     },
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
-    module::{JS_SetModuleLoaderFunc, JSModuleDef},
+    module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     promise::{JSPromiseStateEnum, PromiseValue},
     runtime::JSRuntime,
@@ -151,7 +151,7 @@ pub fn js_module_loader(
     ctx: &JSContext,
     module_name: &str,
     opaque: *mut std::ffi::c_void,
-) -> Result<JSModuleDef, i32> {
+) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
             // compile the module

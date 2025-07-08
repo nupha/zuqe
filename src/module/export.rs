@@ -9,9 +9,7 @@ use crate::{
     error::JSResult,
     function::JSVarRef,
     mem::{js_free, js_resize_array},
-    module::{
-        JSModuleDef, JSModuleDefInner, JSResolveResultEnum, JSResolveState, ModuleResolveExport,
-    },
+    module::{JSResolveResultEnum, JSResolveState, ModuleDef, ModuleDefInner, ModuleResolveExport},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObjectIsa, JSProperty, LazyInit,
     },
@@ -21,7 +19,7 @@ use crate::{
 pub enum ExportedNameEntryEnum {
     EXPORTED_NAME_AMBIGUOUS,
     EXPORTED_NAME_NORMAL(JSVarRef),
-    EXPORTED_NAME_NS(JSModuleDef),
+    EXPORTED_NAME_NS(ModuleDef),
 }
 
 pub struct ExportedNameEntry {
@@ -33,7 +31,7 @@ pub struct ExportedNameEntry {
 }
 
 struct GetExportNamesState {
-    pub modules: Vec<JSModuleDef>,
+    pub modules: Vec<ModuleDef>,
 
     // TODO: use Vec<ExportedNameEntry>,
     pub exported_names: *mut ExportedNameEntry,
@@ -77,7 +75,7 @@ pub struct JSStarExportEntry {
     pub req_module_idx: i32, // in req_module_entries
 }
 
-impl JSModuleDef {
+impl ModuleDef {
     pub unsafe fn get_exported_names(
         &self,
         ctx: &JSContext,
@@ -315,7 +313,7 @@ pub unsafe fn find_exported_name(s: *mut GetExportNamesState, name: JSAtom) -> O
     return None;
 }
 
-pub unsafe fn find_export_entry(m: &JSModuleDef, export_name: JSAtom) -> Option<JSExportEntry> {
+pub unsafe fn find_export_entry(m: &ModuleDef, export_name: JSAtom) -> Option<JSExportEntry> {
     m.0.borrow()
         .export_entries
         .iter()
@@ -323,12 +321,12 @@ pub unsafe fn find_export_entry(m: &JSModuleDef, export_name: JSAtom) -> Option<
         .map(|v| *v.clone())
 }
 
-#[deprecated(note = "use JSModuleDef::resolve_export1() instead")]
+#[deprecated(note = "use ModuleDef::resolve_export1() instead")]
 pub unsafe fn js_resolve_export1(
     ctx: &JSContext,
-    pmodule: *mut *mut JSModuleDefInner,
+    pmodule: *mut *mut ModuleDefInner,
     pme: *mut *mut JSExportEntry,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     export_name: JSAtom,
     s: *mut JSResolveState,
 ) -> JSResolveResultEnum {
@@ -413,12 +411,12 @@ pub unsafe fn js_resolve_export1(
 // If the return value is JS_RESOLVE_RES_FOUND, return the module
 // (*pmodule) and the corresponding local export entry
 // (*pme). Otherwise return (NULL, NULL)
-#[deprecated(note = "use JSModuleDef::resolve_export() instead")]
+#[deprecated(note = "use ModuleDef::resolve_export() instead")]
 pub unsafe fn js_resolve_export(
     ctx: &JSContext,
-    pmodule: *mut *mut JSModuleDefInner,
+    pmodule: *mut *mut ModuleDefInner,
     pme: *mut *mut JSExportEntry,
-    m: &mut JSModuleDef,
+    m: &mut ModuleDef,
     export_name: JSAtom,
 ) -> JSResolveResultEnum {
     unreachable!("unused");
@@ -442,7 +440,7 @@ pub unsafe fn js_resolve_export(
 
 pub unsafe fn add_star_export_entry(
     ctx: &JSContext,
-    m: *mut JSModuleDefInner,
+    m: *mut ModuleDefInner,
     req_module_idx: i32,
 ) -> i32 {
     if js_resize_array(
@@ -470,7 +468,7 @@ pub unsafe fn add_star_export_entry(
 pub unsafe fn get_exported_names(
     ctx: &JSContext,
     s: *mut GetExportNamesState,
-    m: *mut JSModuleDefInner,
+    m: *mut ModuleDefInner,
     from_star: bool,
 ) -> Result<(), i32> {
     unreachable!("unused");

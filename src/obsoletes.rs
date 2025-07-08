@@ -20,7 +20,7 @@ use crate::{
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::JSAsyncGeneratorData,
     iterator::JSIteratorKindEnum,
-    module::JSModuleDef,
+    module::ModuleDef,
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
         JSObjectIsa, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, PropertyEnum,
@@ -760,8 +760,8 @@ pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
 
 /// Run the <eval> function of the module and of all its requested modules.
 /// Return a promise or an exception.
-#[deprecated(note = "use JSModuleDef::eval() instead")]
-pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut JSModuleDef) -> JSValue {
+#[deprecated(note = "use ModuleDef::eval() instead")]
+pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
     (*m).eval(ctx)
 }
 
@@ -1055,13 +1055,13 @@ pub unsafe fn JS_EvalObject(
     }
 }
 
-#[deprecated(note = "use JSModuleDef::build_ns() instead")]
-pub unsafe fn js_build_module_ns(ctx: &JSContext, m: *mut JSModuleDef) -> JSValue {
+#[deprecated(note = "use ModuleDef::build_ns() instead")]
+pub unsafe fn js_build_module_ns(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSModuleDef::ns() instead")]
-pub unsafe fn js_get_module_ns(ctx: &JSContext, m: *mut JSModuleDef) -> JSValue {
+#[deprecated(note = "use ModuleDef::ns() instead")]
+pub unsafe fn js_get_module_ns(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
     (*m).ns(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
@@ -1547,7 +1547,7 @@ pub unsafe fn JS_MarkContext(
 }
 
 #[deprecated]
-pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut JSModuleDef, mark_func: JS_MarkFunc) {
+pub unsafe fn js_mark_module_def(rt: *mut JSRuntime, m: &mut ModuleDef, mark_func: JS_MarkFunc) {
     unreachable!("unused");
 }
 

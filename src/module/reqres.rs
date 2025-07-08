@@ -5,7 +5,7 @@ use crate::{
     function::JS_Call,
     mem::js_resize_array,
     module::{
-        JSExportTypeEnum, JSModuleDef, ModuleResolveExport, js_create_module_var,
+        JSExportTypeEnum, ModuleDef, ModuleResolveExport, js_create_module_var,
         js_default_module_normalize_name,
     },
     runtime::js_check_stack_overflow,
@@ -14,12 +14,12 @@ use crate::{
 
 pub struct JSReqModuleEntry {
     pub module_name: JSAtom,
-    pub module: Option<JSModuleDef>, /* used using resolution */
+    pub module: Option<ModuleDef>, /* used using resolution */
 }
 
 #[repr(C)]
 pub struct JSResolveEntry {
-    pub module: JSModuleDef,
+    pub module: ModuleDef,
     pub name: JSAtom,
 }
 
@@ -31,7 +31,7 @@ pub struct JSResolveState {
 }
 
 impl JSResolveState {
-    pub(super) unsafe fn find(&self, m: &JSModuleDef, name: JSAtom) -> Option<i32> {
+    pub(super) unsafe fn find(&self, m: &ModuleDef, name: JSAtom) -> Option<i32> {
         for i in 0..self.count {
             let re = self.array.add(i as usize).as_ref().unwrap();
             if re.module.id() == m.id() && re.name == name {
@@ -44,7 +44,7 @@ impl JSResolveState {
 
 impl JSContext {
     /// find the loaded module by module name
-    pub fn find_loaded_module(&self, name: JSAtom) -> Option<JSModuleDef> {
+    pub fn find_loaded_module(&self, name: JSAtom) -> Option<ModuleDef> {
         self.0.borrow_mut().loaded_modules.iter().find_map(|w| {
             if let Some(m) = w.upgrade() {
                 if m.0.borrow().module_name == name {
@@ -59,7 +59,7 @@ impl JSContext {
     }
 
     /// Load all the required modules for module 'm'
-    pub fn resolve_module(&self, m: &JSModuleDef) -> Result<(), i32> {
+    pub fn resolve_module(&self, m: &ModuleDef) -> Result<(), i32> {
         if m.0.borrow().resolved {
             return Ok(());
         }
@@ -105,7 +105,7 @@ impl JSContext {
 #[deprecated(note = "use JSResolveState::find()")]
 pub unsafe fn find_resolve_entry(
     s: *mut JSResolveState,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     name: JSAtom,
 ) -> Option<i32> {
     unreachable!("unused");
@@ -138,7 +138,7 @@ pub enum JSModuleStatus {
     JS_MODULE_STATUS_EVALUATED,
 }
 
-pub unsafe fn add_req_module_entry(ctx: &JSContext, m: &JSModuleDef, module_name: JSAtom) -> i32 {
+pub unsafe fn add_req_module_entry(ctx: &JSContext, m: &ModuleDef, module_name: JSAtom) -> i32 {
     let mut m = m.0.borrow_mut();
 
     // no need to add the module request if it is already present
@@ -178,7 +178,7 @@ pub unsafe fn add_req_module_entry(ctx: &JSContext, m: &JSModuleDef, module_name
 pub unsafe fn add_resolve_entry(
     ctx: &JSContext,
     s: *mut JSResolveState,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     name: JSAtom,
 ) -> Result<(), i32> {
     if js_resize_array(
@@ -204,7 +204,7 @@ pub unsafe fn add_resolve_entry(
 pub unsafe fn js_resolve_export_throw_error(
     ctx: &JSContext,
     res: JSResolveResultEnum,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     export_name: JSAtom,
 ) {
     match res {
@@ -245,13 +245,13 @@ pub unsafe fn js_resolve_export_throw_error(
 
 /// find the loaded module by module name
 #[deprecated(note = "use JSContext::find_loaded_module() instead")]
-pub fn js_find_loaded_module(ctx: &JSContext, name: JSAtom) -> Option<JSModuleDef> {
+pub fn js_find_loaded_module(ctx: &JSContext, name: JSAtom) -> Option<ModuleDef> {
     ctx.find_loaded_module(name)
 }
 
 // Load all the required modules for module 'm'
 #[deprecated(note = "use JSContext::resolve_module() instead")]
-pub unsafe fn js_resolve_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
+pub unsafe fn js_resolve_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
     ctx.resolve_module(m).map_or(-1, |_| 0)
 }
 
@@ -259,7 +259,7 @@ pub fn js_host_resolve_imported_module(
     ctx: &JSContext,
     base_cname: &str,
     cname1: &str,
-) -> Result<JSModuleDef, i32> {
+) -> Result<ModuleDef, i32> {
     let name = if let Some(cb) = ctx.rt().module_normalize_func {
         cb(ctx, base_cname, cname1, ctx.rt().module_loader_opaque)
     } else {
@@ -286,14 +286,14 @@ pub fn js_host_resolve_imported_module_atom(
     ctx: &JSContext,
     base_module_name: JSAtom,
     module_name1: JSAtom,
-) -> Result<JSModuleDef, i32> {
+) -> Result<ModuleDef, i32> {
     let base_cname = base_module_name.to_utf8_string(ctx)?;
     let cname = module_name1.to_utf8_string(ctx)?;
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }
 
 /// Prepare a module to be executed by resolving all the imported variables.
-pub fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
+pub fn js_link_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
     #[cfg(DUMP_MODULE_RESOLVE)]
     {
         let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
@@ -316,7 +316,7 @@ pub fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
     ));
 
-    let mut stack_top: Option<JSModuleDef> = None;
+    let mut stack_top: Option<ModuleDef> = None;
     if unsafe { js_inner_module_linking(ctx, m, &mut stack_top, 0) < 0 } {
         while let Some(m1) = stack_top.take() {
             debug_assert_eq!(
@@ -343,8 +343,8 @@ pub fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
 // Prepare a module to be executed by resolving all the imported variables.
 pub unsafe fn js_inner_module_linking(
     ctx: &JSContext,
-    m: &JSModuleDef,
-    pstack_top: &mut Option<JSModuleDef>,
+    m: &ModuleDef,
+    pstack_top: &mut Option<ModuleDef>,
     index: i32,
 ) -> i32 {
     if js_check_stack_overflow(ctx.rt(), 0) {

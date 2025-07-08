@@ -8,7 +8,7 @@ use crate::{
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     mem::js_resize_array,
     module::{
-        JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleDef, add_req_module_entry,
+        JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_req_module_entry,
         find_export_entry,
     },
 };
@@ -236,7 +236,7 @@ unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
 
 pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
     let ctx = &(*s).ctx;
-    let m: &JSModuleDef = (*s).cur_func().module.as_ref().unwrap();
+    let m: &ModuleDef = (*s).cur_func().module.as_ref().unwrap();
 
     let mut local_name: JSAtom;
     let mut export_name: JSAtom;
@@ -469,7 +469,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
 unsafe fn add_export_entry2(
     ctx: &JSContext,
     s: *mut JSParseState,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     local_name: JSAtom,
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
@@ -512,7 +512,7 @@ unsafe fn add_export_entry2(
 
 pub fn add_export_entry<'a>(
     s: &mut JSParseState,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     local_name: JSAtom,
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
@@ -523,7 +523,7 @@ pub fn add_export_entry<'a>(
 
 pub unsafe fn add_import(
     s: *mut JSParseState,
-    m: &JSModuleDef,
+    m: &ModuleDef,
     local_name: JSAtom,
     import_name: JSAtom,
 ) -> i32 {

@@ -8,7 +8,7 @@ use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
     function::{JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
-    module::JSModuleDef,
+    module::ModuleDef,
     object::JSObject,
     parse::{JS_DetectModule, JSParseState, skip_shebang},
     stack_frame::StackFrame,
@@ -110,7 +110,7 @@ impl JSContext {
                     return JSValue::EXCEPTION;
                 };
                 js_mode |= JS_MODE_STRICT as u32;
-                (None, Some(JSModuleDef::new(self, module_name)), js_mode)
+                (None, Some(ModuleDef::new(self, module_name)), js_mode)
             } else {
                 (None, None, js_mode)
             }
