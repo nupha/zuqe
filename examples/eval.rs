@@ -6,7 +6,6 @@ use zhuque::{
     error::{JS_ThrowReferenceError, JSResult},
     eval::{
         JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
-        JS_EvalFunction,
     },
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
@@ -86,8 +85,13 @@ fn main() {
                     eval_flags | JS_EVAL_FLAG_COMPILE_ONLY,
                 );
                 if !esm_func.is_exception() {
+                    debug_assert!(esm_func.is_module());
                     js_module_set_import_meta(&ctx, &esm_func, 1, true);
-                    JS_EvalFunction(&ctx, &esm_func)
+                    if let JSValue::Module(md) = esm_func {
+                        md.eval(&ctx)
+                    } else {
+                        unreachable!()
+                    }
                 } else {
                     JSValue::EXCEPTION
                 }

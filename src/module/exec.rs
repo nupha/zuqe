@@ -2,7 +2,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JSResult},
     function::{AsyncFunction, CallContext, JS_Call},
-    module::{JSModuleDefInner, JSModuleStatus},
+    module::{JSModuleDefInner, JSModuleStatus, js_create_module_function, js_link_module},
     promise::{JSPromiseStateEnum, js_promise_then},
     runtime::js_check_stack_overflow,
     value::JSValue,
@@ -28,10 +28,31 @@ impl JSModuleDefInner {
 }
 
 impl JSModuleDef {
+    #[inline(always)]
+    pub fn status(&self) -> JSModuleStatus {
+        self.0.borrow().status
+    }
+
     /// Run the <eval> function of the module and of all its requested modules.
     /// Return a promise or an exception.
     pub fn eval(&self, ctx: &JSContext) -> JSValue {
-        let m = match self.0.borrow().status {
+        debug_assert!(matches!(
+            self.status(),
+            JSModuleStatus::JS_MODULE_STATUS_UNLINKED
+                | JSModuleStatus::JS_MODULE_STATUS_LINKED
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+        ));
+
+        if unsafe { js_create_module_function(ctx, self) } < 0 {
+            return JSValue::EXCEPTION;
+        }
+
+        if js_link_module(ctx, self) < 0 {
+            return JSValue::EXCEPTION;
+        }
+
+        let m = match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_LINKED => self.clone(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {

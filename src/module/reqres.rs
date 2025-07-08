@@ -292,9 +292,8 @@ pub fn js_host_resolve_imported_module_atom(
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }
 
-// Prepare a module to be executed by resolving all the imported
-// variables.
-pub unsafe fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
+/// Prepare a module to be executed by resolving all the imported variables.
+pub fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
     #[cfg(DUMP_MODULE_RESOLVE)]
     {
         let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
@@ -318,7 +317,7 @@ pub unsafe fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
     ));
 
     let mut stack_top: Option<JSModuleDef> = None;
-    if js_inner_module_linking(ctx, m, &mut stack_top, 0) < 0 {
+    if unsafe { js_inner_module_linking(ctx, m, &mut stack_top, 0) < 0 } {
         while let Some(m1) = stack_top.take() {
             debug_assert_eq!(
                 m1.0.borrow().status,
@@ -332,7 +331,7 @@ pub unsafe fn js_link_module(ctx: &JSContext, m: &JSModuleDef) -> i32 {
 
     debug_assert!(stack_top.is_none());
     debug_assert!(matches!(
-        m.0.borrow().status,
+        m.status(),
         JSModuleStatus::JS_MODULE_STATUS_LINKED
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED

@@ -2873,3 +2873,23 @@ pub unsafe fn add_closure_var(
         ctx, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
     )
 }
+
+/// `fun_obj` is consumed, `this_obj` is not consumed.
+/// `fun_obj` could be Bytecode or Module.
+#[deprecated(note = "unused")]
+pub unsafe fn JS_EvalFunctionInternal(
+    ctx: &JSContext,
+    fun_obj: &JSValue,
+    this_obj: &JSValue,
+    var_refs: &[JSVarRef],
+    parent_frame: Option<&mut StackFrame>,
+) -> JSValue {
+    unreachable!("unused");
+    // ctx.eval_bytecode_or_module(fun_obj, this_obj, var_refs, parent_frame)
+    //     .unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "unused")]
+pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: &JSValue) -> JSValue {
+    return JS_EvalFunctionInternal(ctx, fun_obj, &ctx.0.borrow().global_obj.clone(), &[], None);
+}

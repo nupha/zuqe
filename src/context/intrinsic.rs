@@ -348,7 +348,7 @@ impl JSContext {
              flags: u32,
              scope_idx: i32|
              -> JSValue {
-                unsafe { ctx.eval_script(this_obj, input, filename, flags, scope_idx) }
+                ctx.eval_script(this_obj, input, filename, flags, scope_idx)
             },
         );
 

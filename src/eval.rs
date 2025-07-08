@@ -7,9 +7,8 @@ use std::{
 use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
-    error::JSResult,
-    function::{JS_Call, JSFunctionDef, JSFunctionKindEnum, JSVarRef, add_closure_variables},
-    module::{JSModuleDef, js_create_module_function, js_link_module},
+    function::{JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
+    module::JSModuleDef,
     object::JSObject,
     parse::{JS_DetectModule, JSParseState, skip_shebang},
     stack_frame::StackFrame,
@@ -28,12 +27,14 @@ pub type EvalFunc = fn(
     scope_idx: i32,
 ) -> JSValue;
 
-// Eval flags
+// Eval types
 pub const JS_EVAL_TYPE_GLOBAL: u32 = 0 << 0;
 pub const JS_EVAL_TYPE_MODULE: u32 = 1 << 0;
 pub const JS_EVAL_TYPE_DIRECT: u32 = 2 << 0;
 pub const JS_EVAL_TYPE_INDIRECT: u32 = 3 << 0;
 pub const JS_EVAL_TYPE_MASK: u32 = 3 << 0;
+
+// Eval flags
 pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
 pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;
 pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
@@ -42,7 +43,7 @@ pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 impl JSContext {
     /// parse, compile and eval source script.
-    pub(crate) unsafe fn eval_script(
+    pub(crate) fn eval_script(
         &self,
         this_obj: JSValue,
         source: &CStr,
@@ -60,19 +61,27 @@ impl JSContext {
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
         let mut sframe: Option<&mut StackFrame> = None;
-        let mut func_obj: Option<JSObject> = None;
-        let mut js_mode: u32 = 0;
+        let mut cur_frame_func: Option<JSObject> = None;
 
-        // get bytecode, module from current active stack frame
-        let (bc, md) = if eval_type == JS_EVAL_TYPE_DIRECT {
+        // get bytecode, module of current stack frame
+        let (cur_frame_bc, md, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
             let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
             debug_assert!(!sf_ptr.is_null());
-            debug_assert!((*sf_ptr).cur_running.is_object());
+            debug_assert!(unsafe { (*sf_ptr).cur_running.is_object() });
 
-            func_obj = Some((*sf_ptr).cur_running.object_unchecked().clone());
-            sframe = sf_ptr.as_mut();
+            sframe = unsafe { sf_ptr.as_mut() };
+            cur_frame_func = unsafe {
+                Some(
+                    sframe
+                        .as_ref()
+                        .unwrap()
+                        .cur_running
+                        .object_unchecked()
+                        .clone(),
+                )
+            };
 
-            let b = func_obj
+            let b = cur_frame_func
                 .as_ref()
                 .unwrap()
                 .0
@@ -83,9 +92,10 @@ impl JSContext {
                 .bytecode
                 .clone();
 
-            js_mode = b.as_ref().unwrap().0.borrow().js_mode as _;
-            (b, None)
+            let mode = b.as_ref().unwrap().0.borrow().js_mode as u32;
+            (b, None, mode)
         } else {
+            let mut js_mode = 0;
             if flags & JS_EVAL_FLAG_STRICT != 0 {
                 js_mode |= JS_MODE_STRICT as u32;
             }
@@ -100,9 +110,9 @@ impl JSContext {
                     return JSValue::EXCEPTION;
                 };
                 js_mode |= JS_MODE_STRICT as u32;
-                (None, Some(JSModuleDef::new(self, module_name)))
+                (None, Some(JSModuleDef::new(self, module_name)), js_mode)
             } else {
-                (None, None)
+                (None, None, js_mode)
             }
         };
 
@@ -113,29 +123,38 @@ impl JSContext {
             fd.eval_type = eval_type;
             fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
             fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
+            fd.func_name = JS_ATOM__eval_.dup(self.rt());
+            fd.js_mode = js_mode as u8;
 
-            if eval_type == JS_EVAL_TYPE_DIRECT {
-                let b = bc.as_ref().unwrap().0.borrow();
+            if let Some(bc) = &cur_frame_bc {
+                debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
+                debug_assert!(md.is_none(), "must not have module def");
+
+                let b = bc.0.borrow();
+
                 fd.new_target_allowed = b.new_target_allowed;
                 fd.super_call_allowed = b.super_call_allowed;
                 fd.super_allowed = b.super_allowed;
                 fd.arguments_allowed = b.arguments_allowed;
             } else {
+                debug_assert_ne!(
+                    eval_type, JS_EVAL_TYPE_DIRECT,
+                    "must not be direct eval type"
+                );
                 fd.new_target_allowed = false;
                 fd.super_call_allowed = false;
                 fd.super_allowed = false;
                 fd.arguments_allowed = true;
             }
-            fd.js_mode = js_mode as u8;
-            fd.func_name = JS_ATOM__eval_.dup(self.rt());
 
-            if let Some(b) = bc {
-                if add_closure_variables(self, fd.deref_mut(), &b, scope_idx).is_err() {
+            if let Some(b) = cur_frame_bc {
+                if unsafe { add_closure_variables(self, &mut fd, &b, scope_idx).is_err() } {
                     return JSValue::EXCEPTION;
                 }
             }
 
             fd.module = md.clone();
+
             if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
                 fd.in_function_body = true;
                 fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
@@ -160,7 +179,7 @@ impl JSContext {
             // create parse state with root fd
             let mut ps = JSParseState::new(
                 self,
-                NonNull::new_unchecked(root_fd.as_mut()),
+                unsafe { NonNull::new_unchecked(root_fd.as_mut()) },
                 source.as_ptr().cast(),
                 source.count_bytes(),
                 filename,
@@ -173,43 +192,64 @@ impl JSContext {
             ps.allow_html_comments = md.is_none();
 
             // begin parsing
-            skip_shebang(&mut ps.buf_ptr, ps.buf_end);
-            if ps.parse_program().is_err() {
+            unsafe {
+                skip_shebang(&mut ps.buf_ptr, ps.buf_end);
+            }
+            if unsafe { ps.parse_program().is_err() } {
                 fail!(ps, root_fd, m);
             }
         }
 
-        if let Some(m) = md.as_ref() {
-            m.0.borrow_mut().has_tla = root_fd.has_await;
-        }
+        let has_await = root_fd.has_await;
 
-        // convert function def to bytecode.
-        let mut bc_val = if let Ok(c) = root_fd.into_bytecode(self) {
-            JSValue::Bytecode(c)
+        // compile function def to bytecode.
+        let bc_compiled = if let Ok(c) = unsafe { root_fd.compile(self) } {
+            c
         } else {
             return JSValue::EXCEPTION;
         };
 
         // Could add a flag to avoid resolution if necessary
         if let Some(m) = md.as_ref() {
-            m.0.borrow_mut().bytecode = bc_val;
+            {
+                let mut b = m.0.borrow_mut();
+                b.bytecode = JSValue::Bytecode(bc_compiled.clone());
+                b.has_tla = has_await;
+            }
+
             if self.resolve_module(&m).is_err() {
                 return JSValue::EXCEPTION;
             }
-            bc_val = JSValue::Module(m.clone());
         }
 
-        // returns compiled or evaluated
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            bc_val
+            // returns compiled bytecode
+            return JSValue::Bytecode(bc_compiled);
+        }
+
+        // eval bytecode or module.
+        if let Some(f) = cur_frame_func.as_ref() {
+            // direct eval type: eval bytecode directly.
+            debug_assert!(sframe.is_some());
+            let isa = f.0.isa.borrow();
+            let var_refs = isa.func().unwrap().var_refs.as_slice();
+            bc_compiled
+                .eval(self, &this_obj, var_refs, sframe)
+                .unwrap_or(JSValue::EXCEPTION)
+        } else if let Some(md) = md {
+            // eval module
+            debug_assert_eq!(eval_type, JS_EVAL_TYPE_MODULE);
+            md.eval(self)
         } else {
-            if let Some(f) = func_obj.as_ref() {
-                let isa = f.0.isa.borrow();
-                let var_refs = isa.func().unwrap().var_refs.as_slice();
-                JS_EvalFunctionInternal(self, &bc_val, &this_obj, var_refs, sframe)
-            } else {
-                JS_EvalFunctionInternal(self, &bc_val, &this_obj, &[], sframe)
-            }
+            debug_assert!(matches!(
+                eval_type,
+                JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_INDIRECT
+            ));
+            debug_assert!(sframe.is_none());
+
+            bc_compiled
+                .eval(self, &this_obj, &[], None)
+                .unwrap_or(JSValue::EXCEPTION)
         }
     }
 
@@ -226,7 +266,7 @@ impl JSContext {
             flags & JS_EVAL_TYPE_MASK,
             JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE
         ));
-        unsafe { self.eval_script(this_obj, source, filename, flags, -1) }
+        self.eval_script(this_obj, source, filename, flags, -1)
     }
 
     /// eval script with global as `this` binding.
@@ -250,16 +290,11 @@ impl JSContext {
             // for the modules, we compile then run to be able to set import.meta
             let module_func = self.eval(source, url, eval_flags | JS_EVAL_FLAG_COMPILE_ONLY);
             if !module_func.is_exception() {
-                if let JSValue::Module(mdef) = &module_func {
-                    if mdef
-                        .0
-                        .borrow_mut()
-                        .set_import_meta(self, url, true)
-                        .is_err()
-                    {
+                if let JSValue::Module(md) = module_func {
+                    if md.0.borrow_mut().set_import_meta(self, url, true).is_err() {
                         JSValue::EXCEPTION
                     } else {
-                        unsafe { JS_EvalFunction(self, &module_func) }
+                        md.eval(self)
                     }
                 } else {
                     unreachable!()
@@ -272,33 +307,23 @@ impl JSContext {
         }
     }
 
-    /// Eval bytecode or module.
-    pub(crate) fn eval_bytecode_or_module(
-        &self,
-        bc_or_module: &JSValue,
-        this_obj: &JSValue,
-        var_refs: &[JSVarRef],
-        parent_frame: Option<&mut StackFrame>,
-    ) -> JSResult {
-        match bc_or_module {
-            JSValue::Bytecode(bc) => bc.eval(self, this_obj, var_refs, parent_frame),
-            JSValue::Module(md) => {
-                // TODO: move following into JSModuleDef::eval()?
-                if unsafe { js_create_module_function(self, &md) } < 0 {
-                    return Err(-1);
-                }
-                if unsafe { js_link_module(self, &md) } < 0 {
-                    return Err(-1);
-                }
-
-                md.eval(self).check_exception()
-            }
-            _ => {
-                self.JS_ThrowTypeError("bytecode expected");
-                Err(-1)
-            }
-        }
-    }
+    // /// Eval bytecode or module.
+    // pub(crate) fn eval_bytecode_or_module(
+    //     &self,
+    //     bc_or_module: &JSValue,
+    //     this_obj: &JSValue,
+    //     var_refs: &[JSVarRef],
+    //     parent_frame: Option<&mut StackFrame>,
+    // ) -> JSResult {
+    //     match bc_or_module {
+    //         JSValue::Bytecode(bc) => bc.eval(self, this_obj, var_refs, parent_frame),
+    //         JSValue::Module(md) => md.eval(self).check_exception(),
+    //         _ => {
+    //             self.JS_ThrowTypeError("bytecode expected");
+    //             Err(-1)
+    //         }
+    //     }
+    // }
 }
 
 impl JSValue {
@@ -319,35 +344,15 @@ impl JSValue {
             self.clone()
         } else {
             match self.coerce_to_utf8(ctx) {
-                Ok(str) => unsafe {
-                    ctx.eval_script(
-                        this_obj,
-                        CString::new(str.as_bytes()).unwrap().as_c_str(),
-                        "<input>",
-                        flags,
-                        scope_idx,
-                    )
-                },
+                Ok(str) => ctx.eval_script(
+                    this_obj,
+                    CString::new(str.as_bytes()).unwrap().as_c_str(),
+                    "<input>",
+                    flags,
+                    scope_idx,
+                ),
                 Err(_) => JSValue::EXCEPTION,
             }
         }
     }
-}
-
-/// `fun_obj` is consumed, `this_obj` is not consumed.
-/// `fun_obj` could be Bytecode or Module.
-#[deprecated(note = "use JSContext::eval_bytecode_or_module() instead")]
-pub unsafe fn JS_EvalFunctionInternal(
-    ctx: &JSContext,
-    fun_obj: &JSValue,
-    this_obj: &JSValue,
-    var_refs: &[JSVarRef],
-    parent_frame: Option<&mut StackFrame>,
-) -> JSValue {
-    ctx.eval_bytecode_or_module(fun_obj, this_obj, var_refs, parent_frame)
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: &JSValue) -> JSValue {
-    return JS_EvalFunctionInternal(ctx, fun_obj, &ctx.0.borrow().global_obj.clone(), &[], None);
 }

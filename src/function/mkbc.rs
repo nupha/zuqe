@@ -17,11 +17,10 @@ use crate::{
 use super::JSFunctionDef;
 
 impl JSFunctionDef {
-    /// Create bytecode from `self` function definition.
+    /// Compile function def and returns result bytecode.
     /// All the child functions are also created. It must be done this way to resolve all the variables.
     /// Returns a bytecode value.
-    /// The `self` function def is consumed.
-    pub unsafe fn into_bytecode(mut self, ctx: &JSContext) -> Result<Bytecode, i32> {
+    pub unsafe fn compile(mut self, ctx: &JSContext) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -80,7 +79,7 @@ impl JSFunctionDef {
             let cpool_idx: i32 = fd1.parent_cpool_idx;
             debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-            let sub_bc = fd1.into_bytecode(ctx)?;
+            let sub_bc = fd1.compile(ctx)?;
 
             // put child function to parent's constant pool
             self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
