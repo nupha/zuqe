@@ -348,19 +348,20 @@ impl JSContext {
              flags: u32,
              scope_idx: i32|
              -> JSValue {
-                unsafe { ctx.eval_internal(this_obj, input, filename, flags, scope_idx) }
+                unsafe { ctx.eval_script(this_obj, input, filename, flags, scope_idx) }
             },
         );
 
-        self.0.borrow_mut().eval_func = self
+        let eval_func = self
             .create_native_function(NativeFunctionType::Func(js_global_eval), "eval", 1, 0)
             .unwrap();
+        self.0.borrow_mut().eval_func = eval_func.clone();
 
         self.global_obj()
             .define_property_value(
                 self,
                 JS_ATOM_eval,
-                self.0.borrow().eval_func.clone(),
+                eval_func,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();

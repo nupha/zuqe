@@ -1011,7 +1011,7 @@ pub unsafe fn JS_EvalInternal(
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
-    ctx.eval_internal(this_obj, input, filename, flags, scope_idx)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSContext::eval_this() instead")]
@@ -1031,7 +1031,7 @@ pub unsafe fn JS_Eval(ctx: &JSContext, input: &CStr, filename: &str, eval_flags:
 }
 
 /// both `this_obj` and `val` are not consumed.
-#[deprecated(note = "use JSValue::eval() instead")]
+#[deprecated(note = "use JSValue::eval_script() instead")]
 pub unsafe fn JS_EvalObject(
     ctx: &JSContext,
     this_obj: JSValueConst,
@@ -1044,7 +1044,7 @@ pub unsafe fn JS_EvalObject(
     }
 
     match val.coerce_to_utf8(ctx) {
-        Ok(str) => ctx.eval_internal(
+        Ok(str) => ctx.eval_script(
             this_obj,
             CString::new(str.as_bytes()).unwrap().as_c_str(),
             "<input>",
@@ -1651,7 +1651,7 @@ pub fn __JS_EvalInternal(
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
-    unsafe { ctx.eval_internal(this_obj, input, filename, flags, scope_idx) }
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::is_error() instead")]

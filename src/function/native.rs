@@ -152,7 +152,7 @@ impl ObjectNativeFunc {
         // build new stack frame, alloc on stack.
         let mut new_frame = StackFrame {
             prev_frame: rt.cur_stack_frame,
-            cur_func: func_obj.clone(),
+            cur_running: func_obj.clone(),
             ..Default::default()
         };
         let sf = &mut new_frame;

@@ -7,6 +7,7 @@ use std::{
 use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
+    error::JSResult,
     function::{JS_Call, JSFunctionDef, JSFunctionKindEnum, JSVarRef, add_closure_variables},
     module::{JSModuleDef, js_create_module_function, js_link_module},
     object::JSObject,
@@ -40,11 +41,11 @@ pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 impl JSContext {
-    /// evaluate script `input`.
-    pub unsafe fn eval_internal(
+    /// parse, compile and eval source script.
+    pub(crate) unsafe fn eval_script(
         &self,
         this_obj: JSValue,
-        input: &CStr,
+        source: &CStr,
         filename: &str,
         flags: u32,
         scope_idx: i32,
@@ -66,9 +67,9 @@ impl JSContext {
         let (bc, md) = if eval_type == JS_EVAL_TYPE_DIRECT {
             let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
             debug_assert!(!sf_ptr.is_null());
-            debug_assert!((*sf_ptr).cur_func.is_object());
+            debug_assert!((*sf_ptr).cur_running.is_object());
 
-            func_obj = Some((*sf_ptr).cur_func.object_unchecked().clone());
+            func_obj = Some((*sf_ptr).cur_running.object_unchecked().clone());
             sframe = sf_ptr.as_mut();
 
             let b = func_obj
@@ -160,8 +161,8 @@ impl JSContext {
             let mut ps = JSParseState::new(
                 self,
                 NonNull::new_unchecked(root_fd.as_mut()),
-                input.as_ptr().cast(),
-                input.count_bytes(),
+                source.as_ptr().cast(),
+                source.count_bytes(),
                 filename,
             );
             debug_assert_eq!(
@@ -183,8 +184,8 @@ impl JSContext {
         }
 
         // convert function def to bytecode.
-        let mut bc_val = if let Ok(bf) = root_fd.into_bytecode(self) {
-            JSValue::Bytecode(bf)
+        let mut bc_val = if let Ok(c) = root_fd.into_bytecode(self) {
+            JSValue::Bytecode(c)
         } else {
             return JSValue::EXCEPTION;
         };
@@ -212,22 +213,12 @@ impl JSContext {
         }
     }
 
-    // pub fn eval_hook(
-    //     ctx: &JSContext,
-    //     this_obj: JSValue,
-    //     input: &[u8],
-    //     filename: &str,
-    //     flags: u32,
-    //     scope_idx: i32,
-    // ) -> JSValue {
-    //     unsafe { ctx.eval_internal(this_obj, input, filename, flags, scope_idx) }
-    // }
-
+    /// eval script with specified `this` binding.
     #[inline(always)]
     pub fn eval_this(
         &self,
         this_obj: JSValue,
-        input: &CStr,
+        source: &CStr,
         filename: &str,
         flags: u32,
     ) -> JSValue {
@@ -235,12 +226,14 @@ impl JSContext {
             flags & JS_EVAL_TYPE_MASK,
             JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE
         ));
-        unsafe { self.eval_internal(this_obj, input, filename, flags, -1) }
+        unsafe { self.eval_script(this_obj, source, filename, flags, -1) }
     }
 
-    pub fn eval(&self, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
+    /// eval script with global as `this` binding.
+    #[inline]
+    pub fn eval(&self, source: &CStr, filename: &str, eval_flags: u32) -> JSValue {
         let global = self.0.borrow().global_obj.clone();
-        self.eval_this(global, input, filename, eval_flags)
+        self.eval_this(global, source, filename, eval_flags)
     }
 
     /// eval source script with auto detecting module or global mode. returns EXCEPTION when error.
@@ -278,6 +271,34 @@ impl JSContext {
             self.eval(source, url, eval_flags)
         }
     }
+
+    /// Eval bytecode or module.
+    pub(crate) fn eval_bytecode_or_module(
+        &self,
+        bc_or_module: &JSValue,
+        this_obj: &JSValue,
+        var_refs: &[JSVarRef],
+        parent_frame: Option<&mut StackFrame>,
+    ) -> JSResult {
+        match bc_or_module {
+            JSValue::Bytecode(bc) => bc.eval(self, this_obj, var_refs, parent_frame),
+            JSValue::Module(md) => {
+                // TODO: move following into JSModuleDef::eval()?
+                if unsafe { js_create_module_function(self, &md) } < 0 {
+                    return Err(-1);
+                }
+                if unsafe { js_link_module(self, &md) } < 0 {
+                    return Err(-1);
+                }
+
+                md.eval(self).check_exception()
+            }
+            _ => {
+                self.JS_ThrowTypeError("bytecode expected");
+                Err(-1)
+            }
+        }
+    }
 }
 
 impl JSValue {
@@ -299,7 +320,7 @@ impl JSValue {
         } else {
             match self.coerce_to_utf8(ctx) {
                 Ok(str) => unsafe {
-                    ctx.eval_internal(
+                    ctx.eval_script(
                         this_obj,
                         CString::new(str.as_bytes()).unwrap().as_c_str(),
                         "<input>",
@@ -315,6 +336,7 @@ impl JSValue {
 
 /// `fun_obj` is consumed, `this_obj` is not consumed.
 /// `fun_obj` could be Bytecode or Module.
+#[deprecated(note = "use JSContext::eval_bytecode_or_module() instead")]
 pub unsafe fn JS_EvalFunctionInternal(
     ctx: &JSContext,
     fun_obj: &JSValue,
@@ -322,28 +344,8 @@ pub unsafe fn JS_EvalFunctionInternal(
     var_refs: &[JSVarRef],
     parent_frame: Option<&mut StackFrame>,
 ) -> JSValue {
-    match fun_obj {
-        JSValue::Bytecode(bc) => {
-            if let Ok(fc) = bc.make_closure(ctx, var_refs, parent_frame) {
-                JS_Call(ctx, &fc, &this_obj, &[])
-            } else {
-                JSValue::EXCEPTION
-            }
-        }
-        JSValue::Module(m) => {
-            if js_create_module_function(ctx, &m) < 0 {
-                return JSValue::EXCEPTION;
-            }
-            if js_link_module(ctx, &m) < 0 {
-                return JSValue::EXCEPTION;
-            }
-            m.eval(ctx)
-        }
-        _ => {
-            ctx.JS_ThrowTypeError("bytecode expected");
-            JSValue::EXCEPTION
-        }
-    }
+    ctx.eval_bytecode_or_module(fun_obj, this_obj, var_refs, parent_frame)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: &JSValue) -> JSValue {

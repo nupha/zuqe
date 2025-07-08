@@ -144,7 +144,7 @@ pub unsafe fn js_build_mapped_arguments(
         ctx,
         JS_ATOM_callee,
         (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
-            .cur_func
+            .cur_running
             .clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     );

@@ -127,7 +127,7 @@ impl JSContext {
             && (sf.is_null()
                 || unsafe {
                     (*sf)
-                        .cur_func
+                        .cur_running
                         .object()
                         .and_then(|o| o.0.isa.borrow().func().and_then(|f| f.bytecode.clone()))
                         .is_none()
@@ -255,7 +255,7 @@ impl JSContext {
                 continue;
             }
 
-            let str1 = get_func_name(unsafe { &(*sf).cur_func }).map_or(
+            let str1 = get_func_name(unsafe { &(*sf).cur_running }).map_or(
                 Cow::Borrowed("<anonymous>"),
                 |x| {
                     if x.len() == 0 {
@@ -272,7 +272,7 @@ impl JSContext {
 
             if let Some(b) = unsafe {
                 (*sf)
-                    .cur_func
+                    .cur_running
                     .object_unchecked()
                     .0
                     .isa

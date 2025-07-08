@@ -69,7 +69,7 @@ impl Bytecode {
         let realm = self.0.borrow().realm.upgrade().unwrap();
         let ctx = &realm;
 
-        let bytecodes = self.bytecodes();
+        let bytecodes = self.opcodes();
         debug_assert!(
             pc_offset < bytecodes.len(),
             "pc_offset={}, bytecodes.len()={}",
@@ -380,7 +380,7 @@ impl Bytecode {
                                 }
                             }
                             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC => {
-                                SP_PUT!(0, sframe.cur_func.clone());
+                                SP_PUT!(0, sframe.cur_running.clone());
                                 SP_GO!(1);
                             }
                             OPSpecialObjectEnum::OP_SPECIAL_OBJECT_NEW_TARGET => {

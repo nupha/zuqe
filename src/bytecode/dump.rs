@@ -18,7 +18,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
     use crate::utils::read_from_ptr;
 
     let mut pos = pc;
-    let tab = b.bytecodes();
+    let tab = b.opcodes();
     let op = tab[pos];
 
     if op >= OP_COUNT_FINAL {

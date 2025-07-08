@@ -9,10 +9,13 @@ use std::{
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
     bytecode::{opcode_info_final, opcode_info_intermediate},
-    context::JSContextWeakref,
+    context::{JSContext, JSContextWeakref},
+    error::JSResult,
+    function::{JS_Call, JSVarRef},
     gc::GCObjectHeader,
     object::GCObject,
     runtime::JSRuntime,
+    stack_frame::StackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
 };
@@ -559,9 +562,9 @@ impl Bytecode {
         }
     }
 
-    /// get bytecode opcodes slice
+    /// get opcodes slice
     #[inline(always)]
-    pub fn bytecodes(&self) -> Ref<'_, [u8]> {
+    pub fn opcodes(&self) -> Ref<'_, [u8]> {
         Ref::map(self.0.borrow(), |b| b.opcodes())
     }
 
@@ -607,6 +610,18 @@ impl Bytecode {
 
     pub fn gc_has_mark(&self) -> bool {
         self.0.borrow().header.gc_has_mark()
+    }
+
+    /// Evaluate bytecode.
+    pub fn eval(
+        &self,
+        ctx: &JSContext,
+        this_obj: &JSValue,
+        var_refs: &[JSVarRef],
+        parent_frame: Option<&mut StackFrame>,
+    ) -> JSResult {
+        let bc_func = self.make_closure(ctx, var_refs, parent_frame)?;
+        JS_Call(ctx, &bc_func, &this_obj, &[]).check_exception()
     }
 
     pub fn gc_set_mark(&self, b: bool) {

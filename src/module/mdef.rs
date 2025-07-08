@@ -604,7 +604,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     }
 
     loop {
-        if let JSValue::Object(p) = &(*sf).cur_func {
+        if let JSValue::Object(p) = &(*sf).cur_running {
             if let Some(b) =
                 p.0.isa
                     .borrow()

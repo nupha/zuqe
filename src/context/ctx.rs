@@ -501,7 +501,7 @@ impl JSContextWeakref {
 /* only valid inside C functions */
 #[inline(always)]
 pub unsafe fn JS_GetActiveFunction(ctx: &JSContext) -> &JSValue {
-    &(*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func
+    &(*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_running
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;

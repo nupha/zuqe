@@ -97,7 +97,7 @@ impl AsyncStateInner {
 
             frame: Box::new(StackFrame {
                 js_mode: js_mode as i32 | JS_MODE_ASYNC,
-                cur_func: func_obj.clone(),
+                cur_running: func_obj.clone(),
                 arg_base_ptr: local_buf.as_mut_ptr(),
                 arg_count: arg_count as _,
                 var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },

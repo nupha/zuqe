@@ -160,7 +160,7 @@ pub fn JS_CallInternal(
             let throw_flag = s.throw_flag;
             let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
-            let p = unsafe { frame.cur_func.object_unchecked().clone() };
+            let p = unsafe { frame.cur_running.object_unchecked().clone() };
             let (bc, home_obj) =
                 p.0.isa
                     .borrow()
