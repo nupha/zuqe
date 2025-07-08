@@ -442,7 +442,7 @@ impl JSFunctionDef {
                 )
             } else {
                 let (is_const, is_lexical, var_kind) = {
-                    let vd = unsafe { (*fd).vars.get_mut(found_var as usize).unwrap() };
+                    let vd = unsafe { &mut (*fd).vars[found_var as usize] };
                     vd.set_is_captured(true);
                     (vd.is_const(), vd.is_lexical(), vd.var_kind())
                 };

@@ -105,8 +105,6 @@ fn async_function_resume(ctx: &JSContext, state: &AsyncState) {
         match func_ret {
             Ok(val) => {
                 // normal return
-                println!("[O.o] afunc resume fullfil value={:?}", val); // FIXME: may panic sometimes.
-
                 let func = state.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
                 JS_Call(ctx, &func, &JSValue::UNDEFINED, std::slice::from_ref(&val));
             }

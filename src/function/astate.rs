@@ -266,14 +266,6 @@ impl AsyncState {
         let (this_val, arg_list) = {
             let b = self.0.borrow();
 
-            // O.o
-            unsafe {
-                for i in 0..b.arg_count() {
-                    let a = &*b.arg_ptr().as_ptr().add(i);
-                    println!("[O.o] async state arg {i}: {:?}", a.repr());
-                }
-            }
-
             (b.this_val.clone(), unsafe {
                 std::slice::from_raw_parts(b.arg_ptr().as_ptr(), b.arg_count())
             })

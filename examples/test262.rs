@@ -2,7 +2,7 @@
 
 use std::{
     ffi::CString,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -241,7 +241,7 @@ pub unsafe fn js_module_set_import_meta(
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct Config {
+struct TestConfig {
     description: Option<String>,
     features: Option<Vec<String>>,
     negative: Option<Negative>,
@@ -354,6 +354,8 @@ fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Writ
 }
 
 fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
+    write!(outf, "{} ... ", filename.display()).unwrap();
+
     // read source
     let content = std::fs::read_to_string(filename).unwrap();
 
@@ -362,10 +364,10 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     let end = content.find("---*/").unwrap_or(0);
     let config = if start < end {
         let front_matter = content[start + 5..end].trim();
-        let cfg = serde_yaml::from_str::<Config>(front_matter).unwrap();
+        let cfg = serde_yaml::from_str::<TestConfig>(front_matter).unwrap();
         cfg
     } else {
-        Config::default()
+        TestConfig::default()
     };
 
     let mut harness_files = Vec::<PathBuf>::new();
@@ -399,7 +401,7 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
         JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
     }
     let ctx = rt.create_context().unwrap();
-    let obj262 = setup_ctx_helpers(&ctx).unwrap();
+    setup_ctx_helpers(&ctx).unwrap();
 
     let mut has_err = false;
 
@@ -407,7 +409,7 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
         // eval harness includes
         if let Err(exc) = run_harness(&ctx, &harness_files) {
             let msg = exc.coerce_to_utf8(&ctx).unwrap();
-            writeln!(outf, "fail: '{}', can't eval harness", filename.display()).unwrap();
+            writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&ctx, &exc, msg.as_ref(), outf);
 
             has_err = true;
@@ -458,7 +460,6 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
                 is_async,
             ) {
-                println!("[O.o][msg] {:?}", exc);
                 unsafe {
                     exc.object_unchecked().dump(ctx.rt());
                 }
@@ -470,36 +471,33 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                     if let Some(ty) = neg.type_.as_ref() {
                         let err_class = msg.as_ref().split(":").next().unwrap();
                         if err_class == ty {
-                            writeln!(outf, "pass: '{}'", filename.display(),).unwrap();
+                            writeln!(outf, "pass").unwrap();
                         } else {
                             writeln!(
                                 outf,
-                                "fail: '{}', expects error class '{}', got '{}'",
-                                filename.display(),
-                                ty,
-                                err_class
+                                "fail: expects error class '{}', got '{}'",
+                                ty, err_class
                             )
                             .unwrap();
                             dump_error(&ctx, &exc, msg.as_ref(), outf);
                         }
                     } else {
-                        writeln!(outf, "pass: '{}'", filename.display()).unwrap();
+                        writeln!(outf, "pass").unwrap();
                     }
                 } else {
-                    writeln!(outf, "fail: '{}'", filename.display()).unwrap();
+                    writeln!(outf, "fail").unwrap();
                     dump_error(&ctx, &exc, msg.as_ref(), outf);
                 }
             } else {
                 if let Some(neg) = &negative {
                     writeln!(
                         outf,
-                        "fail: [NEGATIVE] '{}', expects error {}",
-                        filename.display(),
+                        "fail: [NEGATIVE] expects error {}",
                         neg.type_.as_ref().map_or("", |s| s.as_str())
                     )
                     .unwrap();
                 } else {
-                    writeln!(outf, "pass: {}", filename.display()).unwrap();
+                    writeln!(outf, "pass").unwrap();
                 }
             }
         }
@@ -516,13 +514,88 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     // drop(rt);
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct AppConfig {
+    base_path: Option<String>,
+    tests: Option<Vec<String>>,
+    out_path: Option<String>,
+}
+
 fn main() {
     unsafe {
         std::env::set_var("RUST_LOG", "INFO");
     }
     env_logger::init();
 
-    let mut fp = std::fs::OpenOptions::new()
+    let mut app_cfg = {
+        let mut fp = std::fs::OpenOptions::new()
+            .read(true)
+            .open("test262.yml")
+            .unwrap();
+        let mut txt = String::new();
+
+        fp.read_to_string(&mut txt).unwrap();
+        serde_yaml::from_str::<AppConfig>(txt.as_str()).unwrap()
+    };
+    println!("app config: {:?}", app_cfg);
+
+    let mut base_path: PathBuf = if let Some(txt) = app_cfg.base_path.take() {
+        let p = PathBuf::from(txt);
+        match std::fs::metadata(&p) {
+            Ok(m) => {
+                if !m.is_dir() {
+                    log::error!("invalid directory: {}", p.display());
+                    std::process::exit(1);
+                }
+                p
+            }
+            Err(_) => {
+                log::error!("invalid directory '{}'", p.display());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        std::env::current_dir().unwrap()
+    };
+    if !base_path
+        .to_str()
+        .unwrap()
+        .ends_with(std::path::MAIN_SEPARATOR)
+    {
+        let mut s = base_path.to_string_lossy().into_owned();
+        s.push(std::path::MAIN_SEPARATOR);
+        base_path = s.into()
+    }
+
+    let mut out_path: PathBuf = if let Some(txt) = app_cfg.out_path.take() {
+        let p = PathBuf::from(txt);
+        match std::fs::metadata(&p) {
+            Ok(m) => {
+                if !m.is_dir() {
+                    log::error!("invalid directory: {}", p.display());
+                    std::process::exit(1);
+                }
+                p
+            }
+            Err(_) => {
+                log::error!("invalid directory '{}'", p.display());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        std::env::current_dir().unwrap()
+    };
+    if !out_path
+        .to_str()
+        .unwrap()
+        .ends_with(std::path::MAIN_SEPARATOR)
+    {
+        let mut s = out_path.to_string_lossy().into_owned();
+        s.push(std::path::MAIN_SEPARATOR);
+        out_path = s.into()
+    }
+
+    let mut outf = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
@@ -540,11 +613,14 @@ fn main() {
     // );
     // fp.flush().unwrap();
 
-    for fname in glob::glob("/Users/johnray/devel/test262/test/harness/*.js").unwrap() {
-        let fname = fname.unwrap();
-        if fname.as_os_str().to_str().unwrap().contains("asyncHelpers") {
-            run_test_file(&fname, true, &mut fp);
-            fp.flush().unwrap();
+    if let Some(tests) = app_cfg.tests.take() {
+        for item in tests {
+            let pat = base_path.join(format!("./test/{item}"));
+            for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
+                let fname = fname.unwrap();
+                run_test_file(&fname, true, &mut outf);
+                outf.flush().unwrap();
+            }
         }
     }
 }

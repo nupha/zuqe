@@ -326,7 +326,6 @@ impl JSRuntime {
             for (_, mut sh_lst) in self.shape_registry.drain() {
                 sh_lst.retain(|w| {
                     if let Some(s) = w.upgrade() {
-                        println!("[O.o] shape {s:?} should be freed");
                         true
                     } else {
                         false

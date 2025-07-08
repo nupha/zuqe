@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 
 use crate::{
     atom::{JS_ATOM_NULL, consts::*},
@@ -20,7 +20,9 @@ impl JSFunctionDef {
     /// Compile function def and returns result bytecode.
     /// All the child functions are also created. It must be done this way to resolve all the variables.
     /// Returns a bytecode value.
-    pub unsafe fn compile(mut self, ctx: &JSContext) -> Result<Bytecode, i32> {
+    ///
+    /// Note: receiver must be `Box<Self>`, and is consumed.
+    pub unsafe fn compile(mut self: Box<Self>, ctx: &JSContext) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -95,7 +97,7 @@ impl JSFunctionDef {
         self.dump_bytecode(ctx, 2);
 
         // pass 3
-        resolve_labels(ctx, &mut self)?;
+        resolve_labels(ctx, self.deref_mut())?;
 
         let stack_size = self.compute_stack_size(ctx)?;
 
@@ -178,7 +180,7 @@ impl JSFunctionDef {
             inner.closure_var_start = i as i32;
         }
 
-        // bytecode section
+        // opcodes section
         inner.opcodes_start = bin_size as u32;
         bin_size += self.byte_code.len();
 

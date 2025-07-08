@@ -710,7 +710,7 @@ pub unsafe fn js_free_function_def(ctx: &JSContext, fd: *mut JSFunctionDef) {
 /// create a function object from a function definition.
 /// All the child functions are also created. It must be done this way to resolve all the variables.
 /// The function definition is freed.
-#[deprecated(note = "ise JSFunctionDef::make_function() instead")]
+#[deprecated(note = "use JSFunctionDef::compile() instead")]
 pub unsafe fn js_create_function(ctx: &JSContext, fd: *mut JSFunctionDef) -> JSValue {
     unreachable!("unused");
     // Box::from_raw(fd).make_function(ctx)
@@ -2892,4 +2892,74 @@ pub unsafe fn JS_EvalFunctionInternal(
 #[deprecated(note = "unused")]
 pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: &JSValue) -> JSValue {
     return JS_EvalFunctionInternal(ctx, fun_obj, &ctx.0.borrow().global_obj.clone(), &[], None);
+}
+
+#[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
+pub unsafe fn add_func_var(ctx: &JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> i32 {
+    (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
+}
+
+#[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
+pub unsafe fn add_var_this(ctx: &JSContext, fd: *mut JSFunctionDef) -> i32 {
+    (*fd).add_var_this(ctx).map_or(-1, |x| x as i32)
+}
+
+#[deprecated(note = "use JSFunctionDef::add_arguments(ctx, false) instead")]
+pub unsafe fn add_arguments_var(ctx: &JSContext, fd: *mut JSFunctionDef) -> i32 {
+    (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32)
+}
+
+// add an argument definition in the argument scope. Only needed when
+// "eval()" may be called in the argument scope. Return 0 if OK.
+#[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
+pub unsafe fn add_arguments_arg(ctx: &JSContext, fd: &mut JSFunctionDef) -> i32 {
+    (*fd).add_arguments(ctx, true).map_or(-1, |x| x as i32)
+}
+
+/// find closure var by name, returning index of the closure var
+#[deprecated(note = "use JSFunctionDef::find_closure_var() instead")]
+pub unsafe fn find_closure_var(
+    ctx: &JSContext,
+    s: &mut JSFunctionDef,
+    var_name: JSAtom,
+) -> Option<u16> {
+    (*s).find_closure_var(var_name)
+}
+
+// 'fd' must be a parent of 's'. Create in 's' a closure referencing a
+// local variable (is_local = TRUE) or a closure (is_local = FALSE) in
+// 'fd'
+#[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
+pub unsafe fn get_closure_var2(
+    ctx: &JSContext,
+    s: &mut JSFunctionDef,
+    fd: *const JSFunctionDef,
+    is_local: bool,
+    is_arg: bool,
+    var_idx: u16,
+    var_name: JSAtom,
+    is_const: bool,
+    is_lexical: bool,
+    var_kind: JSVarKindEnum,
+) -> Result<u16, i32> {
+    s.get_closure_var2(
+        ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    )
+}
+
+#[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
+pub unsafe fn get_closure_var(
+    ctx: &JSContext,
+    s: &mut JSFunctionDef,
+    fd: *const JSFunctionDef,
+    is_arg: bool,
+    var_idx: u16,
+    var_name: JSAtom,
+    is_const: bool,
+    is_lexical: bool,
+    var_kind: JSVarKindEnum,
+) -> Result<u16, i32> {
+    s.get_closure_var2(
+        ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    )
 }

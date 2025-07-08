@@ -28,8 +28,9 @@ pub struct JSClosureVar {
     bitfield: u8,
 
     // 8 bits available
-    // is_local = TRUE: index to a normal variable of the parent function. otherwise: index to a closure
-    // variable of the parent function
+    // is_local = TRUE: index to a normal variable of the parent function.
+    // otherwise: index to a closure variable of the parent function
+    // 0-based index
     pub var_idx: u16,
 
     pub var_name: JSAtom,
@@ -94,8 +95,9 @@ impl JSClosureVar {
 }
 
 impl JSFunctionDef {
-    /// 'up_fd' must be an ancestor of 'self'. Create in 'self' a closure referencing a
-    /// local variable (is_local = TRUE) or a closure (is_local = FALSE) in 'up_fd'
+    /// 'up_fd' must be an ancestor of 'self'.
+    /// Create in 'self' a closure referencing a local variable (is_local = TRUE)
+    /// or a closure (is_local = FALSE) in 'up_fd'
     pub fn get_closure_var2(
         &mut self,
         ctx: &JSContext,
@@ -108,7 +110,7 @@ impl JSFunctionDef {
         is_lexical: bool,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
-        let vi = if up_fd != self.parent {
+        let vidx = if up_fd != self.parent {
             // search var_idx along ancestor path
             let i = unsafe {
                 (*self.parent).get_closure_var2(
@@ -121,10 +123,10 @@ impl JSFunctionDef {
             var_idx
         };
 
-        // find variable idx in JSFunctionDef `self`
+        // find idx in self
         if let Some(cvars) = self.closure_vars.as_ref() {
             if let Some(nth) = cvars.iter().position(|cv| {
-                cv.var_idx == vi && cv.is_arg() == is_arg && cv.is_local() == is_local
+                cv.var_idx == vidx && cv.is_arg() == is_arg && cv.is_local() == is_local
             }) {
                 return Ok(nth as u16);
             }
@@ -132,7 +134,7 @@ impl JSFunctionDef {
 
         // not found, create it.
         self.add_closure_var(
-            ctx, is_local, is_arg, vi, var_name, is_const, is_lexical, var_kind,
+            ctx, is_local, is_arg, vidx, var_name, is_const, is_lexical, var_kind,
         )
     }
 
@@ -181,23 +183,24 @@ impl JSFunctionDef {
                 ctx.JS_ThrowInternalError("too many closure variables");
                 return Err(-1);
             }
-
-            if cvars.try_reserve(8).is_err() {
-                ctx.JS_ThrowOutOfMemory();
-                return Err(-1);
+            if cvars.len() == cvars.capacity() {
+                cvars.try_reserve_exact(8).map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
             }
-
             cvars.push(cv);
-            Ok(cvars.len() as u16 - 1)
+            Ok(cvars.len() as u16 - 1) // var index is 0-based
         } else {
-            if let Ok(mut cvars) = Vec::<JSClosureVar>::try_with_capacity(8) {
-                cvars.push(cv);
-                self.closure_vars.replace(cvars);
-                Ok(0) // first index is 0
-            } else {
+            let mut lst = Vec::<JSClosureVar>::new();
+            lst.try_reserve_exact(16).map_err(|_| {
                 ctx.JS_ThrowOutOfMemory();
-                return Err(-1);
-            }
+                -1
+            })?;
+
+            lst.push(cv);
+            self.closure_vars.replace(lst);
+            Ok(0) // first index is 0
         }
     }
 
