@@ -135,7 +135,7 @@ impl PromiseValue {
         // let _ = unsafe {
         //     self.0
         //         .object_unchecked()
-        //         .opaque_must::<JSPromiseData>(JS_CLASS_PROMISE, ctx)?
+        //         .opaque_must::<ObjPromise>(JS_CLASS_PROMISE, ctx)?
         // };
 
         let ctor = JS_SpeciesConstructor(ctx, &self.0, JSValue::UNDEFINED)?;

@@ -59,7 +59,7 @@ pub enum FuncCallType {
 }
 
 #[derive(Debug, Default)]
-pub struct JSObjectFunc {
+pub struct ObjFunc {
     pub bytecode: Option<Bytecode>,
 
     /// closure variable refrences

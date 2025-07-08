@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        Bytecode, JSFunctionKindEnum, JSObjectFunc, JSVarRef, func_kind_to_class_id,
+        Bytecode, JSFunctionKindEnum, JSVarRef, ObjFunc, func_kind_to_class_id,
         js_class_has_bytecode, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, JSObjectIsa, LazyInit},
@@ -290,14 +290,14 @@ impl Bytecode {
         let func_obj = ctx
             .create_instance(match func_kind {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                    JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default())
+                    JSObjectIsa::BYTECODE_FUNCTION(ObjFunc::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => {
                     todo!("[O.o] TODO create generator closure");
-                    //JSObjectIsa::GENERATOR(JSGeneratorData::default())
+                    //JSObjectIsa::GENERATOR(ObjGenerator::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                    JSObjectIsa::ASYNC_FUNCTION(JSObjectFunc::default())
+                    JSObjectIsa::ASYNC_FUNCTION(ObjFunc::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => JSObjectIsa::ASYNC_GENERATOR(None),
             })

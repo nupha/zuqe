@@ -16,7 +16,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JSCFunction},
+    function::CallContext,
     gc::js_trigger_gc,
     object::GCObjectWeakref,
     proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},

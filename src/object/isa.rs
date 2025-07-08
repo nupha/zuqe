@@ -2,11 +2,11 @@ use std::ops::DerefMut;
 
 use crate::{
     array::JSObjectArray,
-    array_buffer::JSArrayBuffer,
-    function::{AsyncState, JSObjectFunc},
+    array_buffer::ObjArrayBuffer,
+    function::{ObjAsyncState, ObjFunc},
     map::JSMapState,
-    promise::JSPromiseFunctionData,
-    typed_array::JSTypedArray,
+    promise::ObjPromiseFunc,
+    typed_array::ObjTypedArray,
     value::JSValue,
 };
 
@@ -32,20 +32,20 @@ impl JSObjectIsa {
         self.array_mut().map(f)
     }
 
-    pub const fn array_buffer(&self) -> Option<&JSArrayBuffer> {
+    pub const fn array_buffer(&self) -> Option<&ObjArrayBuffer> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,
         }
     }
-    pub const fn array_buffer_mut(&mut self) -> Option<&mut JSArrayBuffer> {
+    pub const fn array_buffer_mut(&mut self) -> Option<&mut ObjArrayBuffer> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,
         }
     }
 
-    pub fn typed_array(&self) -> Option<&JSTypedArray> {
+    pub fn typed_array(&self) -> Option<&ObjTypedArray> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -62,7 +62,7 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    pub fn typed_array_mut(&mut self) -> Option<&mut JSTypedArray> {
+    pub fn typed_array_mut(&mut self) -> Option<&mut ObjTypedArray> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -79,17 +79,20 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    pub fn with_typed_array<R>(&self, f: impl FnOnce(&JSTypedArray) -> R) -> Option<R> {
+    pub fn with_typed_array<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> Option<R> {
         self.typed_array().map(f)
     }
-    pub fn with_typed_array_mut<R>(&mut self, f: impl FnOnce(&mut JSTypedArray) -> R) -> Option<R> {
+    pub fn with_typed_array_mut<R>(
+        &mut self,
+        f: impl FnOnce(&mut ObjTypedArray) -> R,
+    ) -> Option<R> {
         self.typed_array_mut().map(f)
     }
 
     // pub const fn typed_array_replace(
     //     &mut self,
-    //     ta: Option<Box<JSTypedArray>>,
-    // ) -> Result<Option<Box<JSTypedArray>>, i32> {
+    //     ta: Option<Box<ObjTypedArray>>,
+    // ) -> Result<Option<Box<ObjTypedArray>>, i32> {
     //     match self {
     //         Self::UINT8C_ARRAY(a)
     //         | Self::INT8_ARRAY(a)
@@ -107,14 +110,14 @@ impl JSObjectIsa {
     //     }
     // }
 
-    pub const fn promise_func_data(&self) -> Option<&JSPromiseFunctionData> {
+    pub const fn promise_func_data(&self) -> Option<&ObjPromiseFunc> {
         match self {
             Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
             _ => None,
         }
     }
 
-    pub const fn promise_func_data_mut(&mut self) -> Option<&mut JSPromiseFunctionData> {
+    pub const fn promise_func_data_mut(&mut self) -> Option<&mut ObjPromiseFunc> {
         match self {
             Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
             _ => None,
@@ -136,7 +139,7 @@ impl JSObjectIsa {
         }
     }
 
-    pub const fn func(&self) -> Option<&JSObjectFunc> {
+    pub const fn func(&self) -> Option<&ObjFunc> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -145,7 +148,7 @@ impl JSObjectIsa {
             _ => None,
         }
     }
-    pub const fn func_mut(&mut self) -> Option<&mut JSObjectFunc> {
+    pub const fn func_mut(&mut self) -> Option<&mut ObjFunc> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -155,7 +158,7 @@ impl JSObjectIsa {
         }
     }
 
-    pub const fn async_func_state(&self) -> Option<&AsyncState> {
+    pub const fn async_func_state(&self) -> Option<&ObjAsyncState> {
         match self {
             Self::ASYNC_FUNCTION_RESOLVE(a) | Self::ASYNC_FUNCTION_REJECT(a) => Some(a),
             _ => None,

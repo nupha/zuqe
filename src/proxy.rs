@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct JSProxyData {
+pub struct ObjProxy {
     pub target: JSValue,
     pub handler: JSValue,
     pub is_func: bool,
@@ -22,7 +22,7 @@ pub unsafe fn get_proxy_method<'a>(
     ctx: &'a JSContext,
     obj: &'a JSValueConst,
     name: JSAtom,
-) -> Result<(JSValue, &'a JSProxyData), i32> {
+) -> Result<(JSValue, &'a ObjProxy), i32> {
     if let JSObjectIsa::PROXY(s) = obj.object_unchecked().0.isa.borrow().deref() {
         unimplemented!()
 

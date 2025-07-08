@@ -18,7 +18,7 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{JSPromiseFunctionData, job::promise_reaction_job};
+use super::{ObjPromiseFunc, job::promise_reaction_job};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &JSContext,
@@ -37,7 +37,7 @@ pub enum JSPromiseStateEnum {
 }
 
 #[derive(Debug)]
-pub struct JSPromiseData {
+pub struct ObjPromise {
     pub promise_state: JSPromiseStateEnum,
 
     /// list of JSPromiseReactionData.link: #0 for fulfill, #1 for reject.
@@ -100,7 +100,7 @@ impl PromiseValue {
         executor.ensure_callable(ctx)?;
 
         // make promise payload
-        let s = Box::new(JSPromiseData {
+        let s = Box::new(ObjPromise {
             promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
             promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
@@ -174,7 +174,7 @@ impl PromiseValue {
         let resolved = Rc::new(Cell::new(false));
 
         for i in 0..2 {
-            let s = JSPromiseFunctionData {
+            let s = ObjPromiseFunc {
                 promise: self.clone(),
                 resolved: resolved.clone(), // shared between two functions
             };
@@ -202,7 +202,7 @@ impl PromiseValue {
     }
 
     /// get Promise meta data.
-    fn with_meta<R>(&self, f: impl FnOnce(&JSPromiseData) -> R) -> Option<R> {
+    fn with_meta<R>(&self, f: impl FnOnce(&ObjPromise) -> R) -> Option<R> {
         unsafe {
             if let JSObjectIsa::PROMISE(p) = self.0.object_unchecked().0.isa.borrow().deref() {
                 Some(f(p))
@@ -213,7 +213,7 @@ impl PromiseValue {
     }
 
     /// get Promise meta data.
-    fn with_meta_mut<R>(&self, f: impl FnOnce(&mut JSPromiseData) -> R) -> Option<R> {
+    fn with_meta_mut<R>(&self, f: impl FnOnce(&mut ObjPromise) -> R) -> Option<R> {
         unsafe {
             if let JSObjectIsa::PROMISE(p) =
                 self.0.object_unchecked().0.isa.borrow_mut().deref_mut()

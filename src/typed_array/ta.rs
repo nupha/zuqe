@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
     JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    array_buffer::{JSArrayBuffer, js_array_buffer_constructor1},
+    array_buffer::{ObjArrayBuffer, js_array_buffer_constructor1},
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
@@ -29,7 +29,7 @@ pub fn typed_array_size_log2(classid: JSClassID) -> u8 {
 }
 
 #[derive(Debug)]
-pub struct JSTypedArray {
+pub struct ObjTypedArray {
     /// back reference to the TypedArray/DataView object.
     pub obj: JSObjectWeakref,
 
@@ -44,7 +44,7 @@ pub struct JSTypedArray {
     pub count: u32,
 }
 
-impl JSTypedArray {
+impl ObjTypedArray {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
     /// Note: `buffer` is consumed.
@@ -118,7 +118,7 @@ impl JSTypedArray {
 
     /// get underlaying array buffer.
     #[inline(always)]
-    pub fn array_buffer(&self) -> JSArrayBuffer {
+    pub fn array_buffer(&self) -> ObjArrayBuffer {
         self.buffer.0.isa.borrow().array_buffer().cloned().unwrap()
     }
 
@@ -185,7 +185,7 @@ impl TypedArrayValue {
     }
 
     /// run closure with typed array data.
-    pub fn with<R>(&self, f: impl FnOnce(&JSTypedArray) -> R) -> R {
+    pub fn with<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> R {
         self.0.inner().isa.borrow().typed_array().map(f).unwrap()
     }
 
@@ -441,7 +441,7 @@ impl JSContext {
         count: usize,
         class_id: JSClassID,
     ) -> JSResult {
-        let arr = Box::new(JSTypedArray::new(self, buffer, class_id, offset, count)?);
+        let arr = Box::new(ObjTypedArray::new(self, buffer, class_id, offset, count)?);
         let isa = match class_id {
             JS_CLASS_UINT8C_ARRAY => JSObjectIsa::UINT8C_ARRAY(arr),
             JS_CLASS_UINT8_ARRAY => JSObjectIsa::UINT8_ARRAY(arr),

@@ -5,7 +5,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{AsyncState, CallContext, JS_Call, NativeFieldDef},
+    function::{CallContext, JS_Call, NativeFieldDef, ObjAsyncState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa, JSObjectWeakref},
     promise::{PromiseValue, js_promise_resolve},
@@ -28,14 +28,14 @@ pub enum JSAsyncGeneratorStateEnum {
 }
 
 #[derive(Debug)]
-pub struct JSAsyncGeneratorData {
+pub struct ObjAsyncGenerator {
     /// back pointer to the object (const)
     pub generator: JSObjectWeakref,
 
     pub state: JSAsyncGeneratorStateEnum,
 
     /// None for state AWAITING_RETURN and COMPLETED
-    pub func_state: Option<AsyncState>,
+    pub func_state: Option<ObjAsyncState>,
 
     /// list of JSAsyncGeneratorRequest
     pub queue: Vec<Box<JSAsyncGeneratorRequest>>,
@@ -80,10 +80,10 @@ impl AsyncGeneratorValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let s = Box::new(JSAsyncGeneratorData {
+        let s = Box::new(ObjAsyncGenerator {
             generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            func_state: Some(AsyncState::new(ctx, func_obj, this_obj.clone(), args)?),
+            func_state: Some(ObjAsyncState::new(ctx, func_obj, this_obj.clone(), args)?),
             queue: Vec::with_capacity(1),
         });
 
@@ -126,7 +126,7 @@ impl AsyncGeneratorValue {
     }
 }
 
-impl JSAsyncGeneratorData {
+impl ObjAsyncGenerator {
     pub fn resume_next(&mut self, ctx: &JSContext) {
         enum State {
             ResumeExec,
@@ -359,26 +359,26 @@ impl JSAsyncGeneratorData {
     }
 
     #[inline(always)]
-    pub fn reject(self: &mut JSAsyncGeneratorData, ctx: &JSContext, exception: JSValue) {
+    pub fn reject(self: &mut ObjAsyncGenerator, ctx: &JSContext, exception: JSValue) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
 
-#[deprecated(note = "use JSAsyncGeneratorData::resume_next() instead")]
-pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut JSAsyncGeneratorData) {
+#[deprecated(note = "use ObjAsyncGenerator::resume_next() instead")]
+pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut ObjAsyncGenerator) {
     (*s).resume_next(ctx);
 }
 
-#[deprecated(note = "use JSAsyncGeneratorData::complete() instead")]
-pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut JSAsyncGeneratorData) {
+#[deprecated(note = "use ObjAsyncGenerator::complete() instead")]
+pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut ObjAsyncGenerator) {
     (*s).complete();
 }
 
 /// `value` is not consumed.
-#[deprecated(note = "use JSAsyncGeneratorData::resolve() instead")]
+#[deprecated(note = "use ObjAsyncGenerator::resolve() instead")]
 pub unsafe fn js_async_generator_resolve(
     ctx: &JSContext,
-    s: *mut JSAsyncGeneratorData,
+    s: *mut ObjAsyncGenerator,
     value: JSValueConst,
     done: bool,
 ) {
@@ -386,19 +386,19 @@ pub unsafe fn js_async_generator_resolve(
 }
 
 #[inline(always)]
-#[deprecated(note = "use JSAsyncGeneratorData::reject() instead")]
+#[deprecated(note = "use ObjAsyncGenerator::reject() instead")]
 pub unsafe fn js_async_generator_reject(
     ctx: &JSContext,
-    s: *mut JSAsyncGeneratorData,
+    s: *mut ObjAsyncGenerator,
     exception: JSValueConst,
 ) {
     (*s).reject(ctx, exception);
 }
 
-#[deprecated(note = "use JSAsyncGeneratorData::resolve_or_reject() instead")]
+#[deprecated(note = "use ObjAsyncGenerator::resolve_or_reject() instead")]
 pub unsafe fn js_async_generator_resolve_or_reject(
     ctx: &JSContext,
-    s: *mut JSAsyncGeneratorData,
+    s: *mut ObjAsyncGenerator,
     result: JSValueConst,
     is_reject: bool,
 ) {
@@ -407,7 +407,7 @@ pub unsafe fn js_async_generator_resolve_or_reject(
 
 pub unsafe fn js_async_generator_completed_return(
     ctx: &JSContext,
-    s: &mut JSAsyncGeneratorData,
+    s: &mut ObjAsyncGenerator,
     value: JSValue,
 ) -> Result<(), i32> {
     let promise: JSValue = match {
@@ -454,7 +454,7 @@ pub unsafe fn js_async_generator_completed_return(
 
 pub unsafe fn js_async_generator_await(
     ctx: &JSContext,
-    s: &mut JSAsyncGeneratorData,
+    s: &mut ObjAsyncGenerator,
     value: JSValueConst,
 ) -> Result<(), i32> {
     let promise = {

@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    JSTypedArray, js_typed_array_get_buffer, js_typed_array_get_byteLength,
+    ObjTypedArray, js_typed_array_get_buffer, js_typed_array_get_byteLength,
     js_typed_array_get_byteOffset, typed_array_size_log2,
 };
 
@@ -59,8 +59,8 @@ impl JSContext {
         }
 
         let ta = unsafe {
-            if let Some(ptr) = js_malloc_typed::<JSTypedArray>(self, 1, false) {
-                ptr.write(JSTypedArray {
+            if let Some(ptr) = js_malloc_typed::<ObjTypedArray>(self, 1, false) {
+                ptr.write(ObjTypedArray {
                     obj: JSObjectWeakref::default(),
                     buffer: buffer.object_unchecked().clone(), // underlaying array buffer
                     offset: offset as u32,

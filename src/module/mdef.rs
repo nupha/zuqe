@@ -12,7 +12,7 @@ use crate::{
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
     eval::{JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{JSFunctionDef, JSObjectFunc, JSVarKindEnum, JSVarRef},
+    function::{JSFunctionDef, JSVarKindEnum, JSVarRef, ObjFunc},
     gc::GCObjectHeader,
     mem::js_free_rt,
     module::{
@@ -592,7 +592,7 @@ pub unsafe fn js_create_module_bytecode_function(
             }
         }
 
-        JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc {
+        JSObjectIsa::BYTECODE_FUNCTION(ObjFunc {
             bytecode: Some(b),
             var_refs,
             home_object: None,

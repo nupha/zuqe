@@ -13,12 +13,12 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
     function::{
-        AsyncState, Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum,
-        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback,
-        NativeFunctionType, ObjectNativeFunc, RelocEntry, js_function_set_properties,
+        Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
+        JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeFunctionType,
+        ObjAsyncState, ObjNativeFunc, RelocEntry, js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
-    generator::JSAsyncGeneratorData,
+    generator::ObjAsyncGenerator,
     iterator::JSIteratorKindEnum,
     module::ModuleDef,
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
@@ -463,9 +463,9 @@ pub unsafe fn get_var_ref(
     unreachable!("use JSStackFrame::get_var_ref() instead")
 }
 
-#[deprecated(note = "use JSAsyncGeneratorData::dispose() instead")]
-pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut JSAsyncGeneratorData) {
-    unreachable!("use JSAsyncGeneratorData::dispose() instead");
+#[deprecated(note = "use ObjAsyncGenerator::dispose() instead")]
+pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut ObjAsyncGenerator) {
+    unreachable!("use ObjAsyncGenerator::dispose() instead");
 }
 
 #[deprecated(note = "use AsyncGeneratorValue::function_call() instead")]
@@ -1608,27 +1608,27 @@ pub unsafe fn JS_DumpGCObjects(rt: *mut JSRuntime) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use AsyncState::finalize() instead")]
-pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut AsyncState) {
+#[deprecated(note = "use ObjAsyncState::finalize() instead")]
+pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut ObjAsyncState) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use AsyncState::free() instead")]
-pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut AsyncState) {
+#[deprecated(note = "use ObjAsyncState::free() instead")]
+pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut ObjAsyncState) {
     unreachable!("unused");
 }
 
-/// make new AsyncState (used by generator and async functions)
-#[deprecated(note = "use AsyncState::new() instead")]
+/// make new ObjAsyncState (used by generator and async functions)
+#[deprecated(note = "use ObjAsyncState::new() instead")]
 pub unsafe fn async_func_init(
     ctx: &JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
     argv: *const JSValueConst,
-) -> *mut AsyncState {
-    unreachable!("use AsyncState::new() instead");
-    // AsyncState::new(
+) -> *mut ObjAsyncState {
+    unreachable!("use ObjAsyncState::new() instead");
+    // ObjAsyncState::new(
     //     ctx,
     //     func_obj,
     //     this_obj,
@@ -2178,8 +2178,8 @@ pub unsafe fn JS_NewAtomInt64(ctx: &JSContext, n: i64) -> JSAtom {
     ctx.rt_mut().register_atom_i64(n)
 }
 
-#[deprecated(note = "use AsyncState::free_frame() instead")]
-pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut AsyncState) {
+#[deprecated(note = "use ObjAsyncState::free_frame() instead")]
+pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut ObjAsyncState) {
     unreachable!("unused");
 }
 
@@ -2405,7 +2405,7 @@ pub unsafe fn JS_NewCFunction3(
 ) -> JSValue {
     match ctx.create_instance_from_proto(
         &proto_val,
-        JSObjectIsa::C_FUNCTION(ObjectNativeFunc {
+        JSObjectIsa::C_FUNCTION(ObjNativeFunc {
             realm: ctx.downgrade(),
             handler: NativeFunctionType::CFunc(func),
             length,
@@ -2569,8 +2569,8 @@ pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -
     ctx.set_global_var(prop, val, flag).map_or(-1, |_| 0)
 }
 
-#[deprecated(note = "use AsyncState::resume() instead")]
-pub fn async_func_resume(ctx: &JSContext, af: &AsyncState) -> JSValue {
+#[deprecated(note = "use ObjAsyncState::resume() instead")]
+pub fn async_func_resume(ctx: &JSContext, af: &ObjAsyncState) -> JSValue {
     af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 

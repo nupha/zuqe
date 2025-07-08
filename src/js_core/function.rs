@@ -4,8 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        CallContext, JS_Call, JSFunctionKindEnum, NativeFieldDef, ObjectBoundFunc,
-        js_function_apply,
+        CallContext, JS_Call, JSFunctionKindEnum, NativeFieldDef, ObjBoundFunc, js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, JSObjectIsa},
     string::JS_ConcatString3,
@@ -31,7 +30,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
 
     this_val.ensure_callable(ctx)?;
 
-    let mut bf = Box::new(ObjectBoundFunc {
+    let mut bf = Box::new(ObjBoundFunc {
         func_obj: this_val.clone(),
         this_val: args.arg(0).clone(), // argument #0 is for `this`
         bind_args: Vec::new(),

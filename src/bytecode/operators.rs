@@ -3,7 +3,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
-    function::{JSFunctionKindEnum, JSObjectFunc, JSVarRef, NativeFunctionType},
+    function::{JSFunctionKindEnum, ObjFunc, JSVarRef, NativeFunctionType},
     gc::set_cycle_flag,
     iterator::{
         JS_GetIterator, JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
@@ -170,7 +170,7 @@ pub fn js_op_define_class(
     let mut ctor = ctx
         .create_instance_from_proto(
             &parent_class,
-            JSObjectIsa::BYTECODE_FUNCTION(JSObjectFunc::default()),
+            JSObjectIsa::BYTECODE_FUNCTION(ObjFunc::default()),
         )
         .map_err(|_| -1)?;
 

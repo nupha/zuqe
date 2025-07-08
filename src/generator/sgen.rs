@@ -1,7 +1,7 @@
 use crate::{
     context::JSContext,
     error::JSResult,
-    function::AsyncState,
+    function::ObjAsyncState,
     object::JSObjectIsa,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -23,16 +23,16 @@ pub const FUNC_RET_YIELD_STAR: i32 = 2;
 pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
 #[derive(Debug)]
-pub struct JSGeneratorData {
+pub struct ObjGenerator {
     pub state: JSGeneratorStateEnum,
-    pub func_state: AsyncState,
+    pub func_state: ObjAsyncState,
 }
 
-// impl JSGeneratorData {
+// impl ObjGenerator {
 //     pub fn free_generator_stack_rt(&mut self, rt: &mut JSRuntime) {
 //         if self.state != JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
 //             if !self.func_state.is_null() {
-//                 AsyncState::free(rt, self.func_state);
+//                 ObjAsyncState::free(rt, self.func_state);
 //                 self.func_state = std::ptr::null_mut();
 //             }
 //             self.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
@@ -40,8 +40,8 @@ pub struct JSGeneratorData {
 //     }
 // }
 
-#[deprecated(note = "use JSGeneratorData::free_generator_stack_rt() instead")]
-pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut JSGeneratorData) {
+#[deprecated(note = "use ObjGenerator::free_generator_stack_rt() instead")]
+pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut ObjGenerator) {
     unreachable!("unused");
     // (*s).free_generator_stack_rt(rt.as_mut().unwrap());
 }
@@ -53,9 +53,9 @@ pub fn js_generator_function_call(
     args: &[JSValue],
     flags: i32,
 ) -> JSResult {
-    let s = JSGeneratorData {
+    let s = ObjGenerator {
         state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
-        func_state: AsyncState::new(ctx, func_obj, this_obj.clone(), args)?,
+        func_state: ObjAsyncState::new(ctx, func_obj, this_obj.clone(), args)?,
     };
 
     // execute the function up to 'OP_initial_yield'

@@ -13,7 +13,7 @@ use crate::{
 use super::{PromiseValue, js_promise_resolve_thenable_job};
 
 #[derive(Debug, Clone)]
-pub struct JSPromiseFunctionData {
+pub struct ObjPromiseFunc {
     pub promise: PromiseValue,
     pub resolved: Rc<Cell<bool>>,
 }

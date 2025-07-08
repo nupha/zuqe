@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::AsyncState,
+    function::ObjAsyncState,
     object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectIsa},
     promise::{PromiseValue, js_promise_resolve},
     utils::UncheckedInto,
@@ -67,7 +67,7 @@ impl AsyncFunction {
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
         // create state for async function execution
-        let state = AsyncState::new_with_resolvings(
+        let state = ObjAsyncState::new_with_resolvings(
             ctx,
             resolving_funcs,
             &JSValue::Object(self.0.clone()),
@@ -98,7 +98,7 @@ impl AsyncFunction {
 }
 
 /// Resume an async function on its execution state
-fn async_function_resume(ctx: &JSContext, state: &AsyncState) {
+fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
     let func_ret = state.resume(ctx);
 
     if state.is_completed() {
@@ -170,7 +170,7 @@ fn async_function_resume(ctx: &JSContext, state: &AsyncState) {
 
 pub unsafe fn js_async_function_resolve_create(
     ctx: &JSContext,
-    s: &AsyncState,
+    s: &ObjAsyncState,
 ) -> Result<[JSValue; 2], i32> {
     let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
 

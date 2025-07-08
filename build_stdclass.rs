@@ -80,21 +80,21 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Function",
             "C_FUNCTION",
-            Some("crate::function::ObjectNativeFunc"),
-            Some("crate::function::ObjectNativeFunc::hook_finalizer"),
-            Some("crate::function::ObjectNativeFunc::hook_mark")
+            Some("crate::function::ObjNativeFunc"),
+            Some("crate::function::ObjNativeFunc::hook_finalizer"),
+            Some("crate::function::ObjNativeFunc::hook_mark")
         ),
         class_def!(
             "Function",
             "BYTECODE_FUNCTION",
-            Some("crate::function::JSObjectFunc"),
+            Some("crate::function::ObjFunc"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
             "Function",
             "BOUND_FUNCTION",
-            Some("Box<crate::function::ObjectBoundFunc>"),
+            Some("Box<crate::function::ObjBoundFunc>"),
             Some("crate::function::BoundFunctionValue::hook_finalizer"),
             Some("crate::function::BoundFunctionValue::hook_mark")
         ),
@@ -108,7 +108,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "GeneratorFunction",
             "GENERATOR_FUNCTION",
-            Some("crate::function::JSObjectFunc"),
+            Some("crate::function::ObjFunc"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
@@ -129,14 +129,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "ArrayBuffer",
             "ARRAY_BUFFER",
-            Some("crate::array_buffer::JSArrayBuffer"),
+            Some("crate::array_buffer::ObjArrayBuffer"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
         class_def!(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
-            Some("crate::array_buffer::JSArrayBuffer"),
+            Some("crate::array_buffer::ObjArrayBuffer"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
@@ -146,77 +146,77 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int8Array",
             "INT8_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint8Array",
             "UINT8_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int16Array",
             "INT16_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint16Array",
             "UINT16_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int32Array",
             "INT32_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint32Array",
             "UINT32_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Float32Array",
             "FLOAT32_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Float64Array",
             "FLOAT64_ARRAY",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
@@ -224,7 +224,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "DataView",
             "DATAVIEW",
-            Some("Box<crate::typed_array::JSTypedArray>"),
+            Some("Box<crate::typed_array::ObjTypedArray>"),
             None,
             None
         ),
@@ -304,7 +304,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Generator",
             "GENERATOR",
-            Some("crate::generator::JSGeneratorData"),
+            Some("crate::generator::ObjGenerator"),
             Some("crate::generator::js_generator_finalizer"),
             Some("crate::generator::js_generator_mark")
         ),
@@ -314,7 +314,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Proxy",
             "PROXY",
-            Some("Box<crate::proxy::JSProxyData>"),
+            Some("Box<crate::proxy::ObjProxy>"),
             Some("crate::proxy::js_proxy_finalizer"),
             Some("crate::proxy::js_proxy_mark")
         ),
@@ -324,44 +324,44 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Promise",
             "PROMISE",
-            Some("Box<crate::promise::JSPromiseData>"),
+            Some("Box<crate::promise::ObjPromise>"),
             Some("crate::promise::PromiseValue::hook_finalizer"),
             Some("crate::promise::PromiseValue::hook_mark")
         ),
         class_def!(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
-            Some("crate::promise::JSPromiseFunctionData"),
+            Some("crate::promise::ObjPromiseFunc"),
             Some("crate::promise::PromiseResolvingFunc::hook_finalizer"),
             Some("crate::promise::PromiseResolvingFunc::hook_mark")
         ),
         class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
-            Some("crate::promise::JSPromiseFunctionData"),
+            Some("crate::promise::ObjPromiseFunc"),
             Some("crate::promise::PromiseResolvingFunc::hook_finalizer"),
             Some("crate::promise::PromiseResolvingFunc::hook_mark")
         ),
         class_def!(
             "AsyncFunction",
             "ASYNC_FUNCTION",
-            Some("crate::function::JSObjectFunc"),
+            Some("crate::function::ObjFunc"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
-            Some("crate::function::AsyncState"),
-            Some("crate::function::AsyncState::hook_finalizer"),
-            Some("crate::function::AsyncState::hook_mark")
+            Some("crate::function::ObjAsyncState"),
+            Some("crate::function::ObjAsyncState::hook_finalizer"),
+            Some("crate::function::ObjAsyncState::hook_mark")
         ),
         class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
-            Some("crate::function::AsyncState"),
-            Some("crate::function::AsyncState::hook_finalizer"),
-            Some("crate::function::AsyncState::hook_mark")
+            Some("crate::function::ObjAsyncState"),
+            Some("crate::function::ObjAsyncState::hook_finalizer"),
+            Some("crate::function::ObjAsyncState::hook_mark")
         ),
         class_def!(
             "empty_string", // JS_ATOM_empty_string
@@ -373,14 +373,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
-            Some("crate::function::JSObjectFunc"),
+            Some("crate::function::ObjFunc"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
             "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
-            Some("Option<Box<crate::generator::JSAsyncGeneratorData>>"),
+            Some("Option<Box<crate::generator::ObjAsyncGenerator>>"),
             Some("crate::generator::AsyncGeneratorValue::hook_finalizer"),
             Some("crate::generator::AsyncGeneratorValue::hook_mark")
         ),

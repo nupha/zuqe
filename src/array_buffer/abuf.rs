@@ -160,9 +160,9 @@ impl JSArrayBufferInner {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSArrayBuffer(pub(crate) Rc<RefCell<JSArrayBufferInner>>);
+pub struct ObjArrayBuffer(pub(crate) Rc<RefCell<JSArrayBufferInner>>);
 
-impl JSArrayBuffer {
+impl ObjArrayBuffer {
     #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.0.borrow().detached
@@ -218,7 +218,7 @@ impl JSContext {
                 array_list: Vec::new(),
                 opaque,
             };
-            JSArrayBuffer(Rc::new(RefCell::new(inner)))
+            ObjArrayBuffer(Rc::new(RefCell::new(inner)))
         };
 
         // create array buffer or shared array buffer instance
@@ -329,10 +329,10 @@ pub unsafe fn js_array_buffer_constructor3(
     unreachable!()
 }
 
-/// the callback to free JSArrayBuffer.
-/// - opaque: JSArrayBuffer.opaque field
-/// - data: JSArrayBuffer.data field
-/// - data_length: JSArrayBuffer.byte_length field
+/// the callback to free ObjArrayBuffer.
+/// - opaque: ObjArrayBuffer.opaque field
+/// - data: ObjArrayBuffer.data field
+/// - data_length: ObjArrayBuffer.byte_length field
 #[deprecated(note = "not used")]
 pub unsafe fn js_array_buffer_free(
     rt: *mut JSRuntime,

@@ -112,14 +112,14 @@ impl PartialEq for NativeFunctionType {
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjectNativeFunc {
+pub struct ObjNativeFunc {
     pub handler: NativeFunctionType,
     pub realm: JSContextWeakref,
     pub length: u8,
     pub magic: i16,
 }
 
-impl ObjectNativeFunc {
+impl ObjNativeFunc {
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -395,7 +395,7 @@ impl JSContext {
         let func_obj = self
             .create_instance_from_proto(
                 proto_val,
-                JSObjectIsa::C_FUNCTION(ObjectNativeFunc {
+                JSObjectIsa::C_FUNCTION(ObjNativeFunc {
                     handler,
                     length,
                     magic,

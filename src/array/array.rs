@@ -11,7 +11,7 @@ use crate::{
     },
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
-    typed_array::JSTypedArray,
+    typed_array::ObjTypedArray,
     value::{JSValue, JSValueConst},
 };
 
@@ -29,7 +29,7 @@ pub union JSObjectArrayU1 {
 
     /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
     #[deprecated]
-    pub typed_array: *mut JSTypedArray,
+    pub typed_array: *mut ObjTypedArray,
 }
 
 #[deprecated]
