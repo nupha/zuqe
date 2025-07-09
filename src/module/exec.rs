@@ -303,7 +303,7 @@ impl ModuleDef {
         ];
 
         let cc = CallContext::new(ctx, promise.into(), &resolve_funcs, 0, None);
-        // TODO: use PromiseValue::then()
+        // TODO: use Promise::then()
         js_promise_then(ctx, cc)?;
 
         Ok(())

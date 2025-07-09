@@ -1,7 +1,12 @@
 use std::ops::Deref;
 
 use crate::{
-    context::JSContext, error::JSResult, object::ObjectDetail, runtime::JSRuntime, value::JSValue,
+    JS_CLASS_BOUND_FUNCTION,
+    context::JSContext,
+    error::JSResult,
+    object::{JSObject, ObjectDetail},
+    runtime::JSRuntime,
+    value::JSValue,
 };
 
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_Call, JS_CallConstructor2};
@@ -15,14 +20,52 @@ pub struct ObjBoundFunc {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct BoundFunctionValue(JSValue);
+pub struct BoundFunction(JSObject);
 
-impl BoundFunctionValue {
+impl TryFrom<JSObject> for BoundFunction {
+    type Error = i32;
+
+    fn try_from(value: JSObject) -> Result<Self, Self::Error> {
+        if value.class_id() == JS_CLASS_BOUND_FUNCTION {
+            Ok(Self(value))
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl TryFrom<JSValue> for BoundFunction {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if let JSValue::Object(o) = value {
+            o.try_into()
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl From<BoundFunction> for JSObject {
+    fn from(value: BoundFunction) -> Self {
+        value.0
+    }
+}
+
+impl From<BoundFunction> for JSValue {
+    fn from(value: BoundFunction) -> Self {
+        Self::Object(value.0)
+    }
+}
+
+impl BoundFunction {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let ObjectDetail::BOUND_FUNCTION(bf) = val.object_unchecked().0.detail.borrow().deref() {
+            if let ObjectDetail::BOUND_FUNCTION(bf) =
+                val.object_unchecked().0.detail.borrow().deref()
+            {
                 val.gc_mark();
                 bf.func_obj.gc_mark();
                 bf.this_val.gc_mark();

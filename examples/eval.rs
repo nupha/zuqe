@@ -12,7 +12,7 @@ use zhuque::{
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     parse::JS_DetectModule,
-    promise::PromiseValue,
+    promise::Promise,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -113,7 +113,7 @@ fn main() {
             } else {
                 println!(">>> RESULT: {r:?}, {}", r.repr());
 
-                if let Ok(pr) = TryInto::<PromiseValue>::try_into(r) {
+                if let Ok(pr) = TryInto::<Promise>::try_into(r) {
                     let v = pr.result();
                     println!("promise state: {:?}", pr.state());
                     println!("promise result: {v:?}");

@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, NativeFieldDef},
     object::ObjectDetail,
-    promise::{PromiseValue, js_promise_resolve},
+    promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
     value::{JSValue, JSValueConst},
@@ -198,7 +198,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
         ];
 
         unsafe {
-            UncheckedInto::<PromiseValue>::unchecked_into(value_wrapper_promise).reaction(
+            UncheckedInto::<Promise>::unchecked_into(value_wrapper_promise).reaction(
                 ctx,
                 &resolve_reject,
                 &resolving_funcs,

@@ -980,8 +980,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let splice = cc.magic();
     let obj = cc.this().coerce_to_object(ctx)?;
     let len = js_get_length64(ctx, &obj)?;
-
-    let mut start = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let start = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
 
     let item_count: u32;
     let mut del_count: i64 = 0;

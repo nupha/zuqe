@@ -22,7 +22,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::{JSPromiseStateEnum, PromiseValue},
+    promise::{JSPromiseStateEnum, Promise},
     runtime::JSRuntime,
     string::StringContent,
     value::JSValue,
@@ -305,8 +305,7 @@ fn run_test_content(
                         ret_val = JSValue::UNDEFINED;
                     } else {
                         // check that the returned promise is fulfilled
-                        let promise: PromiseValue =
-                            TryFrom::try_from(JSValue::from(ret_val)).unwrap();
+                        let promise: Promise = TryFrom::try_from(JSValue::from(ret_val)).unwrap();
 
                         ret_val = match promise.state() {
                             Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,

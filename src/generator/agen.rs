@@ -8,7 +8,7 @@ use crate::{
     function::{CallContext, JS_Call, NativeFieldDef, ObjAsyncState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
-    promise::{PromiseValue, js_promise_resolve},
+    promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
     value::{JSValue, JSValueConst},
@@ -443,7 +443,7 @@ pub unsafe fn js_async_generator_completed_return(
         true,
     )?;
 
-    let res = UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
+    let res = UncheckedInto::<Promise>::unchecked_into(promise).reaction(
         ctx,
         &resolving_funcs1,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
@@ -474,7 +474,7 @@ pub unsafe fn js_async_generator_await(
         false,
     )?;
 
-    let res = UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
+    let res = UncheckedInto::<Promise>::unchecked_into(promise).reaction(
         ctx,
         &resolving_funcs,
         // no need to create 'thrownawayCapability' as in the spec

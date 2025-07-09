@@ -95,8 +95,8 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Function",
             "BOUND_FUNCTION",
             Some("Box<crate::function::ObjBoundFunc>"),
-            Some("crate::function::BoundFunctionValue::hook_finalizer"),
-            Some("crate::function::BoundFunctionValue::hook_mark")
+            Some("crate::function::BoundFunction::hook_finalizer"),
+            Some("crate::function::BoundFunction::hook_mark")
         ),
         class_def!(
             "Function",
@@ -325,8 +325,8 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Promise",
             "PROMISE",
             Some("Box<crate::promise::ObjPromise>"),
-            Some("crate::promise::PromiseValue::hook_finalizer"),
-            Some("crate::promise::PromiseValue::hook_mark")
+            Some("crate::promise::Promise::hook_finalizer"),
+            Some("crate::promise::Promise::hook_mark")
         ),
         class_def!(
             "PromiseResolveFunction",

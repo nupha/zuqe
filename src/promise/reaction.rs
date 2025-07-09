@@ -6,7 +6,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JSPromiseStateEnum, PromiseValue, job::promise_reaction_job};
+use super::{JSPromiseStateEnum, Promise, job::promise_reaction_job};
 
 #[derive(Debug, Clone)]
 pub struct JSPromiseReactionData {
@@ -23,7 +23,7 @@ impl Default for JSPromiseReactionData {
     }
 }
 
-impl PromiseValue {
+impl Promise {
     /// Register chained reaction to `self` promise.
     /// `resolve_reject` - functions to use as reaction handler.
     /// `cap_resolving_funcs` - [resolve, reject] functions of wrapper promise.

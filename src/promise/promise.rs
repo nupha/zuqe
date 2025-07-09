@@ -22,7 +22,7 @@ use super::{ObjPromiseFunc, job::promise_reaction_job};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &JSContext,
-    promise: PromiseValue,
+    promise: Promise,
     reason: JSValue,
     is_handled: ::core::ffi::c_int,
     opaque: *mut ::core::ffi::c_void,
@@ -43,7 +43,7 @@ pub struct ObjPromise {
     /// list of JSPromiseReactionData.link: #0 for fulfill, #1 for reject.
     pub promise_reactions: [Vec<Box<JSPromiseReactionData>>; 2],
 
-    /// Note: will be freed in PromiseValue::hook_finalizer().
+    /// Note: will be freed in Promise::hook_finalizer().
     pub promise_result: JSValue,
 
     /// Note: only useful to debug
@@ -52,22 +52,22 @@ pub struct ObjPromise {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct PromiseValue(pub(super) JSValue);
+pub struct Promise(pub(super) JSValue);
 
-impl TryFrom<JSValue> for PromiseValue {
+impl TryFrom<JSValue> for Promise {
     type Error = i32;
 
-    /// interpret value as PromiseValue.
+    /// interpret value as Promise.
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
         if value.is_object() && unsafe { value.object_unchecked().class_id() } == JS_CLASS_PROMISE {
-            Ok(unsafe { std::mem::transmute::<JSValue, PromiseValue>(value) })
+            Ok(unsafe { std::mem::transmute::<JSValue, Promise>(value) })
         } else {
             Err(-1)
         }
     }
 }
 
-impl UncheckedFrom<JSValue> for PromiseValue {
+impl UncheckedFrom<JSValue> for Promise {
     #[inline(always)]
     unsafe fn unchecked_from(value: JSValue) -> Self {
         debug_assert!(value.is_object());
@@ -76,14 +76,14 @@ impl UncheckedFrom<JSValue> for PromiseValue {
     }
 }
 
-impl From<PromiseValue> for JSValue {
+impl From<Promise> for JSValue {
     #[inline(always)]
-    fn from(value: PromiseValue) -> Self {
+    fn from(value: Promise) -> Self {
         value.0
     }
 }
 
-impl PromiseValue {
+impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// Note:  `executor` is not consumed, and must be callable.
@@ -131,9 +131,9 @@ impl PromiseValue {
     pub unsafe fn new(
         ctx: &JSContext,
         ctor: &JSValue,
-    ) -> Result<(PromiseValue, [JSValue; 2]), i32> {
+    ) -> Result<(Promise, [JSValue; 2]), i32> {
         let executor = ctx.create_native_callable_object(
-            PromiseValue::hook_executor,
+            Promise::hook_executor,
             2,
             0,
             &[JSValue::UNDEFINED, JSValue::UNDEFINED], // resolving functions, initially undefined
@@ -302,21 +302,21 @@ impl PromiseValue {
 impl JSContext {
     /// create Promise object and its resolving function paris.
     /// returns Promise object and [resolve, reject] functions.
-    /// this is just a shortcut for `PromiseValue::new(ctx, ctor)`.
+    /// this is just a shortcut for `Promise::new(ctx, ctor)`.
     #[inline(always)]
-    pub fn create_promise(&self, ctor: &JSValueConst) -> Result<(PromiseValue, [JSValue; 2]), i32> {
-        unsafe { PromiseValue::new(self, ctor) }
+    pub fn create_promise(&self, ctor: &JSValueConst) -> Result<(Promise, [JSValue; 2]), i32> {
+        unsafe { Promise::new(self, ctor) }
     }
 }
 
 //
 // Hooks for Promise
 //
-impl PromiseValue {
+impl Promise {
     /// the native callback for Promise constructor function
     pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let executor = cc.arg(0).clone();
-        PromiseValue::new_with_executor(ctx, executor, cc.this()).map(|p| p.0)
+        Promise::new_with_executor(ctx, executor, cc.this()).map(|p| p.0)
     }
 
     /// callback to execute a promise:

@@ -4,7 +4,7 @@ use crate::{
     error::JSResult,
     function::ObjAsyncState,
     object::{JS_PROP_CONFIGURABLE, JSObject, ObjectDetail},
-    promise::{PromiseValue, js_promise_resolve},
+    promise::{Promise, js_promise_resolve},
     utils::UncheckedInto,
     value::JSValue,
 };
@@ -62,7 +62,7 @@ impl AsyncFunction {
         this_obj: JSValue,
         args: &[JSValue],
         flags: i32,
-    ) -> Result<PromiseValue, i32> {
+    ) -> Result<Promise, i32> {
         // create promise and resolving handlers
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
@@ -148,7 +148,7 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
             };
 
         let res = unsafe {
-            UncheckedInto::<PromiseValue>::unchecked_into(promise).reaction(
+            UncheckedInto::<Promise>::unchecked_into(promise).reaction(
                 ctx,
                 &resolving_funcs,
                 // no need to create 'thrownawayCapability' as in the spec

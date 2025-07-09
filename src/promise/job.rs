@@ -2,7 +2,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call},
-    promise::PromiseValue,
+    promise::Promise,
     runtime::JSRuntime,
     utils::UncheckedInto,
     value::JSValue,
@@ -85,7 +85,7 @@ pub fn js_promise_resolve_thenable_job(ctx: &JSContext, cc: CallContext) -> JSRe
     #[cfg(feature = "DUMP_PROMISE")]
     println!("js_promise_resolve_thenable_job");
 
-    let promise: PromiseValue = unsafe { cc.get_raw(0).unchecked_into() };
+    let promise: Promise = unsafe { cc.get_raw(0).unchecked_into() };
     let thenable = cc.arg(1);
     let then = cc.arg(2);
     let rr = promise.create_resolving_functions(ctx)?;

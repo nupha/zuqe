@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    PROMISE_MAGIC_all, PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any, PromiseValue,
+    PROMISE_MAGIC_all, PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any, Promise,
     js_promise_all_resolve_element, remainingElementsCount_add,
 };
 
@@ -21,7 +21,7 @@ use super::{
 //
 
 pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
-    unsafe { UncheckedInto::<PromiseValue>::unchecked_into(cc.this().clone()) }
+    unsafe { UncheckedInto::<Promise>::unchecked_into(cc.this().clone()) }
         .then(ctx, cc.arg(0).clone(), cc.arg(1).clone())
         .map(|p| p.into())
 }
@@ -108,7 +108,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_reject = cc.magic() != 0;
     let arg0 = cc.arg(0).clone();
 
-    if !is_reject && PromiseValue::try_from(arg0.clone()).is_ok() {
+    if !is_reject && Promise::try_from(arg0.clone()).is_ok() {
         // resolve and argument #0 is a Promise
         let ctor = arg0
             .get_property(ctx, JS_ATOM_constructor)

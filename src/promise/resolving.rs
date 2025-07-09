@@ -10,11 +10,11 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{PromiseValue, js_promise_resolve_thenable_job};
+use super::{Promise, js_promise_resolve_thenable_job};
 
 #[derive(Debug, Clone)]
 pub struct ObjPromiseFunc {
-    pub promise: PromiseValue,
+    pub promise: Promise,
     pub resolved: Rc<Cell<bool>>,
 }
 

@@ -26,7 +26,7 @@ use crate::{
         JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectDetail, PropertyEnum,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
-    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, PromiseValue},
+    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -504,12 +504,12 @@ pub unsafe fn js_new_promise_capability(
 
 /// create and return [resolve, reject] functions for `promise` object.
 /// Note: `promise` is not consumed.
-#[deprecated(note = "use PromiseValue::create_resolving_functions() instead")]
+#[deprecated(note = "use Promise::create_resolving_functions() instead")]
 pub unsafe fn js_create_resolving_functions(
     ctx: &JSContext,
     promise: JSValueConst,
 ) -> Result<[JSValue; 2], i32> {
-    unreachable!("use PromiseValue::create_resolving_functions() instead");
+    unreachable!("use Promise::create_resolving_functions() instead");
 }
 
 #[deprecated(note = "use JSString::new() instead")]
@@ -693,12 +693,12 @@ pub unsafe fn JS_NewPromiseCapability(ctx: &JSContext, resolving_funcs: *mut JSV
     // }
 }
 
-#[deprecated(note = "use PromiseValue::state() instead")]
+#[deprecated(note = "use Promise::state() instead")]
 pub unsafe fn JS_PromiseState(
     ctx: &JSContext,
     promise: JSValue,
 ) -> Result<JSPromiseStateEnum, i32> {
-    UncheckedInto::<PromiseValue>::unchecked_into(promise).state()
+    UncheckedInto::<Promise>::unchecked_into(promise).state()
 }
 
 /// to free `fd` and all its children
@@ -722,25 +722,25 @@ pub unsafe fn find_line_num(ctx: &JSContext, b: *mut Bytecode, pc_value: u32) ->
 }
 
 /// Note: `value` is duplicated inside.
-#[deprecated(note = "use PromiseValue::fulfill_or_reject() instead")]
+#[deprecated(note = "use Promise::fulfill_or_reject() instead")]
 pub unsafe fn fulfill_or_reject_promise(
     ctx: &JSContext,
-    promise: PromiseValue,
+    promise: Promise,
     value: JSValueConst,
     is_reject: bool,
 ) {
-    unreachable!("use PromiseValue::fulfill_or_reject() instead");
+    unreachable!("use Promise::fulfill_or_reject() instead");
 }
 
-#[deprecated(note = "use PromiseValue::reject() instead")]
-pub unsafe fn reject_promise(ctx: &JSContext, promise: PromiseValue, value: JSValueConst) {
-    unreachable!("use PromiseValue::reject() instead");
+#[deprecated(note = "use Promise::reject() instead")]
+pub unsafe fn reject_promise(ctx: &JSContext, promise: Promise, value: JSValueConst) {
+    unreachable!("use Promise::reject() instead");
 }
 
-#[deprecated(note = "use PromiseValue::then() instead")]
+#[deprecated(note = "use Promise::then() instead")]
 pub unsafe fn perform_promise_then(
     ctx: &JSContext,
-    promise: PromiseValue,
+    promise: Promise,
     resolve_reject: &[JSValue; 2],
     cap_resolving_funcs: &[JSValue; 2],
 ) -> Result<(), i32> {
@@ -765,9 +765,9 @@ pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut ModuleDef) -> JSValue 
     (*m).eval(ctx)
 }
 
-#[deprecated(note = "use PromiseValue::result() instead")]
+#[deprecated(note = "use Promise::result() instead")]
 pub unsafe fn JS_PromiseResult(ctx: &JSContext, promise: JSValue) -> JSValue {
-    UncheckedInto::<PromiseValue>::unchecked_into(promise).result()
+    UncheckedInto::<Promise>::unchecked_into(promise).result()
 }
 
 /* allowed flags:
