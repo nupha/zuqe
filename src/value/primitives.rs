@@ -16,13 +16,17 @@ impl From<bool> for JSValue {
 }
 
 impl JSValue {
-    /// Coerce `self` value to  primitive value.
-    /// value `self` is not consumed
+    /// Convert value to primitive (non-object) value
     pub fn coerce_to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
-        let force_ordinary = hint & HINT_FORCE_ORDINARY != 0;
-        let mut hint = hint & !HINT_FORCE_ORDINARY;
+        if !self.is_object() {
+            return Ok(self.clone());
+        }
 
-        if !force_ordinary {
+        let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
+        let hint = hint & !HINT_FORCE_ORDINARY;
+
+        if !ignore_toPrimitive_method {
+            // try .toPrimitive() method
             let method = self
                 .get_property(ctx, JS_ATOM_Symbol_toPrimitive)
                 .check_exception()?;
@@ -48,26 +52,15 @@ impl JSValue {
             }
         }
 
-        if !self.is_object() {
-            return Ok(self.clone());
-        }
-
-        if hint != HINT_STRING {
-            hint = HINT_NUMBER;
-        };
-
-        for i in 0..2 {
-            let method = self
-                .get_property(
-                    ctx,
-                    if i != hint {
-                        JS_ATOM_toString
-                    } else {
-                        JS_ATOM_valueOf
-                    },
-                )
-                .check_exception()?;
-
+        // Call method when hint is:
+        // - HINT_STRING: try toString() first, then valueOf()
+        // - HINT_NUMBER/HINT_NONE: try valueOf() first, then toString()
+        for a in if hint == HINT_STRING {
+            [JS_ATOM_toString, JS_ATOM_valueOf]
+        } else {
+            [JS_ATOM_valueOf, JS_ATOM_toString]
+        } {
+            let method = self.get_property(ctx, a).check_exception()?;
             if method.is_callable() {
                 let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
                 if !ret.is_object() {

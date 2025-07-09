@@ -101,8 +101,11 @@ impl JSValue {
         }
     }
 
-    /// coerce value to number value according to converting hint.
-    fn do_coerce_to_num(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
+    /// Convert value to number value.
+    /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
+    ///
+    /// Because BigInt is not supported, JSToNumberHintEnum does not effect
+    fn coerce_to_num(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
         let mut val = self.clone();
 
         loop {
@@ -117,20 +120,16 @@ impl JSValue {
                 Self::UNDEFINED => {
                     break Ok(JSValue::Float64(f64::NAN));
                 }
-                Self::Object(_) => {
-                    val = val.coerce_to_primitive(ctx, HINT_NUMBER)?;
-                    continue;
-                }
                 Self::String(s) => {
+                    // try parse number
                     let str = s.content().to_str();
                     let str_ptr0 = str.as_ptr();
                     let len = str.len();
 
                     let mut p = unsafe { str_ptr0.add(skip_spaces(str_ptr0)) };
-
                     let res: JSValue = if unsafe { p.offset_from(str_ptr0) as usize } == len {
                         // is empty or white space string
-                        0.into()
+                        JSValue::Int(0)
                     } else {
                         let mut r = unsafe {
                             js_atof(
@@ -151,6 +150,10 @@ impl JSValue {
                     };
                     break Ok(res);
                 }
+                Self::Object(_) => {
+                    val = val.coerce_to_primitive(ctx, HINT_NUMBER)?;
+                    continue;
+                }
                 Self::Symbol(_) => {
                     ctx.JS_ThrowTypeError("cannot convert symbol to number");
                     break Err(-1);
@@ -165,14 +168,19 @@ impl JSValue {
         }
     }
 
+    /// Convert value to number value.
+    /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
     #[inline(always)]
     pub fn coerce_to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.do_coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
+        self.coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
+    /// Convert value to number value.
+    /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
+    /// Because BigInt is not supported, this method is same as coerce_to_number()
     #[inline(always)]
     pub fn coerce_to_numeric(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.do_coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
+        self.coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
     pub fn coerce_to_u8_clamp(&self, ctx: &JSContext) -> Result<u8, i32> {

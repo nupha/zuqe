@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{JSAtomStruct, JSAtomTypeHint},
-    function::{ObjAsyncState, Bytecode},
+    function::{Bytecode, ObjAsyncState},
     module::ModuleDef,
     number::JSFloat64Union,
     object::JSObject,
@@ -93,7 +93,7 @@ mod nb_value {
 pub use nb_value::*;
 
 #[repr(u8)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum JSValue {
     UNDEFINED,
     NULL,
@@ -140,11 +140,12 @@ impl std::fmt::Display for JSValue {
         write!(f, "{}", self.repr())
     }
 }
-impl std::fmt::Debug for JSValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
-    }
-}
+
+// impl std::fmt::Debug for JSValue {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "{}", self)
+//     }
+// }
 
 // #[cfg(not(feature = "nan_boxing"))]
 // mod nnb_value {

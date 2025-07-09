@@ -5,7 +5,7 @@ use crate::{
     },
     bytecode::{
         OPSpecialObjectEnum, OpCode,
-        arithmatic::{BinaryOp, UnaryOp, js_eq, op_binary_logic, relational},
+        arithmatic::{UnaryOp, js_eq, op_binary_logic},
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next, js_for_of_start,
             js_has_unscopable, js_iterator_get_value_done, js_method_set_home_object,
@@ -43,7 +43,7 @@ use crate::{
     regexp::js_regexp_constructor_internal,
     stack_frame::StackFrame,
     utils::read_from_ptr,
-    value::{HINT_NONE, JS_NewSymbolFromAtom, JSValue},
+    value::{JS_NewSymbolFromAtom, JSValue},
 };
 
 impl Bytecode {
@@ -1897,25 +1897,20 @@ impl Bytecode {
                     | OpCode::DIV
                     | OpCode::MOD
                     | OpCode::POW => {
-                        let is_add = opcode == OpCode::ADD;
-                        let binop = BinaryOp::new_slow(
-                            ctx,
-                            SP_TAKE!(-2),
-                            SP_TAKE!(-1),
-                            if is_add { 3 } else { 2 }, // allow string for add
-                            if is_add { Some(HINT_NONE) } else { None },
-                        );
-
-                        if let Ok(res) = binop.and_then(|bop| match opcode {
-                            OpCode::ADD => bop.add(ctx),
-                            OpCode::SUB => bop.sub(),
-                            OpCode::MUL => bop.mul(),
-                            OpCode::DIV => bop.div(),
-                            OpCode::MOD => bop.mod_(),
-                            OpCode::POW => bop.pow(),
+                        let op1 = SP_TAKE!(-2);
+                        let op2 = SP_TAKE!(-1);
+                        let res = match opcode {
+                            OpCode::ADD => JSValue::arith_add(ctx, op1, op2),
+                            OpCode::SUB => JSValue::arith_sub(ctx, op1, op2),
+                            OpCode::MUL => JSValue::arith_mul(ctx, op1, op2),
+                            OpCode::DIV => JSValue::arith_div(ctx, op1, op2),
+                            OpCode::MOD => JSValue::arith_mod(ctx, op1, op2),
+                            OpCode::POW => JSValue::arith_pow(ctx, op1, op2),
                             _ => unreachable!(),
-                        }) {
-                            SP_PUT!(-2, res);
+                        };
+
+                        if let Ok(val) = res {
+                            SP_PUT!(-2, val);
                             SP_GO!(-1);
                         } else {
                             break State::Exception;
@@ -1923,18 +1918,11 @@ impl Bytecode {
                     }
                     OpCode::ADD_LOC => {
                         let idx = PC_FETCH!(u8) as i32;
-
                         let op1 = SP_TAKE!(-1);
                         SP_GO!(-1);
 
                         let pv = VAR_REF![idx];
-
-                        // pv and op1 will be consumed.
-                        // so we duplicate pv in advance
-                        if let Ok(val) =
-                            BinaryOp::new_slow(ctx, pv.clone(), op1, 3, Some(HINT_NONE))
-                                .and_then(|bop| bop.add(ctx))
-                        {
+                        if let Ok(val) = JSValue::arith_add(ctx, pv.clone(), op1) {
                             *pv = val;
                         } else {
                             break State::Exception;
@@ -1942,7 +1930,6 @@ impl Bytecode {
                     }
                     OpCode::PLUS | OpCode::NEG | OpCode::INC | OpCode::DEC => {
                         let op1 = SP_TAKE!(-1);
-
                         if opcode == OpCode::PLUS
                             && matches!(op1, JSValue::Int(_) | JSValue::Float64(_))
                         {
@@ -2024,7 +2011,18 @@ impl Bytecode {
                     }
 
                     OpCode::LT | OpCode::LTE | OpCode::GT | OpCode::GTE => {
-                        if let Ok(b) = relational(ctx, SP_TAKE!(-2), SP_TAKE!(-1), opcode) {
+                        let op1 = SP_TAKE!(-2);
+                        let op2 = SP_TAKE!(-1);
+
+                        if let Ok(rel) = op1.arith_compare(ctx, &op2) {
+                            let b = match (rel, opcode) {
+                                (Some(std::cmp::Ordering::Less), OpCode::LT | OpCode::LTE)
+                                | (Some(std::cmp::Ordering::Greater), OpCode::GT | OpCode::GTE)
+                                | (Some(std::cmp::Ordering::Equal), OpCode::LTE | OpCode::GTE) => {
+                                    true
+                                }
+                                _ => false,
+                            };
                             SP_PUT!(-2, JSValue::Bool(b));
                             SP_GO!(-1);
                         } else {
@@ -2315,6 +2313,6 @@ impl Bytecode {
                     return ret_val;
                 }
             }
-        } // bytecode loop
+        } // opcodes loop
     }
 }

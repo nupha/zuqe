@@ -80,7 +80,9 @@ impl JSObject {
                         let idx = __JS_AtomToUInt32(prop);
                         if idx < cur_obj.array_length_unchecked() as u32 {
                             return cur_obj.get_property_value(ctx, &JSValue::from(idx));
-                        } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
+                        }
+
+                        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
                             return JSValue::UNDEFINED;
@@ -138,7 +140,7 @@ impl JSObject {
             } else {
                 break;
             }
-        }
+        } // loop
 
         if throw_ref_error {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
