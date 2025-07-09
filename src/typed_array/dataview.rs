@@ -10,7 +10,7 @@ use crate::{
     mem::js_malloc_typed,
     number::JSFloat64Union,
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
-    typed_array::TypedArrayValue,
+    typed_array::TypedArray,
     value::JSValue,
 };
 
@@ -225,7 +225,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_CLASS_DATAVIEW
     );
 
-    let ta = TypedArrayValue::try_from(this_obj).unwrap();
+    let ta = TypedArray::try_from(this_obj).unwrap();
 
     let size = 1 << typed_array_size_log2(class_id);
     let pos = cc.arg(0).coerce_to_index(ctx)?;

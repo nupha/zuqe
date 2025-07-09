@@ -1755,7 +1755,7 @@ pub unsafe fn typed_array_init(
     count: u64,
 ) -> i32 {
     unreachable!("unused");
-    // UncheckedInto::<TypedArrayValue>::unchecked_into(obj)
+    // UncheckedInto::<TypedArray>::unchecked_into(obj)
     //     .init(ctx, buffer, offset as _, count as _)
     //     .map_or(-1, |_| 0)
 }
@@ -1776,9 +1776,9 @@ pub unsafe fn get_typed_array(
 
 /* WARNING: 'p' must be a typed array. Works even if the array buffer
 is detached */
-#[deprecated(note = "use TypedArrayValue::capacity() instead")]
+#[deprecated(note = "use TypedArray::capacity() instead")]
 pub unsafe fn typed_array_get_length(ctx: &JSContext, p: *mut JSValue) -> usize {
-    unreachable!("use TypedArrayValue::capacity() instead")
+    unreachable!("use TypedArray::capacity() instead")
 }
 
 /// returns Err if val is an exception.

@@ -27,7 +27,7 @@ use crate::{
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
 
-use super::{TypedArrayValue, js_typed_array_get_length_internal, js_typed_array_set_internal};
+use super::{TypedArray, js_typed_array_get_length_internal, js_typed_array_set_internal};
 
 pub fn js_typed_array_base_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.JS_ThrowTypeError("cannot be called");
@@ -170,7 +170,7 @@ pub fn js_typed_array_constructor_ta(
     src_obj: JSValue,
     classid: i32,
 ) -> JSResult {
-    TryInto::<TypedArrayValue>::try_into(src_obj)
+    TryInto::<TypedArray>::try_into(src_obj)
         .and_then(|ta| ta.create_to_new(ctx, new_target, classid as JSClassID))
 }
 
@@ -404,7 +404,7 @@ pub fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSRes
 }
 
 pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
-    if let Ok(tao) = TryInto::<TypedArrayValue>::try_into(this_val) {
+    if let Ok(tao) = TryInto::<TypedArray>::try_into(this_val) {
         let class_name = ctx.rt().class_defs[tao.class_id() as usize].class_name;
         class_name.to_value(ctx, true)
     } else {
@@ -425,7 +425,7 @@ pub fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let count = std::cmp::min(final_ - from, len - to);
     if count > 0 {
-        let tao: TypedArrayValue = cc.this().clone().try_into()?;
+        let tao: TypedArray = cc.this().clone().try_into()?;
         if tao.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
@@ -452,7 +452,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, &this_val)? as i32 };
-    let ta: TypedArrayValue = this_val.clone().try_into()?;
+    let ta: TypedArray = this_val.clone().try_into()?;
 
     let v64: u64;
 
@@ -613,7 +613,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
 pub fn js_typed_array_reverse(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this();
     // let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let tao: TypedArrayValue = this_val.clone().try_into().unwrap();
+    let tao: TypedArray = this_val.clone().try_into().unwrap();
 
     unsafe {
         macro_rules! swap_slice {
@@ -767,7 +767,7 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
     if len > 1 {
-        let p: TypedArrayValue = this_val.clone().try_into()?;
+        let p: TypedArray = this_val.clone().try_into()?;
 
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {
@@ -972,7 +972,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         inc = 1;
     }
 
-    let p: TypedArrayValue = this_val.clone().try_into()?;
+    let p: TypedArray = this_val.clone().try_into()?;
     let mut res = -1;
 
     if p.is_detached() {

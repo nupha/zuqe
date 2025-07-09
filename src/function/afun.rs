@@ -4,6 +4,7 @@ use crate::{
     error::JSResult,
     function::ObjAsyncState,
     object::{JS_PROP_CONFIGURABLE, JSObject, ObjectDetail},
+    object_cast,
     promise::{Promise, js_promise_resolve},
     utils::UncheckedInto,
     value::JSValue,
@@ -16,43 +17,7 @@ use super::{CallContext, JS_Call, NativeFieldDef};
 #[derive(Debug, Clone)]
 pub struct AsyncFunction(pub(crate) JSObject);
 
-impl TryFrom<JSObject> for AsyncFunction {
-    type Error = i32;
-
-    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
-        if obj.class_id() == JS_CLASS_ASYNC_FUNCTION {
-            Ok(Self(obj))
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl TryFrom<JSValue> for AsyncFunction {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let JSValue::Object(o) = value {
-            o.try_into()
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl From<AsyncFunction> for JSObject {
-    #[inline(always)]
-    fn from(value: AsyncFunction) -> Self {
-        value.0
-    }
-}
-
-impl From<AsyncFunction> for JSValue {
-    #[inline(always)]
-    fn from(value: AsyncFunction) -> Self {
-        Self::Object(value.0)
-    }
-}
+object_cast!(AsyncFunction, crate::JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
     /// call async function

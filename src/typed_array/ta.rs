@@ -8,7 +8,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
-    object::{JSObject, ObjectDetail, JSObjectWeakref, js_get_length64},
+    object::{JSObject, JSObjectWeakref, ObjectDetail, js_get_length64},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -119,7 +119,13 @@ impl ObjTypedArray {
     /// get underlaying array buffer.
     #[inline(always)]
     pub fn array_buffer(&self) -> ObjArrayBuffer {
-        self.buffer.0.detail.borrow().array_buffer().cloned().unwrap()
+        self.buffer
+            .0
+            .detail
+            .borrow()
+            .array_buffer()
+            .cloned()
+            .unwrap()
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -140,16 +146,10 @@ impl ObjTypedArray {
 }
 
 #[repr(transparent)]
-#[derive(Clone)]
-pub struct TypedArrayValue(pub(crate) JSObject);
+#[derive(Debug, Clone)]
+pub struct TypedArray(pub(crate) JSObject);
 
-impl From<TypedArrayValue> for JSValue {
-    fn from(value: TypedArrayValue) -> Self {
-        Self::Object(value.0)
-    }
-}
-
-impl TryFrom<JSObject> for TypedArrayValue {
+impl TryFrom<JSObject> for TypedArray {
     type Error = i32;
 
     fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
@@ -161,24 +161,33 @@ impl TryFrom<JSObject> for TypedArrayValue {
     }
 }
 
-impl TryFrom<JSValue> for TypedArrayValue {
+impl TryFrom<JSValue> for TypedArray {
     type Error = i32;
 
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let JSValue::Object(ob) = value
-            && matches!(
-                ob.class_id(),
-                (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) | JS_CLASS_DATAVIEW
-            )
-        {
-            Ok(Self(ob))
+        if let JSValue::Object(ob) = value {
+            ob.try_into()
         } else {
             Err(-1)
         }
     }
 }
 
-impl TypedArrayValue {
+impl From<TypedArray> for JSObject {
+    #[inline(always)]
+    fn from(value: TypedArray) -> Self {
+        value.0
+    }
+}
+
+impl From<TypedArray> for JSValue {
+    #[inline(always)]
+    fn from(value: TypedArray) -> Self {
+        Self::Object(value.0)
+    }
+}
+
+impl TypedArray {
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
         self.0.class_id()
@@ -272,7 +281,7 @@ impl TypedArrayValue {
         // create an empty typed array with count capacity.
         let new_ta = ctx
             .create_typed_array_from(new_target, &new_buf, 0, count, class_id)
-            .and_then(TryInto::<TypedArrayValue>::try_into)?;
+            .and_then(TryInto::<TypedArray>::try_into)?;
 
         // copy data from src_ta to new_ta
         if typed_array_size_log2(self.class_id()) == size_log2 {
@@ -304,7 +313,7 @@ macro_rules! typed_array_obj_of {
     ($name:ident, $ty:ident, $class_id:pat) => {
         #[repr(transparent)]
         #[derive(Clone)]
-        pub struct $name(pub(crate) TypedArrayValue);
+        pub struct $name(pub(crate) TypedArray);
 
         impl $name {
             #[inline(always)]
@@ -361,17 +370,17 @@ macro_rules! typed_array_obj_of {
 
             fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
                 if matches!(obj.class_id(), $class_id) {
-                    Ok(Self(TypedArrayValue(obj)))
+                    Ok(Self(TypedArray(obj)))
                 } else {
                     Err(-1)
                 }
             }
         }
 
-        impl TryFrom<TypedArrayValue> for $name {
+        impl TryFrom<TypedArray> for $name {
             type Error = i32;
 
-            fn try_from(value: TypedArrayValue) -> Result<Self, Self::Error> {
+            fn try_from(value: TypedArray) -> Result<Self, Self::Error> {
                 if matches!(value.0.class_id(), $class_id) {
                     Ok(Self(value))
                 } else {
@@ -404,13 +413,9 @@ typed_array_obj_of!(Float32Array, f32, JS_CLASS_FLOAT32_ARRAY);
 typed_array_obj_of!(Float64Array, f64, JS_CLASS_FLOAT64_ARRAY);
 
 impl JSValue {
-    /// If value is a TypedArray or DataView, returns TypedArrayValue.
+    /// If value is a TypedArray or DataView, returns TypedArray.
     /// Otherwise, raise Error, and returns Err.
-    pub fn typed_array_must(
-        self,
-        ctx: &JSContext,
-        is_dataview: bool,
-    ) -> Result<TypedArrayValue, i32> {
+    pub fn typed_array_must(self, ctx: &JSContext, is_dataview: bool) -> Result<TypedArray, i32> {
         if let Self::Object(ob) = self {
             if is_dataview {
                 if ob.class_id() != JS_CLASS_DATAVIEW {
@@ -422,7 +427,7 @@ impl JSValue {
                 return Err(-1);
             }
 
-            Ok(TypedArrayValue(ob))
+            Ok(TypedArray(ob))
         } else {
             Err(-1)
         }
@@ -529,7 +534,7 @@ impl JSContext {
                             class_id,
                         ),
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        TypedArrayValue(p.clone()).create_to_new(self, new_target, class_id)
+                        TypedArray(p.clone()).create_to_new(self, new_target, class_id)
                     }
                     _ => {
                         // source is an enumetable object.
@@ -622,7 +627,7 @@ pub fn js_typed_array_set_internal(
 
     match src_p.class_id() {
         JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-            let src = TypedArrayValue(src_p.clone());
+            let src = TypedArray(src_p.clone());
 
             let (src_abuf, shift, cnt) = src.with(|ta| {
                 (
@@ -721,7 +726,7 @@ pub fn js_typed_array_mark(val: JSValue) {
 }
 
 /* WARNING: 'p' must be a typed array */
-#[deprecated(note = "use TypedArrayValue::is_detached() instead")]
+#[deprecated(note = "use TypedArray::is_detached() instead")]
 pub unsafe fn typed_array_is_detached(p: *mut JSValue) -> bool {
-    unreachable!("use TypedArrayValue::is_detached() instead")
+    unreachable!("use TypedArray::is_detached() instead")
 }

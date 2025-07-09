@@ -12,7 +12,7 @@ use crate::{
     function::JS_Call,
     object::{JS_PROP_THROW_STRICT, JSObject, JSProperty},
     typed_array::{
-        Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArrayValue, Uint8Array,
+        Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArray, Uint8Array,
         Uint16Array, Uint32Array,
     },
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -510,7 +510,7 @@ impl JSObject {
                 //
                 JS_CLASS_UINT8C_ARRAY => {
                     let v = val.coerce_to_u8_clamp(ctx)?;
-                    if Uint8Array(TypedArrayValue(self.clone()))
+                    if Uint8Array(TypedArray(self.clone()))
                         .set_element(idx as _, v)
                         .is_err()
                     {
@@ -527,9 +527,9 @@ impl JSObject {
                     };
 
                     let r = if cid == JS_CLASS_INT8_ARRAY {
-                        Int8Array(TypedArrayValue(self.clone())).set_element(idx as _, v as _)
+                        Int8Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     } else {
-                        Uint8Array(TypedArrayValue(self.clone())).set_element(idx as _, v as _)
+                        Uint8Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     };
 
                     if r.is_err() {
@@ -546,9 +546,9 @@ impl JSObject {
                     };
 
                     let r = if cid == JS_CLASS_INT16_ARRAY {
-                        Int16Array(TypedArrayValue(self.clone())).set_element(idx as _, v as _)
+                        Int16Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     } else {
-                        Uint16Array(TypedArrayValue(self.clone())).set_element(idx as _, v as _)
+                        Uint16Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     };
 
                     if r.is_err() {
@@ -565,9 +565,9 @@ impl JSObject {
                     };
 
                     let r = if cid == JS_CLASS_INT32_ARRAY {
-                        Int32Array(TypedArrayValue(self.clone())).set_element(idx as _, v as _)
+                        Int32Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     } else {
-                        Uint32Array(TypedArrayValue(self.clone())).set_element(idx as _, v as _)
+                        Uint32Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     };
 
                     if r.is_err() {
@@ -579,7 +579,7 @@ impl JSObject {
                 JS_CLASS_FLOAT32_ARRAY => {
                     let d = val.coerce_to_f64(ctx)?;
                     let r =
-                        Float32Array(TypedArrayValue(self.clone())).set_element(idx as _, d as _);
+                        Float32Array(TypedArray(self.clone())).set_element(idx as _, d as _);
 
                     if r.is_err() {
                         ta_out_of_bound = true;
@@ -589,7 +589,7 @@ impl JSObject {
                 }
                 JS_CLASS_FLOAT64_ARRAY => {
                     let d = val.coerce_to_f64(ctx)?;
-                    let r = Float64Array(TypedArrayValue(self.clone())).set_element(idx as _, d);
+                    let r = Float64Array(TypedArray(self.clone())).set_element(idx as _, d);
                     if r.is_err() {
                         ta_out_of_bound = true;
                     } else {

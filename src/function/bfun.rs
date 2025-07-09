@@ -10,6 +10,7 @@ use crate::{
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
     object::{JS_SetPrototypeInternal, JSObject},
+    object_cast,
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -17,52 +18,10 @@ use crate::{
 use super::JSFunctionKindEnum;
 
 #[repr(transparent)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct BytecodeFunction(JSObject);
 
-impl TryFrom<JSObject> for BytecodeFunction {
-    type Error = i32;
-
-    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
-        if obj.class_id() == JS_CLASS_BYTECODE_FUNCTION {
-            Ok(Self(obj))
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl TryFrom<JSValue> for BytecodeFunction {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let JSValue::Object(o) = value {
-            o.try_into()
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl From<BytecodeFunction> for JSObject {
-    #[inline(always)]
-    fn from(func: BytecodeFunction) -> Self {
-        func.0
-    }
-}
-
-impl From<BytecodeFunction> for JSValue {
-    #[inline(always)]
-    fn from(func: BytecodeFunction) -> Self {
-        JSValue::Object(func.0)
-    }
-}
-
-impl std::fmt::Debug for BytecodeFunction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<BytecodeFunction {:p}>", self.0.id() as *const c_void)
-    }
-}
+object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 
 impl BytecodeFunction {
     /// call bytecode function

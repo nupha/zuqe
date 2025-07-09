@@ -1,10 +1,10 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CLASS_BOUND_FUNCTION,
     context::JSContext,
     error::JSResult,
     object::{JSObject, ObjectDetail},
+    object_cast,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -22,41 +22,7 @@ pub struct ObjBoundFunc {
 #[derive(Debug, Clone)]
 pub struct BoundFunction(JSObject);
 
-impl TryFrom<JSObject> for BoundFunction {
-    type Error = i32;
-
-    fn try_from(value: JSObject) -> Result<Self, Self::Error> {
-        if value.class_id() == JS_CLASS_BOUND_FUNCTION {
-            Ok(Self(value))
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl TryFrom<JSValue> for BoundFunction {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let JSValue::Object(o) = value {
-            o.try_into()
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl From<BoundFunction> for JSObject {
-    fn from(value: BoundFunction) -> Self {
-        value.0
-    }
-}
-
-impl From<BoundFunction> for JSValue {
-    fn from(value: BoundFunction) -> Self {
-        Self::Object(value.0)
-    }
-}
+object_cast!(BoundFunction, crate::JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}

@@ -9,7 +9,7 @@ use crate::{
     object::{ObjectDetail, js_get_length32},
     runtime::JSRuntime,
     string::JS_ToStringCheckObject,
-    typed_array::TypedArrayValue,
+    typed_array::TypedArray,
     value::JSValue,
 };
 
@@ -77,7 +77,7 @@ pub fn js_array_iterator_next(
         }
 
         // eval array length
-        let len = if let Ok(tao) = TryInto::<TypedArrayValue>::try_into(it.obj.clone()) {
+        let len = if let Ok(tao) = TryInto::<TypedArray>::try_into(it.obj.clone()) {
             // `it.obj` is Uint8ClampArray..Float64Array object
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
