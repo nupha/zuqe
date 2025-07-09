@@ -19,6 +19,7 @@ use super::{
     token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
 };
 
+// FIXME: bug in this func. 25/07/09 debug: should return 0, but got -1
 pub unsafe fn js_parse_destructuring_element(
     s: *mut JSParseState,
     tok: i32,
@@ -159,11 +160,9 @@ pub unsafe fn js_parse_destructuring_element(
         };
     }
 
-    // Pre-parse destructuration target for spread detection
     if has_ellipsis < 0 {
-        if js_parse_skip_parens_token(s, &mut skip_bits as *mut i32, false) != 0 {
-            return -1;
-        }
+        // Pre-parse destructuration target for spread detection
+        js_parse_skip_parens_token(s, &mut skip_bits as *mut i32, false);
         has_ellipsis = skip_bits & SKIP_HAS_ELLIPSIS;
     }
 
