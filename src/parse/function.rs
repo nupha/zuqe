@@ -212,6 +212,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     let has_initializer = unsafe {
+                        // FIXME: bug in this func. 25/07/09 debug: should return 0, but got -1
                         js_parse_destructuring_element(
                             self,
                             if fd1.has_parameter_expressions {

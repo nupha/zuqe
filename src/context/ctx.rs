@@ -17,7 +17,7 @@ use crate::{
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE,
-        JSObject, ObjectDetail, JSShape,
+        JSObject, JSShape, ObjectDetail,
     },
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -87,9 +87,6 @@ pub struct JSContextInner {
     /// User data pointer
     pub user_opaque: *mut std::ffi::c_void,
 
-    /// Current exception value
-    pub current_exception: JSValue,
-
     /// Current stack trace
     pub stack_trace: JSValue,
 
@@ -143,7 +140,6 @@ impl JSContextInner {
             throw_type_error: JSValue::UNDEFINED,
             eval_func: JSValue::UNDEFINED,
 
-            current_exception: JSValue::NULL,
             global_obj: JSValue::UNDEFINED,
             global_var_obj: JSValue::UNDEFINED,
 
@@ -206,7 +202,6 @@ impl JSContextInner {
             self.global_obj = JSValue::UNDEFINED;
             self.global_var_obj = JSValue::UNDEFINED;
             self.eval_func = JSValue::UNDEFINED;
-            self.current_exception = JSValue::NULL;
             self.stack_trace = JSValue::UNDEFINED;
 
             self.class_proto.clear();
@@ -333,23 +328,6 @@ impl JSContext {
             ctx.stack_frame = unsafe { (*frame.cast::<StackFrame>()).prev_frame };
             frame
         }
-    }
-
-    /// Returns whether an exception is pending
-    #[inline(always)]
-    pub fn has_exception(&self) -> bool {
-        !self.0.borrow().current_exception.is_undefined()
-    }
-
-    /// Clears the current exception
-    pub fn clear_exception(&self) {
-        self.0.borrow_mut().current_exception = JSValue::UNDEFINED;
-    }
-
-    /// Returns the current exception value with its ref count 'AS-IS'.
-    #[inline(always)]
-    pub fn exception(&self) -> JSValue {
-        self.0.borrow().current_exception.clone()
     }
 
     /// Add minimum amount of objects to be able to compile code and display error messages.

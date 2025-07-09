@@ -50,35 +50,24 @@ pub const JS_THROW_VAR_UNINITIALIZED: u8 = 2;
 pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
-impl JSRuntime {
-    /// set new obj to current_exception, returns the old exception value.
-    /// Note: returnd value should be freed by caller
-    #[inline(always)]
-    pub fn set_exception(&mut self, obj: JSValue) -> JSValue {
-        std::mem::replace(&mut self.current_exception, obj)
-    }
-
-    /// get current exception value, then reset current_exception to null.
-    /// Note: returnd value should be freed by caller
-    #[inline(always)]
-    pub fn take_exception(&mut self) -> JSValue {
-        self.set_exception(JSValue::NULL)
-    }
-}
-
 impl JSContext {
-    /// set new obj to current_exception, returns the old exception value.
-    /// Note: returnd value should be freed by caller
+    /// Get current exception value
     #[inline(always)]
-    pub fn set_exception(&self, obj: JSValue) -> JSValue {
-        self.rt_mut().set_exception(obj)
+    pub fn exception(&self) -> JSValue {
+        self.rt().cur_exception.clone()
     }
 
-    /// get current exception value, then reset current_exception to null.
+    /// set new obj to current_exception, returns the old exception value.
     /// Note: returnd value should be freed by caller
+    #[inline]
+    pub fn set_exception(&self, obj: JSValue) -> JSValue {
+        std::mem::replace(&mut self.rt_mut().cur_exception, obj)
+    }
+
+    /// get current exception value, and reset current_exception to null.
     #[inline(always)]
     pub fn take_exception(&self) -> JSValue {
-        self.rt_mut().take_exception()
+        self.set_exception(JSValue::NULL)
     }
 
     /// put `obj` to current_exception, free old exception.

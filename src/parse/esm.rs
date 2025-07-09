@@ -33,7 +33,7 @@ pub enum JSParseExportEnum {
 }
 
 impl<'s> JSParseState<'s> {
-    unsafe fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
+    fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
         if !self.token_is_pseudo_keyword(JS_ATOM_from) {
             self.throw_syntax_error("from clause expected");
             return Err(-1);
@@ -60,7 +60,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse import statement
-    pub unsafe fn parse_import(&mut self) -> Result<(), i32> {
+    pub fn parse_import(&mut self) -> Result<(), i32> {
         let m = self.cur_func().module.clone().unwrap();
 
         self.next_token()?;
@@ -95,7 +95,7 @@ impl<'s> JSParseState<'s> {
                         .into_rc(&self.ctx.rt());
 
                     self.next_token()?;
-                    if add_import(self, &m, *local_name, JS_ATOM_default) != 0 {
+                    if unsafe { add_import(self, &m, *local_name, JS_ATOM_default) != 0 } {
                         return Err(-1);
                     }
 
@@ -131,7 +131,7 @@ impl<'s> JSParseState<'s> {
                         .into_rc(&self.ctx.rt());
 
                     self.next_token()?;
-                    if add_import(self, &m, *local_name, JS_ATOM__star_) != 0 {
+                    if unsafe { add_import(self, &m, *local_name, JS_ATOM__star_) != 0 } {
                         return Err(-1);
                     }
                 } else if self.token.val == '{' as i32 {
@@ -169,7 +169,7 @@ impl<'s> JSParseState<'s> {
                         }
                         .into_rc(&self.ctx.rt());
 
-                        if add_import(self, &m, *local_name, *import_name) != 0 {
+                        if unsafe { add_import(self, &m, *local_name, *import_name) != 0 } {
                             return Err(-1);
                         }
 
@@ -189,13 +189,15 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = add_req_module_entry(&self.ctx, &m, module_name);
+        let idx = unsafe { add_req_module_entry(&self.ctx, &m, module_name) };
         JS_FreeAtom(&self.ctx, module_name);
         if idx < 0 {
             return Err(-1);
         }
         for i in first_import..m.0.borrow().import_entries_count {
-            (*m.0.borrow_mut().import_entries.offset(i as isize)).req_module_idx = idx;
+            unsafe {
+                (*m.0.borrow_mut().import_entries.offset(i as isize)).req_module_idx = idx;
+            }
         }
 
         self.parse_expect_semi()

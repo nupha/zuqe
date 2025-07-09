@@ -51,13 +51,6 @@ impl JSContext {
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
-        macro_rules! fail {
-            ($s:expr, $fd:expr, $m:expr) => {
-                $s.free_token();
-                return JSValue::EXCEPTION;
-            };
-        }
-
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
         let mut sframe: Option<&mut StackFrame> = None;
@@ -195,8 +188,8 @@ impl JSContext {
             unsafe {
                 skip_shebang(&mut ps.buf_ptr, ps.buf_end);
             }
-            if unsafe { ps.parse_program().is_err() } {
-                fail!(ps, root_fd, m);
+            if ps.parse_program().is_err() {
+                return JSValue::EXCEPTION;
             }
         }
 
@@ -223,7 +216,7 @@ impl JSContext {
         }
 
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            // returns compiled bytecode
+            // compiled bytecode
             return JSValue::Bytecode(bc_compiled);
         }
 

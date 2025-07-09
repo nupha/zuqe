@@ -2032,8 +2032,11 @@ impl Bytecode {
                     OpCode::EQ | OpCode::NEQ => {
                         let op1 = SP_TAKE!(-2);
                         let op2 = SP_TAKE!(-1);
-                        if let Ok(b) = js_eq(ctx, op1, op2, opcode == OpCode::NEQ) {
-                            SP_PUT!(-2, JSValue::Bool(b));
+                        if let Ok(b) = js_eq(ctx, op1, op2) {
+                            SP_PUT!(
+                                -2,
+                                JSValue::Bool(if opcode == OpCode::NEQ { !b } else { b })
+                            );
                             SP_GO!(-1);
                         } else {
                             break State::Exception;

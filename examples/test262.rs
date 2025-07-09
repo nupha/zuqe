@@ -333,7 +333,9 @@ fn run_test_content(
     }
 
     if ret_val.is_exception() {
-        Err(ctx.take_exception())
+        let exc = ctx.take_exception();
+        debug_assert!(!exc.is_undefined_or_null());
+        Err(exc)
     } else {
         Ok(())
     }
@@ -459,9 +461,11 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
                 is_async,
             ) {
-                unsafe {
-                    exc.object_unchecked().dump(ctx.rt());
-                }
+                debug_assert!(!exc.is_undefined_or_null());
+                println!("EXCEPTION: {:?}", exc);
+                // unsafe {
+                //     exc.object_unchecked().dump(ctx.rt());
+                // }
 
                 let msg = exc.get_property(&ctx, JS_ATOM_message);
                 let msg = msg.coerce_to_utf8(&ctx).unwrap();

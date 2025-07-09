@@ -205,7 +205,7 @@ impl<'s> JSParseState<'s> {
             }
 
             // XXX: should convert to string at this stage?
-            self.free_token();
+            self.clear_atom_value();
             // Resume TOK_TEMPLATE parsing (s->token.line_num and  s->token.ptr are OK)
             self.got_lf = false;
             self.last_line_num = self.token.line_num;

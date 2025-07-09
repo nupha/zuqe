@@ -73,7 +73,8 @@ pub struct JSRuntime {
     pub stack_top: usize,
     pub stack_limit: usize, /* lower stack limit */
 
-    pub current_exception: JSValue,
+    /// current exception value
+    pub cur_exception: JSValue,
     /* true if inside an out of memory error, to avoid recursing */
     pub in_out_of_memory: bool,
 
@@ -147,7 +148,7 @@ impl JSRuntime {
             stack_size: JS_DEFAULT_STACK_SIZE,
             stack_top: 0,
             stack_limit: 0,
-            current_exception: JSValue::NULL,
+            cur_exception: JSValue::NULL,
             in_out_of_memory: false,
             interrupt_handler: None,
             host_promise_rejection_tracker: None,
@@ -217,7 +218,7 @@ impl JSRuntime {
 
     fn finalize(&mut self) {
         self.job_list.clear();
-        self.current_exception = JSValue::UNDEFINED;
+        self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
 
         self.gc();

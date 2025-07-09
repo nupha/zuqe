@@ -107,9 +107,9 @@ fn main() {
             }
 
             if r.is_exception() {
-                let exc = js.take_exception();
-                println!("!!! EXCEPTION {:?}", exc.repr());
-                exc.object_unchecked().dump(js.as_ref());
+                let exc = ctx.take_exception();
+                println!("!!! EXCEPTION {exc:?} {}", exc.repr());
+                // exc.object_unchecked().dump(js.as_ref());
             } else {
                 println!(">>> RESULT: {r:?}, {}", r.repr());
 

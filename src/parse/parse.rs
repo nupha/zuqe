@@ -33,7 +33,7 @@ use super::{
 };
 
 impl JSParseState<'_> {
-    pub unsafe fn parse_program(&mut self) -> Result<(), i32> {
+    pub fn parse_program(&mut self) -> Result<(), i32> {
         self.next_token()?;
         self.parse_directives()?;
 
@@ -126,7 +126,7 @@ impl JSParseState<'_> {
         self.seek_token(&pos)
     }
 
-    pub unsafe fn parse_source_element(&mut self) -> Result<(), i32> {
+    pub fn parse_source_element(&mut self) -> Result<(), i32> {
         let tok = self.token.val;
 
         if tok == TOK_FUNCTION
@@ -142,7 +142,7 @@ impl JSParseState<'_> {
                 self.token.line_num,
             )?;
         } else if tok == TOK_EXPORT && self.cur_func().module.is_some() {
-            if js_parse_export(self) != 0 {
+            if unsafe { js_parse_export(self) != 0 } {
                 return Err(-1);
             }
         } else if tok == TOK_IMPORT
@@ -152,7 +152,7 @@ impl JSParseState<'_> {
             // the peek_token is needed to avoid confusion with 'import()' or 'import.meta'
             self.parse_import()?;
         } else {
-            if js_parse_statement_or_decl(self, DECL_MASK_ALL) != 0 {
+            if unsafe { js_parse_statement_or_decl(self, DECL_MASK_ALL) != 0 } {
                 return Err(-1);
             }
         }
@@ -540,7 +540,7 @@ pub unsafe fn js_parse_skip_parens_token(
                 let c = state[level] as i32;
                 if c == '`' as i32 {
                     // continue the parsing of the template
-                    (*s).free_token();
+                    (*s).clear_atom_value();
                     // Resume TOK_TEMPLATE parsing (s->token.line_num and
                     // s->token.ptr are OK)
                     (*s).got_lf = false;

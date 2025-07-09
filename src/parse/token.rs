@@ -155,7 +155,7 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        self.free_token();
+        self.clear_atom_value();
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum State {
@@ -601,7 +601,7 @@ impl<'s> JSParseState<'s> {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     },
-                    State::ParseNumber => unsafe {
+                    State::ParseNumber => {
                         // NOTE: p may be changed after calling next_token_parse_number()
                         if self
                             .next_token_parse_number(std::ptr::addr_of_mut!(p))
@@ -610,7 +610,7 @@ impl<'s> JSParseState<'s> {
                             self.token.val = TOK_ERROR;
                             return Err(-1);
                         }
-                    },
+                    }
                     State::Fail => {
                         self.token.val = TOK_ERROR;
                         return Err(-1);
@@ -696,21 +696,6 @@ impl<'s> JSParseState<'s> {
         self.buf_ptr = sp.ptr;
         self.got_lf = sp.got_lf;
         self.next_token()
-    }
-
-    /// free current token data values
-    pub fn free_token(&mut self) {
-        match &mut self.token.data {
-            TokenData::Ident { atom, .. } => {
-                JS_FreeAtom(&self.ctx, *atom);
-            }
-            TokenData::Str { str, .. } => *str = JSValue::UNDEFINED,
-            TokenData::Num(n) => *n = JSValue::UNDEFINED,
-            TokenData::Regexp { body, flags } => {
-                *body = JSValue::UNDEFINED;
-                *flags = JSValue::UNDEFINED;
-            }
-        }
     }
 
     #[inline(always)]

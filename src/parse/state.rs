@@ -1,6 +1,9 @@
 use std::ptr::NonNull;
 
-use crate::{context::JSContext, function::JSFunctionDef, parse::token::TokenData, value::JSValue};
+use crate::{
+    atom::JS_FreeAtom, context::JSContext, function::JSFunctionDef, parse::token::TokenData,
+    value::JSValue,
+};
 
 use super::token::JSToken;
 
@@ -57,6 +60,12 @@ pub struct JSParseState<'s> {
     pub ext_json: bool,
 }
 
+impl Drop for JSParseState<'_> {
+    fn drop(&mut self) {
+        self.clear_atom_value();
+    }
+}
+
 impl<'s> JSParseState<'s> {
     /// Creates a new parser state with root function def.
     ///
@@ -96,6 +105,21 @@ impl<'s> JSParseState<'s> {
             allow_html_comments: false,
             ext_json: false,
             got_lf: false,
+        }
+    }
+
+    /// free current tokens and values
+    pub fn clear_atom_value(&mut self) {
+        match &mut self.token.data {
+            TokenData::Ident { atom, .. } => {
+                JS_FreeAtom(&self.ctx, *atom);
+            }
+            TokenData::Str { str, .. } => *str = JSValue::UNDEFINED,
+            TokenData::Num(n) => *n = JSValue::UNDEFINED,
+            TokenData::Regexp { body, flags } => {
+                *body = JSValue::UNDEFINED;
+                *flags = JSValue::UNDEFINED;
+            }
         }
     }
 

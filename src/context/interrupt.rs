@@ -20,7 +20,7 @@ impl JSContext {
                 if cb(rt, rt.interrupt_opaque) != 0 {
                     // XXX: should set a specific flag to avoid catching
                     self.JS_ThrowInternalError("interrupted");
-                    JS_SetUncatchableError(&rt.current_exception, true);
+                    JS_SetUncatchableError(&rt.cur_exception, true);
                     return Err(-1);
                 }
             }

@@ -121,11 +121,11 @@ impl StackFrame {
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
-        if is_backtrace_needed(&ctx.rt().current_exception) {
+        if is_backtrace_needed(&ctx.rt().cur_exception) {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-            ctx.build_backtrace_to(&ctx.rt().current_exception, None, 0);
+            ctx.build_backtrace_to(&ctx.rt().cur_exception, None, 0);
         }
 
         if unsafe { !JS_IsUncatchableError(&ctx.exception()) } {

@@ -415,8 +415,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             &JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
-        let res =
-            JS_Invoke(ctx, &arr, JS_ATOM_set, &[ret, JSValue::Int(n as i32)]).check_exception()?;
+        JS_Invoke(ctx, &arr, JS_ATOM_set, &[ret, JSValue::Int(n as i32)]).check_exception()?;
         ret = arr;
     }
 
