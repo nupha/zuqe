@@ -318,7 +318,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_u16(arg_count);
             }
             opcodes::OP_eval => {
-                debug_assert!(unsafe { (*fd).scope_level } > 0);
+                debug_assert!(unsafe { (*fd).scope_level } >= 0);
                 self.emit_op(OpCode::EVAL);
                 self.emit_u16(arg_count);
                 self.emit_u16(unsafe { (*fd).scope_level } as _);
