@@ -212,10 +212,7 @@ impl<'s> JSParseState<'s> {
 
                     let mut depth_lvalue = 0_i32;
                     if tok != 0 {
-                        var_name = unsafe { js_parse_destructuring_var(self, tok, is_arg) };
-                        if var_name == JS_ATOM_NULL {
-                            return Err(-1);
-                        }
+                        var_name = self.parse_destructuring_var(tok, is_arg)?;
                         opcode = opcodes::op_scope_get_var as _;
                         scope = self.cur_func().scope_level;
                         label_lvalue = -1;
@@ -332,10 +329,11 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::DUP);
                     }
                     if tok != 0 {
-                        var_name = unsafe { js_parse_destructuring_var(self, tok, is_arg) };
-                        if var_name == JS_ATOM_NULL {
+                        var_name = if let Ok(a) = self.parse_destructuring_var(tok, is_arg) {
+                            a
+                        } else {
                             prop_error!();
-                        }
+                        };
                     } else {
                         if self.parse_left_hand_side_expr().is_err() {
                             prop_error!();
@@ -483,10 +481,7 @@ impl<'s> JSParseState<'s> {
                     let mut enum_depth = 0;
 
                     if tok != 0 {
-                        var_name = unsafe { js_parse_destructuring_var(self, tok, is_arg) };
-                        if var_name == JS_ATOM_NULL {
-                            var_error!();
-                        }
+                        var_name = self.parse_destructuring_var(tok, is_arg)?;
                         if self.define_var(var_name, tok).is_err() {
                             var_error!();
                         }
@@ -596,42 +591,30 @@ impl<'s> JSParseState<'s> {
 
         Ok(has_initializer)
     }
-}
 
-#[deprecated(note = "use JSParseState::parse_destructing_element() instead")]
-pub unsafe fn js_parse_destructuring_element(
-    s: *mut JSParseState,
-    tok: i32,
-    is_arg: bool,
-    hasval: bool,
-    has_ellipsis: i32,
-    allow_initializer: bool,
-) -> i32 {
-    (*s).parse_destructuring_element(tok, is_arg, hasval, has_ellipsis, allow_initializer)
-        .map_or(-1, |b| b as i32)
-}
+    pub fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
+        if (self.token.val != TOK_IDENT || self.token.data.is_reserved())
+            || (self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+                && matches!(
+                    self.token.data.ident_atom().unwrap(),
+                    JS_ATOM_eval | JS_ATOM_arguments
+                ))
+        {
+            self.throw_syntax_error("invalid destructuring target");
+            return Err(-1);
+        }
 
-pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
-    if ((*s).token.val != TOK_IDENT || (*s).token.data.is_reserved())
-        || ((*s).cur_func().js_mode & JS_MODE_STRICT as u8 != 0
-            && matches!(
-                (*s).token.data.ident_atom().unwrap(),
-                JS_ATOM_eval | JS_ATOM_arguments
-            ))
-    {
-        (*s).throw_syntax_error("invalid destructuring target");
-        return JS_ATOM_NULL;
+        let name = self.token.data.ident_atom().unwrap().dup(self.ctx.rt());
+        if is_arg && unsafe { js_parse_check_duplicate_parameter(self, name) != 0 } {
+            JS_FreeAtom(&self.ctx, name);
+            return Err(-1);
+        }
+
+        if self.next_token().is_err() {
+            JS_FreeAtom(&self.ctx, name);
+            return Err(-1);
+        }
+
+        Ok(name)
     }
-
-    let name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
-    if is_arg && js_parse_check_duplicate_parameter(s, name) != 0 {
-        JS_FreeAtom(&(*s).ctx, name);
-        return JS_ATOM_NULL;
-    }
-    if (*s).next_token().is_err() {
-        JS_FreeAtom(&(*s).ctx, name);
-        return JS_ATOM_NULL;
-    }
-
-    name
 }

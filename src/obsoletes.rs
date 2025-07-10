@@ -2963,3 +2963,22 @@ pub unsafe fn get_closure_var(
         ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
     )
 }
+
+#[deprecated(note = "use JSParseState::parse_destructuring_element() instead")]
+pub unsafe fn js_parse_destructuring_element(
+    s: *mut JSParseState,
+    tok: i32,
+    is_arg: bool,
+    hasval: bool,
+    has_ellipsis: i32,
+    allow_initializer: bool,
+) -> i32 {
+    (*s).parse_destructuring_element(tok, is_arg, hasval, has_ellipsis, allow_initializer)
+        .map_or(-1, |b| b as i32)
+}
+
+#[deprecated(note = "use JSParseState::parse_destructuring_var() instead")]
+pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
+    (*s).parse_destructuring_var(tok, is_arg)
+        .unwrap_or(JS_ATOM_NULL)
+}
