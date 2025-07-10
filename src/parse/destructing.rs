@@ -7,7 +7,7 @@ use crate::{
     context::JS_MODE_STRICT,
     function::{BlockEnv, pop_break_entry, push_break_entry},
     object::PROP_TYPE_IDENT,
-    parse::token::{CHAR_COMMA, CHAR_CURLY_R},
+    parse::token::{CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L},
 };
 
 use super::{
@@ -262,15 +262,13 @@ impl<'s> JSParseState<'s> {
                         prop_error!();
                     }
 
-                    if (self.token.val == '[' as i32 || self.token.val == '{' as i32)
-                        && ({
-                            tok1 =
-                                unsafe { js_parse_skip_parens_token(self, &mut skip_bits, false) };
-                            tok1
-                        } == ',' as i32
-                            || tok1 == '=' as i32
-                            || tok1 == '}' as i32)
-                    {
+                    // token: [{ and tok1: ,=}
+                    if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) && {
+                        matches!(
+                            unsafe { js_parse_skip_parens_token(self, &mut skip_bits, false) },
+                            CHAR_COMMA | CHAR_EQUAL | CHAR_CURLY_R // , | = | }
+                        )
+                    } {
                         if prop_name == JS_ATOM_NULL {
                             /* computed property name on stack */
                             if has_ellipsis != 0 {
