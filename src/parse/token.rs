@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 
 use crate::{
-    atom::{JS_FreeAtom, JSAtom, consts::*},
+    atom::{JSAtom, consts::*},
     context::JS_MODE_STRICT,
     function::JSFunctionKindEnum,
     number::{
