@@ -2096,6 +2096,15 @@ impl Bytecode {
                             }
                         }
                     }
+                    OpCode::TO_OBJECT => {
+                        if !SP_REF!(-1).is_object() {
+                            if let Ok(o) = SP_REF!(-1).coerce_to_object(ctx) {
+                                SP_PUT!(-1, o);
+                            } else {
+                                break State::Exception;
+                            }
+                        }
+                    }
                     OpCode::TO_PROPKEY | OpCode::TO_PROPKEY2 => {
                         if opcode == OpCode::TO_PROPKEY2 {
                             // must be tested first

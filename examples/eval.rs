@@ -109,11 +109,15 @@ fn main() {
             if r.is_exception() {
                 let exc = ctx.take_exception();
                 println!("!!! EXCEPTION {exc:?} {}", exc.repr());
-                // exc.object_unchecked().dump(js.as_ref());
+
+                // println!("{:?}", exc.coerce_to_string(&ctx));
+                if let JSValue::Object(o) = exc {
+                    o.dump(ctx.rt());
+                };
             } else {
                 println!(">>> RESULT: {r:?}, {}", r.repr());
 
-                if let Ok(pr) = TryInto::<Promise>::try_into(r) {
+                if let Ok(pr) = Promise::try_from(r) {
                     let v = pr.result();
                     println!("promise state: {:?}", pr.state());
                     println!("promise result: {v:?}");

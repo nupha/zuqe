@@ -68,13 +68,21 @@ pub unsafe fn js_parse_destructuring_element(
             }
 
             if (*s).token.val == '=' as i32 {
+                // handle optional default value
+                (*s).emit_op(OpCode::DUP);
+                (*s).emit_op(OpCode::UNDEFINED);
+                (*s).emit_op(OpCode::STRICT_EQ);
+
                 let label_hasval = (*s).emit_goto(OpCode::IF_FALSE, -1);
+
                 if (*s).next_token().is_err() {
                     JS_FreeAtom(ctx, var_name);
                     JS_FreeAtom(ctx, prop_name);
                     return -1;
                 }
+
                 (*s).emit_op(OpCode::DROP);
+
                 if (*s).parse_assign_expr().is_err() {
                     JS_FreeAtom(ctx, var_name);
                     JS_FreeAtom(ctx, prop_name);
@@ -87,6 +95,8 @@ pub unsafe fn js_parse_destructuring_element(
                 }
                 (*s).emit_label(label_hasval);
             }
+
+            // store value into lvalue object
             (*s).put_lvalue(
                 opcode,
                 scope,
@@ -99,7 +109,8 @@ pub unsafe fn js_parse_destructuring_element(
             if (*s).token.val == CHAR_CURLY_R {
                 break;
             }
-            /* accept a trailing comma before the '}' */
+
+            // accept a trailing comma before the '}'
             if (*s).parse_expect(CHAR_COMMA).is_err() {
                 return -1;
             }
@@ -188,11 +199,15 @@ pub unsafe fn js_parse_destructuring_element(
         if (*s).next_token().is_err() {
             return -1;
         }
-        (*s).emit_op(OpCode::OBJECT);
+
+        // throw an exception if the value cannot be converted to an object
+        (*s).emit_op(OpCode::TO_OBJECT);
         if has_ellipsis != 0 {
+            // add excludeList on stack just below src object
             (*s).emit_op(OpCode::OBJECT);
             (*s).emit_op(OpCode::SWAP);
         }
+
         while (*s).token.val != '}' as i32 {
             if (*s).token.val == TOK_ELLIPSIS {
                 if has_ellipsis == 0 {
@@ -236,11 +251,12 @@ pub unsafe fn js_parse_destructuring_element(
                     (*s).throw_syntax_error("assignment rest property must be last");
                     var_error!();
                 }
-                (*s).emit_op(OpCode::OBJECT);
+
+                (*s).emit_op(OpCode::OBJECT); // target
                 (*s).emit_op(OpCode::COPY_DATA_PROPERTIES);
                 (*s).emit_u8((((depth_lvalue + 1) << 2) | ((depth_lvalue + 2) << 5)) as u8);
 
-                set_val!(); // #79 goto set_val
+                set_val!();
                 continue;
             }
 
@@ -417,7 +433,6 @@ pub unsafe fn js_parse_destructuring_element(
                 }
             }
 
-            // #242 label set_val
             set_val!();
         } // while
 
