@@ -460,16 +460,35 @@ pub struct BlockEnv {
     pub prev: *mut BlockEnv,
     /// JS_ATOM_NULL if none
     pub label_name: JSAtom,
+
     /// -1 if none
     pub label_break: i32,
     /// -1 if none
     pub label_cont: i32,
-    /// number of stack elements to drop
-    pub drop_count: i32,
     /// -1 if none
     pub label_finally: i32,
+
+    /// number of stack elements to drop
+    pub drop_count: i32,
     pub scope_level: i32,
     pub has_iterator: bool,
+}
+
+impl Default for BlockEnv {
+    fn default() -> Self {
+        Self {
+            prev: std::ptr::null_mut(),
+            label_name: JS_ATOM_NULL,
+
+            label_break: -1,
+            label_cont: -1,
+            label_finally: -1,
+
+            drop_count: 0,
+            scope_level: 0,
+            has_iterator: false,
+        }
+    }
 }
 
 #[cfg(feature = "short_opcode")]
