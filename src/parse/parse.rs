@@ -14,7 +14,6 @@ use crate::{
 };
 
 use super::{
-    destructing::js_parse_destructuring_element,
     esm::{add_export_entry, js_parse_export},
     function::JSParseFunctionEnum,
     regexp::js_parse_regexp,
@@ -408,17 +407,13 @@ impl JSParseState<'_> {
                     && js_parse_skip_parens_token(self, &mut skip_bits, false) == '=' as i32
                 {
                     self.emit_op(OpCode::UNDEFINED);
-                    if js_parse_destructuring_element(
-                        self,
+                    self.parse_destructuring_element(
                         tok,
                         false,
                         true,
                         skip_bits & SKIP_HAS_ELLIPSIS,
                         true,
-                    ) < 0
-                    {
-                        return Err(-1);
-                    }
+                    )?;
                 } else {
                     self.throw_syntax_error("variable name expected");
                     return Err(-1);

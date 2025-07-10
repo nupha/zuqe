@@ -12,7 +12,6 @@ use crate::{
 use super::{
     array::js_parse_array_literal,
     class::js_parse_class,
-    destructing::js_parse_destructuring_element,
     emit::{OPSpecialObjectEnum, get_prev_opcode},
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
@@ -446,17 +445,13 @@ impl<'s> JSParseState<'s> {
             CHAR_CURLY_L | CHAR_SQUARE_L => unsafe {
                 let mut skip_bits: i32 = 0;
                 if js_parse_skip_parens_token(self, &mut skip_bits, false) == '=' as i32 {
-                    if js_parse_destructuring_element(
-                        self,
+                    self.parse_destructuring_element(
                         0,
                         false,
                         false,
                         (skip_bits & SKIP_HAS_ELLIPSIS != 0) as i32,
                         true,
-                    ) < 0
-                    {
-                        return Err(-1);
-                    }
+                    )?;
                 } else {
                     if self.token.val == b'{' as i32 {
                         self.parse_object_literal()?;

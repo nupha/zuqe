@@ -12,7 +12,6 @@ use crate::{
 };
 
 use super::{
-    destructing::js_parse_destructuring_element,
     emit::js_is_live_code,
     esm::{JSParseExportEnum, add_export_entry},
     parse::{js_parse_skip_parens_token, reparse_ident_token},
@@ -211,24 +210,22 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(idx as _);
                     }
 
-                    let has_initializer = unsafe {
-                        js_parse_destructuring_element(
-                            self,
-                            if fd1.has_parameter_expressions {
-                                TOK_LET
-                            } else {
-                                TOK_VAR
-                            },
-                            true,
-                            true,
-                            -1,
-                            true,
-                        )
-                    };
-                    if has_initializer < 0 {
+                    let has_initializer = if let Ok(b) = self.parse_destructuring_element(
+                        if fd1.has_parameter_expressions {
+                            TOK_LET
+                        } else {
+                            TOK_VAR
+                        },
+                        true,
+                        true,
+                        -1,
+                        true,
+                    ) {
+                        b
+                    } else {
                         fail!();
-                    }
-                    if has_initializer != 0 {
+                    };
+                    if has_initializer {
                         has_opt_arg = true;
                     }
                     if !has_opt_arg {

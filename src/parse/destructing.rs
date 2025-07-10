@@ -30,10 +30,6 @@ impl<'s> JSParseState<'s> {
     ) -> Result<bool, i32> {
         let mut prop_name = JS_ATOM_NULL;
         let mut var_name = JS_ATOM_NULL;
-        let mut opcode: i32 = 0;
-        let mut scope: i32 = 0;
-        let mut tok1: i32 = 0;
-        let mut skip_bits: i32 = 0;
 
         macro_rules! prop_error {
             () => {
@@ -49,6 +45,7 @@ impl<'s> JSParseState<'s> {
             };
         }
 
+        let mut skip_bits: i32 = 0;
         if has_ellipsis < 0 {
             // Pre-parse destructuration target for spread detection
             unsafe {
@@ -75,7 +72,11 @@ impl<'s> JSParseState<'s> {
         }
 
         let assign_addr = self.cur_func().byte_code.len();
+
         let mut label_lvalue = 0_i32;
+        let mut opcode: i32 = 0;
+        let mut scope: i32 = 0;
+        let mut tok1: i32 = 0;
 
         if self.token.val == '{' as i32 {
             self.next_token()?;
@@ -297,12 +298,7 @@ impl<'s> JSParseState<'s> {
                             self.emit_u32(prop_name.0);
                         }
 
-                        if unsafe {
-                            js_parse_destructuring_element(self, tok, is_arg, true, -1, true)
-                        } < 0
-                        {
-                            return Err(-1);
-                        }
+                        self.parse_destructuring_element(tok, is_arg, true, -1, true)?;
 
                         if self.token.val == '}' as i32 {
                             break;

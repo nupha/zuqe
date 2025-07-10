@@ -10,7 +10,6 @@ use crate::{
 
 use super::{
     class::js_parse_class,
-    destructing::js_parse_destructuring_element,
     emit::js_is_live_code,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
@@ -756,9 +755,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
             if s.token.val != TOK_IDENT || s.token.data.is_reserved() {
                 if matches!(s.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) {
                     // XXX: TOK_LET is not completely correct
-                    if js_parse_destructuring_element(s, TOK_LET, false, true, -1, true) < 0 {
-                        return Err(-1);
-                    }
+                    s.parse_destructuring_element(TOK_LET, false, true, -1, true)?;
                 } else {
                     s.throw_syntax_error("identifier expected");
                     return Err(-1);
@@ -1100,13 +1097,11 @@ pub unsafe fn js_parse_for_in_of(
     };
 
     if matches!(tok, TOK_VAR | TOK_LET | TOK_CONST) {
-        (*s).next_token()?;
+        s.next_token()?;
 
         if s.token.val != TOK_IDENT || s.token.data.is_reserved() {
             if s.token.val == '[' as i32 || s.token.val == '{' as i32 {
-                if js_parse_destructuring_element(s, tok, false, true, -1, false) < 0 {
-                    return Err(-1);
-                }
+                s.parse_destructuring_element(tok, false, true, -1, false)?;
                 has_destructuring = true;
             } else {
                 s.throw_syntax_error("variable name expected");
@@ -1144,17 +1139,7 @@ pub unsafe fn js_parse_for_in_of(
                 TOK_IN | TOK_OF
             )
         {
-            if js_parse_destructuring_element(
-                s,
-                0,
-                false,
-                true,
-                skip_bits & SKIP_HAS_ELLIPSIS,
-                true,
-            ) < 0
-            {
-                return Err(-1);
-            }
+            s.parse_destructuring_element(0, false, true, skip_bits & SKIP_HAS_ELLIPSIS, true)?;
         } else {
             s.parse_left_hand_side_expr()?;
 
