@@ -13,7 +13,7 @@ use crate::{
     gc::GCObjectHeader,
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
-        JSPropertyDescriptor, check_define_prop_flags,
+        JSPropertyDescriptor, check_define_prop_flags, js_get_length32,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -38,8 +38,6 @@ pub type StringContentRc = Rc<StringContent>;
 /// - A regular string with dynamic content
 /// - An atom string (interned for efficiency)
 /// - A symbol string (unique identifier)
-#[derive(Debug)]
-#[repr(C)]
 pub struct JSStringInner {
     header: GCObjectHeader,
 
@@ -123,7 +121,7 @@ impl JSStringInner {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JSString(pub(crate) Rc<JSStringInner>);
 
 /// Convert an Rc<JSStringInner> into JSValue
@@ -131,6 +129,13 @@ impl From<JSString> for JSValue {
     #[inline(always)]
     fn from(value: JSString) -> Self {
         Self::String(value)
+    }
+}
+
+impl std::fmt::Debug for JSString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self.content().to_str();
+        write!(f, "{:?}", s.as_ref())
     }
 }
 
@@ -255,6 +260,180 @@ impl JSString {
                 Ok(ctx.create_string_from_content(StringContent::Empty))
             }
         }
+    }
+
+    /// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
+    ///
+    /// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
+    /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
+    /// 返回: 包含替换后的字符串值
+    pub fn get_substitution(
+        ctx: &JSContext,
+        matched: &Self,           // 匹配到的子字符串（对应 $&）
+        str: &Self,               // 原始字符串。
+        position: usize,          // 匹配发生的位置索引
+        captures: &JSValue,       // 命名捕获组对象。（对应 $1, $2 等）
+        named_captures: &JSValue, // 命名捕获组。（对应 $<name>）
+        replacement: &Self,       // 替换字符串或替换函数。
+    ) -> JSResult {
+        let captures_len = if !captures.is_undefined() {
+            js_get_length32(ctx, captures)?
+        } else {
+            0
+        };
+
+        let matched_len = matched.len();
+
+        let rep_len = replacement.len();
+        let rep_cc = replacement.content();
+
+        let mut res_content =
+            StringContent::with_capacity(str.len(), str.is_wide_char()).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+
+        // escape $-patterns in `replacement`
+        let mut i = 0_usize;
+        loop {
+            let mut j = if let Some(x) = rep_cc.find_char('$', i) {
+                if x + 1 >= rep_len {
+                    break;
+                }
+                x as usize
+            } else {
+                break;
+            };
+
+            res_content
+                .push_content_slice(&rep_cc.slice(i..j))
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
+
+            let j0 = j;
+            j += 1;
+            let c = rep_cc.chars().nth(j as usize).unwrap();
+            j += 1;
+
+            match c {
+                '$' => {
+                    // $$ -> $
+                    res_content.push_char(c).map_err(|_| {
+                        ctx.JS_ThrowOutOfMemory();
+                        -1
+                    })?;
+                }
+                '&' => {
+                    // $& -> matched
+                    res_content.push(matched.content()).map_err(|_| {
+                        ctx.JS_ThrowOutOfMemory();
+                        -1
+                    })?;
+                }
+                '`' => {
+                    // $` -> str[0..position]
+                    res_content
+                        .push_content_slice(&str.content().slice(0..position))
+                        .map_err(|_| {
+                            ctx.JS_ThrowOutOfMemory();
+                            -1
+                        })?;
+                }
+                '\'' => {
+                    // $' -> str[position+matched.len()..]
+                    res_content
+                        .push_content_slice(
+                            &str.content().slice((position + matched_len)..str.len()),
+                        )
+                        .map_err(|_| {
+                            ctx.JS_ThrowOutOfMemory();
+                            -1
+                        })?;
+                }
+                '0'..'9' => {
+                    // $k -> captures[k]
+                    let mut k = c as u32 - '0' as u32;
+                    if j < rep_len {
+                        let c1 = rep_cc.chars().nth(j as usize).unwrap();
+                        if c1.is_ascii_digit() {
+                            let k1 = k * 10 + (c1 as u32 - '0' as u32);
+                            if k1 >= 1 && k1 < captures_len {
+                                k = k1;
+                                j += 1;
+                            }
+                        }
+                    }
+
+                    if (1..captures_len).contains(&k) {
+                        let s = captures.get_property_i64(ctx, k as i64).check_exception()?;
+                        if !s.is_undefined() {
+                            let sval = s.coerce_to_string(ctx)?;
+                            res_content
+                                .push(unsafe { sval.string_unchecked().content() })
+                                .map_err(|_| {
+                                    ctx.JS_ThrowOutOfMemory();
+                                    -1
+                                })?;
+                        }
+                    } else {
+                        res_content
+                            .push_content_slice(&rep_cc.slice(j0..j))
+                            .map_err(|_| {
+                                ctx.JS_ThrowOutOfMemory();
+                                -1
+                            })?;
+                    }
+                }
+                '<' if !named_captures.is_undefined() => {
+                    // $<name> -> names_captures[name]
+                    if let Some(k) = rep_cc.find_char('>', j as _) {
+                        let name = replacement.sub_string(ctx, j, k)?;
+                        let capture = named_captures
+                            .get_property_value(ctx, &name)
+                            .check_exception()?;
+                        if !capture.is_undefined() {
+                            let sval = capture.coerce_to_string(ctx)?;
+                            res_content
+                                .push(unsafe { sval.string_unchecked().content() })
+                                .map_err(|_| {
+                                    ctx.JS_ThrowOutOfMemory();
+                                    -1
+                                })?;
+                        }
+                        j = k + 1;
+                    } else {
+                        res_content
+                            .push_content_slice(&rep_cc.slice(j0..j))
+                            .map_err(|_| {
+                                ctx.JS_ThrowOutOfMemory();
+                                -1
+                            })?;
+                    }
+                }
+                _ => {
+                    res_content
+                        .push_content_slice(&rep_cc.slice(j0..j))
+                        .map_err(|_| {
+                            ctx.JS_ThrowOutOfMemory();
+                            -1
+                        })?;
+                }
+            }
+
+            i = j;
+        }
+
+        res_content
+            .push_content_slice(&rep_cc.slice(i..rep_len))
+            .map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+
+        ctx.create_string_from_content(res_content)
+            .check_exception()
     }
 
     pub fn downgrade(&self) -> JSStringWeakref {

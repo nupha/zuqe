@@ -615,15 +615,12 @@ impl StringContent {
     }
 
     /// find index of ch occurance in self, starting at from.
-    pub fn find_char(&self, ch: char, from: u16) -> Option<u16> {
-        let len1 = self.len() as u16;
+    pub fn find_char(&self, ch: char, from: usize) -> Option<usize> {
+        let len1 = self.len();
         if !(0..len1).contains(&from) {
             None
         } else {
-            self.chars()
-                .skip(from as usize)
-                .position(|c| c == ch)
-                .map(|i| i as u16)
+            self.chars().skip(from as usize).position(|c| c == ch)
         }
     }
 

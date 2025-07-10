@@ -219,126 +219,125 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let is_replaceAll = cc.magic();
+    let is_replace_all = cc.magic() != 0;
 
-    // replace(rx, rep)
-    let O = cc.this().clone();
-    let searchValue = cc.arg(0);
-    let replaceValue = cc.arg(1);
-
-    if O.is_undefined_or_null() {
+    let this = cc.this().clone();
+    if this.is_undefined_or_null() {
         ctx.JS_ThrowTypeError("cannot convert to object");
         return Err(-1);
     }
 
-    if !searchValue.is_undefined_or_null() {
-        if is_replaceAll != 0 {
-            if check_regexp_g_flag(ctx, &searchValue) < 0 {
+    let search = cc.arg(0);
+    let replace = cc.arg(1);
+
+    if !search.is_undefined_or_null() {
+        if is_replace_all {
+            if check_regexp_g_flag(ctx, &search) < 0 {
                 return Err(-1);
             }
         }
 
-        let replacer = searchValue
+        let replacer = search
             .get_property(ctx, JS_ATOM_Symbol_replace)
             .check_exception()?;
 
         if !replacer.is_undefined_or_null() {
-            return JS_Call(ctx, &replacer, searchValue, &[O, replaceValue.clone()])
-                .check_exception();
+            return JS_Call(ctx, &replacer, search, &[this, replace.clone()]).check_exception();
         }
     }
 
-    let str = O.coerce_to_string(ctx)?;
-    let search_str = searchValue.coerce_to_string(ctx)?;
+    let str = this.coerce_to_string(ctx)?;
+    let search_str = search.coerce_to_string(ctx)?;
 
-    let functionalReplace = replaceValue.is_callable();
-    let replaceValue_str = if !functionalReplace {
-        replaceValue.coerce_to_string(ctx)?
+    let replace_func = replace.is_callable();
+    let replace_str = if !replace_func {
+        Some(if let JSValue::String(s) = replace.coerce_to_string(ctx)? {
+            s
+        } else {
+            unreachable!()
+        })
     } else {
-        JSValue::UNDEFINED
+        None
     };
 
     let sp = unsafe { str.string_unchecked() };
     let searchp = unsafe { search_str.string_unchecked() };
 
     let mut is_first = true;
-    let mut endOfLastMatch = 0_i32;
+    let mut endOfLastMatch = 0_usize;
     let mut res_string = StringContent::Empty;
 
     loop {
-        let pos = if searchp.is_empty() {
+        let found = if searchp.is_empty() {
             if is_first {
-                0
-            } else if endOfLastMatch >= (*sp).len() as i32 {
-                -1
+                Some(0)
+            } else if endOfLastMatch >= sp.len() {
+                None
             } else {
-                endOfLastMatch + 1
+                Some(endOfLastMatch + 1)
             }
         } else {
-            sp.content()
-                .find(searchp.content(), endOfLastMatch as _)
-                .map_or(-1, |i| i as i32)
+            sp.content().find(searchp.content(), endOfLastMatch as _)
         };
 
-        if pos < 0 {
+        if let Some(pos) = found {
+            // calculate replacement
+            let replacement = {
+                let res = if replace_func {
+                    JS_Call(
+                        ctx,
+                        replace,
+                        &JSValue::UNDEFINED,
+                        &[search_str.clone(), JSValue::from(pos as u32), str.clone()],
+                    )
+                    .check_exception()
+                    .and_then(|v| v.coerce_to_string(ctx))
+                } else {
+                    JSString::get_substitution(
+                        ctx,
+                        searchp,
+                        sp,
+                        pos as usize,
+                        &JSValue::UNDEFINED,
+                        &JSValue::UNDEFINED,
+                        replace_str.as_ref().unwrap(),
+                    )
+                }?;
+
+                if let JSValue::String(s) = res {
+                    s
+                } else {
+                    unreachable!()
+                }
+            };
+
+            res_string
+                .push_content_slice(&sp.content().slice(endOfLastMatch as usize..pos as usize))
+                .map_err(|_| {
+                    ctx.JS_ThrowOutOfMemory();
+                    -1
+                })?;
+            res_string.push(replacement.content()).map_err(|_| {
+                ctx.JS_ThrowOutOfMemory();
+                -1
+            })?;
+
+            endOfLastMatch = pos + searchp.len();
+            is_first = false;
+
+            if !is_replace_all {
+                break;
+            }
+        } else {
             if is_first {
                 return Ok(str);
             } else {
                 break;
             }
         }
-
-        let repl_str = if functionalReplace {
-            JS_Call(
-                ctx,
-                replaceValue,
-                &JSValue::UNDEFINED,
-                &[search_str.clone(), JSValue::Int(pos), str.clone()],
-            )
-            .check_exception()
-        } else {
-            js_string___GetSubstitution(
-                ctx,
-                CallContext::new(
-                    ctx,
-                    JSValue::UNDEFINED,
-                    &[
-                        search_str.clone(),
-                        str.clone(),
-                        JSValue::Int(pos),
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        replaceValue_str.clone(),
-                    ],
-                    0,
-                    None,
-                ),
-            )
-        }?;
-
-        let repl_val = repl_str.coerce_to_string(ctx)?;
-        let repl = unsafe { repl_val.string_unchecked() };
-
-        res_string
-            .push_content_slice(&sp.content().slice(pos as usize..endOfLastMatch as usize))
-            .map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
-                -1
-            })?;
-
-        res_string.push(repl.content()).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
-            -1
-        })?;
-
-        endOfLastMatch = pos + searchp.len() as i32;
-        is_first = false;
-        if is_replaceAll == 0 {
-            break;
-        }
     }
 
-    // remainder of src string
+    // concat remainder part of `str`
     let rem_len = sp.len() - endOfLastMatch as usize;
     if rem_len > 0 {
         res_string
@@ -354,6 +353,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             })?;
     }
 
+    // create result string
     ctx.create_string_from_content(res_string).check_exception()
 }
 
@@ -733,11 +733,18 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     JS_Invoke(ctx, &rx, atom, &[S]).check_exception()
 }
 
-pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let matched = cc.arg(0); // 匹配到的字符串。
+/// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
+///
+/// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
+/// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
+/// 返回: 包含替换后的字符串值
+#[deprecated(note = "use JSString::get_substitution() instead")]
+pub unsafe fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let matched = cc.arg(0); // 正则匹配到的子字符串（对应 $&）
     let str = cc.arg(1); // 原始字符串。
-    let captures = cc.arg(3); // 捕获组，通常是正则表达式匹配的结果。
-    let namedCaptures = cc.arg(4); // 命名捕获组。
+    let position = cc.arg(2).coerce_to_u32(ctx)?; // 匹配发生的位置索引
+    let captures = cc.arg(3); // 命名捕获组对象。（对应 $1, $2 等）
+    let namedCaptures = cc.arg(4); // 命名捕获组。（对应 $<name>）
     let rep = cc.arg(5); // 替换字符串或替换函数。
 
     let sp = unsafe { str.string_unchecked() };
@@ -748,151 +755,170 @@ pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult
         return Err(-1);
     }
 
-    let captures_len = if !captures.is_undefined() {
-        js_get_length32(ctx, captures)?
-    } else {
-        0
-    };
+    JSString::get_substitution(
+        ctx,
+        matched.string_unchecked(),
+        sp,
+        position as _,
+        captures,
+        namedCaptures,
+        rp,
+    )
 
-    let matched_len = js_get_length32(ctx, matched)?;
-    let position = cc.arg(2).coerce_to_u32(ctx)?;
-    let mut res_string =
-        StringContent::with_capacity(sp.len(), sp.is_wide_char()).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
-            -1
-        })?;
+    // let captures_len = if !captures.is_undefined() {
+    //     js_get_length32(ctx, captures)?
+    // } else {
+    //     0
+    // };
 
-    let len = rp.len();
-    let mut i = 0;
-    loop {
-        let mut j = if let Some(x) = rp.content().find_char('$', i) {
-            x
-        } else {
-            break;
-        };
+    // let matched_len = js_get_length32(ctx, matched)?;
+    // let mut res_string =
+    //     StringContent::with_capacity(sp.len(), sp.is_wide_char()).map_err(|_| {
+    //         ctx.JS_ThrowOutOfMemory();
+    //         -1
+    //     })?;
 
-        if j + 1 >= len as u16 {
-            break;
-        }
+    // // 遍历替换字符串 rep，查找 $ 符号
+    // // 根据 $ 后的字符决定替换内容:
+    // //    $$ → 转义为单个 $
+    // //    $& → 插入匹配的子字符串
+    // //    $` → 插入匹配前的子字符串
+    // //    $' → 插入匹配后的子字符串
+    // //    $n → 插入第 n 个捕获组
+    // //    $<name> → 插入命名捕获组
 
-        res_string
-            .push_content_slice(&rp.content().slice(i as usize..j as usize))
-            .map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
-                -1
-            })?;
+    // let len = rp.len();
+    // let mut i = 0;
 
-        let j0 = j;
-        j += 1;
-        let c = rp.content().chars().nth(j as usize).unwrap();
-        j += 1;
+    // loop {
+    //     let mut j = if let Some(x) = rp.content().find_char('$', i) {
+    //         x
+    //     } else {
+    //         break;
+    //     };
 
-        if c == '$' {
-            res_string.push_char(c).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
-                -1
-            })?;
-        } else if c == '&' {
-            let sval = matched.coerce_to_string(ctx)?;
-            res_string
-                .push(unsafe { sval.string_unchecked().content() })
-                .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
-                    -1
-                })?;
-        } else if c == '`' {
-            res_string
-                .push_content_slice(&sp.content().slice(0..position as usize))
-                .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
-                    -1
-                })?;
-        } else if c == '\'' {
-            res_string
-                .push_content_slice(
-                    &sp.content()
-                        .slice((position + matched_len) as usize..sp.len()),
-                )
-                .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
-                    -1
-                })?;
-        } else if c.is_ascii_digit() {
-            let mut k = c as u32 - '0' as u32;
-            if j < len as u16 {
-                let c1 = rp.content().chars().nth(j as usize).unwrap();
-                if c1.is_ascii_digit() {
-                    let k1 = k * 10 + (c1 as u32 - '0' as u32);
-                    if k1 >= 1 && k1 < captures_len {
-                        k = k1;
-                        j += 1;
-                    }
-                }
-            }
+    //     if j + 1 >= len {
+    //         break;
+    //     }
 
-            if k >= 1 && k < captures_len {
-                let s = captures.get_property_i64(ctx, k as i64).check_exception()?;
-                if !s.is_undefined() {
-                    let sval = s.coerce_to_string(ctx)?;
-                    let r = res_string
-                        .push(unsafe { sval.string_unchecked().content() })
-                        .map_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
-                            -1
-                        })?;
-                }
-            } else {
-                res_string
-                    .push_content_slice(&rp.content().slice(j0 as usize..j as usize))
-                    .map_err(|_| {
-                        ctx.JS_ThrowOutOfMemory();
-                        -1
-                    })?;
-            }
-        } else if c == '<' && !namedCaptures.is_undefined() {
-            if let Some(k) = rp.content().find_char('>', j as _) {
-                let name = rp.sub_string(ctx, j as usize, k as usize)?;
-                let capture = namedCaptures
-                    .get_property_value(ctx, &name)
-                    .check_exception()?;
-                if !capture.is_undefined() {
-                    let sval = capture.coerce_to_string(ctx)?;
-                    res_string
-                        .push(unsafe { sval.string_unchecked().content() })
-                        .map_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
-                            -1
-                        })?;
-                }
-                j = k + 1;
-            } else {
-                res_string
-                    .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
-                    .map_err(|_| {
-                        ctx.JS_ThrowOutOfMemory();
-                        -1
-                    })?;
-            }
-        } else {
-            res_string
-                .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
-                .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
-                    -1
-                })?;
-        }
+    //     res_string
+    //         .push_content_slice(&rp.content().slice(i as usize..j as usize))
+    //         .map_err(|_| {
+    //             ctx.JS_ThrowOutOfMemory();
+    //             -1
+    //         })?;
 
-        i = j;
-    }
+    //     let j0 = j;
+    //     j += 1;
+    //     let c = rp.content().chars().nth(j as usize).unwrap();
+    //     j += 1;
 
-    res_string
-        .push_content_slice(&rp.content().slice(i as usize..rp.len()))
-        .map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
-            -1
-        })?;
+    //     if c == '$' {
+    //         res_string.push_char(c).map_err(|_| {
+    //             ctx.JS_ThrowOutOfMemory();
+    //             -1
+    //         })?;
+    //     } else if c == '&' {
+    //         let sval = matched.coerce_to_string(ctx)?;
+    //         res_string
+    //             .push(unsafe { sval.string_unchecked().content() })
+    //             .map_err(|_| {
+    //                 ctx.JS_ThrowOutOfMemory();
+    //                 -1
+    //             })?;
+    //     } else if c == '`' {
+    //         res_string
+    //             .push_content_slice(&sp.content().slice(0..position as usize))
+    //             .map_err(|_| {
+    //                 ctx.JS_ThrowOutOfMemory();
+    //                 -1
+    //             })?;
+    //     } else if c == '\'' {
+    //         res_string
+    //             .push_content_slice(
+    //                 &sp.content()
+    //                     .slice((position + matched_len) as usize..sp.len()),
+    //             )
+    //             .map_err(|_| {
+    //                 ctx.JS_ThrowOutOfMemory();
+    //                 -1
+    //             })?;
+    //     } else if c.is_ascii_digit() {
+    //         let mut k = c as u32 - '0' as u32;
+    //         if j < len as u16 {
+    //             let c1 = rp.content().chars().nth(j as usize).unwrap();
+    //             if c1.is_ascii_digit() {
+    //                 let k1 = k * 10 + (c1 as u32 - '0' as u32);
+    //                 if k1 >= 1 && k1 < captures_len {
+    //                     k = k1;
+    //                     j += 1;
+    //                 }
+    //             }
+    //         }
 
-    ctx.create_string_from_content(res_string).check_exception()
+    //         if k >= 1 && k < captures_len {
+    //             let s = captures.get_property_i64(ctx, k as i64).check_exception()?;
+    //             if !s.is_undefined() {
+    //                 let sval = s.coerce_to_string(ctx)?;
+    //                 let r = res_string
+    //                     .push(unsafe { sval.string_unchecked().content() })
+    //                     .map_err(|_| {
+    //                         ctx.JS_ThrowOutOfMemory();
+    //                         -1
+    //                     })?;
+    //             }
+    //         } else {
+    //             res_string
+    //                 .push_content_slice(&rp.content().slice(j0 as usize..j as usize))
+    //                 .map_err(|_| {
+    //                     ctx.JS_ThrowOutOfMemory();
+    //                     -1
+    //                 })?;
+    //         }
+    //     } else if c == '<' && !namedCaptures.is_undefined() {
+    //         if let Some(k) = rp.content().find_char('>', j as _) {
+    //             let name = rp.sub_string(ctx, j as usize, k as usize)?;
+    //             let capture = namedCaptures
+    //                 .get_property_value(ctx, &name)
+    //                 .check_exception()?;
+    //             if !capture.is_undefined() {
+    //                 let sval = capture.coerce_to_string(ctx)?;
+    //                 res_string
+    //                     .push(unsafe { sval.string_unchecked().content() })
+    //                     .map_err(|_| {
+    //                         ctx.JS_ThrowOutOfMemory();
+    //                         -1
+    //                     })?;
+    //             }
+    //             j = k + 1;
+    //         } else {
+    //             res_string
+    //                 .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
+    //                 .map_err(|_| {
+    //                     ctx.JS_ThrowOutOfMemory();
+    //                     -1
+    //                 })?;
+    //         }
+    //     } else {
+    //         res_string
+    //             .push_content_slice(&(*rp).content().slice(j0 as usize..j as usize))
+    //             .map_err(|_| {
+    //                 ctx.JS_ThrowOutOfMemory();
+    //                 -1
+    //             })?;
+    //     }
+
+    //     i = j;
+    // }
+
+    // res_string
+    //     .push_content_slice(&rp.content().slice(i as usize..rp.len()))
+    //     .map_err(|_| {
+    //         ctx.JS_ThrowOutOfMemory();
+    //         -1
+    //     })?;
+
+    // ctx.create_string_from_content(res_string).check_exception()
 }
 
 pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
