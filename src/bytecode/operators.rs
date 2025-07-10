@@ -3,7 +3,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
-    function::{JSFunctionKindEnum, ObjFunc, JSVarRef, NativeFunctionType},
+    function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
     gc::set_cycle_flag,
     iterator::{
         JS_GetIterator, JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
@@ -124,59 +124,63 @@ pub fn js_op_define_class(
     sframe: &mut StackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {
-    let mut bfunc = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
-    let mut parent_class = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let parent_proto: JSValue;
+    // SP[-1]: bytecode value
+    let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
+    let bc = match bc_val {
+        JSValue::Bytecode(b) => b,
+        JSValue::Object(o) => {
+            todo!("[O.o] could this be an object (bytecode function)?");
+            // o.0.detail
+            //     .borrow()
+            //     .func()
+            //     .and_then(|f| f.bytecode.clone())
+            //     .unwrap();
+        }
+        _ => unreachable!(),
+    };
+    debug_assert_eq!(bc.0.borrow().func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
 
-    if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
+    // SP[-2]: parent class
+    let mut parent_class = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
+    let parent_proto = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
         if parent_class.is_null() {
-            parent_proto = JSValue::NULL;
             parent_class = ctx.0.borrow().function_proto.clone();
+            JSValue::NULL
         } else {
             if !parent_class.is_constructor() {
                 ctx.JS_ThrowTypeError("parent class must be constructor ");
                 return Err(-1);
             }
 
-            parent_proto = parent_class
+            let p = parent_class
                 .get_property(ctx, JS_ATOM_prototype)
                 .check_exception()?;
 
-            if !parent_proto.is_null() && !parent_proto.is_object() {
+            if !matches!(p, JSValue::NULL | JSValue::Object(_)) {
                 ctx.JS_ThrowTypeError("parent prototype must be an object or null");
                 return Err(-1);
             }
+            p
         }
     } else {
-        // parent_class is JSValue::UNDEFINED in this case
-        parent_proto = ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone();
+        // parent_class is undefined
         parent_class = ctx.0.borrow().function_proto.clone();
-    }
+        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone()
+    };
 
     let proto = ctx.create_base_object_with_proto(&parent_proto)?;
 
-    let bc = unsafe {
-        bfunc
-            .object_unchecked()
-            .0
-            .detail
-            .borrow()
-            .func()
-            .and_then(|f| f.bytecode.clone())
-            .unwrap()
-    };
-    debug_assert_eq!(bc.0.borrow().func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
-
-    let mut ctor = ctx
+    // make constructor function
+    let func = ctx
         .create_instance_from_proto(
             &parent_class,
             ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default()),
         )
         .map_err(|_| -1)?;
 
-    ctor = JSValue::Object(bc.make_closure_to(
+    let ctor = JSValue::Object(bc.make_closure_to(
         ctx,
-        if let JSValue::Object(o) = ctor {
+        if let JSValue::Object(o) = func {
             o
         } else {
             unreachable!()
@@ -184,7 +188,6 @@ pub fn js_op_define_class(
         cur_var_refs,
         Some(sframe),
     )?);
-    bfunc = JSValue::UNDEFINED;
 
     js_method_set_home_object(ctx, &ctor, &proto);
     JS_SetConstructorBit(ctx, &ctor, true);
