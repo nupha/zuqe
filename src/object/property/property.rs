@@ -205,7 +205,7 @@ impl Default for JSProperty {
 }
 
 impl JSProperty {
-    /// get property value
+    /// retrive property value
     pub fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSValue {
         match self {
             Self::Normal(val) => val.clone(),
@@ -221,15 +221,15 @@ impl JSProperty {
         }
     }
 
-    /// get realm of an auto init property.
-    /// for other property types, returns None.
-    pub(crate) fn auto_init_realm(&self) -> Option<JSContext> {
-        if let JSProperty::LazyInit { realm, .. } = self {
-            realm.upgrade()
-        } else {
-            None
-        }
-    }
+    // /// get realm of a lazy init property.
+    // /// for other property types, returns None.
+    // pub(crate) fn auto_init_realm(&self) -> Option<JSContext> {
+    //     if let JSProperty::LazyInit { realm, .. } = self {
+    //         realm.upgrade()
+    //     } else {
+    //         None
+    //     }
+    // }
 }
 
 impl JSObject {
@@ -382,58 +382,6 @@ impl JSValue {
         } else {
             Ok(())
         }
-
-        // if let JSValue::Object(src_obj) = source {
-        //     let pexcl = if let JSValue::Object(p) = excluded {
-        //         Some(p)
-        //     } else {
-        //         None
-        //     };
-
-        //     let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
-        //     if src_obj.flags().is_exotic()
-        //         && unsafe {
-        //             ctx.rt().class_defs[src_obj.class_id() as usize]
-        //                 .exotic
-        //                 .as_ref()
-        //         }
-        //         .and_then(|x| x.get_own_property_names)
-        //         .is_some()
-        //     {
-        //         // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
-        //         // introduces a visible change
-        //         gpn_flags &= !JS_GPN_ENUM_ONLY;
-        //     }
-
-        //     src_obj.own_property_names_foreach(ctx, gpn_flags, |cx, name| -> Result<(), i32> {
-        //         if let Some(excl) = pexcl {
-        //             if excl.get_own_property(ctx, name.atom)?.is_some() {
-        //                 return Ok(()); // excluded prop, skip
-        //             }
-        //         }
-
-        //         if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-        //             if let Some(desc) = src_obj.get_own_property(ctx, name.atom)? {
-        //                 if desc.flags & JS_PROP_ENUMERABLE == 0 {
-        //                     return Ok(()); // skip if non enumerable
-        //                 }
-        //             } else {
-        //                 return Ok(()); // skip if prop does not exsit
-        //             }
-        //         }
-
-        //         let val = source.get_property(cx, name.atom).check_exception()?;
-        //         if setprop {
-        //             self.set_property(cx, name.atom, val)?;
-        //         } else {
-        //             self.define_property_value(cx, name.atom, val, JS_PROP_C_W_E)?;
-        //         }
-
-        //         Ok(())
-        //     })
-        // } else {
-        //     Ok(())
-        // }
     }
 }
 
@@ -495,16 +443,4 @@ pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
     obj.get_property(ctx, JS_ATOM_length)
         .check_exception()?
         .coerce_to_length(ctx)
-}
-
-/* Note: the property value is not initialized. Return NULL if memory
-error. */
-#[deprecated(note = "use JSObject::add_property() instead")]
-pub unsafe fn add_property(
-    ctx: &JSContext,
-    p: *mut JSValue,
-    prop: JSAtom,
-    prop_flags: u32,
-) -> *mut JSProperty {
-    unreachable!("unused")
 }

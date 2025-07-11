@@ -3004,3 +3004,15 @@ pub unsafe fn JS_InstantiateFunctionListItem(
 ) -> i32 {
     unreachable!("unused");
 }
+
+/* Note: the property value is not initialized. Return NULL if memory
+error. */
+#[deprecated(note = "use JSObject::add_property() instead")]
+pub unsafe fn add_property(
+    ctx: &JSContext,
+    p: *mut JSValue,
+    prop: JSAtom,
+    prop_flags: u32,
+) -> *mut JSProperty {
+    unreachable!("unused")
+}
