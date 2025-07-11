@@ -40,7 +40,7 @@ pub struct JSForInIterator {
 }
 
 impl JSForInIterator {
-    /// check enumerable properties in prototype chain.
+    /// build property-enumeration-list for current prototype.
     /// returns true if the enumeration is finished.
     pub fn prepare_prototype_chain_enum(&mut self, ctx: &JSContext) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in the prototype chain
@@ -48,12 +48,13 @@ impl JSForInIterator {
         loop {
             match cur_obj.prototype(ctx)? {
                 None => {
-                    return Ok(true); // done
+                    // top of prototype chain, enumeration is done
+                    return Ok(true);
                 }
-                Some(o) => {
-                    cur_obj = o;
+                Some(up) => {
+                    cur_obj = up;
 
-                    // count own property names
+                    // count own property on cur proto
                     let mut props_count: u32 = 0;
                     cur_obj.own_property_names_foreach(
                         ctx,
@@ -69,6 +70,8 @@ impl JSForInIterator {
 
                     // must check for timeout to avoid infinite loop
                     ctx.poll_interrupts()?;
+
+                    // redo on upper prototype
                 }
             }
         }
