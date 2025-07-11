@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
@@ -8,7 +10,7 @@ use crate::{
     iterator::{
         JS_GetIterator, JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
         JSIteratorKindEnum, build_for_in_iterator, js_array_iterator_next,
-        js_create_array_iterator, js_for_in_prepare_prototype_chain_enum,
+        js_create_array_iterator,
     },
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
@@ -442,42 +444,73 @@ pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// enum_obj -> enum_obj value done
 pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
-    let enum_obj = &*sp.offset(-1);
+    let enum_obj = unsafe { &*sp.offset(-1) };
+    debug_assert!(enum_obj.is_object());
 
-    if let Some(ObjectDetail::FOR_IN_ITERATOR(it)) = enum_obj
-        .object()
-        .map(|p| p.0.detail.borrow_mut())
-        .as_deref_mut()
-    {
+    let ob = enum_obj.object_unchecked();
+
+    if let ObjectDetail::FOR_IN_ITERATOR(it) = ob.0.detail.borrow_mut().deref_mut() {
         let mut prop: JSAtom;
 
         loop {
             if it.idx >= it.atom_count {
-                // 当前对象的属性遍历完成，需要查找原型链
                 if it.obj.is_undefined_or_null() {
+                    // current object has no upper prototype
                     std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
                     std::ptr::replace(sp.offset(1), JSValue::Bool(true));
                     return 0;
                 }
 
                 if !it.in_prototype_chain {
-                    let ret = js_for_in_prepare_prototype_chain_enum(ctx, enum_obj);
-                    if ret < 0 {
+                    if let Ok(done) = it.prepare_prototype_chain_enum(ctx) {
+                        for name in it.prop_enums.iter() {
+                            if enum_obj
+                                .define_property_value(
+                                    ctx,
+                                    name.atom,
+                                    JSValue::NULL,
+                                    JS_PROP_ENUMERABLE,
+                                )
+                                .is_err()
+                            {
+                                return -1;
+                            }
+                        }
+
+                        if done {
+                            std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                            std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                            return 0;
+                        } else {
+                            it.in_prototype_chain = true;
+                        }
+                    } else {
                         return -1;
                     }
-                    if ret != 0 {
-                        std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                        std::ptr::replace(sp.offset(1), JSValue::Bool(true));
-                        return 0;
-                    }
-                    it.in_prototype_chain = true;
+
+                    // // FIXME: enum_obj is borrowed mut now, this will panic.
+                    // // move function as JSForInIterator::prepare_prototype_chain_enum()
+                    // let ret = js_for_in_prepare_prototype_chain_enum(ctx, enum_obj);
+                    // if ret < 0 {
+                    //     return -1;
+                    // }
+                    // if ret != 0 {
+                    //     std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                    //     std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                    //     return 0;
+                    // }
+
+                    // it.in_prototype_chain = true;
                 }
 
-                it.obj = if let Ok(o) = it.obj.prototype(ctx) {
-                    o
+                // walk up prototype chain.
+                it.obj = if let Ok(up) = it.obj.prototype(ctx) {
+                    up
                 } else {
                     return -1;
                 };
+
+                // end of prototype chain.
                 if it.obj.is_null() {
                     std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
                     std::ptr::replace(sp.offset(1), JSValue::Bool(true));
@@ -495,19 +528,19 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
                 {
                     it.atom_count = names.len() as _;
-                    it.tab_atom = names;
+                    it.prop_enums = names;
                     it.idx = 0;
                 } else {
                     return -1;
                 }
             } else {
-                // 遍历当前对象的属性
+                // enumerate on props_enum of current it.obj.
                 if it.is_array {
-                    prop = JSAtom::new_u32((*it).idx);
+                    prop = JSAtom::new_u32(it.idx);
                     it.idx += 1;
                 } else {
-                    prop = it.tab_atom[(*it).idx as usize].atom;
-                    let is_enumerable = (*it).tab_atom[(*it).idx as usize].is_enumerable;
+                    prop = it.prop_enums[it.idx as usize].atom;
+                    let is_enumerable = it.prop_enums[it.idx as usize].is_enumerable;
 
                     it.idx += 1;
                     if it.in_prototype_chain {

@@ -36,7 +36,61 @@ pub struct JSForInIterator {
     pub atom_count: u32,
     pub in_prototype_chain: bool,
     pub is_array: bool,
-    pub tab_atom: Box<[PropertyEnum]>,
+    pub prop_enums: Box<[PropertyEnum]>,
+}
+
+impl JSForInIterator {
+    /// check enumerable properties in prototype chain.
+    /// returns true if the enumeration is finished.
+    pub fn prepare_prototype_chain_enum(&mut self, ctx: &JSContext) -> Result<bool, i32> {
+        // fast path: check if there are enumerable properties in the prototype chain
+        let mut cur_obj = unsafe { self.obj.object_unchecked().clone() };
+        loop {
+            match cur_obj.prototype(ctx)? {
+                None => {
+                    return Ok(true); // done
+                }
+                Some(o) => {
+                    cur_obj = o;
+
+                    // count own property names
+                    let mut props_count: u32 = 0;
+                    cur_obj.own_property_names_foreach(
+                        ctx,
+                        JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
+                        |_, _| {
+                            props_count += 1;
+                            Ok(())
+                        },
+                    )?;
+                    if props_count != 0 {
+                        break; // try slow path
+                    }
+
+                    // must check for timeout to avoid infinite loop
+                    ctx.poll_interrupts()?;
+                }
+            }
+        }
+
+        // slow_path
+        if self.is_array {
+            let lst = unsafe {
+                self.obj
+                    .object_unchecked()
+                    .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+            }?;
+            self.is_array = false;
+            self.atom_count = lst.len() as _;
+            self.prop_enums = lst;
+        }
+
+        // for name in it.prop_enums.iter() {
+        //     enum_obj.define_property_value(ctx, name.atom, JSValue::NULL, JS_PROP_ENUMERABLE)?;
+        // }
+
+        Ok(false)
+    }
 }
 
 /// create an Object with two properties: `value` and `done`.
@@ -240,7 +294,7 @@ pub unsafe fn JS_IteratorGetCompleteValue(
 pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, _id: usize) {
     if let ObjectDetail::FOR_IN_ITERATOR(it) = isa {
         if !it.is_array {
-            for x in it.tab_atom.iter() {
+            for x in it.prop_enums.iter() {
                 JS_FreeAtomRT(rt, x.atom);
             }
         }
@@ -268,7 +322,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
         atom_count: 0,
         in_prototype_chain: false,
         is_array: false,
-        tab_atom: Box::new([]),
+        prop_enums: Box::new([]),
     });
 
     if let JSValue::Object(ob) = obj {
@@ -296,7 +350,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
                 ob.get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
             {
                 it.atom_count = names.len() as _;
-                it.tab_atom = names;
+                it.prop_enums = names;
             } else {
                 return JSValue::EXCEPTION;
             }
@@ -312,82 +366,87 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
 }
 
 // return -1 if exception, 0 if slow case, 1 if the enumeration is finished
+#[deprecated(
+    note = "use JSForInIterator::prepare_prototype_chain_enum() + JSObject::define_property() to achieve"
+)]
 pub unsafe fn js_for_in_prepare_prototype_chain_enum(
     ctx: &JSContext,
     enum_obj: &JSValueConst,
 ) -> i32 {
-    let mut isa = enum_obj.object_unchecked().0.detail.borrow_mut();
-    let it = if let ObjectDetail::FOR_IN_ITERATOR(p) = isa.deref_mut() {
-        p
-    } else {
-        unreachable!()
-    };
+    unreachable!("unused");
 
-    // check if there are enumerable properties in the prototype chain (fast path)
-    let mut obj1 = it.obj.clone();
+    // let mut isa = enum_obj.object_unchecked().0.detail.borrow_mut();
+    // let it = if let ObjectDetail::FOR_IN_ITERATOR(p) = isa.deref_mut() {
+    //     p
+    // } else {
+    //     unreachable!()
+    // };
 
-    loop {
-        match obj1.prototype(ctx) {
-            Ok(JSValue::NULL) => {
-                break;
-            }
-            Ok(v) => {
-                obj1 = v;
+    // // check if there are enumerable properties in the prototype chain (fast path)
+    // let mut obj1 = it.obj.clone();
 
-                // count own property names
-                let mut props_count: u32 = 0;
-                let r = obj1.object_unchecked().own_property_names_foreach(
-                    ctx,
-                    JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
-                    |_, _| {
-                        props_count += 1;
-                        Ok(())
-                    },
-                );
-                if r.is_err() {
-                    return -1;
-                }
+    // loop {
+    //     match obj1.prototype(ctx) {
+    //         Ok(JSValue::NULL) => {
+    //             break;
+    //         }
+    //         Ok(v) => {
+    //             obj1 = v;
 
-                if props_count != 0 {
-                    break;
-                }
+    //             // count own property names
+    //             let mut props_count: u32 = 0;
+    //             let r = obj1.object_unchecked().own_property_names_foreach(
+    //                 ctx,
+    //                 JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
+    //                 |_, _| {
+    //                     props_count += 1;
+    //                     Ok(())
+    //                 },
+    //             );
+    //             if r.is_err() {
+    //                 return -1;
+    //             }
 
-                // must check for timeout to avoid infinite loop
-                if ctx.poll_interrupts().is_err() {
-                    return -1;
-                }
-            }
-            Err(_) => {
-                return -1;
-            }
-        }
-    } // loop
+    //             if props_count != 0 {
+    //                 break;
+    //             }
 
-    // slow_path
-    if it.is_array {
-        if let Ok(names) = it
-            .obj
-            .object_unchecked()
-            .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
-        {
-            it.is_array = false;
-            it.atom_count = names.len() as _;
-            it.tab_atom = names;
-        } else {
-            return -1;
-        }
-    }
+    //             // must check for timeout to avoid infinite loop
+    //             if ctx.poll_interrupts().is_err() {
+    //                 return -1;
+    //             }
+    //         }
+    //         Err(_) => {
+    //             return -1;
+    //         }
+    //     }
+    // } // loop
 
-    for name in (*it).tab_atom.iter() {
-        if enum_obj
-            .define_property_value(ctx, name.atom, JSValue::NULL, JS_PROP_ENUMERABLE)
-            .is_err()
-        {
-            return -1;
-        }
-    }
+    // // slow_path
+    // if it.is_array {
+    //     if let Ok(names) = it
+    //         .obj
+    //         .object_unchecked()
+    //         .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+    //     {
+    //         it.is_array = false;
+    //         it.atom_count = names.len() as _;
+    //         it.prop_enums = names;
+    //     } else {
+    //         return -1;
+    //     }
+    // }
 
-    0
+    // for name in (*it).prop_enums.iter() {
+    //     if enum_obj
+    //         .define_property_value(ctx, name.atom, JSValue::NULL, JS_PROP_ENUMERABLE)
+    //         .is_err()
+    //     {
+    //         return -1;
+    //     }
+    // }
+
+    // 0
 }
 
 pub unsafe fn iterator_to_array(ctx: &JSContext, items: &JSValueConst) -> JSValue {

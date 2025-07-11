@@ -27,7 +27,7 @@ use crate::{
 use super::{
     GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
-    JS_PROP_WRITABLE, ObjectDetail, JSProperty, JSShape,
+    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectDetail,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -460,6 +460,23 @@ impl JSObject {
         f(o)
     }
 
+    /// Get prototype object of `self`.
+    /// Return an Object if has prototype, None for no prototype.
+    /// Returns Err in case of Proxy object.
+    pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
+        if self.class_id() == JS_CLASS_PROXY {
+            if let JSValue::Object(o) = unsafe {
+                js_proxy_getPrototypeOf(ctx, &JSValue::Object(self.clone())).check_exception()?
+            } {
+                Ok(Some(o))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(self.shape().and_then(|s| s.0.borrow().proto.clone()))
+        }
+    }
+
     // /// Retrieve associated payload raw pointer, cast to type T.
     // /// If object is not instance of `class_id`, returns None.
     // /// If payload pointer is null, returns None.
@@ -565,17 +582,7 @@ impl JSValue {
     /// Returns Err in case of Proxy object.
     pub fn prototype(&self, ctx: &JSContext) -> JSResult {
         if let Self::Object(ob) = self {
-            if ob.class_id() == JS_CLASS_PROXY {
-                unsafe { js_proxy_getPrototypeOf(ctx, self).check_exception() }
-            } else {
-                Ok(
-                    if let Some(proto) = ob.shape().and_then(|s| s.0.borrow().proto.clone()) {
-                        Self::Object(proto)
-                    } else {
-                        Self::NULL
-                    },
-                )
-            }
+            Ok(ob.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
         } else {
             unsafe { JS_GetPrototypePrimitive(ctx, self).check_exception() }
         }
