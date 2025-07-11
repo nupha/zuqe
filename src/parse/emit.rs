@@ -176,7 +176,7 @@ impl JSFunctionDef {
         self.label_slots[label as usize].pos = self.byte_code.len() as _;
     }
 
-    /// return the label ID offset
+    /// returns the offset to `label`
     pub fn emit_label(&mut self, label: i32, last_line_num: i32) -> i32 {
         if label >= 0 {
             self.emit_op_temp(OpCodeTemp::LABEL, last_line_num);
@@ -192,13 +192,11 @@ impl JSFunctionDef {
     pub fn emit_goto(&mut self, opcode: OpCode, mut label: i32, last_line_num: i32) -> i32 {
         if self.is_live_code() {
             if label < 0 {
-                label = self.add_label().map_or(-1, |x| x as i32);
+                label = self.add_label().unwrap() as i32;
             }
-            debug_assert!(label >= 0);
 
             self.emit_op(opcode, last_line_num);
             self.emit_u32(label as _);
-
             self.label_slots[label as usize].ref_count += 1;
             label
         } else {
@@ -426,8 +424,8 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_label(label, ln)
     }
 
-    /* return label or -1 if dead code */
-    /// emit on current function def
+    /// emit on current function def.
+    /// return label or -1 if dead code.
     #[inline(always)]
     pub fn emit_goto(&mut self, opcode: OpCode, label: i32) -> i32 {
         let ln = self.last_line_num;
