@@ -120,24 +120,25 @@ impl JSContext {
     /// XXX: could support exotic global object.
     pub fn define_global_var_checked(&self, prop: JSAtom, flags: u32) -> Result<(), i32> {
         let gobj = self.global_obj();
+        let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
 
-        if let Some((_, prs_flags)) = gobj.find_shape_property(prop) {
-            // XXX: should handle JS_PROP_AUTOINIT
-            if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
-                if prs_flags & JS_PROP_CONFIGURABLE == 0 {
-                    JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
-                    return Err(-1);
-                }
-            } else {
-                if prs_flags == 0 && !gobj.flags().extensible() {
-                    self.JS_ThrowTypeError(&format!(
-                        "cannot define variable '{}' ",
-                        prop.to_str(self.rt())
-                    ));
-                    return Err(-1);
-                }
+        // XXX: should handle JS_PROP_AUTOINIT
+        if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
+            if prs.map_or(false, |f| f & JS_PROP_CONFIGURABLE == 0) {
+                JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
+                return Err(-1);
+            }
+        } else {
+            if prs.is_none() && !gobj.flags().extensible() {
+                self.JS_ThrowTypeError(&format!(
+                    "cannot define variable '{}' ",
+                    prop.to_str(self.rt())
+                ));
+                return Err(-1);
+            }
 
-                if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
+            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
+                if let Some(prs_flags) = prs {
                     if prs_flags & JS_PROP_CONFIGURABLE == 0
                         && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
                             || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)

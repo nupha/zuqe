@@ -139,7 +139,7 @@ impl JSObject {
         Ok(b)
     }
 
-    /// Find shape property by prop atom.
+    /// Find shape property by prop atom, a.k.a find_own_property().
     /// Returns shape property index and flags if the prop exists.
     /// `prop` is not consumed.
     #[inline]

@@ -24,7 +24,7 @@ use crate::{
         JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
         JS_ThrowReferenceErrorUninitialized2, JS_ThrowSyntaxErrorVarRedeclaration,
     },
-    eval::JS_EVAL_TYPE_DIRECT,
+    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL},
     function::{
         Bytecode, CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal,
         JSFunctionKindEnum, JSVarRef, build_arg_list, js_build_arguments,
