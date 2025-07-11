@@ -276,15 +276,15 @@ fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue
     Ok(())
 }
 
-fn run_test_content(
+fn run_test_script(
     ctx: &JSContext,
-    content: &str,
+    script: &str,
     filename: &Path,
     eval_flags: u32,
     is_async: bool,
 ) -> Result<(), JSValue> {
     let mut ret_val = ctx.eval(
-        CString::new(content).unwrap().as_c_str(),
+        CString::new(script).unwrap().as_c_str(),
         filename.as_os_str().to_str().unwrap(),
         eval_flags,
     );
@@ -454,7 +454,7 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
         .into_iter()
         .filter_map(|s| s)
         {
-            if let Err(exc) = run_test_content(
+            if let Err(exc) = run_test_script(
                 &ctx,
                 content.as_str(),
                 &filename,

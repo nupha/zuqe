@@ -5,7 +5,8 @@ use zhuque::{
     context::JSContext,
     error::{JS_ThrowReferenceError, JSResult},
     eval::{
-        JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_MODULE,
+        JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
+        JS_EVAL_TYPE_MODULE,
     },
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
@@ -75,7 +76,7 @@ fn main() {
                 JS_EVAL_TYPE_MODULE
             } else {
                 JS_EVAL_TYPE_GLOBAL
-            };
+            } | JS_EVAL_FLAG_STRICT;
 
             let r = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
                 // for the modules, we compile then run to be able to set import.meta
