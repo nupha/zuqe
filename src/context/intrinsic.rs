@@ -366,6 +366,23 @@ impl JSContext {
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
+
+        #[cfg(debug_assertions)]
+        {
+            // debug: eval in global mode
+            let eval_func_global = self
+                .create_native_function(NativeFunctionType::Func(js_global_eval), "debugEval", 1, 1)
+                .unwrap();
+
+            self.global_obj()
+                .define_property_value_str(
+                    self,
+                    "debugEval",
+                    eval_func_global,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+        }
     }
 
     /// the `Math` name space.

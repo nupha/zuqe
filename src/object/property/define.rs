@@ -268,6 +268,19 @@ impl JSObject {
         )
     }
 
+    pub fn define_property_value_str(
+        &self,
+        ctx: &JSContext,
+        prop: &str,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let atom = ctx.create_atom(prop)?;
+        let ret = self.define_property_value(ctx, atom, val, flags);
+        JS_FreeAtom(ctx, atom);
+        ret
+    }
+
     /// define property from descriptor object configuration.
     /// `prop` is not consumed.
     pub fn define_property_desc(

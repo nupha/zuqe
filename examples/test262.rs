@@ -463,9 +463,9 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
             ) {
                 debug_assert!(!exc.is_undefined_or_null());
                 println!("EXCEPTION: {:?}", exc);
-                // unsafe {
-                //     exc.object_unchecked().dump(ctx.rt());
-                // }
+                if let JSValue::Object(o) = &exc {
+                    o.dump(ctx.rt());
+                }
 
                 let msg = exc.get_property(&ctx, JS_ATOM_message);
                 let msg = msg.coerce_to_utf8(&ctx).unwrap();

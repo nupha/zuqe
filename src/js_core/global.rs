@@ -2,17 +2,28 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
     context::JSContext,
     error::JSResult,
-    eval::JS_EVAL_TYPE_INDIRECT,
+    eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_INDIRECT},
     function::{CallContext, NativeField},
     number::{js_parseFloat, js_parseInt},
     value::JSValue,
 };
 
 pub fn js_global_eval(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_global = cc.magic() != 0;
+
     // to avoid ctx borrow conflict, fetch global object in advance
     let global = JSValue::Object(ctx.global_obj());
     cc.arg(0)
-        .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
+        .eval_object(
+            ctx,
+            global,
+            if is_global {
+                JS_EVAL_TYPE_GLOBAL
+            } else {
+                JS_EVAL_TYPE_INDIRECT
+            },
+            -1,
+        )
         .check_exception()
 }
 

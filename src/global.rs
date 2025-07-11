@@ -129,7 +129,7 @@ impl JSContext {
                     return Err(-1);
                 }
             } else {
-                if !gobj.flags().extensible() {
+                if prs_flags != 0 && !gobj.flags().extensible() {
                     self.JS_ThrowTypeError(&format!(
                         "cannot define variable '{}' ",
                         prop.to_str(self.rt())

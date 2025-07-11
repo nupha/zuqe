@@ -42,7 +42,7 @@ pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 impl JSContext {
-    /// parse, compile and eval source script.
+    /// parse, compile and eval script source.
     pub(crate) fn eval_script(
         &self,
         this_obj: JSValue,
