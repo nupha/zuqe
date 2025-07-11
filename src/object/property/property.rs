@@ -191,7 +191,7 @@ pub enum JSProperty {
     },
     VarRef(JSVarRef),
     /// TODO: use Box<PropertyInit> instead
-    AutoInit {
+    LazyInit {
         realm: JSContextWeakref,
         init_type: LazyInit,
         opaque: *mut c_void,
@@ -217,14 +217,14 @@ impl JSProperty {
                 }
             }
             Self::VarRef(vref) => vref.value(),
-            Self::AutoInit { .. } => JSValue::UNDEFINED,
+            Self::LazyInit { .. } => JSValue::UNDEFINED,
         }
     }
 
     /// get realm of an auto init property.
     /// for other property types, returns None.
     pub(crate) fn auto_init_realm(&self) -> Option<JSContext> {
-        if let JSProperty::AutoInit { realm, .. } = self {
+        if let JSProperty::LazyInit { realm, .. } = self {
             realm.upgrade()
         } else {
             None

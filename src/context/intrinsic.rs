@@ -19,7 +19,7 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{JS_NATIVE_ERROR_COUNT, JSErrorEnum, JSResult, NATIVE_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeFieldDef, NativeFunctionType,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
         js_async_function_proto_funcs,
     },
     generator::{
@@ -32,6 +32,7 @@ use crate::{
         error::js_error_constructor,
         function::js_function_proto_funcs,
         global::{js_global_eval, js_global_props},
+        math::js_math_obj,
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
@@ -114,11 +115,11 @@ impl JSContext {
             )
             .unwrap();
         obj_ctor
-            .install_property_entries(self, &js_object_funcs)
+            .install_native_fields(self, &js_object_funcs)
             .unwrap();
 
         self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
-            .install_property_entries(self, &js_object_proto_funcs)
+            .install_native_fields(self, &js_object_proto_funcs)
             .unwrap();
     }
 
@@ -126,7 +127,7 @@ impl JSContext {
         self.0
             .borrow()
             .function_proto
-            .install_property_entries(self, &js_function_proto_funcs)
+            .install_native_fields(self, &js_function_proto_funcs)
             .unwrap();
 
         let function_ctor = self
@@ -181,7 +182,7 @@ impl JSContext {
 
     unsafe fn intrinsic_array(&self) {
         self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-            .install_property_entries(self, &js_array_proto_funcs)
+            .install_native_fields(self, &js_array_proto_funcs)
             .unwrap();
 
         let array_ctor = self
@@ -194,7 +195,7 @@ impl JSContext {
             )
             .unwrap();
         array_ctor
-            .install_property_entries(self, &js_array_funcs)
+            .install_native_fields(self, &js_array_funcs)
             .unwrap();
         self.0.borrow_mut().array_ctor = array_ctor;
 
@@ -232,7 +233,7 @@ impl JSContext {
             .create_base_object_with_proto(&self.0.borrow().iterator_proto)
             .unwrap();
         array_iter
-            .install_property_entries(self, &js_array_iterator_proto_funcs)
+            .install_native_fields(self, &js_array_iterator_proto_funcs)
             .unwrap();
 
         // needed to initialize arguments[Symbol.iterator]
@@ -263,14 +264,14 @@ impl JSContext {
             )
             .unwrap();
         number_proto
-            .install_property_entries(self, &js_number_proto_funcs)
+            .install_native_fields(self, &js_number_proto_funcs)
             .unwrap();
 
         let number_ctor = self
             .create_global_constructor("Number", js_number_constructor, 1, &number_proto, 0)
             .unwrap();
         number_ctor
-            .install_property_entries(self, &js_number_funcs)
+            .install_native_fields(self, &js_number_funcs)
             .unwrap();
 
         self.0.borrow_mut().class_proto[JS_CLASS_NUMBER as usize] = number_proto;
@@ -285,7 +286,7 @@ impl JSContext {
             .unwrap();
 
         bool_proto
-            .install_property_entries(self, &js_boolean_proto_funcs)
+            .install_native_fields(self, &js_boolean_proto_funcs)
             .unwrap();
 
         self.create_global_constructor("Boolean", js_boolean_constructor, 1, &bool_proto, 0)
@@ -308,21 +309,21 @@ impl JSContext {
             .unwrap();
 
         string_proto
-            .install_property_entries(self, &js_string_proto_funcs)
+            .install_native_fields(self, &js_string_proto_funcs)
             .unwrap();
 
         let string_ctor = self
             .create_global_constructor("String", js_string_constructor, 1, &string_proto, 0)
             .unwrap();
         string_ctor
-            .install_property_entries(self, &js_string_funcs)
+            .install_native_fields(self, &js_string_funcs)
             .unwrap();
 
         let string_iter = self
             .create_base_object_with_proto(&self.0.borrow().iterator_proto)
             .unwrap();
         string_iter
-            .install_property_entries(self, &js_string_iterator_proto_funcs)
+            .install_native_fields(self, &js_string_iterator_proto_funcs)
             .unwrap();
 
         self.0.borrow_mut().class_proto[JS_CLASS_STRING as usize] = string_proto;
@@ -367,12 +368,22 @@ impl JSContext {
             .unwrap();
     }
 
+    /// the `Math` name space.
+    pub unsafe fn intrinsic_math(&self) {
+        self.0.borrow_mut().init_random_seed();
+        self.0
+            .borrow()
+            .global_obj
+            .install_native_fields(self, &js_math_obj)
+            .unwrap();
+    }
+
     /// create global object
-    pub fn intrinsic_global_object(&self, fields: &[NativeFieldDef]) {
+    pub fn intrinsic_global_object(&self, fields: &[NativeField]) {
         let global = self.create_base_object().unwrap();
 
         // define global fields
-        global.install_property_entries(self, fields).unwrap();
+        global.install_native_fields(self, fields).unwrap();
 
         // define prop `globalThis`
         // Note: global object is self referenced here.
@@ -412,15 +423,6 @@ impl JSContext {
             self.intrinsic_number(); // Number
             self.intrinsic_boolean(); // Boolean
             self.intrinsic_string(); // String
-
-            // Math: create as autoinit object
-            // js_random_init(ctx);
-            // JS_SetPropertyFunctionList(
-            //     ctx,
-            //     ctx.global_obj,
-            //     js_math_obj.as_ptr(),
-            //     std::mem::size_of_val(js_math_obj) / std::mem::size_of::<JSFunction>(),
-            // );
 
             // ES6 Reflect: create as autoinit object
             // JS_SetPropertyFunctionList(
@@ -514,7 +516,7 @@ impl JSContext {
         {
             let ab_proto = self.create_base_object().unwrap();
             ab_proto
-                .install_property_entries(self, &js_array_buffer_proto_funcs)
+                .install_native_fields(self, &js_array_buffer_proto_funcs)
                 .unwrap();
 
             let ab_func = self
@@ -527,7 +529,7 @@ impl JSContext {
                 )
                 .unwrap();
             ab_func
-                .install_property_entries(self, &js_array_buffer_funcs)
+                .install_native_fields(self, &js_array_buffer_funcs)
                 .unwrap();
 
             self.0.borrow_mut().class_proto[JS_CLASS_ARRAY_BUFFER as usize] = ab_proto;
@@ -537,7 +539,7 @@ impl JSContext {
         {
             let sab_proto = self.create_base_object().unwrap();
             sab_proto
-                .install_property_entries(self, &js_shared_array_buffer_proto_funcs)
+                .install_native_fields(self, &js_shared_array_buffer_proto_funcs)
                 .unwrap();
 
             let sab_func = self
@@ -550,7 +552,7 @@ impl JSContext {
                 )
                 .unwrap();
             sab_func
-                .install_property_entries(self, &js_shared_array_buffer_funcs)
+                .install_native_fields(self, &js_shared_array_buffer_funcs)
                 .unwrap();
 
             self.0.borrow_mut().class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = sab_proto;
@@ -561,7 +563,7 @@ impl JSContext {
             let typed_array_base_proto = self.create_base_object().unwrap();
 
             typed_array_base_proto
-                .install_property_entries(self, &js_typed_array_base_proto_funcs)
+                .install_native_fields(self, &js_typed_array_base_proto_funcs)
                 .unwrap();
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
@@ -587,7 +589,7 @@ impl JSContext {
                 )
                 .unwrap();
             typed_array_base_func
-                .install_property_entries(self, &js_typed_array_base_funcs)
+                .install_native_fields(self, &js_typed_array_base_funcs)
                 .unwrap();
             JS_SetConstructor(self, &typed_array_base_func, &typed_array_base_proto);
 
@@ -638,7 +640,7 @@ impl JSContext {
         {
             let dv_proto = self.create_base_object().unwrap();
             dv_proto
-                .install_property_entries(self, &js_dataview_proto_funcs)
+                .install_native_fields(self, &js_dataview_proto_funcs)
                 .unwrap();
 
             let dv_ctor = self
@@ -663,7 +665,7 @@ impl JSContext {
         {
             let promise_proto = self.create_base_object().unwrap();
             promise_proto
-                .install_property_entries(self, &js_promise_proto_funcs)
+                .install_native_fields(self, &js_promise_proto_funcs)
                 .unwrap();
 
             let promise_ctor = self
@@ -675,7 +677,7 @@ impl JSContext {
                 )
                 .unwrap();
             promise_ctor
-                .install_property_entries(self, &js_promise_funcs)
+                .install_native_fields(self, &js_promise_funcs)
                 .unwrap();
             self.add_global_constructor("Promise", &promise_ctor, &promise_proto);
 
@@ -691,7 +693,7 @@ impl JSContext {
                 .create_base_object_with_proto(&self.0.borrow().function_proto)
                 .unwrap();
             af_proto
-                .install_property_entries(self, &js_async_function_proto_funcs)
+                .install_native_fields(self, &js_async_function_proto_funcs)
                 .unwrap();
 
             let af_ctor = self
@@ -712,7 +714,7 @@ impl JSContext {
         {
             let aiter_proto = self.create_base_object().unwrap();
             aiter_proto
-                .install_property_entries(self, &js_async_iterator_proto_funcs)
+                .install_native_fields(self, &js_async_iterator_proto_funcs)
                 .unwrap();
             self.0.borrow_mut().async_iterator_proto = aiter_proto;
         }
@@ -723,7 +725,7 @@ impl JSContext {
                 .create_base_object_with_proto(&self.0.borrow().async_iterator_proto)
                 .unwrap();
             asiter_proto
-                .install_property_entries(self, &js_async_from_sync_iterator_proto_funcs)
+                .install_native_fields(self, &js_async_from_sync_iterator_proto_funcs)
                 .unwrap();
 
             self.0.borrow_mut().class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize] =
@@ -737,7 +739,7 @@ impl JSContext {
                 .create_base_object_with_proto(&self.0.borrow().async_iterator_proto)
                 .unwrap();
             agen_proto
-                .install_property_entries(self, &js_async_generator_proto_funcs)
+                .install_native_fields(self, &js_async_generator_proto_funcs)
                 .unwrap();
 
             // AsyncGeneratorFunction
@@ -745,7 +747,7 @@ impl JSContext {
                 .create_base_object_with_proto(&self.0.borrow().function_proto)
                 .unwrap();
             agf_proto
-                .install_property_entries(self, &js_async_generator_function_proto_funcs)
+                .install_native_fields(self, &js_async_generator_function_proto_funcs)
                 .unwrap();
 
             // let agf_ctor = JS_NewCFunction3(

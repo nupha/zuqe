@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
-    function::{NativeFieldDef, NativeFieldDetail},
+    function::{NativeField, NativeFieldDetail},
     module::ModuleDef,
     object::{
         JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -24,7 +24,7 @@ pub enum LazyInit {
     /// Build module namespace object
     ModuleNS(ModuleDef),
     /// Build base object installed with given entries.
-    Prop(NonNull<NativeFieldDef>),
+    Prop(NonNull<NativeField>),
 }
 
 impl LazyInit {
@@ -55,7 +55,7 @@ impl LazyInit {
                     NativeFieldDetail::Str(s) => ctx.create_atom_string(s)?,
                     NativeFieldDetail::Object(list) => {
                         let obj = ctx.create_base_object()?;
-                        obj.install_property_entries(ctx, &list)?;
+                        obj.install_native_fields(ctx, list.as_ref())?;
                         obj
                     }
                     _ => {
@@ -98,7 +98,7 @@ impl JSProperty {
         prop: JSAtom,
         this_obj: &JSObject,
     ) -> JSResult {
-        if let JSProperty::AutoInit {
+        if let JSProperty::LazyInit {
             realm,
             init_type,
             opaque,
@@ -142,7 +142,7 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        init_type: LazyInit,
+        lazy_init: LazyInit,
         flags: u32,
     ) -> Result<(), i32> {
         debug_assert!(
@@ -157,8 +157,8 @@ impl JSObject {
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_AUTOINIT,
             |pr| {
-                *pr = JSProperty::AutoInit {
-                    init_type,
+                *pr = JSProperty::LazyInit {
+                    init_type: lazy_init,
                     realm: ctx.downgrade(),
                     opaque: std::ptr::null_mut(),
                 };
@@ -174,7 +174,7 @@ pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
 
 #[deprecated(note = "use JSProperty::realm() instead")]
 pub unsafe fn js_autoinit_get_realm(pr: &JSProperty) -> JSContext {
-    if let JSProperty::AutoInit { realm, .. } = pr {
+    if let JSProperty::LazyInit { realm, .. } = pr {
         realm.upgrade().unwrap()
     } else {
         unreachable!()

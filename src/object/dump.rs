@@ -166,7 +166,7 @@ impl JSObject {
                         JSProperty::VarRef(vref) => {
                             print!("[varref {:p}", vref.value_ptr())
                         }
-                        JSProperty::AutoInit {
+                        JSProperty::LazyInit {
                             realm,
                             init_type,
                             opaque,

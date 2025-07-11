@@ -15,6 +15,14 @@ pub(crate) fn is_safe_integer(d: f64) -> bool {
     f64::is_finite(d) && d.floor() == d && d.abs() <= MAX_SAFE_INTEGER as f64
 }
 
+/// TODO: use this enum to represent an int or float.
+/// XXX
+#[derive(Debug, Clone, Copy)]
+pub enum IntOrFloat {
+    Int32(i32),
+    Float64(f64),
+}
+
 #[derive(Clone, Copy)]
 pub(crate) union JSFloat64Union {
     pub d: f64,
@@ -169,7 +177,7 @@ impl JSValue {
     }
 
     /// Convert value to number value.
-    /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
+    /// returns Int or Float64 (could be NaN) value.
     #[inline(always)]
     pub fn coerce_to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         self.coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)

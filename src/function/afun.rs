@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{CallContext, JS_Call, NativeFieldDef};
+use super::{CallContext, JS_Call, NativeField};
 
 /// An async function object
 #[repr(transparent)]
@@ -197,7 +197,7 @@ pub fn js_async_function_resolve_call(
     Ok(JSValue::UNDEFINED)
 }
 
-pub const js_async_function_proto_funcs: [NativeFieldDef; 1] = [JS_PROP_STRING_DEF!(
+pub const js_async_function_proto_funcs: [NativeField; 1] = [JS_PROP_STRING_DEF!(
     "[Symbol.toStringTag]",
     "AsyncFunction",
     JS_PROP_CONFIGURABLE

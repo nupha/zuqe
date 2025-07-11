@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Invoke, NativeFieldDef},
+    function::{CallContext, JS_Invoke, NativeField},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
@@ -342,7 +342,7 @@ pub unsafe fn js_object___lookupGetter__(
     res
 }
 
-pub const js_object_proto_funcs: [NativeFieldDef; 7] = [
+pub const js_object_proto_funcs: [NativeField; 7] = [
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_object_toString, 0),
     JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_object_toLocaleString, 0),
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_object_valueOf, 0),

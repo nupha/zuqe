@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_OBJECT,
     context::JSContext,
-    function::{ObjAsyncState, Bytecode, JSVarRef, VarRefState},
+    function::{Bytecode, JSVarRef, ObjAsyncState, VarRefState},
     module::{JSExportTypeEnum, ModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
     string::JSString,
@@ -71,7 +71,7 @@ impl JSProperty {
                     },
                 }
             }
-            JSProperty::AutoInit { init_type, .. } => match init_type {
+            JSProperty::LazyInit { init_type, .. } => match init_type {
                 LazyInit::ModuleNS(m) => {
                     m.gc_mark();
                 }
@@ -103,7 +103,7 @@ impl JSProperty {
                     },
                 }
             }
-            JSProperty::AutoInit { init_type, .. } => match init_type {
+            JSProperty::LazyInit { init_type, .. } => match init_type {
                 LazyInit::ModuleNS(m) => {
                     m.gc_sweep();
                 }

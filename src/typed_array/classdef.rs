@@ -17,7 +17,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, JS_Call, JS_CallConstructor, NativeFieldDef},
+    function::{CallContext, JS_Call, JS_CallConstructor, NativeField},
     iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
     number::JSFloat64Union,
@@ -280,7 +280,7 @@ pub fn js_typed_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub const js_typed_array_base_funcs: [NativeFieldDef; 3] = [
+pub const js_typed_array_base_funcs: [NativeField; 3] = [
     JS_CFUNC_NATIVE_DEF!("from", 1, js_typed_array_from, 0),
     JS_CFUNC_NATIVE_DEF!("of", 0, js_typed_array_of, 0),
     JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
@@ -1148,7 +1148,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     })
 }
 
-pub const js_typed_array_base_proto_funcs: [NativeFieldDef; 36] = [
+pub const js_typed_array_base_proto_funcs: [NativeField; 36] = [
     JS_CGETSET_DEF!("length", js_typed_array_get_length, NONE),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_typed_array_at, 0),
     JS_CFUNC_NATIVE_DEF!("with", 2, js_typed_array_with, 0),

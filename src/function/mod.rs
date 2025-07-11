@@ -7,8 +7,8 @@ mod bytecode;
 mod call;
 mod closure;
 mod cpool;
-mod entries;
 mod fdef;
+mod fields;
 mod fun;
 mod label;
 mod mkbc;
@@ -23,7 +23,7 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, closure::*,
-    entries::*, fdef::*, fun::*, label::*, native::*, optimize::*, resolve_labels::*,
-    resolve_vars::*, scope::*, stack::*, var::*, var_ref::*,
+    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, closure::*, fdef::*,
+    fields::*, fun::*, label::*, native::*, optimize::*, resolve_labels::*, resolve_vars::*,
+    scope::*, stack::*, var::*, var_ref::*,
 };

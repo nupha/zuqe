@@ -5,7 +5,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Call, NativeFieldDef, ObjAsyncState},
+    function::{CallContext, JS_Call, NativeField, ObjAsyncState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
     promise::{Promise, js_promise_resolve},
@@ -600,14 +600,14 @@ pub fn js_iterator_proto_iterator(ctx: &JSContext, cc: CallContext) -> JSResult 
     Ok(cc.this().clone())
 }
 
-pub const js_async_iterator_proto_funcs: [NativeFieldDef; 1] = [JS_CFUNC_NATIVE_DEF!(
+pub const js_async_iterator_proto_funcs: [NativeField; 1] = [JS_CFUNC_NATIVE_DEF!(
     "[Symbol.asyncIterator]",
     0,
     js_iterator_proto_iterator,
     0
 )];
 
-pub const js_async_generator_proto_funcs: [NativeFieldDef; 4] = [
+pub const js_async_generator_proto_funcs: [NativeField; 4] = [
     JS_CFUNC_NATIVE_DEF!("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
     JS_CFUNC_NATIVE_DEF!("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
     JS_CFUNC_NATIVE_DEF!("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
@@ -618,7 +618,7 @@ pub const js_async_generator_proto_funcs: [NativeFieldDef; 4] = [
     ),
 ];
 
-pub const js_async_generator_function_proto_funcs: [NativeFieldDef; 1] = [JS_PROP_STRING_DEF!(
+pub const js_async_generator_function_proto_funcs: [NativeField; 1] = [JS_PROP_STRING_DEF!(
     "[Symbol.toStringTag]",
     "AsyncGeneratorFunction",
     JS_PROP_CONFIGURABLE

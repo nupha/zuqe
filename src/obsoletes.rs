@@ -14,8 +14,8 @@ use crate::{
     error::{JS_ThrowRangeError, JSResult},
     function::{
         Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
-        JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeFunctionType,
-        ObjAsyncState, ObjNativeFunc, RelocEntry, js_function_set_properties,
+        JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeField,
+        NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry, js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::ObjAsyncGenerator,
@@ -2981,4 +2981,26 @@ pub unsafe fn js_parse_destructuring_element(
 pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
     (*s).parse_destructuring_var(tok, is_arg)
         .unwrap_or(JS_ATOM_NULL)
+}
+
+#[deprecated(note = "use JSValue::install_native_field_entry() instead")]
+pub unsafe fn JS_SetPropertyFunctionList(
+    ctx: &JSContext,
+    obj: &JSValueConst,
+    tab: *const NativeField,
+    len: usize,
+) {
+    unreachable!("unused");
+    // obj.install_property_entries(ctx, std::slice::from_raw_parts(tab, len))
+    //     .unwrap();
+}
+
+#[deprecated(note = "use JSValue::install_native_fields() instead")]
+pub unsafe fn JS_InstantiateFunctionListItem(
+    ctx: &JSContext,
+    obj: &JSValueConst,
+    atom: JSAtom,
+    e: *const NativeField,
+) -> i32 {
+    unreachable!("unused");
 }

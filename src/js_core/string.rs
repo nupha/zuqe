@@ -8,9 +8,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
-    function::{
-        CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, NativeFieldDef,
-    },
+    function::{CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, NativeField},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, js_get_length64},
     regexp::js_is_regexp,
@@ -913,7 +911,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_content(sc).check_exception()
 }
 
-pub const js_string_proto_funcs: [NativeFieldDef; 37] = [
+pub const js_string_proto_funcs: [NativeField; 37] = [
     JS_PROP_INT32_DEF!("length", 0, JS_PROP_CONFIGURABLE),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_string_charAt, 1),
     JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_charCodeAt, 0),
@@ -1005,7 +1003,7 @@ pub fn js_string_iterator_next(
     }
 }
 
-pub const js_string_iterator_proto_funcs: [NativeFieldDef; 2] = [
+pub const js_string_iterator_proto_funcs: [NativeField; 2] = [
     JS_NATIVE_ITERATOR_NEXT_DEF!("next", 0, js_string_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         "[Symbol.toStringTag]",
@@ -1093,7 +1091,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_content(res_string).check_exception()
 }
 
-pub const js_string_funcs: [NativeFieldDef; 3] = [
+pub const js_string_funcs: [NativeField; 3] = [
     JS_CFUNC_NATIVE_DEF!("fromCharCode", 1, js_string_fromCharCode, 0),
     JS_CFUNC_NATIVE_DEF!("fromCodePoint", 1, js_string_fromCodePoint, 0),
     JS_CFUNC_NATIVE_DEF!("raw", 1, js_string_raw, 0),

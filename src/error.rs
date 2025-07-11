@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
-    function::{Bytecode, CallContext, NativeFieldDef, get_func_name},
+    function::{Bytecode, CallContext, NativeField, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectDetail,
     },
@@ -441,7 +441,7 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     unsafe { JS_ConcatString(ctx, name, msg).check_exception() }
 }
 
-pub const js_error_proto_funcs: [NativeFieldDef; 3] = [
+pub const js_error_proto_funcs: [NativeField; 3] = [
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_error_toString, 0),
     JS_PROP_STRING_DEF!("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     JS_PROP_STRING_DEF!("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),

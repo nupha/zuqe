@@ -5,6 +5,7 @@ use std::{
     pin::Pin,
     ptr::{self, NonNull},
     rc::{Rc, Weak},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -179,6 +180,17 @@ impl JSContextInner {
     #[inline(always)]
     pub fn rt_mut(&mut self) -> &mut JSRuntime {
         unsafe { self.rt.as_mut() }
+    }
+
+    /// initialize random state
+    pub fn init_random_seed(&mut self) {
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        // seed must not be zero.
+        self.random_state = if seed != 0 { seed } else { 1 };
     }
 
     fn gc_dump(&self, rt: &JSRuntime) {
@@ -363,7 +375,7 @@ impl JSContext {
             self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = err_proto.clone();
 
             err_proto
-                .install_property_entries(self, &js_error_proto_funcs)
+                .install_native_fields(self, &js_error_proto_funcs)
                 .unwrap();
 
             // standard Errors
@@ -562,6 +574,9 @@ impl JSRuntime {
             ctx.intrinsic_base_objects();
             ctx.intrinsic_async();
             ctx.intrinsic_typed_arrays();
+
+            // Math: lazy init object
+            ctx.intrinsic_math();
         }
 
         Ok(ctx)

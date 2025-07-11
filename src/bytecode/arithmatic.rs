@@ -132,7 +132,7 @@ impl TwoNumbers {
                 }
             }
             TwoNumbers::Float(a, b) => {
-                if b.is_infinite() && a.abs() == 1.0 {
+                if !b.is_finite() && a.abs() == 1.0 {
                     // not compatible with IEEE 754
                     JSValue::Float64(f64::NAN)
                 } else {

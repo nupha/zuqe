@@ -288,7 +288,7 @@ impl JSObject {
                         Ok(true)
                     }
                 }
-                JSProperty::AutoInit { .. } => {
+                JSProperty::LazyInit { .. } => {
                     unreachable!();
                 }
             }

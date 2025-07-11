@@ -10,7 +10,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowStackOverflow, JSResult},
     function::{
-        CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke, NativeFieldDef,
+        CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke, NativeField,
     },
     iterator::{
         JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_array_iterator_next,
@@ -1315,7 +1315,7 @@ fn JS_FlattenIntoArray(
     Ok(target_index)
 }
 
-pub const js_array_proto_funcs: [NativeFieldDef; 39] = [
+pub const js_array_proto_funcs: [NativeField; 39] = [
     JS_CFUNC_NATIVE_DEF!("at", 1, js_array_at, 0),
     JS_CFUNC_NATIVE_DEF!("with", 2, js_array_with, 0),
     JS_CFUNC_NATIVE_DEF!("concat", 1, js_array_concat, 0),
@@ -1382,7 +1382,7 @@ pub const js_array_proto_funcs: [NativeFieldDef; 39] = [
     ),
 ];
 
-pub const js_array_iterator_proto_funcs: [NativeFieldDef; 2] = [
+pub const js_array_iterator_proto_funcs: [NativeField; 2] = [
     JS_NATIVE_ITERATOR_NEXT_DEF!("next", 0, js_array_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         "[Symbol.toStringTag]",
@@ -1520,7 +1520,7 @@ pub fn js_array_isArray(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_array(ctx)?))
 }
 
-pub const js_array_funcs: [NativeFieldDef; 4] = [
+pub const js_array_funcs: [NativeField; 4] = [
     JS_CFUNC_NATIVE_DEF!("isArray", 1, js_array_isArray, 0),
     JS_CFUNC_NATIVE_DEF!("from", 1, js_array_from, 0),
     JS_CFUNC_NATIVE_DEF!("of", 0, js_array_of, 0),

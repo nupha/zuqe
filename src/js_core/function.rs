@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        CallContext, JS_Call, JSFunctionKindEnum, NativeFieldDef, ObjBoundFunc, js_function_apply,
+        CallContext, JS_Call, JSFunctionKindEnum, NativeField, ObjBoundFunc, js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectDetail},
     string::JS_ConcatString3,
@@ -193,7 +193,7 @@ pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResul
     }
 }
 
-pub const js_function_proto_funcs: [NativeFieldDef; 7] = [
+pub const js_function_proto_funcs: [NativeField; 7] = [
     JS_CFUNC_NATIVE_DEF!("call", 1, js_function_call, 0),
     JS_CFUNC_NATIVE_DEF!("apply", 2, js_function_apply, 0),
     JS_CFUNC_NATIVE_DEF!("bind", 1, js_function_bind, 0),
