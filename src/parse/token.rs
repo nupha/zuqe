@@ -271,22 +271,30 @@ impl<'s> JSParseState<'s> {
                 '\\' => unsafe {
                     state = Some(State::DefaultToken('\\'));
 
-                    if *p.add(1) == b'u' {
+                    let bad = if *p.add(1) == b'u' {
                         let mut p1 = p.add(1);
-                        let cp = self.parse_string_escape(&mut p1, 1)?;
-                        if let Some(c1) = char::from_u32(cp) {
-                            if Self::is_ident_first(c1) {
-                                p = p1;
-                                state = Some(State::HasIdent(c1));
+                        if let Ok(cp) = self.parse_string_escape(&mut p1, 1) {
+                            if let Some(c1) = char::from_u32(cp) {
+                                if Self::is_ident_first(c1) {
+                                    p = p1;
+                                    state = Some(State::HasIdent(c1));
+                                    false
+                                } else {
+                                    true
+                                }
                             } else {
-                                // syntax error?
-                                self.throw_syntax_error("syntax error");
-                                return Err(-1);
+                                true
                             }
                         } else {
-                            self.throw_syntax_error("syntax error");
-                            return Err(-1);
+                            true
                         }
+                    } else {
+                        false
+                    };
+
+                    if bad {
+                        self.throw_syntax_error("Invalid Unicode escape sequence");
+                        return Err(-1);
                     }
                 },
                 ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => unsafe {
