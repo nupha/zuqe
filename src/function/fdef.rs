@@ -115,7 +115,7 @@ pub struct JSFunctionDef {
     pub this_active_func_var_idx: Option<u16>,
     /// `home`
     pub home_object_var_idx: Option<u16>,
-    /// `arguments` variable
+    /// `arguments` variable. could be Arguments or MappedArguments
     pub arguments_var_idx: Option<u16>,
     /// `arguments` in arg section
     pub arguments_arg_idx: Option<u16>,

@@ -354,19 +354,18 @@ impl Bytecode {
                     OpCode::SPECIAL_OBJECT => {
                         let id = PC_FETCH!(u8);
                         debug_assert!(
-                            (SpecialObject::OP_SPECIAL_OBJECT_ARGUMENTS as u8
-                                ..=SpecialObject::OP_SPECIAL_OBJECT_IMPORT_META as u8)
+                            (SpecialObject::Arguments as u8..=SpecialObject::ImportMeta as u8)
                                 .contains(&id)
                         );
                         match unsafe { std::mem::transmute::<u8, SpecialObject>(id) } {
-                            SpecialObject::OP_SPECIAL_OBJECT_ARGUMENTS => {
+                            SpecialObject::Arguments => {
                                 SP_PUT!(0, js_build_arguments(ctx, args));
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {
                                     break State::Exception;
                                 }
                             }
-                            SpecialObject::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS => {
+                            SpecialObject::MappedArguments => {
                                 SP_PUT!(
                                     0,
                                     js_build_mapped_arguments(
@@ -384,15 +383,15 @@ impl Bytecode {
                                     break State::Exception;
                                 }
                             }
-                            SpecialObject::OP_SPECIAL_OBJECT_THIS_FUNC => {
+                            SpecialObject::ThisFunc => {
                                 SP_PUT!(0, sframe.cur_running.clone());
                                 SP_GO!(1);
                             }
-                            SpecialObject::OP_SPECIAL_OBJECT_NEW_TARGET => {
+                            SpecialObject::NewTarget => {
                                 SP_PUT!(0, new_target.clone());
                                 SP_GO!(1);
                             }
-                            SpecialObject::OP_SPECIAL_OBJECT_HOME_OBJECT => {
+                            SpecialObject::HomeObject => {
                                 SP_PUT!(
                                     0,
                                     if let Some(ho) = func_home_obj {
@@ -403,7 +402,7 @@ impl Bytecode {
                                 );
                                 SP_GO!(1);
                             }
-                            SpecialObject::OP_SPECIAL_OBJECT_VAR_OBJECT => {
+                            SpecialObject::VarObject => {
                                 SP_PUT!(
                                     0,
                                     ctx.create_base_object_with_proto(&JSValue::NULL)
@@ -414,7 +413,7 @@ impl Bytecode {
                                     break State::Exception;
                                 }
                             }
-                            SpecialObject::OP_SPECIAL_OBJECT_IMPORT_META => {
+                            SpecialObject::ImportMeta => {
                                 SP_PUT!(0, js_import_meta(ctx));
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {

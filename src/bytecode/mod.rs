@@ -49,11 +49,11 @@ pub fn opcode_info_final(op: u8) -> &'static JSOpCode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SpecialObject {
-    OP_SPECIAL_OBJECT_ARGUMENTS = 0,
-    OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS = 1,
-    OP_SPECIAL_OBJECT_THIS_FUNC = 2,
-    OP_SPECIAL_OBJECT_NEW_TARGET = 3,
-    OP_SPECIAL_OBJECT_HOME_OBJECT = 4,
-    OP_SPECIAL_OBJECT_VAR_OBJECT = 5,
-    OP_SPECIAL_OBJECT_IMPORT_META = 6,
+    Arguments = 0,
+    MappedArguments = 1,
+    ThisFunc = 2,
+    NewTarget = 3,
+    HomeObject = 4,
+    VarObject = 5,
+    ImportMeta = 6,
 }

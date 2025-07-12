@@ -76,36 +76,6 @@ impl JSFunctionDef {
             }
         }
 
-        // let mut cov = self.scopes[scope as usize].first;
-        // while cov >= 0 {
-        //     let (cur_var_name, is_const, scope_next) = {
-        //         let vd = self.vars.get(cov as usize).unwrap();
-        //         (vd.var_name, vd.is_const(), vd.scope_next)
-        //     };
-
-        //     if cur_var_name == var_name {
-        //         if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
-        //             if is_const {
-        //                 push_vec_u8(bc, opcodes::OP_throw_error);
-        //                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
-        //                 push_vec_u8(bc, JS_THROW_VAR_RO);
-        //                 done!(label_done);
-        //             }
-        //         }
-        //         found_var = cov;
-        //         break;
-        //     } else if cur_var_name == JS_ATOM__with_ && !is_pseudo_var {
-        //         push_vec_u8(bc, opcodes::OP_get_loc);
-        //         push_vec_u16(bc, cov as _);
-        //         label_done
-        //             .replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
-        //     }
-
-        //     cov = scope_next;
-        // }
-
-        // cov == ARG_SCOPE_END
-
         if found_var < 0 {
             if !at_arg_scope_end {
                 // argument scope: variables are not visible but pseudo variables are visible

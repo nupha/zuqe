@@ -32,9 +32,15 @@ enum ResolveLabelsState {
 impl JSFunctionDef {
     /// pass 3: peephole optimizations and resolve goto/labels.
     pub fn resolve_labels(&mut self, ctx: &JSContext) -> Result<(), i32> {
-        let bc_buf = self.byte_code.as_ptr();
+        let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
-        let mut bc_out = Vec::<u8>::with_capacity(bc_len);
+
+        // new buf to generate bytecode
+        let mut bc_out = Vec::<u8>::new();
+        bc_out.try_reserve_exact(bc_len).map_err(|_| {
+            ctx.JS_ThrowOutOfMemory();
+            -1
+        })?;
 
         #[cfg(feature = "short_opcode")]
         if self.jump_slots_cap != 0 {
@@ -48,6 +54,7 @@ impl JSFunctionDef {
             }
         }
 
+        // XXX: Should skip this phase if not generating SHORT_OPCODES
         if self.line_number_slots_cap != 0 && self.js_mode & JS_MODE_STRIP as u8 == 0 {
             self.line_number_slots
                 .try_reserve(self.line_number_slots_cap)
@@ -60,30 +67,29 @@ impl JSFunctionDef {
             self.line_number_last_pc = 0;
         }
 
+        // initialize the 'home_object' variable if needed
         if let Some(vidx) = self.home_object_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-            push_vec_u8(
-                &mut bc_out,
-                SpecialObject::OP_SPECIAL_OBJECT_HOME_OBJECT as _,
-            );
+            push_vec_u8(&mut bc_out, SpecialObject::HomeObject as _);
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
+        // initialize the 'this.active_func' variable if needed
         if let Some(vidx) = self.this_active_func_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-            push_vec_u8(&mut bc_out, SpecialObject::OP_SPECIAL_OBJECT_THIS_FUNC as _);
+            push_vec_u8(&mut bc_out, SpecialObject::ThisFunc as _);
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
+        // initialize the 'new.target' variable if needed
         if let Some(vidx) = self.new_target_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-            push_vec_u8(
-                &mut bc_out,
-                SpecialObject::OP_SPECIAL_OBJECT_NEW_TARGET as _,
-            );
+            push_vec_u8(&mut bc_out, SpecialObject::NewTarget as _);
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
+        // initialize the 'this' variable if needed. In a derived class
+        // constructor, this is initially uninitialized.
         if let Some(vidx) = self.this_var_idx {
             if self.is_derived_class_constructor {
                 push_vec_u8(&mut bc_out, OpCode::SET_LOC_UNINITIALIZED as u8);
@@ -94,16 +100,14 @@ impl JSFunctionDef {
             }
         }
 
+        // initialize the 'arguments' variable if needed
         if let Some(vidx) = self.arguments_var_idx {
             if self.js_mode & JS_MODE_STRICT as u8 != 0 || !self.has_simple_parameter_list {
                 push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-                push_vec_u8(&mut bc_out, SpecialObject::OP_SPECIAL_OBJECT_ARGUMENTS as _);
+                push_vec_u8(&mut bc_out, SpecialObject::Arguments as _);
             } else {
                 push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-                push_vec_u8(
-                    &mut bc_out,
-                    SpecialObject::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS as _,
-                );
+                push_vec_u8(&mut bc_out, SpecialObject::MappedArguments as _);
             }
             if let Some(aidx) = self.arguments_arg_idx {
                 push_vec_short_code(&mut bc_out, OpCode::SET_LOC as u8, aidx);
@@ -111,27 +115,22 @@ impl JSFunctionDef {
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
+        // initialize a reference to the current function if needed
         if let Some(vidx) = self.func_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-            push_vec_u8(&mut bc_out, SpecialObject::OP_SPECIAL_OBJECT_THIS_FUNC as _);
+            push_vec_u8(&mut bc_out, SpecialObject::ThisFunc as _);
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
+        // initialize the variable environment object if needed
         if let Some(vidx) = self.var_object_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-            push_vec_u8(
-                &mut bc_out,
-                SpecialObject::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
-            );
+            push_vec_u8(&mut bc_out, SpecialObject::VarObject as _);
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
-
         if let Some(vidx) = self.arg_var_object_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
-            push_vec_u8(
-                &mut bc_out,
-                SpecialObject::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
-            );
+            push_vec_u8(&mut bc_out, SpecialObject::VarObject as _);
             push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
@@ -142,7 +141,7 @@ impl JSFunctionDef {
         let mut op1: u8 = 0;
 
         while pos < bc_len {
-            let op = unsafe { *bc_buf.offset(pos as isize) };
+            let op = unsafe { *bc_ptr.offset(pos as isize) };
             let oi = opcode_info_intermediate(op);
             let len = oi.size as usize;
             pos_next = pos + len;
@@ -152,11 +151,11 @@ impl JSFunctionDef {
                     /* line number info (for debug). We put it in a separate
                     compressed table to reduce memory usage and get better
                     performance */
-                    line_num = unsafe { read_from_ptr::<i32>(bc_buf.add(pos + 1)) };
+                    line_num = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                     None
                 }
                 opcodes::op_label => {
-                    label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+                    label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) };
                     debug_assert!(label < self.label_slots.len() as u32);
 
                     let lb = self.label_slots.get_mut(label as usize).unwrap();
@@ -188,7 +187,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_call | opcodes::OP_call_method => {
                     // detect and transform tail calls
-                    let argc = unsafe { read_from_ptr::<u16>(bc_buf.add(pos + 1)) };
+                    let argc = unsafe { read_from_ptr::<u16>(bc_ptr.add(pos + 1)) };
 
                     if let Some(m) = self.code_match(pos_next, &[OpCode::RETURN as i32]) {
                         if m.line_num >= 0 {
@@ -197,7 +196,7 @@ impl JSFunctionDef {
                         self.add_pc2line_info(bc_out.len() as _, line_num);
                         push_vec_short_code(&mut bc_out, op + 1, argc);
                         pos_next =
-                            skip_dead_code(self, bc_buf, bc_len, m.pos, &mut (line_num as i32));
+                            skip_dead_code(self, bc_ptr, bc_len, m.pos, &mut (line_num as i32));
                     } else {
                         self.add_pc2line_info(bc_out.len() as _, line_num);
                         push_vec_short_code(&mut bc_out, op, argc);
@@ -210,15 +209,15 @@ impl JSFunctionDef {
                 | opcodes::OP_throw
                 | opcodes::OP_throw_error => {
                     pos_next =
-                        skip_dead_code(self, bc_buf, bc_len, pos_next, &mut (line_num as i32));
+                        skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut (line_num as i32));
                     Some(ResolveLabelsState::NoChange)
                 }
                 opcodes::OP_goto => Some(ResolveLabelsState::HasGoto {
-                    label: unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) },
+                    label: unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) },
                     op: opcodes::OP_goto,
                 }),
                 opcodes::OP_gosub => {
-                    label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+                    label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) };
                     // if (0 && OPTIMIZE) {
                     //     label = find_jump_target(s, label, &op1, NULL);
                     //     if (op1 == OP_ret) {
@@ -230,7 +229,7 @@ impl JSFunctionDef {
                     Some(ResolveLabelsState::HasGoto { label, op })
                 }
                 opcodes::OP_catch => Some(ResolveLabelsState::HasLabel {
-                    label: unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) },
+                    label: unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) },
                     op,
                 }),
                 opcodes::OP_if_true | opcodes::OP_if_false => {
@@ -244,7 +243,7 @@ impl JSFunctionDef {
                         )
                         .map(|(op1, label)| ResolveLabelsState::HasLabel { label, op: op1 })
                     } else {
-                        let label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+                        let label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) };
                         Some(ResolveLabelsState::HasLabel { label, op })
                     }
                 }
@@ -255,9 +254,9 @@ impl JSFunctionDef {
                 | opcodes::OP_with_make_ref
                 | opcodes::OP_with_get_ref
                 | opcodes::OP_with_get_ref_undef => {
-                    let atom = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
-                    label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 5)) };
-                    let is_with = unsafe { *bc_buf.add(pos + 9) };
+                    let atom = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) };
+                    label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 5)) };
+                    let is_with = unsafe { *bc_ptr.add(pos + 9) };
                     if OPTIMIZE {
                         label = unsafe {
                             find_jump_target(self, label, &mut op1, std::ptr::null_mut())
@@ -364,7 +363,7 @@ impl JSFunctionDef {
                     let mut goto = Some(ResolveLabelsState::NoChange);
 
                     if OPTIMIZE {
-                        let val = unsafe { read_from_ptr::<i32>(bc_buf.add(pos + 1)) };
+                        let val = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                         if val != i32::MIN
                             && val != 0
                             && let Some(cc) = self.code_match(pos_next, &[OpCode::NEG as i32])
@@ -413,7 +412,7 @@ impl JSFunctionDef {
                 opcodes::OP_push_const | opcodes::OP_fclosure => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
                     if (OPTIMIZE) {
-                        let idx = read_from_ptr::<u32>(bc_buf + pos + 1);
+                        let idx = read_from_ptr::<u32>(bc_ptr + pos + 1);
                         if (idx < 256) {
                             self.add_pc2line_info(bc_out.len() as _, line_num);
                             dbuf_putc(&bc_out, OP_push_const8 + op - OP_push_const);
@@ -427,7 +426,7 @@ impl JSFunctionDef {
                 opcodes::OP_get_field => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
                     if (OPTIMIZE) {
-                        let atom = read_from_ptr::<u32>(bc_buf + pos + 1);
+                        let atom = read_from_ptr::<u32>(bc_ptr + pos + 1);
                         if (atom == JS_ATOM_length) {
                             JS_FreeAtom(ctx, atom);
                             self.add_pc2line_info(bc_out.len() as _, line_num);
@@ -441,7 +440,7 @@ impl JSFunctionDef {
                 opcodes::OP_push_atom_value => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
                     if OPTIMIZE {
-                        let atom = JSAtom(unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) });
+                        let atom = JSAtom(unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) });
 
                         // remove push/drop pairs generated by the parser
                         if let Some(cc) = self.code_match(pos_next, &[opcodes::OP_drop as i32]) {
@@ -662,7 +661,7 @@ impl JSFunctionDef {
                 match p {
                     ResolveLabelsState::NoChange => {
                         self.add_pc2line_info(bc_out.len() as _, line_num);
-                        push_vec_slice(&mut bc_out, unsafe { bc_buf.add(pos) }, len)?;
+                        push_vec_slice(&mut bc_out, unsafe { bc_ptr.add(pos) }, len)?;
                     }
                     ResolveLabelsState::HasGoto {
                         mut label,
@@ -690,7 +689,7 @@ impl JSFunctionDef {
                                 push_vec_u8(&mut bc_out, op1);
                                 pos_next = skip_dead_code(
                                     self,
-                                    bc_buf,
+                                    bc_ptr,
                                     bc_len,
                                     pos_next,
                                     &mut (line_num as i32),
@@ -716,7 +715,7 @@ impl JSFunctionDef {
                         if label_op == opcodes::OP_goto {
                             pos_next = skip_dead_code(
                                 self,
-                                bc_buf,
+                                bc_ptr,
                                 bc_len,
                                 pos_next,
                                 &mut (line_num as i32),

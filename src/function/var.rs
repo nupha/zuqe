@@ -316,9 +316,11 @@ impl JSFunctionDef {
         Ok(idx)
     }
 
-    /// Add defination named `arguments`.
-    /// - in_arg_scope=false, will define in the variable scope, returns var idx for `arguments`
-    /// - in_arg_scope=true, will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
+    /// Add defination named `arguments` for special object.
+    ///
+    /// `in_arg_scope`:
+    /// - false: will define in the variable scope, returns var idx for `arguments`
+    /// - true: will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
     pub fn add_arguments(&mut self, ctx: &JSContext, in_arg_scope: bool) -> Result<u16, i32> {
         if in_arg_scope {
             if self.arguments_arg_idx.is_none() {
