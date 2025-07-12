@@ -2,7 +2,7 @@ use std::ffi::CStr;
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
-    bytecode::{OpCode, OpCodeTemp, opcodes},
+    bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
     parse::token::CHAR_SLASH,
@@ -12,7 +12,7 @@ use crate::{
 use super::{
     array::js_parse_array_literal,
     class::js_parse_class,
-    emit::{SpecialObjectID, get_prev_opcode},
+    emit::get_prev_opcode,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -540,7 +540,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     self.emit_op(OpCode::SPECIAL_OBJECT);
-                    self.emit_u8(SpecialObjectID::OP_SPECIAL_OBJECT_IMPORT_META as u8);
+                    self.emit_u8(SpecialObject::ImportMeta as u8);
                 } else {
                     self.parse_expect(CHAR_BRACKET_L)?;
                     if !accept_lparen {

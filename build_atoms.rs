@@ -117,15 +117,15 @@ static ATOM_DEFS: &[&str] = &[
     "new.target",
     "this.active_func",
     "<home_object>",
-    "computed_field",
-    "static_computed_field",
-    "class_fields_init",
-    "brand",
-    "hash_constructor",
+    "<computed_field>",
+    "<static_computed_field>",
+    "<class_fields_init>",
+    "<brand>",
+    "#constructor",
     "as",
     "from",
     "meta",
-    "<default>",
+    "*default*",
     "*",
     "Module",
     "then",
@@ -259,15 +259,13 @@ pub fn gen_atoms(outfile: &Path) {
         "pub const JS_DEFAULT_ATOMS_TEXT: &[u8] = b\"{full_cstr_buf}\";"
     ));
 
-    // lines.push(format!("pub static js_atom_init: &[&[u8]] = &["));
-    // for (i, txt) in verbose.iter().enumerate() {
-    //     lines.push(format!("b\"{txt}\\0\".as_slice(),"))
-    // }
-    // lines.push("];".into());
-
     for (i, txt) in ATOM_DEFS.iter().enumerate() {
         let label = if txt.len() > 2 && txt.starts_with("<") && txt.ends_with(">") {
             format!("_{}_", &txt[1..txt.len() - 1])
+        } else if txt.len() > 2 && txt.starts_with("*") && txt.ends_with("*") {
+            format!("_{}_", &txt[1..txt.len() - 1])
+        } else if txt.starts_with("#") {
+            format!("hash_{}", &txt[1..])
         } else if txt.eq(&"*") {
             "_star_".to_string()
         } else if txt.contains('.') {

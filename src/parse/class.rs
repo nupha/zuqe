@@ -31,7 +31,7 @@ use super::{
 
 impl<'s> JSParseState<'s> {
     /// caller should free the returned Atom.
-    unsafe fn parse_class_name(
+    fn parse_class_name(
         &mut self,
         is_class_expr: bool,
         export_flag: JSParseExportEnum,
@@ -381,9 +381,9 @@ impl<'s> JSParseState<'s> {
                         field_var_name = js_atom_concat_num(
                             &self.ctx,
                             if is_static {
-                                JS_ATOM_static_computed_field
+                                JS_ATOM__static_computed_field_
                             } else {
-                                JS_ATOM_computed_field
+                                JS_ATOM__computed_field_
                             },
                             (*cf).computed_fields_count as u32,
                         );
@@ -576,7 +576,7 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-pub unsafe fn js_parse_class(
+pub fn js_parse_class(
     s: &mut JSParseState,
     is_class_expr: bool,
     export_flag: JSParseExportEnum,
@@ -670,7 +670,7 @@ pub unsafe fn js_parse_class(
     ];
 
     let define_class_offset = if let Ok(n) =
-        s.parse_class_body(class_name, class_var_name, class_flags, &mut class_fields)
+        unsafe { s.parse_class_body(class_name, class_var_name, class_flags, &mut class_fields) }
     {
         n
     } else {
@@ -695,11 +695,14 @@ pub unsafe fn js_parse_class(
                 }
             }
             // patch the start of the function to enable the OP_add_brand_instance code
-            (*cf.fields_init_fd).byte_code[cf.brand_push_pos as usize] = OpCode::PUSH_TRUE as u8;
+            unsafe {
+                (*cf.fields_init_fd).byte_code[cf.brand_push_pos as usize] =
+                    OpCode::PUSH_TRUE as u8;
+            }
         }
 
         // store the function to initialize the fields...
-        if s.define_var_cur_func(JS_ATOM_class_fields_init, JSVarDefEnum::JS_VAR_DEF_CONST)
+        if s.define_var_cur_func(JS_ATOM__class_fields_init_, JSVarDefEnum::JS_VAR_DEF_CONST)
             .is_err()
         {
             fail!();
@@ -710,7 +713,7 @@ pub unsafe fn js_parse_class(
             s.emit_op(OpCode::UNDEFINED);
         }
         s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-        s.emit_atom_dup(JS_ATOM_class_fields_init);
+        s.emit_atom_dup(JS_ATOM__class_fields_init_);
         s.emit_u16(s.cur_func().scope_level as _);
     }
 
@@ -1047,8 +1050,8 @@ pub unsafe fn find_private_class_field(
 }
 
 /* build a private setter function name from the private getter name */
-pub unsafe fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
-    js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast())
+pub fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
+    unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }
 
 // XXX: could generate specific bytecode

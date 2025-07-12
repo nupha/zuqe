@@ -10,17 +10,6 @@ use crate::{
 
 use super::state::JSParseState;
 
-/* argument of OP_special_object */
-pub enum SpecialObjectID {
-    OP_SPECIAL_OBJECT_ARGUMENTS,
-    OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS,
-    OP_SPECIAL_OBJECT_THIS_FUNC,
-    OP_SPECIAL_OBJECT_NEW_TARGET,
-    OP_SPECIAL_OBJECT_HOME_OBJECT,
-    OP_SPECIAL_OBJECT_VAR_OBJECT,
-    OP_SPECIAL_OBJECT_IMPORT_META,
-}
-
 impl JSFunctionDef {
     pub fn emit_u8(&mut self, val: u8) {
         push_vec_u8(&mut self.byte_code, val);
@@ -236,7 +225,7 @@ impl JSFunctionDef {
     <class_fields_init> can be variable references */
     pub fn emit_class_field_init(&mut self, last_line_num: i32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
-        self.emit_atom_dup(JS_ATOM_class_fields_init);
+        self.emit_atom_dup(JS_ATOM__class_fields_init_);
         self.emit_u16(self.scope_level as _);
 
         /* no need to call the class field initializer if not defined */

@@ -11,10 +11,12 @@ use super::JS_PROP_C_W_E;
 impl JSObject {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
     fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
-        if let Some(home_obj) = func
-            .object()
-            .and_then(|o| o.0.detail.borrow().func().and_then(|f| f.home_object.clone()))
-        {
+        if let Some(home_obj) = func.object().and_then(|o| {
+            o.0.detail
+                .borrow()
+                .func()
+                .and_then(|f| f.home_object.clone())
+        }) {
             if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
                     JSProperty::Normal(sym @ JSValue::Symbol(_)) => {
@@ -148,7 +150,7 @@ impl JSValue {
             } else {
                 // the private brand prop is not present, add it
                 let br = unsafe {
-                    JS_NewSymbolFromAtom(ctx, JS_ATOM_brand, JSAtomTypeHint::Private)
+                    JS_NewSymbolFromAtom(ctx, JS_ATOM__brand_, JSAtomTypeHint::Private)
                         .check_exception()?
                 };
                 home.add_shape_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
