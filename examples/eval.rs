@@ -109,6 +109,8 @@ fn main() {
 
             if r.is_exception() {
                 let exc = ctx.take_exception();
+                debug_assert!(!exc.is_undefined_or_null());
+
                 println!("!!! EXCEPTION {exc:?} {}", exc.repr());
 
                 // println!("{:?}", exc.coerce_to_string(&ctx));

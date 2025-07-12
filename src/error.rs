@@ -57,23 +57,28 @@ impl JSContext {
         self.rt().cur_exception.clone()
     }
 
-    /// set new obj to current_exception, returns the old exception value.
-    /// Note: returnd value should be freed by caller
-    #[inline]
-    pub fn set_exception(&self, obj: JSValue) -> JSValue {
-        std::mem::replace(&mut self.rt_mut().cur_exception, obj)
-    }
-
     /// get current exception value, and reset current_exception to null.
     #[inline(always)]
     pub fn take_exception(&self) -> JSValue {
         self.set_exception(JSValue::NULL)
     }
 
+    /// set new obj to current_exception, returns the old exception value.
+    /// Note: returnd value should be freed by caller
+    #[inline]
+    fn set_exception(&self, obj: JSValue) -> JSValue {
+        std::mem::replace(&mut self.rt_mut().cur_exception, obj)
+    }
+
     /// put `obj` to current_exception, free old exception.
     /// Note: `obj` is consumed.
     #[inline(always)]
     pub fn throw(&self, obj: JSValue) {
+        #[cfg(debug_assertions)]
+        if obj.is_undefined_or_null() {
+            panic!("[O.o] throw a null or undefined value is not recommanded");
+        }
+
         self.set_exception(obj);
     }
 
