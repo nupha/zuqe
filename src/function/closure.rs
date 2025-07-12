@@ -1,7 +1,7 @@
 use fallible_collections::FallibleVec;
 
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
@@ -225,7 +225,7 @@ impl Bytecode {
     ) -> Result<JSObject, i32> {
         debug_assert!(
             js_class_has_bytecode(target.class_id()),
-            "class_id: {}",
+            "class {} does not have bytecode",
             target.class_id()
         );
 
@@ -293,13 +293,14 @@ impl Bytecode {
                     ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                    todo!("[O.o] TODO create generator closure");
-                    //ObjectDetail::GENERATOR(ObjGenerator::default())
+                    ObjectDetail::GENERATOR_FUNCTION(ObjFunc::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_ASYNC => {
                     ObjectDetail::ASYNC_FUNCTION(ObjFunc::default())
                 }
-                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => ObjectDetail::ASYNC_GENERATOR(None),
+                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
+                    ObjectDetail::ASYNC_GENERATOR_FUNCTION(ObjFunc::default())
+                }
             })
             .map_err(|_| -1)?;
 

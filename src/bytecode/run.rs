@@ -621,11 +621,8 @@ impl Bytecode {
                         // SP![-1] = tmp2;
                     }
                     OpCode::FCLOSURE => {
-                        let id = unsafe { read_from_ptr::<u32>(pc) };
-                        PC_GO!(4);
-
-                        let bfunc = CPOOL![id];
-                        if let JSValue::Bytecode(bc) = bfunc {
+                        let id = PC_FETCH!(u32);
+                        if let JSValue::Bytecode(bc) = CPOOL![id] {
                             SP_PUT!(
                                 0,
                                 bc.make_closure(ctx, closure_var_refs, Some(sframe))

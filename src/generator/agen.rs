@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, NativeField, ObjAsyncState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
-    object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
+    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectDetail},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     utils::UncheckedInto,
@@ -29,7 +29,7 @@ pub enum JSAsyncGeneratorStateEnum {
 
 #[derive(Debug)]
 pub struct ObjAsyncGenerator {
-    /// back pointer to the object (const)
+    /// reference back to the object (const)
     pub generator: JSObjectWeakref,
 
     pub state: JSAsyncGeneratorStateEnum,
