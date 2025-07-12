@@ -1,5 +1,5 @@
 use crate::{
-    bytecode::{OP_COUNT_FINAL, OpCode, opcode_info_final, opcodes},
+    bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
     context::JSContext,
     runtime::JS_STACK_SIZE_MAX,
     utils::read_from_ptr,
@@ -110,15 +110,9 @@ impl JSFunctionDef {
             let oi = opcode_info_final(op);
 
             #[cfg(feature = "dump_bytecode")]
-            println!(
-                "{:5}: {:25} {:5} {:5}",
-                pos,
-                (*oi).name,
-                stack_len,
-                catch_pos
-            );
+            println!("{:5}: {:25} {:5} {:5}", pos, oi.name, stack_len, catch_pos);
 
-            let mut pos_next = pos + (*oi).size as usize;
+            let mut pos_next = pos + oi.size as usize;
             if pos_next > (*s).bc_len {
                 ctx.JS_ThrowInternalError(&format!(
                     "bytecode buffer overflow 2 (op={op}, pc={pos})"
@@ -126,13 +120,13 @@ impl JSFunctionDef {
                 return Err(-1);
             }
 
-            let mut n_pop = (*oi).n_pop as u16;
-            match (*oi).fmt {
-                "npop" | "npop_u16" => {
+            let mut n_pop = oi.n_pop as u16;
+            match oi.fmt {
+                OpcodeFormat::NPOP | OpcodeFormat::NPOP_U16 => {
                     n_pop += read_from_ptr::<u16>(bc_buf.add(pos + 1));
                 }
                 #[cfg(feature = "short_opcode")]
-                "npopx" => {
+                OpcodeFormat::NPOPX => {
                     n_pop += op - OP_call0;
                 }
                 _ => {}

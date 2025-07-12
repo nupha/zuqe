@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
-    bytecode::{OpCode, opcode_info_intermediate, opcodes},
+    bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JSContext},
     function::{JSFunctionDef, LabelSlot, find_jump_target},
     utils::{
@@ -98,7 +98,7 @@ impl JSFunctionDef {
 
             unsafe {
                 match opcode_info_intermediate(op).fmt {
-                    "loc8" | "u8" => {
+                    OpcodeFormat::LOC8 | OpcodeFormat::U8 => {
                         let idx = *bc_ptr.add(pos);
                         let arg = it.next().copied().unwrap_or(-1);
                         if arg == -1 {
@@ -107,7 +107,11 @@ impl JSFunctionDef {
                             return None;
                         }
                     }
-                    "u16" | "npop" | "loc" | "arg" | "var_ref" => {
+                    OpcodeFormat::U16
+                    | OpcodeFormat::NPOP
+                    | OpcodeFormat::LOC
+                    | OpcodeFormat::ARG
+                    | OpcodeFormat::VAR_REF => {
                         let idx = read_from_ptr::<u16>(bc_ptr.add(pos)) as i32;
                         let arg = it.next().copied().unwrap_or(-1);
                         if arg == -1 {
@@ -116,25 +120,28 @@ impl JSFunctionDef {
                             return None;
                         }
                     }
-                    "i32" | "u32" | "label" | "const" => {
+                    OpcodeFormat::I32
+                    | OpcodeFormat::U32
+                    | OpcodeFormat::LABEL
+                    | OpcodeFormat::CONST => {
                         state.label = read_from_ptr::<u32>(bc_ptr.add(pos)) as _;
                     }
-                    "label_u16" => {
+                    OpcodeFormat::LABEL_U16 => {
                         state.label = read_from_ptr::<u32>(bc_ptr.add(pos)) as _;
                         state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
-                    "atom" => {
+                    OpcodeFormat::ATOM => {
                         state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
                     }
-                    "atom_u8" => {
+                    OpcodeFormat::ATOM_U8 => {
                         state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.val = *bc_ptr.add(pos + 4) as _;
                     }
-                    "atom_u16" => {
+                    OpcodeFormat::ATOM_U16 => {
                         state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
-                    "atom_label_u8" => {
+                    OpcodeFormat::ATOM_LABEL_U8 => {
                         state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.label = read_from_ptr::<u32>(bc_ptr.add(pos + 4)) as _;
                         state.val = read_from_ptr::<u8>(bc_ptr.add(pos + 8)) as _;

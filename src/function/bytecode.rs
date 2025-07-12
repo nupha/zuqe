@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
-    bytecode::{opcode_info_final, opcode_info_intermediate},
+    bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
     context::{JSContext, JSContextWeakref},
     error::JSResult,
     function::{JS_Call, JSVarRef},
@@ -657,7 +657,11 @@ pub(super) fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcode
 
         if matches!(
             oi.fmt,
-            "atom" | "atom_u8" | "atom_u16" | "atom_label_u8" | "atom_label_u16"
+            OpcodeFormat::ATOM
+                | OpcodeFormat::ATOM_U8
+                | OpcodeFormat::ATOM_U16
+                | OpcodeFormat::ATOM_LABEL_U8
+                | OpcodeFormat::ATOM_LABEL_U16
         ) {
             unsafe {
                 let atom = JSAtom(read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)));

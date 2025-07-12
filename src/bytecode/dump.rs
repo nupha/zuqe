@@ -1,11 +1,13 @@
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
+    bytecode::OpcodeFormat,
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
         PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
+    utils::read_from_ptr,
     value::JSValue,
 };
 
@@ -15,8 +17,6 @@ use super::{
 
 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
 pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) -> usize {
-    use crate::utils::read_from_ptr;
-
     let mut pos = pc;
     let tab = b.opcodes();
     let op = tab[pos];
@@ -47,90 +47,89 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         "npopx" => {
             print!(" {}", op - opcodes::OP_call0);
         }
-        "u8" => {
+        OpcodeFormat::U8 => {
             print!(" {}", tab[pos]);
         }
-        "i8" => {
+        OpcodeFormat::I8 => {
             print!(" {}", tab[pos] as i8);
         }
-        "u16" | "npop" => {
+        OpcodeFormat::U16 | OpcodeFormat::NPOP => {
             print!(" {}", unsafe {
                 read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize))
             });
         }
-        "npop_u16" => {
+        OpcodeFormat::NPOP_U16 => {
             print!(
                 " {},{}",
                 unsafe { read_from_ptr::<u16>(tab.as_ptr().offset(pos as _)) },
                 unsafe { read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize + 2)) },
             );
         }
-        "i16" => {
+        OpcodeFormat::I16 => {
             print!(" {}", unsafe {
                 read_from_ptr::<i16>(tab.as_ptr().offset(pos as _))
             });
         }
-        "i32" => {
+        OpcodeFormat::I32 => {
             print!(" {}", unsafe {
                 read_from_ptr::<i32>(tab.as_ptr().offset(pos as _))
             });
         }
-        "u32" => {
+        OpcodeFormat::U32 => {
             print!(" {}", unsafe {
                 read_from_ptr::<u32>(tab.as_ptr().offset(pos as _))
             });
         }
 
         #[cfg(feature = "short_opcode")]
-        "label8" => {
+        OpcodeFormat::LABEL8 => {
             addr = get_i8(tab.as_ptr().offset(pos));
             has_addr1();
         }
         #[cfg(feature = "short_opcode")]
-        "label16" => {
+        OpcodeFormat::LABEL16 => {
             addr = get_i16(tab.as_ptr().offset(pos));
             has_addr1!();
         }
 
-        f @ ("label" | "label_u16") => {
+        f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
             // addr = get_u32(tab.as_ptr().add(pos)) as _;
             // has_addr1!();
 
-            if f == "label_u16" {
+            if f == OpcodeFormat::LABEL_U16 {
                 print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)));
             }
         }
 
         #[cfg(feature = "short_opcode")]
-        "const8" => {
+        OpcodeFormat::CONST8 => {
             idx = get_u8(tab.offset(pos));
-            // C2RS: goto has_pool_idx replaced with inline logic
             printf(" {}: ", idx);
             if idx < cpool_count as i32 {
                 (*cpool.offset(idx as isize)).dump(ctx.rt());
             }
         }
 
-        "const" => {
+        OpcodeFormat::CONST => {
             let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos));
             print!(" {idx}:{}", b.load_const(idx as usize).unwrap().repr());
         }
-        "atom" => {
+        OpcodeFormat::ATOM => {
             let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
             print!(" {a}:{}", JSAtom(a).to_str(ctx.rt()));
         }
-        f @ ("atom_u8" | "atom_u16") => {
+        f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
             print!(
                 " {}, {}",
                 JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt()),
-                if f == "atom_u8" {
+                if f == OpcodeFormat::ATOM_U8 {
                     tab[pos as usize + 4] as usize
                 } else {
                     read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)) as usize
                 }
             );
         }
-        f @ ("atom_label_u8" | "atom_label_u16") => {
+        f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
             print!(
                 " {}",
                 JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt())
@@ -145,7 +144,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
             //     print!(", {}", addr + pos + 4);
             // }
 
-            if f == "atom_label_u8" {
+            if f == OpcodeFormat::ATOM_LABEL_U8 {
                 print!(", {}", *tab.as_ptr().add(pos + 8));
             } else {
                 print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 8)));
@@ -153,7 +152,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         }
 
         #[cfg(feature = "short_opcode")]
-        "none_loc" => {
+        OpcodeFormat::NONE_LOC => {
             idx = (op - OP_get_loc0) % 4;
             printf(" {}: ", idx);
             if idx < var_count {
@@ -161,8 +160,8 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
             }
         }
 
-        f @ ("loc8" | "loc") => {
-            let idx = if f == "loc8" {
+        f @ (OpcodeFormat::LOC8 | OpcodeFormat::LOC) => {
+            let idx = if f == OpcodeFormat::LOC8 {
                 *tab.as_ptr().add(pos) as usize
             } else {
                 read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize
@@ -176,16 +175,15 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         }
 
         #[cfg(feature = "short_opcode")]
-        "none_arg" => {
+        OpcodeFormat::NONE_ARG => {
             idx = (op - opcodes::OP_get_arg0) % 4;
-            // C2RS: goto has_arg replaced with inline logic
             printf(" {}: ", idx);
             if idx < arg_count {
                 print_atom(ctx.rt, (*args.offset(idx as isize)).var_name);
             }
         }
 
-        "arg" => {
+        OpcodeFormat::ARG => {
             let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
             if let Some(var_name) = b.with_arg(idx as _, |vi| vi.var_name) {
                 print!(" {idx}:{}", var_name.to_str(ctx.rt()));
@@ -195,16 +193,15 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         }
 
         #[cfg(feature = "short_opcode")]
-        "none_var_ref" => {
+        OpcodeFormat::NONE_VAR_REF => {
             idx = (op - opcodes::OP_get_var_ref0) % 4;
-            // C2RS: goto has_var_ref replaced with inline logic
             printf(" {}: ", idx);
             if idx < closure_var_count {
                 print_atom(ctx, (*closure_var.offset(idx as isize)).var_name);
             }
         }
 
-        "var_ref" => {
+        OpcodeFormat::VAR_REF => {
             let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
             print!(
                 " {idx}:{}",
@@ -260,6 +257,8 @@ pub unsafe fn dump_opcodes(
         pos_next = pos + (*oi).size as usize;
 
         if op < op_max {
+            use crate::bytecode::OpcodeFormat;
+
             match (*oi).fmt {
                 #[cfg(feature = "short_opcode")]
                 "label8" => {
@@ -294,8 +293,14 @@ pub unsafe fn dump_opcodes(
                     }
                 }
 
-                f @ ("atom_label_u8" | "atom_label_u16" | "label" | "label_u16") => {
-                    if matches!(f, "atom_label_u8" | "atom_label_u16") {
+                f @ (OpcodeFormat::ATOM_LABEL_U8
+                | OpcodeFormat::ATOM_LABEL_U16
+                | OpcodeFormat::LABEL
+                | OpcodeFormat::LABEL_U16) => {
+                    if matches!(
+                        f,
+                        OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16
+                    ) {
                         pos += 4;
                     }
                     pos += 1;
@@ -345,6 +350,8 @@ pub unsafe fn dump_opcodes(
 
     pos = 0;
     while pos < len {
+        use crate::bytecode::OpcodeFormat;
+
         let op = bin[pos as usize];
 
         // print source code
@@ -425,61 +432,61 @@ pub unsafe fn dump_opcodes(
         // print arguments
         match (*oi).fmt {
             #[cfg(feature = "short_opcode")]
-            "none_int" => {
+            OpcodeFormat::NONE_INT => {
                 print!(" {}", op - opcodes::OP_push_0);
             }
             #[cfg(feature = "short_opcode")]
-            "npopx" => {
+            OpcodeFormat::NPOPX => {
                 print!(" {}", op - opcodes::OP_call0);
             }
-            "u8" => {
+            OpcodeFormat::U8 => {
                 print!(" {}", bin[pos as usize]);
             }
-            "i8" => {
+            OpcodeFormat::I8 => {
                 print!(" {}", bin[pos as usize] as i8);
             }
-            "u16" | "npop" => {
+            OpcodeFormat::U16 | OpcodeFormat::NPOP => {
                 print!(" {}", read_from_ptr::<u16>(bin.as_ptr().add(pos)));
             }
-            "npop_u16" => {
+            OpcodeFormat::NPOP_U16 => {
                 print!(
                     " {},{}",
                     read_from_ptr::<u16>(bin.as_ptr().add(pos)),
                     read_from_ptr::<u16>(bin.as_ptr().add(pos + 2)),
                 );
             }
-            "i16" => {
+            OpcodeFormat::I16 => {
                 print!(" {}", read_from_ptr::<i16>(bin.as_ptr().offset(pos as _)));
             }
-            "i32" => {
+            OpcodeFormat::I32 => {
                 print!(" {}", read_from_ptr::<i32>(bin.as_ptr().offset(pos as _)));
             }
-            "u32" => {
+            OpcodeFormat::U32 => {
                 print!(" {}", read_from_ptr::<u32>(bin.as_ptr().offset(pos as _)));
             }
 
             #[cfg(feature = "short_opcode")]
-            "label8" => {
+            OpcodeFormat::LABEL8 => {
                 let addr = get_i8(opcodes.as_ptr().offset(pos));
                 has_addr1(addr);
             }
             #[cfg(feature = "short_opcode")]
-            "label16" => {
+            OpcodeFormat::LABEL16 => {
                 let addr = get_i16(opcodes.as_ptr().offset(pos));
                 has_addr1!(addr);
             }
 
-            f @ ("label" | "label_u16") => {
+            f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
                 let addr = read_from_ptr::<u32>(bin.as_ptr().offset(pos as _));
                 has_addr1!(addr);
 
-                if f == "label_u16" {
+                if f == OpcodeFormat::LABEL_U16 {
                     print!(", {}", read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)));
                 }
             }
 
             #[cfg(feature = "short_opcode")]
-            "const8" => {
+            OpcodeFormat::CONST8 => {
                 idx = get_u8(opcodes.offset(pos));
                 // C2RS: goto has_pool_idx replaced with inline logic
                 printf(" {}: ", idx);
@@ -488,7 +495,7 @@ pub unsafe fn dump_opcodes(
                 }
             }
 
-            "const" => {
+            OpcodeFormat::CONST => {
                 let idx = read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize;
                 print!(" {idx}:");
                 if let Some(v) = cpools.get(idx) {
@@ -498,22 +505,22 @@ pub unsafe fn dump_opcodes(
                     unreachable!()
                 }
             }
-            "atom" => {
+            OpcodeFormat::ATOM => {
                 let a = read_from_ptr::<u32>(bin.as_ptr().add(pos));
                 print!(" {a}:{}", JSAtom(a).to_str(ctx.rt()));
             }
-            f @ ("atom_u8" | "atom_u16") => {
+            f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
                 print!(
                     " {}, {}",
                     JSAtom(read_from_ptr::<u32>(bin.as_ptr().add(pos))).to_str(ctx.rt()),
-                    if f == "atom_u8" {
+                    if f == OpcodeFormat::ATOM_U8 {
                         bin[pos as usize + 4] as usize
                     } else {
                         read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)) as usize
                     }
                 );
             }
-            f @ ("atom_label_u8" | "atom_label_u16") => {
+            f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
                 print!(
                     " {}",
                     JSAtom(read_from_ptr::<u32>(bin.as_ptr().add(pos as _))).to_str(ctx.rt())
@@ -528,7 +535,7 @@ pub unsafe fn dump_opcodes(
                     print!(", {}", addr as i32 + pos as i32 + 4);
                 }
 
-                if f == "atom_label_u8" {
+                if f == OpcodeFormat::ATOM_LABEL_U8 {
                     print!(", {}", *bin.as_ptr().add(pos + 8));
                 } else {
                     print!(", {}", read_from_ptr::<u16>(bin.as_ptr().add(pos + 8)));
@@ -536,17 +543,16 @@ pub unsafe fn dump_opcodes(
             }
 
             #[cfg(feature = "short_opcode")]
-            "none_loc" => {
+            OpcodeFormat::NONE_LOC => {
                 idx = (op - OP_get_loc0) % 4;
-                // C2RS: goto has_loc replaced with inline logic
                 printf(" {}: ", idx);
                 if idx < var_count {
                     print_atom(ctx.rt, (*vars.offset(idx as isize)).var_name);
                 }
             }
 
-            f @ ("loc8" | "loc") => {
-                let idx = if f == "loc8" {
+            f @ (OpcodeFormat::LOC8 | OpcodeFormat::LOC) => {
+                let idx = if f == OpcodeFormat::LOC8 {
                     *bin.as_ptr().add(pos) as usize
                 } else {
                     read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize
@@ -558,16 +564,15 @@ pub unsafe fn dump_opcodes(
             }
 
             #[cfg(feature = "short_opcode")]
-            "none_arg" => {
+            OpcodeFormat::NONE_ARG => {
                 idx = (op - opcodes::OP_get_arg0) % 4;
-                // C2RS: goto has_arg replaced with inline logic
                 printf(" {}: ", idx);
                 if idx < arg_count {
                     print_atom(ctx.rt, (*args.offset(idx as isize)).var_name);
                 }
             }
 
-            "arg" => {
+            OpcodeFormat::ARG => {
                 let idx = read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
@@ -576,7 +581,7 @@ pub unsafe fn dump_opcodes(
             }
 
             #[cfg(feature = "short_opcode")]
-            "none_var_ref" => {
+            OpcodeFormat::NONE_VAR_REF => {
                 idx = (op - opcodes::OP_get_var_ref0) % 4;
                 printf(" {}: ", idx);
                 if idx < closure_var_count {
@@ -584,7 +589,7 @@ pub unsafe fn dump_opcodes(
                 }
             }
 
-            "var_ref" => {
+            OpcodeFormat::VAR_REF => {
                 let idx = read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",

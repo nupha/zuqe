@@ -2,7 +2,7 @@ use std::{ops::DerefMut, ptr::NonNull};
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_str},
-    bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
+    bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
     error::{JS_THROW_VAR_RO, JS_ThrowSyntaxError},
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -621,12 +621,19 @@ pub fn skip_dead_code(
         } else {
             // XXX: output a warning for unreachable code?
             match oi.fmt {
-                "label" | "label_u16" => unsafe {
+                OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16 => unsafe {
                     let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 1));
                     (*s).update_label_ref_count(label, -1);
                 },
-                f @ ("atom_label_u8" | "atom_label_u16" | "atom" | "atom_u8" | "atom_u16") => unsafe {
-                    if matches!(f, "atom_label_u8" | "atom_label_u16") {
+                f @ (OpcodeFormat::ATOM_LABEL_U8
+                | OpcodeFormat::ATOM_LABEL_U16
+                | OpcodeFormat::ATOM
+                | OpcodeFormat::ATOM_U8
+                | OpcodeFormat::ATOM_U16) => unsafe {
+                    if matches!(
+                        f,
+                        OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16
+                    ) {
                         let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 5));
                         (*s).update_label_ref_count(label, -1);
                     }
