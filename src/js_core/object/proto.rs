@@ -16,66 +16,6 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-//
-// Prototype definiation
-//
-
-// pub unsafe fn js_object_toString(
-//     ctx: &JSContext,
-//     this_val: JSValueConst,
-//     argc: i32,
-//     argv: *mut JSValueConst,
-// ) -> JSValue {
-//     let mut tag: JSValue;
-
-//     if JS_IsNull(this_val) {
-//         tag = ctx.create_string("Null");
-//     } else if JS_IsUndefined(this_val) {
-//         tag = ctx.create_string("Undefined");
-//     } else {
-//         let obj = JS_ToObject(ctx, this_val);
-//         if JS_IsException(obj) {
-//             return obj;
-//         }
-
-//         let atom = if let Ok(is_array) = JS_IsArray(ctx, obj) {
-//             if is_array {
-//                 JS_ATOM_Array
-//             } else if obj.is_function(ctx.as_ref().unwrap()) {
-//                 JS_ATOM_Function
-//             } else {
-//                 let p = JS_VALUE_GET_OBJ(obj);
-//                 match (*p).class_id() {
-//                     cid @ (JS_CLASS_STRING
-//                     | JS_CLASS_ARGUMENTS
-//                     | JS_CLASS_MAPPED_ARGUMENTS
-//                     | JS_CLASS_ERROR
-//                     | JS_CLASS_BOOLEAN
-//                     | JS_CLASS_NUMBER
-//                     | JS_CLASS_DATE
-//                     | JS_CLASS_REGEXP) => ctx.rt().class_array[cid as usize].class_name,
-//                     _ => JS_ATOM_Object,
-//                 }
-//             }
-//         } else {
-//             JS_FreeValue(ctx, obj);
-//             return JSValue::EXCEPTION;
-//         };
-
-//         tag = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag);
-//         JS_FreeValue(ctx, obj);
-//         if tag.is_exception() {
-//             return JSValue::EXCEPTION;
-//         }
-//         if !tag.is_string() {
-//             JS_FreeValue(ctx, tag);
-//             tag = atom.to_value(ctx, true);
-//         }
-//     }
-
-//     JS_ConcatString3(ctx, c"[object ", tag, c"]")
-// }
-
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut tag_str: JSValue;
 

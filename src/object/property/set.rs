@@ -1,8 +1,8 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
-    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    JS_CLASS_INT32_ARRAY, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT,
+    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{
         __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom, JSAtom,
     },
@@ -403,6 +403,7 @@ impl JSObject {
         )
     }
 
+    /// flags can be JS_PROP_THROW or JS_PROP_THROW_STRICT
     pub fn set_property_value(
         &self,
         ctx: &JSContext,
@@ -414,7 +415,7 @@ impl JSObject {
             let idx = *idx;
             let mut ta_out_of_bound = false;
 
-            // try fast path
+            // try fast path: array access
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     // fast path: fast array
@@ -504,7 +505,6 @@ impl JSObject {
                         return Ok(true); // done fast array
                     }
                 }
-
                 //
                 // typed array
                 //
@@ -599,8 +599,8 @@ impl JSObject {
                     unimplemented!()
                 }
 
-                c => {
-                    unreachable!("class_id={c}");
+                _ => {
+                    // go slow path
                 }
             }
 
