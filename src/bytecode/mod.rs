@@ -9,7 +9,7 @@ pub mod arithmatic;
 pub use operators::*;
 
 #[cfg(feature = "dump_bytecode")]
-pub use dump::{dump_byte_code, js_dump_function_bytecode};
+pub use dump::dump_opcodes;
 
 /// get opcode descr for (common only)
 pub fn opcode_info_common(op: u8) -> &'static JSOpCode {

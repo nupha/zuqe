@@ -365,7 +365,7 @@ impl JSFunctionDef {
             println!("pass {pass}");
 
             unsafe {
-                crate::bytecode::dump_byte_code(
+                crate::bytecode::dump_opcodes(
                     ctx,
                     pass,
                     self.byte_code.as_slice(),
@@ -376,7 +376,7 @@ impl JSFunctionDef {
                     self.source.as_deref(),
                     self.line_num as _,
                     self.label_slots.as_slice(),
-                    std::ptr::null_mut(),
+                    None,
                 );
             }
 

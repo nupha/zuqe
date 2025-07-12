@@ -220,12 +220,12 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
     size
 }
 
-/// dump bytecode in pass 1,2,3
+/// dump opcodes binary in pass 1,2,3
 #[cfg(feature = "dump_bytecode")]
-pub unsafe fn dump_byte_code(
+pub unsafe fn dump_opcodes(
     ctx: &JSContext,
     pass: i32,
-    tab: &[u8],
+    bin: &[u8],
     args: &[JSVarDef],
     vars: &[JSVarDef],
     closure_vars: &[JSClosureVar],
@@ -233,13 +233,12 @@ pub unsafe fn dump_byte_code(
     source: Option<&str>,
     line_num: i32,
     labels: &[LabelSlot], // for pass 1, 2 only
-    b: *const Bytecode,
+    bc: Option<&Bytecode>,
 ) {
     use crate::utils::read_from_ptr;
 
-    let len = tab.len();
-
-    let use_short_opcodes = !b.is_null();
+    let len = bin.len();
+    let use_short_opcodes = bc.is_some();
     let op_max = if use_short_opcodes {
         OP_COUNT_FINAL
     } else {
@@ -248,11 +247,11 @@ pub unsafe fn dump_byte_code(
 
     let mut pos = 0_usize;
     let mut pos_next: usize;
-    let mut bits = vec![0_u8; tab.len()];
+    let mut bits = vec![0_u8; len];
 
     // scan for jump targets
     while pos < len {
-        let op = tab[pos as usize];
+        let op = bin[pos as usize];
         let oi = if use_short_opcodes {
             opcode_info_final(op)
         } else {
@@ -265,7 +264,7 @@ pub unsafe fn dump_byte_code(
                 #[cfg(feature = "short_opcode")]
                 "label8" => {
                     pos += 1;
-                    addr = *tab.offset(pos) as i32;
+                    addr = *opcodes.offset(pos) as i32;
                     if pass == 1 {
                         addr = (*labels.offset(addr as isize)).pos;
                     }
@@ -282,7 +281,7 @@ pub unsafe fn dump_byte_code(
                 #[cfg(feature = "short_opcode")]
                 "label16" => {
                     pos += 1;
-                    let addr = read_from_ptr::<u16>(tab.add(pos)) as i32;
+                    let addr = read_from_ptr::<u16>(opcodes.add(pos)) as i32;
                     if pass == 1 {
                         addr = labels[addr as usize].pos;
                     } else if pass == 2 {
@@ -300,7 +299,7 @@ pub unsafe fn dump_byte_code(
                         pos += 4;
                     }
                     pos += 1;
-                    let addr = read_from_ptr::<u32>(tab.as_ptr().add(pos as _));
+                    let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) };
 
                     let pc = match pass {
                         1 => labels[addr as usize].pos,
@@ -310,7 +309,7 @@ pub unsafe fn dump_byte_code(
                             unreachable!()
                         }
                     };
-                    if pc >= 0 && pc < tab.len() as i32 {
+                    if pc >= 0 && pc < bin.len() as i32 {
                         *bits.get_mut(pc as usize).unwrap() |= 1;
                     }
                 }
@@ -346,15 +345,17 @@ pub unsafe fn dump_byte_code(
 
     pos = 0;
     while pos < len {
-        let op = tab[pos as usize];
+        let op = bin[pos as usize];
 
         // print source code
         {
             if let Some(s) = source {
-                if !b.is_null() {
-                    line1 = (*b).find_line_num(pos as _).unwrap_or(-1) - line_num + 1;
+                if let Some(b) = bc {
+                    line1 = b.find_line_num(pos as _).unwrap_or(-1) - line_num + 1;
                 } else if op == opcodes::op_line_num {
-                    line1 = read_from_ptr::<i32>(tab.as_ptr().add(pos as usize + 1)) - line_num + 1;
+                    line1 = unsafe {
+                        read_from_ptr::<i32>(bin.as_ptr().add(pos as usize + 1)) - line_num + 1
+                    };
                 };
 
                 if line1 > line {
@@ -404,7 +405,7 @@ pub unsafe fn dump_byte_code(
                     print!("\n      ");
                     x = 0;
                 }
-                print!(" {:02X}", tab[(pos + i) as usize]);
+                print!(" {:02X}", bin[(pos + i) as usize]);
                 x += 3;
             }
             print!("{:width$}", " ", width = x0 + 20 - x);
@@ -432,54 +433,54 @@ pub unsafe fn dump_byte_code(
                 print!(" {}", op - opcodes::OP_call0);
             }
             "u8" => {
-                print!(" {}", tab[pos as usize]);
+                print!(" {}", bin[pos as usize]);
             }
             "i8" => {
-                print!(" {}", tab[pos as usize] as i8);
+                print!(" {}", bin[pos as usize] as i8);
             }
             "u16" | "npop" => {
-                print!(" {}", read_from_ptr::<u16>(tab.as_ptr().add(pos)));
+                print!(" {}", read_from_ptr::<u16>(bin.as_ptr().add(pos)));
             }
             "npop_u16" => {
                 print!(
                     " {},{}",
-                    read_from_ptr::<u16>(tab.as_ptr().add(pos)),
-                    read_from_ptr::<u16>(tab.as_ptr().add(pos + 2)),
+                    read_from_ptr::<u16>(bin.as_ptr().add(pos)),
+                    read_from_ptr::<u16>(bin.as_ptr().add(pos + 2)),
                 );
             }
             "i16" => {
-                print!(" {}", read_from_ptr::<i16>(tab.as_ptr().offset(pos as _)));
+                print!(" {}", read_from_ptr::<i16>(bin.as_ptr().offset(pos as _)));
             }
             "i32" => {
-                print!(" {}", read_from_ptr::<i32>(tab.as_ptr().offset(pos as _)));
+                print!(" {}", read_from_ptr::<i32>(bin.as_ptr().offset(pos as _)));
             }
             "u32" => {
-                print!(" {}", read_from_ptr::<u32>(tab.as_ptr().offset(pos as _)));
+                print!(" {}", read_from_ptr::<u32>(bin.as_ptr().offset(pos as _)));
             }
 
             #[cfg(feature = "short_opcode")]
             "label8" => {
-                let addr = get_i8(tab.as_ptr().offset(pos));
+                let addr = get_i8(opcodes.as_ptr().offset(pos));
                 has_addr1(addr);
             }
             #[cfg(feature = "short_opcode")]
             "label16" => {
-                let addr = get_i16(tab.as_ptr().offset(pos));
+                let addr = get_i16(opcodes.as_ptr().offset(pos));
                 has_addr1!(addr);
             }
 
             f @ ("label" | "label_u16") => {
-                let addr = read_from_ptr::<u32>(tab.as_ptr().offset(pos as _));
+                let addr = read_from_ptr::<u32>(bin.as_ptr().offset(pos as _));
                 has_addr1!(addr);
 
                 if f == "label_u16" {
-                    print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)));
+                    print!(", {}", read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)));
                 }
             }
 
             #[cfg(feature = "short_opcode")]
             "const8" => {
-                idx = get_u8(tab.offset(pos));
+                idx = get_u8(opcodes.offset(pos));
                 // C2RS: goto has_pool_idx replaced with inline logic
                 printf(" {}: ", idx);
                 if idx < cpool_count as i32 {
@@ -488,7 +489,7 @@ pub unsafe fn dump_byte_code(
             }
 
             "const" => {
-                let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos)) as usize;
+                let idx = read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize;
                 print!(" {idx}:");
                 if let Some(v) = cpools.get(idx) {
                     print!("{}", v.repr());
@@ -498,27 +499,27 @@ pub unsafe fn dump_byte_code(
                 }
             }
             "atom" => {
-                let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
+                let a = read_from_ptr::<u32>(bin.as_ptr().add(pos));
                 print!(" {a}:{}", JSAtom(a).to_str(ctx.rt()));
             }
             f @ ("atom_u8" | "atom_u16") => {
                 print!(
                     " {}, {}",
-                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).to_str(ctx.rt()),
+                    JSAtom(read_from_ptr::<u32>(bin.as_ptr().add(pos))).to_str(ctx.rt()),
                     if f == "atom_u8" {
-                        tab[pos as usize + 4] as usize
+                        bin[pos as usize + 4] as usize
                     } else {
-                        read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)) as usize
+                        read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)) as usize
                     }
                 );
             }
             f @ ("atom_label_u8" | "atom_label_u16") => {
                 print!(
                     " {}",
-                    JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos as _))).to_str(ctx.rt())
+                    JSAtom(read_from_ptr::<u32>(bin.as_ptr().add(pos as _))).to_str(ctx.rt())
                 );
 
-                let addr = read_from_ptr::<u32>(tab.as_ptr().offset(pos as isize + 4));
+                let addr = read_from_ptr::<u32>(bin.as_ptr().offset(pos as isize + 4));
                 if pass == 1 {
                     print!(", {}:{}", addr, labels[addr as usize].pos);
                 } else if pass == 2 {
@@ -528,9 +529,9 @@ pub unsafe fn dump_byte_code(
                 }
 
                 if f == "atom_label_u8" {
-                    print!(", {}", *tab.as_ptr().add(pos + 8));
+                    print!(", {}", *bin.as_ptr().add(pos + 8));
                 } else {
-                    print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 8)));
+                    print!(", {}", read_from_ptr::<u16>(bin.as_ptr().add(pos + 8)));
                 }
             }
 
@@ -546,9 +547,9 @@ pub unsafe fn dump_byte_code(
 
             f @ ("loc8" | "loc") => {
                 let idx = if f == "loc8" {
-                    *tab.as_ptr().add(pos) as usize
+                    *bin.as_ptr().add(pos) as usize
                 } else {
-                    read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize
+                    read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize
                 };
                 print!(
                     " {idx}:{}",
@@ -567,7 +568,7 @@ pub unsafe fn dump_byte_code(
             }
 
             "arg" => {
-                let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
+                let idx = read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
                     args.get(idx).unwrap().var_name.to_str(ctx.rt())
@@ -584,7 +585,7 @@ pub unsafe fn dump_byte_code(
             }
 
             "var_ref" => {
-                let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
+                let idx = read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize;
                 print!(
                     " {idx}:{}",
                     closure_vars.get(idx).unwrap().var_name.to_str(ctx.rt())
@@ -606,141 +607,145 @@ pub unsafe fn dump_byte_code(
     }
 }
 
-#[cfg(feature = "dump_bytecode")]
-pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &Bytecode) {
-    let b = bc.0.borrow();
+impl Bytecode {
+    /// dump Bytecode data
+    #[cfg(feature = "dump_bytecode")]
+    pub fn dump(&self, ctx: &JSContext) {
+        print!("{:?}: ", self);
 
-    if b.has_debug && b.debug.filename != JS_ATOM_NULL {
-        print!(
-            "{}:{}: ",
-            b.debug.filename.to_str(ctx.rt()),
-            b.debug.line_num
-        );
-    }
+        let b = self.0.borrow();
 
-    println!(
-        "function: {}{}",
-        if b.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
-            "*"
-        } else {
-            ""
-        },
-        b.func_name.to_str(ctx.rt()),
-    );
-
-    if b.js_mode != 0 {
-        print!("  mode:");
-        if b.js_mode & JS_MODE_STRICT as u8 != 0 {
-            print!(" strict");
-        }
-        if b.js_mode & JS_MODE_ASYNC as u8 != 0 {
-            print!(" async");
-        }
-        println!();
-    }
-
-    {
-        let args = b.args_slice();
-        if !args.is_empty() {
-            print!("  args:");
-            for arg in args {
-                print!(" {}", arg.var_name.to_str(ctx.rt()));
-            }
-            println!();
-        }
-    }
-
-    let vars = b.vars_slice();
-    if !vars.is_empty() {
-        println!("  locals:");
-        for (i, vd) in vars.iter().enumerate() {
-            let kind_str = match vd.var_kind() {
-                JSVarKindEnum::JS_VAR_CATCH => "catch",
-                JSVarKindEnum::JS_VAR_FUNCTION_DECL | JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL => {
-                    "function"
-                }
-                _ => {
-                    if vd.is_const() {
-                        "const"
-                    } else if vd.is_lexical() {
-                        "let"
-                    } else {
-                        "var"
-                    }
-                }
-            };
-
-            print!("{i:5}: {kind_str} {}", vd.var_name.to_str(ctx.rt()),);
-
-            if vd.scope_level != 0 {
-                print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);
-            }
-            println!();
-        }
-    }
-
-    let cvars = b.closure_vars_slice();
-    if !cvars.is_empty() {
-        println!("  closure vars:");
-        for (i, cv) in cvars.iter().enumerate() {
-            let var_type = if cv.is_local() { "local" } else { "parent" };
-            let loc_type = if cv.is_arg() { "arg" } else { "loc" };
-            let const_str = if cv.is_const() {
-                "const"
-            } else if cv.is_lexical() {
-                "let"
-            } else {
-                "var"
-            };
-
-            println!(
-                "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
-                cv.var_name.to_str(ctx.rt()),
-                cv.var_idx
+        if b.has_debug && b.debug.filename != JS_ATOM_NULL {
+            print!(
+                "{}@{}: ",
+                b.debug.filename.to_str(ctx.rt()),
+                b.debug.line_num
             );
         }
-    }
 
-    println!("  stack_size: {}", (*b).stack_size);
-    println!("  opcodes:");
-
-    unsafe {
-        dump_byte_code(
-            ctx,
-            3,
-            b.opcodes(),
-            b.args_slice(),
-            b.vars_slice(),
-            b.closure_vars_slice(),
-            b.cpools_slice(),
-            if b.has_debug {
-                b.debug.source.as_deref()
+        println!(
+            "function: {}{}",
+            if b.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+                "*"
             } else {
-                None
+                ""
             },
-            if b.has_debug {
-                b.debug.line_num as _
-            } else {
-                -1
-            },
-            &[],
-            bc,
+            b.func_name.to_str(ctx.rt()),
         );
+
+        if b.js_mode != 0 {
+            print!("  mode:");
+            if b.js_mode & JS_MODE_STRICT as u8 != 0 {
+                print!(" strict");
+            }
+            if b.js_mode & JS_MODE_ASYNC as u8 != 0 {
+                print!(" async");
+            }
+            println!();
+        }
+
+        {
+            let args = b.args_slice();
+            if !args.is_empty() {
+                print!("  args:");
+                for arg in args {
+                    print!(" {}", arg.var_name.to_str(ctx.rt()));
+                }
+                println!();
+            }
+        }
+
+        let vars = b.vars_slice();
+        if !vars.is_empty() {
+            println!("  locals:");
+            for (i, vd) in vars.iter().enumerate() {
+                let kind_str = match vd.var_kind() {
+                    JSVarKindEnum::JS_VAR_CATCH => "catch",
+                    JSVarKindEnum::JS_VAR_FUNCTION_DECL
+                    | JSVarKindEnum::JS_VAR_NEW_FUNCTION_DECL => "function",
+                    _ => {
+                        if vd.is_const() {
+                            "const"
+                        } else if vd.is_lexical() {
+                            "let"
+                        } else {
+                            "var"
+                        }
+                    }
+                };
+
+                print!("{i:5}: {kind_str} {}", vd.var_name.to_str(ctx.rt()),);
+
+                if vd.scope_level != 0 {
+                    print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);
+                }
+                println!();
+            }
+        }
+
+        let cvars = b.closure_vars_slice();
+        if !cvars.is_empty() {
+            println!("  closure vars:");
+            for (i, cv) in cvars.iter().enumerate() {
+                let var_type = if cv.is_local() { "local" } else { "parent" };
+                let loc_type = if cv.is_arg() { "arg" } else { "loc" };
+                let const_str = if cv.is_const() {
+                    "const"
+                } else if cv.is_lexical() {
+                    "let"
+                } else {
+                    "var"
+                };
+
+                println!(
+                    "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
+                    cv.var_name.to_str(ctx.rt()),
+                    cv.var_idx
+                );
+            }
+        }
+
+        println!("  stack_size: {}", (*b).stack_size);
+        println!("  opcodes:");
+
+        unsafe {
+            dump_opcodes(
+                ctx,
+                3,
+                b.opcodes(),
+                b.args_slice(),
+                b.vars_slice(),
+                b.closure_vars_slice(),
+                b.cpools_slice(),
+                if b.has_debug {
+                    b.debug.source.as_deref()
+                } else {
+                    None
+                },
+                if b.has_debug {
+                    b.debug.line_num as _
+                } else {
+                    -1
+                },
+                &[],
+                Some(self),
+            );
+        }
+
+        // if (*b).has_debug {
+        //     dump_pc2line(
+        //         ctx,
+        //         (*b).debug
+        //             .pc2line_buf
+        //             .as_ref()
+        //             .map_or(std::ptr::null(), |x| x.as_ptr()),
+        //         (*b).debug.pc2line_buf.as_ref().map_or(0, |x| x.len()) as _,
+        //         (*b).debug.line_num as _,
+        //     );
+        // }
+
+        println!();
     }
-
-    // if (*b).has_debug {
-    //     dump_pc2line(
-    //         ctx,
-    //         (*b).debug
-    //             .pc2line_buf
-    //             .as_ref()
-    //             .map_or(std::ptr::null(), |x| x.as_ptr()),
-    //         (*b).debug.pc2line_buf.as_ref().map_or(0, |x| x.len()) as _,
-    //         (*b).debug.line_num as _,
-    //     );
-    // }
-
-    println!();
 }
 
 pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_num: i32) {

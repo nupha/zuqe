@@ -3058,3 +3058,9 @@ pub unsafe fn js_async_generator_resolve_or_reject(
     unreachable!("unnused")
     // (*s).resolve_or_reject(ctx, &result, is_reject);
 }
+
+#[cfg(feature = "dump_bytecode")]
+#[deprecated(note = "use Bytecode::dump() instead")]
+pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &Bytecode) {
+    bc.dump(ctx);
+}

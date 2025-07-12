@@ -310,7 +310,7 @@ impl JSFunctionDef {
 
         #[cfg(feature = "dump_bytecode")]
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
-            crate::bytecode::js_dump_function_bytecode(ctx, &bc);
+            bc.dump(ctx);
         }
 
         ctx.rt_mut()
