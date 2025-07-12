@@ -131,32 +131,37 @@ impl JSValue {
                 Self::String(s) => {
                     // try parse number
                     let str = s.content().to_str();
-                    let str_ptr0 = str.as_ptr();
                     let len = str.len();
 
-                    let mut p = unsafe { str_ptr0.add(skip_spaces(str_ptr0)) };
-                    let res: JSValue = if unsafe { p.offset_from(str_ptr0) as usize } == len {
-                        // is empty or white space string
-                        JSValue::Int(0)
+                    if len == 0 {
+                        break Ok(JSValue::Int(0));
                     } else {
-                        let mut r = unsafe {
-                            js_atof(
-                                ctx,
-                                p.cast(),
-                                std::ptr::addr_of_mut!(p),
-                                0,
-                                ATOD_ACCEPT_BIN_OCT,
-                            )
-                            .check_exception()?
-                        };
+                        let str_ptr0 = str.as_ptr();
+                        let mut p = unsafe { str_ptr0.add(skip_spaces(str_ptr0)) };
 
-                        p = unsafe { p.add(skip_spaces(p.cast())) };
-                        if unsafe { p.offset_from(str_ptr0) as usize } != len {
-                            r = JSValue::Float64(f64::NAN);
-                        }
-                        r
-                    };
-                    break Ok(res);
+                        let res: JSValue = if unsafe { p.offset_from(str_ptr0) as usize } == len {
+                            // is empty or white space string
+                            JSValue::Int(0)
+                        } else {
+                            let mut r = unsafe {
+                                js_atof(
+                                    ctx,
+                                    p.cast(),
+                                    std::ptr::addr_of_mut!(p),
+                                    0,
+                                    ATOD_ACCEPT_BIN_OCT,
+                                )
+                                .check_exception()?
+                            };
+
+                            p = unsafe { p.add(skip_spaces(p.cast())) };
+                            if unsafe { p.offset_from(str_ptr0) as usize } != len {
+                                r = JSValue::Float64(f64::NAN);
+                            }
+                            r
+                        };
+                        break Ok(res);
+                    }
                 }
                 Self::Object(_) => {
                     val = val.coerce_to_primitive(ctx, HINT_NUMBER)?;

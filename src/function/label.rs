@@ -1,11 +1,9 @@
 use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
-    context::{JSContext, JS_MODE_STRIP},
+    context::{JS_MODE_STRIP, JSContext},
     function::{JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE},
     utils::{push_vec_leb128, push_vec_sleb128, push_vec_u8, read_from_ptr},
 };
-
-use super::optimize::CodeContext;
 
 #[derive(Debug)]
 pub struct RelocEntry {
@@ -62,34 +60,69 @@ impl JSFunctionDef {
 
         Ok(self.label_slots.len() as u32 - 1)
     }
-}
 
-pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) -> bool {
-    while pos < (*s).bc_len {
-        let op = *(*s).bc_buf.offset(pos as isize);
-        if op == opcodes::op_line_num {
-            pos += 5;
-            continue;
-        }
-        if op == opcodes::op_label {
-            let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
-            if lab == label {
-                return true;
+    /// check if a specified `label` exists in bytecode, since `pos`.
+    pub(super) fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
+        let bc_buf = self.byte_code.as_ptr();
+        let bc_len = self.byte_code.len();
+
+        while pos < bc_len {
+            match unsafe { *bc_buf.add(pos) } {
+                opcodes::op_line_num => {
+                    pos += 5;
+                    continue;
+                }
+                opcodes::op_label => {
+                    let lab = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+                    if lab == label {
+                        return true;
+                    }
+                    pos += 5;
+                    continue;
+                }
+                opcodes::OP_goto => {
+                    let lab = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+                    if lab == label {
+                        return true;
+                    }
+                    break;
+                }
+                _ => {
+                    break;
+                }
             }
-            pos += 5;
-            continue;
         }
-        if op == opcodes::OP_goto {
-            let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
-            if lab == label {
-                return true;
-            }
-        }
-        break;
+
+        false
     }
-
-    false
 }
+
+// pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) -> bool {
+//     while pos < (*s).bc_len {
+//         let op = *(*s).bc_buf.offset(pos as isize);
+//         if op == opcodes::op_line_num {
+//             pos += 5;
+//             continue;
+//         }
+//         if op == opcodes::op_label {
+//             let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
+//             if lab == label {
+//                 return true;
+//             }
+//             pos += 5;
+//             continue;
+//         }
+//         if op == opcodes::OP_goto {
+//             let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
+//             if lab == label {
+//                 return true;
+//             }
+//         }
+//         break;
+//     }
+
+//     false
+// }
 
 pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
     if (*s).js_mode & JS_MODE_STRIP as u8 == 0 && !(*s).line_number_slots.is_empty() {

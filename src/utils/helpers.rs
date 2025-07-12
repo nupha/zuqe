@@ -173,7 +173,7 @@ pub fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {
     push_vec_u16(buf, idx);
 }
 
-pub unsafe fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
+pub fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
     #[cfg(feature = "short_opcode")]
     {
         if val >= -1 && val <= 7 {

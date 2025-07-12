@@ -11,10 +11,7 @@ use crate::{
     utils::{M2, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
 };
 
-use super::{
-    DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR,
-    optimize::{CodeContext, OPTIMIZE},
-};
+use super::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, optimize::OPTIMIZE};
 
 impl JSFunctionDef {
     /// Performs initial runtime checks for global variables
@@ -93,7 +90,7 @@ impl JSFunctionDef {
             };
         }
 
-        let mut cc = CodeContext::from_raw(bc_buf_ptr, bc_buf_len);
+        //let mut cc = CodeContext::from_raw(bc_buf_ptr, bc_buf_len);
 
         let mut line_num = 0_i32;
         let mut pos = 0_usize;
@@ -257,9 +254,14 @@ impl JSFunctionDef {
                         let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
                         debug_assert!(label_id < self.label_slots.len() as u32);
 
-                        let lb = self.label_slots.get_mut(label_id as usize).unwrap();
-                        if cc.code_match(lb.pos as _, &[OpCode::RET as i32]) {
-                            lb.ref_count -= 1;
+                        if self
+                            .code_match(
+                                self.label_slots[label_id as usize].pos as _,
+                                &[OpCode::RET as i32],
+                            )
+                            .is_some()
+                        {
+                            self.label_slots[label_id as usize].ref_count -= 1;
                         } else {
                             no_change!(pos, op_len);
                         }
@@ -295,7 +297,7 @@ impl JSFunctionDef {
                     // Optimize transformation:
                     // insert3 put_array_el|put_ref_value drop -> put_array_el|put_ref_value
                     if OPTIMIZE
-                        && cc.code_match(
+                        && let Some(cc) = self.code_match(
                             pos_next,
                             &[
                                 M2(OpCode::PUT_ARRAY_EL as i32, OpCode::PUT_REF_VALUE as i32),
@@ -426,7 +428,7 @@ impl JSFunctionDef {
                     // Transformation: dup if_false(l1) drop, l1: if_false(l2) -> if_false(l2)
                     // Transformation: dup if_true(l1) drop, l1: if_true(l2) -> if_true(l2)
                     if OPTIMIZE
-                        && cc.code_match(
+                        && let Some(cc) = self.code_match(
                             pos_next,
                             &[
                                 M2(opcodes::OP_if_false as i32, opcodes::OP_if_true as i32),
@@ -442,9 +444,9 @@ impl JSFunctionDef {
                         let pos1 = cc.pos;
                         let line1 = cc.line_num;
                         let mut pos2: usize;
-                        while cc.code_match(
+                        while let Some(cc) = self.code_match(
                             {
-                                pos2 = unsafe { get_label_pos(self, lab1) as _ };
+                                pos2 = get_label_pos(self, lab1) as _;
                                 pos2
                             },
                             &[OpCode::DUP as i32, op1, OpCode::DROP as i32],
@@ -452,7 +454,7 @@ impl JSFunctionDef {
                             lab1 = cc.label;
                         }
 
-                        if cc.code_match(pos2, &[op1]) {
+                        if let Some(cc) = self.code_match(pos2, &[op1]) {
                             #[cfg(feature = "short_opcode")]
                             {
                                 self.jump_slots_cap += 1;

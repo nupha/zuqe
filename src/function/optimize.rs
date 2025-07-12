@@ -4,7 +4,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
     bytecode::{OpCode, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JSContext},
-    function::{JSFunctionDef, LabelSlot, code_has_label, find_jump_target},
+    function::{JSFunctionDef, LabelSlot, find_jump_target},
     utils::{
         M2, M3, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16, push_vec_u32,
         read_from_ptr, write_to_ptr,
@@ -13,15 +13,10 @@ use crate::{
 
 pub const OPTIMIZE: bool = true;
 
-pub struct CodeContext<'c> {
-    /// bytecode buffer
-    pub bc_buf: *const u8,
-    /// length of the code buffer
-    pub bc_len: usize,
-
+#[derive(Clone, Copy)]
+pub(super) struct CodeMatchState {
     /// position past the matched code pattern
     pub pos: usize,
-
     /// last visited op_line_num parameter or -1
     pub line_num: i32,
 
@@ -30,73 +25,55 @@ pub struct CodeContext<'c> {
     pub label: i32,
     pub val: i32,
     pub atom: JSAtom,
-
-    _mark: PhantomData<&'c ()>,
 }
 
-impl CodeContext<'_> {
-    pub fn from_raw(ptr: *mut u8, len: usize) -> Self {
+impl Default for CodeMatchState {
+    fn default() -> Self {
         Self {
-            bc_buf: ptr,
-            bc_len: len,
             pos: 0,
-            line_num: 0,
+            line_num: -1,
             op: 0,
             idx: 0,
             label: 0,
             val: 0,
             atom: JS_ATOM_NULL,
-            _mark: PhantomData,
         }
     }
 }
 
-impl<'c> CodeContext<'c> {
-    pub fn new(bc: &'c [u8]) -> Self {
-        Self {
-            bc_buf: bc.as_ptr(),
-            bc_len: bc.len(),
-            pos: 0,
-            line_num: 0,
-            op: 0,
-            idx: 0,
-            label: 0,
-            val: 0,
-            atom: JS_ATOM_NULL,
-            _mark: PhantomData,
-        }
-    }
+impl JSFunctionDef {
+    /// match in bytecodes for specified `pattern`, starting since `pos`.
+    pub(super) fn code_match(&self, mut pos: usize, pattern: &[i32]) -> Option<CodeMatchState> {
+        let bc_ptr = self.byte_code.as_ptr();
+        let bc_len = self.byte_code.len();
 
-    pub fn code_match(&mut self, mut pos: usize, pattern: &[i32]) -> bool {
-        let tab = self.bc_buf;
-        let bc_len = self.bc_len;
-
-        let mut line_num = -1_i32;
+        let mut state = CodeMatchState::default();
+        let mut line_num = -1;
         let mut pos_next: usize;
-        let mut ret = false;
+        let mut found = false;
 
         let mut it = pattern.iter();
         loop {
             let op_arg = it.next().copied().unwrap_or(-1);
             if op_arg == -1 {
-                self.pos = pos;
-                self.line_num = line_num;
-                ret = true;
+                state.pos = pos;
+                state.line_num = line_num;
+                found = true;
                 break;
             }
 
             let op = loop {
                 if pos >= bc_len {
-                    return false;
+                    return None;
                 }
 
-                let op = unsafe { *tab.add(pos as usize) };
+                let op = unsafe { *bc_ptr.add(pos as usize) };
                 pos_next = pos + opcode_info_intermediate(op).size as usize;
                 if pos_next > bc_len {
-                    return false;
+                    return None;
                 }
                 if op == opcodes::op_line_num {
-                    line_num = unsafe { read_from_ptr::<i32>(tab.add(pos + 1)) };
+                    line_num = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                     pos = pos_next;
                 } else {
                     break op;
@@ -114,7 +91,7 @@ impl<'c> CodeContext<'c> {
                 {
                     break; // stop iter
                 }
-                self.op = op as i32;
+                state.op = op as i32;
             }
 
             pos += 1;
@@ -122,61 +99,58 @@ impl<'c> CodeContext<'c> {
             unsafe {
                 match opcode_info_intermediate(op).fmt {
                     "loc8" | "u8" => {
-                        let idx = *tab.add(pos);
+                        let idx = *bc_ptr.add(pos);
                         let arg = it.next().copied().unwrap_or(-1);
                         if arg == -1 {
-                            self.idx = idx as i32;
+                            state.idx = idx as i32;
                         } else if arg != idx as i32 {
-                            return false;
+                            return None;
                         }
                     }
                     "u16" | "npop" | "loc" | "arg" | "var_ref" => {
-                        let idx = read_from_ptr::<u16>(tab.add(pos)) as i32;
+                        let idx = read_from_ptr::<u16>(bc_ptr.add(pos)) as i32;
                         let arg = it.next().copied().unwrap_or(-1);
                         if arg == -1 {
-                            self.idx = idx;
+                            state.idx = idx;
                         } else if arg != idx {
-                            return false;
+                            return None;
                         }
                     }
                     "i32" | "u32" | "label" | "const" => {
-                        self.label = read_from_ptr::<u32>(tab.add(pos)) as _;
+                        state.label = read_from_ptr::<u32>(bc_ptr.add(pos)) as _;
                     }
                     "label_u16" => {
-                        self.label = read_from_ptr::<u32>(tab.add(pos)) as _;
-                        self.val = read_from_ptr::<u16>(tab.add(pos + 4)) as _;
+                        state.label = read_from_ptr::<u32>(bc_ptr.add(pos)) as _;
+                        state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
                     "atom" => {
-                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
+                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
                     }
                     "atom_u8" => {
-                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
-                        self.val = *tab.add(pos + 4) as _;
+                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.val = *bc_ptr.add(pos + 4) as _;
                     }
                     "atom_u16" => {
-                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
-                        self.val = read_from_ptr::<u16>(tab.add(pos + 4)) as _;
+                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
                     "atom_label_u8" => {
-                        self.atom = JSAtom(read_from_ptr::<u32>(tab.add(pos)));
-                        self.label = read_from_ptr::<u32>(tab.add(pos + 4)) as _;
-                        self.val = read_from_ptr::<u8>(tab.add(pos + 8)) as _;
+                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.label = read_from_ptr::<u32>(bc_ptr.add(pos + 4)) as _;
+                        state.val = read_from_ptr::<u8>(bc_ptr.add(pos + 8)) as _;
                     }
                     _ => {}
-                } // match fmt
+                }
             }
 
             pos = pos_next;
-        } // iter op_list
+        }
 
-        return ret;
+        if found { Some(state) } else { None }
     }
-}
 
-impl<'c> CodeContext<'c> {
-    pub(super) unsafe fn optimize_get_loc(
-        &mut self,
-        s: *mut JSFunctionDef,
+    pub(super) fn optimize_get_loc(
+        self: &mut JSFunctionDef,
         pos: usize,
         pos_next: &mut usize,
         line_num: &mut i32,
@@ -188,43 +162,50 @@ impl<'c> CodeContext<'c> {
         // get_loc(n) dec dup put_loc(n) drop -> dec_loc(n)
         // get_loc(n) inc dup put_loc(n) drop -> inc_loc(n)
 
-        let idx = read_from_ptr::<u16>(self.bc_buf.add(pos + 1));
+        let bc_buf = self.byte_code.as_ptr();
+
+        let idx = unsafe { read_from_ptr::<u16>(bc_buf.add(pos + 1)) };
         if idx >= 256 {
             false
         } else {
-            if self.code_match(
-                *pos_next,
-                &[
-                    M2(opcodes::OP_post_dec as _, opcodes::OP_post_inc as _),
-                    opcodes::OP_put_loc as _,
-                    idx as _,
-                    opcodes::OP_drop as _,
-                ],
-            ) || self.code_match(
-                *pos_next,
-                &[
-                    M2(opcodes::OP_dec as _, opcodes::OP_inc as _),
-                    opcodes::OP_dup as _,
-                    opcodes::OP_put_loc as _,
-                    idx as _,
-                    opcodes::OP_drop as _,
-                ],
-            ) {
-                if self.line_num >= 0 {
-                    *line_num = self.line_num;
+            if let Some(cc) = self
+                .code_match(
+                    *pos_next,
+                    &[
+                        M2(opcodes::OP_post_dec as _, opcodes::OP_post_inc as _),
+                        opcodes::OP_put_loc as _,
+                        idx as _,
+                        opcodes::OP_drop as _,
+                    ],
+                )
+                .or_else(|| {
+                    self.code_match(
+                        *pos_next,
+                        &[
+                            M2(opcodes::OP_dec as _, opcodes::OP_inc as _),
+                            opcodes::OP_dup as _,
+                            opcodes::OP_put_loc as _,
+                            idx as _,
+                            opcodes::OP_drop as _,
+                        ],
+                    )
+                })
+            {
+                if cc.line_num >= 0 {
+                    *line_num = cc.line_num;
                 }
-                (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num);
                 push_vec_u8(
                     bc_out,
-                    if matches!(self.op as u8, opcodes::OP_inc | opcodes::OP_post_inc) {
+                    if matches!(cc.op as u8, opcodes::OP_inc | opcodes::OP_post_inc) {
                         opcodes::OP_inc_loc
                     } else {
                         opcodes::OP_dec_loc
                     },
                 );
                 push_vec_u8(bc_out, idx as u8);
-                *pos_next = self.pos;
-            } else if self.code_match(
+                *pos_next = cc.pos;
+            } else if let Some(cc) = self.code_match(
                 *pos_next,
                 &[
                     opcodes::OP_push_atom_value as _,
@@ -237,10 +218,10 @@ impl<'c> CodeContext<'c> {
             ) {
                 // transformation:
                 // get_loc(n) push_atom_value(x) add dup put_loc(n) drop -> push_atom_value(x) add_loc(n)
-                if self.line_num >= 0 {
-                    *line_num = self.line_num as _;
+                if cc.line_num >= 0 {
+                    *line_num = cc.line_num as _;
                 }
-                (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num);
 
                 #[cfg(feature = "short_opcode")]
                 {
@@ -255,13 +236,13 @@ impl<'c> CodeContext<'c> {
                 #[cfg(not(feature = "short_opcode"))]
                 {
                     push_vec_u8(bc_out, opcodes::OP_push_atom_value);
-                    push_vec_u32(bc_out, self.atom.0);
+                    push_vec_u32(bc_out, cc.atom.0);
                 }
 
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
-                *pos_next = self.pos;
-            } else if self.code_match(
+                *pos_next = cc.pos;
+            } else if let Some(cc) = self.code_match(
                 *pos_next,
                 &[
                     opcodes::OP_push_i32 as _,
@@ -274,15 +255,15 @@ impl<'c> CodeContext<'c> {
             ) {
                 // transformation:
                 // get_loc(n) push_i32(x) add dup put_loc(n) drop -> push_i32(x) add_loc(n)
-                if self.line_num >= 0 {
-                    *line_num = self.line_num as _;
+                if cc.line_num >= 0 {
+                    *line_num = cc.line_num as _;
                 }
-                (*s).add_pc2line_info(bc_out.len() as _, *line_num);
-                push_vec_short_int(bc_out, self.label);
+                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                push_vec_short_int(bc_out, cc.label);
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
-                *pos_next = self.pos;
-            } else if self.code_match(
+                *pos_next = cc.pos;
+            } else if let Some(cc) = self.code_match(
                 *pos_next,
                 &[
                     M3(
@@ -304,16 +285,16 @@ impl<'c> CodeContext<'c> {
                 // get_loc(n) get_arg(x) add dup put_loc(n) drop -> get_arg(x) add_loc(n)
                 // get_loc(n) get_var_ref(x) add dup put_loc(n) drop -> get_var_ref(x) add_loc(n)
 
-                if self.line_num >= 0 {
-                    *line_num = self.line_num as _;
+                if cc.line_num >= 0 {
+                    *line_num = cc.line_num as _;
                 }
-                (*s).add_pc2line_info(bc_out.len() as _, *line_num);
-                push_vec_short_code(bc_out, self.op as _, self.idx as _);
+                self.add_pc2line_info(bc_out.len() as _, *line_num);
+                push_vec_short_code(bc_out, cc.op as _, cc.idx as _);
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
-                *pos_next = self.pos;
+                *pos_next = cc.pos;
             } else {
-                (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+                self.add_pc2line_info(bc_out.len() as _, *line_num);
                 push_vec_short_code(bc_out, OpCode::GET_LOC as u8, idx);
             }
 
@@ -321,9 +302,8 @@ impl<'c> CodeContext<'c> {
         }
     }
 
-    pub(super) unsafe fn optimize_put_loc(
+    pub(super) fn optimize_put_loc(
         &mut self,
-        s: *mut JSFunctionDef,
         op: u8,
         pos: usize,
         pos_next: &mut usize,
@@ -335,28 +315,29 @@ impl<'c> CodeContext<'c> {
             opcodes::OP_put_loc | opcodes::OP_put_arg | opcodes::OP_put_var_ref,
         ));
 
+        let bc_buf = self.byte_code.as_ptr();
+
         // transformation: put_x(n) get_x(n) -> set_x(n)
-        let idx = read_from_ptr::<u16>(self.bc_buf.add(pos + 1));
-        if self.code_match(*pos_next, &[op as i32 - 1, idx as _]) {
-            if self.line_num >= 0 {
-                *line_num = self.line_num;
+        let idx = unsafe { read_from_ptr::<u16>(bc_buf.add(pos + 1)) };
+        if let Some(cc) = self.code_match(*pos_next, &[op as i32 - 1, idx as _]) {
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num;
             }
-            (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_short_code(bc_out, op + 1, idx);
-            *pos_next = self.pos;
+            *pos_next = cc.pos;
         } else {
-            (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_short_code(bc_out, op, idx);
         }
 
         true
     }
 
-    pub(super) unsafe fn optimize_post_dec_inc(
+    pub(super) fn optimize_post_dec_inc(
         &mut self,
-        s: *mut JSFunctionDef,
         op: u8,
-        pos: usize,
+        _pos: usize,
         pos_next: &mut usize,
         line_num: &mut i32,
         bc_out: &mut Vec<u8>,
@@ -368,7 +349,7 @@ impl<'c> CodeContext<'c> {
         // post_inc perm3 put_field drop -> inc put_field
         // post_inc perm3 put_var_strict drop -> inc put_var_strict
         // post_inc perm4 put_array_el drop -> inc put_array_el
-        if self.code_match(
+        if let Some(cc) = self.code_match(
             *pos_next,
             &[
                 M3(
@@ -380,27 +361,27 @@ impl<'c> CodeContext<'c> {
                 OpCode::DROP as _,
             ],
         ) {
-            if self.line_num >= 0 {
-                *line_num = self.line_num as _;
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num as _;
             }
-            let mut op1 = self.op;
-            let idx = self.idx;
-            *pos_next = self.pos;
+            let mut op1 = cc.op;
+            let idx = cc.idx;
+            *pos_next = cc.pos;
 
-            if self.code_match(self.pos, &[op1 - 1, idx]) {
-                if self.line_num >= 0 {
-                    *line_num = self.line_num as _;
+            if let Some(m) = self.code_match(cc.pos, &[op1 - 1, idx]) {
+                if m.line_num >= 0 {
+                    *line_num = m.line_num as _;
                 }
                 op1 += 1; // put_x(n) get_x(n) -> set_x(n)
-                *pos_next = self.pos;
+                *pos_next = m.pos;
             }
-            (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
             push_vec_short_code(bc_out, op1 as u8, idx as u16);
             return true;
         }
 
-        if self.code_match(
+        if let Some(cc) = self.code_match(
             *pos_next,
             &[
                 OpCode::PERM3 as _,
@@ -408,18 +389,18 @@ impl<'c> CodeContext<'c> {
                 OpCode::DROP as _,
             ],
         ) {
-            if self.line_num >= 0 {
-                *line_num = self.line_num as _;
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num as _;
             }
-            (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
-            push_vec_u8(bc_out, self.op as u8);
-            push_vec_u32(bc_out, self.atom.0);
-            *pos_next = self.pos;
+            push_vec_u8(bc_out, cc.op as u8);
+            push_vec_u32(bc_out, cc.atom.0);
+            *pos_next = cc.pos;
             return true;
         }
 
-        if self.code_match(
+        if let Some(cc) = self.code_match(
             *pos_next,
             &[
                 OpCode::PERM4 as _,
@@ -427,22 +408,21 @@ impl<'c> CodeContext<'c> {
                 OpCode::DROP as _,
             ],
         ) {
-            if self.line_num >= 0 {
-                *line_num = self.line_num as _;
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num as _;
             }
-            (*s).add_pc2line_info(bc_out.len() as _, *line_num);
+            self.add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
             push_vec_u8(bc_out, OpCode::PUT_ARRAY_EL as u8);
-            *pos_next = self.pos;
+            *pos_next = cc.pos;
             return true;
         }
 
         false
     }
 
-    pub(super) unsafe fn optimize_if_true_false(
+    pub(super) fn optimize_if_true_false(
         &mut self,
-        s: *mut JSFunctionDef,
         mut op: u8,
         pos: usize,
         pos_next: &mut usize,
@@ -451,30 +431,31 @@ impl<'c> CodeContext<'c> {
     ) -> Option<(u8, u32)> {
         debug_assert!(matches!(op, opcodes::OP_if_true | opcodes::OP_if_false));
 
-        let mut label = read_from_ptr::<u32>(self.bc_buf.add(pos + 1));
+        let bc_buf = self.byte_code.as_ptr();
+        let mut label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
 
         let mut _op1: u8 = 0;
-        label = find_jump_target(s, label, &mut _op1, std::ptr::null_mut());
+        label = unsafe { find_jump_target(self, label, &mut _op1, std::ptr::null_mut()) };
 
         /* transform if_false/if_true(l1) label(l1) -> drop label(l1) */
-        if code_has_label(self, *pos_next, label) {
-            (*s).update_label_ref_count(label, -1);
+        if self.code_has_label(*pos_next, label) {
+            self.update_label_ref_count(label, -1);
             push_vec_u8(bc_out, OpCode::DROP as u8);
             return None;
         }
 
         /* transform if_false(l1) goto(l2) label(l1) -> if_false(l2) label(l1) */
-        if self.code_match(*pos_next, &[OpCode::GOTO as i32]) {
-            let pos1 = self.pos;
-            let line1 = self.line_num;
-            if code_has_label(self, pos1, label) {
+        if let Some(cc) = self.code_match(*pos_next, &[OpCode::GOTO as i32]) {
+            let pos1 = cc.pos;
+            let line1 = cc.line_num;
+            if self.code_has_label(pos1, label) {
                 if line1 >= 0 {
                     *line_num = line1 as _;
                 }
                 *pos_next = pos1 as _;
-                (*s).update_label_ref_count(label, -1);
+                self.update_label_ref_count(label, -1);
 
-                label = self.label as _;
+                label = cc.label as _;
                 op ^= opcodes::OP_if_true ^ opcodes::OP_if_false; // true->false, false->true
             }
         }
@@ -482,10 +463,9 @@ impl<'c> CodeContext<'c> {
         Some((op, label))
     }
 
-    pub(super) unsafe fn optimize_dup(
+    pub(super) fn optimize_dup(
         &mut self,
-        s: *mut JSFunctionDef,
-        pos: usize,
+        _pos: usize,
         pos_next: &mut usize,
         line_num: &mut i32,
         bc_out: &mut Vec<u8>,
@@ -495,7 +475,7 @@ impl<'c> CodeContext<'c> {
         let mut op1: i32;
         let mut line2: i32 = -1;
 
-        if self.code_match(
+        if let Some(cc) = self.code_match(
             *pos_next,
             &[M3(
                 OpCode::PUT_LOC as _,
@@ -503,28 +483,28 @@ impl<'c> CodeContext<'c> {
                 OpCode::PUT_VAR_REF as _,
             )],
         ) {
-            if self.line_num >= 0 {
-                *line_num = self.line_num;
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num;
             }
-            op1 = self.op + 1; // put_x -> set_x
-            *pos_next = self.pos;
+            op1 = cc.op + 1; // put_x -> set_x
+            *pos_next = cc.pos;
 
-            if self.code_match(self.pos, &[OpCode::DROP as i32]) {
-                if self.line_num >= 0 {
-                    *line_num = self.line_num;
+            if let Some(cc1) = self.code_match(cc.pos, &[OpCode::DROP as i32]) {
+                if cc1.line_num >= 0 {
+                    *line_num = cc1.line_num;
                 }
                 op1 -= 1; // set_x drop -> put_x
-                *pos_next = self.pos;
+                *pos_next = cc1.pos;
 
-                if self.code_match(self.pos, &[op1 - 1, self.idx as i32]) {
-                    line2 = self.line_num; // delay line number update
+                if let Some(cc2) = self.code_match(cc1.pos, &[op1 - 1, cc1.idx as i32]) {
+                    line2 = cc2.line_num; // delay line number update
                     op1 += 1; // put_x(n) get_x(n) -> set_x(n)
-                    *pos_next = self.pos;
+                    *pos_next = cc2.pos;
                 }
             }
 
-            (*s).add_pc2line_info(bc_out.len() as _, *line_num);
-            push_vec_short_code(bc_out, op1 as u8, self.idx as _);
+            self.add_pc2line_info(bc_out.len() as _, *line_num);
+            push_vec_short_code(bc_out, op1 as u8, cc.idx as _);
             if line2 >= 0 {
                 *line_num = line2;
             }
@@ -533,11 +513,6 @@ impl<'c> CodeContext<'c> {
 
         false
     }
-}
-
-#[deprecated(note = "use CodeContext::code_match() instead")]
-pub unsafe fn code_match(s: *mut CodeContext, pos: usize, op_list: &[i32]) -> bool {
-    (*s).code_match(pos, op_list)
 }
 
 pub fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {

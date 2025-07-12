@@ -48,7 +48,7 @@ pub fn opcode_info_final(op: u8) -> &'static JSOpCode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum SpecialObjectID {
+pub enum SpecialObject {
     OP_SPECIAL_OBJECT_ARGUMENTS = 0,
     OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS = 1,
     OP_SPECIAL_OBJECT_THIS_FUNC = 2,

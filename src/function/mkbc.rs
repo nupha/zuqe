@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::DerefMut, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     atom::{JS_ATOM_NULL, consts::*},
@@ -6,7 +6,7 @@ use crate::{
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{
         ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeDebugInfo, BytecodeInner, JSClosureVar,
-        JSVarDef, JSVarKindEnum, is_var_in_arg_scope, resolve_labels,
+        JSVarDef, JSVarKindEnum, is_var_in_arg_scope,
     },
     gc::GCObjectHeader,
     module::add_module_variables,
@@ -97,7 +97,7 @@ impl JSFunctionDef {
         self.dump_bytecode(ctx, 2);
 
         // pass 3
-        resolve_labels(ctx, self.deref_mut())?;
+        self.resolve_labels(ctx)?;
 
         let stack_size = self.compute_stack_size(ctx)?;
 
