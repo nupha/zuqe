@@ -46,15 +46,14 @@ pub fn opcode_info_final(op: u8) -> &'static JSOpCode {
     }
 }
 
-/* argument of OP_special_object */
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum OPSpecialObjectEnum {
-    OP_SPECIAL_OBJECT_ARGUMENTS,
-    OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS,
-    OP_SPECIAL_OBJECT_THIS_FUNC,
-    OP_SPECIAL_OBJECT_NEW_TARGET,
-    OP_SPECIAL_OBJECT_HOME_OBJECT,
-    OP_SPECIAL_OBJECT_VAR_OBJECT,
-    OP_SPECIAL_OBJECT_IMPORT_META,
+pub enum SpecialObjectID {
+    OP_SPECIAL_OBJECT_ARGUMENTS = 0,
+    OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS = 1,
+    OP_SPECIAL_OBJECT_THIS_FUNC = 2,
+    OP_SPECIAL_OBJECT_NEW_TARGET = 3,
+    OP_SPECIAL_OBJECT_HOME_OBJECT = 4,
+    OP_SPECIAL_OBJECT_VAR_OBJECT = 5,
+    OP_SPECIAL_OBJECT_IMPORT_META = 6,
 }

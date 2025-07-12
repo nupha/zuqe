@@ -11,7 +11,7 @@ use crate::{
 use super::state::JSParseState;
 
 /* argument of OP_special_object */
-pub enum OPSpecialObjectEnum {
+pub enum SpecialObjectID {
     OP_SPECIAL_OBJECT_ARGUMENTS,
     OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS,
     OP_SPECIAL_OBJECT_THIS_FUNC,

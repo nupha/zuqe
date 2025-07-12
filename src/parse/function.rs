@@ -482,7 +482,7 @@ impl<'s> JSParseState<'s> {
         }
 
         while self.token.val != CHAR_CURLY_R {
-            if unsafe { self.parse_source_element().is_err() } {
+            if self.parse_source_element().is_err() {
                 fail!();
             }
         }

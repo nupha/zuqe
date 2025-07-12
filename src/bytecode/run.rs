@@ -1,10 +1,12 @@
+use std::ops::RangeBounds;
+
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, JSAtomTypeHint,
         consts::{JS_ATOM_return, JS_ATOM_throw},
     },
     bytecode::{
-        OPSpecialObjectEnum, OpCode,
+        OpCode, SpecialObjectID,
         arithmatic::{UnaryOp, js_eq, op_binary_logic},
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next, js_for_of_start,
@@ -350,18 +352,21 @@ impl Bytecode {
                         }
                     }
                     OpCode::SPECIAL_OBJECT => {
-                        let u = PC_FETCH!(u8);
-                        let arg = unsafe { std::mem::transmute::<u8, OPSpecialObjectEnum>(u) };
-
-                        match arg {
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_ARGUMENTS => {
+                        let id = PC_FETCH!(u8);
+                        debug_assert!(
+                            (SpecialObjectID::OP_SPECIAL_OBJECT_ARGUMENTS as u8
+                                ..=SpecialObjectID::OP_SPECIAL_OBJECT_IMPORT_META as u8)
+                                .contains(&id)
+                        );
+                        match unsafe { std::mem::transmute::<u8, SpecialObjectID>(id) } {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_ARGUMENTS => {
                                 SP_PUT!(0, js_build_arguments(ctx, args));
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {
                                     break State::Exception;
                                 }
                             }
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS => {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS => {
                                 SP_PUT!(
                                     0,
                                     js_build_mapped_arguments(
@@ -379,15 +384,15 @@ impl Bytecode {
                                     break State::Exception;
                                 }
                             }
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC => {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_THIS_FUNC => {
                                 SP_PUT!(0, sframe.cur_running.clone());
                                 SP_GO!(1);
                             }
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_NEW_TARGET => {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_NEW_TARGET => {
                                 SP_PUT!(0, new_target.clone());
                                 SP_GO!(1);
                             }
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_HOME_OBJECT => {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_HOME_OBJECT => {
                                 SP_PUT!(
                                     0,
                                     if let Some(ho) = func_home_obj {
@@ -398,7 +403,7 @@ impl Bytecode {
                                 );
                                 SP_GO!(1);
                             }
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT => {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_VAR_OBJECT => {
                                 SP_PUT!(
                                     0,
                                     ctx.create_base_object_with_proto(&JSValue::NULL)
@@ -409,7 +414,7 @@ impl Bytecode {
                                     break State::Exception;
                                 }
                             }
-                            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_IMPORT_META => {
+                            SpecialObjectID::OP_SPECIAL_OBJECT_IMPORT_META => {
                                 SP_PUT!(0, js_import_meta(ctx));
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {

@@ -1,11 +1,11 @@
 use crate::{
-    atom::{JSAtom, JS_FreeAtom},
-    bytecode::{opcode_info_intermediate, opcodes, OPSpecialObjectEnum, OpCode},
-    context::{JSContext, JS_MODE_STRICT, JS_MODE_STRIP},
-    function::{find_jump_target, skip_dead_code, JSFunctionDef},
+    atom::{JS_FreeAtom, JSAtom},
+    bytecode::{OpCode, SpecialObjectID, opcode_info_intermediate, opcodes},
+    context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
+    function::{JSFunctionDef, find_jump_target, skip_dead_code},
     utils::{
-        push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u16, push_vec_u32,
-        push_vec_u8, read_from_ptr, write_to_ptr, M2, M3, M4,
+        M2, M3, M4, push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u8,
+        push_vec_u16, push_vec_u32, read_from_ptr, write_to_ptr,
     },
 };
 
@@ -56,87 +56,87 @@ pub unsafe fn resolve_labels(ctx: &JSContext, s: *mut JSFunctionDef) -> Result<(
     }
 
     if let Some(vidx) = (*s).home_object_var_idx {
-        push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+        push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
         push_vec_u8(
             &mut bc_out,
-            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_HOME_OBJECT as _,
+            SpecialObjectID::OP_SPECIAL_OBJECT_HOME_OBJECT as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     if let Some(vidx) = (*s).this_active_func_var_idx {
-        push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+        push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
         push_vec_u8(
             &mut bc_out,
-            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC as _,
+            SpecialObjectID::OP_SPECIAL_OBJECT_THIS_FUNC as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     if let Some(vidx) = (*s).new_target_var_idx {
-        push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+        push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
         push_vec_u8(
             &mut bc_out,
-            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_NEW_TARGET as _,
+            SpecialObjectID::OP_SPECIAL_OBJECT_NEW_TARGET as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     if let Some(vidx) = (*s).this_var_idx {
         if (*s).is_derived_class_constructor {
-            push_vec_u8(&mut bc_out, opcodes::OP_set_loc_uninitialized);
+            push_vec_u8(&mut bc_out, OpCode::SET_LOC_UNINITIALIZED as u8);
             push_vec_u16(&mut bc_out, vidx);
         } else {
-            push_vec_u8(&mut bc_out, opcodes::OP_push_this);
-            push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+            push_vec_u8(&mut bc_out, OpCode::PUSH_THIS as u8);
+            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
     }
 
     if let Some(vidx) = (*s).arguments_var_idx {
         if (*s).js_mode & JS_MODE_STRICT as u8 != 0 || !(*s).has_simple_parameter_list {
-            push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+            push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(
                 &mut bc_out,
-                OPSpecialObjectEnum::OP_SPECIAL_OBJECT_ARGUMENTS as _,
+                SpecialObjectID::OP_SPECIAL_OBJECT_ARGUMENTS as _,
             );
         } else {
-            push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+            push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(
                 &mut bc_out,
-                OPSpecialObjectEnum::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS as _,
+                SpecialObjectID::OP_SPECIAL_OBJECT_MAPPED_ARGUMENTS as _,
             );
         }
         if let Some(aidx) = (*s).arguments_arg_idx {
-            push_vec_short_code(&mut bc_out, opcodes::OP_set_loc, aidx);
+            push_vec_short_code(&mut bc_out, OpCode::SET_LOC as u8, aidx);
         }
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     if let Some(vidx) = (*s).func_var_idx {
-        push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+        push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
         push_vec_u8(
             &mut bc_out,
-            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_THIS_FUNC as _,
+            SpecialObjectID::OP_SPECIAL_OBJECT_THIS_FUNC as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     if let Some(vidx) = (*s).var_object_idx {
-        push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+        push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
         push_vec_u8(
             &mut bc_out,
-            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
+            SpecialObjectID::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     if let Some(vidx) = (*s).arg_var_object_idx {
-        push_vec_u8(&mut bc_out, opcodes::OP_special_object);
+        push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
         push_vec_u8(
             &mut bc_out,
-            OPSpecialObjectEnum::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
+            SpecialObjectID::OP_SPECIAL_OBJECT_VAR_OBJECT as _,
         );
-        push_vec_short_code(&mut bc_out, opcodes::OP_put_loc, vidx);
+        push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
     }
 
     let mut cc = CodeContext::new(&(*s).byte_code);
@@ -280,10 +280,7 @@ pub unsafe fn resolve_labels(ctx: &JSContext, s: *mut JSFunctionDef) -> Result<(
                 push_vec_u32(&mut bc_out, delta as u32);
                 if lb.addr == -1 {
                     // unresolved yet: create a new relocation entry
-                    if lb
-                        .add_reloc(ctx, bc_out.len() - 4, 4)
-                        .is_err()
-                    {
+                    if lb.add_reloc(ctx, bc_out.len() - 4, 4).is_err() {
                         goto = Some(ResolveLabelsState::Fail);
                     }
                 }
@@ -756,10 +753,7 @@ pub unsafe fn resolve_labels(ctx: &JSContext, s: *mut JSFunctionDef) -> Result<(
 
                     if (*lb).addr == -1 {
                         // unresolved yet: create a new relocation entry
-                        if lb
-                            .add_reloc(ctx, bc_out.len() - 4, 4)
-                            .is_err()
-                        {
+                        if lb.add_reloc(ctx, bc_out.len() - 4, 4).is_err() {
                             state = Some(ResolveLabelsState::Fail);
                         }
                     }
