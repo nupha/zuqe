@@ -460,9 +460,8 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
                 is_async,
             ) {
-                debug_assert!(!exc.is_undefined_or_null());
-
                 println!("EXCEPTION: {:?}", exc);
+                debug_assert!(!exc.is_undefined_or_null());
                 if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
                 }

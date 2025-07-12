@@ -71,7 +71,7 @@ impl JSContext {
             .define_property(
                 self,
                 JS_ATOM_caller,
-                &JSValue::EXCEPTION,
+                &JSValue::UNDEFINED,
                 &obj1,
                 &self.0.borrow().throw_type_error,
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
@@ -84,7 +84,7 @@ impl JSContext {
             .define_property(
                 self,
                 JS_ATOM_arguments,
-                &JSValue::EXCEPTION,
+                &JSValue::UNDEFINED,
                 &obj1,
                 &self.0.borrow().throw_type_error,
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
@@ -854,6 +854,6 @@ fn js_function_proto_caller(ctx: &JSContext, cc: CallContext) -> JSResult {
     if throw_type_error {
         js_throw_type_error(ctx, cc)
     } else {
-        Err(-1)
+        Ok(JSValue::UNDEFINED)
     }
 }
