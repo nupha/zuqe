@@ -395,7 +395,7 @@ pub fn gen_opcodes(outfile: &Path) {
     info_common.push(format!(
         r#"
 /// common opcodes
-pub(super) const JS_COMMON_OPCODES_INFO: [JSOpCode; {}] = [
+pub(super) const JS_COMMON_OPCODES_INFO: [Opcode; {}] = [
     "#,
         opcode_defs
             .iter()
@@ -406,7 +406,7 @@ pub(super) const JS_COMMON_OPCODES_INFO: [JSOpCode; {}] = [
     info_temp.push(format!(
         r#"
 /// temp opcodes
-pub(super) const JS_TEMP_OPCODES_INFO: [JSOpCode; {}] = [
+pub(super) const JS_TEMP_OPCODES_INFO: [Opcode; {}] = [
     "#,
         opcode_defs
             .iter()
@@ -418,7 +418,7 @@ pub(super) const JS_TEMP_OPCODES_INFO: [JSOpCode; {}] = [
         r#"
 /// short opcodes
 #[cfg(feature="short_opcode")]
-pub(super) const JS_SHORT_OPCODES_INFO: [JSOpCode; {}] = [
+pub(super) const JS_SHORT_OPCODES_INFO: [Opcode; {}] = [
     "#,
         opcode_defs
             .iter()
@@ -428,7 +428,7 @@ pub(super) const JS_SHORT_OPCODES_INFO: [JSOpCode; {}] = [
 
     for (i, op) in opcode_defs.iter().enumerate() {
         let descr = format!(
-            "    JSOpCode {{ #[cfg(feature=\"dump_bytecode\")] name: \"{}\", size: {}, n_pop: {}, n_push: {}, fmt: OpcodeFormat::{} }},",
+            "    Opcode {{ #[cfg(feature=\"dump_bytecode\")] name: \"{}\", size: {}, n_pop: {}, n_push: {}, fmt: OpcodeFormat::{} }},",
             op.id, op.size, op.pop_n, op.push_n, op.fmt
         );
 
@@ -481,7 +481,7 @@ pub(super) const JS_SHORT_OPCODES_INFO: [JSOpCode; {}] = [
         [
             r#"
 #[derive(Debug,Clone)]
-pub struct JSOpCode {
+pub struct Opcode {
     #[cfg(feature="dump_bytecode")]
     pub name: &'static str,
 

@@ -12,12 +12,12 @@ pub use operators::*;
 pub use dump::dump_opcodes;
 
 /// get opcode descr for (common only)
-pub fn opcode_info_common(op: u8) -> &'static JSOpCode {
+pub fn opcode_info_common(op: u8) -> &'static Opcode {
     JS_COMMON_OPCODES_INFO.get(op as usize).unwrap()
 }
 
 /// get opcode descr in intermediate phase (common + temp)
-pub fn opcode_info_intermediate(op: u8) -> &'static JSOpCode {
+pub fn opcode_info_intermediate(op: u8) -> &'static Opcode {
     if op < OP_COUNT_COMMON as u8 {
         JS_COMMON_OPCODES_INFO.get(op as usize).unwrap()
     } else {
@@ -28,7 +28,7 @@ pub fn opcode_info_intermediate(op: u8) -> &'static JSOpCode {
 }
 
 /// get opcode descr in final phase (common + optionally short)
-pub fn opcode_info_final(op: u8) -> &'static JSOpCode {
+pub fn opcode_info_final(op: u8) -> &'static Opcode {
     #[cfg(not(feature = "short_opcode"))]
     {
         JS_COMMON_OPCODES_INFO.get(op as usize).unwrap()

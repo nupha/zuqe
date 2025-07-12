@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
