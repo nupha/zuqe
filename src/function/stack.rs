@@ -74,9 +74,9 @@ fn ss_check(
 }
 
 impl JSFunctionDef {
-    pub unsafe fn compute_stack_size(&mut self, ctx: &JSContext) -> Result<u16, i32> {
+    pub fn compute_stack_size(&mut self, ctx: &JSContext) -> Result<u16, i32> {
+        let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
-        let bc_buf = self.byte_code.as_ptr();
 
         let mut s_s = StackSizeState {
             bc_len,
@@ -100,7 +100,7 @@ impl JSFunctionDef {
         while let Some(pos) = s.pc_stack.pop() {
             let mut stack_len = s.stack_level_tab[pos];
             let mut catch_pos = s.catch_pos_tab[pos];
-            let op = *bc_buf.add(pos);
+            let op = self.byte_code[pos];
 
             if op == 0 || op >= OP_COUNT_FINAL {
                 ctx.JS_ThrowInternalError(&format!("invalid opcode (op={op}, pc={pos})"));
@@ -123,7 +123,7 @@ impl JSFunctionDef {
             let mut n_pop = oi.n_pop as u16;
             match oi.fmt {
                 OpcodeFormat::NPOP | OpcodeFormat::NPOP_U16 => {
-                    n_pop += read_from_ptr::<u16>(bc_buf.add(pos + 1));
+                    n_pop += unsafe { read_from_ptr::<u16>(bc_ptr.add(pos + 1)) };
                 }
                 #[cfg(feature = "short_opcode")]
                 OpcodeFormat::NPOPX => {
@@ -160,23 +160,23 @@ impl JSFunctionDef {
                     continue;
                 }
                 opcodes::OP_goto => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1)); // could be minus
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) }; // could be minus
                     pos_next = (pos as i32 + 1 + diff) as usize;
                 }
 
                 #[cfg(feature = "short_opcode")]
                 opcodes::OP_goto16 => {
-                    diff = (read_from_ptr::<u16>(bc_buf.offset(pos as isize + 1)) as i16) as i32;
+                    diff = (read_from_ptr::<u16>(bc_ptr.offset(pos as isize + 1)) as i16) as i32;
                     pos_next = pos + 1 + diff as usize;
                 }
                 #[cfg(feature = "short_opcode")]
                 opcodes::OP_goto8 => {
-                    diff = *bc_buf.offset(pos as isize + 1) as i8 as i32;
+                    diff = self.byte_code[pos + 1] as i8 as i32;
                     pos_next = pos + 1 + diff as usize;
                 }
                 #[cfg(feature = "short_opcode")]
                 opcodes::OP_if_true8 | opcodes::OP_if_false8 => {
-                    diff = *bc_buf.offset(pos as isize + 1) as i8 as i32;
+                    diff = self.byte_code[pos + 1] as i8 as i32;
                     if ss_check(ctx, s, pos + 1 + diff as usize, op, stack_len, catch_pos) != 0 {
                         *pstack_size = 0;
                         return -1;
@@ -184,7 +184,7 @@ impl JSFunctionDef {
                 }
 
                 opcodes::OP_if_true | opcodes::OP_if_false => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1)); // could be minus
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) }; // could be minus
                     ss_check(
                         ctx,
                         s,
@@ -195,7 +195,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_gosub => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1));
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                     ss_check(
                         ctx,
                         s,
@@ -206,7 +206,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_with_get_var | opcodes::OP_with_delete_var => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 5));
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 5)) };
                     ss_check(
                         ctx,
                         s,
@@ -219,7 +219,7 @@ impl JSFunctionDef {
                 opcodes::OP_with_make_ref
                 | opcodes::OP_with_get_ref
                 | opcodes::OP_with_get_ref_undef => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 5));
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 5)) };
                     ss_check(
                         ctx,
                         s,
@@ -230,7 +230,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_with_put_var => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 5));
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 5)) };
                     ss_check(
                         ctx,
                         s,
@@ -241,7 +241,7 @@ impl JSFunctionDef {
                     )?;
                 }
                 opcodes::OP_catch => {
-                    let diff = read_from_ptr::<i32>(bc_buf.add(pos + 1));
+                    let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) };
                     ss_check(
                         ctx,
                         s,
@@ -274,7 +274,7 @@ impl JSFunctionDef {
                     // the catch offset is on the first stack entry instead of the thirst
                     if catch_pos >= 0 {
                         let level = s.stack_level_tab[catch_pos as usize]
-                            + if *bc_buf.add(catch_pos as usize) != OpCode::CATCH as u8 {
+                            + if self.byte_code[catch_pos as usize] != OpCode::CATCH as u8 {
                                 // for_of_start, for_wait_of_start
                                 1
                             } else {
@@ -291,7 +291,7 @@ impl JSFunctionDef {
                         return Err(-1);
                     }
                     stack_len = s.stack_level_tab[catch_pos as usize];
-                    if *bc_buf.add(catch_pos as usize) != opcodes::OP_catch {
+                    if self.byte_code[catch_pos as usize] != opcodes::OP_catch {
                         // for_of_start, for_wait_of_start
                         stack_len += 1;
                     }
@@ -306,9 +306,4 @@ impl JSFunctionDef {
 
         Ok(s.stack_len_max)
     }
-}
-
-#[deprecated(note = "use JSFunctionDef::compute_stack_size() instead")]
-pub unsafe fn compute_stack_size(ctx: &JSContext, fd: *mut JSFunctionDef) -> Result<u16, i32> {
-    (*fd).compute_stack_size(ctx)
 }

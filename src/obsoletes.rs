@@ -3064,3 +3064,8 @@ pub unsafe fn js_async_generator_resolve_or_reject(
 pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &Bytecode) {
     bc.dump(ctx);
 }
+
+#[deprecated(note = "use JSFunctionDef::compute_stack_size() instead")]
+pub unsafe fn compute_stack_size(ctx: &JSContext, fd: *mut JSFunctionDef) -> Result<u16, i32> {
+    (*fd).compute_stack_size(ctx)
+}
