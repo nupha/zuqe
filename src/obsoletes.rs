@@ -3016,3 +3016,45 @@ pub unsafe fn add_property(
 ) -> *mut JSProperty {
     unreachable!("unused")
 }
+
+#[deprecated(note = "use ObjAsyncGenerator::resume_next() instead")]
+pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut ObjAsyncGenerator) {
+    (*s).resume_next(ctx);
+}
+
+#[deprecated(note = "use ObjAsyncGenerator::complete() instead")]
+pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut ObjAsyncGenerator) {
+    (*s).complete();
+}
+
+/// `value` is not consumed.
+#[deprecated(note = "use ObjAsyncGenerator::resolve() instead")]
+pub unsafe fn js_async_generator_resolve(
+    ctx: &JSContext,
+    s: *mut ObjAsyncGenerator,
+    value: JSValueConst,
+    done: bool,
+) {
+    (*s).resolve(ctx, value, done);
+}
+
+#[inline(always)]
+#[deprecated(note = "use ObjAsyncGenerator::reject() instead")]
+pub unsafe fn js_async_generator_reject(
+    ctx: &JSContext,
+    s: *mut ObjAsyncGenerator,
+    exception: JSValueConst,
+) {
+    (*s).reject(ctx, exception);
+}
+
+#[deprecated(note = "use ObjAsyncGenerator::resolve_or_reject() instead")]
+pub unsafe fn js_async_generator_resolve_or_reject(
+    ctx: &JSContext,
+    s: *mut ObjAsyncGenerator,
+    result: JSValueConst,
+    is_reject: bool,
+) {
+    unreachable!("unnused")
+    // (*s).resolve_or_reject(ctx, &result, is_reject);
+}

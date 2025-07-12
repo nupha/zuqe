@@ -828,10 +828,10 @@ impl Bytecode {
                         }
                     }
                     OpCode::ADD_BRAND => {
-                        let op_2 = SP_TAKE!(-2); // the target
-                        let op_1 = SP_TAKE!(-1); // the home object
+                        let target = SP_TAKE!(-2);
+                        let home_object = SP_TAKE!(-1);
                         SP_GO!(-2);
-                        if op_2.add_brand(ctx, &op_1).is_err() {
+                        if target.add_brand(ctx, &home_object).is_err() {
                             break State::Exception;
                         }
                     }
