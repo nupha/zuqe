@@ -9,7 +9,6 @@ use crate::{
 };
 
 use super::{
-    class::js_parse_class,
     emit::js_is_live_code,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
@@ -280,7 +279,9 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 s.throw_syntax_error("class declarations can't appear in single-statement context");
                 fail!();
             }
-            if js_parse_class(s, false, JSParseExportEnum::JS_PARSE_EXPORT_NONE) != 0 {
+            if s.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NONE)
+                .is_err()
+            {
                 return -1;
             }
         }

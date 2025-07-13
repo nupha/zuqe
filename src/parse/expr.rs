@@ -11,7 +11,6 @@ use crate::{
 
 use super::{
     array::js_parse_array_literal,
-    class::js_parse_class,
     emit::get_prev_opcode,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
@@ -337,11 +336,9 @@ impl<'s> JSParseState<'s> {
                     self.token.line_num,
                 )?;
             }
-            TOK_CLASS => unsafe {
-                if js_parse_class(self, true, JSParseExportEnum::JS_PARSE_EXPORT_NONE) != 0 {
-                    return Err(-1);
-                }
-            },
+            TOK_CLASS => {
+                self.parse_class(true, JSParseExportEnum::JS_PARSE_EXPORT_NONE)?;
+            }
             TOK_NULL => {
                 self.next_token()?;
                 self.emit_op(OpCode::NULL);

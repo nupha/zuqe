@@ -14,7 +14,6 @@ use crate::{
 };
 
 use super::{
-    class::js_parse_class,
     function::JSParseFunctionEnum,
     parse::skip_shebang,
     state::JSParseState,
@@ -249,11 +248,9 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
 
     let tok = (*s).token.val;
     if tok == TOK_CLASS {
-        return js_parse_class(
-            s.as_mut().unwrap(),
-            false,
-            JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
-        );
+        return (*s)
+            .parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED)
+            .map_or(-1, |_| 0);
     } else if tok == TOK_FUNCTION
         || ((*s).token_is_pseudo_keyword(JS_ATOM_async) && (*s).peek_token(true) == TOK_FUNCTION)
     {
@@ -401,11 +398,9 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
 
         TOK_DEFAULT => {
             if (*s).token.val == TOK_CLASS {
-                return js_parse_class(
-                    s.as_mut().unwrap(),
-                    false,
-                    JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
-                );
+                return (*s)
+                    .parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT)
+                    .map_or(-1, |_| 0);
             } else if (*s).token.val == TOK_FUNCTION
                 || ((*s).token_is_pseudo_keyword(JS_ATOM_async)
                     && (*s).peek_token(true) == TOK_FUNCTION)

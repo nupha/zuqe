@@ -3069,3 +3069,12 @@ pub fn js_dump_function_bytecode(ctx: &JSContext, bc: &Bytecode) {
 pub unsafe fn compute_stack_size(ctx: &JSContext, fd: *mut JSFunctionDef) -> Result<u16, i32> {
     (*fd).compute_stack_size(ctx)
 }
+
+#[deprecated(note = "use JSParseState::parse_class() instead")]
+pub fn js_parse_class(
+    s: &mut JSParseState,
+    is_class_expr: bool,
+    export_flag: JSParseExportEnum,
+) -> i32 {
+    s.parse_class(is_class_expr, export_flag).map_or(-1, |_| 0)
+}
