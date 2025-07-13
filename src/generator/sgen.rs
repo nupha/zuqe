@@ -67,7 +67,10 @@ pub fn js_generator_function_call(
 }
 
 pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
-    unimplemented!();
+    if let ObjectDetail::GENERATOR(s) = isa {
+        // free_generator_stack_rt(rt, s);
+        println!("[O.o] generator: {s:?}");
+    }
 }
 
 pub fn js_generator_mark(val: JSValue) {
