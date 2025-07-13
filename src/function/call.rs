@@ -205,7 +205,7 @@ pub fn JS_CallInternal(
 
     if class_id == JS_CLASS_BYTECODE_FUNCTION {
         // bytecode function
-        TryInto::<BytecodeFunction>::try_into(func_obj.clone())
+        BytecodeFunction::try_from(func_obj.clone())
             .unwrap()
             .call(caller_ctx, this_obj, new_target, args, flags)
     } else {
@@ -282,7 +282,14 @@ pub fn JS_CallConstructorInternal(
         };
     }
 
-    let bc = p.0.detail.borrow().func().unwrap().bytecode.clone().unwrap();
+    let bc =
+        p.0.detail
+            .borrow()
+            .func()
+            .unwrap()
+            .bytecode
+            .clone()
+            .unwrap();
     if bc.0.borrow().is_derived_class_constructor {
         JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
     } else {
