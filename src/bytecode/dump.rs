@@ -259,7 +259,7 @@ pub unsafe fn dump_opcodes(
         if op < op_max {
             use crate::bytecode::OpcodeFormat;
 
-            match (*oi).fmt {
+            match oi.fmt {
                 #[cfg(feature = "short_opcode")]
                 "label8" => {
                     pos += 1;
