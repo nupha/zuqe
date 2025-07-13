@@ -11,7 +11,7 @@ use crate::{
 
 pub const OPTIMIZE: bool = true;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct CodeMatchState {
     /// position past the matched code pattern
     pub pos: usize,

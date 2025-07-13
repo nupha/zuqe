@@ -11,7 +11,7 @@ use crate::{
 
 use super::{compute_pc2line_info, optimize::OPTIMIZE};
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 enum ResolveLabelsState {
     NoChange,
     HasLabel {
@@ -301,8 +301,8 @@ impl JSFunctionDef {
                         {
                             if m.line_num >= 0 {
                                 line_num = m.line_num;
-                                goto.take();
                             }
+                            goto = None;
                         }
                     }
                     goto

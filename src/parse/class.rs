@@ -691,6 +691,7 @@ impl<'s> JSParseState<'s> {
             },
         ];
 
+        // entering class body {
         let define_class_offset = self.parse_class_body(
             class_source,
             class_name,
@@ -699,7 +700,7 @@ impl<'s> JSParseState<'s> {
             &mut class_fields,
         )?;
 
-        // out of class body
+        // out of class body }
         {
             let cf = &mut class_fields[0];
 
