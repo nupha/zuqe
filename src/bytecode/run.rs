@@ -2,7 +2,7 @@ use std::ops::RangeBounds;
 
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, JSAtomTypeHint,
+        AtomType, JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom,
         consts::{JS_ATOM_return, JS_ATOM_throw},
     },
     bytecode::{
@@ -45,7 +45,7 @@ use crate::{
     regexp::js_regexp_constructor_internal,
     stack_frame::StackFrame,
     utils::read_from_ptr,
-    value::{JS_NewSymbolFromAtom, JSValue},
+    value::JSValue,
 };
 
 impl Bytecode {
@@ -625,6 +625,7 @@ impl Bytecode {
                         // SP![-1] = tmp2;
                     }
                     OpCode::FCLOSURE => {
+                        // [^] -> [closure_func, ^]
                         let id = PC_FETCH!(u32);
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
                             SP_PUT!(
@@ -828,10 +829,11 @@ impl Bytecode {
                         }
                     }
                     OpCode::ADD_BRAND => {
-                        let target = SP_TAKE!(-2);
+                        // [func_obj, home_obj, ^] -> [^]
+                        let func_obj = SP_TAKE!(-2);
                         let home_object = SP_TAKE!(-1);
                         SP_GO!(-2);
-                        if target.add_brand(ctx, &home_object).is_err() {
+                        if func_obj.add_brand(ctx, &home_object).is_err() {
                             break State::Exception;
                         }
                     }
@@ -1064,6 +1066,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::PUT_LOC => {
+                        // [value, ^] -> [^]
                         let idx = PC_FETCH!(u16);
                         let _ = std::mem::replace(VAR_REF![idx], SP_TAKE!(-1));
                         SP_GO!(-1);
@@ -1534,10 +1537,7 @@ impl Bytecode {
                     }
                     OpCode::PRIVATE_SYMBOL => {
                         let atom = JSAtom(PC_FETCH!(u32));
-                        if let Ok(val) = unsafe {
-                            JS_NewSymbolFromAtom(ctx, atom, JSAtomTypeHint::Private)
-                                .check_exception()
-                        } {
+                        if let Ok(val) = ctx.create_symbol_from_atom(atom, AtomType::Private) {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
@@ -1623,7 +1623,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_HOME_OBJECT => {
-                        js_method_set_home_object(ctx, SP_REF!(-1), SP_REF!(-2));
+                        // [home_obj, func_obj, ^] -> [home_obj, func_obj, ^]
+                        js_method_set_home_object(SP_REF!(-1), SP_REF!(-2));
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         // DEFINE_METHOD_COMPUTED:

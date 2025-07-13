@@ -1,31 +1,34 @@
 use crate::{
-    atom::{JSAtom, JSAtomInfo, JSAtomTypeHint},
+    atom::{JSAtom, AtomID, AtomType},
     context::JSContext,
+    error::JSResult,
     string::JSString,
 };
 
 use super::value::JSValue;
 
-// `atom` must be a non-numeric string atom
-pub unsafe fn JS_NewSymbolFromAtom(
-    ctx: &JSContext,
-    atom: JSAtom,
-    atom_type: JSAtomTypeHint,
-) -> JSValue {
-    debug_assert!(!atom.is_int_type());
+impl JSContext {
+    pub fn create_symbol(&self, str: JSString, atom_type: AtomType) -> JSResult {
+        let rt = self.rt_mut();
+        let a = rt.register_atom(Some(str), atom_type)?;
+        let ss = rt.get_atom_desc(a).unwrap();
+        Ok(JSValue::Symbol(ss))
+    }
 
-    let p = ctx.rt().get_atom_desc(atom).unwrap().clone();
-    JS_NewSymbol(ctx, p, atom_type)
+    /// `atom` must be a non-numeric string atom
+    pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomType) -> JSResult {
+        debug_assert!(!atom.is_int_type());
+        let s = self.rt().get_atom_desc(atom).unwrap().clone();
+        self.create_symbol(s, atom_type)
+    }
 }
 
-/// 'p' is consumed
-pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: JSAtomTypeHint) -> JSValue {
-    match ctx.rt_mut().register_atom(Some(p), atom_type) {
-        Ok(a) => {
-            let ss = ctx.rt().get_atom_desc(a).unwrap();
-            JSValue::String(ss)
-        }
-        Err(_) => ctx.JS_ThrowOutOfMemory(),
+/// returned atom is not cloned. caller should clone to keep its reference.
+pub(crate) fn symbol_to_atom(val: &JSValue) -> JSAtom {
+    if let JSValue::Symbol(s) = val {
+        s.atom_info().unwrap().atom()
+    } else {
+        unreachable!()
     }
 }
 
@@ -40,7 +43,7 @@ pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
         .map(|p| {
             matches!(
                 p.atom_info().unwrap(),
-                JSAtomInfo::Symbol(_) | JSAtomInfo::GlobalSymbol(_)
+                AtomID::Symbol(_) | AtomID::GlobalSymbol(_)
             ) && !(p.is_empty() && p.is_wide_char())
         })
         .unwrap()

@@ -206,7 +206,8 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            return ctx.JS_ThrowOutOfMemory();
+            ctx.JS_ThrowOutOfMemory();
+            return JSValue::EXCEPTION;
         }
     }
 

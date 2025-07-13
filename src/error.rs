@@ -176,13 +176,12 @@ impl JSContext {
     }
 
     /// raise out of memory exception
-    pub fn JS_ThrowOutOfMemory(&self) -> JSValue {
+    pub fn JS_ThrowOutOfMemory(&self) {
         if !self.rt().in_out_of_memory {
             self.rt_mut().in_out_of_memory = true;
             self.JS_ThrowInternalError("out of memory");
             self.rt_mut().in_out_of_memory = false;
         }
-        JSValue::EXCEPTION
     }
 }
 

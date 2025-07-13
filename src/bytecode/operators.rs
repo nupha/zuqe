@@ -191,7 +191,7 @@ pub fn js_op_define_class(
         Some(sframe),
     )?);
 
-    js_method_set_home_object(ctx, &ctor, &proto);
+    js_method_set_home_object(&ctor, &proto);
     JS_SetConstructorBit(ctx, &ctor, true);
 
     ctor.define_property_value(
@@ -260,13 +260,7 @@ pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
     name_str
 }
 
-/// func_obj is not consumed.
-/// home_obj is not consumed.
-pub fn js_method_set_home_object(
-    ctx: &JSContext,
-    func_obj: &JSValueConst,
-    home_obj: &JSValueConst,
-) {
+pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: &JSValue) {
     if let JSValue::Object(o) = func_obj {
         if let Some(fo) = o.0.detail.borrow_mut().func_mut() {
             let need_home_object = fo
@@ -309,7 +303,7 @@ pub fn js_method_set_properties(
         return -1;
     }
 
-    js_method_set_home_object(ctx, func_obj, home_obj);
+    js_method_set_home_object(func_obj, home_obj);
     0
 }
 

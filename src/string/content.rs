@@ -12,7 +12,7 @@ use widestring::{
     ustr::{CharIndicesLossyUtf16, CharsLossyUtf16},
 };
 
-use crate::atom::JSAtomTypeHint;
+use crate::atom::AtomType;
 
 use super::string::JS_STRING_LEN_MAX;
 
@@ -510,9 +510,9 @@ impl StringContent {
 
     /// calc hash for string content
     #[inline]
-    pub fn calc_hash(&self, atom_type: JSAtomTypeHint) -> u32 {
-        let mut h = if atom_type == JSAtomTypeHint::GlobalSymbol {
-            JSAtomTypeHint::String
+    pub fn calc_hash(&self, atom_type: AtomType) -> u32 {
+        let mut h = if atom_type == AtomType::GlobalSymbol {
+            AtomType::String
         } else {
             atom_type
         } as u32;
@@ -536,7 +536,7 @@ impl StringContent {
 
     /// calc hash value for str
     #[inline(always)]
-    pub(crate) fn calc_hash_for_str(str: &str, atom_type: JSAtomTypeHint) -> u32 {
+    pub(crate) fn calc_hash_for_str(str: &str, atom_type: AtomType) -> u32 {
         let mut h = atom_type as u32;
         for c in str.encode_utf16() {
             h = hash_char(c as u32, h);

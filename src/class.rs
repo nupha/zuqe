@@ -3,7 +3,7 @@ use std::ffi::CStr;
 use crate::{
     array::convert_fast_array_to_array,
     atom::{
-        __JS_FindAtom, JS_ATOM_NULL, JSAtom, JSAtomTypeHint,
+        __JS_FindAtom, AtomType, JS_ATOM_NULL, JSAtom,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     context::JSContext,
@@ -179,10 +179,10 @@ impl JSRuntime {
         let cstr = unsafe { CStr::from_ptr(class_def.class_name) };
         let str = cstr.to_string_lossy();
 
-        let name = if let Some(a) = __JS_FindAtom(self, str.as_ref(), JSAtomTypeHint::String) {
+        let name = if let Some(a) = __JS_FindAtom(self, str.as_ref(), AtomType::String) {
             a
         } else {
-            self.register_atom_str(str.as_ref(), JSAtomTypeHint::String)?
+            self.register_atom_str(str.as_ref(), AtomType::String)?
         }
         .into_rc(self);
 

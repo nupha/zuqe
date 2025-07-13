@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{JSAtomStruct, JSAtomTypeHint},
+    atom::{JSAtomStruct, AtomType},
     function::{Bytecode, ObjAsyncState},
     module::ModuleDef,
     number::JSFloat64Union,
@@ -355,7 +355,7 @@ impl JSValue {
                 unsafe { (u.uint32[0] ^ u.uint32[1]) * 3163 }
             }
             Self::String(s) | Self::Symbol(s) => unsafe {
-                s.content().calc_hash(JSAtomTypeHint::String)
+                s.content().calc_hash(AtomType::String)
             },
             Self::Float64(d) => {
                 let mut d = *d;

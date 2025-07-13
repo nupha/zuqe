@@ -197,7 +197,7 @@ impl JSValue {
     }
 
     /// Coerce `self` value to property key value.
-    /// `self` is not consumed.
+    /// returns string or symbol value
     #[inline(always)]
     pub fn coerce_to_propkey(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         self.do_coerce_to_string(ctx, true)
