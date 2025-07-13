@@ -495,33 +495,6 @@ pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> boo
     }
 }
 
-#[deprecated(note = "use JSValue::coerce_to_atom() instead")]
-pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
-    val.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL)
-
-    // match val {
-    //     JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => JSAtom::new_u32(*i as u32),
-    //     JSValue::Symbol(_) => symbol_to_atom(val).dup(ctx.rt()),
-    //     _ => {
-    //         if let Ok(tmp) = val.coerce_to_propkey(ctx) {
-    //             if let JSValue::Symbol(_) = tmp {
-    //                 symbol_to_atom(&tmp)
-    //             } else {
-    //                 ctx.rt_mut()
-    //                     .register_atom_jsstring(
-    //                         unsafe { tmp.into_string_unchecked() },
-    //                         AtomType::String,
-    //                     )
-    //                     .unwrap_or(JS_ATOM_NULL)
-    //             }
-    //         } else {
-    //             JS_ATOM_NULL
-    //         }
-
-    //     }
-    // }
-}
-
 // This test must be fast if atom is not a numeric index (e.g. a
 // method name). Return JS_UNDEFINED if not a numeric
 // index. JS_EXCEPTION can also be returned.

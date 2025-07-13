@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use crate::{
     JS_CLASS_OBJECT,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
     function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
@@ -31,7 +31,7 @@ pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
         )
     };
 
-    let atom = JS_ValueToAtom(ctx, &op2);
+    let atom = op2.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
     if atom == JS_ATOM_NULL {
         return -1;
     }
@@ -73,11 +73,7 @@ pub fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
         return Err(-1);
     }
 
-    let atom = JS_ValueToAtom(ctx, &op1);
-    if atom == JS_ATOM_NULL {
-        return Err(-1);
-    }
-
+    let atom = op1.coerce_to_atom(ctx)?;
     let ret = op2.has_property(ctx, atom)?;
     JS_FreeAtom(ctx, atom);
 
@@ -101,11 +97,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
         op1.check_brand(ctx, &op2)?
     } else {
         // field
-        let atom = JS_ValueToAtom(ctx, &op2);
-        if atom == JS_ATOM_NULL {
-            return Err(-1);
-        }
-
+        let atom = op2.coerce_to_atom(ctx)?;
         let b = unsafe { op1.object_unchecked().has_shape_property(atom) };
         JS_FreeAtom(ctx, atom);
         b

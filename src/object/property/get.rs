@@ -5,7 +5,7 @@ use crate::{
     JS_CLASS_UINT32_ARRAY,
     atom::{
         __JS_AtomToUInt32, JS_ATOM_MAX_INT, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom,
-        JS_ValueToAtom, JSAtom, consts::*,
+        JSAtom, consts::*,
     },
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
@@ -243,7 +243,7 @@ impl JSObject {
 
         // slow path
         {
-            let atom = JS_ValueToAtom(ctx, prop);
+            let atom = prop.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
             if atom == JS_ATOM_NULL {
                 JSValue::EXCEPTION
             } else {
@@ -355,7 +355,7 @@ impl JSValue {
         if self.is_object() {
             unsafe { self.object_unchecked().get_property_value(ctx, prop) }
         } else {
-            let atom = JS_ValueToAtom(ctx, prop);
+            let atom = prop.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
             if atom == JS_ATOM_NULL {
                 JSValue::EXCEPTION
             } else {

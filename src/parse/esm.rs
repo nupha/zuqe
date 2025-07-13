@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     bytecode::OpCodeTemp,
     context::JSContext,
     error::JS_ThrowSyntaxError,
@@ -45,10 +45,12 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        let module_name = JS_ValueToAtom(&self.ctx, &self.token.data.string().unwrap());
-        if module_name == JS_ATOM_NULL {
-            return Err(-1);
-        }
+        let module_name = self
+            .token
+            .data
+            .string()
+            .unwrap()
+            .coerce_to_atom(&self.ctx)?;
 
         if self.next_token().is_err() {
             JS_FreeAtom(&self.ctx, module_name);
@@ -68,10 +70,13 @@ impl<'s> JSParseState<'s> {
         let module_name: JSAtom;
 
         if self.token.val == TOK_STRING {
-            module_name = JS_ValueToAtom(&self.ctx, &self.token.data.string().unwrap());
-            if module_name == JS_ATOM_NULL {
-                return Err(-1);
-            }
+            module_name = self
+                .token
+                .data
+                .string()
+                .unwrap()
+                .coerce_to_atom(&self.ctx)?;
+
             if self.next_token().is_err() {
                 JS_FreeAtom(&self.ctx, module_name);
                 return Err(-1);

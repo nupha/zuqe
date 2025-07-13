@@ -1,7 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     array::js_array_push,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JS_ValueToAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*},
     context::{JS_GetActiveFunction, JSContext},
     defer,
     error::JSResult,
@@ -14,7 +14,6 @@ use crate::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         JS_PreventExtensions, JS_SetPrototypeInternal, ObjectDetail, PropertyEnum,
     },
-    utils::unlikely,
     value::JSValue,
 };
 
@@ -110,10 +109,7 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     match (obj, desc) {
         (JSValue::Object(obj), JSValue::Object(desc)) => {
-            let atom = JS_ValueToAtom(ctx, prop);
-            if atom == JS_ATOM_NULL {
-                return Err(-1);
-            }
+            let atom = prop.coerce_to_atom(ctx)?;
 
             // magic = 1 if called as Reflect.defineProperty
             let mut flags = 0;
@@ -233,11 +229,9 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                 JS_ATOM_NULL,
             )
         } else {
-            let atom = JS_ValueToAtom(ctx, &key);
-            if atom == JS_ATOM_NULL {
+            let atom = key.coerce_to_atom(ctx).inspect_err(|_| {
                 let _ = JS_IteratorClose(ctx, &iter, true);
-                return Err(-1);
-            }
+            })?;
             (groups.get_property(ctx, atom), atom)
         };
 
@@ -346,16 +340,13 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
 
     let prop = cc.arg(1);
 
-    let atom = JS_ValueToAtom(ctx, prop);
-    if unlikely(atom == JS_ATOM_NULL) {
-        return Err(-1);
-    }
+    let atom = prop.coerce_to_atom(ctx)?;
 
     // free atom when exit
     let rt = ctx.rt_ptr();
-    let atom2 = JSAtom(atom.0);
+    let _atom = JSAtom(atom.0);
     defer!({
-        JS_FreeAtomRT(rt.as_ptr(), atom2);
+        JS_FreeAtomRT(rt.as_ptr(), _atom);
     });
 
     if let JSValue::Object(p) = &obj {
@@ -530,16 +521,13 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0).coerce_to_object(ctx)?;
 
-    let atom = JS_ValueToAtom(ctx, cc.arg(1));
-    if atom == JS_ATOM_NULL {
-        return Err(-1);
-    }
+    let atom = cc.arg(1).coerce_to_atom(ctx)?;
 
     // free atom when exit
     let rt = ctx.rt_ptr();
-    let _a = JSAtom(atom.0);
+    let _atom = JSAtom(atom.0);
     defer!({
-        JS_FreeAtomRT(rt.as_ptr(), _a);
+        JS_FreeAtomRT(rt.as_ptr(), _atom);
     });
 
     Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))

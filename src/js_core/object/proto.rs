@@ -2,7 +2,7 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
     JS_CLASS_STRING,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Invoke, NativeField},
@@ -12,7 +12,6 @@ use crate::{
         JS_SetPrototypeInternal,
     },
     string::JS_ConcatString3,
-    utils::unlikely,
     value::{JSValue, JSValueConst},
 };
 
@@ -81,11 +80,7 @@ pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
-    let atom = JS_ValueToAtom(ctx, cc.arg(0));
-    if atom == JS_ATOM_NULL {
-        return Err(-1);
-    }
-
+    let atom = cc.arg(0).coerce_to_atom(ctx)?;
     let obj = cc.this().coerce_to_object(ctx).inspect_err(|_| {
         JS_FreeAtom(ctx, atom);
     })?;
@@ -121,10 +116,7 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().coerce_to_object(ctx)?;
-    let prop = JS_ValueToAtom(ctx, cc.arg(0));
-    if prop == JS_ATOM_NULL {
-        return Err(-1);
-    }
+    let prop = cc.arg(0).coerce_to_atom(ctx)?;
 
     let ret = obj.get_own_property(ctx, prop);
     JS_FreeAtom(ctx, prop);
@@ -182,8 +174,8 @@ pub unsafe fn js_object___defineGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let atom = JS_ValueToAtom(ctx, prop);
-    if unlikely(atom == JS_ATOM_NULL) {
+    let atom = prop.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
+    if atom == JS_ATOM_NULL {
         return JSValue::EXCEPTION;
     }
 
@@ -223,7 +215,10 @@ pub unsafe fn js_object___lookupGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let prop = JS_ValueToAtom(ctx, &*argv.offset(0));
+    let prop = (*argv.offset(0))
+        .coerce_to_atom(ctx)
+        .unwrap_or(JS_ATOM_NULL);
+
     if prop == JS_ATOM_NULL {
         JS_FreeAtom(ctx, prop);
         return JSValue::EXCEPTION;

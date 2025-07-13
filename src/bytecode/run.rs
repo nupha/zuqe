@@ -1,8 +1,6 @@
-use std::ops::RangeBounds;
-
 use crate::{
     atom::{
-        AtomType, JS_ATOM_NULL, JS_FreeAtom, JS_ValueToAtom, JSAtom,
+        AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom,
         consts::{JS_ATOM_return, JS_ATOM_throw},
     },
     bytecode::{
@@ -26,7 +24,7 @@ use crate::{
         JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
         JS_ThrowReferenceErrorUninitialized2, JS_ThrowSyntaxErrorVarRedeclaration,
     },
-    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_GLOBAL},
+    eval::JS_EVAL_TYPE_DIRECT,
     function::{
         Bytecode, CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal,
         JSFunctionKindEnum, JSVarRef, build_arg_list, js_build_arguments,
@@ -1642,10 +1640,11 @@ impl Bytecode {
 
                         if name == JS_ATOM_NULL {
                             // compute name from value SP[-2]
-                            name = JS_ValueToAtom(ctx, SP_REF!(-2));
-                            if name == JS_ATOM_NULL {
+                            name = if let Ok(a) = SP_REF!(-2).coerce_to_atom(ctx) {
+                                a
+                            } else {
                                 break State::Exception;
-                            }
+                            };
                         }
 
                         let mut flags = JS_PROP_HAS_CONFIGURABLE
@@ -1683,9 +1682,8 @@ impl Bytecode {
                             }
                             _ => unreachable!(),
                         }
-                        let mut ret = unsafe {
-                            js_method_set_properties(ctx, func_obj, name, flags, this_obj)
-                        };
+                        let mut ret =
+                            js_method_set_properties(ctx, func_obj, name, flags, this_obj);
                         if ret >= 0 {
                             ret = this_obj
                                 .define_property(ctx, name, &value, &getter, &setter, flags)
@@ -1742,8 +1740,7 @@ impl Bytecode {
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if SP_REF!(-2).is_undefined() {
-                            let atom = JS_ValueToAtom(ctx, SP_REF!(-1));
-                            if atom != JS_ATOM_NULL {
+                            if let Ok(atom) = SP_REF!(-1).coerce_to_atom(ctx) {
                                 JS_ThrowReferenceErrorNotDefined(ctx, atom);
                                 JS_FreeAtom(ctx, atom);
                             }
@@ -1759,21 +1756,21 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_SUPER_VALUE => {
-                        let atom = JS_ValueToAtom(ctx, SP_REF!(-1));
-                        if atom == JS_ATOM_NULL {
+                        if let Ok(atom) = SP_REF!(-1).coerce_to_atom(ctx) {
+                            let val =
+                                SP_REF!(-2).get_property_internal(ctx, atom, SP_REF!(-3), false);
+                            JS_FreeAtom(ctx, atom);
+                            if val.is_exception() {
+                                break State::Exception;
+                            }
+
+                            SP_TAKE!(-1);
+                            SP_TAKE!(-2);
+                            SP_PUT!(-3, val);
+                            SP_GO!(-2);
+                        } else {
                             break State::Exception;
                         }
-
-                        let val = SP_REF!(-2).get_property_internal(ctx, atom, SP_REF!(-3), false);
-                        JS_FreeAtom(ctx, atom);
-                        if val.is_exception() {
-                            break State::Exception;
-                        }
-
-                        SP_TAKE!(-1);
-                        SP_TAKE!(-2);
-                        SP_PUT!(-3, val);
-                        SP_GO!(-2);
                     }
                     OpCode::PUT_ARRAY_EL => {
                         // [obj, idx_prop, value, ^] -> [^]
@@ -1789,61 +1786,61 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_REF_VALUE => {
-                        let mut flags = JS_PROP_THROW_STRICT;
-                        let mut op_3 = SP_TAKE!(-3);
-                        let op_2 = SP_TAKE!(-2);
-                        let op_1 = SP_TAKE!(-1);
+                        // [obj, prop, val, ^] -> [^]
+                        let mut obj = SP_TAKE!(-3);
+                        let prop = SP_TAKE!(-2);
+                        let val = SP_TAKE!(-1);
                         SP_GO!(-3);
 
-                        if op_3.is_undefined() {
+                        let mut flags = JS_PROP_THROW_STRICT;
+
+                        if obj.is_undefined() {
                             if is_strict_mode(ctx) {
-                                let atom = JS_ValueToAtom(ctx, &op_2);
-                                if atom != JS_ATOM_NULL {
+                                if let Ok(atom) = prop.coerce_to_atom(ctx) {
                                     JS_ThrowReferenceErrorNotDefined(ctx, atom);
                                     JS_FreeAtom(ctx, atom);
                                 }
                                 break State::Exception;
                             }
-                            op_3 = JSValue::Object(ctx.global_obj().clone());
+                            obj = JSValue::Object(ctx.global_obj().clone());
                         } else {
                             if is_strict_mode(ctx) {
                                 flags |= JS_PROP_NO_ADD;
                             }
                         }
 
-                        let ret = op_3.set_property_value(ctx, &op_2, op_1, flags);
+                        let ret = obj.set_property_value(ctx, &prop, val, flags);
                         if ret.is_err() {
                             break State::Exception;
                         }
                     }
                     OpCode::PUT_SUPER_VALUE => {
-                        let op_4 = SP_TAKE!(-4);
-                        let op_3 = SP_TAKE!(-3);
-                        let op_2 = SP_TAKE!(-2);
-                        let op_1 = SP_TAKE!(-1);
+                        // [this_obj, obj, prop, val, ^] -> [^]
+                        let this_obj = SP_TAKE!(-4);
+                        let obj = SP_TAKE!(-3);
+                        let prop = SP_TAKE!(-2);
+                        let val = SP_TAKE!(-1);
                         SP_GO!(-4);
 
-                        if !op_3.is_object() {
+                        if !obj.is_object() {
                             ctx.JS_ThrowTypeErrorNotAnObject();
                             break State::Exception;
                         }
 
-                        let atom = JS_ValueToAtom(ctx, &op_2);
-                        if atom == JS_ATOM_NULL {
-                            break State::Exception;
-                        }
-
-                        let ret = JSValue::set_property_internal(
-                            ctx,
-                            &op_3,
-                            atom,
-                            op_1,
-                            &op_4,
-                            JS_PROP_THROW_STRICT,
-                        );
-                        JS_FreeAtom(ctx, atom);
-
-                        if ret.is_err() {
+                        if let Ok(atom) = prop.coerce_to_atom(ctx) {
+                            let ret = JSValue::set_property_internal(
+                                ctx,
+                                &obj,
+                                atom,
+                                val,
+                                &this_obj,
+                                JS_PROP_THROW_STRICT,
+                            );
+                            JS_FreeAtom(ctx, atom);
+                            if ret.is_err() {
+                                break State::Exception;
+                            }
+                        } else {
                             break State::Exception;
                         }
                     }

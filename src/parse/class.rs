@@ -2,8 +2,8 @@ use std::ffi::CStr;
 
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JS_ValueToAtom, JSAtom, consts::*,
-        js_atom_concat_num, js_atom_concat_str,
+        JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_num,
+        js_atom_concat_str,
     },
     bytecode::{OpCode, OpCodeTemp},
     class::{
@@ -888,22 +888,24 @@ pub unsafe fn js_parse_property_name(
 
         match (*s).token.val {
             TOK_STRING => {
-                name = JS_ValueToAtom(ctx, (*s).token.data.string().unwrap());
-                if name == JS_ATOM_NULL {
+                if let Ok(a) = (*s).token.data.string().unwrap().coerce_to_atom(ctx) {
+                    name = a;
+                    if (*s).next_token().is_err() {
+                        break Some(GotoLabel::Fail(a));
+                    }
+                } else {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
-                }
-                if (*s).next_token().is_err() {
-                    break Some(GotoLabel::Fail(name));
                 }
             }
             TOK_NUMBER => {
                 // JSValue int32 or float64
-                name = JS_ValueToAtom(ctx, &(*s).token.data.number().unwrap());
-                if name == JS_ATOM_NULL {
+                if let Ok(a) = (*s).token.data.number().unwrap().coerce_to_atom(ctx) {
+                    name = a;
+                    if (*s).next_token().is_err() {
+                        break Some(GotoLabel::Fail(a));
+                    }
+                } else {
                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
-                }
-                if (*s).next_token().is_err() {
-                    break Some(GotoLabel::Fail(name));
                 }
             }
             // '['

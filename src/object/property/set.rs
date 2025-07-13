@@ -1,11 +1,9 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT,
-    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{
-        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JS_ValueToAtom, JSAtom,
-    },
+    JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    atom::{__JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
@@ -610,14 +608,10 @@ impl JSObject {
         }
 
         // slow_path
-        let atom = JS_ValueToAtom(ctx, prop);
-        if atom == JS_ATOM_NULL {
-            Err(-1)
-        } else {
-            let ret = self.set_property_ex(ctx, atom, val, &JSValue::Object(self.clone()), flags);
-            JS_FreeAtom(ctx, atom);
-            ret
-        }
+        let atom = prop.coerce_to_atom(ctx)?;
+        let ret = self.set_property_ex(ctx, atom, val, &JSValue::Object(self.clone()), flags);
+        JS_FreeAtom(ctx, atom);
+        ret
     }
 
     #[inline(always)]
@@ -899,14 +893,10 @@ impl JSValue {
         if let Self::Object(ob) = self {
             ob.set_property_value(ctx, prop, val, flags)
         } else {
-            let atom = JS_ValueToAtom(ctx, prop);
-            if atom == JS_ATOM_NULL {
-                Err(-1)
-            } else {
-                let ret = Self::set_property_internal(ctx, self, atom, val, self, flags);
-                JS_FreeAtom(ctx, atom);
-                ret
-            }
+            let atom = prop.coerce_to_atom(ctx)?;
+            let ret = Self::set_property_internal(ctx, self, atom, val, self, flags);
+            JS_FreeAtom(ctx, atom);
+            ret
         }
     }
 

@@ -2,8 +2,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     array::{JS_ToArrayLengthFree, convert_fast_array_to_array},
     atom::{
-        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JS_ValueToAtom,
-        JSAtom, consts::*,
+        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*,
     },
     bytecode::js_get_function_name,
     context::JSContext,
@@ -367,11 +366,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = JS_ValueToAtom(ctx, &prop);
-        if atom == JS_ATOM_NULL {
-            return Err(-1);
-        }
-
+        let atom = prop.coerce_to_atom(ctx)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -474,7 +469,7 @@ pub unsafe fn JS_DefineObjectNameComputed(
     flags: u32,
 ) -> i32 {
     if obj.is_object() && !js_object_has_name(obj) {
-        let prop = JS_ValueToAtom(ctx, str_val);
+        let prop = str_val.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
         if prop == JS_ATOM_NULL {
             return -1;
         }

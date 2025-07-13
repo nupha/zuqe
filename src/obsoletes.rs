@@ -3104,3 +3104,8 @@ pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomType) -> JSValu
         }
     }
 }
+
+#[deprecated(note = "use JSValue::coerce_to_atom() instead")]
+pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
+    val.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL)
+}
