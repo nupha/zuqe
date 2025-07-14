@@ -23,14 +23,15 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
+        // check configurable
         match prs_flags & JS_PROP_TMASK {
             JS_PROP_NORMAL => {
                 if prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
-                    && (flags & JS_PROP_HAS_VALUE) != 0
+                    && flags & JS_PROP_HAS_VALUE != 0
                 {
-                    return if !val.is_same(
-                        &self.0.prop_values.borrow_mut()[idx].value(ctx, &JSValue::UNDEFINED),
-                    ) {
+                    return if !val
+                        .is_same(&self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED))
+                    {
                         if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
                             Err(-1)
                         } else {
@@ -42,112 +43,88 @@ impl JSObject {
                 }
             }
             JS_PROP_GETSET => {
-                // convert property to value type
+                // convert getset property to normal type
                 self.shape_prepare_update(ctx)?;
-                self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(JSValue::UNDEFINED);
+                self.0.prop_values.borrow_mut()[idx] = JSProperty::default();
                 self.shape().unwrap().with_mut(|s| {
+                    // Note: s must be an exclusive shape, so we can modify it.
                     let prs = s.prop_defs.get_mut(&prop.0).unwrap();
                     prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
+                    debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
                 });
             }
             JS_PROP_VARREF => {
-                // short borrow to avoid conflict
-                let slot_val = self.0.prop_values.borrow_mut()[idx].clone();
+                // JS_PROP_VARREF is always writable.
+            }
+            _ => {
+                unreachable!()
+            }
+        }
 
-                if let JSProperty::VarRef(vref) = slot_val {
-                    if flags & JS_PROP_HAS_VALUE != 0 {
-                        if self.class_id() == JS_CLASS_MODULE_NS {
-                            /* JS_PROP_WRITABLE is always true for variable
-                            references, but they are write protected in module name
-                            spaces. */
-                            if !val.is_same(&vref.value()) {
-                                return if ctx
-                                    .JS_ThrowTypeErrorOrFalse(flags, "property is not configurable")
-                                {
-                                    Err(-1)
-                                } else {
-                                    Ok(false)
-                                };
-                            }
-                        } else {
-                            // update the referenced value
-                            vref.set_value(val);
-                        }
-                    }
-
-                    // if writable is set to false, no longer a reference (for mapped arguments)
-                    if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
-                        if self.class_id() == JS_CLASS_MODULE_NS {
-                            return if ctx.JS_ThrowTypeErrorOrFalse(
-                                flags,
-                                "module namespace properties have writable = false",
-                            ) {
+        // write value
+        if prs_flags & JS_PROP_TMASK == JS_PROP_VARREF {
+            let slot = &mut self.0.prop_values.borrow_mut()[idx];
+            if let JSProperty::VarRef(vref) = slot {
+                if flags & JS_PROP_HAS_VALUE != 0 {
+                    if self.class_id() == JS_CLASS_MODULE_NS {
+                        /* JS_PROP_WRITABLE is always true for variable
+                        references, but they are write protected in module name
+                        spaces. */
+                        if !val.is_same(&vref.value()) {
+                            return if ctx
+                                .JS_ThrowTypeErrorOrFalse(flags, "property is not configurable")
+                            {
                                 Err(-1)
                             } else {
                                 Ok(false)
                             };
                         }
-
-                        self.shape_prepare_update(ctx)?;
-                        self.0.prop_values.borrow_mut()[idx] =
-                            JSProperty::Normal(vref.value().clone());
-                        self.shape().unwrap().with_mut(|s| {
-                            let prs = s.prop_defs.get_mut(&prop.0).unwrap();
-                            prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
-                        });
+                    } else {
+                        // update the referenced value
+                        vref.set_value(val);
                     }
-                } else {
-                    unreachable!()
                 }
-                return Ok(true);
-            }
 
-            _ => {
+                // if writable is set to false, no longer a reference (for mapped arguments)
+                if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
+                    if self.class_id() == JS_CLASS_MODULE_NS {
+                        return if ctx.JS_ThrowTypeErrorOrFalse(
+                            flags,
+                            "module namespace properties have writable = false",
+                        ) {
+                            Err(-1)
+                        } else {
+                            Ok(false)
+                        };
+                    }
+
+                    self.shape_prepare_update(ctx)?;
+                    self.shape().unwrap().with_mut(|s| {
+                        // Note: s must be an exclusive shape, so we can modify it.
+                        let prs = s.prop_defs.get_mut(&prop.0).unwrap();
+                        prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
+                        debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
+                    });
+                    *slot = JSProperty::Normal(vref.value().clone());
+                }
+                Ok(true)
+            } else {
                 unreachable!();
             }
-        }
-
-        //
-        // fill value
-        //
-        debug_assert!(matches!(
-            prs_flags & JS_PROP_TMASK,
-            JS_PROP_NORMAL | JS_PROP_GETSET
-        ));
-
-        if prs_flags & JS_PROP_LENGTH != 0 {
+        } else if prs_flags & JS_PROP_LENGTH != 0 {
             // special property: length
             debug_assert_eq!(idx, 0, "length property must be index at 0");
-
-            let res = if flags & JS_PROP_HAS_VALUE != 0 {
-                // Note: no JS code is executable because 'val' is guaranted to be a Uint32
+            if flags & JS_PROP_HAS_VALUE != 0 {
                 self.set_array_length(ctx, val, flags)
             } else {
                 Ok(true)
-            };
-
-            // still need to reset the writable flag if needed.
-            // The JS_PROP_LENGTH is kept because the Uint32 test is still done if the length
-            // property is read-only.
-            if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
-                self.js_update_property_flags(ctx, prop, prs_flags & !JS_PROP_WRITABLE)?;
             }
-
-            return res;
         } else {
             if flags & JS_PROP_HAS_VALUE != 0 {
                 self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
             }
-            if flags & JS_PROP_HAS_WRITABLE != 0 {
-                self.js_update_property_flags(
-                    ctx,
-                    prop,
-                    (prs_flags & !JS_PROP_WRITABLE) | (flags & JS_PROP_WRITABLE),
-                )?;
-            }
+            Ok(true)
         }
-
-        Ok(true)
     }
 
     /// update property as getset type at specified slot `idx`

@@ -41,14 +41,17 @@ impl JSObject {
 
         loop {
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-                if (prs_flags & JS_PROP_LENGTH != 0) && (flags & JS_PROP_HAS_VALUE != 0) {
+                if prs_flags & JS_PROP_LENGTH != 0 && flags & JS_PROP_HAS_VALUE != 0 {
                     // is `length` property
                     // the range of the Array length property is always tested before
                     let array_length = unsafe { JS_ToArrayLengthFree(ctx, val, false)? };
                     val = JSValue::from(array_length);
                 }
 
+                //
                 // property already exists
+                //
+
                 if unsafe { !check_define_prop_flags(prs_flags, flags) } {
                     return if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
                         Err(-1)
@@ -69,7 +72,7 @@ impl JSObject {
                     self.0.prop_values.borrow_mut()[idx] = pr;
                 }
 
-                if flags
+                let res = if flags
                     & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_GET | JS_PROP_HAS_SET)
                     != 0
                 {
@@ -82,32 +85,49 @@ impl JSObject {
                             getter.clone(),
                             setter.clone(),
                             flags,
-                        )?;
+                        )?
                     } else {
-                        let res =
-                            self.update_prop_slot_normal(ctx, prop, prs_flags, idx, val, flags)?;
-                        if flags & JS_PROP_LENGTH != 0 {
-                            // don't change flag for length property
-                            // return immediately
-                            return Ok(res);
-                        }
+                        self.update_prop_slot_normal(ctx, prop, prs_flags, idx, val, flags)?
                     }
+                } else {
+                    false
+                };
+
+                //
+                // update shape property flag
+                //
+                if flags & JS_PROP_LENGTH != 0 {
+                    // change flags of special property length: reset the writable flag if needed.
+                    // The JS_PROP_LENGTH is kept because the Uint32 test is still done if the length
+                    // property is read-only.
+                    if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
+                        self.js_update_property_flags(ctx, prop, prs_flags & !JS_PROP_WRITABLE)?;
+                    }
+                } else {
+                    let mut mask = 0;
+                    if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
+                        mask |= JS_PROP_CONFIGURABLE;
+                    }
+                    if flags & JS_PROP_HAS_WRITABLE != 0 {
+                        mask |= JS_PROP_HAS_WRITABLE;
+                    }
+                    if flags & JS_PROP_HAS_ENUMERABLE != 0 {
+                        mask |= JS_PROP_ENUMERABLE;
+                    }
+                    // Note: shape may have been changed, should reload current shape property
+                    let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
+                    self.js_update_property_flags(
+                        ctx,
+                        prop,
+                        (prs_flags2 & !mask) | (flags & mask),
+                    )?;
                 }
 
-                let mut mask = 0;
-                if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
-                    mask |= JS_PROP_CONFIGURABLE;
-                }
-                if flags & JS_PROP_HAS_ENUMERABLE != 0 {
-                    mask |= JS_PROP_ENUMERABLE;
-                }
-
-                self.js_update_property_flags(ctx, prop, (prs_flags & !mask) | (flags & mask))?;
-                return Ok(true);
+                return Ok(res);
             }
 
-            // shape property not exist.
-            // modification of fast array elements
+            // at this point, shape property does not exist.
+            // try fast array element
             if self.flags().fast_array() {
                 match self.class_id() {
                     JS_CLASS_ARRAY => {
