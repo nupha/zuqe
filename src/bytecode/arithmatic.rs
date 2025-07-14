@@ -492,17 +492,14 @@ pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<bool, i32> {
             (JSValue::Symbol(_), _) | (_, JSValue::Symbol(_)) => false,
 
             (JSValue::NULL | JSValue::UNDEFINED, JSValue::NULL | JSValue::UNDEFINED) => true,
-            (_, JSValue::NULL | JSValue::UNDEFINED) if op1.is_htmldda() => true,
-            (JSValue::NULL | JSValue::UNDEFINED, _) if op2.is_htmldda() => true,
+            (_, JSValue::NULL | JSValue::UNDEFINED) => false, //op1.is_htmldda(),
+            (JSValue::NULL | JSValue::UNDEFINED, _) => false, //op2.is_htmldda(),
 
             (
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
             ) => {
                 unreachable!("op1={op1:?}, op2={op2:?}");
-                // let op = TwoNumbers::from_numeric(op1, op2, true).unwrap();
-                // op.partial_cmp()
-                //     .map_or(false, |r| r == std::cmp::Ordering::Equal)
             }
 
             _ => {
