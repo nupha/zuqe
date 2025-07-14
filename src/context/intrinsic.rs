@@ -46,7 +46,6 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectDetail, js_object_seal,
     },
-    obsoletes::JS_NewObjectProto,
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
@@ -57,7 +56,7 @@ use crate::{
 };
 
 impl JSContext {
-    unsafe fn intrinsic_throw_error(&self) {
+    fn intrinsic_throw_error(&self) {
         // throw TypeError()
         let throw_type_error = self
             .create_native_function(NativeFunctionType::Func(js_throw_type_error), "", 0, 0)
@@ -107,7 +106,7 @@ impl JSContext {
         .unwrap();
     }
 
-    unsafe fn intrinsic_object(&self) {
+    fn intrinsic_object(&self) {
         let obj_ctor = self
             .create_global_constructor(
                 "Object",
@@ -126,7 +125,7 @@ impl JSContext {
             .unwrap();
     }
 
-    unsafe fn intrinsic_function(&self) {
+    fn intrinsic_function(&self) {
         self.0
             .borrow()
             .function_proto
@@ -146,7 +145,7 @@ impl JSContext {
         self.0.borrow_mut().function_ctor = function_ctor;
     }
 
-    unsafe fn intrinsic_error(&self) {
+    fn intrinsic_error(&self) {
         let error_ctor = self
             .create_native_function(
                 NativeFunctionType::ConstructorOrFunc(js_error_constructor),
@@ -183,7 +182,7 @@ impl JSContext {
         }
     }
 
-    unsafe fn intrinsic_array(&self) {
+    fn intrinsic_array(&self) {
         self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
             .install_native_fields(self, &js_array_proto_funcs)
             .unwrap();
@@ -246,20 +245,9 @@ impl JSContext {
 
             cx.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter;
         });
-
-        // self.0.borrow_mut().array_proto_values =
-        //     self.0.borrow().class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_values);
-
-        // self.0.borrow_mut().class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = self
-        //     .create_base_object_with_proto(&self.0.borrow().iterator_proto)
-        //     .unwrap();
-
-        // self.0.borrow().class_proto[JS_CLASS_ARRAY_ITERATOR as usize]
-        //     .install_property_entries(self, &js_array_iterator_proto_funcs)
-        //     .unwrap();
     }
 
-    unsafe fn intrinsic_number(&self) {
+    fn intrinsic_number(&self) {
         let number_proto = self
             .create_instance_from_proto(
                 &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
@@ -280,7 +268,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_NUMBER as usize] = number_proto;
     }
 
-    unsafe fn intrinsic_boolean(&self) {
+    fn intrinsic_boolean(&self) {
         let bool_proto = self
             .create_instance_from_proto(
                 &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
@@ -298,7 +286,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
     }
 
-    unsafe fn intrinsic_string(&self) {
+    fn intrinsic_string(&self) {
         let empty_str = JS_ATOM_empty_string
             .to_value(self, true)
             .check_exception()
@@ -333,7 +321,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter;
     }
 
-    unsafe fn intrinsic_iterator(&self) {
+    fn intrinsic_iterator(&self) {
         // self.iterator_proto = JS_NewObject(ctx);
         // JS_SetPropertyFunctionList(
         //     self,

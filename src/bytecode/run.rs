@@ -205,7 +205,7 @@ impl Bytecode {
         #[cfg(not(debug_assertions))]
         macro_rules! ARG_REF {
             ($idx:expr) => {
-                unsafe { &mut *sf.arg_base_ptr.offset(($idx) as _) }
+                unsafe { &mut *sframe.arg_base_ptr.offset(($idx) as _) }
             };
         }
 
@@ -231,7 +231,7 @@ impl Bytecode {
         #[cfg(not(debug_assertions))]
         macro_rules! CPOOL {
         [$idx:expr] => {
-            {
+            unsafe {
                 &*cpools.as_ref().as_ptr().add(($idx) as usize)
             }
         };
