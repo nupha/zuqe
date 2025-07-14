@@ -51,7 +51,10 @@ impl JSObject {
                 });
             }
             JS_PROP_VARREF => {
-                if let JSProperty::VarRef(vref) = self.0.prop_values.borrow_mut()[idx].clone() {
+                // short borrow to avoid conflict
+                let slot_val = self.0.prop_values.borrow_mut()[idx].clone();
+
+                if let JSProperty::VarRef(vref) = slot_val {
                     if flags & JS_PROP_HAS_VALUE != 0 {
                         if self.class_id() == JS_CLASS_MODULE_NS {
                             /* JS_PROP_WRITABLE is always true for variable
