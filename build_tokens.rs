@@ -3,7 +3,7 @@ use std::path::Path;
 use once_cell::sync::Lazy;
 
 static TOKENS: Lazy<Vec<&str>> = Lazy::new(|| {
-    let tokens = vec![
+    let lst = vec![
         "NUMBER",
         "STRING",
         "TEMPLATE",
@@ -98,20 +98,33 @@ static TOKENS: Lazy<Vec<&str>> = Lazy::new(|| {
         "AWAIT", // must be last
         "OF",    //only used for js_parse_skip_parens_token()
     ];
-    tokens
+    lst
 });
 
 const TOKEN_START_ID: i32 = -128;
+const TOKEN_START_KEYWORD: &str = "NULL";
 
 pub fn gen_tokens(outfile: &Path) {
     let mut output = Vec::<String>::with_capacity(1024);
 
+    // token consts
     for (i, tok) in TOKENS.iter().enumerate() {
         output.push(format!(
             "pub const TOK_{tok}: i32 = {};",
             i as i32 + TOKEN_START_ID
         ));
     }
+
+    // token to string
+    output.push("pub fn token_keyword_to_str(tok:i32)->Option<&'static str> { match tok {".into());
+    let n = TOKENS
+        .iter()
+        .position(|s| s.eq(&TOKEN_START_KEYWORD))
+        .unwrap();
+    for t in &TOKENS[n..] {
+        output.push(format!("TOK_{t} => Some(\"{}\"),", t.to_lowercase()));
+    }
+    output.push("_=>None}}".into());
 
     output.push("".into());
     std::fs::write(outfile, output.join("\n")).unwrap();

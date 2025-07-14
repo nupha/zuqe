@@ -9,7 +9,10 @@ use crate::{
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
     module::JSExportTypeEnum,
-    parse::{expr_lvalue::PutLValueEnum, token::TokenData},
+    parse::{
+        expr_lvalue::PutLValueEnum,
+        token::{TokenData, token_keyword_to_str},
+    },
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
 };
 
@@ -431,12 +434,20 @@ impl JSParseState<'_> {
 
     pub fn parse_expect(&mut self, tok: i32) -> Result<(), i32> {
         if self.token.val != tok {
-            /* XXX: dump token correctly in all cases */
-            debug_assert!(tok > 0);
-            self.throw_syntax_error(&format!(
-                "expecting '{}'",
-                std::char::from_u32(tok as u32).unwrap()
-            ));
+            if tok > 0 {
+                // is char
+                self.throw_syntax_error(&format!(
+                    "expecting '{}'",
+                    std::char::from_u32(tok as u32).unwrap()
+                ));
+            } else {
+                // is token
+                self.throw_syntax_error(&format!(
+                    "expecting '{}'",
+                    token_keyword_to_str(tok).unwrap_or("<unknown>")
+                ));
+            }
+
             Err(-1)
         } else {
             self.next_token()
