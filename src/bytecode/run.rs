@@ -403,7 +403,7 @@ impl Bytecode {
                             SpecialObject::VarObject => {
                                 SP_PUT!(
                                     0,
-                                    ctx.create_base_object_with_proto(&JSValue::NULL)
+                                    ctx.create_base_object_from_proto(&JSValue::NULL)
                                         .unwrap_or(JSValue::EXCEPTION)
                                 );
                                 SP_GO!(1);
@@ -1188,7 +1188,7 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         SP_PUT!(
                             0,
-                            ctx.create_base_object_with_proto(&JSValue::NULL)
+                            ctx.create_base_object_from_proto(&JSValue::NULL)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
@@ -1501,12 +1501,13 @@ impl Bytecode {
                         SP_PUT!(-1, JSValue::Bool(!b)); // not
                     }
                     OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
+                        // get_field: [obj, ^] -> [value, ^]
+                        // get_field2: [obj, ^] -> [obj, value, ^]
                         let atom = JSAtom(PC_FETCH!(u32));
                         let val = SP_REF!(-1).get_property(ctx, atom);
                         if val.is_exception() {
                             break State::Exception;
-                        }
-                        if opcode == OpCode::GET_FIELD {
+                        } else if opcode == OpCode::GET_FIELD {
                             SP_PUT!(-1, val);
                         } else {
                             SP_PUT!(0, val);

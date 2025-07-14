@@ -25,13 +25,18 @@ pub const ARG_SCOPE_INDEX: i32 = 1;
 /// to mark end of arugment vars chain.
 pub const ARG_SCOPE_END: i32 = -2;
 
+/// kind of function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JSFunctionKindEnum {
+    /// bytecode function
     JS_FUNC_NORMAL = 0,
+    /// generator
     JS_FUNC_GENERATOR = 1,
+    /// async function
     JS_FUNC_ASYNC = 2,
-    JS_FUNC_ASYNC_GENERATOR = 3, // JS_FUNC_GENERATOR | JS_FUNC_ASYNC
+    /// async generator. JS_FUNC_GENERATOR | JS_FUNC_ASYNC
+    JS_FUNC_ASYNC_GENERATOR = 3,
 }
 
 impl JSFunctionKindEnum {
@@ -39,9 +44,20 @@ impl JSFunctionKindEnum {
     pub fn is_async(self) -> bool {
         matches!(self, Self::JS_FUNC_ASYNC | Self::JS_FUNC_ASYNC_GENERATOR)
     }
+
+    /// get associated class id for function kind
+    pub fn class_id(&self) -> JSClassID {
+        match self {
+            Self::JS_FUNC_NORMAL => JS_CLASS_BYTECODE_FUNCTION,
+            Self::JS_FUNC_GENERATOR => JS_CLASS_GENERATOR,
+            Self::JS_FUNC_ASYNC => JS_CLASS_ASYNC_FUNCTION,
+            Self::JS_FUNC_ASYNC_GENERATOR => JS_CLASS_ASYNC_GENERATOR,
+        }
+    }
 }
 
 /// Class id for function kind
+#[deprecated(note = "use JSFunctionKindEnum::class_id() instead")]
 pub const func_kind_to_class_id: [JSClassID; 4] = [
     JS_CLASS_BYTECODE_FUNCTION, // 0 JS_FUNC_NORMAL
     JS_CLASS_GENERATOR,         // 1 JS_FUNC_GENERATOR

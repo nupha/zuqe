@@ -162,7 +162,7 @@ pub fn js_op_define_class(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone()
     };
 
-    let proto = ctx.create_base_object_with_proto(&parent_proto)?;
+    let proto = ctx.create_base_object_from_proto(&parent_proto)?;
 
     // make constructor function
     let func = ctx

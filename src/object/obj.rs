@@ -477,46 +477,6 @@ impl JSObject {
         }
     }
 
-    // /// Retrieve associated payload raw pointer, cast to type T.
-    // /// If object is not instance of `class_id`, returns None.
-    // /// If payload pointer is null, returns None.
-    // #[inline]
-    // pub const fn opaque<T>(&self, class_id: JSClassID) -> Option<NonNull<T>> {
-    //     unimplemented!()
-
-    //     // debug_assert!(
-    //     //     unsafe { !self.u.opaque.is_null() },
-    //     //     "JSObject must have opaque payload"
-    //     // );
-
-    //     // if self.class_id() == class_id {
-    //     //     unsafe { NonNull::new(self.u.opaque.cast::<T>()) }
-    //     // } else {
-    //     //     None
-    //     // }
-    // }
-
-    // /// Retrieve associated payload raw pointer, cast to type T.
-    // /// If object is not instance of `class_id`, or if payload pointer is null,
-    // /// throw error and returns Err.
-    // pub fn opaque_must<T>(&self, class_id: JSClassID, ctx: &JSContext) -> Result<NonNull<T>, i32> {
-    //     unreachable!("unused");
-    //     // self.opaque::<T>(class_id).ok_or_else(|| {
-    //     //     ctx.JS_ThrowTypeErrorInvalidClass(class_id);
-
-    //     //     -1
-    //     // })
-    // }
-
-    // /// Associate native payload raw pointer with `self` object.
-    // ///
-    // /// Safety: Caller maintains `opaque` pointer validity
-    // #[inline(always)]
-    // pub const fn set_opaque(&mut self, opaque: *mut c_void) {
-    //     unimplemented!()
-    //     // self.u.opaque = opaque;
-    // }
-
     // fn gc_status(&self) -> GCObjectStatus {
     //     self.0.header.borrow().gc_status()
     // }
@@ -742,7 +702,7 @@ impl JSContext {
     /// returns Err if fail.
     /// `proto` is not consumed.
     #[inline(always)]
-    pub fn create_base_object_with_proto(&self, proto: &JSValue) -> JSResult {
+    pub fn create_base_object_from_proto(&self, proto: &JSValue) -> JSResult {
         self.create_instance_from_proto(proto, ObjectDetail::OBJECT)
             .map_err(|_| -1)
     }

@@ -126,7 +126,7 @@ pub enum IteratorState {
     /// iterator is done
     Done,
     /// iterator object is not parsed
-    Uninitialized,
+    NotParsed,
 }
 
 pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
@@ -175,7 +175,7 @@ pub fn JS_CallInternal(
             frame.prev_frame = rt.cur_stack_frame;
             rt.cur_stack_frame = (frame.deref_mut() as *mut StackFrame).cast();
 
-            let retval = bc.run(
+            let ret_val = bc.run(
                 caller_ctx,
                 home_obj.as_ref(),
                 frame,
@@ -194,7 +194,7 @@ pub fn JS_CallInternal(
                 "runtime current stack frame should be restored after running bytecodes"
             );
 
-            retval
+            ret_val
         } else {
             caller_ctx.JS_ThrowTypeError("not a function");
             JSValue::EXCEPTION

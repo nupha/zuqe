@@ -1031,7 +1031,6 @@ pub unsafe fn JS_Eval(ctx: &JSContext, input: &CStr, filename: &str, eval_flags:
 }
 
 /// both `this_obj` and `val` are not consumed.
-#[deprecated(note = "use JSValue::eval_script() instead")]
 pub unsafe fn JS_EvalObject(
     ctx: &JSContext,
     this_obj: JSValueConst,

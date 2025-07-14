@@ -19,7 +19,7 @@ pub type NativeCallback = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) ->
 pub type NativeGetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
 pub type NativeSetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
 pub type NativeIteratorNext =
-    fn(ctx: &JSContext, cc: CallContext, state: &mut IteratorState) -> JSResult;
+    fn(ctx: &JSContext, cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
 pub type JSCFunction = unsafe fn(ctx: &JSContext, this_val: JSValue, args: &[JSValue]) -> JSValue;
 pub type JSCFunctionMagic = unsafe fn(
@@ -231,10 +231,14 @@ impl ObjNativeFunc {
             NativeFunctionType::IteratorNext(f) => {
                 let cc =
                     CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                let mut state = IteratorState::HasMore;
-                let mut r = f(realm, cc, &mut state);
-                if !r.is_err() && state != IteratorState::Uninitialized {
-                    r = js_create_iterator_result(realm, r.unwrap(), state == IteratorState::Done);
+                let mut iter_state = IteratorState::HasMore;
+                let mut r = f(realm, cc, &mut iter_state);
+                if !r.is_err() && iter_state != IteratorState::NotParsed {
+                    r = js_create_iterator_result(
+                        realm,
+                        r.unwrap(),
+                        iter_state == IteratorState::Done,
+                    );
                 }
                 r.unwrap_or(JSValue::EXCEPTION)
             }
@@ -338,7 +342,9 @@ impl ObjNativeFunc {
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let ObjectDetail::C_FUNCTION(cfunc) = val.object_unchecked().0.detail.borrow().deref() {
+            if let ObjectDetail::C_FUNCTION(cfunc) =
+                val.object_unchecked().0.detail.borrow().deref()
+            {
                 // println!("[O.o] TODO cfunction mark");
                 // mark_func(rt, &cfunc.realm);
             }

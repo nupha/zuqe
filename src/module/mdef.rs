@@ -177,7 +177,7 @@ impl ModuleDefInner {
         // allocate meta_obj only if requested to save memory
         let mut meta = self.meta_obj.clone();
         if meta.is_undefined() {
-            meta = ctx.create_base_object_with_proto(&JSValue::NULL)?;
+            meta = ctx.create_base_object_from_proto(&JSValue::NULL)?;
             self.meta_obj = meta.clone();
         }
         Ok(meta)

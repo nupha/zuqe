@@ -4,8 +4,9 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_ERROR,
-    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER,
-    JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
+    JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_UINT8C_ARRAY,
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
     },
@@ -24,7 +25,8 @@ use crate::{
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
-        js_async_iterator_proto_funcs,
+        js_async_iterator_proto_funcs, js_function_constructor, js_generator_function_proto_funcs,
+        js_generator_proto_funcs,
     },
     iterator::js_async_from_sync_iterator_proto_funcs,
     js_core::{
@@ -44,6 +46,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectDetail, js_object_seal,
     },
+    obsoletes::JS_NewObjectProto,
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
@@ -219,7 +222,7 @@ impl JSContext {
                 "toSpliced",
                 "values",
             ];
-            let obj1 = self.create_base_object_with_proto(&JSValue::NULL).unwrap();
+            let obj1 = self.create_base_object_from_proto(&JSValue::NULL).unwrap();
             for s in unscopables {
                 obj1.define_property_value_str(self, s, JSValue::Bool(true), JS_PROP_C_W_E)
                     .unwrap();
@@ -230,7 +233,7 @@ impl JSContext {
         }
 
         let array_iter = self
-            .create_base_object_with_proto(&self.0.borrow().iterator_proto)
+            .create_base_object_from_proto(&self.0.borrow().iterator_proto)
             .unwrap();
         array_iter
             .install_native_fields(self, &js_array_iterator_proto_funcs)
@@ -320,7 +323,7 @@ impl JSContext {
             .unwrap();
 
         let string_iter = self
-            .create_base_object_with_proto(&self.0.borrow().iterator_proto)
+            .create_base_object_from_proto(&self.0.borrow().iterator_proto)
             .unwrap();
         string_iter
             .install_native_fields(self, &js_string_iterator_proto_funcs)
@@ -338,6 +341,51 @@ impl JSContext {
         //     js_iterator_proto_funcs.as_ptr(),
         //     std::mem::size_of_val(js_iterator_proto_funcs) / std::mem::size_of::<JSFunction>(),
         // );
+    }
+
+    fn intrinsic_generator(&self) {
+        // generator prototype
+        let generator_proto = self
+            .create_base_object_from_proto(&self.0.borrow().iterator_proto)
+            .unwrap();
+        generator_proto
+            .install_native_fields(self, &js_generator_proto_funcs)
+            .unwrap();
+        self.0.borrow_mut().class_proto[JS_CLASS_GENERATOR as usize] = generator_proto.clone();
+
+        // generator function prototype
+        let generator_function_proto = self
+            .create_base_object_from_proto(&self.0.borrow().function_proto)
+            .unwrap();
+        generator_function_proto
+            .install_native_fields(self, &js_generator_function_proto_funcs)
+            .unwrap();
+        self.0.borrow_mut().class_proto[JS_CLASS_GENERATOR_FUNCTION as usize] =
+            generator_function_proto.clone();
+
+        // generator constructor
+        let generator_ctor = self
+            .create_native_function(
+                NativeFunctionType::ConstructorOrFunc(js_function_constructor),
+                "GeneratorFunction",
+                1,
+                JSFunctionKindEnum::JS_FUNC_GENERATOR as i16,
+            )
+            .unwrap();
+        JS_SetConstructor2(
+            self,
+            &generator_function_proto,
+            &generator_proto,
+            JS_PROP_CONFIGURABLE,
+            JS_PROP_CONFIGURABLE,
+        );
+        JS_SetConstructor2(
+            self,
+            &generator_ctor,
+            &generator_function_proto,
+            0,
+            JS_PROP_CONFIGURABLE,
+        );
     }
 
     unsafe fn intrinsic_eval(&self) {
@@ -397,7 +445,7 @@ impl JSContext {
             .unwrap();
 
         // global var object
-        let gvobj = self.create_base_object_with_proto(&JSValue::NULL).unwrap();
+        let gvobj = self.create_base_object_from_proto(&JSValue::NULL).unwrap();
 
         {
             let mut cx = self.0.borrow_mut();
@@ -466,46 +514,7 @@ impl JSContext {
             //     JS_DefinePropertyValueStr(ctx, obj, str, JS_AtomToValue(ctx, i), 0);
             // }
 
-            // ES6 Generator
-            // ctx.class_proto[JS_CLASS_GENERATOR] = JS_NewObjectProto(ctx, ctx.iterator_proto);
-            // JS_SetPropertyFunctionList(
-            //     ctx,
-            //     ctx.class_proto[JS_CLASS_GENERATOR],
-            //     js_generator_proto_funcs.as_ptr(),
-            //     std::mem::size_of_val(js_generator_proto_funcs) / std::mem::size_of::<JSFunction>(),
-            // );
-
-            // ctx.class_proto[JS_CLASS_GENERATOR_FUNCTION] = JS_NewObjectProto(ctx, ctx.function_proto);
-            // obj1 = JS_NewCFunctionMagic(
-            //     ctx,
-            //     js_function_constructor,
-            //     c"GeneratorFunction",
-            //     1,
-            //     JS_CFUNC_constructor_or_func_magic,
-            //     JS_FUNC_GENERATOR,
-            // );
-            // JS_SetPropertyFunctionList(
-            //     ctx,
-            //     ctx.class_proto[JS_CLASS_GENERATOR_FUNCTION],
-            //     js_generator_function_proto_funcs.as_ptr(),
-            //     std::mem::size_of_val(js_generator_function_proto_funcs)
-            //         / std::mem::size_of::<JSFunction>(),
-            // );
-            // JS_SetConstructor2(
-            //     ctx,
-            //     ctx.class_proto[JS_CLASS_GENERATOR_FUNCTION],
-            //     ctx.class_proto[JS_CLASS_GENERATOR],
-            //     JS_PROP_CONFIGURABLE,
-            //     JS_PROP_CONFIGURABLE,
-            // );
-            // JS_SetConstructor2(
-            //     ctx,
-            //     obj1,
-            //     ctx.class_proto[JS_CLASS_GENERATOR_FUNCTION],
-            //     0,
-            //     JS_PROP_CONFIGURABLE,
-            // );
-            // JS_FreeValue(ctx, obj1);
+            self.intrinsic_generator(); // ES6 Generator
 
             self.intrinsic_eval(); // enable `eval()` function
         }
@@ -597,7 +606,7 @@ impl JSContext {
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
                 let proto = self
-                    .create_base_object_with_proto(&typed_array_base_proto)
+                    .create_base_object_from_proto(&typed_array_base_proto)
                     .unwrap();
 
                 proto
@@ -690,7 +699,7 @@ impl JSContext {
         // AsyncFunction
         {
             let af_proto = self
-                .create_base_object_with_proto(&self.0.borrow().function_proto)
+                .create_base_object_from_proto(&self.0.borrow().function_proto)
                 .unwrap();
             af_proto
                 .install_native_fields(self, &js_async_function_proto_funcs)
@@ -722,7 +731,7 @@ impl JSContext {
         // AsyncFromSyncIteratorPrototype
         {
             let asiter_proto = self
-                .create_base_object_with_proto(&self.0.borrow().async_iterator_proto)
+                .create_base_object_from_proto(&self.0.borrow().async_iterator_proto)
                 .unwrap();
             asiter_proto
                 .install_native_fields(self, &js_async_from_sync_iterator_proto_funcs)
@@ -736,7 +745,7 @@ impl JSContext {
         {
             // AsyncGeneratorPrototype
             let agen_proto = self
-                .create_base_object_with_proto(&self.0.borrow().async_iterator_proto)
+                .create_base_object_from_proto(&self.0.borrow().async_iterator_proto)
                 .unwrap();
             agen_proto
                 .install_native_fields(self, &js_async_generator_proto_funcs)
@@ -744,7 +753,7 @@ impl JSContext {
 
             // AsyncGeneratorFunction
             let agf_proto = self
-                .create_base_object_with_proto(&self.0.borrow().function_proto)
+                .create_base_object_from_proto(&self.0.borrow().function_proto)
                 .unwrap();
             agf_proto
                 .install_native_fields(self, &js_async_generator_function_proto_funcs)

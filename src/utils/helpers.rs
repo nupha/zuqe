@@ -543,6 +543,22 @@ macro_rules! JS_CFUNC_FFF_DEF {
 }
 
 #[macro_export]
+macro_rules! JS_ITERATOR_NEXT_DEF {
+    ($name:expr, $length:expr, $func:expr, $magic:expr) => {
+        $crate::function::NativeField {
+            name: $name,
+            prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
+                as u8,
+            magic: $magic,
+            detail: $crate::function::NativeFieldDetail::Func {
+                handler: $crate::function::NativeFunctionType::IteratorNext($func),
+                length: $length,
+            },
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! JS_PROP_STRING_DEF {
     ($name:expr, $str:expr, $prop_flags:expr) => {
         $crate::function::NativeField {
@@ -578,28 +594,6 @@ macro_rules! JS_ALIAS_DEF {
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
                 as u8,
             magic: 0,
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! JS_ITERATOR_NEXT_DEF {
-    ($name:expr, $length:expr, $func1:expr, $magic:expr) => {
-        $crate::function::NativeField {
-            name: $name,
-            prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
-                as u8,
-            def_type: $crate::function::JS_DEF_CFUNC,
-            magic: $magic,
-            u: $crate::function::JSCFunctionListEntryUnion {
-                func: $crate::function::JSCFunctionListEntryFunc {
-                    length: $length,
-                    cproto: $crate::function::JSCFunctionEnum::IteratorNext,
-                    cfunc: $crate::function::JSCFunctionType {
-                        iterator_next: $func1,
-                    },
-                },
-            },
         }
     };
 }

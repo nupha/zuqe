@@ -179,8 +179,8 @@ impl JSValue {
         ret.check_exception()
     }
 
-    /// Coerce `self` value to string value.
-    /// `self` is not consumed.
+    /// Coerce value to string.
+    /// Returns a string type value or Err.
     #[inline(always)]
     pub fn coerce_to_string(&self, ctx: &JSContext) -> JSResult {
         self.do_coerce_to_string(ctx, false)

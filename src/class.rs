@@ -316,9 +316,11 @@ impl JSContext {
     }
 }
 
-/// set `proto` to func_obj.prototype property; set `func_obj`  to proto.constructor property.
-/// Note: 'func_obj' is not necessarily a constructor
-/// Note: both `func_obj` and `proto` are not consumed.
+/// Mutually define properties on both `func_obj` and `proto` side:
+/// - Define property `func_obj.prototype = proto`
+/// - Define property `proto.constructor = func_obj`.
+///
+/// Note: The `func_obj` may not necessarily be  a constructor
 pub fn JS_SetConstructor2(
     ctx: &JSContext,
     func_obj: &JSValue,

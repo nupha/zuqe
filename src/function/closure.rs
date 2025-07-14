@@ -340,7 +340,7 @@ impl Bytecode {
                 JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
             ));
 
-            let proto = ctx.create_base_object_with_proto(
+            let proto = ctx.create_base_object_from_proto(
                 &ctx.0.borrow().class_proto[proto_class_id as usize],
             )?;
 

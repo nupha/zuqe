@@ -75,7 +75,7 @@ pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let obj = ctx.create_base_object_with_proto(proto)?;
+    let obj = ctx.create_base_object_from_proto(proto)?;
     let props = cc.arg(1);
     if !props.is_undefined() {
         JS_ObjectDefineProperties(ctx, &obj, props)?;
@@ -186,7 +186,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                 .check_exception()?
         }
     } else {
-        ctx.create_base_object_with_proto(&JSValue::NULL)?
+        ctx.create_base_object_from_proto(&JSValue::NULL)?
     };
 
     let mut idx: i64 = 0;
