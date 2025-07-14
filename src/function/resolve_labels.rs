@@ -158,13 +158,13 @@ impl JSFunctionDef {
                     label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 1)) };
                     debug_assert!(label < self.label_slots.len() as u32);
 
-                    let lb = self.label_slots.get_mut(label as usize).unwrap();
-                    debug_assert_eq!(lb.addr, -1);
-                    lb.addr = bc_out.len() as _;
+                    let ls = self.label_slots.get_mut(label as usize).unwrap();
+                    debug_assert_eq!(ls.addr, -1);
+                    ls.addr = bc_out.len() as _;
 
                     // resolve pending relocation entries
-                    while let Some(re) = lb.pending_relocs.pop() {
-                        let delta = lb.addr as usize - re.addr;
+                    while let Some(re) = ls.pending_relocs.pop() {
+                        let delta = ls.addr as usize - re.addr;
                         match re.size {
                             4 => unsafe {
                                 write_to_ptr::<u32>(bc_out.as_mut_ptr().add(re.addr), delta as u32);
@@ -667,7 +667,6 @@ impl JSFunctionDef {
                         mut label,
                         op: goto_op,
                     } => {
-                        state = Some(ResolveLabelsState::HasLabel { label, op: goto_op });
                         if OPTIMIZE {
                             let mut line1 = -1;
                             /* Use custom matcher because multiple labels can follow */
@@ -676,7 +675,6 @@ impl JSFunctionDef {
                             if self.code_has_label(pos_next as usize, label) {
                                 /* jump to next instruction: remove jump */
                                 self.update_label_ref_count(label, -1);
-                                state.take(); // don't process label
                             } else if matches!(
                                 op1,
                                 opcodes::OP_return | opcodes::OP_return_undef | opcodes::OP_throw
@@ -694,15 +692,17 @@ impl JSFunctionDef {
                                     pos_next,
                                     &mut (line_num as i32),
                                 );
-                                state.take(); // don't process label
+                            } else {
+                                /* XXX: should duplicate single instructions followed by goto or return */
+                                /* For example, can match one of these followed by return:
+                                  push_i32 / push_const / push_atom_value / get_var /
+                                  undefined / null / push_false / push_true / get_ref_value /
+                                  get_loc / get_arg / get_var_ref
+                                */
+                                state = Some(ResolveLabelsState::HasLabel { label, op: goto_op });
                             }
-
-                            /* XXX: should duplicate single instructions followed by goto or return */
-                            /* For example, can match one of these followed by return:
-                              push_i32 / push_const / push_atom_value / get_var /
-                              undefined / null / push_false / push_true / get_ref_value /
-                              get_loc / get_arg / get_var_ref
-                            */
+                        } else {
+                            state = Some(ResolveLabelsState::HasLabel { label, op: goto_op });
                         }
                     }
                     ResolveLabelsState::HasLabel {
@@ -721,7 +721,7 @@ impl JSFunctionDef {
                                 &mut (line_num as i32),
                             );
                         }
-                        let lb = self.label_slots.get_mut(label as usize).unwrap();
+                        let ls = self.label_slots.get_mut(label as usize).unwrap();
 
                         #[cfg(feature = "short_opcode")]
                         {
@@ -792,12 +792,12 @@ impl JSFunctionDef {
                         }
 
                         push_vec_u8(&mut bc_out, label_op);
-                        let delta = (*lb).addr as i32 - bc_out.len() as i32; // could be minus
+                        let delta = ls.addr as i32 - bc_out.len() as i32; // could be minus
                         push_vec_u32(&mut bc_out, delta as u32);
 
-                        if (*lb).addr == -1 {
+                        if ls.addr == -1 {
                             // unresolved yet: create a new relocation entry
-                            if lb.add_reloc(ctx, bc_out.len() - 4, 4).is_err() {
+                            if ls.add_reloc(ctx, bc_out.len() - 4, 4).is_err() {
                                 state = Some(ResolveLabelsState::Fail);
                             }
                         }
