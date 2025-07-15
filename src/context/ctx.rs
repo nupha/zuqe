@@ -47,7 +47,9 @@ pub struct JSContextInner {
     /// Class protos
     pub class_proto: Vec<JSValue>,
 
+    /// same as class_proto[JS_CLASS_BYTECODE_FUNCTION]
     pub function_proto: JSValue,
+
     pub function_ctor: JSValue,
     pub array_ctor: JSValue,
     pub regexp_ctor: JSValue,

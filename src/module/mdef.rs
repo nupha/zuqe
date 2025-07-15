@@ -6,7 +6,9 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::context::JS_MODE_ASYNC;
 use crate::{
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
@@ -559,8 +561,8 @@ pub unsafe fn js_create_module_bytecode_function(
     let module_bc = m.0.borrow().bytecode.clone();
 
     if let JSValue::Bytecode(b) = module_bc {
-        // make isa to instance
-        let isa = {
+        // create function from bytecode
+        let (isa, class_id) = {
             let mut var_refs = Vec::<JSVarRef>::new();
             let cvar_count = b.0.borrow().closure_var_count;
             if cvar_count != 0 {
@@ -588,16 +590,42 @@ pub unsafe fn js_create_module_bytecode_function(
                 }
             }
 
-            ObjectDetail::BYTECODE_FUNCTION(ObjFunc {
-                bytecode: Some(b.clone()),
-                var_refs,
-                home_object: None,
-            })
+            // create bytecode function when has_tla=false;
+            // create async function when has_tla=true;
+            if m.0.borrow().has_tla {
+                // b.0.borrow_mut().js_mode |= JS_MODE_ASYNC as u8;
+                // (
+                //     ObjectDetail::ASYNC_FUNCTION(ObjFunc {
+                //         bytecode: Some(b.clone()),
+                //         var_refs,
+                //         home_object: None,
+                //     }),
+                //     JS_CLASS_BYTECODE_FUNCTION,
+                // )
+                (
+                    ObjectDetail::BYTECODE_FUNCTION(ObjFunc {
+                        bytecode: Some(b.clone()),
+                        var_refs,
+                        home_object: None,
+                    }),
+                    JS_CLASS_ASYNC_FUNCTION,
+                )
+            } else {
+                (
+                    ObjectDetail::BYTECODE_FUNCTION(ObjFunc {
+                        bytecode: Some(b.clone()),
+                        var_refs,
+                        home_object: None,
+                    }),
+                    JS_CLASS_ASYNC_FUNCTION,
+                )
+            }
         };
 
-        // create JS_CLASS_BYTECODE_FUNCTION object
+        // create function object
+        let proto = ctx.0.borrow().class_proto[class_id as usize].clone();
         let func_obj = ctx
-            .create_instance_from_proto(&ctx.0.borrow().function_proto, isa)
+            .create_instance_from_proto(&proto, isa)
             .map_err(|_| -1)?;
 
         m.0.borrow_mut().bytecode = func_obj;

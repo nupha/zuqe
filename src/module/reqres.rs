@@ -1,3 +1,4 @@
+use crate::module::ModuleDefInner;
 use crate::{
     atom::{JSAtom, consts::JS_ATOM__star_},
     context::JSContext,
@@ -99,6 +100,314 @@ impl JSContext {
         }
 
         Ok(())
+    }
+}
+
+impl ModuleDef {
+    // Prepare a module to be executed by resolving all the imported variables.
+    pub unsafe fn inner_module_linking(
+        &self,
+        ctx: &JSContext,
+        pstack_top: &mut Option<ModuleDef>,
+        index: i32,
+    ) -> i32 {
+        if js_check_stack_overflow(ctx.rt(), 0) {
+            JS_ThrowStackOverflow(ctx);
+            return -1;
+        }
+
+        #[cfg(DUMP_MODULE_RESOLVE)]
+        {
+            let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
+            println!(
+                "js_inner_module_linking '{}':\n",
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    JS_AtomGetStr(ctx, buf1.as_mut_ptr(), buf1.len(), (*m).module_name),
+                    buf1.len()
+                ))
+            );
+        }
+
+        {
+            let mut inner = self.0.borrow_mut();
+
+            if matches!(
+                inner.status,
+                JSModuleStatus::JS_MODULE_STATUS_LINKING
+                    | JSModuleStatus::JS_MODULE_STATUS_LINKED
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+            ) {
+                return index;
+            }
+
+            debug_assert!(inner.status == JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
+
+            inner.status = JSModuleStatus::JS_MODULE_STATUS_LINKING;
+            inner.dfs_index = index;
+            inner.dfs_ancestor_index = index;
+            // push `self` on stack
+            inner.stack_prev = pstack_top.take();
+        }
+        pstack_top.replace(self.clone());
+
+        let mut index = index + 1;
+
+        let entries_count = self.0.borrow().req_module_entries_count;
+        for i in 0..entries_count {
+            // let rme: *mut JSReqModuleEntry = self.0.borrow().req_module_entries.add(i as usize);
+            // let m1 = (*rme).module.as_ref().unwrap();
+            let m1 = self
+                .0
+                .borrow()
+                .req_module_entries
+                .add(i as usize)
+                .as_ref()
+                .unwrap()
+                .module
+                .clone()
+                .unwrap();
+
+            index = m1.inner_module_linking(ctx, pstack_top, index);
+            if index < 0 {
+                return -1;
+            }
+
+            let inner1 = m1.0.borrow();
+
+            debug_assert!(matches!(
+                inner1.status,
+                JSModuleStatus::JS_MODULE_STATUS_LINKING
+                    | JSModuleStatus::JS_MODULE_STATUS_LINKED
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+            ));
+
+            if inner1.status == JSModuleStatus::JS_MODULE_STATUS_LINKING {
+                let mut inner = self.0.borrow_mut();
+                inner.dfs_ancestor_index =
+                    std::cmp::min(inner.dfs_ancestor_index, m1.0.borrow().dfs_ancestor_index);
+            }
+        }
+
+        #[cfg(DUMP_MODULE_RESOLVE)]
+        {
+            let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
+            println!(
+                "instantiating module '{}':\n",
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    JS_AtomGetStr(ctx, buf1.as_mut_ptr(), buf1.len(), (*m).module_name),
+                    buf1.len()
+                ))
+            );
+        }
+
+        // check the indirect exports
+        {
+            let inner = self.0.borrow();
+
+            for me in inner.export_entries.iter() {
+                if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = me.export_type {
+                    if me.local_name != JS_ATOM__star_ {
+                        let m1 = (*inner.req_module_entries.add(req_module_idx as usize))
+                            .module
+                            .clone()
+                            .unwrap();
+
+                        match m1.resolve_export(ctx, me.local_name, None) {
+                            ModuleResolveExport::Found { .. } => {}
+                            ret => {
+                                ret.throw_error(ctx, self, me.export_name);
+                                return -1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(DUMP_MODULE_RESOLVE)]
+        {
+            println!("exported bindings:\n");
+            i = 0;
+            while i < (*m).export_entries_count {
+                let me: *mut JSExportEntry = (*m).export_entries.offset(i as isize);
+                print!(" name=");
+                print_atom(ctx, (*me).export_name);
+                print!(" local=");
+                print_atom(ctx, (*me).local_name);
+                println!(" type={} idx={}", (*me).export_type, (*me).u.local.var_idx);
+                i += 1;
+            }
+        }
+
+        let bc_val = self.0.borrow().bytecode.clone();
+        if let JSValue::Object(func_obj) = bc_val {
+            // js js module, and function has been created
+            debug_assert!(self.0.borrow().func_created);
+
+            // enclose `isa` borrow in scoped block.
+            {
+                let mut isa = func_obj.0.detail.borrow_mut();
+                let var_refs = isa.func_mut().unwrap().var_refs.as_mut_slice();
+
+                let entries_count = self.0.borrow().import_entries_count;
+                for i in 0..entries_count {
+                    let (m1, import_name, import_var_idx) = {
+                        let br = self.0.borrow();
+                        let entry = br.import_entries.add(i as usize);
+                        (
+                            (*br.req_module_entries.add((*entry).req_module_idx as usize))
+                                .module
+                                .clone()
+                                .unwrap(),
+                            (*entry).import_name,
+                            (*entry).var_idx,
+                        )
+                    };
+
+                    #[cfg(DUMP_MODULE_RESOLVE)]
+                    {
+                        print!("import var_idx={} name=", import_var_idx);
+                        print_atom(ctx, import_name);
+                        print!(": ");
+                    }
+
+                    if import_name == JS_ATOM__star_ {
+                        // name space import
+                        if let Ok(val) = m1.ns(ctx) {
+                            var_refs[import_var_idx as usize].set_value(val);
+
+                            #[cfg(DUMP_MODULE_RESOLVE)]
+                            {
+                                println!("namespace");
+                            }
+                        } else {
+                            return -1;
+                        }
+                    } else {
+                        match m1.resolve_export(ctx, import_name, None) {
+                            ModuleResolveExport::Found { module, entry } => {
+                                match entry.export_type {
+                                    JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                                        if entry.local_name == JS_ATOM__star_ {
+                                            // name space import from
+                                            let m2 = (*module
+                                                .0
+                                                .borrow()
+                                                .req_module_entries
+                                                .add(req_module_idx as usize))
+                                            .module
+                                            .clone()
+                                            .unwrap();
+
+                                            let val = if let Ok(o) = m2.ns(ctx) {
+                                                o
+                                            } else {
+                                                return -1;
+                                            };
+
+                                            if let Ok(vref) = js_create_module_var(ctx, true) {
+                                                vref.set_value(val);
+                                                var_refs[import_var_idx as usize] = vref;
+
+                                                #[cfg(DUMP_MODULE_RESOLVE)]
+                                                {
+                                                    println!("namespace from");
+                                                }
+                                            } else {
+                                                return -1;
+                                            }
+                                        }
+                                    }
+                                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
+                                        debug_assert_ne!(entry.local_name, JS_ATOM__star_);
+                                        debug_assert_ne!(var_idx, u16::MAX);
+
+                                        var_refs[import_var_idx as usize] = if let Some(v) = var_ref
+                                        {
+                                            v
+                                        } else {
+                                            module
+                                                .0
+                                                .borrow()
+                                                .bytecode
+                                                .object_unchecked()
+                                                .0
+                                                .detail
+                                                .borrow()
+                                                .func()
+                                                .unwrap()
+                                                .var_refs
+                                                [var_idx as usize]
+                                                .clone()
+                                        };
+
+                                        #[cfg(DUMP_MODULE_RESOLVE)]
+                                        {
+                                            println!("local export (var_ref={:?})", var_ref);
+                                        }
+                                    }
+                                }
+                            }
+                            ret => {
+                                ret.throw_error(ctx, &m1, import_name);
+                                return -1;
+                            }
+                        }
+                    }
+                }
+
+                // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
+                {
+                    let mut inner = self.0.borrow_mut();
+                    for me in inner.export_entries.iter_mut() {
+                        if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
+                            &mut me.export_type
+                        {
+                            debug_assert_ne!(*var_idx, u16::MAX);
+                            var_ref.replace(var_refs[*var_idx as usize].clone());
+                        }
+                    }
+
+                    debug_assert!(inner.func_created);
+                    inner.bytecode.clone()
+                };
+            }
+
+            // initialize the global variables
+            let ret_val = JS_Call(ctx, &JSValue::Object(func_obj), &JSValue::Bool(true), &[]);
+            if ret_val.is_exception() {
+                return -1;
+            }
+        }
+
+        let (dfs_ancestor_index, dfs_index, self_id) = {
+            let inner = self.0.borrow();
+            (inner.dfs_ancestor_index, inner.dfs_index, inner.id())
+        };
+        debug_assert!(dfs_ancestor_index <= dfs_index);
+        if dfs_index == dfs_ancestor_index {
+            loop {
+                // pop m1 from stack
+                let m1 = pstack_top.take().unwrap();
+                let mut m1 = m1.0.borrow_mut();
+
+                m1.status = JSModuleStatus::JS_MODULE_STATUS_LINKED;
+                *pstack_top = m1.stack_prev.take();
+
+                if m1.id() == self_id {
+                    break;
+                }
+            }
+        }
+
+        #[cfg(DUMP_MODULE_RESOLVE)]
+        {
+            println!("js_inner_module_linking done");
+        }
+
+        index
     }
 }
 
@@ -317,7 +626,9 @@ pub fn js_link_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
     ));
 
     let mut stack_top: Option<ModuleDef> = None;
-    if unsafe { js_inner_module_linking(ctx, m, &mut stack_top, 0) < 0 } {
+
+    //if unsafe { js_inner_module_linking(ctx, m, &mut stack_top, 0) < 0 } {
+    if unsafe { m.inner_module_linking(ctx, &mut stack_top, 0) < 0 } {
         while let Some(m1) = stack_top.take() {
             debug_assert_eq!(
                 m1.0.borrow().status,
@@ -341,9 +652,10 @@ pub fn js_link_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
 }
 
 // Prepare a module to be executed by resolving all the imported variables.
+#[deprecated(note = "use ModuleDef::inner_module_linking() instead")]
 pub unsafe fn js_inner_module_linking(
     ctx: &JSContext,
-    m: &ModuleDef,
+    m: &ModuleDef, // FIXME: use ModuleInner instead
     pstack_top: &mut Option<ModuleDef>,
     index: i32,
 ) -> i32 {
@@ -392,6 +704,7 @@ pub unsafe fn js_inner_module_linking(
             let rme: *mut JSReqModuleEntry = inner.req_module_entries.offset(i as isize);
             let m1 = (*rme).module.as_ref().unwrap();
 
+            // FIXME: m.0 is borrowed_mut() at line 368, panic!
             index = js_inner_module_linking(ctx, m1, pstack_top, index);
             if index < 0 {
                 return -1;
