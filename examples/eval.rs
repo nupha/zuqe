@@ -100,10 +100,15 @@ fn main() {
             };
 
             loop {
-                if let Ok(None) = js.execute_job_once() {
-                    break;
+                match js.tick() {
+                    Ok(true) => {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Ok(false) => {
+                        break;
+                    }
+                    Err(_) => {}
                 }
-                std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
             if r.is_exception() {
