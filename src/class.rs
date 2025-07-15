@@ -73,7 +73,7 @@ pub struct JSClassShortDef {
 
 #[derive(Copy, Clone)]
 pub struct JSClassDef {
-    pub class_name: *const i8,
+    pub class_name: &'static str,
     pub finalizer: Option<JSClassFinalizer>,
     pub gc_mark: Option<JSClassGCMark>,
 
@@ -176,16 +176,12 @@ impl JSRuntime {
 
     /// register a class def to runtime, with given class_id
     pub fn add_class(&mut self, class_id: JSClassID, class_def: &JSClassDef) -> Result<(), i32> {
-        let cstr = unsafe { CStr::from_ptr(class_def.class_name) };
-        let str = cstr.to_string_lossy();
-
-        let name = if let Some(a) = __JS_FindAtom(self, str.as_ref(), AtomType::String) {
+        let name = if let Some(a) = __JS_FindAtom(self, class_def.class_name, AtomType::String) {
             a
         } else {
-            self.register_atom_str(str.as_ref(), AtomType::String)?
+            self.register_atom_str(class_def.class_name, AtomType::String)?
         }
         .into_rc(self);
-
         unsafe { self.add_class_internal(class_id, class_def, *name) }
     }
 
@@ -193,7 +189,7 @@ impl JSRuntime {
         let mut class_id = start;
         for el in tab {
             let cd = JSClassDef {
-                class_name: std::ptr::null(),
+                class_name: "",
                 exotic: std::ptr::null(),
                 finalizer: el.finalizer,
                 gc_mark: el.gc_mark,

@@ -50,12 +50,8 @@ fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
     let script = cc.arg(0).coerce_to_utf8(ctx)?;
-    ctx.eval(
-        CString::new(script.as_ref()).unwrap().as_c_str(),
-        "<evalScript>",
-        JS_EVAL_TYPE_GLOBAL,
-    )
-    .check_exception()
+    ctx.eval(script.as_bytes(), "<evalScript>", JS_EVAL_TYPE_GLOBAL)
+        .check_exception()
 }
 
 fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -157,7 +153,7 @@ pub fn js_module_loader(
             // compile the module
             let func_val = ctx
                 .eval(
-                    CString::new(buf).unwrap().as_c_str(),
+                    buf.as_slice(),
                     module_name,
                     JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
                 )
@@ -263,7 +259,7 @@ fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue
         let src = std::fs::read_to_string(&file).unwrap();
 
         let r = ctx.eval(
-            CString::new(src).unwrap().as_c_str(),
+            src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
             JS_EVAL_TYPE_GLOBAL,
         );
@@ -284,7 +280,7 @@ fn run_test_script(
     is_async: bool,
 ) -> Result<(), JSValue> {
     let mut ret_val = ctx.eval(
-        CString::new(script).unwrap().as_c_str(),
+        script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         eval_flags,
     );

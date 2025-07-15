@@ -380,7 +380,7 @@ impl JSContext {
         self.0.borrow_mut().eval_handle.replace(
             |ctx: &JSContext,
              this_obj: JSValue,
-             input: &CStr,
+             input: &[u8],
              filename: &str,
              flags: u32,
              scope_idx: i32|

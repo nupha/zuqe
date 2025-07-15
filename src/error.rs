@@ -74,11 +74,11 @@ impl JSContext {
     /// Note: `obj` is consumed.
     #[inline(always)]
     pub fn throw(&self, obj: JSValue) {
-        // strict debug guard.
-        #[cfg(debug_assertions)]
-        if obj.is_undefined_or_null() {
-            panic!("throw a null or undefined value is not recommanded");
-        }
+        // // strict debug guard.
+        // #[cfg(debug_assertions)]
+        // if obj.is_undefined_or_null() {
+        //     panic!("throw a null or undefined value is not recommanded");
+        // }
 
         self.set_exception(obj);
     }

@@ -1,11 +1,8 @@
-use std::ffi::CStr;
-
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
-    parse::token::CHAR_SLASH,
     value::JSValue,
 };
 
@@ -19,11 +16,11 @@ use super::{
     regexp::js_parse_regexp,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
     token::{
-        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_EQUAL, CHAR_SQUARE_L,
-        TOK_ARROW, TOK_CLASS, TOK_DIV_ASSIGN, TOK_DOUBLE_QUESTION_MARK_ASSIGN, TOK_FALSE,
-        TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LAND_ASSIGN, TOK_LOR_ASSIGN, TOK_MUL_ASSIGN,
-        TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_POW_ASSIGN, TOK_QUESTION_MARK_DOT, TOK_STRING,
-        TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD,
+        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_EQUAL, CHAR_SLASH,
+        CHAR_SQUARE_L, TOK_ARROW, TOK_CLASS, TOK_DIV_ASSIGN, TOK_DOUBLE_QUESTION_MARK_ASSIGN,
+        TOK_EOF, TOK_FALSE, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LAND_ASSIGN, TOK_LOR_ASSIGN,
+        TOK_MUL_ASSIGN, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_POW_ASSIGN, TOK_QUESTION_MARK_DOT,
+        TOK_STRING, TOK_SUPER, TOK_TEMPLATE, TOK_THIS, TOK_TRUE, TOK_YIELD,
     },
 };
 
@@ -549,16 +546,16 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::IMPORT);
                 }
             }
-            _ => {
-                let len = self.buf_ptr as usize - self.token.ptr as usize;
+            _ => unsafe {
+                let len = self.buf_ptr.offset_from(self.token.ptr) as usize;
                 let msg = format!(
-                    "unexpected token in expression: '{:.1$?}'",
-                    unsafe { CStr::from_ptr(self.token.ptr.cast()).to_string_lossy() },
-                    len
+                    "unexpected token in expression: '{}'",
+                    String::from_utf8_lossy(std::slice::from_raw_parts(self.token.ptr, len))
+                        .as_ref(),
                 );
                 self.throw_syntax_error(&msg);
                 return Err(-1);
-            }
+            },
         }
 
         let mut optional_chaining_label = -1;

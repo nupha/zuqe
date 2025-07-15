@@ -17,14 +17,14 @@ fn main() {
             })
             .unwrap();
 
-        let src = c"function g(a){return a+10} g('x')"; // ok
-        //  let src = c"function g(a){return a+10} g(20)"; // ok
-        //  let src = c"function g(a){return a+10}"; // ok
-        // let src = c"function g(){return 20}"; // ok
-        //let src = c"g = ()=>{return 20}"; // ok
-        // let src = c"g = function(){ }"; // ok
-        //let src = c"10/2"; // ok
-        // let src = c"a=2*10"; // ok
+        let src = "function g(a){return a+10} g('x')"; // ok
+        //  let src = "function g(a){return a+10} g(20)"; // ok
+        //  let src = "function g(a){return a+10}"; // ok
+        // let src = "function g(){return 20}"; // ok
+        //let src = "g = ()=>{return 20}"; // ok
+        // let src = "g = function(){ }"; // ok
+        //let src = "10/2"; // ok
+        // let src = "a=2*10"; // ok
         //                    // let src = c"function f(){}"; // ok
 
         // let src = cr#"
@@ -38,7 +38,7 @@ fn main() {
 
         if false {
             let r = ctx.eval(
-                src,
+                src.as_bytes(),
                 "<test>",
                 JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
             );

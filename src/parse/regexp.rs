@@ -37,9 +37,9 @@ pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> i32 {
     let mut res_string = StringContent::Empty;
     let mut res_string2 = StringContent::Empty;
 
-    if let Ok(mut chars) = CStr::from_ptr(s.buf_ptr.cast())
-        .to_str()
-        .map(|x| x.char_indices())
+    let len = s.buf_end.offset_from(s.buf_ptr) as usize;
+    if let Ok(mut chars) =
+        std::str::from_utf8(std::slice::from_raw_parts(s.buf_ptr, len)).map(|x| x.char_indices())
     {
         while let Some((i, mut c)) = chars.next() {
             offset = i;

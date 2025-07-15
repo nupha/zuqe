@@ -18,7 +18,11 @@ use crate::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
     },
-    parse::{esm::add_export_entry, obj::set_object_name_computed, token::CHAR_SQUARE_L},
+    parse::{
+        esm::add_export_entry,
+        obj::set_object_name_computed,
+        token::{CHAR_SQUARE_L, JSToken, TokenData},
+    },
     utils::write_to_ptr,
 };
 
@@ -554,16 +558,11 @@ impl<'s> JSParseState<'s> {
         }
 
         if ctor_fd.is_null() {
-            if unsafe {
-                js_parse_class_default_ctor(
-                    self,
-                    class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0,
-                    &mut ctor_fd,
-                )
-            } != 0
-            {
-                return Err(-1);
-            }
+            // default constructor implied
+            ctor_fd = self.parse_class_default_ctor(
+                class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0,
+                ctor_fd,
+            )?;
         }
 
         // patch the constant pool index for the constructor
@@ -807,6 +806,61 @@ impl<'s> JSParseState<'s> {
         // Hint: clean up will be done in defer!()
 
         Ok(())
+    }
+
+    // XXX: could generate specific bytecode
+    fn parse_class_default_ctor(
+        &mut self,
+        has_super: bool,
+        fd: *mut JSFunctionDef,
+    ) -> Result<*mut JSFunctionDef, i32> {
+        let pos = self.get_pos();
+
+        let (src, func_type) = if has_super {
+            // spec change: no argument evaluation
+            (
+                "(){super(...arguments);}",
+                JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR,
+            )
+        } else {
+            ("(){}", JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR)
+        };
+
+        // save current state
+        let orig_buf_ptr = self.buf_ptr;
+        let orig_buf_end = self.buf_end;
+        let orig_token = std::mem::replace(&mut self.token, JSToken::default());
+
+        // set new source and parse
+        self.buf_ptr = src.as_ptr();
+        self.buf_end = unsafe { src.as_ptr().add(src.len()) };
+
+        let mut fd_fixed = fd;
+
+        // Note: calling graph: next_token -> parse_function_decl2 -> seek_token
+        let ret = self.next_token().and_then(|_| unsafe {
+            self.parse_function_decl2(
+                func_type,
+                JSFunctionKindEnum::JS_FUNC_NORMAL,
+                JS_ATOM_NULL,
+                src.as_ptr(),
+                orig_token.line_num,
+                JSParseExportEnum::JS_PARSE_EXPORT_NONE,
+                &mut fd_fixed,
+            )
+        });
+
+        // restore original parse state
+        self.buf_ptr = orig_buf_ptr;
+        self.buf_end = orig_buf_end;
+        self.token = orig_token;
+
+        if ret.is_err() {
+            Err(-1)
+        } else {
+            self.seek_token(&pos)?;
+            Ok(fd_fixed)
+        }
     }
 }
 
@@ -1067,57 +1121,11 @@ pub fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
 }
 
 // XXX: could generate specific bytecode
+#[deprecated(note = "use JSParseState::parse_class_default_ctor() instead")]
 pub unsafe fn js_parse_class_default_ctor(
-    s: *mut JSParseState,
+    s: &mut JSParseState,
     has_super: bool,
     pfd: *mut *mut JSFunctionDef,
 ) -> i32 {
-    let pos = (*s).get_pos();
-
-    let (str, func_type) = if has_super {
-        // spec change: no argument evaluation
-        (
-            "(){super(...arguments);}\0",
-            JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR,
-        )
-    } else {
-        (
-            "(){}\0",
-            JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR,
-        )
-    };
-
-    let line_num = (*s).token.line_num;
-    let saved_buf_end = (*s).buf_end;
-
-    (*s).buf_ptr = str.as_ptr();
-    (*s).buf_end = str
-        .as_ptr()
-        .add(CStr::from_ptr(str.as_ptr().cast()).count_bytes());
-
-    // next_token -> parse_function_decl2 -> seek_token
-    let mut ret = (*s)
-        .next_token()
-        .and_then(|_| {
-            (*s).parse_function_decl2(
-                func_type,
-                JSFunctionKindEnum::JS_FUNC_NORMAL,
-                JS_ATOM_NULL,
-                str.as_ptr(),
-                line_num,
-                JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-                pfd,
-            )
-        })
-        .map_or(-1, |_| 0);
-
-    (*s).buf_end = saved_buf_end;
-
-    ret |= if (*s).seek_token(&pos).is_err() {
-        -1
-    } else {
-        0
-    };
-
-    ret
+    unreachable!("unused");
 }

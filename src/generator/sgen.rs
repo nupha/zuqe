@@ -103,7 +103,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func_obj = ctx
         .eval_script(
             JSValue::Object(ctx.global_obj()),
-            CString::new(source.as_bytes()).unwrap().as_c_str(),
+            source.as_bytes(),
             "<input>",
             JS_EVAL_TYPE_INDIRECT,
             -1,

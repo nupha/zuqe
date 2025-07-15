@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     bytecode::OpCodeTemp,
@@ -15,7 +13,7 @@ use crate::{
 
 use super::{
     function::JSParseFunctionEnum,
-    parse::skip_shebang,
+    skip_shebang,
     state::JSParseState,
     token::{
         CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
@@ -327,7 +325,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                         JS_FreeAtom(ctx, local_name);
                         JS_FreeAtom(ctx, export_name);
                     }
-                    Err(e) => {
+                    Err(_) => {
                         return -1;
                     }
                 }
@@ -590,10 +588,10 @@ pub unsafe fn add_import(
 /// (heuristic). 'input' must be a zero terminated.
 //
 /// Heuristic: skip comments and expect 'import' keyword not followed by '(' or '.' or export keyword.
-pub unsafe fn JS_DetectModule(input: &CStr) -> bool {
-    let mut p = input.as_ptr().cast::<u8>();
+pub unsafe fn JS_DetectModule(input: &[u8]) -> bool {
+    let buf_p = input.as_ptr();
+    let mut p = skip_shebang(buf_p, buf_p.add(input.len()));
 
-    skip_shebang(&mut p, p.add(input.count_bytes()));
     match simple_next_token(&mut p, false) {
         TOK_IMPORT => {
             let tok = simple_next_token(&mut p, false);

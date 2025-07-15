@@ -13,17 +13,18 @@ pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
 // 从UTF-8字节序列解码Unicode代码点
 // 返回-1表示错误。*pp在错误情况下不会被更新。max_len必须>=1。
 // UTF-8字节序列的最大长度为6字节 (max_len=6)。
-pub unsafe fn unicode_from_utf8(
-    mut p: *const u8,
-    max_len: i32,
-    pp: *mut *const u8,
-) -> Result<char, i32> {
-    let c = *p as char;
-    p = p.offset(1);
+pub fn unicode_from_utf8(mut p: *const u8, max_len: i32, pp: *mut *const u8) -> Result<char, i32> {
+    let c = unsafe {
+        let c = *p as char;
+        p = p.offset(1);
+        c
+    };
 
     // ASCII字符直接返回
     if c.is_ascii() {
-        *pp = p;
+        unsafe {
+            *pp = p;
+        }
         return Ok(c);
     }
 
@@ -48,12 +49,14 @@ pub unsafe fn unicode_from_utf8(
 
     // 解码后续字节
     for _ in 0..l {
-        let b = *p;
-        p = p.offset(1);
-        if !(0x80..0xc0).contains(&b) {
-            return Err(-1); // 无效的UTF-8后续字节
+        unsafe {
+            let b = *p;
+            p = p.offset(1);
+            if !(0x80..0xc0).contains(&b) {
+                return Err(-1); // 无效的UTF-8后续字节
+            }
+            c = (c << 6) | ((b & 0x3f) as u32);
         }
-        c = (c << 6) | ((b & 0x3f) as u32);
     }
 
     // 检查解码后的代码点是否有效
@@ -61,7 +64,9 @@ pub unsafe fn unicode_from_utf8(
         return Err(-1);
     }
 
-    *pp = p;
+    unsafe {
+        *pp = p;
+    }
     char::from_u32(c).ok_or(-1)
 }
 

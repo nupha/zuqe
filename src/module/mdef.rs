@@ -287,7 +287,7 @@ impl ModuleDef {
     /// compile source as module, don't run.
     pub fn compile(
         ctx: &JSContext,
-        source: &CStr,
+        source: &[u8],
         filename: &str,
         strip: bool,
     ) -> Result<ModuleDef, i32> {

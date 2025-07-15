@@ -35,6 +35,11 @@ use super::{
 };
 
 impl JSParseState<'_> {
+    /// buffer ptr skip shebang.
+    pub fn skip_shebang(&mut self) {
+        self.buf_ptr = skip_shebang(self.buf_ptr, self.buf_end);
+    }
+
     pub fn parse_program(&mut self) -> Result<(), i32> {
         self.next_token()?;
         self.parse_directives()?;
@@ -69,18 +74,11 @@ impl JSParseState<'_> {
     }
 
     pub fn parse_directives(&mut self) -> Result<(), i32> {
-        if self.token.val != TOK_STRING {
-            return Ok(());
-        }
-
         let pos = self.get_pos();
 
-        while self.token.val == TOK_STRING {
-            let token_str = unsafe { CStr::from_ptr(self.token.ptr.offset(1).cast()) }
-                .to_str()
-                .unwrap();
-            let len: usize = unsafe { (self.buf_ptr.offset_from(self.token.ptr) - 2) as usize };
-            let text = format!("{:.len$}", token_str);
+        while let TokenData::Str { str, .. } = &self.token.data {
+            debug_assert_eq!(self.token.val, TOK_STRING, "{:?}", self.token);
+            let text: String = str.string().unwrap().content().to_str().into_owned();
 
             self.next_token()?;
 
@@ -469,13 +467,15 @@ impl JSParseState<'_> {
     }
 }
 
-pub unsafe fn skip_shebang(pp: *mut *const u8, buf_end: *const u8) {
-    let mut p = *pp;
+pub fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u8 {
+    let mut p = start_ptr;
 
-    if *p.offset(0) == b'#' && *p.offset(1) == b'!' {
-        p = p.offset(2);
-        while p < buf_end {
-            match *p {
+    if unsafe { *p == b'#' && *p.add(1) == b'!' } {
+        unsafe {
+            p = p.add(2);
+        }
+        while p < end_ptr {
+            match unsafe { *p } {
                 b'\n' | b'\r' => {
                     break;
                 }
@@ -485,16 +485,17 @@ pub unsafe fn skip_shebang(pp: *mut *const u8, buf_end: *const u8) {
                             break;
                         }
                     } else {
-                        p = p.offset(1); // skip invalid UTF-8
+                        p = unsafe { p.add(1) }; // skip invalid UTF-8
                     }
                 }
                 _ => {
-                    p = p.offset(1);
+                    p = unsafe { p.add(1) };
                 }
             }
         }
-        *pp = p;
     }
+
+    p
 }
 
 // XXX: improve speed with early bailout

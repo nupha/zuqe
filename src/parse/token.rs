@@ -46,16 +46,18 @@ pub const CHAR_CR: i32 = '\r' as i32;
 pub const CHAR_BACK_SLASH: i32 = '\\' as i32;
 pub const CHAR_BACKTICK: i32 = '`' as i32;
 
-#[derive(Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct JSToken {
     pub val: i32,
-    pub line_num: i32, // line number of token start
+    /// line number of token start
+    pub line_num: i32,
     pub ptr: *const u8,
     pub data: TokenData,
 }
 
 #[derive(Debug, Clone)]
 pub enum TokenData {
+    Char(char),
     Str {
         str: JSValue,
         sep: i32,
@@ -70,6 +72,12 @@ pub enum TokenData {
         body: JSValue,
         flags: JSValue,
     },
+}
+
+impl Default for TokenData {
+    fn default() -> Self {
+        Self::Char('\0')
+    }
 }
 
 impl TokenData {
@@ -174,16 +182,17 @@ impl<'s> JSParseState<'s> {
         self.last_line_num = self.token.line_num;
 
         'redo: loop {
+            if p >= self.buf_end {
+                self.token.val = TOK_EOF;
+                break;
+            }
+
             self.token.line_num = self.line_num;
             self.token.ptr = p;
 
             match unsafe { (*p) as char } {
                 '\0' => {
-                    if p >= self.buf_end {
-                        self.token.val = TOK_EOF;
-                    } else {
-                        state = Some(State::DefaultToken('\0'));
-                    }
+                    state = Some(State::DefaultToken('\0'));
                 }
                 '`' => unsafe {
                     if self.parse_template_part(p.offset(1)).is_err() {
@@ -265,6 +274,7 @@ impl<'s> JSParseState<'s> {
                         _ => {
                             p = p.add(1);
                             self.token.val = b'/' as i32;
+                            self.token.data = TokenData::Char('/')
                         }
                     } // starts with '/'
                 },
@@ -322,11 +332,11 @@ impl<'s> JSParseState<'s> {
                         state = Some(State::Fail);
                     } else {
                         p = p1;
-                        if let Ok((a, _)) = self.parse_ident(&mut p, c1, true) {
-                            if let TokenData::Ident { atom, .. } = &mut self.token.data {
-                                *atom = a;
-                            } else {
-                                unreachable!()
+                        if let Ok((a, has_escape)) = self.parse_ident(&mut p, c1, true) {
+                            self.token.data = TokenData::Ident {
+                                atom: a,
+                                has_escape,
+                                is_reserved: false,
                             };
                             self.token.val = TOK_PRIVATE_NAME;
                         } else {
@@ -475,6 +485,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val = TOK_ARROW;
                     } else {
                         self.token.val = '=' as i32;
+                        self.token.data = TokenData::Char('=');
                         p = p.offset(1);
                     }
                 },
@@ -581,6 +592,7 @@ impl<'s> JSParseState<'s> {
                 match what {
                     State::DefaultToken(ch) => unsafe {
                         self.token.val = ch as i32;
+                        self.token.data = TokenData::Char(ch);
                         p = p.offset(1);
                     },
                     State::HasIdent(first_char) => unsafe {
@@ -653,8 +665,8 @@ impl<'s> JSParseState<'s> {
         }
 
         // reject `10instanceof Number`
-        if let Some(c) = unsafe { CStr::from_ptr(*p.cast()) }
-            .to_str()
+        let len = unsafe { self.buf_end.offset_from(*p) as usize };
+        if let Some(c) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(*p, len) })
             .map_err(|_| {
                 self.throw_syntax_error("invalid UTF-8 sequence");
                 -1

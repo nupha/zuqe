@@ -1,10 +1,5 @@
 #![allow(clippy::all)]
 
-use std::{
-    ffi::{CStr, CString, c_char, c_void},
-    ptr::NonNull,
-};
-
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct},
@@ -33,6 +28,11 @@ use crate::{
     string::{JSString, JSStringInner},
     utils::UncheckedInto,
     value::{JSValue, JSValueConst},
+};
+use std::hint::unreachable_unchecked;
+use std::{
+    ffi::{CStr, CString, c_char, c_void},
+    ptr::NonNull,
 };
 
 #[deprecated]
@@ -1022,12 +1022,12 @@ pub unsafe fn JS_EvalThis(
     filename: &str,
     flags: u32,
 ) -> JSValue {
-    ctx.eval_this(this_obj, input, filename, flags)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSContext::eval() instead")]
 pub unsafe fn JS_Eval(ctx: &JSContext, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
-    ctx.eval(input, filename, eval_flags)
+    unreachable!("unused");
 }
 
 /// both `this_obj` and `val` are not consumed.
@@ -1038,20 +1038,7 @@ pub unsafe fn JS_EvalObject(
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
-    if !val.is_string() {
-        return val.clone(); // dup and return val
-    }
-
-    match val.coerce_to_utf8(ctx) {
-        Ok(str) => ctx.eval_script(
-            this_obj,
-            CString::new(str.as_bytes()).unwrap().as_c_str(),
-            "<input>",
-            flags,
-            scope_idx,
-        ),
-        Err(_) => JSValue::EXCEPTION,
-    }
+    unreachable!("unued");
 }
 
 #[deprecated(note = "use ModuleDef::build_ns() instead")]

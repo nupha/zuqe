@@ -41,12 +41,16 @@ pub struct JSParseState<'s> {
     pub token: JSToken,
     /// Indicates if a line feed was encountered before current token
     pub got_lf: bool,
-    /// Pointer to the last processed character
-    pub last_ptr: *const u8,
+
+    /// input buffer
+    pub buf: &'s [u8],
     /// Current position in the input buffer
     pub buf_ptr: *const u8,
     /// End of the input buffer
     pub buf_end: *const u8,
+
+    /// Pointer to the last processed character
+    pub last_ptr: *const u8,
 
     /// Raw pointer to current parsing function def.
     /// null if no current function def.
@@ -78,8 +82,7 @@ impl<'s> JSParseState<'s> {
     pub fn new(
         ctx: &JSContext,
         fd: NonNull<JSFunctionDef>,
-        input: *const u8,
-        input_len: usize,
+        source: &'s [u8],
         filename: &'s str,
     ) -> Self {
         // TODO: create root function def
@@ -87,6 +90,11 @@ impl<'s> JSParseState<'s> {
 
         Self {
             ctx: ctx.clone(),
+
+            buf: source,
+            buf_ptr: source.as_ptr(),
+            buf_end: unsafe { source.as_ptr().add(source.len()) },
+
             last_line_num: 0,
             line_num: 1,
             filename,
@@ -96,8 +104,6 @@ impl<'s> JSParseState<'s> {
                 ptr: std::ptr::null(),
                 data: TokenData::Num(JSValue::Int(0)),
             },
-            buf_ptr: input,
-            buf_end: unsafe { input.add(input_len) },
 
             last_ptr: std::ptr::null(),
             cur_func_ptr: fd.as_ptr(),
@@ -120,6 +126,7 @@ impl<'s> JSParseState<'s> {
                 *body = JSValue::UNDEFINED;
                 *flags = JSValue::UNDEFINED;
             }
+            TokenData::Char(_) => {}
         }
     }
 

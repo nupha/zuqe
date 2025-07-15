@@ -45,7 +45,6 @@ fn main() {
 
     let filename = args.get(1).unwrap().clone();
     let script = std::fs::read_to_string(&filename).unwrap();
-    let src = CString::new(script).unwrap();
 
     unsafe {
         if let Ok(mut js) = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()) {
@@ -72,7 +71,7 @@ fn main() {
 
             let eval_flags = if filename.ends_with(".mjs") {
                 JS_EVAL_TYPE_MODULE
-            } else if JS_DetectModule(src.as_c_str()) {
+            } else if JS_DetectModule(script.as_bytes()) {
                 JS_EVAL_TYPE_MODULE
             } else {
                 JS_EVAL_TYPE_GLOBAL
@@ -81,7 +80,7 @@ fn main() {
             let r = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
                 // for the modules, we compile then run to be able to set import.meta
                 let esm_func = ctx.eval(
-                    src.as_c_str(),
+                    script.as_bytes(),
                     &filename,
                     eval_flags | JS_EVAL_FLAG_COMPILE_ONLY,
                 );
@@ -97,7 +96,7 @@ fn main() {
                     JSValue::EXCEPTION
                 }
             } else {
-                ctx.eval(src.as_c_str(), &filename, eval_flags)
+                ctx.eval(script.as_bytes(), &filename, eval_flags)
             };
 
             loop {
@@ -152,7 +151,7 @@ pub fn js_module_loader(
             // compile the module
             let func_val = ctx
                 .eval(
-                    CString::new(buf).unwrap().as_c_str(),
+                    buf.as_slice(),
                     module_name,
                     JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
                 )
