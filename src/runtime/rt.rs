@@ -47,10 +47,10 @@ pub struct JSRuntime {
     /// null indicates the slot is unused.
     /// when an atom is duplicated, the JSAtomStruct is cloned.
     /// index 0 is reserved not for use; index 1 is for atom 1; index 2 is for atom 2, ...
-    pub(super) atom_slots: Vec<*const JSStringInner>,
+    pub(crate) atom_slots: Vec<*const JSStringInner>,
     /// JSString hash to atom vec dict.
     /// Value is list of atom indecies because JSString hash may have collison.
-    pub(super) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
+    pub(crate) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
     /// registered classes
     pub class_defs: Vec<JSClass>,
@@ -58,6 +58,8 @@ pub struct JSRuntime {
     /// context list
     pub context_list: Vec<JSContext>,
 
+    /// requested to perform gc
+    pub gc_req: bool,
     pub gc_phase: JSGCPhaseEnum,
     /// List of tracked GC objects (used by garbage collector)
     pub gc_obj_list: HashMap<usize, GCObjectWeakref>,
@@ -139,6 +141,8 @@ impl JSRuntime {
             sab_funcs: None,
 
             context_list: Vec::with_capacity(1),
+
+            gc_req: false,
             gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
             gc_obj_list: HashMap::with_capacity(128),
             gc_zero_ref_count_list: Vec::new(),

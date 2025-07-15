@@ -291,8 +291,13 @@ fn run_test_script(
     if ret_promise && !ret_val.is_exception() {
         // ret_val is Promise, execute pending jobs
         loop {
-            match ctx.rt_mut().execute_job_once() {
-                Ok(None) => {
+            match ctx.rt_mut().tick() {
+                Ok(true) => {
+                    // need more ticks
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Ok(false) => {
+                    // no pending job
                     if is_async {
                         // test if the test called $DONE() once
                         if async_done != 1 {
@@ -323,8 +328,6 @@ fn run_test_script(
                 }
                 _ => {}
             }
-
-            std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
 

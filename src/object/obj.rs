@@ -182,7 +182,8 @@ impl JSObjectInner {
         shape: Option<JSShape>,
         isa: ObjectDetail,
     ) -> Result<Self, ObjectDetail> {
-        js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
+        ctx.rt_mut().gc_req = true;
+        //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
