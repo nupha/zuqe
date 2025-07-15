@@ -1,11 +1,3 @@
-use std::{
-    cell::{Cell, RefCell},
-    ffi::c_void,
-    ops::Deref,
-    ptr::NonNull,
-    rc::{Rc, Weak},
-};
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
@@ -22,6 +14,14 @@ use crate::{
     proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
     value::{JS_GetPrototypePrimitive, JSValue},
+};
+use std::hint::unreachable_unchecked;
+use std::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+    ops::Deref,
+    ptr::NonNull,
+    rc::{Rc, Weak},
 };
 
 use super::{
@@ -534,7 +534,11 @@ impl JSValue {
         if let Self::Object(ob) = self {
             ob
         } else {
-            unreachable!()
+            #[cfg(debug_assertions)]
+            unreachable!("{self:?}");
+
+            #[cfg(not(debug_assertions))]
+            unreachable_unchecked();
         }
     }
 

@@ -66,8 +66,12 @@ pub(crate) struct ModuleDefInner {
     /// module namespace.
     pub module_ns: JSValue,
 
-    /// for JS modules only.
-    /// TODO: use Option<Bytecode>
+    /// for js module, when func_created is:
+    /// - true: bytecode field is a function object value
+    /// - false: bytecode field is a bytecode value
+    pub func_created: bool,
+
+    /// for JS modules only, could be bytecode or function object.
     pub bytecode: JSValue,
     /// for C modules only
     pub init_func: Option<JSModuleInitFunc>,
@@ -76,7 +80,7 @@ pub(crate) struct ModuleDefInner {
     pub has_tla: bool,
 
     pub resolved: bool,
-    pub func_created: bool,
+
     pub status: JSModuleStatus,
 
     /* temp use during js_module_link() & js_module_evaluate() */
@@ -550,61 +554,63 @@ pub unsafe fn js_create_module_bytecode_function(
     ctx: &JSContext,
     m: &ModuleDef,
 ) -> Result<(), i32> {
-    // get bytecode
-    let b = unsafe {
-        m.0.borrow()
-            .bytecode
-            .object_unchecked()
-            .0
-            .detail
-            .borrow()
-            .func()
-            .and_then(|f| f.bytecode.clone())
-            .unwrap()
-    };
+    debug_assert!(!m.0.borrow().func_created);
 
-    // make isa to instance
-    let isa = {
-        let mut var_refs = Vec::<JSVarRef>::new();
-        let cvar_count = b.0.borrow().closure_var_count;
-        if cvar_count != 0 {
-            var_refs
-                .try_reserve_exact(cvar_count as usize)
-                .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
-                    -1
-                })?;
+    let module_bc = m.0.borrow().bytecode.clone();
 
-            // create the global variables.
-            // The other variables are imported from other modules
-            for cv in b.closure_vars_slice().iter() {
-                if cv.is_local() {
-                    let vr = js_create_module_var(ctx, cv.is_lexical())?;
-                    #[cfg(DUMP_MODULE_RESOLVE)]
-                    println!("local {}: {:p}", i, var_ref);
+    if let JSValue::Bytecode(b) = module_bc {
+        // make isa to instance
+        let isa = {
+            let mut var_refs = Vec::<JSVarRef>::new();
+            let cvar_count = b.0.borrow().closure_var_count;
+            if cvar_count != 0 {
+                var_refs
+                    .try_reserve_exact(cvar_count as usize)
+                    .map_err(|_| {
+                        ctx.JS_ThrowOutOfMemory();
+                        -1
+                    })?;
 
-                    var_refs.push(vr);
-                } else {
-                    // The other variables are imported from other modules.
-                    // Add slot with a placeholder.
-                    var_refs.push(JSVarRef::new(ctx.rt_mut(), JSValue::UNDEFINED));
+                // create the global variables.
+                // The other variables are imported from other modules
+                for cv in b.closure_vars_slice().iter() {
+                    if cv.is_local() {
+                        let vr = js_create_module_var(ctx, cv.is_lexical())?;
+                        #[cfg(DUMP_MODULE_RESOLVE)]
+                        println!("local {}: {:p}", i, var_ref);
+
+                        var_refs.push(vr);
+                    } else {
+                        // The other variables are imported from other modules.
+                        // Add slot with a placeholder.
+                        var_refs.push(JSVarRef::new(ctx.rt_mut(), JSValue::UNDEFINED));
+                    }
                 }
             }
-        }
 
-        ObjectDetail::BYTECODE_FUNCTION(ObjFunc {
-            bytecode: Some(b),
-            var_refs,
-            home_object: None,
-        })
-    };
+            ObjectDetail::BYTECODE_FUNCTION(ObjFunc {
+                bytecode: Some(b.clone()),
+                var_refs,
+                home_object: None,
+            })
+        };
 
-    // create JS_CLASS_BYTECODE_FUNCTION object
-    let func_obj = ctx
-        .create_instance_from_proto(&ctx.0.borrow().function_proto, isa)
-        .map_err(|_| -1)?;
+        // create JS_CLASS_BYTECODE_FUNCTION object
+        let func_obj = ctx
+            .create_instance_from_proto(&ctx.0.borrow().function_proto, isa)
+            .map_err(|_| -1)?;
 
-    m.0.borrow_mut().bytecode = func_obj;
+        m.0.borrow_mut().bytecode = func_obj;
+    } else {
+        debug_assert!(
+            matches!(
+                module_bc.object().map(|o| o.class_id()),
+                Some(JS_CLASS_BYTECODE_FUNCTION)
+            ),
+            "module bytecode has been created into function object",
+        );
+    }
+
     Ok(())
 }
 
