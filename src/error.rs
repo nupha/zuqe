@@ -1,6 +1,5 @@
 use std::{borrow::Cow, io::Write};
 
-use crate::object::JS_DumpShape;
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
@@ -19,7 +18,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum ErrorKind {
-    Eval,
+    Eval = 0,
     Range,
     Reference,
     Syntax,
@@ -27,14 +26,12 @@ pub enum ErrorKind {
     Uri,
     Internal,
     Aggregate,
-    NativeErrorCount,
 }
-
-pub const STD_ERROR_COUNT: usize = ErrorKind::NativeErrorCount as usize;
 
 pub type JSResult = Result<JSValue, i32>;
 
-pub const STD_ERROR_NAMES: [&str; STD_ERROR_COUNT] = [
+pub(crate) const STD_ERROR_COUNT: usize = ErrorKind::Aggregate as usize + 1;
+pub(crate) const STD_ERROR_NAMES: [&str; STD_ERROR_COUNT] = [
     "EvalError",
     "RangeError",
     "ReferenceError",
