@@ -272,7 +272,7 @@ pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
             let len = js_get_length64(ctx, &e)?;
 
             if n + len > MAX_SAFE_INTEGER {
-                ctx.JS_ThrowTypeError("Array loo long");
+                ctx.throw_type_error("Array loo long");
                 return Err(-1);
             }
 
@@ -284,7 +284,7 @@ pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         } else {
             if n >= MAX_SAFE_INTEGER {
-                ctx.JS_ThrowTypeError("Array loo long");
+                ctx.throw_type_error("Array loo long");
                 return Err(-1);
             }
 
@@ -446,7 +446,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         loop {
             if k >= len {
-                ctx.JS_ThrowTypeError("empty array");
+                ctx.throw_type_error("empty array");
                 return Err(-1);
             }
 
@@ -757,7 +757,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             content
                 .push(unsafe { el.string_unchecked().content() })
                 .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?
         }
@@ -827,7 +827,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let newLen = len + cc.length() as i64;
     if newLen > MAX_SAFE_INTEGER {
-        ctx.JS_ThrowTypeError("Array loo long");
+        ctx.throw_type_error("Array loo long");
         return Err(-1);
     }
 
@@ -966,12 +966,12 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_sort(ctx: &JSContext, _: CallContext) -> JSResult {
-    ctx.JS_ThrowInternalError("sort is not implemented yet");
+    ctx.throw_internal_error("sort is not implemented yet");
     Err(-1)
 }
 
 pub fn js_array_toSorted(ctx: &JSContext, _: CallContext) -> JSResult {
-    ctx.JS_ThrowInternalError("toSorted is not implemented yet");
+    ctx.throw_internal_error("toSorted is not implemented yet");
     Err(-1)
 }
 
@@ -996,7 +996,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             del_count = cc.arg(1).coerce_to_i64_clamp(ctx, 0, len - start, 0)?;
         }
         if len + item_count as i64 - del_count > MAX_SAFE_INTEGER {
-            ctx.JS_ThrowTypeError("Array loo long");
+            ctx.throw_type_error("Array loo long");
             return Err(-1);
         }
         del_count
@@ -1098,7 +1098,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let new_len = len + add - del;
     if new_len > MAX_SAFE_INTEGER {
-        ctx.JS_ThrowTypeError("invalid array length");
+        ctx.throw_type_error("invalid array length");
         return Err(-1);
     }
 
@@ -1290,7 +1290,7 @@ fn JS_FlattenIntoArray(
                 }
 
                 if target_index >= MAX_SAFE_INTEGER {
-                    ctx.JS_ThrowTypeError("Array too long");
+                    ctx.throw_type_error("Array too long");
                     return Err(-1);
                 }
 

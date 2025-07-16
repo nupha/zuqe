@@ -92,7 +92,7 @@ impl JSValue {
                 if as_propkey {
                     self.clone()
                 } else {
-                    ctx.JS_ThrowTypeError("cannot convert symbol to string");
+                    ctx.throw_type_error("cannot convert symbol to string");
                     JSValue::EXCEPTION
                 }
             }

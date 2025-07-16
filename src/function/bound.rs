@@ -61,7 +61,7 @@ impl BoundFunction {
 
             let mut arg_list = Vec::<JSValue>::new();
             arg_list.try_reserve_exact(arg_count).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 

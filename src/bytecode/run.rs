@@ -795,7 +795,7 @@ impl Bytecode {
                         // return TRUE if 'this' should be returned
                         if !SP_REF!(-1).is_object() {
                             if !SP_REF!(-1).is_undefined() {
-                                caller_ctx.JS_ThrowTypeError(
+                                caller_ctx.throw_type_error(
                                     "derived class constructor must return an object or undefined",
                                 );
                                 break State::Exception;
@@ -810,14 +810,14 @@ impl Bytecode {
                     }
                     OpCode::CHECK_CTOR => {
                         if new_target.is_undefined() {
-                            ctx.JS_ThrowTypeError("class constructors must be invoked with 'new'");
+                            ctx.throw_type_error("class constructors must be invoked with 'new'");
                             break State::Exception;
                         }
                     }
                     OpCode::CHECK_BRAND => {
                         if let Ok(b) = SP_REF!(-2).check_brand(ctx, SP_REF!(-1)) {
                             if !b {
-                                ctx.JS_ThrowTypeError("invalid brand on object");
+                                ctx.throw_type_error("invalid brand on object");
                                 break State::Exception;
                             }
                         } else {
@@ -856,10 +856,10 @@ impl Bytecode {
                                 JS_ThrowReferenceError(ctx, "unsupported reference to 'super'");
                             }
                             JS_THROW_ERROR_ITERATOR_THROW => {
-                                ctx.JS_ThrowTypeError("iterator does not have a throw method");
+                                ctx.throw_type_error("iterator does not have a throw method");
                             }
                             _ => {
-                                ctx.JS_ThrowInternalError(&format!(
+                                ctx.throw_internal_error(&format!(
                                     "invalid throw var type {type_}"
                                 ));
                             }
@@ -1315,7 +1315,7 @@ impl Bytecode {
                         if let JSValue::Int(i) = SP_REF!(-1) {
                             let pos = *i;
                             if pos >= bytecodes.len() as i32 {
-                                ctx.JS_ThrowInternalError("invalid ret value");
+                                ctx.throw_internal_error("invalid ret value");
                                 break State::Exception;
                             } else {
                                 SP_TAKE!(-1);
@@ -1324,7 +1324,7 @@ impl Bytecode {
                                 pc = unsafe { pc_base.offset(pos as isize) };
                             }
                         } else {
-                            ctx.JS_ThrowInternalError("invalid ret value");
+                            ctx.throw_internal_error("invalid ret value");
                             break State::Exception;
                         }
 
@@ -1387,7 +1387,7 @@ impl Bytecode {
                     }
                     OpCode::ITERATOR_CHECK_OBJECT => {
                         if !SP_REF!(-1).is_object() {
-                            ctx.JS_ThrowTypeError("iterator must return an object");
+                            ctx.throw_type_error("iterator must return an object");
                             break State::Exception;
                         }
                     }
@@ -1420,7 +1420,7 @@ impl Bytecode {
                             drop(SP_TAKE!(0));
                         }
                         if sp == sp_base {
-                            ctx.JS_ThrowInternalError("nip_catch");
+                            ctx.throw_internal_error("nip_catch");
                             break State::Exception;
                         } else {
                             SP_PUT!(-1, ret_val);
@@ -1822,7 +1822,7 @@ impl Bytecode {
                         SP_GO!(-4);
 
                         if !obj.is_object() {
-                            ctx.JS_ThrowTypeErrorNotAnObject();
+                            ctx.throw_type_error_not_an_object();
                             break State::Exception;
                         }
 
@@ -2107,7 +2107,7 @@ impl Bytecode {
                         if opcode == OpCode::TO_PROPKEY2 {
                             // must be tested first
                             if SP_REF!(-2).is_undefined_or_null() {
-                                ctx.JS_ThrowTypeError("value has no property");
+                                ctx.throw_type_error("value has no property");
                                 break State::Exception;
                             }
                         }
@@ -2271,7 +2271,7 @@ impl Bytecode {
                     }
 
                     OpCode::INVALID | _ => {
-                        ctx.JS_ThrowInternalError(&format!(
+                        ctx.throw_internal_error(&format!(
                             "invalid opcode: pc={}, opcode=0x{:02x}",
                             unsafe { pc.offset_from(pc_base) - 1 },
                             opcode as u8

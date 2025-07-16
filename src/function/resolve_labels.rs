@@ -38,7 +38,7 @@ impl JSFunctionDef {
         // new buf to generate bytecode
         let mut bc_out = Vec::<u8>::new();
         bc_out.try_reserve_exact(bc_len).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?;
 
@@ -59,7 +59,7 @@ impl JSFunctionDef {
             self.line_number_slots
                 .try_reserve(self.line_number_slots_cap)
                 .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
 

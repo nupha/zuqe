@@ -32,7 +32,7 @@ impl JSObject {
                     return if !val
                         .is_same(&self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED))
                     {
-                        if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
+                        if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                             Err(-1)
                         } else {
                             Ok(false)
@@ -72,7 +72,7 @@ impl JSObject {
                         spaces. */
                         if !val.is_same(&vref.value()) {
                             return if ctx
-                                .JS_ThrowTypeErrorOrFalse(flags, "property is not configurable")
+                                .throw_type_error_or_false(flags, "property is not configurable")
                             {
                                 Err(-1)
                             } else {
@@ -88,7 +88,7 @@ impl JSObject {
                 // if writable is set to false, no longer a reference (for mapped arguments)
                 if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
                     if self.class_id() == JS_CLASS_MODULE_NS {
-                        return if ctx.JS_ThrowTypeErrorOrFalse(
+                        return if ctx.throw_type_error_or_false(
                             flags,
                             "module namespace properties have writable = false",
                         ) {
@@ -172,7 +172,7 @@ impl JSObject {
                     && ((flags & JS_PROP_HAS_GET != 0 && new_getter != getter.as_ref())
                         || (flags & JS_PROP_HAS_SET != 0 && new_setter != setter.as_ref()))
                 {
-                    return if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
+                    return if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                         Err(-1)
                     } else {
                         Ok(false)

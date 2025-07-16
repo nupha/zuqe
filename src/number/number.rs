@@ -168,7 +168,7 @@ impl JSValue {
                     continue;
                 }
                 Self::Symbol(_) => {
-                    ctx.JS_ThrowTypeError("cannot convert symbol to number");
+                    ctx.throw_type_error("cannot convert symbol to number");
                     break Err(-1);
                 }
                 Self::EXCEPTION => {

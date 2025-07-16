@@ -43,7 +43,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     if arg_count > 0 {
         // collect arguments starting from #1
         if bf.bind_args.try_reserve_exact(arg_count).is_err() {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             return Err(-1);
         }
         for a in &args.arguments()[1..] {

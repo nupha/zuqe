@@ -109,7 +109,7 @@ impl JSMapState {
                 self.add_weak_kv(ctx, &o, value);
                 Ok(())
             } else {
-                ctx.JS_ThrowTypeErrorNotAnObject();
+                ctx.throw_type_error_not_an_object();
                 Err(-1)
             }
         } else {

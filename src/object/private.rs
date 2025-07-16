@@ -23,17 +23,17 @@ impl JSObject {
                         Ok(self.has_shape_property(s.atom_info().unwrap().atom()))
                     }
                     _ => {
-                        ctx.JS_ThrowTypeErrorNotAnObject();
+                        ctx.throw_type_error_not_an_object();
                         Err(-1)
                     }
                 }
             } else {
-                ctx.JS_ThrowTypeError("expecting <brand> private field");
+                ctx.throw_type_error("expecting <brand> private field");
                 Err(-1)
             }
         } else {
             // func is not an object, or can't find its home object
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -50,7 +50,7 @@ impl JSObject {
                 Err(-1)
             }
         } else {
-            ctx.JS_ThrowTypeErrorNotASymbol();
+            ctx.throw_type_error_not_a_symbol();
             return Err(-1);
         }
 
@@ -86,7 +86,7 @@ impl JSObject {
                 Err(-1)
             }
         } else {
-            ctx.JS_ThrowTypeErrorNotASymbol();
+            ctx.throw_type_error_not_a_symbol();
             Err(-1)
         }
     }
@@ -122,7 +122,7 @@ impl JSObject {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom();
             if self.has_shape_property(prop) {
-                ctx.JS_ThrowTypeError(&format!(
+                ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
                     prop.to_str(ctx.rt())
                 ));
@@ -133,7 +133,7 @@ impl JSObject {
                 })
             }
         } else {
-            ctx.JS_ThrowTypeErrorNotASymbol();
+            ctx.throw_type_error_not_a_symbol();
             return Err(-1);
         }
     }
@@ -145,7 +145,7 @@ impl JSValue {
         if let JSValue::Object(ob) = self {
             ob.check_brand(ctx, func)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -176,7 +176,7 @@ impl JSValue {
 
                 if ob.has_shape_property(brand_atom) {
                     JS_FreeAtom(ctx, brand_atom);
-                    ctx.JS_ThrowTypeError("private method is already present");
+                    ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else {
                     let r = ob.add_shape_property_then(ctx, brand_atom, JS_PROP_C_W_E, |pr| {
@@ -189,7 +189,7 @@ impl JSValue {
                 Ok(())
             }
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -203,7 +203,7 @@ impl JSValue {
         if let JSValue::Object(ob) = self {
             ob.set_private_field(ctx, name, val)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -212,7 +212,7 @@ impl JSValue {
         if let Self::Object(ob) = self {
             ob.get_private_field(ctx, name)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -227,7 +227,7 @@ impl JSValue {
         if let Self::Object(ob) = self {
             ob.define_private_field(ctx, name, val)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }

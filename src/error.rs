@@ -78,7 +78,7 @@ impl JSContext {
         // // strict debug guard.
         // #[cfg(debug_assertions)]
         // if obj.is_undefined_or_null() {
-        //     panic!("throw a null or undefined value is not recommanded");
+        //     panic!("throw a null or undefined value is not recommended");
         // }
 
         self.set_exception(obj);
@@ -130,53 +130,52 @@ impl JSContext {
         self.throw_error_ex(kind, message, add_backtrace);
     }
 
-    #[inline]
-    pub fn JS_ThrowInternalError(&self, message: &str) {
+    #[inline(always)]
+    pub fn throw_internal_error(&self, message: &str) {
         self.throw_error(ErrorKind::Internal, message);
     }
 
-    #[inline]
-    pub fn JS_ThrowTypeError(&self, message: &str) {
+    #[inline(always)]
+    pub fn throw_type_error(&self, message: &str) {
         self.throw_error(ErrorKind::Type, message);
     }
 
-    #[inline]
-    pub fn JS_ThrowTypeErrorNotAnObject(&self) {
-        self.JS_ThrowTypeError("not an object");
-    }
-
-    #[inline]
-    pub fn JS_ThrowTypeErrorNotASymbol(&self) {
-        self.JS_ThrowTypeError("not a symbol");
-    }
-
-    pub fn JS_ThrowTypeErrorInvalidClass(&self, class_id: JSClassID) {
-        let name = self.rt().class_defs[class_id as usize].class_name;
-        self.JS_ThrowTypeError(&format!("{} object expected", name.to_str(self.rt())))
-    }
-
     /// returns: true=exception raised; false=no exception raised
-    pub fn JS_ThrowTypeErrorOrFalse(&self, flags: u32, message: &str) -> bool {
+    pub fn throw_type_error_or_false(&self, flags: u32, message: &str) -> bool {
         if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
         {
-            self.JS_ThrowTypeError(message);
+            self.throw_type_error(message);
             true
         } else {
             false
         }
     }
 
+    #[inline(always)]
+    pub fn throw_type_error_not_an_object(&self) {
+        self.throw_type_error("not an object");
+    }
+
+    #[inline(always)]
+    pub fn throw_type_error_not_a_symbol(&self) {
+        self.throw_type_error("not a symbol");
+    }
+
+    pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
+        let name = self.rt().class_defs[class_id as usize].class_name;
+        self.throw_type_error(&format!("{} object expected", name.to_str(self.rt())))
+    }
+
     /// flags: 1=raise exception; 0=don't raise exception
     /// returns: true=exception raised; false=no exception raised
     pub fn JS_ThrowTypeErrorReadOnly(&self, flags: u32, atom: JSAtom) -> bool {
-        self.JS_ThrowTypeErrorOrFalse(flags, &format!("'{}' is read-only", atom.to_str(self.rt())))
+        self.throw_type_error_or_false(flags, &format!("'{}' is read-only", atom.to_str(self.rt())))
     }
 
-    /// raise out of memory exception
-    pub fn JS_ThrowOutOfMemory(&self) {
+    pub fn throw_out_of_memory(&self) {
         if !self.rt().in_out_of_memory {
             self.rt_mut().in_out_of_memory = true;
-            self.JS_ThrowInternalError("out of memory");
+            self.throw_internal_error("out of memory");
             self.rt_mut().in_out_of_memory = false;
         }
     }
@@ -364,15 +363,15 @@ pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: 
 }
 
 pub fn JS_ThrowTypeErrorRevokedProxy(ctx: &JSContext) {
-    ctx.JS_ThrowTypeError("revoked proxy");
+    ctx.throw_type_error("revoked proxy");
 }
 
 pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &JSContext) {
-    ctx.JS_ThrowTypeError("ArrayBuffer is detached");
+    ctx.throw_type_error("ArrayBuffer is detached");
 }
 
 pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
-    ctx.JS_ThrowTypeError(&format!(
+    ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
         atom.to_str(ctx.rt())
     ));
@@ -394,7 +393,7 @@ pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {
 }
 
 pub fn JS_ThrowStackOverflow(ctx: &JSContext) {
-    ctx.JS_ThrowInternalError("stack overflow");
+    ctx.throw_internal_error("stack overflow");
 }
 
 /// used to avoid catching interrupt exceptions
@@ -418,7 +417,7 @@ pub fn JS_SetUncatchableError(val: &JSValue, flag: bool) {
 
 pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 

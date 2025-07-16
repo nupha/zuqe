@@ -189,7 +189,7 @@ impl JSFunctionDef {
         // alloc binary buffer
         let mut bin = Vec::<u8>::new();
         bin.try_reserve_exact(bin_size).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?;
 

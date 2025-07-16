@@ -82,7 +82,7 @@ pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
         .coerce_to_bool(ctx)?;
 
     if b != s.target.is_extensible(ctx)? {
-        ctx.JS_ThrowTypeError("proxy: inconsistent isExtensible");
+        ctx.throw_type_error("proxy: inconsistent isExtensible");
         return Err(-1);
     }
 
@@ -100,7 +100,7 @@ pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool
 
     let res = ret.coerce_to_bool(ctx)?;
     if res && s.target.is_extensible(ctx)? {
-        ctx.JS_ThrowTypeError("proxy: inconsistent preventExtensions");
+        ctx.throw_type_error("proxy: inconsistent preventExtensions");
         return Err(-1);
     }
 
@@ -124,7 +124,7 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValueConst) -> JS
     }
 
     if !matches!(ret, JSValue::NULL | JSValue::Object(_)) {
-        ctx.JS_ThrowTypeError("proxy: inconsistent prototype");
+        ctx.throw_type_error("proxy: inconsistent prototype");
         return JSValue::EXCEPTION;
     }
 
@@ -138,7 +138,7 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValueConst) -> JS
             };
 
             if proto1 != ret {
-                ctx.JS_ThrowTypeError("proxy: inconsistent prototype");
+                ctx.throw_type_error("proxy: inconsistent prototype");
                 JSValue::EXCEPTION
             } else {
                 ret
@@ -171,7 +171,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
     match ret.coerce_to_bool(ctx) {
         Ok(false) => {
             if throw_flag {
-                ctx.JS_ThrowTypeError("proxy: bad prototype");
+                ctx.throw_type_error("proxy: bad prototype");
                 Err(-1)
             } else {
                 Ok(false)
@@ -181,7 +181,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
             if !s.target.is_extensible(ctx)? {
                 let proto1 = s.target.prototype(ctx)?;
                 if proto_val != proto1 {
-                    ctx.JS_ThrowTypeError("proxy: inconsistent prototype");
+                    ctx.throw_type_error("proxy: inconsistent prototype");
                     return Err(-1);
                 }
             }

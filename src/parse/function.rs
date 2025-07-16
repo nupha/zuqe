@@ -451,7 +451,7 @@ impl<'s> JSParseState<'s> {
                     if src_len > 0 {
                         let mut src = Vec::<u8>::new();
                         if src.try_reserve_exact(src_len).is_err() {
-                            self.ctx.JS_ThrowOutOfMemory();
+                            self.ctx.throw_out_of_memory();
                             fail!();
                         }
                         src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
@@ -496,7 +496,7 @@ impl<'s> JSParseState<'s> {
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
                 if src.try_reserve_exact(src_len).is_err() {
-                    self.ctx.JS_ThrowOutOfMemory();
+                    self.ctx.throw_out_of_memory();
                     fail!();
                 }
                 src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });

@@ -207,7 +207,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
 
         Ok(promise.into())
     } else {
-        ctx.JS_ThrowTypeError("not an Async-from-Sync Iterator");
+        ctx.throw_type_error("not an Async-from-Sync Iterator");
         let err = ctx.take_exception();
         Ok(done_resolve(resolving_funcs, err, 1, promise.into()))
     }

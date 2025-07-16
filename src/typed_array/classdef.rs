@@ -30,7 +30,7 @@ use crate::{
 use super::{TypedArray, js_typed_array_get_length_internal, js_typed_array_set_internal};
 
 pub fn js_typed_array_base_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    ctx.JS_ThrowTypeError("cannot be called");
+    ctx.throw_type_error("cannot be called");
     Err(-1)
 }
 
@@ -184,7 +184,7 @@ pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) 
         // ensure that it is large enough
         let len = args[0].coerce_to_length(ctx)?;
         if new_len < len as u32 {
-            ctx.JS_ThrowTypeError("TypedArray length is too small");
+            ctx.throw_type_error("TypedArray length is too small");
             return Err(-1);
         }
     }
@@ -465,7 +465,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
         JS_CLASS_BIG_UINT64_ARRAY => {
             //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
-            ctx.JS_ThrowTypeError("BigInt64 is not supported");
+            ctx.throw_type_error("BigInt64 is not supported");
             return Err(-1);
         }
         cid => {
@@ -837,7 +837,7 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
                 sort!(f64, 3, JSValue::from);
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                ctx.JS_ThrowTypeError("BigInt64 is not supported");
+                ctx.throw_type_error("BigInt64 is not supported");
                 return Err(-1);
             }
             _ => unreachable!(),
@@ -869,7 +869,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
     let mut txt = StringContent::with_capacity(n as usize * 2, false).map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 
@@ -878,7 +878,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         if i > 0 {
             // add separator
             if txt.push_str(sep.as_ref()).is_err() {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(-1);
             };
         }
@@ -895,20 +895,20 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
                 Ok(s) => {
                     unsafe {
                         if txt.push(s.string_unchecked().content()).is_err() {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             return Err(-1);
                         }
                     }
 
                     if txt.capacity() - txt.len() < 16 {
                         if txt.reserve((n - i) as usize * 2).is_err() {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             return Err(-1);
                         }
                     }
                 }
                 Err(e) => {
-                    ctx.JS_ThrowTypeError("toString failed");
+                    ctx.throw_type_error("toString failed");
                     return Err(e);
                 }
             }
@@ -1134,7 +1134,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
         JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-            ctx.JS_ThrowTypeError("BigInt64 is not supported");
+            ctx.throw_type_error("BigInt64 is not supported");
             return Err(-1);
         }
 

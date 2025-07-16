@@ -300,7 +300,7 @@ impl JSContext {
                 }
             }
 
-            self.JS_ThrowInternalError(&format!("unknown atom '{str}'"));
+            self.throw_internal_error(&format!("unknown atom '{str}'"));
             return Err(-1);
         }
 
@@ -347,7 +347,7 @@ impl JSValue {
             | JSValue::Module(_)
             | JSValue::Bytecode(_)
             | JSValue::AsyncStateResume(_) => {
-                ctx.JS_ThrowTypeError(&format!("cannot convert {} to atom", self.repr()));
+                ctx.throw_type_error(&format!("cannot convert {} to atom", self.repr()));
                 Err(-1)
             }
         }

@@ -79,7 +79,7 @@ impl BytecodeFunction {
         // +------------------+
         //
         if sf.local_buf.try_reserve_exact(buf_values_count).is_err() {
-            caller_ctx.JS_ThrowOutOfMemory();
+            caller_ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         }
 

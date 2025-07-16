@@ -196,7 +196,7 @@ pub fn JS_CallInternal(
 
             ret_val
         } else {
-            caller_ctx.JS_ThrowTypeError("not a function");
+            caller_ctx.throw_type_error("not a function");
             JSValue::EXCEPTION
         };
     }
@@ -214,7 +214,7 @@ pub fn JS_CallInternal(
         if let Some(cb) = rt.class_defs[class_id as usize].call {
             cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
         } else {
-            caller_ctx.JS_ThrowTypeError("not callable");
+            caller_ctx.throw_type_error("not callable");
             JSValue::EXCEPTION
         }
     }
@@ -261,7 +261,7 @@ pub fn JS_CallConstructorInternal(
 
     if let JSValue::Object(p) = func_obj {
         if !p.flags().is_constructor() {
-            ctx.JS_ThrowTypeError("not a constructor");
+            ctx.throw_type_error("not a constructor");
             return JSValue::EXCEPTION;
         }
 
@@ -272,7 +272,7 @@ pub fn JS_CallConstructorInternal(
             return if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
                 cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
             } else {
-                ctx.JS_ThrowTypeError("not a function");
+                ctx.throw_type_error("not a function");
                 JSValue::EXCEPTION
             };
         }
@@ -304,7 +304,7 @@ pub fn JS_CallConstructorInternal(
             }
         }
     } else {
-        ctx.JS_ThrowTypeError("not a function");
+        ctx.throw_type_error("not a function");
         JSValue::EXCEPTION
     }
 }

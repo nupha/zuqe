@@ -127,7 +127,7 @@ impl JSValue {
         } else if flags & JS_PROP_THROW != 0
             || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
         {
-            ctx.JS_ThrowTypeError("could not delete property");
+            ctx.throw_type_error("could not delete property");
             Err(-1)
         } else {
             Ok(false)

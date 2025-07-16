@@ -50,7 +50,7 @@ impl JSObjectInner {
                     debug_assert!(new_len > len);
 
                     if self.grow_prop_value_slots(new_len).is_err() {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         self.shape.borrow_mut().replace(shape); // restore old shape
                         return Err(-1);
                     }
@@ -174,7 +174,7 @@ impl JSValue {
         if let JSValue::Object(p) = self {
             Ok(p.has_shape_property(prop))
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -183,7 +183,7 @@ impl JSValue {
         if let JSValue::Object(p) = self {
             p.has_shape_property_str(ctx, prop)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }

@@ -30,7 +30,7 @@ impl LabelSlot {
     pub fn add_reloc(&mut self, ctx: &JSContext, addr: usize, size: i32) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity() {
             if self.pending_relocs.try_reserve_exact(4).is_err() {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }
@@ -45,7 +45,7 @@ impl JSFunctionDef {
     pub fn add_label(&mut self) -> Result<u32, i32> {
         if self.label_slots.len() == self.label_slots.capacity() {
             if self.label_slots.try_reserve_exact(4).is_err() {
-                self.ctx.JS_ThrowOutOfMemory();
+                self.ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }

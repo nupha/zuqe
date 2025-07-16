@@ -27,14 +27,14 @@ fn ss_check(
     catch_pos: i32,
 ) -> Result<(), i32> {
     if pos >= s.bc_len {
-        ctx.JS_ThrowInternalError(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})"));
+        ctx.throw_internal_error(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})"));
         return Err(-1);
     }
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
         if s.stack_len_max > JS_STACK_SIZE_MAX as u16 {
-            ctx.JS_ThrowInternalError(&format!("stack overflow (op={op}, pc={pos})\0"));
+            ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0"));
             return Err(-1);
         }
     }
@@ -42,13 +42,13 @@ fn ss_check(
     if s.stack_level_tab[pos] != 0xffff {
         // already explored: check that the stack size is consistent
         return if s.stack_level_tab[pos] != stack_len {
-            ctx.JS_ThrowInternalError(&format!(
+            ctx.throw_internal_error(&format!(
                 "inconsistent stack size: {} {} (pc={pos})",
                 s.stack_level_tab[pos], stack_len
             ));
             Err(-1)
         } else if s.catch_pos_tab[pos] != catch_pos {
-            ctx.JS_ThrowInternalError(&format!(
+            ctx.throw_internal_error(&format!(
                 "inconsistent catch position: {} {} (pc={pos})",
                 s.catch_pos_tab[pos], catch_pos
             ));
@@ -103,7 +103,7 @@ impl JSFunctionDef {
             let op = self.byte_code[pos];
 
             if op == 0 || op >= OP_COUNT_FINAL {
-                ctx.JS_ThrowInternalError(&format!("invalid opcode (op={op}, pc={pos})"));
+                ctx.throw_internal_error(&format!("invalid opcode (op={op}, pc={pos})"));
                 return Err(-1);
             }
 
@@ -114,7 +114,7 @@ impl JSFunctionDef {
 
             let mut pos_next = pos + oi.size as usize;
             if pos_next > (*s).bc_len {
-                ctx.JS_ThrowInternalError(&format!(
+                ctx.throw_internal_error(&format!(
                     "bytecode buffer overflow 2 (op={op}, pc={pos})"
                 ));
                 return Err(-1);
@@ -133,7 +133,7 @@ impl JSFunctionDef {
             }
 
             if stack_len < n_pop {
-                ctx.JS_ThrowInternalError(&format!(
+                ctx.throw_internal_error(&format!(
                     "bytecode buffer overflow 3 (op={op}, pc={pos})"
                 ));
                 return Err(-1);
@@ -143,7 +143,7 @@ impl JSFunctionDef {
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
                 if s.stack_len_max > JS_STACK_SIZE_MAX {
-                    ctx.JS_ThrowInternalError(&format!("stack overflow (op={op}, pc={pos})"));
+                    ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})"));
                     return Err(-1);
                 }
             }
@@ -287,7 +287,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_nip_catch => {
                     if catch_pos < 0 {
-                        ctx.JS_ThrowInternalError(&format!("nip_catch: no catch op (pc={pos})"));
+                        ctx.throw_internal_error(&format!("nip_catch: no catch op (pc={pos})"));
                         return Err(-1);
                     }
                     stack_len = s.stack_level_tab[catch_pos as usize];

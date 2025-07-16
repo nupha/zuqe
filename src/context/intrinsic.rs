@@ -830,7 +830,7 @@ impl JSContext {
 }
 
 fn js_throw_type_error(ctx: &JSContext, cc: CallContext) -> JSResult {
-    ctx.JS_ThrowTypeError("invalid property access");
+    ctx.throw_type_error("invalid property access");
     Err(-1)
 }
 

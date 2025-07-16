@@ -138,7 +138,7 @@ pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult 
         // setter
         let this_val = cc.this();
         if this_val.is_undefined_or_null() {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
 

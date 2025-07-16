@@ -569,7 +569,7 @@ pub unsafe fn js_create_module_bytecode_function(
                 var_refs
                     .try_reserve_exact(cvar_count as usize)
                     .map_err(|_| {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         -1
                     })?;
 
@@ -699,7 +699,7 @@ pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut ModuleDefInner) -> JSVal
 pub unsafe fn js_import_meta(ctx: &JSContext) -> JSValue {
     let filename = JS_GetScriptOrModuleName(ctx, 0);
     if filename == JS_ATOM_NULL {
-        ctx.JS_ThrowTypeError("import.meta not supported in this context ");
+        ctx.throw_type_error("import.meta not supported in this context ");
         return JSValue::EXCEPTION;
     }
 
@@ -712,7 +712,7 @@ pub unsafe fn js_import_meta(ctx: &JSContext) -> JSValue {
             .import_meta(ctx)
             .unwrap_or(JSValue::EXCEPTION)
     } else {
-        ctx.JS_ThrowTypeError("import.meta not supported in this context");
+        ctx.throw_type_error("import.meta not supported in this context");
         JSValue::EXCEPTION
     }
 }

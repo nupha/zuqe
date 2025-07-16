@@ -69,7 +69,7 @@ pub fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
 
     if !op2.is_object() {
-        ctx.JS_ThrowTypeError("invalid 'in' operand");
+        ctx.throw_type_error("invalid 'in' operand");
         return Err(-1);
     }
 
@@ -88,7 +88,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
     let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
     if !matches!(op1, JSValue::Object(_)) {
-        ctx.JS_ThrowTypeError("invalid 'in' operand");
+        ctx.throw_type_error("invalid 'in' operand");
         return Err(-1);
     }
 
@@ -142,7 +142,7 @@ pub fn js_op_define_class(
             JSValue::NULL
         } else {
             if !parent_class.is_constructor() {
-                ctx.JS_ThrowTypeError("parent class must be constructor ");
+                ctx.throw_type_error("parent class must be constructor ");
                 return Err(-1);
             }
 
@@ -151,7 +151,7 @@ pub fn js_op_define_class(
                 .check_exception()?;
 
             if !matches!(p, JSValue::NULL | JSValue::Object(_)) {
-                ctx.JS_ThrowTypeError("parent prototype must be an object or null");
+                ctx.throw_type_error("parent prototype must be an object or null");
                 return Err(-1);
             }
             p
@@ -308,7 +308,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
     let mut pos = if let JSValue::Int(i) = &*sp.offset(-2) {
         *i
     } else {
-        ctx.JS_ThrowInternalError("invalid index for append");
+        ctx.throw_internal_error("invalid index for append");
         return Err(-1);
     };
 
@@ -646,7 +646,7 @@ pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, offset: i32) -> 
 pub unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     let obj = &*sp.offset(-1);
     if !obj.is_object() {
-        ctx.JS_ThrowTypeError("iterator must return an object");
+        ctx.throw_type_error("iterator must return an object");
         return -1;
     }
 

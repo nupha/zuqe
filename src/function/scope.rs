@@ -38,7 +38,7 @@ impl JSFunctionDef {
                 .try_reserve_exact(self.scopes.capacity() >> 2)
                 .is_err()
             {
-                self.ctx.JS_ThrowOutOfMemory();
+                self.ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }

@@ -32,7 +32,7 @@ impl<'s> JSParseState<'s> {
 
             if content.capacity() == content.len() {
                 if content.try_reserve_exact(32).is_err() {
-                    self.ctx.JS_ThrowOutOfMemory();
+                    self.ctx.throw_out_of_memory();
                     return Err(-1);
                 }
             }

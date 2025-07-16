@@ -101,7 +101,7 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
 /// returned value is Promise object or Exception.
 pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -134,7 +134,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -330,7 +330,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -396,7 +396,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 

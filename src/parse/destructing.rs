@@ -175,7 +175,7 @@ impl<'s> JSParseState<'s> {
         while self.token.val != '}' as i32 {
             if self.token.val == TOK_ELLIPSIS {
                 if !has_ellipsis {
-                    self.ctx.JS_ThrowInternalError("unexpected ellipsis token");
+                    self.ctx.throw_internal_error("unexpected ellipsis token");
                     return Err(-1);
                 }
 

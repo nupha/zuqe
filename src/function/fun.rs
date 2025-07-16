@@ -94,7 +94,7 @@ impl JSValue {
         if self.is_callable() {
             Ok(self)
         } else {
-            ctx.JS_ThrowTypeError("not a function");
+            ctx.throw_type_error("not a function");
             Err(-1)
         }
     }

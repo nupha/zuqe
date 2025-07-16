@@ -180,12 +180,12 @@ impl JSFunctionDef {
 
         if let Some(cvars) = self.closure_vars.as_mut() {
             if cvars.len() == JS_MAX_LOCAL_VARS as usize {
-                ctx.JS_ThrowInternalError("too many closure variables");
+                ctx.throw_internal_error("too many closure variables");
                 return Err(-1);
             }
             if cvars.len() == cvars.capacity() {
                 cvars.try_reserve_exact(8).map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
             }
@@ -194,7 +194,7 @@ impl JSFunctionDef {
         } else {
             let mut lst = Vec::<JSClosureVar>::new();
             lst.try_reserve_exact(16).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -246,7 +246,7 @@ impl Bytecode {
                     .try_reserve_exact(closure_var_count as usize)
                     .is_err()
                 {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     return Err(-1);
                 };
 
@@ -399,7 +399,7 @@ pub unsafe fn add_closure_variables(
 
     let mut cvars = Vec::<JSClosureVar>::new();
     cvars.try_reserve_exact(count as usize).map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 

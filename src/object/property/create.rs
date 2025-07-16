@@ -73,7 +73,7 @@ impl JSObject {
                             idx = __JS_AtomToUInt32(prop);
                             if idx == self.array_length_unchecked() as u32 {
                                 if !self.flags().extensible() {
-                                    return if ctx.JS_ThrowTypeErrorOrFalse(
+                                    return if ctx.throw_type_error_or_false(
                                         flags as _,
                                         "object is not extensible",
                                     ) {
@@ -109,7 +109,7 @@ impl JSObject {
                         if ret < 0 {
                             return Err(-1);
                         }
-                        return if ctx.JS_ThrowTypeErrorOrFalse(
+                        return if ctx.throw_type_error_or_false(
                             flags,
                             "cannot create numeric index in typed array",
                         ) {
@@ -137,7 +137,7 @@ impl JSObject {
                             }
 
                             if !self.is_extensible(ctx)? {
-                                return if ctx.JS_ThrowTypeErrorOrFalse(
+                                return if ctx.throw_type_error_or_false(
                                     flags as _,
                                     "object is not extensible",
                                 ) {
@@ -156,7 +156,7 @@ impl JSObject {
         // add shape property and put the value in value slot.
 
         if !obj_flags.extensible() {
-            return if ctx.JS_ThrowTypeErrorOrFalse(flags, "object is not extensible") {
+            return if ctx.throw_type_error_or_false(flags, "object is not extensible") {
                 Err(-1)
             } else {
                 Ok(false)

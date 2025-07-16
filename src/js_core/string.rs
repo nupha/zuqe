@@ -221,7 +221,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let this = cc.this().clone();
     if this.is_undefined_or_null() {
-        ctx.JS_ThrowTypeError("cannot convert to object");
+        ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
@@ -312,11 +312,11 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             res_string
                 .push_content_slice(&sp.content().slice(endOfLastMatch as usize..pos as usize))
                 .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
             res_string.push(replacement.content()).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -346,7 +346,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                     .take(rem_len),
             )
             .map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
     }
@@ -360,7 +360,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let O = cc.this().clone();
 
     if O.is_undefined_or_null() {
-        ctx.JS_ThrowTypeError("cannot convert to object");
+        ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
@@ -526,13 +526,13 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if n > JS_STRING_LEN_MAX as i32 {
-        ctx.JS_ThrowInternalError("string too long");
+        ctx.throw_internal_error("string too long");
         return Err(-1);
     }
 
     let mut res_string = if padEnd != 0 {
         p.content().copy_to_new().map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?
     } else {
@@ -549,13 +549,13 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
     }
     .map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 
     if padEnd == 0 {
         res_string.push(p.content()).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?;
     }
@@ -579,12 +579,12 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Ok(str);
     }
     if repeat as usize * len > JS_STRING_LEN_MAX {
-        ctx.JS_ThrowInternalError("string too long");
+        ctx.throw_internal_error("string too long");
         return Err(-1);
     }
 
     let mut res_string = StringContent::with_capacity(n * len, p.is_wide_char()).map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 
@@ -600,7 +600,7 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
 
     if js_is_regexp(ctx, cc.arg(0))? {
-        ctx.JS_ThrowTypeError("regex not supported");
+        ctx.throw_type_error("regex not supported");
         return Err(-1);
     }
 
@@ -665,7 +665,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
             return -1;
         }
         if flags.is_undefined_or_null() {
-            ctx.JS_ThrowTypeError("cannot convert to object");
+            ctx.throw_type_error("cannot convert to object");
             return -1;
         }
 
@@ -676,7 +676,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
 
         let idx = unsafe { flags.string_unchecked().content().find_char('g', 0) };
         if idx.is_none() {
-            ctx.JS_ThrowTypeError("regexp must have the 'g' flag");
+            ctx.throw_type_error("regexp must have the 'g' flag");
             return -1;
         }
     }
@@ -690,7 +690,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     let atom = JSAtom(cc.magic() as u32);
 
     if O.is_undefined_or_null() {
-        ctx.JS_ThrowTypeError("cannot convert to object");
+        ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
@@ -749,7 +749,7 @@ pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult
     let rp = unsafe { replacement.string_unchecked() };
 
     if !replacement.is_string() || !str.is_string() {
-        ctx.JS_ThrowTypeError("not a string");
+        ctx.throw_type_error("not a string");
         return Err(-1);
     }
 
@@ -769,7 +769,7 @@ pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = unsafe { str.string_unchecked() };
 
     let mut s = p.content().copy_to_new().map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
@@ -850,7 +850,7 @@ pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValueConst) -> JSResult {
     {
         Ok(d)
     } else {
-        ctx.JS_ThrowTypeError("not a string");
+        ctx.throw_type_error("not a string");
         Err(-1)
     }
 }
@@ -869,7 +869,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
         StringContent::Empty => unreachable!(),
         StringContent::Utf8(s) => {
             let mut d = Vec::<u8>::try_with_capacity(s.len()).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
             d.extend_from_slice(s);
@@ -882,7 +882,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
         StringContent::Utf16(s) => {
             let mut w = Vec::<u16>::try_with_capacity(s.len() * 3 / 2).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -1018,7 +1018,7 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
     for a in cc.arguments() {
         let c = a.coerce_to_i32(ctx)?;
         res_string.push_u16(c as u16).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?;
     }
@@ -1040,7 +1040,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if let Some(c) = char::from_u32(c as u32) {
             res_string.push_char(c).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
         } else {
@@ -1072,7 +1072,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
         res_string
             .push(unsafe { str.string_unchecked().content() })
             .map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -1082,7 +1082,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
             res_string
                 .push(unsafe { s.string_unchecked().content() })
                 .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
         }

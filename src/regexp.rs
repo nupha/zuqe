@@ -121,7 +121,7 @@ pub fn js_get_regexp(ctx: &JSContext, obj: &JSValueConst, throw_error: bool) -> 
         }
     }
     if throw_error {
-        ctx.JS_ThrowTypeErrorInvalidClass(JS_CLASS_REGEXP);
+        ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP);
     }
     None
 }

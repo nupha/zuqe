@@ -493,7 +493,7 @@ unsafe fn add_export_entry2(
     m.with_mut(|m| {
         if m.export_entries.len() == m.export_entries.capacity() {
             if m.export_entries.try_reserve_exact(4).is_err() {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }

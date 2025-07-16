@@ -211,7 +211,7 @@ impl JSFunctionDef {
     ) -> Result<&mut JSGlobalVar, i32> {
         if self.global_vars.len() == self.global_vars.capacity() {
             if self.global_vars.try_reserve_exact(2).is_err() {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }
@@ -257,13 +257,13 @@ impl JSFunctionDef {
     pub fn add_arg(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
-            ctx.JS_ThrowInternalError("too many arguments");
+            ctx.throw_internal_error("too many arguments");
             return Err(-1);
         }
 
         if self.args.len() == self.args.capacity() {
             if self.args.try_reserve_exact(2).is_err() {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }
@@ -282,13 +282,13 @@ impl JSFunctionDef {
     /// add variable defination. return the new variable index or error
     pub fn add_var(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
-            ctx.JS_ThrowInternalError("too many local variables");
+            ctx.throw_internal_error("too many local variables");
             return Err(-1);
         }
 
         if self.vars.len() == self.vars.capacity() {
             if self.vars.try_reserve_exact(4).is_err() {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }

@@ -149,7 +149,7 @@ impl JSShape {
     ) -> Result<Self, i32> {
         let mut prop_slots = IndexMap::<u32, JSShapeProperty>::new();
         prop_slots.try_reserve_exact(prop_size as _).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?;
 
@@ -185,7 +185,7 @@ impl JSShape {
             let props0 = &b.prop_defs;
 
             props.try_reserve(props0.len()).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -281,14 +281,14 @@ impl JSShape {
 
         if let Some(ob) = obj {
             ob.grow_prop_value_slots(new_len).inspect_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
             })?;
         }
 
         if is_hashed {
             self.0.borrow_mut().hash = new_hash;
             ctx.rt_mut().register_shape(self).inspect_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
             })?;
         }
 

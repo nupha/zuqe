@@ -90,7 +90,7 @@ pub unsafe fn JS_GetOpaque2(
 ) -> *mut c_void {
     let p = JS_GetOpaque(obj, class_id);
     if p.is_null() {
-        ctx.JS_ThrowTypeErrorInvalidClass(class_id);
+        ctx.throw_type_error_invalid_class(class_id);
     }
     p
 }
@@ -3086,7 +3086,7 @@ pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomType) -> JSValu
             JSValue::Symbol(ss)
         }
         Err(_) => {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             JSValue::EXCEPTION
         }
     }

@@ -8,7 +8,7 @@ impl JSFunctionDef {
     pub fn cpool_add(&mut self, val: JSValue) -> Result<u16, i32> {
         if self.cpool.len() == self.cpool.capacity() {
             if self.cpool.try_reserve_exact(4).is_err() {
-                self.ctx.JS_ThrowOutOfMemory();
+                self.ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }

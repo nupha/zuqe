@@ -486,7 +486,7 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
             p.resume_next(ctx);
         }
     } else {
-        ctx.JS_ThrowTypeError("not an AsyncGeneratorValue object");
+        ctx.throw_type_error("not an AsyncGeneratorValue object");
         let err = ctx.take_exception();
         JS_Call(ctx, &resolving_funcs[1], &JSValue::UNDEFINED, &[err]);
     }

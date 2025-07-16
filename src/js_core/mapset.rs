@@ -68,7 +68,7 @@ pub unsafe fn js_map_constructor(
             return JSValue::EXCEPTION;
         }
         if !adder.is_callable() {
-            ctx.JS_ThrowTypeError("set/add is not a function");
+            ctx.throw_type_error("set/add is not a function");
             return JSValue::EXCEPTION;
         }
 
@@ -108,7 +108,7 @@ pub unsafe fn js_map_constructor(
                 }
             } else {
                 if !item.is_object() {
-                    ctx.JS_ThrowTypeErrorNotAnObject();
+                    ctx.throw_type_error_not_an_object();
                     fail!(&iter, next_method, adder);
                 }
 
@@ -161,7 +161,7 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let key = cc.arg(0);
     if s.is_weak && !key.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 

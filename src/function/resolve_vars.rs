@@ -72,7 +72,7 @@ impl JSFunctionDef {
             .try_reserve_exact(bc_buf_len + std::cmp::max(bc_buf_len >> 3, 64))
             .is_err()
         {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             return Err(-1);
         };
 
@@ -230,7 +230,7 @@ impl JSFunctionDef {
                             )
                             .is_err()
                             {
-                                ctx.JS_ThrowOutOfMemory();
+                                ctx.throw_out_of_memory();
                                 break;
                             }
                             pos = pos_next;
@@ -501,7 +501,7 @@ impl JSFunctionDef {
             if bc_out.capacity() - bc_out.len() < 16 {
                 if bc_out.try_reserve(64).is_err() {
                     // can't alloc memory, fail
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     return Err(-1);
                 }
             }

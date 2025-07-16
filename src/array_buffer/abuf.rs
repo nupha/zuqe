@@ -255,7 +255,7 @@ impl JSContext {
                 _ => {
                     let mut chunk = Vec::<u8>::new();
                     if chunk.try_reserve_exact(byte_length).is_err() {
-                        self.JS_ThrowOutOfMemory();
+                        self.throw_out_of_memory();
                         return Err(-1);
                     }
                     chunk.resize(byte_length, 0);

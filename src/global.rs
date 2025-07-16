@@ -130,7 +130,7 @@ impl JSContext {
             }
         } else {
             if prs.is_none() && !gobj.flags().extensible() {
-                self.JS_ThrowTypeError(&format!(
+                self.throw_type_error(&format!(
                     "cannot define variable '{}' ",
                     prop.to_str(self.rt())
                 ));
@@ -144,7 +144,7 @@ impl JSContext {
                             || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                                 != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
                     {
-                        self.JS_ThrowTypeError(&format!(
+                        self.throw_type_error(&format!(
                             "cannot define variable '{}'",
                             prop.to_str(self.rt())
                         ));

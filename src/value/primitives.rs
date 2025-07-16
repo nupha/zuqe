@@ -43,7 +43,7 @@ impl JSValue {
                     return if !ret.is_object() {
                         Ok(ret)
                     } else {
-                        ctx.JS_ThrowTypeError("toPrimitive");
+                        ctx.throw_type_error("toPrimitive");
                         Err(-1)
                     };
                 }
@@ -66,7 +66,7 @@ impl JSValue {
                 }
             }
 
-            ctx.JS_ThrowTypeError("cannot coerce to primitive");
+            ctx.throw_type_error("cannot coerce to primitive");
             Err(-1)
         } else {
             Ok(self.clone())

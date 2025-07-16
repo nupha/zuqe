@@ -134,7 +134,7 @@ impl JSValue {
         if let JSValue::Object(p) = self {
             p.has_own_property(ctx, prop)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -143,7 +143,7 @@ impl JSValue {
         if let JSValue::Object(p) = self {
             p.has_own_property_str(ctx, prop)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -157,7 +157,7 @@ impl JSValue {
         if let JSValue::Object(p) = self {
             p.get_own_property(ctx, prop)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }

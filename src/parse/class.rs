@@ -584,7 +584,7 @@ impl<'s> JSParseState<'s> {
             if src_len > 0 {
                 let mut src = Vec::<u8>::new();
                 src.try_reserve_exact(src_len).map_err(|_| {
-                    self.ctx.JS_ThrowOutOfMemory();
+                    self.ctx.throw_out_of_memory();
                     -1
                 })?;
                 unsafe {

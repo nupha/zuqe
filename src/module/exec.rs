@@ -257,7 +257,7 @@ impl ModuleDef {
                 let lst = &mut m1.0.borrow_mut().async_parent_modules;
                 if lst.len() == lst.capacity() {
                     if lst.try_reserve(8).is_err() {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         return Err(ctx.take_exception());
                     }
                 }
@@ -772,7 +772,7 @@ fn gather_module_ancestors(
             if m.0.borrow().pending_async_dependencies == 0 {
                 if result.len() == result.capacity() {
                     if result.try_reserve(8).is_err() {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         return Err(-1);
                     }
                 }

@@ -226,7 +226,7 @@ pub fn js_generator_next(
             }
             JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED => WhatToDo::Done,
             JSGeneratorStateEnum::JS_GENERATOR_STATE_EXECUTING => {
-                ctx.JS_ThrowTypeError("cannot invoke a running generator");
+                ctx.throw_type_error("cannot invoke a running generator");
                 return Err(-1);
             }
         };
@@ -287,7 +287,7 @@ pub fn js_generator_next(
             }
         }
     } else {
-        ctx.JS_ThrowTypeError("not a generator");
+        ctx.throw_type_error("not a generator");
         Err(-1)
     }
 }

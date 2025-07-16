@@ -67,7 +67,7 @@ impl PromiseResolvingFunc {
             }
 
             if resolution.is_same(&s.promise.0) {
-                ctx.JS_ThrowTypeError("promise self resolution");
+                ctx.throw_type_error("promise self resolution");
                 let error = ctx.take_exception();
                 s.promise.clone().fulfill_or_reject(ctx, error, true);
                 return Ok(JSValue::UNDEFINED);

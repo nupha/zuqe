@@ -111,7 +111,7 @@ pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueCons
     }
 
     if !enum_obj.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return JSValue::EXCEPTION;
     }
 
@@ -153,7 +153,7 @@ pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JS
     };
 
     if !method.is_callable() {
-        ctx.JS_ThrowTypeError("value is not iterable");
+        ctx.throw_type_error("value is not iterable");
         return JSValue::EXCEPTION;
     }
 
@@ -195,7 +195,7 @@ pub fn JS_IteratorNext2(
         return JSValue::EXCEPTION;
     }
     if !obj.is_object() {
-        ctx.JS_ThrowTypeError("iterator must return an object");
+        ctx.throw_type_error("iterator must return an object");
         *pdone = 0;
         return JSValue::EXCEPTION;
     }
@@ -257,7 +257,7 @@ pub fn JS_IteratorClose(
             if ret.is_exception() {
                 has_err = true;
             } else if !ret.is_object() {
-                ctx.JS_ThrowTypeErrorNotAnObject();
+                ctx.throw_type_error_not_an_object();
                 has_err = true;
             }
         }

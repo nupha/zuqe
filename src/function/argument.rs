@@ -45,7 +45,7 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
         .unwrap()
         .is_err()
         {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         };
     }
@@ -171,19 +171,19 @@ pub fn js_build_rest(ctx: &JSContext, first: usize, args: &[JSValue]) -> JSValue
 // XXX: should use ValueArray
 pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSValue]>, i32> {
     if !array_arg.is_object() {
-        ctx.JS_ThrowTypeError("not an object");
+        ctx.throw_type_error("not an object");
         return Err(-1);
     }
 
     let len = js_get_length32(ctx, array_arg)?;
     if len > JS_MAX_LOCAL_VARS as u32 {
-        ctx.JS_ThrowInternalError("too many arguments");
+        ctx.throw_internal_error("too many arguments");
         return Err(-1);
     }
 
     let mut tab = Vec::<JSValue>::new();
     tab.try_reserve_exact(len as usize).map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 

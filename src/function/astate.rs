@@ -69,7 +69,7 @@ impl AsyncStateInner {
         let mut local_buf = {
             let mut lst = Vec::<JSValue>::new();
             lst.try_reserve_exact(buf_len).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 

@@ -41,7 +41,7 @@ impl<'s> JSParseState<'s> {
                 }
                 '\\' => {
                     res_string.push_char(c).map_err(|_| {
-                        self.ctx.JS_ThrowOutOfMemory();
+                        self.ctx.throw_out_of_memory();
                         -1
                     })?;
                     if p >= self.buf_end {
@@ -75,7 +75,7 @@ impl<'s> JSParseState<'s> {
             }
 
             if res_string.push_char(c).is_err() {
-                self.ctx.JS_ThrowOutOfMemory();
+                self.ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }

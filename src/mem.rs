@@ -199,7 +199,7 @@ pub unsafe fn js_mallocz_rt(rt: *mut JSRuntime, nytes: usize) -> *mut c_void {
 pub unsafe fn js_malloc(ctx: &JSContext, nbytes: usize) -> *mut c_void {
     let ptr = js_malloc_rt(ctx.rt_mut(), nbytes);
     if unlikely(ptr.is_null()) {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         std::ptr::null_mut()
     } else {
         ptr
@@ -209,7 +209,7 @@ pub unsafe fn js_malloc(ctx: &JSContext, nbytes: usize) -> *mut c_void {
 pub unsafe fn js_mallocz(ctx: &JSContext, size: usize) -> *mut c_void {
     let ptr = js_mallocz_rt(ctx.rt_mut(), size);
     if unlikely(ptr.is_null()) {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         return std::ptr::null_mut();
     }
     ptr
@@ -222,7 +222,7 @@ pub unsafe fn js_free(ctx: &JSContext, ptr: *mut c_void) {
 pub unsafe fn js_realloc(ctx: &JSContext, ptr: *mut c_void, size: usize) -> *mut c_void {
     let ret = js_realloc_rt(ctx.rt_mut(), ptr, size);
     if unlikely(ret.is_null() && size != 0) {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         return std::ptr::null_mut();
     }
     ret
@@ -236,7 +236,7 @@ pub unsafe fn js_realloc2(
 ) -> *mut c_void {
     let ret = js_realloc_rt(ctx.rt_mut(), ptr, size);
     if unlikely(ret.is_null() && size != 0) {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         return std::ptr::null_mut();
     }
     if !pslack.is_null() {
@@ -290,7 +290,7 @@ pub unsafe fn js_malloc_typed<T>(
 ) -> Option<NonNull<T>> {
     let ptr = js_malloc_rt_typed::<T>(ctx.rt_mut(), count, zeroed);
     if ptr.is_none() {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
     }
     ptr
 }

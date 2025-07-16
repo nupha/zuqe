@@ -322,7 +322,7 @@ impl Promise {
     fn hook_executor(ctx: &JSContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
             if !cc.data_raw(i).is_undefined() {
-                ctx.JS_ThrowTypeError("resolving function already set");
+                ctx.throw_type_error("resolving function already set");
                 return Err(-1);
             } else {
                 let _ = cc.replace_data(i, cc.arg(i).clone());

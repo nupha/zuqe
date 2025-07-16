@@ -318,7 +318,7 @@ impl JSObject {
             self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(cur_len as u32));
 
             if cur_len > len {
-                return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "not configurable") {
+                return if ctx.throw_type_error_or_false(flags as _, "not configurable") {
                     Err(-1)
                 } else {
                     Ok(false)

@@ -150,7 +150,7 @@ impl JSPropertyDescriptor {
             flags |= JS_PROP_HAS_GET;
             getter = desc.get_property(ctx, JS_ATOM_get);
             if getter.is_exception() || !(getter.is_undefined() || getter.is_callable()) {
-                ctx.JS_ThrowTypeError("invalid getter");
+                ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
         }
@@ -159,7 +159,7 @@ impl JSPropertyDescriptor {
             flags |= JS_PROP_HAS_SET;
             setter = desc.get_property(ctx, JS_ATOM_set);
             if setter.is_exception() || !(setter.is_undefined() || setter.is_callable()) {
-                ctx.JS_ThrowTypeError("invalid setter");
+                ctx.throw_type_error("invalid setter");
                 return Err(-1);
             }
         }
@@ -167,7 +167,7 @@ impl JSPropertyDescriptor {
         if flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
             && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0
         {
-            ctx.JS_ThrowTypeError("cannot have setter/getter and value or writable");
+            ctx.throw_type_error("cannot have setter/getter and value or writable");
             return Err(-1);
         }
 
@@ -375,7 +375,7 @@ impl JSValue {
                 if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, self) } {
                     p.copy_properties_from(ctx, src_obj, excluded.object(), setprop)
                 } else {
-                    ctx.JS_ThrowTypeError("not an object");
+                    ctx.throw_type_error("not an object");
                     Err(-1)
                 }
             }

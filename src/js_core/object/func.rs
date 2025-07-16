@@ -23,7 +23,7 @@ pub fn JS_ObjectDefineProperties(
     properties: &JSValue,
 ) -> Result<(), i32> {
     if !obj.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -40,7 +40,7 @@ pub fn JS_ObjectDefineProperties(
                     obj.define_property_desc(cx, name.atom, &desc, JS_PROP_THROW)
                         .map(|_| ())
                 } else {
-                    ctx.JS_ThrowTypeErrorNotAnObject();
+                    ctx.throw_type_error_not_an_object();
                     return Err(-1);
                 }
             },
@@ -48,7 +48,7 @@ pub fn JS_ObjectDefineProperties(
 
         r
     } else {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 }
@@ -71,7 +71,7 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
     let proto = cc.arg(0);
     if !proto.is_object() && !proto.is_null() {
-        ctx.JS_ThrowTypeError("not a prototype");
+        ctx.throw_type_error("not a prototype");
         return Err(-1);
     }
 
@@ -88,7 +88,7 @@ pub fn js_object_getPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !val.is_object() {
         // ES6 feature non compatible with ES5.1: primitive types are accepted
         if cc.magic() != 0 || matches!(val, JSValue::NULL | JSValue::UNDEFINED) {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
     }
@@ -127,7 +127,7 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
             })
         }
         _ => {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
@@ -192,7 +192,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut idx: i64 = 0;
     loop {
         if idx >= MAX_SAFE_INTEGER {
-            ctx.JS_ThrowTypeError("too many elements");
+            ctx.throw_type_error("too many elements");
             let _ = JS_IteratorClose(ctx, &iter, true);
             return Err(-1);
         }
@@ -284,7 +284,7 @@ pub fn js_object_isExtensible(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !obj.is_object() {
         return if reflect != 0 {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
             Ok(JSValue::Bool(false))
@@ -300,7 +300,7 @@ pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult
 
     if !obj.is_object() {
         return if reflect != 0 {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
             Ok(obj.clone())
@@ -312,7 +312,7 @@ pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult
         Ok(JSValue::Bool(ret))
     } else {
         if !ret {
-            ctx.JS_ThrowTypeError("proxy preventExtensions handler returned false");
+            ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
             Ok(obj.clone())
@@ -326,7 +326,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
         if let JSValue::Object(p) = cc.arg(0) {
             JSValue::Object(p.clone())
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
     } else {
@@ -477,7 +477,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         if !item.is_object() {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, &iter, true)?;

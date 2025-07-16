@@ -279,14 +279,14 @@ impl JSValue {
         match self {
             Self::Object(o) => o.get_property_ex(ctx, prop, this_obj, throw_ref_error),
             Self::NULL => {
-                ctx.JS_ThrowTypeError(&format!(
+                ctx.throw_type_error(&format!(
                     "cannot read property '{}' of null",
                     prop.to_str(ctx.rt())
                 ));
                 JSValue::EXCEPTION
             }
             Self::UNDEFINED => {
-                ctx.JS_ThrowTypeError(&format!(
+                ctx.throw_type_error(&format!(
                     "cannot read property '{}' of undefined",
                     prop.to_str(ctx.rt())
                 ));

@@ -53,7 +53,7 @@ impl JSObject {
                 //
 
                 if unsafe { !check_define_prop_flags(prs_flags, flags) } {
-                    return if ctx.JS_ThrowTypeErrorOrFalse(flags, "property is not configurable") {
+                    return if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                         Err(-1)
                     } else {
                         Ok(false)
@@ -172,7 +172,7 @@ impl JSObject {
 
                             if let Ok(b) = num.is_integral(ctx) {
                                 if !b {
-                                    return if ctx.JS_ThrowTypeErrorOrFalse(
+                                    return if ctx.throw_type_error_or_false(
                                         flags,
                                         "non integer index in typed array",
                                     ) {
@@ -186,7 +186,7 @@ impl JSObject {
                             };
 
                             if JS_NumberIsNegativeOrMinusZero(&num) {
-                                return if ctx.JS_ThrowTypeErrorOrFalse(
+                                return if ctx.throw_type_error_or_false(
                                     flags as _,
                                     "negative index in typed array",
                                 ) {
@@ -197,7 +197,7 @@ impl JSObject {
                             }
 
                             if !prop.is_int_type() {
-                                return if ctx.JS_ThrowTypeErrorOrFalse(
+                                return if ctx.throw_type_error_or_false(
                                     flags,
                                     "out-of-bound index in typed array",
                                 ) {
@@ -211,7 +211,7 @@ impl JSObject {
                         let idx = __JS_AtomToUInt32(prop);
                         /* if the typed array is detached, p->u.array.count = 0 */
                         if idx >= self.array_length_unchecked() as u32 {
-                            return if ctx.JS_ThrowTypeErrorOrFalse(
+                            return if ctx.throw_type_error_or_false(
                                 flags,
                                 "out-of-bound index in typed array",
                             ) {
@@ -230,7 +230,7 @@ impl JSObject {
                                 != (JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
                         {
                             return if ctx
-                                .JS_ThrowTypeErrorOrFalse(flags as _, "invalid descriptor flags")
+                                .throw_type_error_or_false(flags as _, "invalid descriptor flags")
                             {
                                 Err(-1)
                             } else {
@@ -336,7 +336,7 @@ impl JSValue {
         if let Self::Object(p) = self {
             p.define_property(ctx, prop, val, getter, setter, flags)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }

@@ -29,7 +29,7 @@ impl JSObject {
         let obj_proto = self.get_property(ctx, JS_ATOM_prototype);
         if !obj_proto.is_object() {
             if !obj_proto.is_exception() {
-                ctx.JS_ThrowTypeError("operand 'prototype' property is not an object");
+                ctx.throw_type_error("operand 'prototype' property is not an object");
             }
             return Err(-1);
         }
@@ -87,7 +87,7 @@ impl JSObject {
 
         // legacy case
         if !self.is_callable() {
-            ctx.JS_ThrowTypeError("invalid 'instanceof' right operand");
+            ctx.throw_type_error("invalid 'instanceof' right operand");
             return Err(-1);
         }
 
@@ -127,7 +127,7 @@ impl JSValue {
         if let Self::Object(p) = self {
             p.ordinary_instance_of(ctx, ty)
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
     }
@@ -138,7 +138,7 @@ impl JSValue {
         if let Self::Object(p) = self {
             p.instance_of(ctx, ty)
         } else {
-            ctx.JS_ThrowTypeError("invalid 'instanceof' right operand");
+            ctx.throw_type_error("invalid 'instanceof' right operand");
             return Err(-1);
         }
     }

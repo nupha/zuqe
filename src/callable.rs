@@ -38,7 +38,7 @@ impl JSCFunctionDataRecord {
                     data: {
                         let mut lst = Vec::new();
                         lst.try_reserve_exact(data.len()).map_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             -1
                         })?;
                         for d in data {
@@ -50,7 +50,7 @@ impl JSCFunctionDataRecord {
             }
             Ok(unsafe { Box::from_raw(s.as_ptr()) })
         } else {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             Err(-1)
         }
     }

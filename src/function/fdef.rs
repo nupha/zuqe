@@ -319,7 +319,7 @@ impl JSFunctionDef {
             unsafe {
                 if (*parent).child_list.len() == (*parent).child_list.capacity() {
                     (*parent).child_list.try_reserve(8).map_err(|_| {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         -1
                     })?;
                 }

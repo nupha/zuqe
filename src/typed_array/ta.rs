@@ -419,11 +419,11 @@ impl JSValue {
         if let Self::Object(ob) = self {
             if is_dataview {
                 if ob.class_id() != JS_CLASS_DATAVIEW {
-                    ctx.JS_ThrowTypeError("not a DataView");
+                    ctx.throw_type_error("not a DataView");
                     return Err(-1);
                 }
             } else if !(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&ob.class_id()) {
-                ctx.JS_ThrowTypeError("not a TypedArray");
+                ctx.throw_type_error("not a TypedArray");
                 return Err(-1);
             }
 

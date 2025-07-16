@@ -89,7 +89,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     }?;
 
     if new_obj.is_same(cc.this()) {
-        ctx.JS_ThrowTypeError("cannot use identical ArrayBuffer");
+        ctx.throw_type_error("cannot use identical ArrayBuffer");
         return Err(-1);
     }
 
@@ -117,7 +117,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if new_abuf.byte_length() < new_len as usize {
-        ctx.JS_ThrowTypeError("new ArrayBuffer is too small");
+        ctx.throw_type_error("new ArrayBuffer is too small");
         return Err(-1);
     }
 

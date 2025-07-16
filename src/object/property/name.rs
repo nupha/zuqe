@@ -195,7 +195,7 @@ impl JSObject {
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if lst.len() == lst.capacity() {
                 lst.try_reserve_exact(16).map_err(|_| {
-                    cx.JS_ThrowOutOfMemory();
+                    cx.throw_out_of_memory();
                     -1
                 })?;
             }

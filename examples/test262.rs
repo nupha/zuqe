@@ -67,13 +67,13 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let mut cc = StringContent::with_capacity(n as _, end >= 0x100).map_err(|_| {
-        ctx.JS_ThrowOutOfMemory();
+        ctx.throw_out_of_memory();
         -1
     })?;
 
     for i in start..end {
         cc.push_char(char::from_u32(i).unwrap()).map_err(|_| {
-            ctx.JS_ThrowOutOfMemory();
+            ctx.throw_out_of_memory();
             -1
         })?;
     }
@@ -301,7 +301,7 @@ fn run_test_script(
                     if is_async {
                         // test if the test called $DONE() once
                         if async_done != 1 {
-                            ctx.JS_ThrowTypeError("$DONE() not called")
+                            ctx.throw_type_error("$DONE() not called")
                         }
                         ret_val = JSValue::UNDEFINED;
                     } else {
@@ -315,7 +315,7 @@ fn run_test_script(
                                 JSValue::EXCEPTION
                             }
                             Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
-                                ctx.JS_ThrowTypeError("promise not fulfilled");
+                                ctx.throw_type_error("promise not fulfilled");
                                 JSValue::EXCEPTION
                             }
                         };

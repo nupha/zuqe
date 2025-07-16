@@ -221,7 +221,7 @@ impl JSObjectInner {
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 return Err(isa);
             };
 
@@ -577,12 +577,12 @@ impl JSValue {
                 .create_instance(ObjectDetail::STRING(self.clone()))
                 .map_err(|_| -1),
             Self::NULL | Self::UNDEFINED => {
-                ctx.JS_ThrowTypeError("cannot convert to object");
+                ctx.throw_type_error("cannot convert to object");
                 Err(-1)
             }
             Self::EXCEPTION => Err(-1),
             _ => {
-                ctx.JS_ThrowTypeError("cannot convert to object");
+                ctx.throw_type_error("cannot convert to object");
                 Err(-1)
             }
         }
@@ -601,7 +601,7 @@ impl JSValue {
         if let JSValue::Object(p) = &self {
             let this = JSValue::Object(p.clone());
             if !JS_PreventExtensions(ctx, &this)? {
-                ctx.JS_ThrowTypeError("proxy preventExtensions handler returned false");
+                ctx.throw_type_error("proxy preventExtensions handler returned false");
                 return Err(-1);
             }
 
@@ -752,7 +752,7 @@ pub fn JS_SetPrototypeInternal(
     throw_flag: bool,
 ) -> Result<bool, i32> {
     if throw_flag && obj.is_undefined_or_null() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -762,7 +762,7 @@ pub fn JS_SetPrototypeInternal(
         } else if proto_val.is_null() {
             None
         } else {
-            ctx.JS_ThrowTypeErrorNotAnObject();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         };
 
@@ -779,7 +779,7 @@ pub fn JS_SetPrototypeInternal(
 
         if !p.flags().extensible() {
             if throw_flag {
-                ctx.JS_ThrowTypeError("object is not extensible");
+                ctx.throw_type_error("object is not extensible");
                 return Err(-1);
             } else {
                 return Ok(false);
@@ -792,7 +792,7 @@ pub fn JS_SetPrototypeInternal(
             loop {
                 if p1.eq(p) {
                     if throw_flag {
-                        ctx.JS_ThrowTypeError("circular prototype chain");
+                        ctx.throw_type_error("circular prototype chain");
                         return Err(-1);
                     } else {
                         return Ok(false);
@@ -815,7 +815,7 @@ pub fn JS_SetPrototypeInternal(
 
         Ok(true)
     } else {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
@@ -842,12 +842,12 @@ pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i
             drop(old);
             0
         } else {
-            ctx.JS_ThrowTypeError("invalid object type");
+            ctx.throw_type_error("invalid object type");
             -1
         }
     } else {
         if !obj.is_exception() {
-            ctx.JS_ThrowTypeError("invalid object type");
+            ctx.throw_type_error("invalid object type");
         }
         -1
     }
@@ -925,7 +925,7 @@ pub fn JS_SpeciesConstructor(
     default_constructor: JSValue,
 ) -> JSResult {
     if !obj.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -937,7 +937,7 @@ pub fn JS_SpeciesConstructor(
     }
 
     if !ctor.is_object() {
-        ctx.JS_ThrowTypeErrorNotAnObject();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
@@ -949,7 +949,7 @@ pub fn JS_SpeciesConstructor(
     }
 
     if !species.is_constructor() {
-        ctx.JS_ThrowTypeError("not a constructor");
+        ctx.throw_type_error("not a constructor");
         return Err(-1);
     }
 

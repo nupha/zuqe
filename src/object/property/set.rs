@@ -40,7 +40,7 @@ pub(crate) fn call_setter(
     } else {
         if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
         {
-            ctx.JS_ThrowTypeError("no setter for property");
+            ctx.throw_type_error("no setter for property");
             return Err(-1);
         }
         Ok(false)
@@ -257,7 +257,7 @@ impl JSObject {
                             }
 
                             if !this.flags().extensible() {
-                                return if ctx.JS_ThrowTypeErrorOrFalse(
+                                return if ctx.throw_type_error_or_false(
                                     flags as _,
                                     "object is not extensible",
                                 ) {
@@ -300,7 +300,7 @@ impl JSObject {
                                     Some(desc) => {
                                         // already exists, update the value
                                         if desc.flags & JS_PROP_GETSET != 0 {
-                                            return if ctx.JS_ThrowTypeErrorOrFalse(
+                                            return if ctx.throw_type_error_or_false(
                                                 flags as _,
                                                 "setter is forbidden",
                                             ) {
@@ -381,7 +381,7 @@ impl JSObject {
                 return Err(-1);
             }
             _ => {
-                return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "receiver must be an object") {
+                return if ctx.throw_type_error_or_false(flags as _, "receiver must be an object") {
                     Err(-1)
                 } else {
                     Ok(false)
@@ -459,7 +459,7 @@ impl JSObject {
                                         if !use_slow_path {
                                             // append to array
                                             lst.try_reserve_exact(1).map_err(|_| {
-                                                ctx.JS_ThrowOutOfMemory();
+                                                ctx.throw_out_of_memory();
                                                 -1
                                             })?;
                                             lst.push(val.clone());
@@ -647,7 +647,7 @@ impl JSValue {
             if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, obj) } {
                 p.set_property_ex(ctx, prop, val, this_obj, flags)
             } else {
-                if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "not an object") {
+                if ctx.throw_type_error_or_false(flags as _, "not an object") {
                     Err(-1)
                 } else {
                     Ok(false)

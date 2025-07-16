@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    atom::{__JS_AtomToUInt32, JSAtom, AtomID, consts::*},
+    atom::{__JS_AtomToUInt32, AtomID, JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
@@ -252,7 +252,7 @@ impl JSString {
             let count = end.saturating_sub(start); // if end > start { end - start } else { 0 };
             if count > 0 {
                 let sub = self.content().slice(start..end).to_owned().map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
                 ctx.create_string_from_content(sub).check_exception()
@@ -289,7 +289,7 @@ impl JSString {
 
         let mut res_content =
             StringContent::with_capacity(str.len(), str.is_wide_char()).map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -308,7 +308,7 @@ impl JSString {
             res_content
                 .push_content_slice(&rep_cc.slice(i..j))
                 .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
 
@@ -321,14 +321,14 @@ impl JSString {
                 '$' => {
                     // $$ -> $
                     res_content.push_char(c).map_err(|_| {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         -1
                     })?;
                 }
                 '&' => {
                     // $& -> matched
                     res_content.push(matched.content()).map_err(|_| {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         -1
                     })?;
                 }
@@ -337,7 +337,7 @@ impl JSString {
                     res_content
                         .push_content_slice(&str.content().slice(0..position))
                         .map_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             -1
                         })?;
                 }
@@ -348,7 +348,7 @@ impl JSString {
                             &str.content().slice((position + matched_len)..str.len()),
                         )
                         .map_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             -1
                         })?;
                 }
@@ -373,7 +373,7 @@ impl JSString {
                             res_content
                                 .push(unsafe { sval.string_unchecked().content() })
                                 .map_err(|_| {
-                                    ctx.JS_ThrowOutOfMemory();
+                                    ctx.throw_out_of_memory();
                                     -1
                                 })?;
                         }
@@ -381,7 +381,7 @@ impl JSString {
                         res_content
                             .push_content_slice(&rep_cc.slice(j0..j))
                             .map_err(|_| {
-                                ctx.JS_ThrowOutOfMemory();
+                                ctx.throw_out_of_memory();
                                 -1
                             })?;
                     }
@@ -398,7 +398,7 @@ impl JSString {
                             res_content
                                 .push(unsafe { sval.string_unchecked().content() })
                                 .map_err(|_| {
-                                    ctx.JS_ThrowOutOfMemory();
+                                    ctx.throw_out_of_memory();
                                     -1
                                 })?;
                         }
@@ -407,7 +407,7 @@ impl JSString {
                         res_content
                             .push_content_slice(&rep_cc.slice(j0..j))
                             .map_err(|_| {
-                                ctx.JS_ThrowOutOfMemory();
+                                ctx.throw_out_of_memory();
                                 -1
                             })?;
                     }
@@ -416,7 +416,7 @@ impl JSString {
                     res_content
                         .push_content_slice(&rep_cc.slice(j0..j))
                         .map_err(|_| {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             -1
                         })?;
                 }
@@ -428,7 +428,7 @@ impl JSString {
         res_content
             .push_content_slice(&rep_cc.slice(i..rep_len))
             .map_err(|_| {
-                ctx.JS_ThrowOutOfMemory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
 
@@ -483,12 +483,12 @@ impl JSContext {
                 .unwrap()
                 .into()
         } else if str.len() > JS_STRING_LEN_MAX {
-            self.JS_ThrowInternalError("string too long");
+            self.throw_internal_error("string too long");
             JSValue::EXCEPTION
         } else if let Ok(ss) = JSString::from_str(self.rt_mut(), str) {
             JSValue::String(ss)
         } else {
-            self.JS_ThrowOutOfMemory();
+            self.throw_out_of_memory();
             JSValue::EXCEPTION
         }
     }
@@ -508,12 +508,12 @@ impl JSContext {
         if data.is_empty() {
             JS_ATOM_empty_string.to_value(self, true)
         } else if data.len() > JS_STRING_LEN_MAX {
-            self.JS_ThrowInternalError("string too long");
+            self.throw_internal_error("string too long");
             JSValue::EXCEPTION
         } else if let Ok(ss) = JSString::from_utf8(self.rt_mut(), data) {
             JSValue::String(ss)
         } else {
-            self.JS_ThrowOutOfMemory();
+            self.throw_out_of_memory();
             JSValue::EXCEPTION
         }
     }
@@ -574,7 +574,7 @@ pub fn is_num(c: i32) -> bool {
 
 pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValueConst) -> JSResult {
     if val.is_undefined_or_null() {
-        ctx.JS_ThrowTypeError("null or undefined are forbidden");
+        ctx.throw_type_error("null or undefined are forbidden");
         Err(-1)
     } else {
         val.coerce_to_string(ctx)
@@ -666,7 +666,7 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
                 Ok(mut cc) => {
                     if cc.push(p2.content()).is_err() {
                         ss.content = Rc::new(cc);
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         JSValue::EXCEPTION
                     } else {
                         ctx.create_string_from_content(cc)
@@ -675,13 +675,13 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
                 Err(cc) => {
                     if let Ok(mut cc2) = cc.copy_to_new() {
                         if cc2.push(p2.content()).is_err() {
-                            ctx.JS_ThrowOutOfMemory();
+                            ctx.throw_out_of_memory();
                             JSValue::EXCEPTION
                         } else {
                             ctx.create_string_from_content(cc2)
                         }
                     } else {
-                        ctx.JS_ThrowOutOfMemory();
+                        ctx.throw_out_of_memory();
                         JSValue::EXCEPTION
                     }
                 }
@@ -831,7 +831,7 @@ pub fn js_string_define_own_property(
 ) -> i32 {
     macro_rules! fail {
         () => {
-            return if ctx.JS_ThrowTypeErrorOrFalse(flags as _, "property is not configurable") {
+            return if ctx.throw_type_error_or_false(flags as _, "property is not configurable") {
                 0
             } else {
                 -1

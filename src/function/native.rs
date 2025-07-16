@@ -173,7 +173,7 @@ impl ObjNativeFunc {
             sf.local_buf
                 .try_reserve_exact(arg_length as usize)
                 .map_err(|_| {
-                    ctx.JS_ThrowOutOfMemory();
+                    ctx.throw_out_of_memory();
                     -1
                 })?;
 
@@ -201,7 +201,7 @@ impl ObjNativeFunc {
             }
             NativeFunctionType::Constructor(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    realm.JS_ThrowTypeError("must be called with new");
+                    realm.throw_type_error("must be called with new");
                     return Err(-1);
                 }
                 let cc =
@@ -255,7 +255,7 @@ impl ObjNativeFunc {
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         if matches!(callback, NativeFunctionType::Constructor(_)) {
-                            realm.JS_ThrowTypeError("must be called with new");
+                            realm.throw_type_error("must be called with new");
                             return Err(-1);
                         } else {
                             this_obj = &JSValue::UNDEFINED;
@@ -274,7 +274,7 @@ impl ObjNativeFunc {
                 ) {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         if matches!(callback, NativeFunctionType::CConstructorMagic(_)) {
-                            realm.JS_ThrowTypeError("must be called with new");
+                            realm.throw_type_error("must be called with new");
                             return Err(-1);
                         } else {
                             this_obj = &JSValue::UNDEFINED;

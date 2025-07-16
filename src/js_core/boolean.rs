@@ -30,7 +30,7 @@ pub fn js_thisBooleanValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     {
         Ok(d.clone())
     } else {
-        ctx.JS_ThrowTypeError("not a boolean");
+        ctx.throw_type_error("not a boolean");
         Err(-1)
     }
 }
@@ -40,7 +40,7 @@ pub fn js_boolean_toString(ctx: &JSContext, args: CallContext) -> JSResult {
         JSValue::Bool(true) => JS_ATOM_true,
         JSValue::Bool(false) => JS_ATOM_false,
         _ => {
-            ctx.JS_ThrowTypeError("not a boolean");
+            ctx.throw_type_error("not a boolean");
             return Err(-1);
         }
     }

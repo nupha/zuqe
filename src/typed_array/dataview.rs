@@ -32,7 +32,7 @@ impl JSContext {
             .object()
             .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
             .ok_or_else(|| {
-                self.JS_ThrowTypeError("expect an ArrayBuffer");
+                self.throw_type_error("expect an ArrayBuffer");
                 -1
             })?;
 
@@ -183,11 +183,11 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
                     Ok(JSValue::from(n))
                 }
                 JS_CLASS_BIG_INT64_ARRAY => {
-                    ctx.JS_ThrowTypeError("BigInt64Array is not supported");
+                    ctx.throw_type_error("BigInt64Array is not supported");
                     Err(-1)
                 }
                 JS_CLASS_BIG_UINT64_ARRAY => {
-                    ctx.JS_ThrowTypeError("BigUint64Array is not supported");
+                    ctx.throw_type_error("BigUint64Array is not supported");
                     Err(-1)
                 }
                 JS_CLASS_FLOAT32_ARRAY => {
@@ -237,7 +237,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     if class_id <= JS_CLASS_UINT32_ARRAY {
         v = val.coerce_to_u32(ctx)?;
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
-        ctx.JS_ThrowTypeError("BigInt is not supported");
+        ctx.throw_type_error("BigInt is not supported");
         return Err(-1);
     } else {
         let d: f64 = val.coerce_to_f64(ctx)?;
@@ -303,7 +303,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
                     Ok(())
                 }
                 JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                    ctx.JS_ThrowTypeError("BigInt64Array, BigUint64Array is not supported");
+                    ctx.throw_type_error("BigInt64Array, BigUint64Array is not supported");
                     Err(-1)
                 }
                 _ => {
