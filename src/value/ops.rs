@@ -10,68 +10,68 @@ use crate::{
 };
 
 impl JSObject {
-    /// check if object `self` is instance of type `ty`.
-    /// equivelent to js: `self instanceof ty`
-    pub(crate) fn ordinary_instance_of(&self, ctx: &JSContext, ty: &JSValue) -> Result<bool, i32> {
-        if !self.is_callable() {
+    /// check if object `self` is instance of constructor `ctor`.
+    /// equivalent to js: `self instanceof ctor`
+    pub(crate) fn ordinary_instance_of(
+        &self,
+        ctx: &JSContext,
+        ctor: &JSValue,
+    ) -> Result<bool, i32> {
+        if !ctor.is_callable() {
             return Ok(false);
         }
-
-        if let ObjectDetail::BOUND_FUNCTION(bfunc) = self.0.payload.borrow().deref() {
-            return bfunc.func_obj.instance_of(ctx, ty);
-        }
-
-        // Only explicitly boxed values are instances of constructors
-        if !ty.is_object() {
-            return Ok(false);
-        }
-
-        let obj_proto = self.get_property(ctx, JS_ATOM_prototype);
-        if !obj_proto.is_object() {
-            if !obj_proto.is_exception() {
-                ctx.throw_type_error("operand 'prototype' property is not an object");
+        if let JSValue::Object(ty) = ctor {
+            if let ObjectDetail::BOUND_FUNCTION(bfunc) = ty.0.payload.borrow().deref() {
+                return bfunc.func_obj.instance_of(ctx, ctor);
             }
-            return Err(-1);
+        } else {
+            unreachable!();
         }
 
-        let proto = unsafe { obj_proto.object_unchecked() };
-        let mut p = unsafe { ty.object_unchecked().clone() };
-
-        loop {
-            let up = p.shape().unwrap().0.borrow().proto.clone();
-            if let Some(up) = up {
-                p = up;
-                if p.eq(proto) {
-                    break Ok(true);
-                }
-            } else {
-                let r = if p.class_id() == JS_CLASS_PROXY {
-                    // slow case if proxy in the prototype chain
-                    let obj1 = JSValue::Object(p);
-                    loop {
-                        let obj1 = obj1.prototype(ctx)?;
-                        if obj1.is_null() {
-                            break Ok(false);
-                        }
-                        if proto == unsafe { obj1.object_unchecked() } {
+        match ctor.get_property(ctx, JS_ATOM_prototype) {
+            JSValue::Object(proto) => {
+                let mut p = self.clone();
+                loop {
+                    if let Some(up) = p.shape().unwrap().0.borrow().proto.clone() {
+                        if up.eq(&proto) {
                             break Ok(true);
                         }
-
-                        // must check for timeout to avoid infinite loop
-                        ctx.poll_interrupts()?;
+                        p = up;
+                    } else {
+                        let r = if p.class_id() == JS_CLASS_PROXY {
+                            // slow case if proxy in the prototype chain
+                            let mut obj1 = p;
+                            'px_proto: loop {
+                                if let Some(o) = obj1.prototype(ctx)? {
+                                    if proto == o {
+                                        break Ok(true);
+                                    }
+                                    obj1 = o;
+                                    // must check for timeout to avoid infinite loop
+                                    ctx.poll_interrupts()?;
+                                } else {
+                                    break 'px_proto Ok(false);
+                                }
+                            }
+                        } else {
+                            Ok(false)
+                        };
+                        break r;
                     }
-                } else {
-                    Ok(false)
-                };
-                break r;
+                }
+            }
+            JSValue::EXCEPTION => Err(-1),
+            _ => {
+                ctx.throw_type_error("operand 'prototype' property is not an object");
+                Err(-1)
             }
         }
     }
 
-    /// check if object `self` is instance of type `ty`.
-    /// equivelent to js: `self instanceof ty`
-    pub fn instance_of(&self, ctx: &JSContext, ty: &JSValue) -> Result<bool, i32> {
-        let method = self
+    /// check if object `self` is instance of constructor `ctor`.
+    /// equivalent to js: `self instanceof ty`
+    pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
+        let method = ctor
             .get_property(ctx, JS_ATOM_Symbol_hasInstance)
             .check_exception()?;
 
@@ -79,24 +79,24 @@ impl JSObject {
             let ret = JS_Call(
                 ctx,
                 &method,
-                &JSValue::Object(self.clone()),
-                std::slice::from_ref(ty),
+                &ctor,
+                std::slice::from_ref(&JSValue::Object(self.clone())),
             );
             return ret.coerce_to_bool(ctx);
         }
 
         // legacy case
-        if !self.is_callable() {
+        if !ctor.is_callable() {
             ctx.throw_type_error("invalid 'instanceof' right operand");
             return Err(-1);
         }
 
-        self.ordinary_instance_of(ctx, ty)
+        self.ordinary_instance_of(ctx, ctor)
     }
 }
 
 impl JSValue {
-    /// get typeof value, equivelent to js `typeof val`
+    /// get typeof value, equivalent to js `typeof val`
     ///
     /// Note:
     /// returned atom is not cloned, if caller want keep reference, should clone it.
@@ -121,22 +121,30 @@ impl JSValue {
         }
     }
 
-    /// check if object value `self` is instance of type `ty`.
-    /// equivelent to js: `self instanceof ty`
-    pub(crate) fn ordinary_instance_of(&self, ctx: &JSContext, ty: &JSValue) -> Result<bool, i32> {
+    /// check if object value `self` is instance of `type_`.
+    /// equivalent to js: `self instanceof type_`
+    pub(crate) fn ordinary_instance_of(
+        &self,
+        ctx: &JSContext,
+        type_: &JSValue,
+    ) -> Result<bool, i32> {
         if let Self::Object(p) = self {
-            p.ordinary_instance_of(ctx, ty)
+            p.ordinary_instance_of(ctx, type_)
         } else {
             ctx.throw_type_error_not_an_object();
-            return Err(-1);
+            Err(-1)
         }
     }
 
-    /// check if value `self` is instance of type `ty`.
-    /// equivelent to js: `self instanceof ty`
-    pub fn instance_of(&self, ctx: &JSContext, ty: &JSValue) -> Result<bool, i32> {
-        if let Self::Object(p) = self {
-            p.instance_of(ctx, ty)
+    /// check if value `self` is instance of constructor `ctor`.
+    /// equivalent to js: `self instanceof ctor`
+    pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
+        if ctor.is_object() {
+            if let Self::Object(o) = self {
+                o.instance_of(ctx, ctor)
+            } else {
+                Ok(false)
+            }
         } else {
             ctx.throw_type_error("invalid 'instanceof' right operand");
             return Err(-1);

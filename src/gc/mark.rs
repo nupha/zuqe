@@ -4,6 +4,7 @@ use crate::{
     function::{Bytecode, JSVarRef, ObjAsyncState, VarRefState},
     module::{JSExportTypeEnum, ModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
+    stack_frame::StackFrame,
     string::JSString,
     value::JSValue,
 };
@@ -256,27 +257,35 @@ impl JSContext {
 
             let cx = self.0.borrow();
 
-            if let Some(o) = &cx.array_shape {
-                o.gc_mark();
-            }
             for p in cx.class_proto.iter() {
                 p.gc_mark();
             }
-            cx.function_proto.gc_mark();
+
+            // cx.function_proto.gc_mark(); // done in JS_CLASS_BYTECODE_FUNCTION
+            cx.iterator_proto.gc_mark();
+            cx.async_iterator_proto.gc_mark();
+            cx.array_proto_values.gc_mark();
+            for ev in cx.native_error_proto.iter() {
+                ev.gc_mark();
+            }
+
+            if let Some(o) = &cx.array_shape {
+                o.gc_mark();
+            }
+
             cx.function_ctor.gc_mark();
             cx.array_ctor.gc_mark();
             cx.regexp_ctor.gc_mark();
             cx.promise_ctor.gc_mark();
-            for p in cx.native_error_proto.iter() {
-                p.gc_mark();
-            }
-            cx.iterator_proto.gc_mark();
-            cx.async_iterator_proto.gc_mark();
-            cx.array_proto_values.gc_mark();
+
             cx.throw_type_error.gc_mark();
             cx.eval_func.gc_mark();
             cx.global_obj.gc_mark();
             cx.global_var_obj.gc_mark();
+
+            if let Some(sf) = unsafe { cx.stack_frame.cast::<StackFrame>().as_ref() } {
+                sf.gc_mark();
+            }
 
             for mw in self.0.borrow().loaded_modules.iter() {
                 if let Some(m) = mw.upgrade() {
@@ -338,6 +347,25 @@ impl JSValue {
                 s.gc_sweep();
             }
             _ => {}
+        }
+    }
+}
+
+impl StackFrame {
+    pub fn gc_mark(&self) {
+        self.cur_running.gc_mark();
+        for a in self.args_slice() {
+            a.gc_mark();
+        }
+        for v in self.local_buf.iter() {
+            v.gc_mark();
+        }
+        for vr in self.var_ref_list.iter() {
+            vr.gc_mark();
+        }
+
+        if let Some(sf) = unsafe { self.prev_frame.cast::<StackFrame>().as_ref() } {
+            sf.gc_mark();
         }
     }
 }

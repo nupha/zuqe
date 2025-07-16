@@ -39,7 +39,6 @@ pub struct JSContextInner {
 
     /// Class protos
     pub class_proto: Vec<JSValue>,
-
     /// same as class_proto[JS_CLASS_BYTECODE_FUNCTION]
     pub function_proto: JSValue,
 
@@ -82,9 +81,6 @@ pub struct JSContextInner {
 
     /// User data pointer
     pub user_opaque: *mut std::ffi::c_void,
-
-    /// Current stack trace
-    pub stack_trace: JSValue,
 
     /// Stack information
     pub stack_limit: usize,
@@ -145,7 +141,6 @@ impl JSContextInner {
             compile_regexp: None,
             eval_handle: None,
 
-            stack_trace: JSValue::UNDEFINED,
             stack_limit: 0,
             stack_pointer: 0,
             stack_size: 0,
@@ -193,26 +188,22 @@ impl JSContextInner {
     }
 
     pub(crate) fn finalize(&mut self) {
-        // reset values, to free reference
-        {
-            self.array_shape.take();
-            self.function_ctor = JSValue::NULL;
-            self.array_ctor = JSValue::NULL;
-            self.regexp_ctor = JSValue::NULL;
-            self.promise_ctor = JSValue::NULL;
-            self.function_proto = JSValue::UNDEFINED;
-            self.native_error_proto = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
-            self.iterator_proto = JSValue::UNDEFINED;
-            self.async_iterator_proto = JSValue::UNDEFINED;
-            self.array_proto_values = JSValue::UNDEFINED;
-            self.throw_type_error = JSValue::UNDEFINED;
-            self.global_obj = JSValue::UNDEFINED;
-            self.global_var_obj = JSValue::UNDEFINED;
-            self.eval_func = JSValue::UNDEFINED;
-            self.stack_trace = JSValue::UNDEFINED;
+        self.array_shape.take();
+        self.function_ctor = JSValue::UNDEFINED;
+        self.array_ctor = JSValue::UNDEFINED;
+        self.regexp_ctor = JSValue::UNDEFINED;
+        self.promise_ctor = JSValue::UNDEFINED;
+        self.function_proto = JSValue::UNDEFINED;
+        self.native_error_proto = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
+        self.iterator_proto = JSValue::UNDEFINED;
+        self.async_iterator_proto = JSValue::UNDEFINED;
+        self.array_proto_values = JSValue::UNDEFINED;
+        self.throw_type_error = JSValue::UNDEFINED;
+        self.global_obj = JSValue::UNDEFINED;
+        self.global_var_obj = JSValue::UNDEFINED;
+        self.eval_func = JSValue::UNDEFINED;
 
-            self.class_proto.clear();
-        }
+        self.class_proto.clear();
 
         #[cfg(debug_assertions)]
         {

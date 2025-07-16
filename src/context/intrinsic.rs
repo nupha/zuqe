@@ -509,7 +509,7 @@ impl JSContext {
         }
     }
 
-    pub unsafe fn intrinsic_typed_arrays(&self) {
+    pub fn intrinsic_typed_arrays(&self) {
         // ArrayBuffer
         {
             let ab_proto = self.create_base_object().unwrap();
@@ -655,7 +655,7 @@ impl JSContext {
         }
     }
 
-    pub unsafe fn intrinsic_async(&self) {
+    pub fn intrinsic_async(&self) {
         let rt = self.rt_mut();
         debug_assert!(rt.is_class_registered(JS_CLASS_PROMISE));
 
