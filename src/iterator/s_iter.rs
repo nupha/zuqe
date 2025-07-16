@@ -240,37 +240,34 @@ pub fn JS_IteratorNext(
 pub fn JS_IteratorClose(
     ctx: &JSContext,
     enum_obj: &JSValueConst,
-    is_exception_pending: bool,
+    has_exception: bool,
 ) -> Result<(), i32> {
-    let (exc_obj, mut res) = if is_exception_pending {
-        let exc = ctx.take_exception();
-        (exc, -1)
+    let (exc, mut has_err) = if has_exception {
+        (ctx.take_exception(), true)
     } else {
-        (JSValue::UNDEFINED, 0)
+        (JSValue::UNDEFINED, false)
     };
 
     let method = enum_obj.get_property(ctx, JS_ATOM_return);
     if method.is_exception() {
-        res = -1;
-    } else {
-        if !method.is_undefined_or_null() {
-            let ret = JS_Call(ctx, &method, enum_obj, &[]);
-            if !is_exception_pending {
-                if ret.is_exception() {
-                    res = -1;
-                } else if !ret.is_object() {
-                    ctx.JS_ThrowTypeErrorNotAnObject();
-                    res = -1;
-                }
+        has_err = true;
+    } else if !method.is_undefined_or_null() {
+        let ret = JS_Call(ctx, &method, enum_obj, &[]);
+        if !has_exception {
+            if ret.is_exception() {
+                has_err = true;
+            } else if !ret.is_object() {
+                ctx.JS_ThrowTypeErrorNotAnObject();
+                has_err = true;
             }
         }
     }
 
-    if is_exception_pending {
-        ctx.throw(exc_obj);
+    if has_exception {
+        ctx.throw(exc);
     }
 
-    if res == -1 { Err(-1) } else { Ok(()) }
+    if has_err { Err(-1) } else { Ok(()) }
 }
 
 pub unsafe fn JS_IteratorGetCompleteValue(

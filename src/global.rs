@@ -183,7 +183,7 @@ impl JSContext {
         } else {
             // search global object
             let gobj = self.global_obj();
-            gobj.get_property_from_shape_or_exotic(
+            gobj.get_property_ex(
                 self,
                 prop,
                 &JSValue::Object(gobj.clone()),

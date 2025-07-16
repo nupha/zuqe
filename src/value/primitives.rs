@@ -18,59 +18,59 @@ impl From<bool> for JSValue {
 impl JSValue {
     /// Convert value to primitive (non-object) value
     pub fn coerce_to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
-        if !self.is_object() {
-            return Ok(self.clone());
-        }
+        if let Self::Object(o) = self {
+            let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
+            let hint = hint & !HINT_FORCE_ORDINARY;
 
-        let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
-        let hint = hint & !HINT_FORCE_ORDINARY;
+            if !ignore_toPrimitive_method {
+                // try .toPrimitive() method
+                let method = o
+                    .get_property(ctx, JS_ATOM_Symbol_toPrimitive)
+                    .check_exception()?;
 
-        if !ignore_toPrimitive_method {
-            // try .toPrimitive() method
-            let method = self
-                .get_property(ctx, JS_ATOM_Symbol_toPrimitive)
-                .check_exception()?;
+                /* ECMA says *If exoticToPrim is not undefined* but tests in
+                test262 use null as a non-callable converter */
+                if !method.is_undefined_or_null() {
+                    let hint_val = match hint {
+                        HINT_STRING => JS_ATOM_string,
+                        HINT_NUMBER => JS_ATOM_number,
+                        _ => JS_ATOM_default,
+                    }
+                    .to_value(ctx, true)
+                    .check_exception()?;
 
-            /* ECMA says *If exoticToPrim is not undefined* but tests in
-            test262 use null as a non callable converter */
-            if !method.is_undefined_or_null() {
-                let hint_val = match hint {
-                    HINT_STRING => JS_ATOM_string,
-                    HINT_NUMBER => JS_ATOM_number,
-                    _ => JS_ATOM_default,
+                    let ret = JS_Call(ctx, &method, self, &[hint_val]).check_exception()?;
+                    return if !ret.is_object() {
+                        Ok(ret)
+                    } else {
+                        ctx.JS_ThrowTypeError("toPrimitive");
+                        Err(-1)
+                    };
                 }
-                .to_value(ctx, true)
-                .check_exception()?;
-
-                let ret = JS_Call(ctx, &method, self, &[hint_val]).check_exception()?;
-                return if !ret.is_object() {
-                    Ok(ret)
-                } else {
-                    ctx.JS_ThrowTypeError("toPrimitive");
-                    Err(-1)
-                };
             }
-        }
 
-        // Call method when hint is:
-        // - HINT_STRING: try toString() first, then valueOf()
-        // - HINT_NUMBER/HINT_NONE: try valueOf() first, then toString()
-        for a in if hint == HINT_STRING {
-            [JS_ATOM_toString, JS_ATOM_valueOf]
+            // Call method when hint is:
+            // - HINT_STRING: try toString() first, then valueOf()
+            // - HINT_NUMBER/HINT_NONE: try valueOf() first, then toString()
+            for prop in if hint == HINT_STRING {
+                [JS_ATOM_toString, JS_ATOM_valueOf]
+            } else {
+                [JS_ATOM_valueOf, JS_ATOM_toString]
+            } {
+                let method = o.get_property(ctx, prop).check_exception()?;
+                if method.is_callable() {
+                    let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
+                    if !ret.is_object() {
+                        return Ok(ret);
+                    }
+                }
+            }
+
+            ctx.JS_ThrowTypeError("cannot coerce to primitive");
+            Err(-1)
         } else {
-            [JS_ATOM_valueOf, JS_ATOM_toString]
-        } {
-            let method = self.get_property(ctx, a).check_exception()?;
-            if method.is_callable() {
-                let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
-                if !ret.is_object() {
-                    return Ok(ret);
-                }
-            }
+            Ok(self.clone())
         }
-
-        ctx.JS_ThrowTypeError("toPrimitive");
-        Err(-1)
     }
 
     pub fn coerce_to_bool(&self, ctx: &JSContext) -> Result<bool, i32> {

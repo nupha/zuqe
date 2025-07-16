@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-include!(concat!(env!("OUT_DIR"), "/object_detail.rs"));
+include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
 
 impl ObjectDetail {
     pub const fn array(&self) -> Option<&JSObjectArray> {

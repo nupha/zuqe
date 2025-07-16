@@ -4,18 +4,17 @@ use crate::{
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING,
     JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
-    atom::consts::*,
+    atom::{JSAtom, consts::*},
     class::JSClassID,
     context::JSContext,
     error::JSResult,
     function::CallContext,
-    gc::js_trigger_gc,
     object::GCObjectWeakref,
     proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
-use std::hint::unreachable_unchecked;
+use std::fmt::Formatter;
 use std::{
     cell::{Cell, RefCell},
     ffi::c_void,
@@ -173,6 +172,28 @@ pub(crate) struct JSObjectInner {
 impl Drop for JSObjectInner {
     fn drop(&mut self) {
         self.finalize();
+    }
+}
+
+impl std::fmt::Display for JSObjectInner {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let rt = self.rt();
+        let class_id = self.class_id();
+        let atom = rt.class_defs[class_id as usize].class_name;
+        let name = atom.to_str(rt);
+
+        #[cfg(not(debug_assertions))]
+        {
+            write!(f, "[{name}]")
+        }
+        #[cfg(debug_assertions)]
+        {
+            write!(
+                f,
+                "[{name} class={class_id} id={:p}]",
+                self.id() as *const std::ffi::c_void
+            )
+        }
     }
 }
 
@@ -394,9 +415,14 @@ impl From<JSObject> for GCObject {
     }
 }
 
+impl std::fmt::Display for JSObject {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.as_ref())
+    }
+}
 impl std::fmt::Debug for JSObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<JSObject {:p}>", self.id() as *const c_void)
+        write!(f, "{self}")
     }
 }
 
@@ -421,10 +447,16 @@ impl JSObject {
         self.0.rt_mut()
     }
 
-    /// Get object class_id
+    /// Get object class id
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
         self.0.detail.borrow().class_id()
+    }
+
+    /// Get object class name.
+    /// Note: returned atom is not duplicated, caller should clone to keep reference.
+    pub fn class_name(&self) -> JSAtom {
+        self.rt().class_defs[self.class_id() as usize].class_name
     }
 
     #[inline(always)]
@@ -459,23 +491,6 @@ impl JSObject {
     pub(crate) fn with<R>(&self, f: impl FnOnce(&JSObjectInner) -> R) -> R {
         let o = self.0.deref();
         f(o)
-    }
-
-    /// Get prototype object of `self`.
-    /// Return an Object if has prototype, None for no prototype.
-    /// Returns Err in case of Proxy object.
-    pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
-        if self.class_id() == JS_CLASS_PROXY {
-            if let JSValue::Object(o) = unsafe {
-                js_proxy_getPrototypeOf(ctx, &JSValue::Object(self.clone())).check_exception()?
-            } {
-                Ok(Some(o))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(self.shape().and_then(|s| s.0.borrow().proto.clone()))
-        }
     }
 
     // fn gc_status(&self) -> GCObjectStatus {
@@ -539,17 +554,6 @@ impl JSValue {
 
             #[cfg(not(debug_assertions))]
             unreachable_unchecked();
-        }
-    }
-
-    /// Get prototype object of `self`.
-    /// Return an Object if has prototype, NULL for no prototype.
-    /// Returns Err in case of Proxy object.
-    pub fn prototype(&self, ctx: &JSContext) -> JSResult {
-        if let Self::Object(ob) = self {
-            Ok(ob.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
-        } else {
-            unsafe { JS_GetPrototypePrimitive(ctx, self).check_exception() }
         }
     }
 
@@ -671,13 +675,17 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 impl JSContext {
-    /// create new instance of isa type, using shape of specified `proto`.
-    /// when fail, isa is returned back in Err, caller should free it.
+    /// create new instance with detailed object data.
+    /// when failed, detail data is returned back in Err, caller should free it.
     /// `proto` is Prototype object (can be JSValue::NULL).
+    ///
+    /// Note:
+    /// - New instance will apply the shape determined by `proto`.
+    /// - The `detail` data determines what class the new instance is.
     pub fn create_instance_from_proto(
         &self,
         proto: &JSValue,
-        isa: ObjectDetail,
+        detail: ObjectDetail,
     ) -> Result<JSValue, ObjectDetail> {
         // find shape by prototype
         let shape = {
@@ -688,12 +696,12 @@ impl JSContext {
                     if let Ok(sh) = JSShape::new(self, proto_ob) {
                         sh
                     } else {
-                        return Err(isa);
+                        return Err(detail);
                     }
                 }
             }
         };
-        self.create_instance_from_shape(shape, isa)
+        self.create_instance_from_shape(shape, detail)
     }
 
     /// create new instance with isa payload data.
@@ -704,7 +712,7 @@ impl JSContext {
     }
 
     /// create new instance of basic object with given prototype value.
-    /// returns Err if fail.
+    /// returns Err if failed.
     /// `proto` is not consumed.
     #[inline(always)]
     pub fn create_base_object_from_proto(&self, proto: &JSValue) -> JSResult {

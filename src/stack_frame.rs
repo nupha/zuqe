@@ -140,7 +140,8 @@ impl StackFrame {
                         // enumerator: close it with a throw
                         let iter =
                             unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
-                        JS_IteratorClose(ctx, &iter, true).unwrap();
+                        let _r = JS_IteratorClose(ctx, &iter, true);
+                        debug_assert!(_r.is_err());
                         sp -= 1;
                     } else {
                         unsafe {

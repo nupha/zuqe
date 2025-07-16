@@ -63,7 +63,7 @@ pub(crate) struct JSShapeInner {
 
     pub proto: Option<JSObject>,
 
-    /// shape property definations
+    /// shape property definitions
     pub prop_defs: IndexMap<u32, JSShapeProperty>,
 }
 
@@ -176,7 +176,7 @@ impl JSShape {
         )
     }
 
-    /// Clone to a new shape from this shape by coping property definations.
+    /// Clone to a new shape from this shape by coping property definitions.
     /// The new shape is not registered. The new shape is added to gc object list.
     pub fn clone_to_new(&self, ctx: &JSContext) -> Result<Self, i32> {
         let b = self.0.borrow();
@@ -244,7 +244,7 @@ impl JSShape {
         self.len() == 0
     }
 
-    /// Append a property defination to shape, returns final shape property length.
+    /// Append a property definition to shape, returns final shape property length.
     /// If obj is provided, it's an object that would use this shape,
     /// will try to enlarge obj's value slots if a prop is added to shape.
     ///
@@ -343,9 +343,9 @@ impl From<JSShapeWeakref> for GCObjectWeakref {
 
 impl JSContext {
     /// create instance of `isa` type, based on given shape and isa payload data.
-    /// when fail, isa is returned back in Err, caller should free it.
+    /// when failed, isa is returned back in Err, caller should free it.
     /// Note: `shape` is consumed.
-    pub fn create_instance_from_shape(
+    pub(crate) fn create_instance_from_shape(
         &self,
         shape: JSShape,
         isa: ObjectDetail,
@@ -576,50 +576,4 @@ impl JSObject {
     ) -> Result<bool, i32> {
         self.0.js_update_property_flags(ctx, prop, flags)
     }
-
-    // /// ensure that the shape can be safely modified.
-    // /// after calling, object's shape is guaranteed to be exclusive, and not registered.
-    // pub fn shape_prepare_update(&self, ctx: &JSContext, pprs: *mut *mut JSShapeProperty) -> i32 {
-    //     let sh = self.shape().unwrap();
-
-    //     if sh.0.borrow().is_hashed {
-    //         if sh.strong_count() != 1 {
-    //             // shape is shared
-    //             let atom: JSAtom = if !pprs.is_null() {
-    //                 unsafe { (*(*pprs)).atom }
-    //             } else {
-    //                 JS_ATOM_NULL
-    //             };
-
-    //             // clone to a new shape (the new shape is not registered)
-    //             match sh.clone_to_new(ctx) {
-    //                 Ok(sh1) => {
-    //                     if !pprs.is_null() {
-    //                         unsafe {
-    //                             *pprs = sh1.0.borrow_mut().props.get_mut(&atom).unwrap();
-    //                         }
-    //                     }
-    //                     self.0.borrow_mut().shape.replace(sh1); // change shape
-    //                 }
-    //                 Err(_) => {
-    //                     return -1;
-    //                 }
-    //             }
-    //         } else {
-    //             // already exclusive
-    //             ctx.rt_mut().unregister_shape(sh.0.borrow_mut().deref_mut());
-    //         }
-    //     }
-
-    //     0
-    // }
-}
-
-#[deprecated(note = "use JSObject::shape_prepare_update() instead")]
-pub unsafe fn js_shape_prepare_update(
-    ctx: &JSContext,
-    p: *mut JSObject,
-    pprs: *mut *mut JSShapeProperty,
-) -> i32 {
-    unreachable!("unused");
 }

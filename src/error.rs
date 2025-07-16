@@ -29,11 +29,11 @@ pub enum JSErrorEnum {
     NativeErrorCount,
 }
 
-pub const JS_NATIVE_ERROR_COUNT: usize = JSErrorEnum::NativeErrorCount as usize;
+pub const STD_ERROR_COUNT: usize = JSErrorEnum::NativeErrorCount as usize;
 
 pub type JSResult = Result<JSValue, i32>;
 
-pub const NATIVE_ERROR_NAMES: [&str; JS_NATIVE_ERROR_COUNT] = [
+pub const STD_ERROR_NAMES: [&str; STD_ERROR_COUNT] = [
     "EvalError",
     "RangeError",
     "ReferenceError",

@@ -18,7 +18,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
     context::{JS_MODE_STRICT, JSContext},
-    error::{JS_NATIVE_ERROR_COUNT, JSErrorEnum, JSResult, NATIVE_ERROR_NAMES},
+    error::{JSErrorEnum, JSResult, STD_ERROR_COUNT, STD_ERROR_NAMES},
     function::{
         BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
         js_async_function_proto_funcs,
@@ -145,7 +145,8 @@ impl JSContext {
         self.0.borrow_mut().function_ctor = function_ctor;
     }
 
-    fn intrinsic_error(&self) {
+    fn intrinsic_errors(&self) {
+        // Error() constructor
         let error_ctor = self
             .create_native_function(
                 NativeFunctionType::ConstructorOrFunc(js_error_constructor),
@@ -161,23 +162,26 @@ impl JSContext {
             &self.0.borrow().class_proto[JS_CLASS_ERROR as usize],
         );
 
-        for i in 0..JS_NATIVE_ERROR_COUNT {
-            let n_args = 1 + (i == JSErrorEnum::Aggregate as usize) as i32;
-
+        // standard error constructors
+        for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
             let func_obj = self
                 .create_native_function_from_proto(
                     NativeFunctionType::ConstructorOrFunc(js_error_constructor),
-                    NATIVE_ERROR_NAMES[i as usize],
-                    n_args as _,
-                    i as _,
+                    name,
+                    if i == JSErrorEnum::Aggregate as usize {
+                        2
+                    } else {
+                        1
+                    },
+                    i as _, // magic
                     &error_ctor,
                 )
                 .unwrap();
 
             self.add_global_constructor(
-                NATIVE_ERROR_NAMES[i as usize],
+                name,
                 &func_obj,
-                &self.0.borrow().native_error_proto[i as usize],
+                &self.0.borrow().native_error_proto[i as usize], // <-- this was initialized in core
             );
         }
     }
@@ -447,12 +451,11 @@ impl JSContext {
         self.intrinsic_global_object(&js_global_props);
 
         unsafe {
-            // throw TypeError()
-            self.intrinsic_throw_error();
+            self.intrinsic_throw_error(); // throw TypeError()
 
             self.intrinsic_object(); // Object
             self.intrinsic_function(); // Function
-            self.intrinsic_error(); // Error
+            self.intrinsic_errors(); // Error
             self.intrinsic_iterator(); // Iterator prototype
             self.intrinsic_array(); // Array
 

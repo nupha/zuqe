@@ -123,7 +123,7 @@ pub fn js_op_define_class(
     let bc = match bc_val {
         JSValue::Bytecode(b) => b,
         JSValue::Object(o) => {
-            todo!("[O.o] could this be an object (bytecode function)?");
+            todo!("[O.o] could this be an function object?");
             // o.0.detail
             //     .borrow()
             //     .func()

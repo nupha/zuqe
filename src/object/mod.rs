@@ -4,6 +4,7 @@ mod gcobj;
 mod obj;
 mod private;
 mod property;
+mod prototype;
 mod shape;
 
 pub use {detail::*, dump::*, gcobj::*, obj::*, private::*, property::*, shape::*};

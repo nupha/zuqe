@@ -1,5 +1,6 @@
 #![allow(clippy::all)]
 
+use crate::object::JSObject;
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct},
@@ -3094,4 +3095,13 @@ pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomType) -> JSValu
 #[deprecated(note = "use JSValue::coerce_to_atom() instead")]
 pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
     val.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL)
+}
+
+#[deprecated(note = "use JSObject::shape_prepare_update() instead")]
+pub unsafe fn js_shape_prepare_update(
+    ctx: &JSContext,
+    p: *mut JSObject,
+    pprs: *mut *mut JSShapeProperty,
+) -> i32 {
+    unreachable!("unused");
 }

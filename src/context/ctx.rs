@@ -12,7 +12,7 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     array::JSObjectArray,
     atom::consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
-    error::{JS_NATIVE_ERROR_COUNT, NATIVE_ERROR_NAMES, js_error_proto_funcs},
+    error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFunc,
     function::{NativeFunctionType, js_function_proto},
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
@@ -54,7 +54,7 @@ pub struct JSContextInner {
     pub array_ctor: JSValue,
     pub regexp_ctor: JSValue,
     pub promise_ctor: JSValue,
-    pub native_error_proto: [JSValue; JS_NATIVE_ERROR_COUNT],
+    pub native_error_proto: [JSValue; STD_ERROR_COUNT],
     pub iterator_proto: JSValue,
     pub async_iterator_proto: JSValue,
     pub array_proto_values: JSValue,
@@ -136,7 +136,7 @@ impl JSContextInner {
             class_proto,
 
             function_proto: JSValue::UNDEFINED,
-            native_error_proto: [const { JSValue::UNDEFINED }; JS_NATIVE_ERROR_COUNT],
+            native_error_proto: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
             iterator_proto: JSValue::UNDEFINED,
             async_iterator_proto: JSValue::UNDEFINED,
             array_proto_values: JSValue::UNDEFINED,
@@ -208,7 +208,7 @@ impl JSContextInner {
             self.regexp_ctor = JSValue::NULL;
             self.promise_ctor = JSValue::NULL;
             self.function_proto = JSValue::UNDEFINED;
-            self.native_error_proto = [const { JSValue::UNDEFINED }; JS_NATIVE_ERROR_COUNT];
+            self.native_error_proto = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
             self.iterator_proto = JSValue::UNDEFINED;
             self.async_iterator_proto = JSValue::UNDEFINED;
             self.array_proto_values = JSValue::UNDEFINED;
@@ -344,69 +344,66 @@ impl JSContext {
         }
     }
 
-    /// Add minimum amount of objects to be able to compile code and display error messages.
+    /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No JSAtom should be allocated by this function.
-    pub fn add_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
+    pub fn init_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
         // Object
-        let object_proto = self
+        let object = self
             .create_instance_from_proto(&JSValue::NULL, ObjectDetail::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);
-        self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object_proto.clone();
+        self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone();
 
         if function {
             // Function
-            let func_proto = self
+            let func = self
                 .create_native_function_from_proto(
                     NativeFunctionType::Func(js_function_proto),
                     "",
                     0,
                     0,
-                    &object_proto,
+                    &object,
                 )
                 .unwrap();
 
             self.with_mut(|cx| {
-                cx.function_proto = func_proto.clone();
-                cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_proto;
+                cx.function_proto = func.clone();
+                cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func;
             });
         }
 
         if errors {
-            // Error
-            let err_proto = self.create_base_object().unwrap();
-            self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = err_proto.clone();
-
-            err_proto
+            // Error objects
+            let error = self.create_base_object().unwrap();
+            self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone();
+            error
                 .install_native_fields(self, &js_error_proto_funcs)
                 .unwrap();
 
-            // standard Errors
-            for i in 0..JS_NATIVE_ERROR_COUNT {
-                let proto = self
-                    .create_instance_from_proto(&err_proto, ObjectDetail::OBJECT)
+            // standard error objects
+            let msg = JS_ATOM_empty_string.to_value(self, true);
+            for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
+                let err = self
+                    .create_instance_from_proto(&error, ObjectDetail::OBJECT)
                     .unwrap();
 
-                let name = self.create_atom_string(NATIVE_ERROR_NAMES[i]).unwrap();
-                proto
-                    .define_property_value(
-                        self,
-                        JS_ATOM_name,
-                        name,
-                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                    )
-                    .unwrap();
+                let name = self.create_atom_string(name).unwrap();
+                err.define_property_value(
+                    self,
+                    JS_ATOM_name,
+                    name,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
 
-                let msg = JS_ATOM_empty_string.to_value(self, true);
-                proto
-                    .define_property_value(
-                        self,
-                        JS_ATOM_message,
-                        msg,
-                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                    )
-                    .unwrap();
+                err.define_property_value(
+                    self,
+                    JS_ATOM_message,
+                    msg.clone(),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
 
-                self.0.borrow_mut().native_error_proto[i] = proto;
+                self.0.borrow_mut().native_error_proto[i] = err;
             }
         }
 
@@ -415,10 +412,7 @@ impl JSContext {
 
             // the array prototype is an array
             let array_proto = self
-                .create_instance_from_proto(
-                    &object_proto,
-                    ObjectDetail::ARRAY(JSObjectArray::default()),
-                )
+                .create_instance_from_proto(&object, ObjectDetail::ARRAY(JSObjectArray::default()))
                 .unwrap();
 
             self.with_mut(|cx| {
@@ -450,16 +444,11 @@ impl JSContext {
         // assert_eq!((*ctx.rt).atom_count as u32, JS_ATOM_INIT_COUNT);
     }
 
-    /// Add minimum amount of objects to be able to compile code and display error messages.
+    /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No JSAtom should be allocated by this function.
-    pub fn add_core_objects(&self) {
-        self.add_core_objects_ex(true, true, true);
-
-        /* XXX: could test it on first context creation to ensure that no
-        new atoms are created in JS_AddIntrinsicBasicObjects(). It is
-        necessary to avoid useless renumbering of atoms after
-        JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
-        // assert_eq!((*ctx.rt).atom_count as u32, JS_ATOM_INIT_COUNT);
+    #[inline(always)]
+    pub fn init_core_objects(&self) {
+        self.init_core_objects_ex(true, true, true);
     }
 
     pub fn downgrade(&self) -> JSContextWeakref {
@@ -562,7 +551,7 @@ impl JSRuntime {
     /// Creates a new JavaScript execution context core.
     pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
         let ctx = self.create_context_customize(|c| {
-            c.add_core_objects();
+            c.init_core_objects();
             Ok(())
         })?;
         Ok(ctx)
