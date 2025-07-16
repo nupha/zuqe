@@ -138,121 +138,6 @@ impl JSObject {
                 }
             }
         }
-        //
-        // let mut cur_obj = self.clone();
-        // loop {
-        //     // 1. find own property in shape
-        //     if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
-        //         return match prs_flags & JS_PROP_TMASK {
-        //             JS_PROP_NORMAL => {
-        //                 if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
-        //                     val.clone()
-        //                 } else {
-        //                     unreachable!()
-        //                 }
-        //             }
-        //             JS_PROP_GETSET => {
-        //                 let pr = cur_obj.0.prop_values.borrow()[idx].clone();
-        //                 pr.value(ctx, this_obj)
-        //             }
-        //             JS_PROP_VARREF => {
-        //                 let pr = cur_obj.0.prop_values.borrow()[idx].clone();
-        //                 let val = pr.value(ctx, this_obj);
-        //                 if val.is_uninitialized() {
-        //                     JS_ThrowReferenceErrorUninitialized(ctx, prop);
-        //                     JSValue::EXCEPTION
-        //                 } else {
-        //                     val
-        //                 }
-        //             }
-        //             JS_PROP_AUTOINIT => {
-        //                 // Lazy instantiate property.
-        //                 let mut pr = std::mem::take(&mut cur_obj.0.prop_values.borrow_mut()[idx]);
-        //                 let val = pr
-        //                     .instantiate(&cur_obj, prop, self)
-        //                     .unwrap_or(JSValue::EXCEPTION);
-        //                 debug_assert!(matches!(pr, JSProperty::Normal(_)));
-        //                 debug_assert_eq!(
-        //                     cur_obj.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-        //                     JS_PROP_NORMAL
-        //                 );
-        //                 cur_obj.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
-        //
-        //                 val
-        //             }
-        //             _ => unreachable!(),
-        //         };
-        //     }
-        //
-        //     // 2. try array or exotic handler
-        //     let ob_flags = cur_obj.flags();
-        //     if ob_flags.is_exotic() {
-        //         if ob_flags.fast_array() {
-        //             if prop.is_int_type() {
-        //                 let idx = __JS_AtomToUInt32(prop);
-        //                 if idx < cur_obj.array_length_unchecked() as u32 {
-        //                     return cur_obj.get_property_value(ctx, &JSValue::from(idx));
-        //                 }
-        //
-        //                 if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-        //                     .contains(&cur_obj.class_id())
-        //                 {
-        //                     return JSValue::UNDEFINED;
-        //                 }
-        //             } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-        //                 .contains(&cur_obj.class_id())
-        //             {
-        //                 let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-        //                 if ret != 0 {
-        //                     return if ret < 0 {
-        //                         JSValue::EXCEPTION
-        //                     } else {
-        //                         JSValue::UNDEFINED
-        //                     };
-        //                 }
-        //             }
-        //         } else if let Some(xm) = unsafe {
-        //             ctx.rt().class_defs[cur_obj.class_id() as usize]
-        //                 .exotic
-        //                 .as_ref()
-        //         } {
-        //             // use exotic handlers
-        //             if let Some(cb) = xm.get_property {
-        //                 /* XXX: should pass throw_ref_error */
-        //                 /* Note: if 'p' is a prototype, it can be
-        //                 freed in the called function */
-        //                 return cb(
-        //                     ctx,
-        //                     JSValue::Object(cur_obj.clone()),
-        //                     prop,
-        //                     this_obj.clone(),
-        //                 );
-        //             }
-        //             if let Some(cb) = xm.get_own_property {
-        //                 match cb(ctx, JSValue::Object(cur_obj.clone()), prop) {
-        //                     Ok(Some(desc)) => {
-        //                         return if desc.flags & JS_PROP_GETSET != 0 {
-        //                             JS_Call(ctx, &desc.getter, this_obj, &[])
-        //                         } else {
-        //                             desc.value
-        //                         };
-        //                     }
-        //                     Ok(None) => {}
-        //                     Err(_) => {
-        //                         return JSValue::EXCEPTION;
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        //
-        //     // 3. walk up proto chain
-        //     if let Some(up) = cur_obj.shape().and_then(|s| s.0.borrow().proto.clone()) {
-        //         cur_obj = up;
-        //     } else {
-        //         break;
-        //     }
-        // } // loop
 
         if throw_ref_error {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
@@ -392,9 +277,7 @@ impl JSValue {
         throw_ref_error: bool,
     ) -> JSValue {
         match self {
-            Self::Object(o) => {
-                o.get_property_ex(ctx, prop, this_obj, throw_ref_error)
-            }
+            Self::Object(o) => o.get_property_ex(ctx, prop, this_obj, throw_ref_error),
             Self::NULL => {
                 ctx.JS_ThrowTypeError(&format!(
                     "cannot read property '{}' of null",
@@ -424,23 +307,14 @@ impl JSValue {
                 unsafe {
                     JS_GetPrototypePrimitive(ctx, self)
                         .object()
-                        .map(|o| {
-                            o.get_property_ex(
-                                ctx,
-                                prop,
-                                this_obj,
-                                throw_ref_error,
-                            )
-                        })
+                        .map(|o| o.get_property_ex(ctx, prop, this_obj, throw_ref_error))
                         .unwrap_or(JSValue::UNDEFINED)
                 }
             }
             _ => unsafe {
                 JS_GetPrototypePrimitive(ctx, self)
                     .object()
-                    .map(|o| {
-                        o.get_property_ex(ctx, prop, this_obj, throw_ref_error)
-                    })
+                    .map(|o| o.get_property_ex(ctx, prop, this_obj, throw_ref_error))
                     .unwrap_or(JSValue::UNDEFINED)
             },
         }

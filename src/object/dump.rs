@@ -8,31 +8,6 @@ use crate::{
 
 use super::{JSObject, JSShape};
 
-impl JSShapeInner {
-    /// print shape debug info to console
-    pub unsafe fn dump(&self, rt: &JSRuntime, i: i32) {
-        // XXX: should output readable class prototype
-
-        print!(
-            "{:5} {} {:14p} {:14p} {:5} {:5}",
-            i,
-            if self.is_hashed { '*' } else { ' ' }, // hashed?
-            self,
-            self.proto
-                .as_ref()
-                .map_or(std::ptr::null(), |o| o as *const _),
-            self.prop_defs.len(),
-            self.prop_defs.len(),
-        );
-
-        for (_, prs) in self.prop_defs.iter() {
-            print!(" {}", prs.atom.to_str(rt));
-        }
-
-        println!();
-    }
-}
-
 pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     println!("JSShapes: {{");
     println!(
@@ -44,7 +19,7 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     for (key, lst) in rt.shape_registry.iter() {
         for sh in lst {
             if let Some(sh) = sh.upgrade() {
-                sh.0.borrow().dump(rt, *key as _);
+                sh.0.borrow().dump(rt);
                 debug_assert!(sh.0.borrow().is_hashed);
             }
         }
@@ -55,7 +30,7 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
         if let Some(GCObject::Object(p)) = w.upgrade() {
             let sh = p.shape().unwrap();
             if !sh.is_hashed() {
-                sh.0.borrow().dump(rt, -1);
+                sh.0.borrow().dump(rt);
             }
         }
     }
@@ -65,8 +40,8 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
 
 #[deprecated(note = "use JSShape::dump() instead")]
 pub unsafe fn JS_DumpShape(rt: &JSRuntime, i: i32, sh: &JSShape) {
-    unreachable!("unused")
-    //sh.dump(rt, i);
+    unreachable!("unused");
+    // sh.dump(rt, i);
 }
 
 impl JSObject {
@@ -204,5 +179,30 @@ impl JSObject {
         }
 
         println!();
+    }
+}
+
+impl JSShapeInner {
+    /// print shape debug info to console
+    pub fn dump(&self, rt: &JSRuntime) {
+        // XXX: should output readable class prototype
+        print!(
+            "{:14p} {:14p} {:5} [",
+            self.id() as *const std::ffi::c_void,
+            self.proto.as_ref().map_or(0, |p| p.id()) as *const std::ffi::c_void,
+            self.prop_defs.len(),
+        );
+
+        for (_, prs) in self.prop_defs.iter() {
+            print!(" {}:{}", prs.atom.to_str(rt), prs.flags());
+        }
+        println!(" ]");
+    }
+}
+
+impl JSShape {
+    /// print shape debug info to console
+    pub fn dump(&self, rt: &JSRuntime) {
+        self.0.borrow().dump(rt);
     }
 }

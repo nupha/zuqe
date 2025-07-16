@@ -190,8 +190,14 @@ impl std::fmt::Display for JSObjectInner {
         {
             write!(
                 f,
-                "[{name} class={class_id} id={:p}]",
-                self.id() as *const std::ffi::c_void
+                "[{name} id={:p} shape={:p} prototype={:p}]",
+                self.id() as *const std::ffi::c_void,
+                self.shape.borrow().as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
+                self.shape
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.0.borrow().proto.clone())
+                    .map_or(0, |x| x.id()) as *const std::ffi::c_void
             )
         }
     }
@@ -374,24 +380,21 @@ impl JSObjectInner {
     }
 
     fn finalize(&mut self) {
-        let class_id = self.class_id();
-
         // free shape props and props
-        self.shape.take();
-        self.prop_values.borrow_mut().clear();
+        // self.shape.take();
+        // self.prop_values.borrow_mut().clear();
 
-        while let Some(weak) = self.weak_refs.borrow_mut().pop() {
-            if let Some(o) = weak.upgrade() {
-                let mut isa = o.0.payload.borrow_mut();
-                let ms = isa.map_state_mut().unwrap();
+        while let Some(w) = self.weak_refs.borrow_mut().pop() {
+            if let Some(o) = w.upgrade() {
+                let mut py = o.0.payload.borrow_mut();
+                let ms = py.map_state_mut().unwrap();
                 ms.remove_weak(self)
             }
         }
 
-        let rt = unsafe { self.rt_ptr().as_mut() };
-
         // call class finalizer
-        if let Some(f) = rt.class_defs[class_id as usize].finalizer {
+        let rt = unsafe { self.rt_ptr().as_mut() };
+        if let Some(f) = rt.class_defs[self.class_id() as usize].finalizer {
             f(rt, self.payload.borrow().deref(), self.id());
         }
 

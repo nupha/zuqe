@@ -1,5 +1,6 @@
 use std::{borrow::Cow, io::Write};
 
+use crate::object::JS_DumpShape;
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
@@ -86,29 +87,27 @@ impl JSContext {
     /// make error object and throw it as current exception.
     /// old exception will be freed.
     pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
-        let obj = if let Ok(o) = self.create_instance_from_proto(
-            self.0.borrow().native_error_proto[kind as usize].clone(),
-            ObjectDetail::ERROR,
-        ) {
-            o
+        let proto = self.0.borrow().native_error_proto[kind as usize].clone();
+        let exc = if let Ok(val) = self.create_instance_from_proto(proto, ObjectDetail::ERROR) {
+            let s = self.create_string(message);
+            let _ = val.define_property_value(
+                self,
+                JS_ATOM_message,
+                s,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            );
+
+            if add_backtrace {
+                self.build_backtrace_to(&val, None, 0);
+            }
+
+            val
         } else {
             // out of memory: throw NULL to avoid recursing
             JSValue::NULL
         };
 
-        let s = self.create_string(message);
-        let _ = obj.define_property_value(
-            self,
-            JS_ATOM_message,
-            s,
-            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-        );
-
-        if add_backtrace {
-            self.build_backtrace_to(&obj, None, 0);
-        }
-
-        self.throw(obj);
+        self.throw(exc);
     }
 
     /// make error object and throw it as current exception.
