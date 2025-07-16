@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
@@ -18,7 +16,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
     context::{JS_MODE_STRICT, JSContext},
-    error::{ErrorKind, JSResult, STD_ERROR_COUNT, STD_ERROR_NAMES},
+    error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
         BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
         js_async_function_proto_funcs,
@@ -561,13 +559,12 @@ impl JSContext {
         // Typed arrays
         {
             let typed_array_base_proto = self.create_base_object().unwrap();
-
             typed_array_base_proto
                 .install_native_fields(self, &js_typed_array_base_proto_funcs)
                 .unwrap();
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
-            let obj = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
+            let to_string = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
                 .get_property(self, JS_ATOM_toString);
 
             // XXX: should use alias method in JSCFunctionListEntry
@@ -575,7 +572,7 @@ impl JSContext {
                 .define_property_value(
                     self,
                     JS_ATOM_toString,
-                    obj,
+                    to_string,
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();
@@ -593,7 +590,7 @@ impl JSContext {
                 .unwrap();
             JS_SetConstructor(self, &typed_array_base_func, &typed_array_base_proto);
 
-            for i in
+            for cid in
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
                 let proto = self
@@ -604,21 +601,22 @@ impl JSContext {
                     .define_property_value_str(
                         self,
                         "BYTES_PER_ELEMENT",
-                        (1 << typed_array_size_log2(i)).into(),
+                        (1 << typed_array_size_log2(cid)).into(),
                         0,
                     )
                     .unwrap();
 
-                let name = JSAtom(JS_ATOM_Uint8ClampedArray.0 + (i - JS_CLASS_UINT8C_ARRAY) as u32)
-                    .to_utf8_string(self)
-                    .unwrap();
+                let name =
+                    JSAtom(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
+                        .to_utf8_string(self)
+                        .unwrap();
 
                 let func_obj = self
                     .create_native_function_from_proto(
-                        NativeFunctionType::Func(js_typed_array_constructor),
+                        NativeFunctionType::Constructor(js_typed_array_constructor),
                         &name,
                         3,
-                        i as i16,
+                        cid as i16, // magic
                         typed_array_base_func.clone(),
                     )
                     .unwrap();
@@ -627,12 +625,12 @@ impl JSContext {
                     .define_property_value_str(
                         self,
                         "BYTES_PER_ELEMENT",
-                        (1 << typed_array_size_log2(i)).into(),
+                        (1 << typed_array_size_log2(cid)).into(),
                         0,
                     )
                     .unwrap();
 
-                self.0.borrow_mut().class_proto[i as usize] = proto;
+                self.0.borrow_mut().class_proto[cid as usize] = proto;
             }
         }
 

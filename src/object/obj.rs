@@ -1,3 +1,11 @@
+use std::{
+    cell::{Cell, RefCell},
+    fmt::Formatter,
+    ops::Deref,
+    ptr::NonNull,
+    rc::{Rc, Weak},
+};
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
@@ -10,17 +18,9 @@ use crate::{
     error::JSResult,
     function::CallContext,
     object::GCObjectWeakref,
-    proxy::{js_proxy_getPrototypeOf, js_proxy_preventExtensions, js_proxy_setPrototypeOf},
+    proxy::{js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
-    value::{JS_GetPrototypePrimitive, JSValue},
-};
-use std::fmt::Formatter;
-use std::{
-    cell::{Cell, RefCell},
-    ffi::c_void,
-    ops::Deref,
-    ptr::NonNull,
-    rc::{Rc, Weak},
+    value::JSValue,
 };
 
 use super::{
@@ -713,7 +713,7 @@ impl JSContext {
     }
 
     /// create new instance with isa payload data.
-    /// returns Err if fail.
+    /// returns Err if failed.
     #[inline(always)]
     pub fn create_instance(&self, isa: ObjectDetail) -> Result<JSValue, ObjectDetail> {
         self.create_instance_from_proto(
