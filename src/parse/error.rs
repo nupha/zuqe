@@ -1,5 +1,5 @@
 use crate::{
-    error::{JS_BACKTRACE_FLAG_SINGLE_LEVEL, ErrorKind},
+    error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     value::JSValue,
 };
 

@@ -303,12 +303,7 @@ pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
 }
 
 #[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
-pub unsafe fn close_lexical_var(
-    ctx: &JSContext,
-    sf: *mut StackFrame,
-    var_idx: u16,
-    is_arg: bool,
-) {
+pub unsafe fn close_lexical_var(ctx: &JSContext, sf: *mut StackFrame, var_idx: u16, is_arg: bool) {
     (*sf).close_lexical_var(ctx, var_idx, is_arg);
 }
 

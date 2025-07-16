@@ -316,10 +316,10 @@ impl JSContext {
 impl JSValue {
     pub fn gc_mark(&self) {
         match self {
-            JSValue::Object(o) => {
+            Self::Object(o) => {
                 o.gc_mark();
             }
-            JSValue::Bytecode(b) => {
+            Self::Bytecode(b) => {
                 b.gc_mark();
             }
             _ => {}
@@ -328,13 +328,13 @@ impl JSValue {
 
     pub fn gc_sweep(&self) {
         match self {
-            JSValue::Object(o) => {
+            Self::Object(o) => {
                 o.gc_sweep();
             }
-            JSValue::Bytecode(b) => {
+            Self::Bytecode(b) => {
                 b.gc_sweep();
             }
-            JSValue::String(s) | JSValue::Symbol(s) => {
+            Self::String(s) | Self::Symbol(s) => {
                 s.gc_sweep();
             }
             _ => {}

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     context::JSContext,
-    object::{JSObject, JSObjectInner, JSObjectWeakref, ObjectDetail},
+    object::{JSObject, JSObjectWeakref, ObjectDetail, ObjectInner},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -163,7 +163,7 @@ impl JSMapState {
         }
     }
 
-    pub fn remove_weak(&mut self, obj: &JSObjectInner) {
+    pub fn remove_weak(&mut self, obj: &ObjectInner) {
         debug_assert!(self.is_weak);
         let hash = JSValue::id_to_hash(obj.id());
         let purge = if let Some(slots) = self.items.get_mut(&hash) {

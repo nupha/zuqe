@@ -388,11 +388,11 @@ impl JSValue {
 }
 
 impl JSContext {
-    /// Create new function object with native callback and shape of speficied prototype.
+    /// Create new function object with native callback and shape of specified prototype.
     /// at least `length` arguments will be readable in arguments.
     pub fn create_native_function_from_proto(
         &self,
-        handler: NativeFunctionType,
+        call: NativeFunctionType,
         name: &str,
         length: u8,
         magic: i16,
@@ -402,7 +402,7 @@ impl JSContext {
             .create_instance_from_proto(
                 proto,
                 ObjectDetail::C_FUNCTION(ObjNativeFunc {
-                    handler,
+                    handler: call,
                     length,
                     magic,
                     realm: self.downgrade(),
@@ -413,8 +413,8 @@ impl JSContext {
         let ob = unsafe { func_obj.object_unchecked() };
 
         unsafe {
-            (*ob.0.detailed.as_ptr()).set_constructor(matches!(
-                handler,
+            (*ob.0.obj_flags.as_ptr()).set_constructor(matches!(
+                call,
                 NativeFunctionType::Constructor(_)
                     | NativeFunctionType::ConstructorOrFunc(_)
                     | NativeFunctionType::CConstructor(_)

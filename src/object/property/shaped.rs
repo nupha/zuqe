@@ -1,11 +1,11 @@
 use crate::{
     atom::{JS_FreeAtom, JSAtom},
     context::JSContext,
-    object::{JSObject, JSObjectInner, JSProperty, JSShape},
+    object::{JSObject, JSProperty, JSShape, ObjectInner},
     value::JSValue,
 };
 
-impl JSObjectInner {
+impl ObjectInner {
     /// Grows the property values array to accommodate more properties.
     /// Takes a new length and extends the array with undefined values if needed.
     /// Returns error if memory allocation fails.

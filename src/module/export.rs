@@ -11,7 +11,7 @@ use crate::{
     mem::{js_free, js_resize_array},
     module::{JSResolveResultEnum, JSResolveState, ModuleDef, ModuleDefInner, ModuleResolveExport},
     object::{
-        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, ObjectDetail, JSProperty, LazyInit,
+        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectDetail,
     },
 };
 
@@ -201,7 +201,8 @@ impl ModuleDef {
                             } else {
                                 let minner = module.0.borrow();
                                 let p1 = minner.bytecode.object_unchecked();
-                                p1.0.payload.borrow().func().unwrap().var_refs[var_idx as usize].clone()
+                                p1.0.payload.borrow().func().unwrap().var_refs[var_idx as usize]
+                                    .clone()
                             },
                         );
                     }
@@ -285,7 +286,7 @@ impl ModuleDef {
             .unwrap();
 
         unsafe {
-            (*p.0.detailed.as_ptr()).set_extensible(false);
+            (*p.0.obj_flags.as_ptr()).set_extensible(false);
         }
         Ok(obj)
     }

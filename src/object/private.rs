@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_FreeAtom, AtomType, consts::*},
+    atom::{AtomType, JS_FreeAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
     object::{JSObject, JSProperty},

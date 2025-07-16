@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JSAtom, AtomID, AtomType},
+    atom::{AtomID, AtomType, JSAtom},
     context::JSContext,
     error::JSResult,
     string::JSString,

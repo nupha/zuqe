@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::{
-    JSObjectInner,
+    ObjectInner,
     obj::{JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE, JSObject},
     property::JS_PROP_LENGTH,
 };
@@ -257,7 +257,7 @@ impl JSShape {
         ctx: &JSContext,
         prop: JSAtom,
         prop_flags: u32,
-        obj: Option<&JSObjectInner>,
+        obj: Option<&ObjectInner>,
     ) -> Result<usize, i32> {
         debug_assert_eq!(self.strong_count(), 1, "shape must not be shared");
 
@@ -348,7 +348,7 @@ impl JSContext {
         shape: JSShape,
         isa: ObjectDetail,
     ) -> Result<JSValue, ObjectDetail> {
-        let obj = JSObject(Rc::new(JSObjectInner::new(self, Some(shape), isa)?));
+        let obj = JSObject(Rc::new(ObjectInner::new(self, Some(shape), isa)?));
         self.rt_mut()
             .gc_add_object(obj.id(), obj.downgrade().into());
         Ok(JSValue::Object(obj))
@@ -485,7 +485,7 @@ pub const fn shape_initial_hash(proto_id: usize) -> u32 {
     h
 }
 
-impl JSObjectInner {
+impl ObjectInner {
     /// ensure that the shape can be safely modified.
     /// if object's shape is changed, returns true.
     /// after calling, object's shape is guaranteed to be exclusive, and not registered.

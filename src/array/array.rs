@@ -4,10 +4,10 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    error::{JS_ThrowRangeError, ErrorKind, JSResult},
+    error::{ErrorKind, JS_ThrowRangeError, JSResult},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSObject, ObjectDetail, JSProperty,
+        JSObject, JSProperty, ObjectDetail,
     },
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
@@ -117,7 +117,11 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         if self.flags().fast_array() {
-            self.0.payload.borrow().array().map(|a| f(a.values.as_slice()))
+            self.0
+                .payload
+                .borrow()
+                .array()
+                .map(|a| f(a.values.as_slice()))
         } else {
             None
         }
@@ -371,7 +375,8 @@ impl JSValue {
 /// returns -1 if fail.
 pub unsafe fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i32 {
     debug_assert!(obj.with(|p| {
-        p.detailed.get().fast_array() && matches!(p.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+        p.obj_flags.get().fast_array()
+            && matches!(p.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
     }));
 
     if obj.shape_prepare_update(ctx).is_err() {
@@ -398,7 +403,7 @@ pub unsafe fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i3
     }
 
     unsafe {
-        (*obj.0.detailed.as_ptr()).set_fast_array(false);
+        (*obj.0.obj_flags.as_ptr()).set_fast_array(false);
     }
     0
 }

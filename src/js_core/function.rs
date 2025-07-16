@@ -61,7 +61,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     let p = unsafe { func_obj.object_unchecked() };
 
     unsafe {
-        (*p.0.detailed.as_ptr()).set_constructor(this_val.is_constructor());
+        (*p.0.obj_flags.as_ptr()).set_constructor(this_val.is_constructor());
     }
 
     unsafe {

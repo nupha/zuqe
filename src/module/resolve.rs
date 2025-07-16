@@ -7,7 +7,7 @@ use crate::{
     error::JS_ThrowSyntaxError,
     mem::js_free,
     module::{
-        JSExportEntry, JSExportTypeEnum, ModuleDef, JSResolveState, add_resolve_entry,
+        JSExportEntry, JSExportTypeEnum, JSResolveState, ModuleDef, add_resolve_entry,
         find_export_entry,
     },
 };

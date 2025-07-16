@@ -1,0 +1,5 @@
+edition = "2024"
+imports_granularity = "Crate"
+normalize_comment = true
+remove_nested_parens = true
+group_imports = "StdExternalCrate"

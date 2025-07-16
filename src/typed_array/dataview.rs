@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, NativeField},
     mem::js_malloc_typed,
     number::JSFloat64Union,
-    object::{JS_PROP_CONFIGURABLE, ObjectDetail, JSObjectWeakref},
+    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectDetail},
     typed_array::TypedArray,
     value::JSValue,
 };
@@ -128,7 +128,14 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
     let ta = isa.typed_array().unwrap();
 
     unsafe {
-        let abuf = ta.buffer.0.payload.borrow().array_buffer().cloned().unwrap();
+        let abuf = ta
+            .buffer
+            .0
+            .payload
+            .borrow()
+            .array_buffer()
+            .cloned()
+            .unwrap();
 
         if abuf.0.borrow().detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);

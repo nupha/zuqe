@@ -2,7 +2,7 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::runtime::JSRuntime;
 
-use super::{JSAtom, JS_FreeAtomRT, JS_ATOM_NULL};
+use super::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom};
 
 /// A reference-counted wrapper for JSAtom that provides automatic memory management
 /// and safe access to the underlying JSAtom.

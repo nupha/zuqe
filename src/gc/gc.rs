@@ -41,6 +41,7 @@ impl JSRuntime {
         for c in self.context_list.iter() {
             c.gc_mark();
         }
+        self.cur_exception.gc_mark();
 
         // sweep
         let mut zero_list = Vec::<GCObject>::with_capacity(self.gc_obj_list.len());

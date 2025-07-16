@@ -13,7 +13,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::CallContext,
-    object::{ObjectDetail, JSObjectWeakref},
+    object::{JSObjectWeakref, ObjectDetail},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -386,7 +386,13 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
         return;
     }
 
-    if let Some(abuf) = obj.object_unchecked().0.payload.borrow_mut().array_buffer_mut() {
+    if let Some(abuf) = obj
+        .object_unchecked()
+        .0
+        .payload
+        .borrow_mut()
+        .array_buffer_mut()
+    {
         if !abuf.0.borrow().detached {
             match abuf.content().deref() {
                 ArrayBufferContent::Raw(ptr, len, fin) => {

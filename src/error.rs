@@ -406,7 +406,7 @@ pub fn JS_SetUncatchableError(val: &JSValue, flag: bool) {
     if let JSValue::Object(p) = val {
         if p.class_id() == JS_CLASS_ERROR {
             unsafe {
-                (*p.0.detailed.as_ptr()).set_uncatchable_error(flag);
+                (*p.0.obj_flags.as_ptr()).set_uncatchable_error(flag);
             }
         }
     }

@@ -1,7 +1,7 @@
 use crate::{
     context::{JSContext, JSContextWeakref},
     function::{
-        ObjAsyncState, AsyncStateWeakref, Bytecode, BytecodeWeakref, JSVarRef, JSVarRefWeakref,
+        AsyncStateWeakref, Bytecode, BytecodeWeakref, JSVarRef, JSVarRefWeakref, ObjAsyncState,
     },
     object::{JSObjectWeakref, JSShapeWeakref},
     string::{JSString, JSStringWeakref},

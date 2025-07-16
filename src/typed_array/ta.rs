@@ -195,7 +195,13 @@ impl TypedArray {
 
     /// run closure with typed array data.
     pub fn with<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> R {
-        self.0.inner().payload.borrow().typed_array().map(f).unwrap()
+        self.0
+            .inner()
+            .payload
+            .borrow()
+            .typed_array()
+            .map(f)
+            .unwrap()
     }
 
     /// check if the TypedArray is detached.

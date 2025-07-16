@@ -33,7 +33,7 @@ use super::{
 /// Encodes object state and class information in a compact bitfield
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(transparent)]
-pub struct JSObjectFlags {
+pub struct ObjectFlags {
     /// Bitfield storing object state flags and class ID:
     /// - Bits 31-24: Object state flags
     ///   [31] extensible: Can add new properties
@@ -48,7 +48,7 @@ pub struct JSObjectFlags {
     bitfield: u32,
 }
 
-impl JSObjectFlags {
+impl ObjectFlags {
     const MASK_EXTENSIBLE: u32 = 0x8000_0000;
     const MASK_FREE_MARK: u32 = 0x4000_0000;
     const MASK_IS_EXOTIC: u32 = 0x2000_0000;
@@ -147,11 +147,11 @@ impl JSObjectFlags {
     }
 }
 
-pub(crate) struct JSObjectInner {
+pub(crate) struct ObjectInner {
     rt: NonNull<JSRuntime>,
 
     /// object flags
-    pub detailed: Cell<JSObjectFlags>,
+    pub obj_flags: Cell<ObjectFlags>,
 
     /// Shape of object, to denote prototype and property names + flag
     /// could be NULL while freeing an object
@@ -169,13 +169,13 @@ pub(crate) struct JSObjectInner {
     pub gc_mark: Cell<bool>,
 }
 
-impl Drop for JSObjectInner {
+impl Drop for ObjectInner {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl std::fmt::Display for JSObjectInner {
+impl std::fmt::Display for ObjectInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
@@ -186,6 +186,7 @@ impl std::fmt::Display for JSObjectInner {
         {
             write!(f, "[{name}]")
         }
+
         #[cfg(debug_assertions)]
         {
             write!(
@@ -203,7 +204,7 @@ impl std::fmt::Display for JSObjectInner {
     }
 }
 
-impl JSObjectInner {
+impl ObjectInner {
     pub(crate) fn new(
         ctx: &JSContext,
         shape: Option<JSShape>,
@@ -232,7 +233,7 @@ impl JSObjectInner {
 
         let shape_id = shape.as_ref().map(|s| s.id());
 
-        let mut flags = JSObjectFlags::default();
+        let mut flags = ObjectFlags::default();
         flags.set_extensible(true);
         flags.set_free_mark(false);
         flags.set_exotic(false);
@@ -312,7 +313,7 @@ impl JSObjectInner {
 
         let obj = Self {
             rt: ctx.rt_ptr(),
-            detailed: Cell::new(flags),
+            obj_flags: Cell::new(flags),
             shape: RefCell::new(shape),
             prop_values: RefCell::new(prop_values),
             weak_refs: RefCell::new(Vec::new()),
@@ -404,7 +405,7 @@ impl JSObjectInner {
 }
 
 #[derive(Clone)]
-pub struct JSObject(pub(crate) Rc<JSObjectInner>);
+pub struct JSObject(pub(crate) Rc<ObjectInner>);
 
 impl PartialEq for JSObject {
     fn eq(&self, other: &Self) -> bool {
@@ -431,7 +432,7 @@ impl std::fmt::Debug for JSObject {
 
 impl JSObject {
     #[inline(always)]
-    pub(crate) fn inner(&self) -> &Rc<JSObjectInner> {
+    pub(crate) fn inner(&self) -> &Rc<ObjectInner> {
         &self.0
     }
 
@@ -463,8 +464,8 @@ impl JSObject {
     }
 
     #[inline(always)]
-    pub fn flags(&self) -> JSObjectFlags {
-        self.0.detailed.get()
+    pub fn flags(&self) -> ObjectFlags {
+        self.0.obj_flags.get()
     }
 
     pub fn shape(&self) -> Option<JSShape> {
@@ -491,7 +492,7 @@ impl JSObject {
         Rc::strong_count(&self.0)
     }
 
-    pub(crate) fn with<R>(&self, f: impl FnOnce(&JSObjectInner) -> R) -> R {
+    pub(crate) fn with<R>(&self, f: impl FnOnce(&ObjectInner) -> R) -> R {
         let o = self.0.deref();
         f(o)
     }
@@ -518,7 +519,7 @@ impl JSObject {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSObjectWeakref(pub(crate) Weak<JSObjectInner>);
+pub struct JSObjectWeakref(pub(crate) Weak<ObjectInner>);
 
 impl From<JSObjectWeakref> for GCObjectWeakref {
     fn from(value: JSObjectWeakref) -> Self {
@@ -824,7 +825,7 @@ pub fn JS_SetPrototypeInternal(
 pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> bool {
     if let JSValue::Object(p) = func_obj {
         unsafe {
-            (*p.0.detailed.as_ptr()).set_constructor(val);
+            (*p.0.obj_flags.as_ptr()).set_constructor(val);
         }
         true
     } else {
@@ -891,7 +892,7 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
     }
 
     unsafe {
-        (*p.0.detailed.as_ptr()).set_extensible(false);
+        (*p.0.obj_flags.as_ptr()).set_extensible(false);
     }
 
     0
@@ -904,7 +905,7 @@ pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32>
             js_proxy_preventExtensions(ctx, obj)
         } else {
             unsafe {
-                (*p.0.detailed.as_ptr()).set_extensible(false);
+                (*p.0.obj_flags.as_ptr()).set_extensible(false);
             }
             Ok(true)
         }
