@@ -2388,10 +2388,10 @@ pub unsafe fn JS_NewCFunction3(
     length: u8,
     cproto: JSCFunctionEnum,
     magic: i16,
-    proto_val: JSValueConst,
+    proto_val: JSValue,
 ) -> JSValue {
     match ctx.create_instance_from_proto(
-        &proto_val,
+        proto_val,
         ObjectDetail::C_FUNCTION(ObjNativeFunc {
             realm: ctx.downgrade(),
             handler: NativeFunctionType::CFunc(func),

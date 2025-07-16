@@ -132,7 +132,7 @@ impl ObjNativeFunc {
         let (callback, arg_length, magic, realm) = if let ObjectDetail::C_FUNCTION(c) =
             unsafe { func_obj.object_unchecked() }
                 .0
-                .detail
+                .payload
                 .borrow()
                 .deref()
         {
@@ -343,7 +343,7 @@ impl ObjNativeFunc {
     pub fn hook_mark(val: JSValue) {
         unsafe {
             if let ObjectDetail::C_FUNCTION(cfunc) =
-                val.object_unchecked().0.detail.borrow().deref()
+                val.object_unchecked().0.payload.borrow().deref()
             {
                 // println!("[O.o] TODO cfunction mark");
                 // mark_func(rt, &cfunc.realm);
@@ -360,7 +360,7 @@ impl JSObject {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
-        if let ObjectDetail::C_FUNCTION(cfunc) = self.0.detail.borrow().deref() {
+        if let ObjectDetail::C_FUNCTION(cfunc) = self.0.payload.borrow().deref() {
             cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
         } else {
             false
@@ -396,11 +396,11 @@ impl JSContext {
         name: &str,
         length: u8,
         magic: i16,
-        proto_val: &JSValue,
+        proto: JSValue,
     ) -> JSResult {
         let func_obj = self
             .create_instance_from_proto(
-                proto_val,
+                proto,
                 ObjectDetail::C_FUNCTION(ObjNativeFunc {
                     handler,
                     length,
@@ -449,7 +449,7 @@ impl JSContext {
             name,
             length,
             magic,
-            &self.0.borrow().function_proto,
+            self.0.borrow().function_proto.clone(),
         )
     }
 }

@@ -183,7 +183,7 @@ impl ModuleDefInner {
         // allocate meta_obj only if requested to save memory
         let mut meta = self.meta_obj.clone();
         if meta.is_undefined() {
-            meta = ctx.create_base_object_from_proto(&JSValue::NULL)?;
+            meta = ctx.create_base_object_from_proto(JSValue::NULL)?;
             self.meta_obj = meta.clone();
         }
         Ok(meta)
@@ -624,9 +624,7 @@ pub unsafe fn js_create_module_bytecode_function(
 
         // create function object
         let proto = ctx.0.borrow().class_proto[class_id as usize].clone();
-        let func_obj = ctx
-            .create_instance_from_proto(&proto, isa)
-            .map_err(|_| -1)?;
+        let func_obj = ctx.create_instance_from_proto(proto, isa).map_err(|_| -1)?;
 
         m.0.borrow_mut().bytecode = func_obj;
     } else {
@@ -666,7 +664,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     loop {
         if let JSValue::Object(p) = &(*sf).cur_running {
             if let Some(b) =
-                p.0.detail
+                p.0.payload
                     .borrow()
                     .func()
                     .map(|f| f.bytecode.as_ref().unwrap())

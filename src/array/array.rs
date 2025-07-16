@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    error::{JS_ThrowRangeError, JSErrorEnum, JSResult},
+    error::{JS_ThrowRangeError, ErrorKind, JSResult},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSObject, ObjectDetail, JSProperty,
@@ -74,7 +74,7 @@ impl JSContext {
     /// returns Array value
     pub fn create_fast_array(&self, capacity: usize) -> JSResult {
         if capacity > i32::MAX as usize {
-            self.JS_ThrowError(JSErrorEnum::Range, "invalid array length");
+            self.throw_error(ErrorKind::Range, "invalid array length");
             return Err(-1);
         }
 
@@ -117,7 +117,7 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         if self.flags().fast_array() {
-            self.0.detail.borrow().array().map(|a| f(a.values.as_slice()))
+            self.0.payload.borrow().array().map(|a| f(a.values.as_slice()))
         } else {
             None
         }
@@ -130,7 +130,7 @@ impl JSObject {
     ) -> Option<R> {
         if self.flags().fast_array() {
             self.0
-                .detail
+                .payload
                 .borrow_mut()
                 .array_mut()
                 .map(|a| f(&mut a.values))
@@ -197,10 +197,10 @@ impl JSObject {
     /// get array object length.
     /// will panic if `self` is not an Array, Argument, or TypedArray.
     pub fn array_length_unchecked(&self) -> usize {
-        if let Some(array) = self.0.detail.borrow().array() {
+        if let Some(array) = self.0.payload.borrow().array() {
             // ARRAY or ARGUMENT
             array.values.len()
-        } else if let Some(ta) = self.0.detail.borrow().typed_array() {
+        } else if let Some(ta) = self.0.payload.borrow().typed_array() {
             // typed array or dataview
             ta.count as usize
         } else {

@@ -17,7 +17,7 @@ impl JSObject {
             return Ok(false);
         }
 
-        if let ObjectDetail::BOUND_FUNCTION(bfunc) = self.0.detail.borrow().deref() {
+        if let ObjectDetail::BOUND_FUNCTION(bfunc) = self.0.payload.borrow().deref() {
             return bfunc.func_obj.instance_of(ctx, ty);
         }
 

@@ -143,7 +143,7 @@ impl JSShape {
     /// Note: `proto` is not consumed.
     pub fn with_capacity(
         ctx: &JSContext,
-        proto: Option<&JSObject>,
+        proto: Option<JSObject>,
         hash_size: usize,
         prop_size: i32,
     ) -> Result<Self, i32> {
@@ -154,9 +154,7 @@ impl JSShape {
         })?;
 
         let shape = Self(Rc::new(RefCell::new(JSShapeInner::new(
-            ctx,
-            proto.cloned(),
-            prop_slots,
+            ctx, proto, prop_slots,
         )?)));
         ctx.rt_mut()
             .gc_add_object(shape.id(), shape.downgrade().into());
@@ -167,7 +165,7 @@ impl JSShape {
     /// create a new empty shape with prototype 'proto'.
     /// Note: `proto` is not consumed.
     #[inline(always)]
-    pub fn new(ctx: &JSContext, proto: Option<&JSObject>) -> Result<Self, i32> {
+    pub fn new(ctx: &JSContext, proto: Option<JSObject>) -> Result<Self, i32> {
         Self::with_capacity(
             ctx,
             proto,

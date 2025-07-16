@@ -18,7 +18,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
     context::{JS_MODE_STRICT, JSContext},
-    error::{JSErrorEnum, JSResult, STD_ERROR_COUNT, STD_ERROR_NAMES},
+    error::{ErrorKind, JSResult, STD_ERROR_COUNT, STD_ERROR_NAMES},
     function::{
         BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
         js_async_function_proto_funcs,
@@ -168,13 +168,13 @@ impl JSContext {
                 .create_native_function_from_proto(
                     NativeFunctionType::ConstructorOrFunc(js_error_constructor),
                     name,
-                    if i == JSErrorEnum::Aggregate as usize {
+                    if i == ErrorKind::Aggregate as usize {
                         2
                     } else {
                         1
                     },
                     i as _, // magic
-                    &error_ctor,
+                    error_ctor.clone(),
                 )
                 .unwrap();
 
@@ -225,7 +225,7 @@ impl JSContext {
                 "toSpliced",
                 "values",
             ];
-            let obj1 = self.create_base_object_from_proto(&JSValue::NULL).unwrap();
+            let obj1 = self.create_base_object_from_proto(JSValue::NULL).unwrap();
             for s in unscopables {
                 obj1.define_property_value_str(self, s, JSValue::Bool(true), JS_PROP_C_W_E)
                     .unwrap();
@@ -236,7 +236,7 @@ impl JSContext {
         }
 
         let array_iter = self
-            .create_base_object_from_proto(&self.0.borrow().iterator_proto)
+            .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
             .unwrap();
         array_iter
             .install_native_fields(self, &js_array_iterator_proto_funcs)
@@ -254,7 +254,7 @@ impl JSContext {
     fn intrinsic_number(&self) {
         let number_proto = self
             .create_instance_from_proto(
-                &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
+                self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
                 ObjectDetail::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
@@ -275,7 +275,7 @@ impl JSContext {
     fn intrinsic_boolean(&self) {
         let bool_proto = self
             .create_instance_from_proto(
-                &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
+                self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
                 ObjectDetail::BOOLEAN(JSValue::Bool(false)),
             )
             .unwrap();
@@ -298,7 +298,7 @@ impl JSContext {
 
         let string_proto = self
             .create_instance_from_proto(
-                &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
+                self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
                 ObjectDetail::STRING(empty_str),
             )
             .unwrap();
@@ -315,7 +315,7 @@ impl JSContext {
             .unwrap();
 
         let string_iter = self
-            .create_base_object_from_proto(&self.0.borrow().iterator_proto)
+            .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
             .unwrap();
         string_iter
             .install_native_fields(self, &js_string_iterator_proto_funcs)
@@ -338,7 +338,7 @@ impl JSContext {
     fn intrinsic_generator(&self) {
         // generator prototype
         let generator_proto = self
-            .create_base_object_from_proto(&self.0.borrow().iterator_proto)
+            .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
             .unwrap();
         generator_proto
             .install_native_fields(self, &js_generator_proto_funcs)
@@ -347,7 +347,7 @@ impl JSContext {
 
         // generator function prototype
         let generator_function_proto = self
-            .create_base_object_from_proto(&self.0.borrow().function_proto)
+            .create_base_object_from_proto(self.0.borrow().function_proto.clone())
             .unwrap();
         generator_function_proto
             .install_native_fields(self, &js_generator_function_proto_funcs)
@@ -437,7 +437,7 @@ impl JSContext {
             .unwrap();
 
         // global var object
-        let gvobj = self.create_base_object_from_proto(&JSValue::NULL).unwrap();
+        let gvobj = self.create_base_object_from_proto(JSValue::NULL).unwrap();
 
         {
             let mut cx = self.0.borrow_mut();
@@ -597,7 +597,7 @@ impl JSContext {
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
                 let proto = self
-                    .create_base_object_from_proto(&typed_array_base_proto)
+                    .create_base_object_from_proto(typed_array_base_proto.clone())
                     .unwrap();
 
                 proto
@@ -619,7 +619,7 @@ impl JSContext {
                         &name,
                         3,
                         i as i16,
-                        &typed_array_base_func,
+                        typed_array_base_func.clone(),
                     )
                     .unwrap();
                 self.add_global_constructor(name.as_ref(), &func_obj, &proto);
@@ -690,7 +690,7 @@ impl JSContext {
         // AsyncFunction
         {
             let af_proto = self
-                .create_base_object_from_proto(&self.0.borrow().function_proto)
+                .create_base_object_from_proto(self.0.borrow().function_proto.clone())
                 .unwrap();
             af_proto
                 .install_native_fields(self, &js_async_function_proto_funcs)
@@ -702,7 +702,7 @@ impl JSContext {
                     "AsyncFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
-                    &self.0.borrow().function_ctor,
+                    self.0.borrow().function_ctor.clone(),
                 )
                 .unwrap();
             JS_SetConstructor2(self, &af_ctor, &af_proto, 0, JS_PROP_CONFIGURABLE);
@@ -722,7 +722,7 @@ impl JSContext {
         // AsyncFromSyncIteratorPrototype
         {
             let asiter_proto = self
-                .create_base_object_from_proto(&self.0.borrow().async_iterator_proto)
+                .create_base_object_from_proto(self.0.borrow().async_iterator_proto.clone())
                 .unwrap();
             asiter_proto
                 .install_native_fields(self, &js_async_from_sync_iterator_proto_funcs)
@@ -736,7 +736,7 @@ impl JSContext {
         {
             // AsyncGeneratorPrototype
             let agen_proto = self
-                .create_base_object_from_proto(&self.0.borrow().async_iterator_proto)
+                .create_base_object_from_proto(self.0.borrow().async_iterator_proto.clone())
                 .unwrap();
             agen_proto
                 .install_native_fields(self, &js_async_generator_proto_funcs)
@@ -744,7 +744,7 @@ impl JSContext {
 
             // AsyncGeneratorFunction
             let agf_proto = self
-                .create_base_object_from_proto(&self.0.borrow().function_proto)
+                .create_base_object_from_proto(self.0.borrow().function_proto.clone())
                 .unwrap();
             agf_proto
                 .install_native_fields(self, &js_async_generator_function_proto_funcs)
@@ -768,7 +768,7 @@ impl JSContext {
                     "AsyncGeneratorFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
-                    &self.0.borrow().function_ctor,
+                    self.0.borrow().function_ctor.clone(),
                 )
                 .unwrap();
             JS_SetConstructor2(
@@ -842,7 +842,7 @@ fn js_function_proto_caller(ctx: &JSContext, cc: CallContext) -> JSResult {
         .this()
         .object()
         .and_then(|o| {
-            o.0.detail.borrow().func().and_then(|f| {
+            o.0.payload.borrow().func().and_then(|f| {
                 f.bytecode.as_ref().map(|bc| {
                     let b = bc.0.borrow();
                     b.js_mode & JS_MODE_STRICT as u8 != 0 || !b.has_prototype

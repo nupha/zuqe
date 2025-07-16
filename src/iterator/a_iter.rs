@@ -87,7 +87,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     let this_val = cc.this();
 
     let p = unsafe { this_val.object_unchecked() };
-    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.detail.borrow().deref() {
+    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.payload.borrow().deref() {
         let method = if cc.magic() == GEN_MAGIC_NEXT {
             p.next_method.clone()
         } else {
@@ -221,7 +221,7 @@ pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDet
 
 pub fn js_async_from_sync_iterator_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(it) = p.0.detail.borrow().deref() {
+    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(it) = p.0.payload.borrow().deref() {
         it.sync_iter.gc_mark();
         it.next_method.gc_mark();
     }

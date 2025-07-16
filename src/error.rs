@@ -17,7 +17,7 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
-pub enum JSErrorEnum {
+pub enum ErrorKind {
     Eval,
     Range,
     Reference,
@@ -29,7 +29,7 @@ pub enum JSErrorEnum {
     NativeErrorCount,
 }
 
-pub const STD_ERROR_COUNT: usize = JSErrorEnum::NativeErrorCount as usize;
+pub const STD_ERROR_COUNT: usize = ErrorKind::NativeErrorCount as usize;
 
 pub type JSResult = Result<JSValue, i32>;
 
@@ -85,9 +85,9 @@ impl JSContext {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
-    pub fn throw_error_ex(&self, error_num: JSErrorEnum, message: &str, add_backtrace: bool) {
+    pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
         let obj = if let Ok(o) = self.create_instance_from_proto(
-            &self.0.borrow().native_error_proto[error_num as usize],
+            self.0.borrow().native_error_proto[kind as usize].clone(),
             ObjectDetail::ERROR,
         ) {
             o
@@ -113,7 +113,7 @@ impl JSContext {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
-    pub fn JS_ThrowError(&self, error_num: JSErrorEnum, message: &str) {
+    pub fn throw_error(&self, kind: ErrorKind, message: &str) {
         let rt = self.rt();
 
         // the backtrace is added later if called from a bytecode function
@@ -124,23 +124,21 @@ impl JSContext {
                     (*sf)
                         .cur_running
                         .object()
-                        .and_then(|o| o.0.detail.borrow().func().and_then(|f| f.bytecode.clone()))
+                        .and_then(|o| o.0.payload.borrow().func().and_then(|f| f.bytecode.clone()))
                         .is_none()
                 });
 
-        self.throw_error_ex(error_num, message, add_backtrace);
+        self.throw_error_ex(kind, message, add_backtrace);
     }
-
-    // pub fn JS_ThrowError(&self, error_num: JSErrorEnum, message: &str) {}
 
     #[inline]
     pub fn JS_ThrowInternalError(&self, message: &str) {
-        self.JS_ThrowError(JSErrorEnum::Internal, message);
+        self.throw_error(ErrorKind::Internal, message);
     }
 
     #[inline]
     pub fn JS_ThrowTypeError(&self, message: &str) {
-        self.JS_ThrowError(JSErrorEnum::Type, message);
+        self.throw_error(ErrorKind::Type, message);
     }
 
     #[inline]
@@ -269,7 +267,7 @@ impl JSContext {
                     .cur_running
                     .object_unchecked()
                     .0
-                    .detail
+                    .payload
                     .borrow()
                     .func()
                     .and_then(|f| f.bytecode.clone())
@@ -347,7 +345,7 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: JSAtom) {
 }
 
 pub fn JS_ThrowReferenceError(ctx: &JSContext, message: &str) {
-    ctx.JS_ThrowError(JSErrorEnum::Reference, message)
+    ctx.throw_error(ErrorKind::Reference, message)
 }
 
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
@@ -382,11 +380,11 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
 }
 
 pub fn JS_ThrowRangeError(ctx: &JSContext, message: &str) {
-    ctx.JS_ThrowError(JSErrorEnum::Range, message);
+    ctx.throw_error(ErrorKind::Range, message);
 }
 
 pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
-    ctx.JS_ThrowError(JSErrorEnum::Syntax, message);
+    ctx.throw_error(ErrorKind::Syntax, message);
 }
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {

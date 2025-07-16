@@ -205,7 +205,7 @@ impl JSMapState {
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
-        if let Some(s) = p.0.detail.borrow().map_state() {
+        if let Some(s) = p.0.payload.borrow().map_state() {
             for lst in s.items.values() {
                 for kv in lst {
                     match kv {

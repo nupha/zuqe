@@ -63,7 +63,7 @@ impl Promise {
             },
         });
 
-        let mut isa = unsafe { self.0.object_unchecked().0.detail.borrow_mut() };
+        let mut isa = unsafe { self.0.object_unchecked().0.payload.borrow_mut() };
         if let ObjectDetail::PROMISE(p) = isa.deref_mut() {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // register pending to call later in micro task job

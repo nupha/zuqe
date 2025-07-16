@@ -285,7 +285,7 @@ impl JSObject {
                 ($ty:ident, $vtype:ident) => {
                     if let Some(v) = self
                         .0
-                        .detail
+                        .payload
                         .borrow()
                         .with_typed_array(|ta| {
                             if idx < ta.count as usize {

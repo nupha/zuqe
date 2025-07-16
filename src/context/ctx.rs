@@ -349,7 +349,7 @@ impl JSContext {
     pub fn init_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
         // Object
         let object = self
-            .create_instance_from_proto(&JSValue::NULL, ObjectDetail::OBJECT)
+            .create_instance_from_proto(JSValue::NULL, ObjectDetail::OBJECT)
             .unwrap_or(JSValue::EXCEPTION);
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone();
 
@@ -361,7 +361,7 @@ impl JSContext {
                     "",
                     0,
                     0,
-                    &object,
+                    object.clone(),
                 )
                 .unwrap();
 
@@ -383,7 +383,7 @@ impl JSContext {
             let msg = JS_ATOM_empty_string.to_value(self, true);
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
                 let err = self
-                    .create_instance_from_proto(&error, ObjectDetail::OBJECT)
+                    .create_instance_from_proto(error.clone(), ObjectDetail::OBJECT)
                     .unwrap();
 
                 let name = self.create_atom_string(name).unwrap();
@@ -412,16 +412,23 @@ impl JSContext {
 
             // the array prototype is an array
             let array_proto = self
-                .create_instance_from_proto(&object, ObjectDetail::ARRAY(JSObjectArray::default()))
+                .create_instance_from_proto(
+                    object.clone(),
+                    ObjectDetail::ARRAY(JSObjectArray::default()),
+                )
                 .unwrap();
 
             self.with_mut(|cx| {
                 cx.class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone();
             });
 
-            let array_sh =
-                JSShape::with_capacity(self, array_proto.object(), JS_PROP_INITIAL_HASH_SIZE, 1)
-                    .unwrap();
+            let array_sh = JSShape::with_capacity(
+                self,
+                array_proto.object().cloned(),
+                JS_PROP_INITIAL_HASH_SIZE,
+                1,
+            )
+            .unwrap();
             // define length property at index 0
             array_sh
                 .add_shape_property(

@@ -97,7 +97,7 @@ impl AsyncGeneratorValue {
 
         let ob = unsafe { obj.object_unchecked() };
         // fix generator field.
-        if let ObjectDetail::ASYNC_GENERATOR(Some(s)) = ob.0.detail.borrow_mut().deref_mut() {
+        if let ObjectDetail::ASYNC_GENERATOR(Some(s)) = ob.0.payload.borrow_mut().deref_mut() {
             s.generator = ob.downgrade();
         } else {
             unreachable!()
@@ -111,7 +111,7 @@ impl AsyncGeneratorValue {
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
 
-        if let ObjectDetail::ASYNC_GENERATOR(Some(gd)) = p.0.detail.borrow().deref() {
+        if let ObjectDetail::ASYNC_GENERATOR(Some(gd)) = p.0.payload.borrow().deref() {
             if let Some(st) = &gd.func_state {
                 st.gc_mark();
             }
@@ -406,7 +406,7 @@ pub unsafe fn js_async_generator_resolve_function_create(
 pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -> JSResult {
     let is_reject = args.magic() & 1 != 0;
     let val = args.arg(0);
-    let mut isa = unsafe { val.object_unchecked().0.detail.borrow_mut() };
+    let mut isa = unsafe { val.object_unchecked().0.payload.borrow_mut() };
 
     if let ObjectDetail::ASYNC_GENERATOR(Some(p)) = isa.deref_mut() {
         if args.magic() >= 2 {
@@ -469,7 +469,7 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let Some(ObjectDetail::ASYNC_GENERATOR(p)) = cc
         .this()
         .object()
-        .map(|o| o.0.detail.borrow_mut())
+        .map(|o| o.0.payload.borrow_mut())
         .as_deref_mut()
     {
         let p = p.as_mut().unwrap();

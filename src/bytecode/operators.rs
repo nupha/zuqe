@@ -162,12 +162,12 @@ pub fn js_op_define_class(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone()
     };
 
-    let proto = ctx.create_base_object_from_proto(&parent_proto)?;
+    let proto = ctx.create_base_object_from_proto(parent_proto)?;
 
     // make constructor function
     let func = ctx
         .create_instance_from_proto(
-            &parent_class,
+            parent_class,
             ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default()),
         )
         .map_err(|_| -1)?;
@@ -254,7 +254,7 @@ pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: &JSValue) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(fo) = o.0.detail.borrow_mut().func_mut() {
+        if let Some(fo) = o.0.payload.borrow_mut().func_mut() {
             let need_home_object = fo
                 .bytecode
                 .as_ref()
@@ -435,7 +435,7 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 
     let ob = enum_obj.object_unchecked();
 
-    if let ObjectDetail::FOR_IN_ITERATOR(it) = ob.0.detail.borrow_mut().deref_mut() {
+    if let ObjectDetail::FOR_IN_ITERATOR(it) = ob.0.payload.borrow_mut().deref_mut() {
         let mut prop: JSAtom;
 
         loop {

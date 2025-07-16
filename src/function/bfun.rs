@@ -36,7 +36,7 @@ impl BytecodeFunction {
         let (bc, home_obj) = self
             .0
             .0
-            .detail
+            .payload
             .borrow()
             .func()
             .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
@@ -127,7 +127,7 @@ impl BytecodeFunction {
             new_target,
             0,
             0,
-            &self.0.0.detail.borrow().func().unwrap().var_refs,
+            &self.0.0.payload.borrow().func().unwrap().var_refs,
             args,
             false,
         );

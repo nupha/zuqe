@@ -1,5 +1,5 @@
 use crate::{
-    error::{JS_BACKTRACE_FLAG_SINGLE_LEVEL, JSErrorEnum},
+    error::{JS_BACKTRACE_FLAG_SINGLE_LEVEL, ErrorKind},
     value::JSValue,
 };
 
@@ -25,7 +25,7 @@ impl JSParseState<'_> {
     }
 
     pub fn throw_syntax_error(&self, message: &str) {
-        self.ctx.throw_error_ex(JSErrorEnum::Syntax, message, false);
+        self.ctx.throw_error_ex(ErrorKind::Syntax, message, false);
 
         let backtrace_flags = if !self.cur_func_ptr.is_null() && self.cur_func().backtrace_barrier {
             JS_BACKTRACE_FLAG_SINGLE_LEVEL

@@ -23,7 +23,7 @@ pub unsafe fn get_proxy_method<'a>(
     obj: &'a JSValueConst,
     name: JSAtom,
 ) -> Result<(JSValue, &'a ObjProxy), i32> {
-    if let ObjectDetail::PROXY(s) = obj.object_unchecked().0.detail.borrow().deref() {
+    if let ObjectDetail::PROXY(s) = obj.object_unchecked().0.payload.borrow().deref() {
         unimplemented!()
 
         // // safer to test recursion in all proxy methods
@@ -53,7 +53,7 @@ pub unsafe fn get_proxy_method<'a>(
 
 pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = val {
-        if let ObjectDetail::PROXY(s) = p.0.detail.borrow().deref() {
+        if let ObjectDetail::PROXY(s) = p.0.payload.borrow().deref() {
             if js_check_stack_overflow(ctx.rt(), 0) {
                 JS_ThrowStackOverflow(ctx);
                 return Err(-1);

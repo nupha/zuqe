@@ -28,7 +28,7 @@ impl JSArrayIteratorData {
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
         if let ObjectDetail::ARRAY_ITERATOR(it) | ObjectDetail::STRING_ITERATOR(it) =
-            p.0.detail.borrow().deref()
+            p.0.payload.borrow().deref()
         {
             it.obj.gc_mark();
         }
@@ -68,7 +68,7 @@ pub fn js_array_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let mut isa = unsafe { cc.this().object_unchecked().0.detail.borrow_mut() };
+    let mut isa = unsafe { cc.this().object_unchecked().0.payload.borrow_mut() };
 
     if let ObjectDetail::ARRAY_ITERATOR(it) = isa.deref_mut() {
         if it.obj.is_undefined() {

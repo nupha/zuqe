@@ -162,7 +162,7 @@ pub fn JS_CallInternal(
 
             let p = unsafe { frame.cur_running.object_unchecked().clone() };
             let (bc, home_obj) =
-                p.0.detail
+                p.0.payload
                     .borrow()
                     .func()
                     .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
@@ -183,7 +183,7 @@ pub fn JS_CallInternal(
                 new_target,
                 pc_offset,
                 sp_offset as usize,
-                p.0.detail.borrow().func().unwrap().var_refs.as_slice(),
+                p.0.payload.borrow().func().unwrap().var_refs.as_slice(),
                 args,
                 throw_flag,
             );
@@ -250,8 +250,8 @@ pub fn JS_CallFree(
 
 pub fn JS_CallConstructorInternal(
     ctx: &JSContext,
-    func_obj: &JSValueConst,
-    new_target: JSValueConst,
+    func_obj: &JSValue,
+    new_target: JSValue,
     args: &[JSValue],
     mut flags: i32,
 ) -> JSValue {
@@ -259,54 +259,53 @@ pub fn JS_CallConstructorInternal(
         return JSValue::EXCEPTION;
     }
 
-    if !func_obj.is_object() {
-        ctx.JS_ThrowTypeError("not a function");
-        return JSValue::EXCEPTION;
-    }
-
-    let p = unsafe { func_obj.object_unchecked() };
-    if !p.flags().is_constructor() {
-        ctx.JS_ThrowTypeError("not a constructor");
-        return JSValue::EXCEPTION;
-    }
-
-    flags |= JS_CALL_FLAG_CONSTRUCTOR;
-    let class_id = p.class_id();
-
-    if class_id != JS_CLASS_BYTECODE_FUNCTION {
-        return if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
-            cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
-        } else {
-            ctx.JS_ThrowTypeError("not a function");
-            JSValue::EXCEPTION
-        };
-    }
-
-    let bc =
-        p.0.detail
-            .borrow()
-            .func()
-            .unwrap()
-            .bytecode
-            .clone()
-            .unwrap();
-    if bc.0.borrow().is_derived_class_constructor {
-        JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
-    } else {
-        // legacy constructor behavior
-        let this = if let Ok(v) = ctx.create_instance_from_ctor(&new_target, ObjectDetail::OBJECT) {
-            v
-        } else {
+    if let JSValue::Object(p) = func_obj {
+        if !p.flags().is_constructor() {
+            ctx.JS_ThrowTypeError("not a constructor");
             return JSValue::EXCEPTION;
-        };
-
-        let ret = JS_CallInternal(ctx, func_obj, &this, new_target, args, flags);
-
-        if ret.is_object() || ret.is_exception() {
-            ret
-        } else {
-            this
         }
+
+        flags |= JS_CALL_FLAG_CONSTRUCTOR;
+        let class_id = p.class_id();
+
+        if class_id != JS_CLASS_BYTECODE_FUNCTION {
+            return if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
+                cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
+            } else {
+                ctx.JS_ThrowTypeError("not a function");
+                JSValue::EXCEPTION
+            };
+        }
+
+        let bc =
+            p.0.payload
+                .borrow()
+                .func()
+                .unwrap()
+                .bytecode
+                .clone()
+                .unwrap();
+        if bc.0.borrow().is_derived_class_constructor {
+            JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
+        } else {
+            // legacy constructor behavior
+            let this =
+                if let Ok(v) = ctx.create_instance_from_ctor(&new_target, ObjectDetail::OBJECT) {
+                    v
+                } else {
+                    return JSValue::EXCEPTION;
+                };
+
+            let ret = JS_CallInternal(ctx, func_obj, &this, new_target, args, flags);
+            if ret.is_object() || ret.is_exception() {
+                ret
+            } else {
+                this
+            }
+        }
+    } else {
+        ctx.JS_ThrowTypeError("not a function");
+        JSValue::EXCEPTION
     }
 }
 

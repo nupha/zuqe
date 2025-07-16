@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, ObjectDetail, JSProperty, js_get_length32,
+        JS_PROP_WRITABLE, JSProperty, ObjectDetail, js_get_length32,
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
@@ -14,7 +14,7 @@ use crate::{
 
 pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let val = if let Ok(o) = ctx.create_instance_from_proto(
-        &ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
+        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
         ObjectDetail::ARGUMENTS(JSObjectArray::default()),
     ) {
         o
@@ -79,7 +79,7 @@ pub unsafe fn js_build_mapped_arguments(
     arg_count: i32,
 ) -> JSValue {
     let val = if let Ok(o) = ctx.create_instance_from_proto(
-        &ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
+        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
         ObjectDetail::MAPPED_ARGUMENTS,
     ) {
         o

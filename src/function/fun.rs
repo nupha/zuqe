@@ -118,7 +118,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
     let realm: JSContext;
     let p = unsafe { func_obj.object_unchecked() };
 
-    match p.0.detail.borrow().deref() {
+    match p.0.payload.borrow().deref() {
         ObjectDetail::C_FUNCTION(cfunc) => {
             realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
         }
@@ -209,7 +209,7 @@ pub fn js_bytecode_function_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
 
     let (bf, home_obj) =
-        p.0.detail
+        p.0.payload
             .borrow()
             .func()
             .map(|f| {

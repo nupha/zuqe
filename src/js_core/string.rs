@@ -845,7 +845,7 @@ pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValueConst) -> JSResult {
         Ok(this_val)
     } else if let Some(d) = this_val
         .object()
-        .and_then(|p| p.0.detail.borrow().value().cloned())
+        .and_then(|p| p.0.payload.borrow().value().cloned())
         .and_then(|x| if x.is_string() { Some(x) } else { None })
     {
         Ok(d)
@@ -981,7 +981,7 @@ pub fn js_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let mut isa = unsafe { cc.this().object_unchecked().0.detail.borrow_mut() };
+    let mut isa = unsafe { cc.this().object_unchecked().0.payload.borrow_mut() };
 
     if let ObjectDetail::STRING_ITERATOR(it) = isa.deref_mut() {
         let ss = unsafe { it.obj.string_unchecked() };

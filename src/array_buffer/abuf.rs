@@ -386,7 +386,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
         return;
     }
 
-    if let Some(abuf) = obj.object_unchecked().0.detail.borrow_mut().array_buffer_mut() {
+    if let Some(abuf) = obj.object_unchecked().0.payload.borrow_mut().array_buffer_mut() {
         if !abuf.0.borrow().detached {
             match abuf.content().deref() {
                 ArrayBufferContent::Raw(ptr, len, fin) => {
@@ -404,7 +404,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified
                     if o.class_id() != JS_CLASS_DATAVIEW {
-                        if let Some(ta) = o.0.detail.borrow_mut().typed_array_mut() {
+                        if let Some(ta) = o.0.payload.borrow_mut().typed_array_mut() {
                             ta.count = 0;
                         } else {
                             unreachable!()

@@ -63,7 +63,7 @@ impl ObjTypedArray {
         let size_log2 = typed_array_size_log2(class_id);
 
         if let JSValue::Object(abo) = buffer {
-            let abuf = abo.0.detail.borrow().array_buffer().cloned().unwrap();
+            let abuf = abo.0.payload.borrow().array_buffer().cloned().unwrap();
 
             if abuf.0.borrow().detached {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -107,7 +107,7 @@ impl ObjTypedArray {
         // (*self.0.u.array).data.ptr.is_null()
         self.buffer
             .0
-            .detail
+            .payload
             .borrow()
             .array_buffer()
             .unwrap()
@@ -121,7 +121,7 @@ impl ObjTypedArray {
     pub fn array_buffer(&self) -> ObjArrayBuffer {
         self.buffer
             .0
-            .detail
+            .payload
             .borrow()
             .array_buffer()
             .cloned()
@@ -195,7 +195,7 @@ impl TypedArray {
 
     /// run closure with typed array data.
     pub fn with<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> R {
-        self.0.inner().detail.borrow().typed_array().map(f).unwrap()
+        self.0.inner().payload.borrow().typed_array().map(f).unwrap()
     }
 
     /// check if the TypedArray is detached.
@@ -471,7 +471,7 @@ impl JSContext {
             let w = tao.downgrade();
 
             tao.0
-                .detail
+                .payload
                 .borrow_mut()
                 .typed_array()
                 .map(|x| x.array_buffer())
@@ -481,7 +481,7 @@ impl JSContext {
                 .array_list
                 .push(w.clone());
 
-            tao.0.detail.borrow_mut().typed_array_mut().unwrap().obj = w;
+            tao.0.payload.borrow_mut().typed_array_mut().unwrap().obj = w;
         }
 
         Ok(ta)
@@ -718,7 +718,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usiz
 
 pub fn js_typed_array_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let Some(ta) = p.0.detail.borrow().typed_array() {
+    if let Some(ta) = p.0.payload.borrow().typed_array() {
         // mark underlaying array buffer
         // println!("[O.o] TODO typed array mark");
         // (*rt).gc_mark_value(JSValue::Object(ta.array_buffer().clone()), mark_func);

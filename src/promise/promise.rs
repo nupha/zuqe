@@ -128,10 +128,7 @@ impl Promise {
     /// `ctor` is a customized constructor function value to instantiate Promise object:
     ///  - when provised, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
-    pub unsafe fn new(
-        ctx: &JSContext,
-        ctor: &JSValue,
-    ) -> Result<(Promise, [JSValue; 2]), i32> {
+    pub unsafe fn new(ctx: &JSContext, ctor: &JSValue) -> Result<(Promise, [JSValue; 2]), i32> {
         let executor = ctx.create_native_callable_object(
             Promise::hook_executor,
             2,
@@ -146,7 +143,7 @@ impl Promise {
         };
 
         if let ObjectDetail::C_FUNCTION_DATA(s) =
-            executor.object_unchecked().0.detail.borrow().deref()
+            executor.object_unchecked().0.payload.borrow().deref()
         {
             let data = s.data();
             debug_assert!(!data.is_empty());
@@ -182,7 +179,7 @@ impl Promise {
 
             let function_proto = ctx.0.borrow().function_proto.clone();
             match ctx.create_instance_from_proto(
-                &function_proto,
+                function_proto,
                 if i == 0 {
                     ObjectDetail::PROMISE_RESOLVE_FUNCTION(s)
                 } else {
@@ -205,7 +202,7 @@ impl Promise {
     /// get Promise meta data.
     fn with_meta<R>(&self, f: impl FnOnce(&ObjPromise) -> R) -> Option<R> {
         unsafe {
-            if let ObjectDetail::PROMISE(p) = self.0.object_unchecked().0.detail.borrow().deref() {
+            if let ObjectDetail::PROMISE(p) = self.0.object_unchecked().0.payload.borrow().deref() {
                 Some(f(p))
             } else {
                 None
@@ -217,7 +214,7 @@ impl Promise {
     fn with_meta_mut<R>(&self, f: impl FnOnce(&mut ObjPromise) -> R) -> Option<R> {
         unsafe {
             if let ObjectDetail::PROMISE(p) =
-                self.0.object_unchecked().0.detail.borrow_mut().deref_mut()
+                self.0.object_unchecked().0.payload.borrow_mut().deref_mut()
             {
                 Some(f(p))
             } else {
@@ -347,7 +344,7 @@ impl Promise {
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
-        if let ObjectDetail::PROMISE(s) = p.0.detail.borrow().deref() {
+        if let ObjectDetail::PROMISE(s) = p.0.payload.borrow().deref() {
             for i in 0..2 {
                 for rd in s.promise_reactions[i].iter() {
                     rd.resolving_funcs[0].gc_mark();

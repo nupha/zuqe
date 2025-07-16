@@ -113,7 +113,7 @@ pub fn js_object_data_mark(val: JSValue) {
     let v = unsafe {
         val.object_unchecked()
             .0
-            .detail
+            .payload
             .borrow()
             .value()
             .unwrap()

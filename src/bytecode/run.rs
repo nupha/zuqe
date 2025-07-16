@@ -403,7 +403,7 @@ impl Bytecode {
                             SpecialObject::VarObject => {
                                 SP_PUT!(
                                     0,
-                                    ctx.create_base_object_from_proto(&JSValue::NULL)
+                                    ctx.create_base_object_from_proto(JSValue::NULL)
                                         .unwrap_or(JSValue::EXCEPTION)
                                 );
                                 SP_GO!(1);
@@ -676,9 +676,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::CALL_CONSTRUCTOR => {
-                        let call_argc = unsafe { read_from_ptr::<u16>(pc) as i32 };
-                        pc = unsafe { pc.add(2) };
-
+                        let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
                         sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
@@ -1188,7 +1186,7 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         SP_PUT!(
                             0,
-                            ctx.create_base_object_from_proto(&JSValue::NULL)
+                            ctx.create_base_object_from_proto(JSValue::NULL)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);

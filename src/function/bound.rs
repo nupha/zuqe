@@ -30,7 +30,7 @@ impl BoundFunction {
     pub fn hook_mark(val: JSValue) {
         unsafe {
             if let ObjectDetail::BOUND_FUNCTION(bf) =
-                val.object_unchecked().0.detail.borrow().deref()
+                val.object_unchecked().0.payload.borrow().deref()
             {
                 val.gc_mark();
                 bf.func_obj.gc_mark();
@@ -50,7 +50,7 @@ impl BoundFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let isa = unsafe { func_obj.object_unchecked().0.detail.borrow() };
+        let isa = unsafe { func_obj.object_unchecked().0.payload.borrow() };
 
         if let ObjectDetail::BOUND_FUNCTION(bf) = isa.deref() {
             let arg_count = bf.bind_args.len() + args.len() as usize;

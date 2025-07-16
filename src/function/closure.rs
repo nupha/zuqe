@@ -231,7 +231,7 @@ impl Bytecode {
 
         // borrow func_obj in code block only
         {
-            let mut isa = target.0.detail.borrow_mut();
+            let mut isa = target.0.payload.borrow_mut();
 
             let func = isa.func_mut().unwrap();
             debug_assert!(func.var_refs.is_empty());
@@ -341,7 +341,7 @@ impl Bytecode {
             ));
 
             let proto = ctx.create_base_object_from_proto(
-                &ctx.0.borrow().class_proto[proto_class_id as usize],
+                ctx.0.borrow().class_proto[proto_class_id as usize].clone(),
             )?;
 
             closure
@@ -366,7 +366,16 @@ impl Bytecode {
             }
         }
 
-        debug_assert!(closure.object().unwrap().0.detail.borrow().func().is_some());
+        debug_assert!(
+            closure
+                .object()
+                .unwrap()
+                .0
+                .payload
+                .borrow()
+                .func()
+                .is_some()
+        );
 
         Ok(closure)
     }
@@ -388,7 +397,8 @@ pub unsafe fn add_closure_variables(
         return Ok(());
     }
 
-    let mut cvars = Vec::<JSClosureVar>::try_with_capacity(count as usize).map_err(|_| {
+    let mut cvars = Vec::<JSClosureVar>::new();
+    cvars.try_reserve_exact(count as usize).map_err(|_| {
         ctx.JS_ThrowOutOfMemory();
         -1
     })?;

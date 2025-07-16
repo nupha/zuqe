@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ERROR,
     atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
     context::{JS_GetActiveFunction, JSContext},
-    error::{JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSErrorEnum, JSResult},
+    error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectDetail},
@@ -31,10 +31,10 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let obj = ctx
-        .create_instance_from_proto(&proto, ObjectDetail::ERROR)
+        .create_instance_from_proto(proto, ObjectDetail::ERROR)
         .map_err(|_| -1)?;
 
-    let mut arg_index = if cc.magic() == JSErrorEnum::Aggregate as i32 {
+    let mut arg_index = if cc.magic() == ErrorKind::Aggregate as i32 {
         1
     } else {
         0
@@ -67,7 +67,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    if cc.magic() == JSErrorEnum::Aggregate as i32 {
+    if cc.magic() == ErrorKind::Aggregate as i32 {
         let error_list = unsafe { iterator_to_array(ctx, cc.arg(0)).check_exception()? };
         obj.define_property_value(
             ctx,
@@ -86,7 +86,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
     let obj = if let Ok(o) = ctx.create_instance_from_proto(
-        &ctx.0.borrow().native_error_proto[JSErrorEnum::Aggregate as usize],
+        ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize].clone(),
         ObjectDetail::ERROR,
     ) {
         o

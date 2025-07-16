@@ -115,14 +115,18 @@ fn main() {
                 let exc = ctx.take_exception();
                 debug_assert!(!exc.is_undefined_or_null());
 
-                println!("!!! EXCEPTION {exc:?} {}", exc.repr());
-                println!("[error] {:?}", exc.coerce_to_string(&ctx));
+                println!("!!! EXCEPTION {exc:?}");
+                println!("[error][toString] {:?}", exc.coerce_to_string(&ctx));
                 if let JSValue::Object(o) = exc {
                     o.dump(ctx.rt());
                 };
             } else {
                 println!(">>> RESULT: {r:?}, {}", r.repr());
-                println!("[result] {:?} {}", r.coerce_to_string(&ctx), ctx.exception());
+                println!(
+                    "[result] {:?} {}",
+                    r.coerce_to_string(&ctx),
+                    ctx.exception()
+                );
 
                 if let Ok(pr) = Promise::try_from(r) {
                     let v = pr.result();

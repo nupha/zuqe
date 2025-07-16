@@ -116,7 +116,7 @@ pub unsafe fn js_regexp_constructor_internal(
 
 pub fn js_get_regexp(ctx: &JSContext, obj: &JSValueConst, throw_error: bool) -> Option<JSRegExp> {
     if let JSValue::Object(ob) = obj {
-        if let ObjectDetail::REGEXP(re) = ob.0.detail.borrow().deref() {
+        if let ObjectDetail::REGEXP(re) = ob.0.payload.borrow().deref() {
             return Some(*re.clone());
         }
     }

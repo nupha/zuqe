@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::{context::JSContext, error::JSErrorEnum, string::strstart, value::JSValue};
+use crate::{context::JSContext, error::ErrorKind, string::strstart, value::JSValue};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */
@@ -271,7 +271,7 @@ pub unsafe fn js_atof(
         }
         ATOD_TYPE_BIG_INT => {
             // fail!();
-            ctx.JS_ThrowError(JSErrorEnum::Syntax, "big int is not supported");
+            ctx.throw_error(ErrorKind::Syntax, "big int is not supported");
             if !pp.is_null() {
                 *pp = p;
             }

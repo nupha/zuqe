@@ -403,7 +403,7 @@ impl JSContext {
             }
         };
 
-        self.create_instance_from_proto(&proto, isa)
+        self.create_instance_from_proto(proto, isa)
     }
 }
 

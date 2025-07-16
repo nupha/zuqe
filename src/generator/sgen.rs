@@ -172,7 +172,7 @@ pub fn js_generator_next(
         .unwrap()
         .0
         .as_ref()
-        .detail
+        .payload
         .borrow_mut()
         .deref_mut()
     {

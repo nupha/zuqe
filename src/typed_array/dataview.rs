@@ -30,7 +30,7 @@ impl JSContext {
     ) -> JSResult {
         let abuf = buffer
             .object()
-            .and_then(|o| o.0.detail.borrow().array_buffer().cloned())
+            .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
             .ok_or_else(|| {
                 self.JS_ThrowTypeError("expect an ArrayBuffer");
                 -1
@@ -81,7 +81,7 @@ impl JSContext {
         unsafe {
             // set back ref to the new created DataView object
             let p = o.object_unchecked();
-            p.0.detail.borrow_mut().typed_array_mut().unwrap().obj = p.downgrade();
+            p.0.payload.borrow_mut().typed_array_mut().unwrap().obj = p.downgrade();
         }
 
         Ok(o)
@@ -124,11 +124,11 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
         false // default to BE
     };
 
-    let isa = unsafe { this_obj.object_unchecked().0.detail.borrow() };
+    let isa = unsafe { this_obj.object_unchecked().0.payload.borrow() };
     let ta = isa.typed_array().unwrap();
 
     unsafe {
-        let abuf = ta.buffer.0.detail.borrow().array_buffer().cloned().unwrap();
+        let abuf = ta.buffer.0.payload.borrow().array_buffer().cloned().unwrap();
 
         if abuf.0.borrow().detached {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);

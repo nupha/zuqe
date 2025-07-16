@@ -40,7 +40,7 @@ pub unsafe fn js_array_buffer_get_byteLength(
     this_val
         .object_unchecked()
         .0
-        .detail
+        .payload
         .borrow()
         .array_buffer()
         .map_or(
@@ -54,7 +54,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         cc.this()
             .object_unchecked()
             .0
-            .detail
+            .payload
             .borrow()
             .array_buffer()
             .cloned()
@@ -95,7 +95,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if unsafe { new_obj.object_unchecked() }
         .0
-        .detail
+        .payload
         .borrow()
         .class_id()
         != cc.magic() as JSClassID
@@ -105,7 +105,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut new_abuf = unsafe { new_obj.object_unchecked() }
         .0
-        .detail
+        .payload
         .borrow()
         .array_buffer()
         .cloned()

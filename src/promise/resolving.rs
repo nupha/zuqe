@@ -32,7 +32,7 @@ impl PromiseResolvingFunc {
         flags: i32,
     ) -> JSResult {
         let p = unsafe { func_obj.object_unchecked() };
-        let mut isa = p.0.detail.borrow_mut();
+        let mut isa = p.0.payload.borrow_mut();
         let class_id = isa.class_id();
 
         if let Some(s) = isa.promise_func_data_mut() {
@@ -99,7 +99,7 @@ impl PromiseResolvingFunc {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
     pub fn hook_mark(val: JSValueConst) {
-        let isa = unsafe { val.object_unchecked().0.detail.borrow() };
+        let isa = unsafe { val.object_unchecked().0.payload.borrow() };
         if let Some(s) = isa.promise_func_data() {
             s.promise.0.gc_mark();
         }

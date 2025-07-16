@@ -163,8 +163,8 @@ pub(crate) struct JSObjectInner {
     /// this object is weak referenced in state.
     pub weak_refs: RefCell<Vec<JSObjectWeakref>>,
 
-    /// object detail data
-    pub detail: RefCell<ObjectDetail>,
+    /// object payload
+    pub payload: RefCell<ObjectDetail>,
 
     pub gc_mark: Cell<bool>,
 }
@@ -310,7 +310,7 @@ impl JSObjectInner {
             shape: RefCell::new(shape),
             prop_values: RefCell::new(prop_values),
             weak_refs: RefCell::new(Vec::new()),
-            detail: RefCell::new(isa),
+            payload: RefCell::new(isa),
             gc_mark: Cell::new(false),
         };
 
@@ -350,7 +350,7 @@ impl JSObjectInner {
     }
 
     pub fn class_id(&self) -> JSClassID {
-        self.detail.borrow().class_id()
+        self.payload.borrow().class_id()
     }
 
     /// Test if object `self` can be called like a function, that means value is a:
@@ -359,7 +359,7 @@ impl JSObjectInner {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     pub fn is_callable(&self) -> bool {
-        match self.detail.borrow().deref() {
+        match self.payload.borrow().deref() {
             ObjectDetail::BYTECODE_FUNCTION(_) => true,
             ObjectDetail::PROXY(x) => x.is_func,
             s => {
@@ -382,7 +382,7 @@ impl JSObjectInner {
 
         while let Some(weak) = self.weak_refs.borrow_mut().pop() {
             if let Some(o) = weak.upgrade() {
-                let mut isa = o.0.detail.borrow_mut();
+                let mut isa = o.0.payload.borrow_mut();
                 let ms = isa.map_state_mut().unwrap();
                 ms.remove_weak(self)
             }
@@ -392,7 +392,7 @@ impl JSObjectInner {
 
         // call class finalizer
         if let Some(f) = rt.class_defs[class_id as usize].finalizer {
-            f(rt, self.detail.borrow().deref(), self.id());
+            f(rt, self.payload.borrow().deref(), self.id());
         }
 
         // untrack from gc
@@ -450,7 +450,7 @@ impl JSObject {
     /// Get object class id
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
-        self.0.detail.borrow().class_id()
+        self.0.payload.borrow().class_id()
     }
 
     /// Get object class name.
@@ -684,13 +684,17 @@ impl JSContext {
     /// - The `detail` data determines what class the new instance is.
     pub fn create_instance_from_proto(
         &self,
-        proto: &JSValue,
+        proto: JSValue,
         detail: ObjectDetail,
     ) -> Result<JSValue, ObjectDetail> {
         // find shape by prototype
         let shape = {
-            let proto_ob = proto.object();
-            match self.rt().find_shape_by_proto(proto_ob) {
+            let proto_ob = if let JSValue::Object(o) = proto {
+                Some(o)
+            } else {
+                None
+            };
+            match self.rt().find_shape_by_proto(proto_ob.as_ref()) {
                 Some(sh) => sh,
                 None => {
                     if let Ok(sh) = JSShape::new(self, proto_ob) {
@@ -708,14 +712,17 @@ impl JSContext {
     /// returns Err if fail.
     #[inline(always)]
     pub fn create_instance(&self, isa: ObjectDetail) -> Result<JSValue, ObjectDetail> {
-        self.create_instance_from_proto(&self.0.borrow().class_proto[isa.class_id() as usize], isa)
+        self.create_instance_from_proto(
+            self.0.borrow().class_proto[isa.class_id() as usize].clone(),
+            isa,
+        )
     }
 
     /// create new instance of basic object with given prototype value.
     /// returns Err if failed.
     /// `proto` is not consumed.
     #[inline(always)]
-    pub fn create_base_object_from_proto(&self, proto: &JSValue) -> JSResult {
+    pub fn create_base_object_from_proto(&self, proto: JSValue) -> JSResult {
         self.create_instance_from_proto(proto, ObjectDetail::OBJECT)
             .map_err(|_| -1)
     }
@@ -747,14 +754,13 @@ pub fn JS_SetPrototypeInternal(
     }
 
     if let JSValue::Object(p) = obj {
-        let proto = if !proto_val.is_object() {
-            if !proto_val.is_null() {
-                ctx.JS_ThrowTypeErrorNotAnObject();
-                return Err(-1);
-            }
+        let proto = if let JSValue::Object(o) = &proto_val {
+            Some(o)
+        } else if proto_val.is_null() {
             None
         } else {
-            Some(unsafe { proto_val.object_unchecked() })
+            ctx.JS_ThrowTypeErrorNotAnObject();
+            return Err(-1);
         };
 
         if throw_flag && !obj.is_object() {
@@ -829,7 +835,7 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> b
 /// Note: `val` is consumed.
 pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
     if let Some(o) = obj.object() {
-        if let Ok(old) = o.0.detail.borrow_mut().replace_value(val) {
+        if let Ok(old) = o.0.payload.borrow_mut().replace_value(val) {
             drop(old);
             0
         } else {
