@@ -413,6 +413,24 @@ impl PartialEq for JSObject {
     }
 }
 
+impl From<JSObject> for JSValue {
+    fn from(value: JSObject) -> Self {
+        Self::Object(value)
+    }
+}
+
+impl TryFrom<JSValue> for JSObject {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if let JSValue::Object(o) = value {
+            Ok(o)
+        } else {
+            Err(-1)
+        }
+    }
+}
+
 impl From<JSObject> for GCObject {
     fn from(value: JSObject) -> Self {
         Self::Object(value)
@@ -565,17 +583,17 @@ impl JSValue {
     /// Handles primitive wrapping according to ES6 ToObject conversion rules
     /// Returns exception for null/undefined inputs.
     /// `self` is not consumed
-    pub fn coerce_to_object(&self, ctx: &JSContext) -> JSResult {
+    pub fn coerce_to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
         match self {
-            Self::Object(_) => Ok(self.clone()),
+            Self::Object(o) => Ok(o.clone()),
             Self::Int(_) | Self::Float64(_) => ctx
-                .create_instance(ObjectDetail::NUMBER(self.clone()))
+                .create_object(ObjectDetail::NUMBER(self.clone()))
                 .map_err(|_| -1),
             Self::Bool(_) => ctx
-                .create_instance(ObjectDetail::BOOLEAN(self.clone()))
+                .create_object(ObjectDetail::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
             Self::String(_) | Self::Symbol(_) => ctx
-                .create_instance(ObjectDetail::STRING(self.clone()))
+                .create_object(ObjectDetail::STRING(self.clone()))
                 .map_err(|_| -1),
             Self::NULL | Self::UNDEFINED => {
                 ctx.throw_type_error("cannot convert to object");
@@ -677,67 +695,6 @@ pub const JS_ARRAY_INITIAL_SIZE: u32 = 2;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 #[cfg(not(target_pointer_width = "64"))]
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
-
-impl JSContext {
-    /// create new instance with detailed object data.
-    /// when failed, detail data is returned back in Err, caller should free it.
-    /// `proto` is Prototype object (can be JSValue::NULL).
-    ///
-    /// Note:
-    /// - New instance will apply the shape determined by `proto`.
-    /// - The `detail` data determines what class the new instance is.
-    pub fn create_instance_from_proto(
-        &self,
-        proto: JSValue,
-        detail: ObjectDetail,
-    ) -> Result<JSValue, ObjectDetail> {
-        // find shape by prototype
-        let shape = {
-            let proto_ob = if let JSValue::Object(o) = proto {
-                Some(o)
-            } else {
-                None
-            };
-            match self.rt().find_shape_by_proto(proto_ob.as_ref()) {
-                Some(sh) => sh,
-                None => {
-                    if let Ok(sh) = JSShape::new(self, proto_ob) {
-                        sh
-                    } else {
-                        return Err(detail);
-                    }
-                }
-            }
-        };
-        self.create_instance_from_shape(shape, detail)
-    }
-
-    /// create new instance with isa payload data.
-    /// returns Err if failed.
-    #[inline(always)]
-    pub fn create_instance(&self, isa: ObjectDetail) -> Result<JSValue, ObjectDetail> {
-        self.create_instance_from_proto(
-            self.0.borrow().class_proto[isa.class_id() as usize].clone(),
-            isa,
-        )
-    }
-
-    /// create new instance of basic object with given prototype value.
-    /// returns Err if failed.
-    /// `proto` is not consumed.
-    #[inline(always)]
-    pub fn create_base_object_from_proto(&self, proto: JSValue) -> JSResult {
-        self.create_instance_from_proto(proto, ObjectDetail::OBJECT)
-            .map_err(|_| -1)
-    }
-
-    /// Create new instance of basic object using default Object prototype
-    /// returns Err if fail.
-    #[inline(always)]
-    pub fn create_base_object(&self) -> JSResult {
-        self.create_instance(ObjectDetail::OBJECT).map_err(|_| -1)
-    }
-}
 
 /// Modify an object's prototype chain
 /// Args:

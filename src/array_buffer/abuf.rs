@@ -197,6 +197,7 @@ impl ObjArrayBuffer {
 
 impl JSContext {
     /// Create new instance of class ARRAY_BUFFER.
+    /// TODO: should return ArrayBuffer type
     fn do_create_array_buffer(
         &self,
         new_target: &JSValueConst,
@@ -222,7 +223,7 @@ impl JSContext {
         };
 
         // create array buffer or shared array buffer instance
-        self.create_instance_from_ctor(
+        self.create_object_apply_ctor(
             new_target,
             if class_id == JS_CLASS_ARRAY_BUFFER {
                 ObjectDetail::ARRAY_BUFFER(ab)
@@ -230,6 +231,7 @@ impl JSContext {
                 ObjectDetail::SHARED_ARRAY_BUFFER(ab)
             },
         )
+        .map(JSValue::Object)
         .map_err(|_| -1)
     }
 

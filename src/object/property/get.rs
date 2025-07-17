@@ -256,6 +256,19 @@ impl JSObject {
         self.get_property_value(ctx, &JSValue::from(idx))
     }
 
+    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSValue {
+        if (idx as u64) <= i32::MAX as u64 {
+            self.get_property_value(ctx, &JSValue::Int(idx as i32))
+        } else {
+            let prop = ctx.rt_mut().register_atom_i64(idx);
+            if prop == JS_ATOM_NULL {
+                JSValue::EXCEPTION
+            } else {
+                self.get_property(ctx, prop)
+            }
+        }
+    }
+
     /// returns Exception when fail.
     pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSValue {
         if let Ok(atom) = ctx.create_atom(prop) {

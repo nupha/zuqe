@@ -29,8 +29,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else if obj.is_callable() {
             JS_ATOM_Function
         } else {
-            let p = unsafe { obj.object_unchecked() };
-            match p.class_id() {
+            match obj.class_id() {
                 cid @ (JS_CLASS_STRING
                 | JS_CLASS_ARGUMENTS
                 | JS_CLASS_MAPPED_ARGUMENTS
@@ -75,7 +74,7 @@ pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.this().coerce_to_object(ctx)
+    cc.this().coerce_to_object(ctx).map(JSValue::Object)
 }
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -96,15 +95,15 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Ok(JSValue::Bool(false));
     }
 
-    let v = cc.this().coerce_to_object(ctx)?;
-    let ptr = unsafe { v.object_unchecked() };
+    let ob = cc.this().coerce_to_object(ctx)?;
 
     let res: bool = loop {
+        // walk up prototype chain
         target = target.prototype(ctx)?;
         if target.is_null() {
             break false;
         }
-        if ptr == unsafe { target.object_unchecked() } {
+        if ob == unsafe { target.object_unchecked().clone() } {
             break true;
         }
 
@@ -131,9 +130,11 @@ pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSRes
 pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() == 0 {
         // getter
-        cc.this()
+        let p = cc
+            .this()
             .coerce_to_object(ctx)
-            .and_then(|o| o.prototype(ctx))
+            .and_then(|o| o.prototype(ctx))?;
+        Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
         let this_val = cc.this();
@@ -165,7 +166,9 @@ pub unsafe fn js_object___defineGetter__(
     let prop = &*argv.offset(0);
     let value = &*argv.offset(1);
 
-    let obj = this_val.coerce_to_object(ctx).unwrap_or(JSValue::EXCEPTION);
+    let obj = this_val
+        .coerce_to_object(ctx)
+        .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
@@ -210,7 +213,9 @@ pub unsafe fn js_object___lookupGetter__(
     argv: *mut JSValueConst,
     setter: i32,
 ) -> JSValue {
-    let mut obj = this_val.coerce_to_object(ctx).unwrap_or(JSValue::EXCEPTION);
+    let mut obj = this_val
+        .coerce_to_object(ctx)
+        .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;
     }

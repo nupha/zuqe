@@ -339,22 +339,6 @@ impl From<JSShapeWeakref> for GCObjectWeakref {
     }
 }
 
-impl JSContext {
-    /// create instance of `isa` type, based on given shape and isa payload data.
-    /// when failed, isa is returned back in Err, caller should free it.
-    /// Note: `shape` is consumed.
-    pub(crate) fn create_instance_from_shape(
-        &self,
-        shape: JSShape,
-        isa: ObjectDetail,
-    ) -> Result<JSValue, ObjectDetail> {
-        let obj = JSObject(Rc::new(ObjectInner::new(self, Some(shape), isa)?));
-        self.rt_mut()
-            .gc_add_object(obj.id(), obj.downgrade().into());
-        Ok(JSValue::Object(obj))
-    }
-}
-
 impl JSRuntime {
     /// register a shape
     pub fn register_shape(&mut self, shape: &JSShape) -> Result<(), i32> {
@@ -398,25 +382,23 @@ impl JSRuntime {
 
     /// find a registered empty shape matching given prototype.
     /// Return None if not found.
-    /// `proto` is not consumed.
     pub fn find_shape_by_proto(&self, proto: Option<&JSObject>) -> Option<JSShape> {
         let h = shape_initial_hash(proto.map_or(0, |o| o.id()));
 
         self.shape_registry.get(&h).and_then(|lst| {
             lst.iter().find_map(|w| {
                 w.upgrade().filter(|s| {
-                    s.with(|s| {
-                        debug_assert_eq!(s.hash, h);
-                        s.proto.as_ref().eq(&proto) && s.prop_defs.is_empty()
-                    })
+                    let s = s.0.borrow();
+                    debug_assert_eq!(s.hash, h);
+                    s.proto.as_ref().eq(&proto) && s.prop_defs.is_empty()
                 })
             })
         })
     }
 
-    /// find a registered shape matching base_shape + (prop, prop_flags).
+    /// find a registered shape matching base_shape plus an extra (prop, prop_flags).
     /// Return None if not found
-    pub fn find_shape_with_prop(
+    pub fn find_shape_with_extend_prop(
         &self,
         base_shape: &JSShape,
         prop: JSAtom,

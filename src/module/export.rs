@@ -150,10 +150,7 @@ impl ModuleDef {
         let mut s_s = GetExportNamesState::default();
         let s = &mut s_s;
 
-        let obj = ctx
-            .create_instance(ObjectDetail::MODULE_NS)
-            .map_err(|_| -1)?;
-        let p = obj.object_unchecked();
+        let obj = ctx.create_object(ObjectDetail::MODULE_NS).map_err(|_| -1)?;
 
         let ret = self.get_exported_names(ctx, s, false);
         s.modules.clear();
@@ -245,15 +242,16 @@ impl ModuleDef {
             let en = s.exported_names.add(i as usize).as_ref().unwrap();
             match en.export_type.clone() {
                 ExportedNameEntryEnum::EXPORTED_NAME_NORMAL(vref) => {
-                    if p.add_shape_property_then(
-                        ctx,
-                        en.export_name,
-                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
-                        |pr| {
-                            *pr = JSProperty::VarRef(vref);
-                        },
-                    )
-                    .is_err()
+                    if obj
+                        .add_shape_property_then(
+                            ctx,
+                            en.export_name,
+                            JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
+                            |pr| {
+                                *pr = JSProperty::VarRef(vref);
+                            },
+                        )
+                        .is_err()
                     {
                         js_free(ctx, s.exported_names.cast());
                         return Err(-1);
@@ -262,7 +260,6 @@ impl ModuleDef {
                 ExportedNameEntryEnum::EXPORTED_NAME_NS(module) => {
                     // the exported namespace must be created on demand
                     if obj
-                        .object_unchecked()
                         .define_lazy_property(
                             ctx,
                             en.export_name,
@@ -286,9 +283,10 @@ impl ModuleDef {
             .unwrap();
 
         unsafe {
-            (*p.0.obj_flags.as_ptr()).set_extensible(false);
+            (*obj.0.obj_flags.as_ptr()).set_extensible(false);
         }
-        Ok(obj)
+
+        Ok(obj.into())
     }
 
     /// get module ns object.

@@ -468,16 +468,13 @@ impl JSContext {
             }
         };
         let ta = self
-            .create_instance_from_ctor(new_target, isa)
+            .create_object_apply_ctor(new_target, isa)
             .map_err(|_| -1)?;
 
         // establish mutual references
         {
-            let tao = unsafe { ta.object_unchecked() };
-            let w = tao.downgrade();
-
-            tao.0
-                .payload
+            let w = ta.downgrade();
+            ta.0.payload
                 .borrow_mut()
                 .typed_array()
                 .map(|x| x.array_buffer())
@@ -487,10 +484,10 @@ impl JSContext {
                 .array_list
                 .push(w.clone());
 
-            tao.0.payload.borrow_mut().typed_array_mut().unwrap().obj = w;
+            ta.0.payload.borrow_mut().typed_array_mut().unwrap().obj = w;
         }
 
-        Ok(ta)
+        Ok(ta.into())
     }
 
     /// create an TypedArray with empty array buffer.
@@ -626,8 +623,7 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let src_obj = src.coerce_to_object(ctx)?;
-    let src_p = unsafe { src_obj.object_unchecked() };
+    let src_p = src.coerce_to_object(ctx)?;
 
     let count: i64;
 
@@ -684,14 +680,14 @@ pub fn js_typed_array_set_internal(
         }
 
         _ => {
-            count = js_get_length64(ctx, &src_obj)?;
+            count = js_get_length64(ctx, &src_p.clone().into())?;
             if offset > p.length() as i64 - count {
                 JS_ThrowRangeError(ctx, "invalid array length");
                 return Err(-1);
             }
 
             for i in 0..count as u32 {
-                let val = src_obj.get_property_u32(ctx, i).check_exception()?;
+                let val = src_p.get_property_u32(ctx, i).check_exception()?;
                 dst.set_property_u32(ctx, offset as u32 + i, val)?;
             }
         }

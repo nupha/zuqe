@@ -47,7 +47,10 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_ToStringCheckObject(ctx, cc.this().clone())?,
         )
     } else {
-        (JS_CLASS_ARRAY_ITERATOR, cc.this().coerce_to_object(ctx)?)
+        (
+            JS_CLASS_ARRAY_ITERATOR,
+            cc.this().coerce_to_object(ctx)?.into(),
+        )
     };
 
     let it = Box::new(JSArrayIteratorData {
@@ -55,11 +58,12 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
         kind,
         idx: 0,
     });
-    ctx.create_instance(if class_id == JS_CLASS_STRING_ITERATOR {
+    ctx.create_object(if class_id == JS_CLASS_STRING_ITERATOR {
         ObjectDetail::STRING_ITERATOR(it)
     } else {
         ObjectDetail::ARRAY_ITERATOR(it)
     })
+    .map(JSValue::Object)
     .map_err(|_| -1)
 }
 

@@ -320,7 +320,7 @@ impl Bytecode {
                                 }
                                 _ => {
                                     if let Ok(v) = this_obj.coerce_to_object(ctx) {
-                                        v
+                                        v.into()
                                     } else {
                                         break State::Exception;
                                     }
@@ -343,7 +343,11 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::OBJECT => {
-                        SP_PUT!(0, ctx.create_base_object().unwrap_or(JSValue::EXCEPTION));
+                        SP_PUT!(
+                            0,
+                            ctx.create_base_object()
+                                .map_or(JSValue::EXCEPTION, JSValue::Object)
+                        );
                         SP_GO!(1);
                         if SP_REF!(-1).is_exception() {
                             break State::Exception;
@@ -404,7 +408,7 @@ impl Bytecode {
                                 SP_PUT!(
                                     0,
                                     ctx.create_base_object_from_proto(JSValue::NULL)
-                                        .unwrap_or(JSValue::EXCEPTION)
+                                        .map_or(JSValue::EXCEPTION, JSValue::Object)
                                 );
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {
@@ -1187,7 +1191,7 @@ impl Bytecode {
                         SP_PUT!(
                             0,
                             ctx.create_base_object_from_proto(JSValue::NULL)
-                                .unwrap_or(JSValue::EXCEPTION)
+                                .map_or(JSValue::EXCEPTION, JSValue::Object)
                         );
                         SP_GO!(1);
                         if SP_REF!(-1).is_exception() {
@@ -1620,8 +1624,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_HOME_OBJECT => {
-                        // [home_obj, func_obj, ^] -> [home_obj, func_obj, ^]
-                        js_method_set_home_object(SP_REF!(-1), SP_REF!(-2));
+                        // [home_obj, func, ^] -> [home_obj, func, ^]
+                        js_method_set_home_object(SP_REF!(-1), SP_REF!(-2).object());
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         // DEFINE_METHOD_COMPUTED:
@@ -2097,7 +2101,7 @@ impl Bytecode {
                     OpCode::TO_OBJECT => {
                         if !SP_REF!(-1).is_object() {
                             if let Ok(o) = SP_REF!(-1).coerce_to_object(ctx) {
-                                SP_PUT!(-1, o);
+                                SP_PUT!(-1, o.into());
                             } else {
                                 break State::Exception;
                             }

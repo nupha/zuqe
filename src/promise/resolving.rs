@@ -32,10 +32,11 @@ impl PromiseResolvingFunc {
         flags: i32,
     ) -> JSResult {
         let p = unsafe { func_obj.object_unchecked() };
-        let mut isa = p.0.payload.borrow_mut();
-        let class_id = isa.class_id();
 
-        if let Some(s) = isa.promise_func_data_mut() {
+        let mut payload = p.0.payload.borrow_mut();
+        let class_id = payload.class_id();
+
+        if let Some(s) = payload.promise_func_data_mut() {
             if s.resolved.get() {
                 return Ok(JSValue::UNDEFINED);
             }
@@ -66,7 +67,7 @@ impl PromiseResolvingFunc {
                 return Ok(JSValue::UNDEFINED);
             }
 
-            if resolution.is_same(&s.promise.0) {
+            if resolution.is_same(&s.promise.clone().into()) {
                 ctx.throw_type_error("promise self resolution");
                 let error = ctx.take_exception();
                 s.promise.clone().fulfill_or_reject(ctx, error, true);
@@ -85,7 +86,7 @@ impl PromiseResolvingFunc {
             } else {
                 ctx.queue_job(
                     js_promise_resolve_thenable_job,
-                    &[s.promise.clone().0, resolution, then], // arg values are not consumed
+                    &[s.promise.clone().into(), resolution, then], // arg values are not consumed
                 )
                 .unwrap();
             }

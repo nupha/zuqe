@@ -245,6 +245,8 @@ impl JSObject {
         let mut p = self.clone();
 
         loop {
+            println!("[O.o] has_property obj={p}");
+            
             if p.flags().is_exotic() {
                 if let Some(cb) = unsafe {
                     ctx.rt().class_defs[p.class_id() as usize]

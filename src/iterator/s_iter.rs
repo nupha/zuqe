@@ -101,7 +101,7 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
     let obj = ctx.create_base_object()?;
     obj.define_property_value(ctx, JS_ATOM_value, value, JS_PROP_C_W_E)?;
     obj.define_property_value(ctx, JS_ATOM_done, JSValue::Bool(done), JS_PROP_C_W_E)?;
-    Ok(obj)
+    Ok(obj.into())
 }
 
 pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueConst) -> JSValue {
@@ -311,7 +311,8 @@ pub fn js_for_in_iterator_mark(val: JSValue) {
 /// `obj` is consumed.
 pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
     let obj = if !matches!(obj, JSValue::Object(_) | JSValue::NULL | JSValue::UNDEFINED) {
-        obj.coerce_to_object(ctx).unwrap_or(JSValue::EXCEPTION)
+        obj.coerce_to_object(ctx)
+            .map_or(JSValue::EXCEPTION, JSValue::Object)
     } else {
         obj
     };

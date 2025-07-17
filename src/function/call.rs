@@ -289,9 +289,9 @@ pub fn JS_CallConstructorInternal(
             JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
         } else {
             // legacy constructor behavior
-            let this =
-                if let Ok(v) = ctx.create_instance_from_ctor(&new_target, ObjectDetail::OBJECT) {
-                    v
+            let this: JSValue =
+                if let Ok(o) = ctx.create_object_apply_ctor(&new_target, ObjectDetail::OBJECT) {
+                    o.into()
                 } else {
                     return JSValue::EXCEPTION;
                 };

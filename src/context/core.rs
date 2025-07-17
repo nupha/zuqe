@@ -15,14 +15,14 @@ use crate::{
 impl JSContext {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No JSAtom should be allocated by this function.
-    pub fn init_core_objects_ex(&self, function: bool, array: bool, errors: bool) {
+    pub fn init_core_objects_ex(&self, with_function: bool, with_array: bool, with_errors: bool) {
         // Object
         let object = self
-            .create_instance_from_proto(JSValue::NULL, ObjectDetail::OBJECT)
-            .unwrap_or(JSValue::EXCEPTION);
-        self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone();
+            .create_object_from_proto(JSValue::NULL, ObjectDetail::OBJECT)
+            .unwrap();
+        self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
 
-        if function {
+        if with_function {
             // Function
             let func = self
                 .create_native_function_from_proto(
@@ -30,7 +30,7 @@ impl JSContext {
                     "",
                     0,
                     0,
-                    object.clone(),
+                    object.clone().into(),
                 )
                 .unwrap();
 
@@ -40,10 +40,10 @@ impl JSContext {
             });
         }
 
-        if errors {
+        if with_errors {
             // Error objects
             let error = self.create_base_object().unwrap();
-            self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone();
+            self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone().into();
             error
                 .install_native_fields(self, &js_error_proto_funcs)
                 .unwrap();
@@ -52,7 +52,7 @@ impl JSContext {
             let msg = JS_ATOM_empty_string.to_value(self, true);
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
                 let err = self
-                    .create_instance_from_proto(error.clone(), ObjectDetail::OBJECT)
+                    .create_object_from_proto(error.clone().into(), ObjectDetail::OBJECT)
                     .unwrap();
 
                 let name = self.create_atom_string(name).unwrap();
@@ -72,32 +72,24 @@ impl JSContext {
                 )
                 .unwrap();
 
-                self.0.borrow_mut().native_error_proto[i] = err;
+                self.0.borrow_mut().native_error_proto[i] = err.into();
             }
         }
 
-        if array {
-            // Array
-
-            // the array prototype is an array
-            let array_proto = self
-                .create_instance_from_proto(
-                    object.clone(),
+        if with_array {
+            // Array: the array prototype is an array
+            let array = self
+                .create_object_from_proto(
+                    object.clone().into(),
                     ObjectDetail::ARRAY(JSObjectArray::default()),
                 )
                 .unwrap();
 
-            self.with_mut(|cx| {
-                cx.class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone();
-            });
+            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array.clone().into();
 
-            let array_sh = JSShape::with_capacity(
-                self,
-                array_proto.object().cloned(),
-                JS_PROP_INITIAL_HASH_SIZE,
-                1,
-            )
-            .unwrap();
+            let array_sh =
+                JSShape::with_capacity(self, Some(array.clone()), JS_PROP_INITIAL_HASH_SIZE, 1)
+                    .unwrap();
             // define length property at index 0
             array_sh
                 .add_shape_property(

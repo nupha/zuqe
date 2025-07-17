@@ -110,6 +110,7 @@ pub(crate) struct ModuleDefInner {
     pub eval_exception: JSValue,
 
     /// the import.meta object
+    /// TODO: use Option<JSObject> instead
     pub meta_obj: JSValue,
 }
 
@@ -183,7 +184,7 @@ impl ModuleDefInner {
         // allocate meta_obj only if requested to save memory
         let mut meta = self.meta_obj.clone();
         if meta.is_undefined() {
-            meta = ctx.create_base_object_from_proto(JSValue::NULL)?;
+            meta = ctx.create_base_object_from_proto(JSValue::NULL)?.into();
             self.meta_obj = meta.clone();
         }
         Ok(meta)

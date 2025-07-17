@@ -145,7 +145,8 @@ pub fn js_generator_function_call(
     g.func_state.as_ref().unwrap().resume(ctx)?;
 
     // create js object of generator class
-    ctx.create_instance_from_ctor(func_obj, ObjectDetail::GENERATOR(g))
+    ctx.create_object_apply_ctor(func_obj, ObjectDetail::GENERATOR(g))
+        .map(JSValue::Object)
         .map_err(|_| -1)
 }
 

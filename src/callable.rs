@@ -93,12 +93,15 @@ impl JSContext {
         magic: i32,
         data: &[JSValue],
     ) -> JSResult {
-        let isa = ObjectDetail::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
-            self, callback, length, magic, data,
-        )?);
-        let func_obj = self
-            .create_instance_from_proto(self.0.borrow().function_proto.clone(), isa)
-            .map_err(|_| -1)?;
+        let func_obj: JSValue = self
+            .create_object_from_proto(
+                self.0.borrow().function_proto.clone(),
+                ObjectDetail::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
+                    self, callback, length, magic, data,
+                )?),
+            )
+            .map_err(|_| -1)?
+            .into();
 
         unsafe {
             js_function_set_properties(self, &func_obj, JS_ATOM_empty_string, length as _);

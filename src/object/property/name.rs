@@ -375,10 +375,7 @@ impl JSValue {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {
-        let obj = self.coerce_to_object(ctx)?;
-        unsafe {
-            obj.object_unchecked()
-                .get_own_property_names2(ctx, flags, kind)
-        }
+        self.coerce_to_object(ctx)?
+            .get_own_property_names2(ctx, flags, kind)
     }
 }

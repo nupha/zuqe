@@ -85,9 +85,9 @@ impl JSContext {
     /// old exception will be freed.
     pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
         let proto = self.0.borrow().native_error_proto[kind as usize].clone();
-        let exc = if let Ok(val) = self.create_instance_from_proto(proto, ObjectDetail::ERROR) {
+        let exc = if let Ok(o) = self.create_object_from_proto(proto, ObjectDetail::ERROR) {
             let s = self.create_string(message);
-            let _ = val.define_property_value(
+            let _ = o.define_property_value(
                 self,
                 JS_ATOM_message,
                 s,
@@ -95,10 +95,10 @@ impl JSContext {
             );
 
             if add_backtrace {
-                self.build_backtrace_to(&val, None, 0);
+                self.build_backtrace_to(&JSValue::Object(o.clone()), None, 0);
             }
 
-            val
+            o.into()
         } else {
             // out of memory: throw NULL to avoid recursing
             JSValue::NULL

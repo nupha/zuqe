@@ -47,7 +47,8 @@ impl JSContext {
             next_method,
         };
 
-        self.create_instance(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(s))
+        self.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(s))
+            .map(JSValue::Object)
             .map_err(|_| -1)
     }
 }
@@ -170,7 +171,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
             ));
         }
 
-        let value_wrapper_promise: JSValue = {
+        let value_wrapper_promise: Promise = {
             let cc = CallContext::new(
                 ctx,
                 ctx.0.borrow().promise_ctor.clone(),
@@ -179,7 +180,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
                 None,
             );
             if let Ok(r) = js_promise_resolve(ctx, cc) {
-                r
+                r.try_into()?
             } else {
                 return Ok(done_resolve(
                     resolving_funcs,
@@ -196,14 +197,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
             },
             JSValue::UNDEFINED,
         ];
-
-        unsafe {
-            UncheckedInto::<Promise>::unchecked_into(value_wrapper_promise).reaction(
-                ctx,
-                &resolve_reject,
-                &resolving_funcs,
-            )?
-        };
+        value_wrapper_promise.reaction(ctx, &resolve_reject, &resolving_funcs)?;
 
         Ok(promise.into())
     } else {

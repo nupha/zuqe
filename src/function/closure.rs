@@ -287,33 +287,28 @@ impl Bytecode {
             )
         };
 
-        let func_obj = ctx
-            .create_instance(match func_kind {
-                JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                    ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default())
-                }
-                JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                    ObjectDetail::GENERATOR_FUNCTION(ObjFunc::default())
-                }
-                JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                    ObjectDetail::ASYNC_FUNCTION(ObjFunc::default())
-                }
-                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                    ObjectDetail::ASYNC_GENERATOR_FUNCTION(ObjFunc::default())
-                }
-            })
-            .map_err(|_| -1)?;
-
-        let closure = JSValue::Object(self.make_closure_to(
-            ctx,
-            if let JSValue::Object(o) = func_obj {
-                o
-            } else {
-                unreachable!()
-            },
-            cur_var_refs,
-            parent_frame,
-        )?);
+        let closure: JSValue = self
+            .make_closure_to(
+                ctx,
+                ctx.create_object(match func_kind {
+                    JSFunctionKindEnum::JS_FUNC_NORMAL => {
+                        ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default())
+                    }
+                    JSFunctionKindEnum::JS_FUNC_GENERATOR => {
+                        ObjectDetail::GENERATOR_FUNCTION(ObjFunc::default())
+                    }
+                    JSFunctionKindEnum::JS_FUNC_ASYNC => {
+                        ObjectDetail::ASYNC_FUNCTION(ObjFunc::default())
+                    }
+                    JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
+                        ObjectDetail::ASYNC_GENERATOR_FUNCTION(ObjFunc::default())
+                    }
+                })
+                .map_err(|_| -1)?,
+                cur_var_refs,
+                parent_frame,
+            )?
+            .into();
 
         unsafe {
             js_function_set_properties(
@@ -334,7 +329,7 @@ impl Bytecode {
         ) {
             // generators have a prototype field which is used as
             // prototype for the generator object
-            let proto_class_id = func_kind_to_class_id[func_kind as usize];
+            let proto_class_id = func_kind.class_id();
             debug_assert!(matches!(
                 proto_class_id,
                 JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
@@ -343,9 +338,8 @@ impl Bytecode {
             let proto = ctx.create_base_object_from_proto(
                 ctx.0.borrow().class_proto[proto_class_id as usize].clone(),
             )?;
-
             closure
-                .define_property_value(ctx, JS_ATOM_prototype, proto, JS_PROP_WRITABLE)
+                .define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)
                 .unwrap();
         } else if has_prototype {
             // add the 'prototype' property: delay instantiation to avoid

@@ -252,7 +252,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
 
         let _ = JS_IteratorClose(ctx, &enum_obj, true);
     } else {
-        arr = items.coerce_to_object(ctx)?;
+        arr = items.coerce_to_object(ctx)?.into();
     }
 
     let len = js_get_length64(ctx, &arr)?;

@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 
+use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
@@ -65,48 +66,47 @@ pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
 }
 
 pub fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
-    let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
+    let prop = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
+    let obj = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
 
-    if !op2.is_object() {
+    if !obj.is_object() {
         ctx.throw_type_error("invalid 'in' operand");
         return Err(-1);
     }
 
-    let atom = op1.coerce_to_atom(ctx)?;
-    let ret = op2.has_property(ctx, atom)?;
+    let atom = prop.coerce_to_atom(ctx)?;
+    let ret = obj.has_property(ctx, atom);
     JS_FreeAtom(ctx, atom);
-
+    let b = ret?;
     unsafe {
-        std::ptr::replace(sp.offset(-2), JSValue::Bool(ret));
+        std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
     }
     Ok(())
 }
 
 pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
-    let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
-    let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
+    let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
+    let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
-    if !matches!(op1, JSValue::Object(_)) {
-        ctx.throw_type_error("invalid 'in' operand");
-        return Err(-1);
-    }
-
-    let ret = if op2.is_object() {
-        // method: use the brand
-        op1.check_brand(ctx, &op2)?
+    if let JSValue::Object(o) = obj {
+        let ret = if item.is_object() {
+            // method: use the brand
+            o.check_brand(ctx, &item)?
+        } else {
+            // field
+            let atom = item.coerce_to_atom(ctx)?;
+            let b = o.has_shape_property(atom);
+            JS_FreeAtom(ctx, atom);
+            b
+        };
+        unsafe {
+            std::ptr::replace(sp.offset(-2), JSValue::Bool(ret));
+        }
+        Ok(())
     } else {
-        // field
-        let atom = op2.coerce_to_atom(ctx)?;
-        let b = unsafe { op1.object_unchecked().has_shape_property(atom) };
-        JS_FreeAtom(ctx, atom);
-        b
-    };
-
-    unsafe {
-        std::ptr::replace(sp.offset(-2), JSValue::Bool(ret));
+        ctx.throw_type_error("invalid 'in' operand");
+        Err(-1)
     }
-    Ok(())
 }
 
 pub fn js_op_define_class(
@@ -166,24 +166,15 @@ pub fn js_op_define_class(
 
     // make constructor function
     let func = ctx
-        .create_instance_from_proto(
+        .create_object_from_proto(
             parent_class,
             ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default()),
         )
         .map_err(|_| -1)?;
 
-    let ctor = JSValue::Object(bc.make_closure_to(
-        ctx,
-        if let JSValue::Object(o) = func {
-            o
-        } else {
-            unreachable!()
-        },
-        cur_var_refs,
-        Some(sframe),
-    )?);
+    let ctor = JSValue::Object(bc.make_closure_to(ctx, func, cur_var_refs, Some(sframe))?);
 
-    js_method_set_home_object(&ctor, &proto);
+    js_method_set_home_object(&ctor, Some(&proto));
     JS_SetConstructorBit(ctx, &ctor, true);
 
     ctor.define_property_value(
@@ -206,7 +197,7 @@ pub fn js_op_define_class(
         }
     }
 
-    // the constructor property must be first. It can be overriden by
+    // the constructor property must be first. It can be overridden by
     // computed property names
     proto.define_property_value(
         ctx,
@@ -216,14 +207,15 @@ pub fn js_op_define_class(
     )?;
 
     // set the prototype property
-    ctor.define_property_value(ctx, JS_ATOM_prototype, proto.clone(), JS_PROP_THROW)?;
+    ctor.define_property_value(ctx, JS_ATOM_prototype, proto.clone().into(), JS_PROP_THROW)?;
 
-    set_cycle_flag(ctx, &ctor);
-    set_cycle_flag(ctx, &proto);
+    // TODO: mark cyclic reference
+    // set_cycle_flag(ctx, &ctor);
+    // set_cycle_flag(ctx, &proto);
 
     unsafe {
         std::ptr::replace(sp.offset(-2), ctor);
-        std::ptr::replace(sp.offset(-1), proto);
+        std::ptr::replace(sp.offset(-1), proto.into());
     }
 
     Ok(())
@@ -252,7 +244,7 @@ pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
     name_str
 }
 
-pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: &JSValue) {
+pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
     if let JSValue::Object(o) = func_obj {
         if let Some(fo) = o.0.payload.borrow_mut().func_mut() {
             let need_home_object = fo
@@ -261,7 +253,7 @@ pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: &JSValue) {
                 .map_or(false, |b| b.0.borrow().need_home_object);
 
             if need_home_object {
-                fo.home_object = home_obj.object().cloned();
+                fo.home_object = home_obj.cloned();
             }
         }
     }
@@ -295,7 +287,7 @@ pub fn js_method_set_properties(
         return -1;
     }
 
-    js_method_set_home_object(func_obj, home_obj);
+    js_method_set_home_object(func_obj, home_obj.object());
     0
 }
 

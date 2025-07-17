@@ -138,9 +138,9 @@ fn setup_ctx_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
     }
 
     obj262.set_property_str(ctx, "global", global.clone())?;
-    global.set_property_str(ctx, "$262", obj262.clone())?;
+    global.set_property_str(ctx, "$262", obj262.clone().into())?;
 
-    Ok(obj262)
+    Ok(obj262.into())
 }
 
 pub fn js_module_loader(

@@ -30,8 +30,7 @@ pub fn JS_ObjectDefineProperties(
     let props = properties.coerce_to_object(ctx)?;
 
     if let JSValue::Object(obj) = obj {
-        let p = unsafe { props.object_unchecked() };
-        let r = p.own_property_names_foreach(
+        let r = props.own_property_names_foreach(
             ctx,
             JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
             |cx, name: PropertyEnum| {
@@ -57,8 +56,9 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     debug_assert!(cc.length() > 0, "at least one slot for argument");
 
     let new_target = cc.this();
+
     if !new_target.is_undefined() && unsafe { !JS_GetActiveFunction(ctx).eq(new_target) } {
-        ctx.create_instance_from_ctor(new_target, ObjectDetail::OBJECT)
+        ctx.create_object_apply_ctor(new_target, ObjectDetail::OBJECT)
             .map_err(|_| -1)
     } else {
         match cc.arg(0) {
@@ -66,6 +66,7 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             a => a.coerce_to_object(ctx),
         }
     }
+    .map(JSValue::Object)
 }
 
 pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -75,7 +76,7 @@ pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let obj = ctx.create_base_object_from_proto(proto.clone())?;
+    let obj: JSValue = ctx.create_base_object_from_proto(proto.clone())?.into();
     let props = cc.arg(1);
     if !props.is_undefined() {
         JS_ObjectDefineProperties(ctx, &obj, props)?;
@@ -86,7 +87,7 @@ pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_object_getPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if !val.is_object() {
-        // ES6 feature non compatible with ES5.1: primitive types are accepted
+        // ES6 feature non-compatible with ES5.1: primitive types are accepted
         if cc.magic() != 0 || matches!(val, JSValue::NULL | JSValue::UNDEFINED) {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
@@ -186,7 +187,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                 .check_exception()?
         }
     } else {
-        ctx.create_base_object_from_proto(JSValue::NULL)?
+        ctx.create_base_object_from_proto(JSValue::NULL)?.into()
     };
 
     let mut idx: i64 = 0;
@@ -330,12 +331,9 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             return Err(-1);
         }
     } else {
-        let o = cc.arg(0).coerce_to_object(ctx)?;
-        if o.is_exception() {
-            return Ok(JSValue::UNDEFINED);
-        } else {
-            o
-        }
+        cc.arg(0)
+            .coerce_to_object(ctx)
+            .map_or(JSValue::UNDEFINED, JSValue::Object)
     };
 
     let prop = cc.arg(1);
@@ -354,7 +352,6 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             let ret = ctx.create_base_object()?;
 
             let flags = JS_PROP_C_W_E | JS_PROP_THROW;
-
             if desc.flags & JS_PROP_GETSET != 0 {
                 ret.define_property_value(ctx, JS_ATOM_get, desc.getter, flags)?;
                 ret.define_property_value(ctx, JS_ATOM_set, desc.setter, flags)?;
@@ -381,7 +378,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
                 flags,
             )?;
 
-            return Ok(ret);
+            return Ok(ret.into());
         }
     }
 
@@ -392,13 +389,18 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
     let obj = cc.arg(0).coerce_to_object(ctx)?;
     let res_obj = ctx.create_base_object()?;
 
-    let p = unsafe { obj.object_unchecked() };
-    p.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
+    obj.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
         let atom_value = name.atom.to_value(ctx, false).check_exception()?;
 
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,
-            CallContext::new(ctx, JSValue::UNDEFINED, &[obj.clone(), atom_value], 0, None),
+            CallContext::new(
+                ctx,
+                JSValue::UNDEFINED,
+                &[obj.clone().into(), atom_value],
+                0,
+                None,
+            ),
         )?;
 
         if !desc.is_undefined() {
@@ -408,7 +410,7 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
         Ok(())
     })?;
 
-    Ok(res_obj)
+    Ok(res_obj.into())
 }
 
 pub fn js_object_is(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -422,16 +424,13 @@ pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let s = a
-                    .coerce_to_object(ctx)
-                    .unwrap_or(JSValue::EXCEPTION)
-                    .check_exception()?;
-                obj.copy_properties_from(ctx, &s, &JSValue::UNDEFINED, true)?;
+                let s = a.coerce_to_object(ctx)?;
+                obj.copy_properties_from(ctx, &s.into(), None, true)?;
             }
         }
     }
 
-    Ok(obj)
+    Ok(obj.into())
 }
 
 pub fn js_object_seal(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -515,7 +514,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    Ok(obj)
+    Ok(obj.into())
 }
 
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {

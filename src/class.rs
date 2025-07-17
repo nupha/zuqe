@@ -375,38 +375,6 @@ impl Default for ClassFieldsDef {
     }
 }
 
-impl JSContext {
-    /// create new instance based on class constructor `ctor` and isa payload data.
-    /// `ctor` is not consumed.
-    pub fn create_instance_from_ctor(
-        &self,
-        ctor: &JSValue,
-        isa: ObjectDetail,
-    ) -> Result<JSValue, ObjectDetail> {
-        let class_id = isa.class_id();
-
-        let proto = if ctor.is_undefined() {
-            self.0.borrow().class_proto[class_id as usize].clone()
-        } else {
-            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype).check_exception() {
-                if !p.is_object() {
-                    if let Ok(realm) = JS_GetFunctionRealm(self, &ctor) {
-                        realm.0.borrow().class_proto[class_id as usize].clone()
-                    } else {
-                        return Err(isa);
-                    }
-                } else {
-                    p
-                }
-            } else {
-                return Err(isa);
-            }
-        };
-
-        self.create_instance_from_proto(proto, isa)
-    }
-}
-
 #[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
 pub unsafe fn js_create_from_ctor(ctx: &JSContext, ctor: JSValue, class_id: JSClassID) -> JSValue {
     unreachable!("unused");

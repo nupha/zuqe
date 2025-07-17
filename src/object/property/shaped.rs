@@ -43,7 +43,10 @@ impl ObjectInner {
 
         if shape.is_hashed() {
             // try to find an existing shape
-            match ctx.rt().find_shape_with_prop(&shape, prop, prop_flags) {
+            match ctx
+                .rt()
+                .find_shape_with_extend_prop(&shape, prop, prop_flags)
+            {
                 Some(found) => {
                     let new_len = found.len();
                     let len = shape.len();

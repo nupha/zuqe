@@ -75,16 +75,13 @@ impl JSContext {
 
         // create dataview instance
         let o = self
-            .create_instance_from_ctor(new_target, ObjectDetail::DATAVIEW(ta))
+            .create_object_apply_ctor(new_target, ObjectDetail::DATAVIEW(ta))
             .map_err(|_| -1)?;
 
-        unsafe {
-            // set back ref to the new created DataView object
-            let p = o.object_unchecked();
-            p.0.payload.borrow_mut().typed_array_mut().unwrap().obj = p.downgrade();
-        }
+        // set back ref to the new created DataView object
+        o.0.payload.borrow_mut().typed_array_mut().unwrap().obj = o.downgrade();
 
-        Ok(o)
+        Ok(o.into())
     }
 }
 

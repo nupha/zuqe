@@ -48,6 +48,7 @@ pub struct JSAsyncGeneratorRequest {
     pub result: JSValue,
 
     /// promise capability
+    /// TODO: use Promise
     pub promise: JSValue,
     pub resolving_funcs: [JSValue; 2],
 }
@@ -91,11 +92,10 @@ impl AsyncGeneratorValue {
         s.func_state.as_ref().unwrap().resume(ctx)?;
 
         // create AsyncGenerator instance
-        let obj = ctx
-            .create_instance_from_ctor(func_obj, ObjectDetail::ASYNC_GENERATOR(Some(s)))
+        let ob = ctx
+            .create_object_apply_ctor(func_obj, ObjectDetail::ASYNC_GENERATOR(Some(s)))
             .map_err(|_| -1)?;
 
-        let ob = unsafe { obj.object_unchecked() };
         // fix generator field.
         if let ObjectDetail::ASYNC_GENERATOR(Some(s)) = ob.0.payload.borrow_mut().deref_mut() {
             s.generator = ob.downgrade();
@@ -103,7 +103,7 @@ impl AsyncGeneratorValue {
             unreachable!()
         }
 
-        Ok(obj)
+        Ok(ob.into())
     }
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
@@ -303,12 +303,12 @@ impl ObjAsyncGenerator {
     }
 }
 
-pub unsafe fn js_async_generator_completed_return(
+pub fn js_async_generator_completed_return(
     ctx: &JSContext,
     s: &mut ObjAsyncGenerator,
     value: JSValue,
 ) -> Result<(), i32> {
-    let promise: JSValue = match {
+    let promise: Promise = match {
         let cc = CallContext::new(
             ctx,
             ctx.0.borrow().promise_ctor.clone(),
@@ -333,29 +333,30 @@ pub unsafe fn js_async_generator_completed_return(
             );
             js_promise_resolve(ctx, cc)?
         }
+    }
+    .try_into()?;
+
+    let resolving_funcs1 = unsafe {
+        js_async_generator_resolve_function_create(
+            ctx,
+            JSValue::Object(s.generator.upgrade().unwrap()),
+            true,
+        )?
     };
 
-    let resolving_funcs1 = js_async_generator_resolve_function_create(
-        ctx,
-        JSValue::Object(s.generator.upgrade().unwrap()),
-        true,
-    )?;
-
-    let res = UncheckedInto::<Promise>::unchecked_into(promise).reaction(
+    promise.reaction(
         ctx,
         &resolving_funcs1,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
-    );
-
-    res
+    )
 }
 
-pub unsafe fn js_async_generator_await(
+pub fn js_async_generator_await(
     ctx: &JSContext,
     s: &mut ObjAsyncGenerator,
     value: JSValueConst,
 ) -> Result<(), i32> {
-    let promise = {
+    let promise: Promise = {
         let cc = CallContext::new(
             ctx,
             ctx.0.borrow().promise_ctor.clone(),
@@ -363,23 +364,23 @@ pub unsafe fn js_async_generator_await(
             0,
             None,
         );
-        js_promise_resolve(ctx, cc)?
+        js_promise_resolve(ctx, cc)?.try_into()?
     };
 
-    let resolving_funcs = js_async_generator_resolve_function_create(
-        ctx,
-        JSValue::Object(s.generator.upgrade().unwrap()),
-        false,
-    )?;
+    let resolving_funcs = unsafe {
+        js_async_generator_resolve_function_create(
+            ctx,
+            JSValue::Object(s.generator.upgrade().unwrap()),
+            false,
+        )?
+    };
 
-    let res = UncheckedInto::<Promise>::unchecked_into(promise).reaction(
+    promise.reaction(
         ctx,
         &resolving_funcs,
         // no need to create 'thrownawayCapability' as in the spec
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
-    );
-
-    res
+    )
 }
 
 /// create [resolve, reject] functions for async `generator`.
@@ -477,7 +478,7 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
             result: cc.arg(0).clone(),
-            promise: promise.clone().as_value(),
+            promise: promise.clone().into(),
             resolving_funcs,
         });
         p.queue.push(req);

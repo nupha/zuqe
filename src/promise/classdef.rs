@@ -7,7 +7,6 @@ use crate::{
     iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
-    utils::UncheckedInto,
     value::JSValue,
 };
 
@@ -20,8 +19,9 @@ use super::{
 // Instance methods
 //
 
+// TODO: should return Result<Promise>
 pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
-    unsafe { UncheckedInto::<Promise>::unchecked_into(cc.this().clone()) }
+    Promise::try_from(cc.this().clone())?
         .then(ctx, cc.arg(0).clone(), cc.arg(1).clone())
         .map(|p| p.into())
 }
@@ -48,7 +48,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
         js_promise_resolve(ctx, cc)?
     };
 
-    let mut then_func = ctx.create_native_callable_object(
+    let then_func = ctx.create_native_callable_object(
         |cx: &JSContext, cc: CallContext| -> JSResult {
             let val = cc.data_raw(0);
             if cc.magic() == 0 {
@@ -403,12 +403,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
     let obj = ctx.create_base_object()?;
 
-    obj.define_property_value(
-        ctx,
-        JS_ATOM_promise,
-        result_promise.as_value(),
-        JS_PROP_C_W_E,
-    )?;
+    obj.define_property_value(ctx, JS_ATOM_promise, result_promise.into(), JS_PROP_C_W_E)?;
     obj.define_property_value(
         ctx,
         JS_ATOM_resolve,
@@ -422,7 +417,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_PROP_C_W_E,
     )?;
 
-    Ok(obj)
+    Ok(obj.into())
 }
 
 pub const js_promise_funcs: [NativeField; 8] = [

@@ -229,7 +229,12 @@ impl JSContext {
                     .unwrap();
             }
             self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                .define_property_value(self, JS_ATOM_Symbol_unscopables, obj1, JS_PROP_CONFIGURABLE)
+                .define_property_value(
+                    self,
+                    JS_ATOM_Symbol_unscopables,
+                    obj1.into(),
+                    JS_PROP_CONFIGURABLE,
+                )
                 .unwrap();
         }
 
@@ -241,24 +246,23 @@ impl JSContext {
             .unwrap();
 
         // needed to initialize arguments[Symbol.iterator]
-        self.with_mut(|cx| {
-            cx.array_proto_values =
-                cx.class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_values);
-
-            cx.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter;
-        });
+        let mut cx = self.0.borrow_mut();
+        cx.array_proto_values =
+            cx.class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_values);
+        cx.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
     }
 
     fn intrinsic_number(&self) {
-        let number_proto = self
-            .create_instance_from_proto(
+        let number_obj = self
+            .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
                 ObjectDetail::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
-        number_proto
+        number_obj
             .install_native_fields(self, &js_number_proto_funcs)
             .unwrap();
+        let number_proto: JSValue = number_obj.into();
 
         let number_ctor = self
             .create_global_constructor("Number", js_number_constructor, 1, &number_proto, 0)
@@ -294,13 +298,13 @@ impl JSContext {
             .check_exception()
             .unwrap();
 
-        let string_proto = self
-            .create_instance_from_proto(
+        let string_proto: JSValue = self
+            .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
                 ObjectDetail::STRING(empty_str),
             )
-            .unwrap();
-
+            .unwrap()
+            .into();
         string_proto
             .install_native_fields(self, &js_string_proto_funcs)
             .unwrap();
@@ -320,7 +324,7 @@ impl JSContext {
             .unwrap();
 
         self.0.borrow_mut().class_proto[JS_CLASS_STRING as usize] = string_proto;
-        self.0.borrow_mut().class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter;
+        self.0.borrow_mut().class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
     }
 
     fn intrinsic_iterator(&self) {
@@ -335,21 +339,23 @@ impl JSContext {
 
     fn intrinsic_generator(&self) {
         // generator prototype
-        let generator_proto = self
+        let generator = self
             .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
             .unwrap();
-        generator_proto
+        generator
             .install_native_fields(self, &js_generator_proto_funcs)
             .unwrap();
+        let generator_proto: JSValue = generator.into();
         self.0.borrow_mut().class_proto[JS_CLASS_GENERATOR as usize] = generator_proto.clone();
 
         // generator function prototype
-        let generator_function_proto = self
+        let generator_function = self
             .create_base_object_from_proto(self.0.borrow().function_proto.clone())
             .unwrap();
-        generator_function_proto
+        generator_function
             .install_native_fields(self, &js_generator_function_proto_funcs)
             .unwrap();
+        let generator_function_proto: JSValue = generator_function.into();
         self.0.borrow_mut().class_proto[JS_CLASS_GENERATOR_FUNCTION as usize] =
             generator_function_proto.clone();
 
@@ -419,9 +425,8 @@ impl JSContext {
     /// create global object
     pub fn intrinsic_global_object(&self, fields: &[NativeField]) {
         let global = self.create_base_object().unwrap();
-
-        // define global fields
         global.install_native_fields(self, fields).unwrap();
+        let global: JSValue = global.into();
 
         // define prop `globalThis`
         // Note: global object is self referenced here.
@@ -440,7 +445,7 @@ impl JSContext {
         {
             let mut cx = self.0.borrow_mut();
             cx.global_obj = global;
-            cx.global_var_obj = gvobj;
+            cx.global_var_obj = gvobj.into();
         }
     }
 
@@ -512,17 +517,18 @@ impl JSContext {
     pub fn intrinsic_typed_arrays(&self) {
         // ArrayBuffer
         {
-            let ab_proto = self.create_base_object().unwrap();
-            ab_proto
+            let ab_obj = self.create_base_object().unwrap();
+            ab_obj
                 .install_native_fields(self, &js_array_buffer_proto_funcs)
                 .unwrap();
+            let ab: JSValue = ab_obj.into();
 
             let ab_func = self
                 .create_global_constructor_only(
                     "ArrayBuffer",
                     js_array_buffer_constructor,
                     1,
-                    &ab_proto,
+                    &ab,
                     0,
                 )
                 .unwrap();
@@ -530,22 +536,23 @@ impl JSContext {
                 .install_native_fields(self, &js_array_buffer_funcs)
                 .unwrap();
 
-            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY_BUFFER as usize] = ab_proto;
+            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY_BUFFER as usize] = ab;
         }
 
         // SharedArrayBuffer
         {
-            let sab_proto = self.create_base_object().unwrap();
-            sab_proto
+            let sab_obj = self.create_base_object().unwrap();
+            sab_obj
                 .install_native_fields(self, &js_shared_array_buffer_proto_funcs)
                 .unwrap();
+            let sab: JSValue = sab_obj.into();
 
             let sab_func = self
                 .create_global_constructor_only(
                     "SharedArrayBuffer",
                     js_shared_array_buffer_constructor,
                     1,
-                    &sab_proto,
+                    &sab,
                     0,
                 )
                 .unwrap();
@@ -553,15 +560,16 @@ impl JSContext {
                 .install_native_fields(self, &js_shared_array_buffer_funcs)
                 .unwrap();
 
-            self.0.borrow_mut().class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = sab_proto;
+            self.0.borrow_mut().class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = sab;
         }
 
         // Typed arrays
         {
-            let typed_array_base_proto = self.create_base_object().unwrap();
-            typed_array_base_proto
+            let ta_obj = self.create_base_object().unwrap();
+            ta_obj
                 .install_native_fields(self, &js_typed_array_base_proto_funcs)
                 .unwrap();
+            let typed_array_base_proto: JSValue = ta_obj.into();
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
             let to_string = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
@@ -593,11 +601,10 @@ impl JSContext {
             for cid in
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
-                let proto = self
+                let ta_obj = self
                     .create_base_object_from_proto(typed_array_base_proto.clone())
                     .unwrap();
-
-                proto
+                ta_obj
                     .define_property_value_str(
                         self,
                         "BYTES_PER_ELEMENT",
@@ -605,6 +612,7 @@ impl JSContext {
                         0,
                     )
                     .unwrap();
+                let proto: JSValue = ta_obj.into();
 
                 let name =
                     JSAtom(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
@@ -636,10 +644,11 @@ impl JSContext {
 
         // DataView
         {
-            let dv_proto = self.create_base_object().unwrap();
-            dv_proto
+            let dv_obj = self.create_base_object().unwrap();
+            dv_obj
                 .install_native_fields(self, &js_dataview_proto_funcs)
                 .unwrap();
+            let dv_proto: JSValue = dv_obj.into();
 
             let dv_ctor = self
                 .create_native_function(
@@ -661,10 +670,11 @@ impl JSContext {
 
         // Promise
         {
-            let promise_proto = self.create_base_object().unwrap();
-            promise_proto
+            let promise_obj = self.create_base_object().unwrap();
+            promise_obj
                 .install_native_fields(self, &js_promise_proto_funcs)
                 .unwrap();
+            let promise_proto: JSValue = promise_obj.into();
 
             let promise_ctor = self
                 .create_native_function(
@@ -687,12 +697,13 @@ impl JSContext {
 
         // AsyncFunction
         {
-            let af_proto = self
+            let af_obj = self
                 .create_base_object_from_proto(self.0.borrow().function_proto.clone())
                 .unwrap();
-            af_proto
+            af_obj
                 .install_native_fields(self, &js_async_function_proto_funcs)
                 .unwrap();
+            let af_proto = af_obj.into();
 
             let af_ctor = self
                 .create_native_function_from_proto(
@@ -710,55 +721,44 @@ impl JSContext {
 
         // AsyncIteratorPrototype
         {
-            let aiter_proto = self.create_base_object().unwrap();
-            aiter_proto
+            let a_iter_obj = self.create_base_object().unwrap();
+            a_iter_obj
                 .install_native_fields(self, &js_async_iterator_proto_funcs)
                 .unwrap();
-            self.0.borrow_mut().async_iterator_proto = aiter_proto;
+            self.0.borrow_mut().async_iterator_proto = a_iter_obj.into();
         }
 
         // AsyncFromSyncIteratorPrototype
         {
-            let asiter_proto = self
+            let iter_obj = self
                 .create_base_object_from_proto(self.0.borrow().async_iterator_proto.clone())
                 .unwrap();
-            asiter_proto
+            iter_obj
                 .install_native_fields(self, &js_async_from_sync_iterator_proto_funcs)
                 .unwrap();
-
             self.0.borrow_mut().class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize] =
-                asiter_proto;
+                iter_obj.into();
         }
 
         // AsyncGenerator
         {
             // AsyncGeneratorPrototype
-            let agen_proto = self
+            let a_gen_obj = self
                 .create_base_object_from_proto(self.0.borrow().async_iterator_proto.clone())
                 .unwrap();
-            agen_proto
+            a_gen_obj
                 .install_native_fields(self, &js_async_generator_proto_funcs)
                 .unwrap();
+            let agen_proto: JSValue = a_gen_obj.into();
 
             // AsyncGeneratorFunction
-            let agf_proto = self
+            let agf_obj = self
                 .create_base_object_from_proto(self.0.borrow().function_proto.clone())
                 .unwrap();
-            agf_proto
+            agf_obj
                 .install_native_fields(self, &js_async_generator_function_proto_funcs)
                 .unwrap();
-
-            // let agf_ctor = JS_NewCFunction3(
-            //     self,
-            //     std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
-            //         BytecodeFunctionValue::hook_constructor,
-            //     ),
-            //     c"AsyncGeneratorFunction",
-            //     1,
-            //     JSCFunctionEnum::ConstructorOrFuncMagic,
-            //     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
-            //     self.0.borrow().function_ctor,
-            // );
+            let agf_proto: JSValue = agf_obj.into();
 
             let agf_ctor = self
                 .create_native_function_from_proto(

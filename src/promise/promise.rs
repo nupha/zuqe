@@ -11,7 +11,8 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_Call, JS_CallConstructor, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
-    object::{JS_PROP_C_W_E, ObjectDetail},
+    object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
+    object_cast,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
     utils::{UncheckedFrom, UncheckedInto},
@@ -52,36 +53,9 @@ pub struct ObjPromise {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct Promise(pub(super) JSValue);
+pub struct Promise(pub(crate) JSObject);
 
-impl TryFrom<JSValue> for Promise {
-    type Error = i32;
-
-    /// interpret value as Promise.
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if value.is_object() && unsafe { value.object_unchecked().class_id() } == JS_CLASS_PROMISE {
-            Ok(unsafe { std::mem::transmute::<JSValue, Promise>(value) })
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl UncheckedFrom<JSValue> for Promise {
-    #[inline(always)]
-    unsafe fn unchecked_from(value: JSValue) -> Self {
-        debug_assert!(value.is_object());
-        debug_assert_eq!(value.object_unchecked().class_id(), JS_CLASS_PROMISE);
-        std::mem::transmute(value)
-    }
-}
-
-impl From<Promise> for JSValue {
-    #[inline(always)]
-    fn from(value: Promise) -> Self {
-        value.0
-    }
-}
+object_cast!(Promise, JS_CLASS_PROMISE);
 
 impl Promise {
     /// create new Promise object with given executor function.
@@ -109,7 +83,7 @@ impl Promise {
 
         // create js object of promise class
         let promise = Self(
-            ctx.create_instance_from_ctor(new_target, ObjectDetail::PROMISE(s))
+            ctx.create_object_apply_ctor(new_target, ObjectDetail::PROMISE(s))
                 .map_err(|_| -1)?,
         );
 
@@ -117,7 +91,7 @@ impl Promise {
         let ret = JS_Call(ctx, &executor, &JSValue::UNDEFINED, &args);
         if ret.is_exception() {
             let error = ctx.take_exception();
-            let ret2 = JS_Call(ctx, &args[1], &JSValue::UNDEFINED, &[error]).check_exception()?;
+            JS_Call(ctx, &args[1], &JSValue::UNDEFINED, &[error]).check_exception()?;
         }
 
         Ok(promise)
@@ -126,9 +100,9 @@ impl Promise {
     /// create new Promise object and its resolving function pairs.
     /// returns Promise object and [resolve, reject] functions.
     /// `ctor` is a customized constructor function value to instantiate Promise object:
-    ///  - when provised, will call this function to create customized Promise object,
+    ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
-    pub unsafe fn new(ctx: &JSContext, ctor: &JSValue) -> Result<(Promise, [JSValue; 2]), i32> {
+    pub fn new(ctx: &JSContext, ctor: &JSValue) -> Result<(Promise, [JSValue; 2]), i32> {
         let executor = ctx.create_native_callable_object(
             Promise::hook_executor,
             2,
@@ -136,14 +110,19 @@ impl Promise {
             &[JSValue::UNDEFINED, JSValue::UNDEFINED], // resolving functions, initially undefined
         )?;
 
-        let result_promise = if ctor.is_undefined() {
-            Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?.0
+        let result_promise: Self = if ctor.is_undefined() {
+            Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
         } else {
-            JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor)).check_exception()?
+            JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor))
+                .check_exception()?
+                .try_into()?
         };
 
-        if let ObjectDetail::C_FUNCTION_DATA(s) =
-            executor.object_unchecked().0.payload.borrow().deref()
+        if let ObjectDetail::C_FUNCTION_DATA(s) = unsafe { executor.object_unchecked() }
+            .0
+            .payload
+            .borrow()
+            .deref()
         {
             let data = s.data();
             debug_assert!(!data.is_empty());
@@ -153,15 +132,10 @@ impl Promise {
             }
 
             let resolving_funcs = [data[0].clone(), data[1].clone()];
-            Ok((result_promise.unchecked_into(), resolving_funcs))
+            Ok((result_promise.into(), resolving_funcs))
         } else {
             unreachable!()
         }
-    }
-
-    #[inline(always)]
-    pub fn as_value(self) -> JSValue {
-        self.0
     }
 
     /// create [resolve, reject] function pairs for `self` promise object.
@@ -178,22 +152,20 @@ impl Promise {
             };
 
             let function_proto = ctx.0.borrow().function_proto.clone();
-            match ctx.create_instance_from_proto(
-                function_proto,
-                if i == 0 {
-                    ObjectDetail::PROMISE_RESOLVE_FUNCTION(s)
-                } else {
-                    ObjectDetail::PROMISE_REJECT_FUNCTION(s)
-                },
-            ) {
-                Ok(func_obj) => unsafe {
-                    js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, 1);
-                    resolving_funcs[i as usize] = func_obj;
-                },
-                Err(_) => {
-                    return Err(-1);
-                }
-            }
+            let func_obj = ctx
+                .create_object_from_proto(
+                    function_proto,
+                    if i == 0 {
+                        ObjectDetail::PROMISE_RESOLVE_FUNCTION(s)
+                    } else {
+                        ObjectDetail::PROMISE_REJECT_FUNCTION(s)
+                    },
+                )
+                .map_err(|_| -1)?;
+            let func: JSValue = func_obj.into();
+
+            unsafe { js_function_set_properties(ctx, &func, JS_ATOM_empty_string, 1) };
+            resolving_funcs[i as usize] = func;
         }
 
         Ok(resolving_funcs)
@@ -202,7 +174,7 @@ impl Promise {
     /// get Promise meta data.
     fn with_meta<R>(&self, f: impl FnOnce(&ObjPromise) -> R) -> Option<R> {
         unsafe {
-            if let ObjectDetail::PROMISE(p) = self.0.object_unchecked().0.payload.borrow().deref() {
+            if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow().deref() {
                 Some(f(p))
             } else {
                 None
@@ -213,9 +185,7 @@ impl Promise {
     /// get Promise meta data.
     fn with_meta_mut<R>(&self, f: impl FnOnce(&mut ObjPromise) -> R) -> Option<R> {
         unsafe {
-            if let ObjectDetail::PROMISE(p) =
-                self.0.object_unchecked().0.payload.borrow_mut().deref_mut()
-            {
+            if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
                 Some(f(p))
             } else {
                 None
@@ -312,8 +282,7 @@ impl JSContext {
 impl Promise {
     /// the native callback for Promise constructor function
     pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-        let executor = cc.arg(0).clone();
-        Promise::new_with_executor(ctx, executor, cc.this()).map(|p| p.0)
+        Promise::new_with_executor(ctx, cc.arg(0).clone(), cc.this()).map(|p| p.into())
     }
 
     /// callback to execute a promise:

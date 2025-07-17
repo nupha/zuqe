@@ -85,7 +85,7 @@ pub fn js_promise_resolve_thenable_job(ctx: &JSContext, cc: CallContext) -> JSRe
     #[cfg(feature = "DUMP_PROMISE")]
     println!("js_promise_resolve_thenable_job");
 
-    let promise: Promise = unsafe { cc.get_raw(0).unchecked_into() };
+    let promise: Promise = cc.arg(0).clone().try_into()?;
     let thenable = cc.arg(1);
     let then = cc.arg(2);
     let rr = promise.create_resolving_functions(ctx)?;

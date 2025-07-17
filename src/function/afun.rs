@@ -1,5 +1,5 @@
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
     function::ObjAsyncState,
@@ -88,15 +88,19 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
             let cc = CallContext::new(ctx, promise_ctor, std::slice::from_ref(&value), 0, None);
             js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
         };
-        if promise.is_exception() {
-            let error = ctx.take_exception();
+        let promise: Promise = if promise.is_exception() {
+            let exc = ctx.take_exception();
             JS_Call(
                 ctx,
                 &state.0.borrow().resolving_funcs[1],
                 &JSValue::UNDEFINED,
-                std::slice::from_ref(&error),
-            );
+                std::slice::from_ref(&exc),
+            )
+        } else {
+            promise
         }
+        .try_into()
+        .unwrap();
 
         let resolving_funcs =
             if let Ok(rr) = unsafe { js_async_function_resolve_create(ctx, state) } {
@@ -112,22 +116,20 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
                 [const { JSValue::UNDEFINED }; 2]
             };
 
-        let res = unsafe {
-            UncheckedInto::<Promise>::unchecked_into(promise).reaction(
-                ctx,
-                &resolving_funcs,
-                // no need to create 'thrownawayCapability' as in the spec
-                &[const { JSValue::UNDEFINED }; 2],
-            )
-        };
+        let res = promise.reaction(
+            ctx,
+            &resolving_funcs,
+            // no need to create 'thrownawayCapability' as in the spec
+            &[const { JSValue::UNDEFINED }; 2],
+        );
 
         if res.is_err() {
-            let error = ctx.take_exception();
+            let exc = ctx.take_exception();
             JS_Call(
                 ctx,
                 &state.0.borrow().resolving_funcs[1],
                 &JSValue::UNDEFINED,
-                &[error],
+                &[exc],
             );
         }
     }

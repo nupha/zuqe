@@ -33,6 +33,7 @@ impl LazyInit {
         match self {
             Self::Prototype => {
                 let obj = ctx.create_base_object()?;
+                // TODO: mark cyclic reference
                 // set_cycle_flag(ctx, &obj);
                 // set_cycle_flag(ctx, this_val);
                 obj.define_property_value(
@@ -41,7 +42,7 @@ impl LazyInit {
                     JSValue::Object(this_obj.clone()),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
-                Ok(obj)
+                Ok(obj.into())
             }
 
             Self::ModuleNS(md) => md.ns(ctx),
@@ -56,32 +57,12 @@ impl LazyInit {
                     NativeFieldDetail::Object(list) => {
                         let obj = ctx.create_base_object()?;
                         obj.install_native_fields(ctx, list.as_ref())?;
-                        obj
+                        obj.into()
                     }
                     _ => {
                         unreachable!();
                     }
                 };
-
-                // let val = match entry.def_type {
-                //     JS_DEF_CFUNC => JS_NewCFunction2(
-                //         ctx,
-                //         unsafe { entry.u.func.cfunc.generic },
-                //         entry.name,
-                //         unsafe { entry.u.func.length },
-                //         unsafe { entry.u.func.cproto },
-                //         entry.magic,
-                //     ),
-                //     JS_DEF_PROP_STRING => ctx.create_atom_string(unsafe { entry.u.str })?,
-                //     JS_DEF_OBJECT => {
-                //         let obj = ctx.create_base_object().unwrap();
-                //         obj.install_property_entries(ctx, unsafe { entry.u.prop_list.as_slice() })?;
-                //         obj
-                //     }
-                //     t => {
-                //         unreachable!("invalid def_type {t}");
-                //     }
-                // };
 
                 Ok(val)
             }

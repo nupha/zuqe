@@ -287,6 +287,19 @@ impl JSObject {
         )
     }
 
+    pub fn define_property_value_value(
+        &self,
+        ctx: &JSContext,
+        prop: JSValue,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let atom = prop.coerce_to_atom(ctx)?;
+        let ret = self.define_property_value(ctx, atom, val, flags);
+        JS_FreeAtom(ctx, atom);
+        ret
+    }
+
     pub fn define_property_value_str(
         &self,
         ctx: &JSContext,
@@ -312,8 +325,63 @@ impl JSObject {
         let d = JSPropertyDescriptor::parse(ctx, desc)?;
         self.define_property(ctx, prop, &d.value, &d.getter, &d.setter, d.flags | flags)
     }
+
+    #[inline(always)]
+    pub fn create_data_property_u32(
+        &self,
+        ctx: &JSContext,
+        idx: i64,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.define_property_value_i64(
+            ctx,
+            idx,
+            val,
+            flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
+        )
+    }
+
+    #[inline]
+    pub fn define_property_value_i64(
+        &self,
+        ctx: &JSContext,
+        idx: i64,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let atom = ctx.rt_mut().register_atom_i64(idx);
+        let ret = self.define_property_value(ctx, atom, val, flags);
+        JS_FreeAtom(ctx, atom);
+        ret
+    }
+
+    /// define getter, setter property.
+    #[inline(always)]
+    pub fn define_property_getset(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        getter: JSValue,
+        setter: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.define_property(
+            ctx,
+            prop,
+            &JSValue::UNDEFINED,
+            &getter,
+            &setter,
+            flags
+                | JS_PROP_HAS_GET
+                | JS_PROP_HAS_SET
+                | JS_PROP_HAS_CONFIGURABLE
+                | JS_PROP_HAS_ENUMERABLE,
+        )
+    }
 }
 
+// TODO: these methods on JSValue are not needed.
 impl JSValue {
     /* allowed flags:
        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
@@ -343,6 +411,7 @@ impl JSValue {
 
     /// shortcut to add or redefine a new property value.
     /// Note: `prop` is not consumed, `val` is consumed.
+    #[inline]
     pub fn define_property_value(
         &self,
         ctx: &JSContext,
@@ -422,6 +491,7 @@ impl JSValue {
 
     /// define getter, setter property.
     /// Note: both `getter` and `setter` are consumed.
+    #[inline(always)]
     pub fn define_property_getset(
         &self,
         ctx: &JSContext,

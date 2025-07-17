@@ -63,8 +63,8 @@ impl Promise {
             },
         });
 
-        let mut isa = unsafe { self.0.object_unchecked().0.payload.borrow_mut() };
-        if let ObjectDetail::PROMISE(p) = isa.deref_mut() {
+        let mut payload = self.0.0.payload.borrow_mut();
+        if let ObjectDetail::PROMISE(p) = payload.deref_mut() {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // register pending to call later in micro task job
                 p.promise_reactions[0].push(rd1);
@@ -116,7 +116,7 @@ impl Promise {
         //         .opaque_must::<ObjPromise>(JS_CLASS_PROMISE, ctx)?
         // };
 
-        let ctor = JS_SpeciesConstructor(ctx, &self.0, JSValue::UNDEFINED)?;
+        let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
         let (result_promise, resolving_funcs) = ctx.create_promise(&ctor)?;
 
         // perform reaction

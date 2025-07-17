@@ -59,14 +59,16 @@ pub union JSObjectArrayDataUnion {
 
 impl JSContext {
     /// create an array value.
+    /// TODO: return Array type (should be defined as struct Array(JSObject))
     pub fn create_array(&self) -> JSResult {
-        self.create_instance_from_shape(
+        self.create_object_with_shape(
             self.0.borrow().array_shape.clone().unwrap(),
             ObjectDetail::ARRAY(JSObjectArray {
                 size: 0,
                 values: Vec::new(),
             }),
         )
+        .map(JSValue::Object)
         .map_err(|_| -1)
     }
 
@@ -79,10 +81,11 @@ impl JSContext {
         }
 
         let arr = self.create_array()?;
-
         unsafe {
-            // ensure it is a fast array
-            debug_assert!(arr.object_unchecked().flags().fast_array());
+            debug_assert!(
+                arr.object_unchecked().flags().fast_array(),
+                "must be a fast array"
+            );
         }
 
         if capacity > 0 {

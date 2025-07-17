@@ -699,7 +699,7 @@ pub unsafe fn JS_PromiseState(
     ctx: &JSContext,
     promise: JSValue,
 ) -> Result<JSPromiseStateEnum, i32> {
-    UncheckedInto::<Promise>::unchecked_into(promise).state()
+    Promise::try_from(promise).unwrap().state()
 }
 
 /// to free `fd` and all its children
@@ -768,7 +768,7 @@ pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut ModuleDef) -> JSValue 
 
 #[deprecated(note = "use Promise::result() instead")]
 pub unsafe fn JS_PromiseResult(ctx: &JSContext, promise: JSValue) -> JSValue {
-    UncheckedInto::<Promise>::unchecked_into(promise).result()
+    Promise::try_from(promise).unwrap().result()
 }
 
 /* allowed flags:
@@ -1861,12 +1861,8 @@ pub unsafe fn JS_NewObjectProto(ctx: &JSContext, proto: JSValueConst) -> JSValue
 /// Create basic object using default Object prototype
 #[deprecated(note = "use JSContext::create_base_object() instead")]
 pub unsafe fn JS_NewObject(ctx: &JSContext) -> JSValue {
-    ctx.create_base_object().unwrap_or(JSValue::EXCEPTION)
-    // JS_NewObjectProtoClass(
-    //     ctx,
-    //     ctx.class_proto[JS_CLASS_OBJECT as usize],
-    //     JS_CLASS_OBJECT,
-    // )
+    ctx.create_base_object()
+        .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// Convert JS value to object equivalent
@@ -1875,12 +1871,14 @@ pub unsafe fn JS_NewObject(ctx: &JSContext) -> JSValue {
 /// `val` is consumed
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
 pub fn JS_ToObject(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_object(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.coerce_to_object(ctx)
+        .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
 pub unsafe fn JS_ToObjectFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_object(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.coerce_to_object(ctx)
+        .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.

@@ -10,7 +10,7 @@ use super::JS_PROP_C_W_E;
 
 impl JSObject {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
+    pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func.object().and_then(|o| {
             o.0.payload
                 .borrow()
