@@ -111,21 +111,4 @@ impl JSContext {
     pub fn create_base_object(&self) -> Result<JSObject, i32> {
         self.create_object(ObjectDetail::OBJECT).map_err(|_| -1)
     }
-
-    /// create new instance with detailed object data.
-    /// when failed, detail data is returned back in Err, caller should free it.
-    /// `proto` is Prototype object (can be JSValue::NULL).
-    ///
-    /// Note:
-    /// - New instance will apply the shape determined by `proto`.
-    /// - The `detail` data determines what class the new instance is.
-    #[deprecated(note = "use JSContext::create_object_from_proto() instead")]
-    pub fn create_instance_from_proto(
-        &self,
-        proto: JSValue,
-        payload: ObjectDetail,
-    ) -> Result<JSValue, ObjectDetail> {
-        self.create_object_from_proto(proto, payload)
-            .map(JSValue::Object)
-    }
 }

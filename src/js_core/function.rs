@@ -52,16 +52,14 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     }
 
     let func_obj = ctx
-        .create_instance_from_proto(
+        .create_object_from_proto(
             ctx.0.borrow().function_proto.clone(),
             ObjectDetail::BOUND_FUNCTION(bf),
         )
         .map_err(|_| -1)?;
 
-    let p = unsafe { func_obj.object_unchecked() };
-
     unsafe {
-        (*p.0.obj_flags.as_ptr()).set_constructor(this_val.is_constructor());
+        (*func_obj.0.obj_flags.as_ptr()).set_constructor(this_val.is_constructor());
     }
 
     unsafe {
@@ -114,7 +112,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
 
         func_obj.define_property_value(ctx, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE)?;
 
-        Ok(func_obj)
+        Ok(func_obj.into())
     }
 }
 

@@ -275,21 +275,27 @@ impl JSContext {
     }
 
     fn intrinsic_boolean(&self) {
-        let bool_proto = self
-            .create_instance_from_proto(
+        let bool_obj = self
+            .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
                 ObjectDetail::BOOLEAN(JSValue::Bool(false)),
             )
             .unwrap();
 
-        bool_proto
+        bool_obj
             .install_native_fields(self, &js_boolean_proto_funcs)
             .unwrap();
 
-        self.create_global_constructor("Boolean", js_boolean_constructor, 1, &bool_proto, 0)
-            .unwrap();
+        self.create_global_constructor(
+            "Boolean",
+            js_boolean_constructor,
+            1,
+            &bool_obj.clone().into(),
+            0,
+        )
+        .unwrap();
 
-        self.0.borrow_mut().class_proto[JS_CLASS_BOOLEAN as usize] = bool_proto;
+        self.0.borrow_mut().class_proto[JS_CLASS_BOOLEAN as usize] = bool_obj.into();
     }
 
     fn intrinsic_string(&self) {

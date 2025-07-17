@@ -399,7 +399,7 @@ impl JSContext {
         proto: JSValue,
     ) -> JSResult {
         let func_obj = self
-            .create_instance_from_proto(
+            .create_object_from_proto(
                 proto,
                 ObjectDetail::C_FUNCTION(ObjNativeFunc {
                     handler: call,
@@ -410,10 +410,8 @@ impl JSContext {
             )
             .map_err(|_| -1)?;
 
-        let ob = unsafe { func_obj.object_unchecked() };
-
         unsafe {
-            (*ob.0.obj_flags.as_ptr()).set_constructor(matches!(
+            (*func_obj.0.obj_flags.as_ptr()).set_constructor(matches!(
                 call,
                 NativeFunctionType::Constructor(_)
                     | NativeFunctionType::ConstructorOrFunc(_)
@@ -427,11 +425,11 @@ impl JSContext {
         // define properties length and name on function.
         let name_atom = self.create_atom(name).unwrap();
         unsafe {
-            js_function_set_properties(self, &func_obj, name_atom, length as i32);
+            js_function_set_properties(self, &func_obj.clone().into(), name_atom, length as i32);
         }
         JS_FreeAtom(self, name_atom);
 
-        Ok(func_obj)
+        Ok(func_obj.into())
     }
 
     /// Create new function object with native callback. using function proto as proto object.

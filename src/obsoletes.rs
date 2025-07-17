@@ -2388,7 +2388,7 @@ pub unsafe fn JS_NewCFunction3(
     magic: i16,
     proto_val: JSValue,
 ) -> JSValue {
-    match ctx.create_instance_from_proto(
+    match ctx.create_object_from_proto(
         proto_val,
         ObjectDetail::C_FUNCTION(ObjNativeFunc {
             realm: ctx.downgrade(),
@@ -2398,23 +2398,21 @@ pub unsafe fn JS_NewCFunction3(
         }),
     ) {
         Ok(func_obj) => {
-            unsafe {
-                (*func_obj.object_unchecked().0.obj_flags.as_ptr()).set_constructor(matches!(
-                    cproto,
-                    JSCFunctionEnum::Constructor
-                        | JSCFunctionEnum::ConstructorMagic
-                        | JSCFunctionEnum::ConstructorOrFunc
-                        | JSCFunctionEnum::ConstructorOrFuncMagic
-                ));
-            }
+            (*func_obj.0.obj_flags.as_ptr()).set_constructor(matches!(
+                cproto,
+                JSCFunctionEnum::Constructor
+                    | JSCFunctionEnum::ConstructorMagic
+                    | JSCFunctionEnum::ConstructorOrFunc
+                    | JSCFunctionEnum::ConstructorOrFuncMagic
+            ));
 
-            // define propperties on func_obj: length and name.
+            // define properties on func_obj: length and name.
             let name_atom = ctx.create_atom(name).unwrap();
 
-            js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
+            js_function_set_properties(ctx, &func_obj.clone().into(), name_atom, length as i32);
             JS_FreeAtom(ctx, name_atom);
 
-            func_obj
+            func_obj.into()
         }
         Err(_) => JSValue::EXCEPTION,
     }

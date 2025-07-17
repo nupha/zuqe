@@ -31,7 +31,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let obj = ctx
-        .create_instance_from_proto(proto, ObjectDetail::ERROR)
+        .create_object_from_proto(proto, ObjectDetail::ERROR)
         .map_err(|_| -1)?;
 
     let mut arg_index = if cc.magic() == ErrorKind::Aggregate as i32 {
@@ -78,29 +78,30 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // skip the Error() function in the backtrace
-    ctx.build_backtrace_to(&obj, None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
+    ctx.build_backtrace_to(
+        &obj.clone().into(),
+        None,
+        JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL,
+    );
 
-    Ok(obj)
+    Ok(obj.into())
 }
 
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
-    let obj = if let Ok(o) = ctx.create_instance_from_proto(
+    if let Ok(obj) = ctx.create_object_from_proto(
         ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize].clone(),
         ObjectDetail::ERROR,
     ) {
-        o
+        obj.define_property_value(
+            ctx,
+            JS_ATOM_errors,
+            errors,
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )
+        .unwrap();
+        obj.into()
     } else {
-        return JSValue::EXCEPTION;
-    };
-
-    obj.define_property_value(
-        ctx,
-        JS_ATOM_errors,
-        errors,
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    )
-    .unwrap();
-
-    obj
+        JSValue::EXCEPTION
+    }
 }

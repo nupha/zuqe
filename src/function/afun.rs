@@ -143,7 +143,7 @@ pub unsafe fn js_async_function_resolve_create(
 
     for i in 0..2 {
         let func_obj = ctx
-            .create_instance_from_proto(ctx.0.borrow().function_proto.clone(), {
+            .create_object_from_proto(ctx.0.borrow().function_proto.clone(), {
                 if i == 0 {
                     ObjectDetail::ASYNC_FUNCTION_RESOLVE(s.clone())
                 } else {
@@ -152,7 +152,7 @@ pub unsafe fn js_async_function_resolve_create(
             })
             .map_err(|_| -1)?;
 
-        resolving_funcs[i] = func_obj;
+        resolving_funcs[i] = func_obj.into();
     }
 
     return Ok(resolving_funcs);

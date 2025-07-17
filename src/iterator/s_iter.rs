@@ -358,9 +358,8 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
         }
     }
 
-    if let Ok(o) = ctx.create_instance_from_proto(JSValue::NULL, ObjectDetail::FOR_IN_ITERATOR(it))
-    {
-        o
+    if let Ok(o) = ctx.create_object_from_proto(JSValue::NULL, ObjectDetail::FOR_IN_ITERATOR(it)) {
+        o.into()
     } else {
         JSValue::EXCEPTION
     }

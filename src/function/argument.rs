@@ -1,3 +1,4 @@
+use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
     array::JSObjectArray,
@@ -13,7 +14,7 @@ use crate::{
 };
 
 pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
-    let val = if let Ok(o) = ctx.create_instance_from_proto(
+    let obj: JSObject = if let Ok(o) = ctx.create_object_from_proto(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
         ObjectDetail::ARGUMENTS(JSObjectArray::default()),
     ) {
@@ -22,10 +23,8 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
         return JSValue::EXCEPTION;
     };
 
-    let p = val.object_unchecked();
-
     // add the length property (cannot fail)
-    p.add_shape_property_then(
+    obj.add_shape_property_then(
         ctx,
         JS_ATOM_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -37,38 +36,41 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
 
     if !args.is_empty() {
         // initialize fast array values
-        if p.with_fast_array_values_mut(|lst| -> Result<(), i32> {
-            lst.try_reserve_exact(args.len()).map_err(|_| -1)?;
-            lst.extend(args.iter().map(|v| v.clone()));
-            Ok(())
-        })
-        .unwrap()
-        .is_err()
+        if obj
+            .with_fast_array_values_mut(|lst| -> Result<(), i32> {
+                lst.try_reserve_exact(args.len()).map_err(|_| -1)?;
+                lst.extend(args.iter().map(|v| v.clone()));
+                Ok(())
+            })
+            .unwrap()
+            .is_err()
         {
             ctx.throw_out_of_memory();
             return JSValue::EXCEPTION;
         };
     }
 
-    let _ = val.define_property_value(
+    obj.define_property_value(
         ctx,
         JS_ATOM_Symbol_iterator,
         ctx.0.borrow().array_proto_values.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    );
+    )
+    .unwrap();
 
     // add callee property to throw a TypeError in strict mode
     let throw_type_error = &ctx.0.borrow().throw_type_error;
-    let _ = val.define_property(
+    obj.define_property(
         ctx,
         JS_ATOM_callee,
         &JSValue::UNDEFINED,
         throw_type_error,
         throw_type_error,
         JS_PROP_HAS_GET | JS_PROP_HAS_SET,
-    );
+    )
+    .unwrap();
 
-    val
+    obj.into()
 }
 
 /// legacy arguments object: add references to the function arguments
@@ -78,11 +80,11 @@ pub unsafe fn js_build_mapped_arguments(
     sf: &mut StackFrame,
     arg_count: i32,
 ) -> JSValue {
-    let val = if let Ok(o) = ctx.create_instance_from_proto(
+    let val: JSValue = if let Ok(o) = ctx.create_object_from_proto(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
         ObjectDetail::MAPPED_ARGUMENTS,
     ) {
-        o
+        o.into()
     } else {
         return JSValue::EXCEPTION;
     };

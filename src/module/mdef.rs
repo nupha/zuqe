@@ -625,9 +625,8 @@ pub unsafe fn js_create_module_bytecode_function(
 
         // create function object
         let proto = ctx.0.borrow().class_proto[class_id as usize].clone();
-        let func_obj = ctx.create_instance_from_proto(proto, isa).map_err(|_| -1)?;
-
-        m.0.borrow_mut().bytecode = func_obj;
+        let func_obj = ctx.create_object_from_proto(proto, isa).map_err(|_| -1)?;
+        m.0.borrow_mut().bytecode = func_obj.into();
     } else {
         debug_assert!(
             matches!(
