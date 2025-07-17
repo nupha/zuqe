@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
-use crate::atom::consts::JS_ATOM_prototype;
-use crate::function::JS_GetFunctionRealm;
 use crate::{
+    atom::consts::JS_ATOM_prototype,
     context::JSContext,
+    function::JS_GetFunctionRealm,
     object::{JSObject, JSShape, ObjectDetail, ObjectInner},
     value::JSValue,
 };
