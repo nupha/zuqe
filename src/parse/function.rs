@@ -7,18 +7,18 @@ use crate::{
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::JSExportTypeEnum,
-    parse::token::{CHAR_EQUAL, CHAR_STAR},
     value::JSValue,
 };
 
 use super::{
     emit::js_is_live_code,
     esm::{JSParseExportEnum, add_export_entry},
-    parse::{js_parse_skip_parens_token, reparse_ident_token},
+    parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
-        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, TOK_ARROW,
-        TOK_AWAIT, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR, TOK_YIELD,
+        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL,
+        CHAR_STAR, TOK_ARROW, TOK_AWAIT, TOK_ELLIPSIS, TOK_FIRST_KEYWORD, TOK_IDENT,
+        TOK_LAST_KEYWORD, TOK_LET, TOK_VAR, TOK_YIELD,
     },
 };
 
@@ -689,7 +689,15 @@ impl<'s> JSParseState<'s> {
             fd0 as *mut JSFunctionDef
         );
 
-        reparse_ident_token(self);
+        // reparse_ident_token:
+        // if the current token is an identifier or keyword, reparse it
+        // according to the current function type
+        if matches!(
+            self.token.val,
+            TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD
+        ) {
+            self.update_token_ident();
+        }
 
         // create function object from fd1
         {

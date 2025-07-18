@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     atom::{JSAtom, consts::*},
     context::JS_MODE_STRICT,
@@ -641,9 +639,9 @@ impl<'s> JSParseState<'s> {
                                 has_escape,
                                 is_reserved: false,
                             };
-                            // check if ident is a reserved word token.
-                            // if yes convert token value to TOK_XXX
-                            update_token_ident(self);
+                            // check if atom is a reserved keyword.
+                            // if yes, convert token value to TOK_XXX
+                            self.update_token_ident();
                         } else {
                             self.token.val = TOK_ERROR;
                             self.token.data = TokenData::None;
@@ -770,6 +768,79 @@ impl<'s> JSParseState<'s> {
             && self.token.data.ident_atom().unwrap() == atom
             && !self.token.data.ident_has_escape()
     }
+
+    /// check if token is reserved keyword or not.
+    ///  if it is a keyword, convert keyword token.
+    pub fn update_token_ident(&mut self) {
+        if matches!(self.token.val, TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) {
+            return;
+        }
+
+        debug_assert_eq!(self.token.val, TOK_IDENT);
+
+        let (func_type, func_kind, in_function_body, parent, js_mode) = {
+            let fd = self.cur_func();
+            (
+                fd.func_type,
+                fd.func_kind,
+                fd.in_function_body,
+                fd.parent,
+                fd.js_mode,
+            )
+        };
+
+        if let TokenData::Ident {
+            is_reserved,
+            atom,
+            has_escape,
+        } = &mut self.token.data
+        {
+            *is_reserved = match *atom {
+                JS_ATOM_yield => {
+                    matches!(
+                        func_kind,
+                        JSFunctionKindEnum::JS_FUNC_GENERATOR
+                            | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+                    ) || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
+                        && !in_function_body
+                        && !parent.is_null()
+                        && matches!(
+                            unsafe { (*parent).func_kind },
+                            JSFunctionKindEnum::JS_FUNC_GENERATOR
+                                | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+                        ))
+                }
+                JS_ATOM_await => {
+                    self.is_module
+                        || func_kind.is_async()
+                        || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
+                        || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
+                            && !in_function_body
+                            && !parent.is_null()
+                            && unsafe {
+                                let parent = &*parent;
+                                parent.func_kind.is_async()
+                                    || parent.func_type
+                                        == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
+                            })
+                }
+
+                a if (1..=JS_ATOM_LAST_KEYWORD.0).contains(&a.0) => true,
+                a if (JS_ATOM_FIRST_STRICT_KEYWORD.0..=JS_ATOM_LAST_STRICT_KEYWORD.0)
+                    .contains(&a.0) =>
+                {
+                    js_mode & JS_MODE_STRICT as u8 != 0
+                }
+                _ => false,
+            };
+
+            if *is_reserved && !*has_escape {
+                // convert ident token to keyword token.
+                self.token.val = atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
+                self.token.data = TokenData::None;
+            }
+        }
+    }
 }
 
 /* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
@@ -877,65 +948,6 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
                     return TOK_IDENT;
                 }
                 return c as i32;
-            }
-        }
-    }
-}
-
-// convert a TOK_IDENT to a keyword when needed
-pub unsafe fn update_token_ident(s: &mut JSParseState) {
-    // don't change match arm order
-    let is_keyword: bool = match s.token.data.ident_atom().unwrap() {
-        JS_ATOM_yield => {
-            let fd = s.cur_func();
-            matches!(
-                fd.func_kind,
-                JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-            ) || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-                && !fd.in_function_body
-                && !fd.parent.is_null()
-                && matches!(
-                    (*fd.parent).func_kind,
-                    JSFunctionKindEnum::JS_FUNC_GENERATOR
-                        | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-                ))
-        }
-        JS_ATOM_await => {
-            let is_module = s.is_module;
-            let fd = s.cur_func();
-
-            is_module
-                || fd.func_kind.is_async()
-                || fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
-                || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-                    && !fd.in_function_body
-                    && !fd.parent.is_null()
-                    && ((*fd.parent).func_kind.is_async()
-                        || (*fd.parent).func_type
-                            == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT))
-        }
-
-        a if (1..=JS_ATOM_LAST_KEYWORD.0).contains(&a.0) => true,
-        a if (JS_ATOM_FIRST_STRICT_KEYWORD.0..=JS_ATOM_LAST_STRICT_KEYWORD.0).contains(&a.0) => {
-            s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
-        }
-        _ => false,
-    };
-
-    if is_keyword {
-        if let TokenData::Ident {
-            atom,
-            has_escape,
-            is_reserved,
-        } = &mut s.token.data
-        {
-            if *has_escape {
-                *is_reserved = true;
-                s.token.val = TOK_IDENT;
-            } else {
-                // The keywords atoms are pre allocated
-                s.token.val = atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
-                s.token.data = TokenData::None;
             }
         }
     }

@@ -5,6 +5,7 @@ use crate::{
     function::{
         BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE, pop_break_entry, push_break_entry,
     },
+    parse::token::TOK_FIRST_KEYWORD,
     utils::write_to_ptr,
 };
 
@@ -294,8 +295,11 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 fail!();
             }
         }
-        TOK_ENUM | TOK_EXPORT | TOK_EXTENDS => {
-            js_unsupported_keyword(s, s.token.data.ident_atom().unwrap());
+        t @ (TOK_ENUM | TOK_EXPORT | TOK_EXTENDS) => {
+            // convert keyword token to atom
+            let a = t - TOK_FIRST_KEYWORD + 1;
+            debug_assert!(a > 0);
+            js_unsupported_keyword(s, JSAtom(a as u32));
             fail!();
         }
         _ => {

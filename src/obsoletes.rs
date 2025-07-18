@@ -3101,3 +3101,10 @@ pub unsafe fn js_shape_prepare_update(
 ) -> i32 {
     unreachable!("unused");
 }
+
+/// check if token is reserved keyword or not.
+///  if it is a keyword, convert keyword token.
+#[deprecated(note = "use JSParseState::update_token_ident() instead")]
+pub fn update_token_ident(s: &mut JSParseState) {
+    s.update_token_ident()
+}

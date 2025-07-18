@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use smallvec::SmallVec;
 
 use crate::{
@@ -26,11 +24,11 @@ use super::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_DOT, CHAR_EQUAL,
         CHAR_SEMI, CHAR_SLASH, CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CLASS, TOK_CONST, TOK_DEBUGGER,
         TOK_DEC, TOK_DELETE, TOK_DIV_ASSIGN, TOK_DO, TOK_ELLIPSIS, TOK_ENUM, TOK_EOF, TOK_EXPORT,
-        TOK_FALSE, TOK_FIRST_KEYWORD, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF, TOK_IMPORT,
-        TOK_INC, TOK_INTERFACE, TOK_LAST_KEYWORD, TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_OF,
-        TOK_PACKAGE, TOK_PRIVATE, TOK_PROTECTED, TOK_PUBLIC, TOK_REGEXP, TOK_RETURN, TOK_STATIC,
-        TOK_STRING, TOK_SUPER, TOK_SWITCH, TOK_TEMPLATE, TOK_THIS, TOK_THROW, TOK_TRUE, TOK_TRY,
-        TOK_TYPEOF, TOK_VAR, TOK_WHILE, TOK_WITH, is_regexp_allowed, update_token_ident,
+        TOK_FALSE, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF, TOK_IMPORT, TOK_INC, TOK_INTERFACE,
+        TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_OF, TOK_PACKAGE, TOK_PRIVATE, TOK_PROTECTED,
+        TOK_PUBLIC, TOK_REGEXP, TOK_RETURN, TOK_STATIC, TOK_STRING, TOK_SUPER, TOK_SWITCH,
+        TOK_TEMPLATE, TOK_THIS, TOK_THROW, TOK_TRUE, TOK_TRY, TOK_TYPEOF, TOK_VAR, TOK_WHILE,
+        TOK_WITH, is_regexp_allowed,
     },
 };
 
@@ -661,16 +659,12 @@ pub unsafe fn js_parse_skip_parens_token(
     tok
 }
 
-// if the current token is an identifier or keyword, reparse it
-// according to the current function type
-pub unsafe fn reparse_ident_token(s: *mut JSParseState) {
-    if (*s).token.val == TOK_IDENT
-        || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&(*s).token.val)
-    {
-        (*s).token.val = TOK_IDENT;
-        if let TokenData::Ident { is_reserved, .. } = &mut (*s).token.data {
-            *is_reserved = false;
-        }
-        update_token_ident(s.as_mut().unwrap());
-    }
-}
+// // if the current token is an identifier or keyword, reparse it
+// // according to the current function type
+// pub unsafe fn reparse_ident_token(s: *mut JSParseState) {
+//     if (*s).token.val == TOK_IDENT
+//         || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&(*s).token.val)
+//     {
+//         (*s).update_token_ident();
+//     }
+// }
