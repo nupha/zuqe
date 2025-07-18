@@ -209,33 +209,32 @@ impl JSContext {
         }
 
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            // compiled bytecode
+            // return bytecode
             return JSValue::Bytecode(bc_compiled);
         }
 
-        // eval bytecode or module.
-        if let Some(f) = cur_frame_func.as_ref() {
-            // direct eval type: eval bytecode directly.
-            debug_assert!(sframe.is_some());
-            let isa = f.0.payload.borrow();
-            let var_refs = isa.func().unwrap().var_refs.as_slice();
-            bc_compiled
-                .eval(self, &this_obj, var_refs, sframe)
-                .unwrap_or(JSValue::EXCEPTION)
-        } else if let Some(md) = md {
+        // evaluate
+        if let Some(m) = md {
             // eval module
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_MODULE);
-            md.eval(self)
+            m.eval(self)
         } else {
-            debug_assert!(matches!(
-                eval_type,
-                JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_INDIRECT
-            ));
-            debug_assert!(sframe.is_none());
-
-            bc_compiled
-                .eval(self, &this_obj, &[], None)
-                .unwrap_or(JSValue::EXCEPTION)
+            // eval bytecode
+            if let Some(f) = cur_frame_func.as_ref() {
+                debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
+                debug_assert!(sframe.is_some());
+                let payload = f.0.payload.borrow();
+                let var_refs = payload.func().unwrap().var_refs.as_slice();
+                bc_compiled.eval(self, &this_obj, var_refs, sframe)
+            } else {
+                debug_assert!(matches!(
+                    eval_type,
+                    JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_INDIRECT
+                ));
+                debug_assert!(sframe.is_none());
+                bc_compiled.eval(self, &this_obj, &[], None)
+            }
+            .unwrap_or(JSValue::EXCEPTION)
         }
     }
 

@@ -54,7 +54,8 @@ impl JSParseState<'_> {
             // hidden variable <ret> for the return value
             let ctx = self.ctx.clone();
             let fd = self.cur_func_mut();
-            fd.eval_ret_idx = Some(fd.add_var(&ctx, JS_ATOM__ret_)?);
+            let idx = fd.add_var(&ctx, JS_ATOM__ret_)?;
+            fd.eval_ret_idx.replace(idx);
         }
 
         while self.token.val != TOK_EOF {
@@ -74,6 +75,10 @@ impl JSParseState<'_> {
     }
 
     pub fn parse_directives(&mut self) -> Result<(), i32> {
+        if !matches!(self.token.data, TokenData::Str { .. }) {
+            return Ok(());
+        }
+
         let pos = self.get_pos();
 
         while let TokenData::Str { str, .. } = &self.token.data {

@@ -126,7 +126,7 @@ impl<'s> JSParseState<'s> {
                 *body = JSValue::UNDEFINED;
                 *flags = JSValue::UNDEFINED;
             }
-            TokenData::Char(_) => {}
+            TokenData::None | TokenData::Char(_) => {}
         }
     }
 

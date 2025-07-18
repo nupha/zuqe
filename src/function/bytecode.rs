@@ -612,7 +612,7 @@ impl Bytecode {
         self.0.borrow().header.gc_has_mark()
     }
 
-    /// Evaluate bytecode.
+    /// Evaluate bytecode: make a closure function with the bytecode, then eval the function.
     pub fn eval(
         &self,
         ctx: &JSContext,

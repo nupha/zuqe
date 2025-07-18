@@ -57,6 +57,7 @@ pub struct JSToken {
 
 #[derive(Debug, Clone)]
 pub enum TokenData {
+    None,
     Char(char),
     Str {
         str: JSValue,
@@ -76,7 +77,7 @@ pub enum TokenData {
 
 impl Default for TokenData {
     fn default() -> Self {
-        Self::Char('\0')
+        Self::None
     }
 }
 
@@ -184,6 +185,7 @@ impl<'s> JSParseState<'s> {
         'redo: loop {
             if p >= self.buf_end {
                 self.token.val = TOK_EOF;
+                self.token.data = TokenData::None;
                 break;
             }
 
@@ -231,6 +233,7 @@ impl<'s> JSParseState<'s> {
                                 if *p == 0 && p >= self.buf_end {
                                     self.throw_syntax_error("unexpected end of comment");
                                     self.token.val = TOK_ERROR;
+                                    self.token.data = TokenData::None;
                                     return Err(-1);
                                 }
                                 if *p == b'*' && *p.offset(1) == b'/' {
@@ -270,6 +273,7 @@ impl<'s> JSParseState<'s> {
                             // /=
                             p = p.add(2);
                             self.token.val = TOK_DIV_ASSIGN;
+                            self.token.data = TokenData::None;
                         }
                         _ => {
                             p = p.add(1);
@@ -339,6 +343,7 @@ impl<'s> JSParseState<'s> {
                                 is_reserved: false,
                             };
                             self.token.val = TOK_PRIVATE_NAME;
+                            self.token.data = TokenData::None;
                         } else {
                             state = Some(State::Fail);
                         }
@@ -348,6 +353,7 @@ impl<'s> JSParseState<'s> {
                     if *p.add(1) == b'.' && *p.add(2) == b'.' {
                         p = p.add(3);
                         self.token.val = TOK_ELLIPSIS;
+                        self.token.data = TokenData::None;
                     } else if (*p.add(1)).is_ascii_digit() {
                         state = Some(State::ParseNumber);
                     } else {
@@ -370,13 +376,16 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_MUL_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'*' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_POW_ASSIGN;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_POW;
+                            self.token.data = TokenData::None;
                         }
                     } else {
                         state = Some(State::DefaultToken('*'));
@@ -386,6 +395,7 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_MOD_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else {
                         state = Some(State::DefaultToken('%'));
                     }
@@ -394,9 +404,11 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_PLUS_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'+' {
                         p = p.offset(2);
                         self.token.val = TOK_INC;
+                        self.token.data = TokenData::None;
                     } else {
                         state = Some(State::DefaultToken('+'));
                     }
@@ -405,6 +417,7 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_MINUS_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'-' {
                         if self.allow_html_comments
                             && *p.offset(2) == b'>'
@@ -418,6 +431,7 @@ impl<'s> JSParseState<'s> {
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_DEC;
+                            self.token.data = TokenData::None;
                         }
                     } else {
                         state = Some(State::DefaultToken('-'));
@@ -427,13 +441,16 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_LTE;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'<' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_SHL_ASSIGN;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_SHL;
+                            self.token.data = TokenData::None;
                         }
                     } else if self.allow_html_comments
                         && *p.offset(1) == b'!'
@@ -451,21 +468,26 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_GTE;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'>' {
                         if *p.offset(2) == b'>' {
                             if *p.offset(3) == b'=' {
                                 p = p.offset(4);
                                 self.token.val = TOK_SHR_ASSIGN;
+                                self.token.data = TokenData::None;
                             } else {
                                 p = p.offset(3);
                                 self.token.val = TOK_SHR;
+                                self.token.data = TokenData::None;
                             }
                         } else if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_SHR_ASSIGN;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_SAR;
+                            self.token.data = TokenData::None;
                         }
                     } else {
                         state = Some(State::DefaultToken('>'));
@@ -476,13 +498,16 @@ impl<'s> JSParseState<'s> {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_STRICT_EQ;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_EQ;
+                            self.token.data = TokenData::None;
                         }
                     } else if *p.offset(1) == b'>' {
                         p = p.offset(2);
                         self.token.val = TOK_ARROW;
+                        self.token.data = TokenData::None;
                     } else {
                         self.token.val = '=' as i32;
                         self.token.data = TokenData::Char('=');
@@ -494,9 +519,11 @@ impl<'s> JSParseState<'s> {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_STRICT_NEQ;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_NEQ;
+                            self.token.data = TokenData::None;
                         }
                     } else {
                         state = Some(State::DefaultToken('!'));
@@ -506,13 +533,16 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_AND_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'&' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_LAND_ASSIGN;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_LAND;
+                            self.token.data = TokenData::None;
                         }
                     } else {
                         state = Some(State::DefaultToken('&'));
@@ -522,6 +552,7 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_XOR_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else {
                         state = Some(State::DefaultToken('^'))
                     }
@@ -530,13 +561,16 @@ impl<'s> JSParseState<'s> {
                     if *p.offset(1) == b'=' {
                         p = p.offset(2);
                         self.token.val = TOK_OR_ASSIGN;
+                        self.token.data = TokenData::None;
                     } else if *p.offset(1) == b'|' {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_LOR_ASSIGN;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_LOR;
+                            self.token.data = TokenData::None;
                         }
                     } else {
                         state = Some(State::DefaultToken('|'));
@@ -547,15 +581,18 @@ impl<'s> JSParseState<'s> {
                         if *p.offset(2) == b'=' {
                             p = p.offset(3);
                             self.token.val = TOK_DOUBLE_QUESTION_MARK_ASSIGN;
+                            self.token.data = TokenData::None;
                         } else {
                             p = p.offset(2);
                             self.token.val = TOK_DOUBLE_QUESTION_MARK;
+                            self.token.data = TokenData::None;
                         }
                     } else if *p.offset(1) == b'.'
                         && !(*p.offset(2) >= b'0' && *p.offset(2) <= b'9')
                     {
                         p = p.offset(2);
                         self.token.val = TOK_QUESTION_MARK_DOT;
+                        self.token.data = TokenData::None;
                     } else {
                         state = Some(State::DefaultToken('?'));
                     }
@@ -598,17 +635,18 @@ impl<'s> JSParseState<'s> {
                     State::HasIdent(first_char) => unsafe {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
+                            self.token.val = TOK_IDENT;
                             self.token.data = TokenData::Ident {
                                 atom,
                                 has_escape,
                                 is_reserved: false,
                             };
-                            self.token.val = TOK_IDENT;
                             // check if ident is a reserved word token.
                             // if yes convert token value to TOK_XXX
                             update_token_ident(self);
                         } else {
                             self.token.val = TOK_ERROR;
+                            self.token.data = TokenData::None;
                             return Err(-1);
                         }
                     },
@@ -628,11 +666,13 @@ impl<'s> JSParseState<'s> {
                             .is_err()
                         {
                             self.token.val = TOK_ERROR;
+                            self.token.data = TokenData::None;
                             return Err(-1);
                         }
                     }
                     State::Fail => {
                         self.token.val = TOK_ERROR;
+                        self.token.data = TokenData::None;
                         return Err(-1);
                     }
                 }
@@ -895,6 +935,7 @@ pub unsafe fn update_token_ident(s: &mut JSParseState) {
             } else {
                 // The keywords atoms are pre allocated
                 s.token.val = atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
+                s.token.data = TokenData::None;
             }
         }
     }
