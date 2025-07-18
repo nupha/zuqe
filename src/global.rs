@@ -66,11 +66,11 @@ impl JSContext {
         let gobj = self.global_obj();
 
         let mut flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
-        let writable = gobj
+        let configurable = gobj
             .find_shape_property(prop)
             .map(|(_, flags)| flags & JS_PROP_CONFIGURABLE != 0)
             .unwrap_or(true);
-        if writable {
+        if configurable {
             flags |= JS_PROP_ENUMERABLE
                 | JS_PROP_WRITABLE
                 | def_flags

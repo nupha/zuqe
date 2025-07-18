@@ -1054,10 +1054,14 @@ impl Bytecode {
                     OpCode::DEFINE_FUNC => {
                         let atom = JSAtom(PC_FETCH!(u32));
                         let flags = PC_FETCH!(u8);
-                        let op_1 = SP_TAKE!(-1);
-                        SP_GO!(-1);
-                        if ctx.define_global_function(atom, &op_1, flags as _).is_err() {
+                        if ctx
+                            .define_global_function(atom, SP_REF!(-1), flags as _)
+                            .is_err()
+                        {
                             break State::Exception;
+                        } else {
+                            SP_TAKE!(-1);
+                            SP_GO!(-1);
                         }
                     }
                     OpCode::GET_LOC => {

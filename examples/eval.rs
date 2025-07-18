@@ -124,6 +124,9 @@ fn main() {
                 };
             } else {
                 println!(">>> RESULT: {r:?}, {:?}", r.coerce_to_string(&ctx));
+                if let JSValue::Object(o) = &r {
+                    o.dump(ctx.rt());
+                }
 
                 if let Ok(pr) = Promise::try_from(r) {
                     let v = pr.result();
