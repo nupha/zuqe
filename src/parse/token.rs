@@ -157,7 +157,7 @@ impl<'s> JSParseState<'s> {
     }
 
     pub fn next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(&self.ctx.rt(), 0) {
+        if js_check_stack_overflow(self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }

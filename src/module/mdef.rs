@@ -217,22 +217,26 @@ impl ModuleDefInner {
         js_free_rt(rt, self.req_module_entries.cast());
 
         for me in self.export_entries.drain(..) {
-            if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
-                debug_assert!(var_ref.is_some());
-                drop(var_ref);
-            }
+            // if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
+            //     debug_assert!(var_ref.is_some());
+            //     drop(var_ref);
+            // }
 
             JS_FreeAtomRT(rt, me.export_name);
             JS_FreeAtomRT(rt, me.local_name);
         }
 
-        js_free_rt(rt, self.star_export_entries.cast());
-
-        for i in 0..self.import_entries_count {
-            let mi: *mut JSImportEntry = self.import_entries.offset(i as isize);
-            JS_FreeAtomRT(rt, (*mi).import_name);
+        if !self.star_export_entries.is_null() {
+            js_free_rt(rt, self.star_export_entries.cast());
         }
-        js_free_rt(rt, self.import_entries.cast());
+
+        if !self.import_entries.is_null() {
+            for i in 0..self.import_entries_count {
+                let mi: *mut JSImportEntry = self.import_entries.offset(i as isize);
+                JS_FreeAtomRT(rt, (*mi).import_name);
+            }
+            js_free_rt(rt, self.import_entries.cast());
+        }
     }
 }
 
