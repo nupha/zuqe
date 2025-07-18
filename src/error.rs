@@ -50,20 +50,19 @@ pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl JSContext {
     /// Get current exception value
-    #[inline(always)]
-    pub fn exception(&self) -> JSValue {
-        self.rt().cur_exception.clone()
+    pub fn exception(&self) -> &JSValue {
+        &self.rt().cur_exception
     }
 
     /// get current exception value, and reset current_exception to null.
-    #[inline(always)]
-    pub fn take_exception(&self) -> JSValue {
+    #[inline]
+    pub(crate) fn take_exception(&self) -> JSValue {
         self.set_exception(JSValue::NULL)
     }
 
     /// set new obj to current_exception, returns the old exception value.
-    /// Note: returnd value should be freed by caller
-    #[inline]
+    /// Note: returned value should be freed by caller
+    #[inline(always)]
     fn set_exception(&self, obj: JSValue) -> JSValue {
         std::mem::replace(&mut self.rt_mut().cur_exception, obj)
     }
@@ -77,7 +76,6 @@ impl JSContext {
         // if obj.is_undefined_or_null() {
         //     panic!("throw a null or undefined value is not recommended");
         // }
-
         self.set_exception(obj);
     }
 

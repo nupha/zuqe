@@ -112,7 +112,7 @@ fn main() {
             }
 
             if r.is_exception() {
-                let exc = ctx.take_exception();
+                let exc = ctx.exception();
                 debug_assert!(!exc.is_undefined_or_null());
 
                 println!(

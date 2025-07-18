@@ -254,19 +254,15 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), JSValue> {
+fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
     for file in harness_files {
         let src = std::fs::read_to_string(&file).unwrap();
-
-        let r = ctx.eval(
+        ctx.eval(
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
             JS_EVAL_TYPE_GLOBAL,
-        );
-
-        if r.is_exception() {
-            return Err(ctx.take_exception());
-        }
+        )
+        .check_exception()?;
     }
 
     Ok(())
@@ -278,7 +274,7 @@ fn run_test_script(
     filename: &Path,
     eval_flags: u32,
     is_async: bool,
-) -> Result<(), JSValue> {
+) -> Result<(), i32> {
     let mut ret_val = ctx.eval(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
@@ -331,12 +327,8 @@ fn run_test_script(
         }
     }
 
-    if ret_val.is_exception() {
-        let exc = ctx.take_exception();
-        Err(exc)
-    } else {
-        Ok(())
-    }
+    ret_val.check_exception()?;
+    Ok(())
 }
 
 fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Write) {
@@ -406,7 +398,8 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
 
     if !harness_files.is_empty() {
         // eval harness includes
-        if let Err(exc) = run_harness(&ctx, &harness_files) {
+        if run_harness(&ctx, &harness_files).is_err() {
+            let exc = ctx.exception();
             let msg = exc.coerce_to_utf8(&ctx).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&ctx, &exc, msg.as_ref(), outf);
@@ -452,13 +445,17 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
         .into_iter()
         .filter_map(|s| s)
         {
-            if let Err(exc) = run_test_script(
+            if run_test_script(
                 &ctx,
                 content.as_str(),
                 &filename,
                 eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
                 is_async,
-            ) {
+            )
+            .is_err()
+            {
+                let exc = ctx.exception();
+
                 println!("EXCEPTION: {:?}", exc);
                 debug_assert!(!exc.is_undefined_or_null());
                 if let JSValue::Object(o) = &exc {
