@@ -121,21 +121,6 @@ impl JSValue {
         }
     }
 
-    /// check if object value `self` is instance of `type_`.
-    /// equivalent to js: `self instanceof type_`
-    pub(crate) fn ordinary_instance_of(
-        &self,
-        ctx: &JSContext,
-        type_: &JSValue,
-    ) -> Result<bool, i32> {
-        if let Self::Object(p) = self {
-            p.ordinary_instance_of(ctx, type_)
-        } else {
-            ctx.throw_type_error_not_an_object();
-            Err(-1)
-        }
-    }
-
     /// check if value `self` is instance of constructor `ctor`.
     /// equivalent to js: `self instanceof ctor`
     pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {

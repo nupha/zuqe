@@ -2232,7 +2232,7 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
     val: &JSValueConst,
     obj: &JSValueConst,
 ) -> Result<bool, i32> {
-    obj.ordinary_instance_of(ctx, val)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::instance_of() instead")]

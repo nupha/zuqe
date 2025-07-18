@@ -150,11 +150,12 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     unsafe { JS_ConcatString3(ctx, pref, name, suff).check_exception() }
 }
 
-pub fn js_function_hasInstance(ctx: &JSContext, args: CallContext) -> JSResult {
-    Ok(JSValue::Bool(
-        args.this_raw()
-            .ordinary_instance_of(ctx, &args.get_raw(0))?,
-    ))
+pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
+    if let JSValue::Object(o) = cc.arg(0) {
+        o.ordinary_instance_of(ctx, cc.this()).map(JSValue::Bool)
+    } else {
+        Ok(JSValue::Bool(false))
+    }
 }
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
