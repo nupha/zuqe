@@ -1,3 +1,4 @@
+use crate::module::{JSResolveEntry, ModuleDefInner};
 use crate::{
     atom::{
         JS_FreeAtom, JSAtom,
@@ -5,14 +6,12 @@ use crate::{
     },
     context::JSContext,
     error::JS_ThrowSyntaxError,
-    mem::js_free,
     module::{
         JSExportEntry, JSExportTypeEnum, JSResolveState, ModuleDef, add_resolve_entry,
         find_export_entry,
     },
 };
 
-#[derive(Debug)]
 pub enum ModuleResolveExport {
     Found {
         module: ModuleDef,
@@ -25,8 +24,12 @@ pub enum ModuleResolveExport {
 }
 
 impl ModuleResolveExport {
-    /// put exception to current_exception according to status
-    pub fn throw_error(&self, ctx: &JSContext, m: &ModuleDef, export_name: JSAtom) {
+    pub(super) fn throw_error_inner(
+        &self,
+        ctx: &JSContext,
+        m: &ModuleDefInner,
+        export_name: JSAtom,
+    ) {
         match self {
             Self::Found { .. } => {}
             Self::Error => {}
@@ -36,7 +39,7 @@ impl ModuleResolveExport {
                     &format!(
                         "Could not find export '{}' in module '{}'",
                         export_name.to_str(ctx.rt()),
-                        m.0.borrow().module_name.to_str(ctx.rt()),
+                        m.module_name.to_str(ctx.rt()),
                     ),
                 );
             }
@@ -46,7 +49,7 @@ impl ModuleResolveExport {
                     &format!(
                         "circular reference when looking for export '{}' in module '{}'",
                         export_name.to_str(ctx.rt()),
-                        m.0.borrow().module_name.to_str(ctx.rt()),
+                        m.module_name.to_str(ctx.rt()),
                     ),
                 );
             }
@@ -56,11 +59,16 @@ impl ModuleResolveExport {
                     &format!(
                         "export '{}' in module '{}' is ambiguous",
                         export_name.to_str(ctx.rt()),
-                        m.0.borrow().module_name.to_str(ctx.rt()),
+                        m.module_name.to_str(ctx.rt()),
                     ),
                 );
             }
         }
+    }
+
+    /// put exception to current_exception according to status
+    pub fn throw_error(&self, ctx: &JSContext, m: &ModuleDef, export_name: JSAtom) {
+        self.throw_error_inner(ctx, &m.0, export_name);
     }
 }
 
@@ -69,14 +77,18 @@ impl ModuleDef {
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
-        expect: Option<(&ModuleDef, JSAtom)>, // expected (module, local_name)
-        s: &mut JSResolveState,
+        expect: Option<(&ModuleDef, JSAtom)>, // (module, local_name)
+        lst: &mut Vec<JSResolveEntry>,
     ) -> ModuleResolveExport {
-        if s.find(self, export_name).is_some() {
+        if lst
+            .iter()
+            .find(|re| re.module.id() == self.id() && re.name == export_name)
+            .is_some()
+        {
             return ModuleResolveExport::Circular;
         }
 
-        if add_resolve_entry(ctx, s, self, export_name).is_err() {
+        if add_resolve_entry(ctx, lst, self, export_name).is_err() {
             return ModuleResolveExport::Error;
         }
 
@@ -89,15 +101,6 @@ impl ModuleDef {
                     };
                 }
                 JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                    let m1 = (*self
-                        .0
-                        .borrow()
-                        .req_module_entries
-                        .offset(req_module_idx as isize))
-                    .module
-                    .as_ref()
-                    .unwrap();
-
                     return if me.local_name == JS_ATOM__star_ {
                         // export ns from
                         ModuleResolveExport::Found {
@@ -105,23 +108,27 @@ impl ModuleDef {
                             entry: me.clone(),
                         }
                     } else {
-                        m1.resolve_export1(ctx, me.local_name, expect, s)
+                        let m1 = self.0.req_module_entries.borrow()[req_module_idx as usize]
+                            .module
+                            .clone()
+                            .unwrap();
+
+                        m1.resolve_export1(ctx, me.local_name, expect, lst)
                     };
                 }
             }
         } else {
             if export_name != JS_ATOM_default {
                 // not found in direct or indirect exports: try star exports
-                for i in 0..self.0.borrow().star_export_entries_count {
-                    let idx = (*self.0.borrow_mut().star_export_entries.offset(i as isize))
-                        .req_module_idx;
+                for i in 0..self.0.star_export_entries_count {
+                    let idx = (*self.0.star_export_entries.offset(i as isize)).req_module_idx;
 
-                    let m1 = (*self.0.borrow().req_module_entries.add(idx as usize))
+                    let m1 = self.0.req_module_entries.borrow()[idx as usize]
                         .module
                         .clone()
                         .unwrap();
 
-                    match m1.resolve_export1(ctx, export_name, expect, s) {
+                    match m1.resolve_export1(ctx, export_name, expect, lst) {
                         ModuleResolveExport::Found { module, entry } => {
                             if let Some((test_module, test_local_name)) = expect {
                                 if test_module.id() != module.id()
@@ -155,19 +162,11 @@ impl ModuleDef {
         export_name: JSAtom,
         expect: Option<(&ModuleDef, JSAtom)>, // expected (module, local_name)
     ) -> ModuleResolveExport {
-        let mut ss = JSResolveState {
-            array: std::ptr::null_mut(),
-            size: 0,
-            count: 0,
-        };
-        let s = &mut ss;
-        let ret = unsafe { self.resolve_export1(ctx, export_name, expect, s) };
+        let mut lst = Vec::<JSResolveEntry>::with_capacity(4);
+        let ret = unsafe { self.resolve_export1(ctx, export_name, expect, &mut lst) };
 
-        unsafe {
-            for i in 0..s.count {
-                JS_FreeAtom(ctx, (*(*s).array.offset(i as isize)).name);
-            }
-            js_free(ctx, s.array.cast());
+        for ent in lst.drain(..) {
+            JS_FreeAtom(ctx, ent.name);
         }
 
         ret

@@ -393,13 +393,13 @@ impl JSContext {
     unsafe fn intrinsic_eval(&self) {
         self.0.borrow_mut().eval_handle.replace(
             |ctx: &JSContext,
-             this_obj: JSValue,
+             this_obj: &JSValue,
              input: &[u8],
              filename: &str,
              flags: u32,
              scope_idx: i32|
              -> JSValue {
-                ctx.eval_script(this_obj, input, filename, flags, scope_idx)
+                ctx.eval_source(this_obj, input, filename, flags, scope_idx)
             },
         );
 

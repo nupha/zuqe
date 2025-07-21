@@ -1,6 +1,6 @@
 use crate::atom::JSAtom;
 
-#[repr(C)]
+#[derive(Debug)]
 pub struct JSImportEntry {
     pub var_idx: u16, // closure variable index
     pub import_name: JSAtom,

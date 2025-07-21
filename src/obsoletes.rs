@@ -763,7 +763,7 @@ pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
 /// Return a promise or an exception.
 #[deprecated(note = "use ModuleDef::eval() instead")]
 pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
-    (*m).eval(ctx)
+    (*m).eval(ctx).map_or(JSValue::EXCEPTION, |p|p.into())
 }
 
 #[deprecated(note = "use Promise::result() instead")]
@@ -1049,7 +1049,7 @@ pub unsafe fn js_build_module_ns(ctx: &JSContext, m: *mut ModuleDef) -> JSValue 
 
 #[deprecated(note = "use ModuleDef::ns() instead")]
 pub unsafe fn js_get_module_ns(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
-    (*m).ns(ctx).unwrap_or(JSValue::EXCEPTION)
+    (*m).ns(ctx).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// build traceback, set it as property of `error_obj`.

@@ -49,7 +49,7 @@ use crate::{
 impl Bytecode {
     /// run bytecodes.
     /// before running, runtime current stack frame will be set to `sframe`.
-    /// when exit, runtime current stack frame will be restored back to the previous frame.
+    /// when exited, runtime current stack frame will be restored back to the previous frame.
     pub fn run(
         &self,
         caller_ctx: &JSContext, // Context of the calling environment
@@ -140,7 +140,7 @@ impl Bytecode {
                 unsafe { std::ptr::replace::<JSValue>(sp.offset(($idx) as isize), $val) }
             };
         }
-        /// equivelent to SP_PUT!(idx, JSValue::UNDEFINED)
+        /// equivalent to SP_PUT!(idx, JSValue::UNDEFINED)
         macro_rules! SP_TAKE {
             ($idx:expr) => {
                 SP_PUT!($idx, JSValue::UNDEFINED)
@@ -416,7 +416,10 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::ImportMeta => {
-                                SP_PUT!(0, js_import_meta(ctx));
+                                SP_PUT!(
+                                    0,
+                                    js_import_meta(ctx).map_or(JSValue::EXCEPTION, JSValue::Object)
+                                );
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {
                                     break State::Exception;
@@ -1105,7 +1108,7 @@ impl Bytecode {
 
                     OpCode::GET_VAR_REF => {
                         // get value from var_ref, duplicate and push it on stack
-                        // Stack operation: [^] -> [value, ^] where ^ is stack top
+                        // operation: [^] -> [value, ^] where ^ is stack top
                         let idx = PC_FETCH!(u16);
                         SP_PUT!(0, closure_var_refs[idx as usize].value().clone());
                         SP_GO!(1);

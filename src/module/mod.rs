@@ -1,6 +1,7 @@
 mod exec;
 mod export;
 mod import;
+mod link;
 mod mdef;
 mod reqres;
 mod resolve;

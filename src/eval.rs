@@ -3,7 +3,8 @@ use std::{ops::DerefMut, ptr::NonNull};
 use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
-    function::{JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
+    eval,
+    function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     object::JSObject,
     parse::{JS_DetectModule, JSParseState},
@@ -16,7 +17,7 @@ use crate::{
 /// `this_obj` must not be consumed.
 pub type EvalFunc = fn(
     ctx: &JSContext,
-    this_obj: JSValue,
+    this_obj: &JSValue,
     input: &[u8],
     filename: &str,
     flags: u32,
@@ -37,23 +38,32 @@ pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
 pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
+pub(crate) enum Compiled {
+    /// compiled for global or indirect mode.
+    GlobalOrIndirect(Bytecode),
+    /// compiled in direct mode.
+    Direct(Bytecode),
+    /// compiled as module.
+    Module(ModuleDef),
+}
+
 impl JSContext {
-    /// parse, compile and eval script source.
-    pub(crate) fn eval_script(
+    /// compile script source according to requested mode.
+    /// compile only, won't run. internal use.
+    pub(crate) fn compile(
         &self,
-        this_obj: JSValue,
         source: &[u8],
         filename: &str,
         flags: u32,
         scope_idx: i32,
-    ) -> JSValue {
+    ) -> Result<Compiled, i32> {
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
         let mut sframe: Option<&mut StackFrame> = None;
         let mut cur_frame_func: Option<JSObject> = None;
 
         // get bytecode, module of current stack frame
-        let (cur_frame_bc, md, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
+        let (cur_frame_bc, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
             let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
             debug_assert!(!sf_ptr.is_null());
             debug_assert!(unsafe { (*sf_ptr).cur_running.is_object() });
@@ -93,11 +103,7 @@ impl JSContext {
             }
 
             if eval_type == JS_EVAL_TYPE_MODULE {
-                let module_name = if let Ok(a) = self.create_atom(filename) {
-                    a
-                } else {
-                    return JSValue::EXCEPTION;
-                };
+                let module_name = self.create_atom(filename)?;
                 js_mode |= JS_MODE_STRICT as u32;
                 (None, Some(ModuleDef::new(self, module_name)), js_mode)
             } else {
@@ -106,139 +112,329 @@ impl JSContext {
         };
 
         // create root function def.
-        let mut root_fd = if let Ok(mut fd) =
-            JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)
-        {
-            fd.eval_type = eval_type;
-            fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
-            fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
-            fd.func_name = JS_ATOM__eval_.dup(self.rt());
-            fd.js_mode = js_mode as u8;
+        let mut fd = JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)?;
 
-            if let Some(bc) = &cur_frame_bc {
-                debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
-                debug_assert!(md.is_none(), "must not have module def");
+        fd.eval_type = eval_type;
+        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+        fd.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
+        fd.func_name = JS_ATOM__eval_.dup(self.rt());
+        fd.js_mode = js_mode as u8;
 
+        if let Some(bc) = &cur_frame_bc {
+            debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
+            debug_assert!(module.is_none(), "must not be module");
+            {
                 let b = bc.0.borrow();
-
                 fd.new_target_allowed = b.new_target_allowed;
                 fd.super_call_allowed = b.super_call_allowed;
                 fd.super_allowed = b.super_allowed;
                 fd.arguments_allowed = b.arguments_allowed;
-            } else {
-                debug_assert_ne!(
-                    eval_type, JS_EVAL_TYPE_DIRECT,
-                    "must not be direct eval type"
-                );
-                fd.new_target_allowed = false;
-                fd.super_call_allowed = false;
-                fd.super_allowed = false;
-                fd.arguments_allowed = true;
             }
 
-            if let Some(b) = cur_frame_bc {
-                if unsafe { add_closure_variables(self, &mut fd, &b, scope_idx).is_err() } {
-                    return JSValue::EXCEPTION;
-                }
+            unsafe {
+                add_closure_variables(self, &mut fd, &bc, scope_idx)?;
             }
-
-            fd.module = md.clone();
-
-            if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
-                fd.in_function_body = true;
-                fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
-            }
-
-            // add fd body scope.
-            // initially there are scope level 0 {-1, -1},
-            // so body scope will be level 1.
-            fd.body_scope = if let Ok(scope) = fd.push_scope(0) {
-                scope as i32
-            } else {
-                return JSValue::EXCEPTION;
-            };
-            debug_assert_eq!(fd.body_scope, 1);
-
-            fd
         } else {
-            return JSValue::EXCEPTION;
-        };
-
-        {
-            // create parse state with root fd
-            let mut ps = JSParseState::new(
-                self,
-                unsafe { NonNull::new_unchecked(root_fd.as_mut()) },
-                source,
-                filename,
+            debug_assert_ne!(
+                eval_type, JS_EVAL_TYPE_DIRECT,
+                "must not be direct eval type"
             );
-            debug_assert_eq!(
-                ps.cur_func_mut() as *mut JSFunctionDef,
-                root_fd.deref_mut() as *mut JSFunctionDef
-            );
-            ps.is_module = md.is_some();
-            ps.allow_html_comments = md.is_none();
-
-            // begin parsing
-            ps.skip_shebang();
-            if ps.parse_program().is_err() {
-                return JSValue::EXCEPTION;
-            }
+            fd.new_target_allowed = false;
+            fd.super_call_allowed = false;
+            fd.super_allowed = false;
+            fd.arguments_allowed = true;
         }
 
-        let has_await = root_fd.has_await;
+        fd.module = module.clone();
+        if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
+            fd.in_function_body = true;
+            fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+        }
+
+        // add fd body scope.
+        // initially there are scope level 0 {-1, -1},
+        // so body scope will be level 1.
+        fd.body_scope = fd.push_scope(0)? as i32;
+        debug_assert_eq!(fd.body_scope, 1);
+
+        // create parse state with root fd, parse source.
+        let mut ps = JSParseState::new(
+            self,
+            unsafe { NonNull::new_unchecked(fd.as_mut()) },
+            source,
+            filename,
+        );
+        debug_assert_eq!(
+            ps.cur_func_mut() as *mut JSFunctionDef,
+            fd.deref_mut() as *mut JSFunctionDef
+        );
+        ps.is_module = module.is_some();
+        ps.allow_html_comments = module.is_none();
+
+        ps.skip_shebang();
+        ps.parse_program()?;
+
+        let has_await = fd.has_await;
 
         // compile function def to bytecode.
-        let bc_compiled = if let Ok(c) = unsafe { root_fd.compile(self) } {
-            c
+        let bc_compiled = unsafe { fd.compile(self)? };
+
+        // XXX: Could add a flag to avoid resolution if necessary
+        if let Some(md) = module {
+            // resolve module
+            md.0.bytecode.set(JSValue::Bytecode(bc_compiled.clone()));
+            md.0.has_tla.set(has_await);
+            self.resolve_module(&md)?;
+            Ok(Compiled::Module(md))
         } else {
-            return JSValue::EXCEPTION;
-        };
-
-        // Could add a flag to avoid resolution if necessary
-        if let Some(m) = md.as_ref() {
-            {
-                let mut b = m.0.borrow_mut();
-                b.bytecode = JSValue::Bytecode(bc_compiled.clone());
-                b.has_tla = has_await;
-            }
-
-            if self.resolve_module(&m).is_err() {
-                return JSValue::EXCEPTION;
-            }
-        }
-
-        if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            // return bytecode
-            return JSValue::Bytecode(bc_compiled);
-        }
-
-        // evaluate
-        if let Some(m) = md {
-            // eval module
-            debug_assert_eq!(eval_type, JS_EVAL_TYPE_MODULE);
-            m.eval(self)
-        } else {
-            // eval bytecode
-            if let Some(f) = cur_frame_func.as_ref() {
+            if let Some(f) = cur_frame_func {
                 debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
-                debug_assert!(sframe.is_some());
-                let payload = f.0.payload.borrow();
-                let var_refs = payload.func().unwrap().var_refs.as_slice();
-                bc_compiled.eval(self, &this_obj, var_refs, sframe)
+                Ok(Compiled::Direct(bc_compiled))
             } else {
-                debug_assert!(matches!(
-                    eval_type,
-                    JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_INDIRECT
-                ));
-                debug_assert!(sframe.is_none());
-                bc_compiled.eval(self, &this_obj, &[], None)
+                Ok(Compiled::GlobalOrIndirect(bc_compiled))
             }
-            .unwrap_or(JSValue::EXCEPTION)
         }
     }
 
-    /// eval script with specified `this` binding.
+    /// compile source, then eval it. allowed eval types:
+    /// * MODULE
+    /// * GLOBAL
+    /// * DIRECT
+    /// * INDIRECT
+    pub(crate) fn eval_source(
+        &self,
+        this_obj: &JSValue,
+        source: &[u8],
+        filename: &str,
+        flags: u32,
+        scope_idx: i32,
+    ) -> JSValue {
+        if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
+            panic!(
+                "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
+            );
+        }
+
+        match self.compile(source, filename, flags, scope_idx) {
+            Ok(Compiled::GlobalOrIndirect(bc)) => bc
+                .eval(self, this_obj, &[], None)
+                .unwrap_or(JSValue::EXCEPTION),
+            Ok(Compiled::Direct(bc)) => {
+                // stack frame
+                let sframe = unsafe {
+                    let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
+                    debug_assert!(!sf_ptr.is_null());
+                    debug_assert!(unsafe { (*sf_ptr).cur_running.is_object() });
+                    sf_ptr.as_mut().unwrap()
+                };
+                // current function of stack frame
+                let frame_func = unsafe { sframe.cur_running.object_unchecked().clone() };
+                let payload = frame_func.0.payload.borrow();
+                let var_refs = payload.func().unwrap().var_refs.as_slice();
+
+                bc.eval(self, this_obj, var_refs, Some(sframe))
+                    .unwrap_or(JSValue::EXCEPTION)
+            }
+            Ok(Compiled::Module(m)) => m.eval(self).map_or(JSValue::EXCEPTION, |p| p.into()),
+            Err(_) => JSValue::EXCEPTION,
+        }
+    }
+
+    //
+    // /// parse, compile and eval script source.
+    // pub(crate) fn eval_script(
+    //     &self,
+    //     this_obj: JSValue,
+    //     source: &[u8],
+    //     filename: &str,
+    //     flags: u32,
+    //     scope_idx: i32,
+    // ) -> JSValue {
+    //     let eval_type = flags & JS_EVAL_TYPE_MASK;
+    //
+    //     let mut sframe: Option<&mut StackFrame> = None;
+    //     let mut cur_frame_func: Option<JSObject> = None;
+    //
+    //     // get bytecode, module of current stack frame
+    //     let (cur_frame_bc, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
+    //         let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
+    //         debug_assert!(!sf_ptr.is_null());
+    //         debug_assert!(unsafe { (*sf_ptr).cur_running.is_object() });
+    //
+    //         sframe = unsafe { sf_ptr.as_mut() };
+    //         cur_frame_func = unsafe {
+    //             Some(
+    //                 sframe
+    //                     .as_ref()
+    //                     .unwrap()
+    //                     .cur_running
+    //                     .object_unchecked()
+    //                     .clone(),
+    //             )
+    //         };
+    //
+    //         let bc = cur_frame_func
+    //             .as_ref()
+    //             .unwrap()
+    //             .0
+    //             .payload
+    //             .borrow()
+    //             .func()
+    //             .unwrap()
+    //             .bytecode
+    //             .clone();
+    //
+    //         let mode = bc.as_ref().unwrap().0.borrow().js_mode as u32;
+    //         (bc, None, mode)
+    //     } else {
+    //         let mut js_mode = 0;
+    //         if flags & JS_EVAL_FLAG_STRICT != 0 {
+    //             js_mode |= JS_MODE_STRICT as u32;
+    //         }
+    //         if flags & JS_EVAL_FLAG_STRIP != 0 {
+    //             js_mode |= JS_MODE_STRIP as u32;
+    //         }
+    //
+    //         if eval_type == JS_EVAL_TYPE_MODULE {
+    //             let module_name = if let Ok(a) = self.create_atom(filename) {
+    //                 a
+    //             } else {
+    //                 return JSValue::EXCEPTION;
+    //             };
+    //             js_mode |= JS_MODE_STRICT as u32;
+    //             (None, Some(ModuleDef::new(self, module_name)), js_mode)
+    //         } else {
+    //             (None, None, js_mode)
+    //         }
+    //     };
+    //
+    //     // create root function def.
+    //     let mut root_fd = if let Ok(mut fd) =
+    //         JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)
+    //     {
+    //         fd.eval_type = eval_type;
+    //         fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+    //         fd.backtrace_barrier = (flags & JS_EVAL_FLAG_BACKTRACE_BARRIER) != 0;
+    //         fd.func_name = JS_ATOM__eval_.dup(self.rt());
+    //         fd.js_mode = js_mode as u8;
+    //
+    //         if let Some(bc) = &cur_frame_bc {
+    //             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
+    //             debug_assert!(module.is_none(), "must not have module def");
+    //
+    //             let b = bc.0.borrow();
+    //
+    //             fd.new_target_allowed = b.new_target_allowed;
+    //             fd.super_call_allowed = b.super_call_allowed;
+    //             fd.super_allowed = b.super_allowed;
+    //             fd.arguments_allowed = b.arguments_allowed;
+    //         } else {
+    //             debug_assert_ne!(
+    //                 eval_type, JS_EVAL_TYPE_DIRECT,
+    //                 "must not be direct eval type"
+    //             );
+    //             fd.new_target_allowed = false;
+    //             fd.super_call_allowed = false;
+    //             fd.super_allowed = false;
+    //             fd.arguments_allowed = true;
+    //         }
+    //
+    //         if let Some(b) = cur_frame_bc {
+    //             if unsafe { add_closure_variables(self, &mut fd, &b, scope_idx).is_err() } {
+    //                 return JSValue::EXCEPTION;
+    //             }
+    //         }
+    //
+    //         fd.module = module.clone();
+    //         if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
+    //             fd.in_function_body = true;
+    //             fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+    //         }
+    //
+    //         // add fd body scope.
+    //         // initially there are scope level 0 {-1, -1},
+    //         // so body scope will be level 1.
+    //         fd.body_scope = if let Ok(scope) = fd.push_scope(0) {
+    //             scope as i32
+    //         } else {
+    //             return JSValue::EXCEPTION;
+    //         };
+    //         debug_assert_eq!(fd.body_scope, 1);
+    //
+    //         fd
+    //     } else {
+    //         return JSValue::EXCEPTION;
+    //     };
+    //
+    //     // create parse state with root fd, parse source.
+    //     let mut ps = JSParseState::new(
+    //         self,
+    //         unsafe { NonNull::new_unchecked(root_fd.as_mut()) },
+    //         source,
+    //         filename,
+    //     );
+    //     debug_assert_eq!(
+    //         ps.cur_func_mut() as *mut JSFunctionDef,
+    //         root_fd.deref_mut() as *mut JSFunctionDef
+    //     );
+    //     ps.is_module = module.is_some();
+    //     ps.allow_html_comments = module.is_none();
+    //
+    //     // begin parsing
+    //     ps.skip_shebang();
+    //     if ps.parse_program().is_err() {
+    //         return JSValue::EXCEPTION;
+    //     }
+    //
+    //     let has_await = root_fd.has_await;
+    //
+    //     // compile function def to bytecode.
+    //     let bc_compiled = if let Ok(c) = unsafe { root_fd.compile(self) } {
+    //         c
+    //     } else {
+    //         return JSValue::EXCEPTION;
+    //     };
+    //
+    //     // Could add a flag to avoid resolution if necessary
+    //     if let Some(m) = module.as_ref() {
+    //         m.0.bytecode.set(JSValue::Bytecode(bc_compiled.clone()));
+    //         m.0.has_tla.set(has_await);
+    //         if self.resolve_module(&m).is_err() {
+    //             return JSValue::EXCEPTION;
+    //         }
+    //     }
+    //
+    //     if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
+    //         // return bytecode without run it.
+    //         return JSValue::Bytecode(bc_compiled);
+    //     }
+    //
+    //     // evaluate
+    //     if let Some(m) = module {
+    //         // eval module
+    //         debug_assert_eq!(eval_type, JS_EVAL_TYPE_MODULE);
+    //         m.eval(self)
+    //     } else {
+    //         // eval bytecode
+    //         if let Some(f) = cur_frame_func.as_ref() {
+    //             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
+    //             debug_assert!(sframe.is_some());
+    //             let payload = f.0.payload.borrow();
+    //             let var_refs = payload.func().unwrap().var_refs.as_slice();
+    //             bc_compiled.eval(self, &this_obj, var_refs, sframe)
+    //         } else {
+    //             debug_assert!(matches!(
+    //                 eval_type,
+    //                 JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_INDIRECT
+    //             ));
+    //             debug_assert!(sframe.is_none());
+    //             bc_compiled.eval(self, &this_obj, &[], None)
+    //         }
+    //         .unwrap_or(JSValue::EXCEPTION)
+    //     }
+    // }
+
+    /// eval source in global mode, with specified `this` binding.
     #[inline(always)]
     pub fn eval_this(
         &self,
@@ -247,11 +443,8 @@ impl JSContext {
         filename: &str,
         flags: u32,
     ) -> JSValue {
-        debug_assert!(matches!(
-            flags & JS_EVAL_TYPE_MASK,
-            JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE
-        ));
-        self.eval_script(this_obj, source, filename, flags, -1)
+        debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
+        self.eval_source(&this_obj, source, filename, flags, -1)
     }
 
     /// eval script with global as `this` binding.
@@ -261,36 +454,16 @@ impl JSContext {
         self.eval_this(global, source, filename, eval_flags)
     }
 
-    /// eval source script with auto-detecting module or global mode. returns EXCEPTION when error.
-    pub fn eval_auto_detect<B: AsRef<[u8]>>(&self, source: B, url: &str) -> JSValue {
-        let source = source.as_ref();
-
-        let eval_flags = if url.ends_with(".mjs") {
-            JS_EVAL_TYPE_MODULE
-        } else if unsafe { JS_DetectModule(source) } {
-            JS_EVAL_TYPE_MODULE
+    /// auto-detect type of source. if source is module, eval as module, otherwise eval as global.
+    /// - when eval as module (`url` ends with **.mjs** or `source` has top-level await), returns module value;
+    /// - when eval as global, returns normal eval result value.
+    pub fn eval_auto(&self, source: &[u8], url: &str) -> JSValue {
+        let is_module = url.ends_with(".mjs") || unsafe { JS_DetectModule(source) };
+        if is_module {
+            self.eval_module_source(source, url, false)
+                .map_or(JSValue::EXCEPTION, |m| m.into())
         } else {
-            JS_EVAL_TYPE_GLOBAL
-        };
-
-        if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
-            // for the modules, we compile then run to be able to set import.meta
-            let module_func = self.eval(source, url, eval_flags | JS_EVAL_FLAG_COMPILE_ONLY);
-            if !module_func.is_exception() {
-                if let JSValue::Module(md) = module_func {
-                    if md.0.borrow_mut().set_import_meta(self, url, true).is_err() {
-                        JSValue::EXCEPTION
-                    } else {
-                        md.eval(self)
-                    }
-                } else {
-                    unreachable!()
-                }
-            } else {
-                JSValue::EXCEPTION
-            }
-        } else {
-            self.eval(source, url, eval_flags)
+            self.eval(source, url, JS_EVAL_TYPE_GLOBAL)
         }
     }
 }
@@ -313,7 +486,7 @@ impl JSValue {
             self.clone()
         } else {
             match self.coerce_to_utf8(ctx) {
-                Ok(str) => ctx.eval_script(this_obj, str.as_bytes(), "<input>", flags, scope_idx),
+                Ok(str) => ctx.eval_source(&this_obj, str.as_bytes(), "<input>", flags, scope_idx),
                 Err(_) => JSValue::EXCEPTION,
             }
         }

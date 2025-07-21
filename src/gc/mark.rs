@@ -146,18 +146,22 @@ impl ModuleDef {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
 
-            {
-                let m = self.0.borrow();
-                m.module_ns.gc_mark();
-                m.bytecode.gc_mark();
-                m.eval_exception.gc_mark();
-                m.meta_obj.gc_mark();
-                m.promise.gc_mark();
-                m.resolving_funcs[0].gc_mark();
-                m.resolving_funcs[1].gc_mark();
+            unsafe {
+                if let Some(o) = (*self.0.module_ns.as_ptr()).as_ref() {
+                    o.gc_mark();
+                }
+
+                (*self.0.bytecode.as_ptr()).gc_mark();
+                (*self.0.eval_exception.as_ptr()).gc_mark();
+                if let Some(o) = (*self.0.meta_obj.as_ptr()).as_ref() {
+                    o.gc_mark();
+                }
+                (*self.0.promise.as_ptr()).gc_mark();
+                (*self.0.resolving_funcs.as_ptr())[0].gc_mark();
+                (*self.0.resolving_funcs.as_ptr())[1].gc_mark();
             }
 
-            for me in self.0.borrow_mut().export_entries.iter_mut() {
+            for me in self.0.export_entries.borrow().iter() {
                 if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
                     var_ref: Some(vr), ..
                 } = &me.export_type
@@ -169,20 +173,19 @@ impl ModuleDef {
     }
 
     pub fn gc_sweep(&self) {
-        let mut m = self.0.borrow_mut();
+        self.0.module_ns.take();
+        self.0.bytecode.set(JSValue::UNDEFINED);
+        self.0.eval_exception.set(JSValue::UNDEFINED);
+        self.0.meta_obj.take();
+        self.0.promise.set(JSValue::UNDEFINED);
+        self.0
+            .resolving_funcs
+            .set([JSValue::UNDEFINED, JSValue::UNDEFINED]);
 
-        m.module_ns = JSValue::UNDEFINED;
-        m.bytecode = JSValue::UNDEFINED;
-        m.eval_exception = JSValue::UNDEFINED;
-        m.meta_obj = JSValue::UNDEFINED;
-        m.promise = JSValue::UNDEFINED;
-        m.resolving_funcs[0] = JSValue::UNDEFINED;
-        m.resolving_funcs[1] = JSValue::UNDEFINED;
-
-        for me in m.export_entries.iter_mut() {
+        for me in self.0.export_entries.borrow().iter() {
             if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
                 var_ref: Some(vr), ..
-            } = &mut me.export_type
+            } = &me.export_type
             {
                 vr.gc_sweep();
             }

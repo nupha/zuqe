@@ -4,7 +4,6 @@ use crate::{
     context::JSContext,
     error::JS_ThrowSyntaxError,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    mem::js_resize_array,
     module::{
         JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_req_module_entry,
         find_export_entry,
@@ -64,7 +63,7 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        let first_import = m.0.borrow().import_entries_count;
+        let first_import = m.0.import_entries.borrow().len();
         let module_name: JSAtom;
 
         if self.token.val == TOK_STRING {
@@ -196,10 +195,9 @@ impl<'s> JSParseState<'s> {
         if idx < 0 {
             return Err(-1);
         }
-        for i in first_import..m.0.borrow().import_entries_count {
-            unsafe {
-                (*m.0.borrow_mut().import_entries.offset(i as isize)).req_module_idx = idx;
-            }
+
+        for imp in &mut m.0.import_entries.borrow_mut()[first_import..] {
+            imp.req_module_idx = idx;
         }
 
         self.parse_expect_semi()
@@ -309,7 +307,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
             }
 
             // Process named exports
-            let first_export = m.0.borrow().export_entries.len();
+            let first_export = m.0.export_entries.borrow().len();
             for (local_name, export_name) in exports {
                 match add_export_entry(
                     s.as_mut().unwrap(),
@@ -360,7 +358,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
                     return -1;
                 }
 
-                for me in &mut m.0.borrow_mut().export_entries[first_export..] {
+                for me in &mut m.0.export_entries.borrow_mut()[first_export..] {
                     me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx);
                 }
             }
@@ -490,22 +488,25 @@ unsafe fn add_export_entry2(
         return Err(-1);
     }
 
-    m.with_mut(|m| {
-        if m.export_entries.len() == m.export_entries.capacity() {
-            if m.export_entries.try_reserve_exact(4).is_err() {
-                ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+    if m.0.export_entries.borrow().len() == m.0.export_entries.borrow().capacity() {
+        if m.0
+            .export_entries
+            .borrow_mut()
+            .try_reserve_exact(4)
+            .is_err()
+        {
+            ctx.throw_out_of_memory();
+            return Err(-1);
         }
-        Ok(())
-    })?;
+    }
 
-    let exp = Box::new(JSExportEntry {
-        export_type,
-        local_name: local_name.dup(&ctx.rt()),
-        export_name: export_name.dup(&ctx.rt()),
-    });
-    m.0.borrow_mut().export_entries.push(exp);
+    m.0.export_entries
+        .borrow_mut()
+        .push(Box::new(JSExportEntry {
+            export_type,
+            local_name: local_name.dup(&ctx.rt()),
+            export_name: export_name.dup(&ctx.rt()),
+        }));
 
     Ok(())
 }
@@ -549,7 +550,7 @@ pub unsafe fn add_import(
         &(*s).ctx,
         is_local,
         false,
-        m.0.borrow().import_entries_count,
+        m.0.import_entries.borrow().len() as _,
         local_name,
         true,
         true,
@@ -560,26 +561,17 @@ pub unsafe fn add_import(
         return -1;
     };
 
-    {
-        let mut md = m.0.borrow_mut();
-
-        if js_resize_array(
-            &(*s).ctx,
-            std::ptr::addr_of_mut!(md.import_entries).cast(),
-            std::mem::size_of::<JSImportEntry>() as _,
-            std::ptr::addr_of_mut!(m.0.borrow_mut().import_entries_size),
-            md.import_entries_count as i32 + 1,
-        ) != 0
-        {
+    if m.0.import_entries.borrow().len() == m.0.import_entries.borrow().capacity() {
+        if m.0.import_entries.borrow_mut().try_reserve(2).is_err() {
+            (*s).ctx.throw_out_of_memory();
             return -1;
         }
-
-        let mi = md.import_entries.offset(md.import_entries_count as isize);
-        md.import_entries_count += 1;
-
-        (*mi).import_name = import_name.dup(&(*s).ctx.rt());
-        (*mi).var_idx = var_idx;
     }
+    m.0.import_entries.borrow_mut().push(JSImportEntry {
+        var_idx,
+        import_name: import_name.dup(&(*s).ctx.rt()),
+        req_module_idx: 0,
+    });
 
     0
 }

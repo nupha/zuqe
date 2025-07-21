@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, ops::Deref};
 
+use crate::object::JSObject;
 use crate::{
     atom::{
         JSAtom,
@@ -92,7 +93,7 @@ impl ModuleDef {
         s.modules.try_reserve(1).map_err(|_| -1)?;
         s.modules.push(self.clone());
 
-        for me in self.0.borrow().export_entries.iter() {
+        for me in self.0.export_entries.borrow().iter() {
             if from_star && me.export_name == JS_ATOM_default {
                 continue;
             }
@@ -133,24 +134,24 @@ impl ModuleDef {
             }
         }
 
-        for i in 0..self.0.borrow().star_export_entries_count {
-            let idx = (*self.0.borrow().star_export_entries.add(i as usize)).req_module_idx;
-            let m1 = (*self.0.borrow().req_module_entries.add(idx as usize))
+        for i in 0..self.0.star_export_entries_count {
+            let idx = (*self.0.star_export_entries.add(i as usize)).req_module_idx;
+            self.0.req_module_entries.borrow()[idx as usize]
                 .module
                 .as_ref()
-                .unwrap();
-            m1.get_exported_names(ctx, s, true)?;
+                .unwrap()
+                .get_exported_names(ctx, s, true)?;
         }
 
         Ok(())
     }
 
     /// build module ns object
-    unsafe fn build_ns(&self, ctx: &JSContext) -> JSResult {
+    unsafe fn build_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+        let obj = ctx.create_object(ObjectDetail::MODULE_NS).map_err(|_| -1)?;
+
         let mut s_s = GetExportNamesState::default();
         let s = &mut s_s;
-
-        let obj = ctx.create_object(ObjectDetail::MODULE_NS).map_err(|_| -1)?;
 
         let ret = self.get_exported_names(ctx, s, false);
         s.modules.clear();
@@ -177,14 +178,10 @@ impl ModuleDef {
                     JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                         if entry.local_name == JS_ATOM__star_ {
                             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS(
-                                (*module
-                                    .0
-                                    .borrow()
-                                    .req_module_entries
-                                    .add(req_module_idx as usize))
-                                .module
-                                .clone()
-                                .unwrap(),
+                                module.0.req_module_entries.borrow()[req_module_idx as usize]
+                                    .module
+                                    .clone()
+                                    .unwrap(),
                             );
                         }
                     }
@@ -196,8 +193,7 @@ impl ModuleDef {
                             if let Some(vr) = var_ref {
                                 vr
                             } else {
-                                let minner = module.0.borrow();
-                                let p1 = minner.bytecode.object_unchecked();
+                                let p1 = (*module.0.bytecode.as_ptr()).object_unchecked();
                                 p1.0.payload.borrow().func().unwrap().var_refs[var_idx as usize]
                                     .clone()
                             },
@@ -291,13 +287,14 @@ impl ModuleDef {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&self, ctx: &JSContext) -> JSResult {
-        let mut ns = self.0.borrow().module_ns.clone();
-        if ns.is_undefined() {
-            ns = unsafe { self.build_ns(ctx)? };
-            self.0.borrow_mut().module_ns = ns.clone();
+    pub fn ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+        if let Some(ns) = unsafe { (*self.0.module_ns.as_ptr()).clone() } {
+            Ok(ns)
+        } else {
+            let ns = unsafe { self.build_ns(ctx)? };
+            self.0.module_ns.replace(Some(ns.clone()));
+            Ok(ns)
         }
-        Ok(ns)
     }
 }
 
@@ -313,8 +310,8 @@ pub unsafe fn find_exported_name(s: *mut GetExportNamesState, name: JSAtom) -> O
 }
 
 pub unsafe fn find_export_entry(m: &ModuleDef, export_name: JSAtom) -> Option<JSExportEntry> {
-    m.0.borrow()
-        .export_entries
+    m.0.export_entries
+        .borrow()
         .iter()
         .find(|me| me.export_name == export_name)
         .map(|v| *v.clone())

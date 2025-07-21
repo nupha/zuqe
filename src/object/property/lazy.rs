@@ -19,7 +19,7 @@ use super::JSProperty;
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum LazyInit {
-    /// Build prototype and set as construstor for target object
+    /// Build prototype and set as constructor for target object
     Prototype,
     /// Build module namespace object
     ModuleNS(ModuleDef),
@@ -45,7 +45,7 @@ impl LazyInit {
                 Ok(obj.into())
             }
 
-            Self::ModuleNS(md) => md.ns(ctx),
+            Self::ModuleNS(md) => md.ns(ctx).map(JSValue::Object),
 
             Self::Prop(field) => {
                 let field = unsafe { field.as_ref() };

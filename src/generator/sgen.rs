@@ -101,8 +101,8 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // eval to make function
     let func_obj = ctx
-        .eval_script(
-            JSValue::Object(ctx.global_obj()),
+        .eval_source(
+            &JSValue::Object(ctx.global_obj()),
             source.as_bytes(),
             "<input>",
             JS_EVAL_TYPE_INDIRECT,
