@@ -140,7 +140,7 @@ impl<'s> JSParseState<'s> {
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub const fn cur_func_mut(&mut self) -> &mut JSFunctionDef {
+    pub const fn cur_func_mut(&self) -> &mut JSFunctionDef {
         unsafe { self.cur_func_ptr.as_mut().unwrap() }
     }
 

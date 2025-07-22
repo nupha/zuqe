@@ -15,7 +15,6 @@ use crate::{
 };
 
 use super::{
-    esm::add_export_entry,
     function::JSParseFunctionEnum,
     regexp::js_parse_regexp,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
@@ -309,10 +308,8 @@ impl JSParseState<'_> {
                 }
 
                 if export_flag {
-                    let md = self.cur_func().module.clone().unwrap();
-                    add_export_entry(
-                        self,
-                        &md,
+                    self.add_module_export(
+                        None,
                         name,
                         name,
                         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {

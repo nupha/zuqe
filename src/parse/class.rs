@@ -19,9 +19,8 @@ use crate::{
         PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
     },
     parse::{
-        esm::add_export_entry,
         obj::set_object_name_computed,
-        token::{CHAR_SQUARE_L, JSToken, TokenData},
+        token::{CHAR_SQUARE_L, JSToken},
     },
     utils::write_to_ptr,
 };
@@ -786,10 +785,8 @@ impl<'s> JSParseState<'s> {
         }
 
         if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
-            let md = self.cur_func().module.clone().unwrap();
-            add_export_entry(
-                self,
-                &md,
+            self.add_module_export(
+                None,
                 class_var_name,
                 if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
                     class_var_name

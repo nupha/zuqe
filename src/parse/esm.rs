@@ -1,9 +1,7 @@
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*},
     bytecode::OpCodeTemp,
-    context::JSContext,
     defer,
-    error::JS_ThrowSyntaxError,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry},
 };
@@ -59,11 +57,11 @@ impl<'s> JSParseState<'s> {
 
     /// parse import statement
     pub fn parse_import(&mut self) -> Result<(), i32> {
-        let m = self.cur_func().module.clone().unwrap();
+        let md = self.cur_func().module.clone().unwrap();
 
         self.next_token()?;
 
-        let first_import = m.0.import_entries.borrow().len();
+        let first_import = md.0.import_entries.borrow().len();
         let module_name: JSAtom;
 
         if self.token.val == TOK_STRING {
@@ -96,9 +94,7 @@ impl<'s> JSParseState<'s> {
                         .into_rc(&self.ctx.rt());
 
                     self.next_token()?;
-                    if unsafe { add_import(self, &m, *local_name, JS_ATOM_default) != 0 } {
-                        return Err(-1);
-                    }
+                    self.add_module_import(&md, *local_name, JS_ATOM_default)?;
 
                     if self.token.val != ',' as i32 {
                         break 'outer;
@@ -132,9 +128,7 @@ impl<'s> JSParseState<'s> {
                         .into_rc(&self.ctx.rt());
 
                     self.next_token()?;
-                    if unsafe { add_import(self, &m, *local_name, JS_ATOM__star_) != 0 } {
-                        return Err(-1);
-                    }
+                    self.add_module_import(&md, *local_name, JS_ATOM__star_)?;
                 } else if self.token.val == '{' as i32 {
                     self.next_token()?;
 
@@ -170,9 +164,7 @@ impl<'s> JSParseState<'s> {
                         }
                         .into_rc(&self.ctx.rt());
 
-                        if unsafe { add_import(self, &m, *local_name, *import_name) != 0 } {
-                            return Err(-1);
-                        }
+                        self.add_module_import(&md, *local_name, *import_name)?;
 
                         if self.token.val != b',' as i32 {
                             break;
@@ -190,11 +182,11 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = m.add_dependency(&self.ctx, module_name);
+        let idx = md.add_dependency(&self.ctx, module_name);
         JS_FreeAtom(&self.ctx, module_name);
         let idx = idx?;
 
-        for imp in &mut m.0.import_entries.borrow_mut()[first_import..] {
+        for imp in &mut md.0.import_entries.borrow_mut()[first_import..] {
             imp.req_module_idx = idx as _;
         }
 
@@ -262,9 +254,8 @@ impl<'s> JSParseState<'s> {
                         *export_name = local_name.dup(self.ctx.rt());
                     }
 
-                    add_export_entry(
-                        self,
-                        &md,
+                    self.add_module_export(
+                        Some(&md),
                         *local_name,
                         *export_name,
                         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
@@ -315,9 +306,8 @@ impl<'s> JSParseState<'s> {
                     JS_FreeAtom(&self.ctx, module_name);
 
                     let idx = idx?;
-                    add_export_entry(
-                        self,
-                        &md,
+                    self.add_module_export(
+                        Some(&md),
                         JS_ATOM__star_,
                         *export_name,
                         JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx as _),
@@ -364,9 +354,8 @@ impl<'s> JSParseState<'s> {
                 self.emit_atom_dup(loc);
                 self.emit_u16(0);
 
-                add_export_entry(
-                    self,
-                    &md,
+                self.add_module_export(
+                    Some(&md),
                     loc,
                     JS_ATOM_default,
                     JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
@@ -389,130 +378,116 @@ impl<'s> JSParseState<'s> {
 
         self.parse_expect_semi()
     }
+
+    /// add export name for specified module or current parsing module.
+    /// `local_name`, `export_name` are not consumed.
+    pub(super) fn add_module_export(
+        &self,
+        md: Option<&ModuleDef>,
+        local_name: JSAtom,
+        export_name: JSAtom,
+        export_type: JSExportTypeEnum,
+    ) -> Result<(), i32> {
+        let md = md.unwrap_or_else(|| {
+            // current function def must be module.
+            self.cur_func().module.as_ref().unwrap()
+        });
+
+        if md.find_export(export_name).is_some() {
+            self.throw_syntax_error(&format!(
+                "duplicate exported name '{}'",
+                export_name.to_str(self.ctx.rt()),
+            ));
+            return Err(-1);
+        }
+
+        if md.0.export_entries.borrow().len() == md.0.export_entries.borrow().capacity() {
+            md.0.export_entries
+                .borrow_mut()
+                .try_reserve(4)
+                .map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+        }
+
+        md.0.export_entries
+            .borrow_mut()
+            .push(Box::new(JSExportEntry {
+                export_type,
+                local_name: local_name.dup(self.ctx.rt()),
+                export_name: export_name.dup(self.ctx.rt()),
+            }));
+
+        Ok(())
+    }
+
+    /// add import for current parsing module.
+    /// `local_name`, `import_name` are not consumed.
+    pub(super) fn add_module_import(
+        &self,
+        md: &ModuleDef,
+        local_name: JSAtom,
+        import_name: JSAtom,
+    ) -> Result<(), i32> {
+        if local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval {
+            self.throw_syntax_error("invalid import binding");
+            return Err(-1);
+        }
+
+        if local_name != JS_ATOM_default {
+            if self
+                .cur_func()
+                .closure_vars
+                .as_ref()
+                .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
+            {
+                self.throw_syntax_error("duplicate import binding");
+                return Err(-1);
+            }
+        }
+
+        let ctx = self.ctx.clone();
+        let is_local = import_name == JS_ATOM__star_;
+        let var_idx = self.cur_func_mut().add_closure_var(
+            &ctx,
+            is_local,
+            false,
+            md.0.import_entries.borrow().len() as _,
+            local_name,
+            true,
+            true,
+            JSVarKindEnum::JS_VAR_NORMAL,
+        )?;
+
+        if md.0.import_entries.borrow().len() == md.0.import_entries.borrow().capacity() {
+            md.0.import_entries
+                .borrow_mut()
+                .try_reserve(2)
+                .map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+        }
+        md.0.import_entries.borrow_mut().push(JSImportEntry {
+            var_idx,
+            import_name: import_name.dup(&self.ctx.rt()),
+            req_module_idx: 0,
+        });
+
+        Ok(())
+    }
 }
 
 /// Parse an identifier and return its atom.
 /// returned atom is duplicated. caller should free it after use.
-fn parse_export_name(s: &mut JSParseState) -> Result<JSAtom, i32> {
+fn parse_export_name(s: &JSParseState) -> Result<JSAtom, i32> {
     if !JSParseState::token_is_ident(s.token.val) {
         s.throw_syntax_error("identifier expected");
         Err(-1)
     } else {
         Ok(s.token.data.ident_atom().unwrap().dup(&s.ctx.rt()))
     }
-}
-
-unsafe fn add_export_entry2(
-    ctx: &JSContext,
-    s: *mut JSParseState,
-    m: &ModuleDef,
-    local_name: JSAtom,
-    export_name: JSAtom,
-    export_type: JSExportTypeEnum,
-) -> Result<(), i32> {
-    if m.find_export(export_name).is_some() {
-        if !s.is_null() {
-            (*s).throw_syntax_error(&format!(
-                "duplicate exported name '{}'",
-                export_name.to_str(ctx.rt()),
-            ));
-        } else {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!("duplicate exported name '{}'", export_name.to_str(ctx.rt())),
-            );
-        }
-
-        return Err(-1);
-    }
-
-    if m.0.export_entries.borrow().len() == m.0.export_entries.borrow().capacity() {
-        if m.0
-            .export_entries
-            .borrow_mut()
-            .try_reserve_exact(4)
-            .is_err()
-        {
-            ctx.throw_out_of_memory();
-            return Err(-1);
-        }
-    }
-
-    m.0.export_entries
-        .borrow_mut()
-        .push(Box::new(JSExportEntry {
-            export_type,
-            local_name: local_name.dup(&ctx.rt()),
-            export_name: export_name.dup(&ctx.rt()),
-        }));
-
-    Ok(())
-}
-
-/// `local_name`, `export_name` are not consumed.
-pub fn add_export_entry<'a>(
-    s: &mut JSParseState,
-    m: &ModuleDef,
-    local_name: JSAtom,
-    export_name: JSAtom,
-    export_type: JSExportTypeEnum,
-) -> Result<(), i32> {
-    let ctx = s.ctx.clone();
-    unsafe { add_export_entry2(&ctx, s, m, local_name, export_name, export_type) }
-}
-
-pub unsafe fn add_import(
-    s: *mut JSParseState,
-    m: &ModuleDef,
-    local_name: JSAtom,
-    import_name: JSAtom,
-) -> i32 {
-    if local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval {
-        (*s).throw_syntax_error("invalid import binding");
-        return -1;
-    }
-
-    if local_name != JS_ATOM_default {
-        if (*s)
-            .cur_func()
-            .closure_vars
-            .as_ref()
-            .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
-        {
-            (*s).throw_syntax_error("duplicate import binding");
-            return -1;
-        }
-    }
-
-    let is_local = import_name == JS_ATOM__star_;
-    let var_idx = if let Ok(vi) = (*s).cur_func_mut().add_closure_var(
-        &(*s).ctx,
-        is_local,
-        false,
-        m.0.import_entries.borrow().len() as _,
-        local_name,
-        true,
-        true,
-        JSVarKindEnum::JS_VAR_NORMAL,
-    ) {
-        vi
-    } else {
-        return -1;
-    };
-
-    if m.0.import_entries.borrow().len() == m.0.import_entries.borrow().capacity() {
-        if m.0.import_entries.borrow_mut().try_reserve(2).is_err() {
-            (*s).ctx.throw_out_of_memory();
-            return -1;
-        }
-    }
-    m.0.import_entries.borrow_mut().push(JSImportEntry {
-        var_idx,
-        import_name: import_name.dup(&(*s).ctx.rt()),
-        req_module_idx: 0,
-    });
-
-    0
 }
 
 /// return true if 'input' contains the source of a module

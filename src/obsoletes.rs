@@ -1,7 +1,9 @@
 #![allow(clippy::all)]
 
 use crate::error::JS_ThrowSyntaxError;
-use crate::module::{JSExportEntry, JSResolveEntry, JSResolveResultEnum, ModuleDefInner};
+use crate::module::{
+    JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDefInner,
+};
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
@@ -3256,5 +3258,40 @@ pub unsafe fn find_resolve_entry(
     m: &ModuleDef,
     name: JSAtom,
 ) -> Option<i32> {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSParseState::add_module_export() instead")]
+unsafe fn add_export_entry2(
+    ctx: &JSContext,
+    s: *mut JSParseState,
+    m: &ModuleDef,
+    local_name: JSAtom,
+    export_name: JSAtom,
+    export_type: JSExportTypeEnum,
+) -> Result<(), i32> {
+    unreachable!("unused");
+}
+
+/// `local_name`, `export_name` are not consumed.
+#[deprecated(note = "use JSParseState::add_module_export() instead")]
+pub fn add_export_entry<'a>(
+    s: &mut JSParseState,
+    m: &ModuleDef,
+    local_name: JSAtom,
+    export_name: JSAtom,
+    export_type: JSExportTypeEnum,
+) -> Result<(), i32> {
+    let ctx = s.ctx.clone();
+    unsafe { add_export_entry2(&ctx, s, m, local_name, export_name, export_type) }
+}
+
+#[deprecated(note = "use JSParseState::add_import() instead")]
+pub unsafe fn add_import(
+    s: *mut JSParseState,
+    m: &ModuleDef,
+    local_name: JSAtom,
+    import_name: JSAtom,
+) -> i32 {
     unreachable!("unused");
 }

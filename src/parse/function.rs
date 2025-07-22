@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     emit::js_is_live_code,
-    esm::{JSParseExportEnum, add_export_entry},
+    esm::JSParseExportEnum,
     parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
@@ -810,11 +810,8 @@ impl<'s> JSParseState<'s> {
                     }
 
                     if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
-                        let md = self.cur_func().module.clone().unwrap();
-
-                        add_export_entry(
-                            self,
-                            &md,
+                        self.add_module_export(
+                            None,
                             func_var_name,
                             if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
                                 func_var_name
