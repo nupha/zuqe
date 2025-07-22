@@ -5,10 +5,7 @@ use crate::{
     defer,
     error::JS_ThrowSyntaxError,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    module::{
-        JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry,
-        find_export_entry,
-    },
+    module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry},
 };
 
 use super::{
@@ -248,6 +245,7 @@ impl<'s> JSParseState<'s> {
         match tok {
             // '{'
             0x7b => {
+                // export {...}
                 let first_export = md.0.export_entries.borrow().len();
 
                 while self.token.val != b'}' as i32 {
@@ -256,6 +254,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                        // <local_name> as <export_name>
                         self.next_token()?;
                         *export_name = parse_export_name(self)?;
                         self.next_token()?;
@@ -378,6 +377,7 @@ impl<'s> JSParseState<'s> {
             }
 
             TOK_VAR | TOK_LET | TOK_CONST => {
+                // export var, export let, export const
                 return unsafe { self.parse_var(1, tok, true) };
             }
 
@@ -410,7 +410,7 @@ unsafe fn add_export_entry2(
     export_name: JSAtom,
     export_type: JSExportTypeEnum,
 ) -> Result<(), i32> {
-    if find_export_entry(m, export_name).is_some() {
+    if m.find_export(export_name).is_some() {
         if !s.is_null() {
             (*s).throw_syntax_error(&format!(
                 "duplicate exported name '{}'",

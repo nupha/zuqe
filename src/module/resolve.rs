@@ -5,10 +5,7 @@ use crate::{
     },
     context::JSContext,
     error::JS_ThrowSyntaxError,
-    module::{
-        JSExportEntry, JSExportTypeEnum, JSResolveEntry, ModuleDef, ModuleDefInner,
-        find_export_entry,
-    },
+    module::{JSExportEntry, JSExportTypeEnum, JSResolveEntry, ModuleDef, ModuleDefInner},
 };
 
 pub enum ModuleResolveExport {
@@ -97,7 +94,7 @@ impl ModuleDef {
             name: export_name.dup(&ctx.rt()),
         });
 
-        if let Some(me) = find_export_entry(self, export_name) {
+        if let Some(me) = self.find_export(export_name) {
             match me.export_type {
                 JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. } => Ok(ModuleResolveExport::Found {
                     module: self.clone(),

@@ -150,25 +150,28 @@ pub fn js_module_loader(
 ) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
-            // compile the module
-            let func_val = ctx
-                .eval(
-                    buf.as_slice(),
-                    module_name,
-                    JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY,
-                )
-                .check_exception()?;
-
-            // XXX: could propagate the exception
-            unsafe {
-                js_module_set_import_meta(ctx, &func_val, true as i32, false);
+            // make abs url
+            let p = PathBuf::from(module_name);
+            let mut normalized = PathBuf::new();
+            for component in p.components() {
+                match component {
+                    std::path::Component::ParentDir => {
+                        normalized.pop();
+                    }
+                    std::path::Component::CurDir => {}
+                    _ => {
+                        normalized.push(component.as_os_str());
+                    }
+                }
             }
+            let aurl = format!("{}", normalized.display());
 
-            if let JSValue::Module(m) = func_val {
-                Ok(m)
-            } else {
-                unreachable!()
-            }
+            let md = ctx.eval_module_source(buf.as_slice(), &aurl, false)?;
+            // // XXX: could propagate the exception
+            // unsafe {
+            //     js_module_set_import_meta(ctx, &func_val, true as i32, false);
+            // }
+            Ok(md)
         }
         Err(_) => {
             JS_ThrowReferenceError(
@@ -272,16 +275,26 @@ fn run_test_script(
     ctx: &JSContext,
     script: &str,
     filename: &Path,
-    eval_flags: u32,
+    is_module: bool,
     is_async: bool,
+    is_strict: bool,
 ) -> Result<(), i32> {
-    let mut ret_val = ctx.eval(
-        script.as_bytes(),
-        filename.as_os_str().to_str().unwrap(),
-        eval_flags,
-    );
+    let mut ret_val = if is_module {
+        ctx.eval_module_source(
+            script.as_bytes(),
+            filename.as_os_str().to_str().unwrap(),
+            false,
+        )
+        .map_or(JSValue::EXCEPTION, JSValue::Module)
+    } else {
+        ctx.eval(
+            script.as_bytes(),
+            filename.as_os_str().to_str().unwrap(),
+            JS_EVAL_TYPE_GLOBAL | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
+        )
+    };
 
-    let ret_promise = is_async || eval_flags & JS_EVAL_TYPE_MODULE != 0;
+    let ret_promise = is_async || is_module;
     let async_done = 0; // counter of "Test262:AsyncTestComplete" messages
 
     if ret_promise && !ret_val.is_exception() {
@@ -431,12 +444,6 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
 
         let negative = config.negative;
 
-        let eval_flags = if is_module {
-            JS_EVAL_TYPE_MODULE
-        } else {
-            JS_EVAL_TYPE_GLOBAL
-        };
-
         // eval in nostrict, strict mode
         for strict in [
             if use_nostrict { Some(false) } else { None },
@@ -449,8 +456,9 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 &ctx,
                 content.as_str(),
                 &filename,
-                eval_flags | if strict { JS_EVAL_FLAG_STRICT } else { 0 },
+                is_module,
                 is_async,
+                strict,
             )
             .is_err()
             {

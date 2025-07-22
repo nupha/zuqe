@@ -76,6 +76,16 @@ pub struct JSStarExportEntry {
 }
 
 impl ModuleDef {
+    /// find export by name
+    pub fn find_export(&self, export_name: JSAtom) -> Option<JSExportEntry> {
+        self.0
+            .export_entries
+            .borrow()
+            .iter()
+            .find(|x| x.export_name == export_name)
+            .map(|v| *v.clone())
+    }
+
     pub unsafe fn get_exported_names(
         &self,
         ctx: &JSContext,
@@ -306,12 +316,14 @@ pub unsafe fn find_exported_name(s: *mut GetExportNamesState, name: JSAtom) -> O
     return None;
 }
 
+#[deprecated(note = "use ModuleDef::find_export() instead")]
 pub unsafe fn find_export_entry(m: &ModuleDef, export_name: JSAtom) -> Option<JSExportEntry> {
-    m.0.export_entries
-        .borrow()
-        .iter()
-        .find(|me| me.export_name == export_name)
-        .map(|v| *v.clone())
+    m.find_export(export_name)
+    // m.0.export_entries
+    //     .borrow()
+    //     .iter()
+    //     .find(|me| me.export_name == export_name)
+    //     .map(|v| *v.clone())
 }
 
 pub fn add_star_export_entry(

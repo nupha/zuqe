@@ -218,9 +218,10 @@ impl JSParseState<'_> {
             p = p1;
 
             if buf.capacity() - buf.len() <= UTF8_CHAR_LEN_MAX {
-                if buf.try_reserve_exact(32).is_err() {
-                    return Err(-1);
-                }
+                buf.try_reserve_exact(32).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
             }
         }
 

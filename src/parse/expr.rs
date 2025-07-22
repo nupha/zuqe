@@ -563,41 +563,32 @@ impl<'s> JSParseState<'s> {
         loop {
             let mut has_optional_chain: bool = false;
 
-            // let mut arg_count: i32;
-            // let mut drop_count: i32;
-
             if self.token.val == TOK_QUESTION_MARK_DOT {
-                /* optional chaining */
+                // optional chaining
                 self.next_token()?;
 
                 has_optional_chain = true;
 
                 if self.token.val == b'(' as i32 && accept_lparen {
-                    unsafe {
-                        self.parse_func_call(
-                            self.cur_func_ptr,
-                            call_type,
-                            has_optional_chain,
-                            &mut optional_chaining_label,
-                        )?;
-                    }
+                    self.parse_func_call(
+                        self.cur_func_ptr,
+                        call_type,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
                     call_type = FuncCallType::FUNC_CALL_NORMAL;
                 } else if self.token.val == b'[' as i32 {
-                    unsafe {
-                        self.parse_array_access(
-                            self.cur_func_ptr,
-                            has_optional_chain,
-                            &mut optional_chaining_label,
-                        )?;
-                    }
+                    self.parse_array_access(
+                        self.cur_func_ptr,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
                 } else {
-                    unsafe {
-                        self.parse_property(
-                            self.cur_func_ptr,
-                            has_optional_chain,
-                            &mut optional_chaining_label,
-                        )?;
-                    }
+                    self.parse_property(
+                        self.cur_func_ptr,
+                        has_optional_chain,
+                        &mut optional_chaining_label,
+                    )?;
                 }
             } else if self.token.val == TOK_TEMPLATE && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
@@ -615,45 +606,36 @@ impl<'s> JSParseState<'s> {
                         &mut optional_chaining_label,
                     )
                 };
-
-                unsafe {
-                    self.parse_func_call3(
-                        self.cur_func_ptr,
-                        op,
-                        call_type,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
-                }
+                self.parse_func_call3(
+                    self.cur_func_ptr,
+                    op,
+                    call_type,
+                    has_optional_chain,
+                    &mut optional_chaining_label,
+                )?;
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == CHAR_BRACKET_L && accept_lparen {
                 /* function call */
-                unsafe {
-                    self.parse_func_call(
-                        self.cur_func_ptr,
-                        call_type,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
-                }
+                self.parse_func_call(
+                    self.cur_func_ptr,
+                    call_type,
+                    has_optional_chain,
+                    &mut optional_chaining_label,
+                )?;
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == b'.' as i32 {
                 self.next_token()?;
-                unsafe {
-                    self.parse_property(
-                        self.cur_func_ptr,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
-                }
+                self.parse_property(
+                    self.cur_func_ptr,
+                    has_optional_chain,
+                    &mut optional_chaining_label,
+                )?;
             } else if self.token.val == b'[' as i32 {
-                unsafe {
-                    self.parse_array_access(
-                        self.cur_func_ptr,
-                        has_optional_chain,
-                        &mut optional_chaining_label,
-                    )?;
-                }
+                self.parse_array_access(
+                    self.cur_func_ptr,
+                    has_optional_chain,
+                    &mut optional_chaining_label,
+                )?;
             } else {
                 break;
             }

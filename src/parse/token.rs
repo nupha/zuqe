@@ -168,7 +168,7 @@ impl<'s> JSParseState<'s> {
         enum State {
             DefaultToken(char),
             SkipLineComment,
-            HasIdent(char),
+            HasIdent(char, bool),
             LineTerminator,
             ParseNumber,
             Fail,
@@ -289,7 +289,7 @@ impl<'s> JSParseState<'s> {
                             if let Some(c1) = char::from_u32(cp) {
                                 if Self::is_ident_first(c1) {
                                     p = p1;
-                                    state = Some(State::HasIdent(c1));
+                                    state = Some(State::HasIdent(c1, true));
                                     false
                                 } else {
                                     true
@@ -312,7 +312,7 @@ impl<'s> JSParseState<'s> {
                 ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => unsafe {
                     // identifier
                     p = p.add(1);
-                    state = Some(State::HasIdent(ch));
+                    state = Some(State::HasIdent(ch, false));
                 },
                 '#' => unsafe {
                     // private name
@@ -335,13 +335,12 @@ impl<'s> JSParseState<'s> {
                     } else {
                         p = p1;
                         if let Ok((a, has_escape)) = self.parse_ident(&mut p, c1, true) {
+                            self.token.val = TOK_PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
                                 atom: a,
                                 has_escape,
                                 is_reserved: false,
                             };
-                            self.token.val = TOK_PRIVATE_NAME;
-                            self.token.data = TokenData::None;
                         } else {
                             state = Some(State::Fail);
                         }
@@ -605,11 +604,11 @@ impl<'s> JSParseState<'s> {
                             self.line_num += 1;
                             continue 'redo;
                         }
-                        code => {
-                            if code.is_whitespace() {
+                        ch => {
+                            if ch.is_whitespace() {
                                 continue 'redo;
-                            } else if JSParseState::is_ident_first(code) {
-                                state = Some(State::HasIdent(code));
+                            } else if JSParseState::is_ident_first(ch) {
+                                state = Some(State::HasIdent(ch, false));
                             } else {
                                 self.throw_syntax_error("unexpected character");
                                 state = Some(State::Fail);
@@ -630,15 +629,16 @@ impl<'s> JSParseState<'s> {
                         self.token.data = TokenData::Char(ch);
                         p = p.offset(1);
                     },
-                    State::HasIdent(first_char) => unsafe {
+                    State::HasIdent(first_char, escaped) => unsafe {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
                             self.token.val = TOK_IDENT;
                             self.token.data = TokenData::Ident {
                                 atom,
-                                has_escape,
+                                has_escape: has_escape || escaped,
                                 is_reserved: false,
                             };
+
                             // check if atom is a reserved keyword.
                             // if yes, convert token value to TOK_XXX
                             self.update_token_ident();
