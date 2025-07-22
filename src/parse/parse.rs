@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    esm::{add_export_entry, js_parse_export},
+    esm::add_export_entry,
     function::JSParseFunctionEnum,
     regexp::js_parse_regexp,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
@@ -145,9 +145,7 @@ impl JSParseState<'_> {
                 self.token.line_num,
             )?;
         } else if tok == TOK_EXPORT && self.cur_func().module.is_some() {
-            if unsafe { js_parse_export(self) != 0 } {
-                return Err(-1);
-            }
+            self.parse_export()?;
         } else if tok == TOK_IMPORT
             && self.cur_func().module.is_some()
             && !matches!(self.peek_token(false), CHAR_BRACKET_L | CHAR_DOT)

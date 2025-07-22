@@ -5,20 +5,17 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::eval::Compiled;
-use crate::promise::Promise;
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
-    eval::{JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::{JSFunctionDef, JSVarKindEnum, JSVarRef, ObjFunc},
     mem::js_free_rt,
     module::{
-        JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, JSReqModuleEntry,
-        JSStarExportEntry,
+        JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, JSStarExportEntry,
+        ModuleDependency,
     },
     object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
     runtime::JSRuntime,
@@ -47,14 +44,11 @@ pub(crate) struct ModuleDefInner {
 
     pub module_name: JSAtom,
 
-    pub req_module_entries: RefCell<Vec<JSReqModuleEntry>>,
-    pub export_entries: RefCell<Vec<Box<JSExportEntry>>>,
+    pub dependencies: RefCell<Vec<ModuleDependency>>,
     pub import_entries: RefCell<Vec<JSImportEntry>>,
-
-    // TODO: use Vec<JSStartExportEntry>
-    pub star_export_entries: *mut JSStarExportEntry,
-    pub star_export_entries_count: i32,
-    pub star_export_entries_size: i32,
+    pub export_entries: RefCell<Vec<Box<JSExportEntry>>>,
+    /// list of index in dependencies
+    pub star_export_entries: RefCell<Vec<u16>>,
 
     /// module namespace.
     pub module_ns: Cell<Option<JSObject>>,
@@ -107,9 +101,7 @@ pub(crate) struct ModuleDefInner {
 
 impl Drop for ModuleDefInner {
     fn drop(&mut self) {
-        unsafe {
-            self.finalize();
-        }
+        self.finalize();
     }
 }
 
@@ -122,14 +114,10 @@ impl ModuleDefInner {
 
             module_name: name,
 
-            req_module_entries: RefCell::new(Vec::new()),
-
-            export_entries: RefCell::new(Vec::new()),
-            star_export_entries: std::ptr::null_mut(),
-            star_export_entries_count: 0,
-            star_export_entries_size: 0,
-
+            dependencies: RefCell::new(Vec::new()),
             import_entries: RefCell::new(Vec::new()),
+            export_entries: RefCell::new(Vec::new()),
+            star_export_entries: RefCell::new(Vec::new()),
 
             module_ns: Cell::new(None),
             bytecode: Cell::new(JSValue::UNDEFINED),
@@ -206,7 +194,7 @@ impl ModuleDefInner {
 
         JS_FreeAtomRT(rt, self.module_name);
 
-        for rme in self.req_module_entries.borrow_mut().drain(..) {
+        for rme in self.dependencies.borrow_mut().drain(..) {
             JS_FreeAtomRT(rt, rme.module_name);
         }
 
@@ -218,12 +206,6 @@ impl ModuleDefInner {
 
             JS_FreeAtomRT(rt, me.export_name);
             JS_FreeAtomRT(rt, me.local_name);
-        }
-
-        if !self.star_export_entries.is_null() {
-            unsafe {
-                js_free_rt(rt, self.star_export_entries.cast());
-            }
         }
 
         for mi in self.import_entries.borrow_mut().drain(..) {
@@ -252,7 +234,7 @@ impl From<ModuleDef> for JSValue {
 }
 
 impl ModuleDef {
-    /// create a bytecode module def.
+    /// create bytecode module def.
     /// 'name' is consumed
     pub fn new(ctx: &JSContext, name: JSAtom) -> Self {
         let inner = ModuleDefInner::new(ctx, name);
@@ -314,10 +296,10 @@ pub unsafe fn js_free_module_def(ctx: &JSContext, m: *mut ModuleDefInner) {
     // JS_FreeAtom(ctx, (*m).module_name);
 
     // for i in 0..(*m).req_module_entries_count {
-    //     let rme: *mut JSReqModuleEntry = (*m).req_module_entries.offset(i as isize);
+    //     let rme: *mut ModuleDependency = (*m).dependencies.offset(i as isize);
     //     JS_FreeAtom(ctx, (*rme).module_name);
     // }
-    // js_free(ctx, (*m).req_module_entries.cast());
+    // js_free(ctx, (*m).dependencies.cast());
 
     // for me in (*m).export_entries.drain(..) {
     //     if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
@@ -497,9 +479,9 @@ pub unsafe fn js_create_module_function(ctx: &JSContext, m: &ModuleDef) -> i32 {
 
     m.0.func_created.set(true);
 
-    // do it on the dependencies
-    for rme in m.0.req_module_entries.borrow().iter() {
-        if js_create_module_function(ctx, rme.module.as_ref().unwrap()) < 0 {
+    // create module <eval> function for dependencies
+    for dep in m.0.dependencies.borrow().iter() {
+        if js_create_module_function(ctx, dep.module.as_ref().unwrap()) < 0 {
             return -1;
         }
     }

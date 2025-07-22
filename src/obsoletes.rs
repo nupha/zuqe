@@ -1,5 +1,7 @@
 #![allow(clippy::all)]
 
+use crate::error::JS_ThrowSyntaxError;
+use crate::module::{JSExportEntry, JSResolveEntry, JSResolveResultEnum, ModuleDefInner};
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
@@ -763,7 +765,7 @@ pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
 /// Return a promise or an exception.
 #[deprecated(note = "use ModuleDef::eval() instead")]
 pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
-    (*m).eval(ctx).map_or(JSValue::EXCEPTION, |p|p.into())
+    (*m).eval(ctx).map_or(JSValue::EXCEPTION, |p| p.into())
 }
 
 #[deprecated(note = "use Promise::result() instead")]
@@ -3107,4 +3109,152 @@ pub unsafe fn js_shape_prepare_update(
 #[deprecated(note = "use JSParseState::update_token_ident() instead")]
 pub fn update_token_ident(s: &mut JSParseState) {
     s.update_token_ident()
+}
+
+/// Prepare a module to be executed by resolving all the imported variables.
+#[deprecated(note = "use JSModuleDef::link() instead")]
+pub fn js_link_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
+    m.link(ctx).map_or(-1, |_| 0)
+}
+
+// Prepare a module to be executed by resolving all the imported variables.
+#[deprecated(note = "use ModuleDef::inner_module_linking() instead")]
+pub unsafe fn js_inner_module_linking(
+    ctx: &JSContext,
+    m: &ModuleDef, // FIXME: use ModuleInner instead
+    pstack_top: &mut Option<ModuleDef>,
+    index: i32,
+) -> i32 {
+    unreachable!("unused")
+}
+
+/// find the loaded module by module name
+#[deprecated(note = "use JSContext::find_loaded_module() instead")]
+pub fn js_find_loaded_module(ctx: &JSContext, name: JSAtom) -> Option<ModuleDef> {
+    ctx.find_loaded_module(name)
+}
+
+// Load all the required modules for module 'm'
+#[deprecated(note = "use JSContext::resolve_module() instead")]
+pub unsafe fn js_resolve_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
+    ctx.resolve_module(m).map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "unused")]
+pub unsafe fn js_resolve_export_throw_error(
+    ctx: &JSContext,
+    res: JSResolveResultEnum,
+    m: &ModuleDef,
+    export_name: JSAtom,
+) {
+    match res {
+        JSResolveResultEnum::JS_RESOLVE_RES_EXCEPTION => {}
+        JSResolveResultEnum::JS_RESOLVE_RES_NOT_FOUND => {
+            JS_ThrowSyntaxError(
+                ctx,
+                &format!(
+                    "Could not find export '{}' in module '{}'",
+                    export_name.to_str(ctx.rt()),
+                    m.0.module_name.to_str(ctx.rt()),
+                ),
+            );
+        }
+        JSResolveResultEnum::JS_RESOLVE_RES_CIRCULAR => {
+            JS_ThrowSyntaxError(
+                ctx,
+                &format!(
+                    "circular reference when looking for export '{}' in module '{}'",
+                    export_name.to_str(ctx.rt()),
+                    m.0.module_name.to_str(ctx.rt()),
+                ),
+            );
+        }
+        JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS => {
+            JS_ThrowSyntaxError(
+                ctx,
+                &format!(
+                    "export '{}' in module '{}' is ambiguous",
+                    export_name.to_str(ctx.rt()),
+                    m.0.module_name.to_str(ctx.rt()),
+                ),
+            );
+        }
+        _ => {}
+    }
+}
+
+#[deprecated(note = "not used")]
+pub unsafe fn add_resolve_entry(
+    ctx: &JSContext,
+    lst: &mut Vec<JSResolveEntry>,
+    m: &ModuleDef,
+    name: JSAtom,
+) -> Result<(), i32> {
+    if lst.len() == lst.capacity() {
+        lst.try_reserve(4).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+    }
+
+    lst.push(JSResolveEntry {
+        module: m.clone(),
+        name: name.dup(&ctx.rt()),
+    });
+
+    Ok(())
+}
+
+/// add dependent module
+#[deprecated(note = "use JSModuleDef::add_dependency() instead")]
+pub unsafe fn add_dep_module(ctx: &JSContext, m: &ModuleDef, module_name: JSAtom) -> i32 {
+    m.add_dependency(ctx, module_name).map_or(-1, |i| i as _)
+}
+
+#[deprecated(note = "use ModuleDef::resolve_export_inner() instead")]
+pub unsafe fn js_resolve_export1(
+    ctx: &JSContext,
+    pmodule: *mut *mut ModuleDefInner,
+    pme: *mut *mut JSExportEntry,
+    m: &ModuleDef,
+    export_name: JSAtom,
+    s: *mut std::ffi::c_void, // JSResolveState,
+) -> JSResolveResultEnum {
+    unreachable!("unused");
+}
+
+// If the return value is JS_RESOLVE_RES_FOUND, return the module
+// (*pmodule) and the corresponding local export entry
+// (*pme). Otherwise return (NULL, NULL)
+#[deprecated(note = "use ModuleDef::resolve_export() instead")]
+pub unsafe fn js_resolve_export(
+    ctx: &JSContext,
+    pmodule: *mut *mut ModuleDefInner,
+    pme: *mut *mut JSExportEntry,
+    m: &mut ModuleDef,
+    export_name: JSAtom,
+) -> JSResolveResultEnum {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSParseState::parse_export() instead")]
+pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
+    (*s).parse_export().map_or(-1, |_| 0)
+}
+
+#[repr(C)]
+#[deprecated(note = "use Vec<JSResultEntry> instead")]
+pub struct JSResolveState {
+    pub array: *mut JSResolveEntry,
+    pub size: i32,
+    pub count: i32,
+}
+
+#[deprecated(note = "use JSResolveState::find()")]
+pub unsafe fn find_resolve_entry(
+    s: *mut JSResolveState,
+    m: &ModuleDef,
+    name: JSAtom,
+) -> Option<i32> {
+    unreachable!("unused");
 }

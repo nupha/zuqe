@@ -12,7 +12,8 @@ use crate::{
 use super::state::JSParseState;
 
 impl<'s> JSParseState<'s> {
-    /// define variable for current function
+    /// define variable for current function.
+    /// `name` is not consumed.
     pub fn define_var_cur_func(
         &mut self,
         name: JSAtom,

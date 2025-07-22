@@ -1,18 +1,17 @@
 use std::{cmp::Ordering, ops::Deref};
 
-use crate::object::JSObject;
 use crate::{
     atom::{
         JSAtom,
         consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
     },
     context::JSContext,
-    error::JSResult,
     function::JSVarRef,
     mem::{js_free, js_resize_array},
-    module::{JSResolveResultEnum, JSResolveState, ModuleDef, ModuleDefInner, ModuleResolveExport},
+    module::{ModuleDef, ModuleDefInner, ModuleResolveExport},
     object::{
-        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectDetail,
+        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
+        ObjectDetail,
     },
 };
 
@@ -71,9 +70,9 @@ pub struct JSExportEntry {
     pub export_name: JSAtom,
 }
 
-#[repr(C)]
 pub struct JSStarExportEntry {
-    pub req_module_idx: i32, // in req_module_entries
+    /// index in dependencies
+    pub req_module_idx: i32,
 }
 
 impl ModuleDef {
@@ -134,9 +133,9 @@ impl ModuleDef {
             }
         }
 
-        for i in 0..self.0.star_export_entries_count {
-            let idx = (*self.0.star_export_entries.add(i as usize)).req_module_idx;
-            self.0.req_module_entries.borrow()[idx as usize]
+        for idx in self.0.star_export_entries.borrow().iter() {
+            let req_module_idx = *idx;
+            self.0.dependencies.borrow()[req_module_idx as usize]
                 .module
                 .as_ref()
                 .unwrap()
@@ -147,7 +146,7 @@ impl ModuleDef {
     }
 
     /// build module ns object
-    unsafe fn build_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    unsafe fn make_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
         let obj = ctx.create_object(ObjectDetail::MODULE_NS).map_err(|_| -1)?;
 
         let mut s_s = GetExportNamesState::default();
@@ -170,15 +169,15 @@ impl ModuleDef {
                     entry: me.clone(),
                 }
             } else {
-                self.resolve_export(ctx, en.export_name, None)
+                self.resolve_export(ctx, en.export_name, None)?
             };
 
             match res {
                 ModuleResolveExport::Found { module, entry } => match entry.export_type {
-                    JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                    JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
                         if entry.local_name == JS_ATOM__star_ {
                             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS(
-                                module.0.req_module_entries.borrow()[req_module_idx as usize]
+                                module.0.dependencies.borrow()[dep_idx as usize]
                                     .module
                                     .clone()
                                     .unwrap(),
@@ -203,9 +202,7 @@ impl ModuleDef {
                 ModuleResolveExport::Ambiguous => {
                     en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
                 }
-                ModuleResolveExport::NotFound
-                | ModuleResolveExport::Circular
-                | ModuleResolveExport::Error => {
+                ModuleResolveExport::NotFound | ModuleResolveExport::Circular => {
                     res.throw_error(ctx, self, en.export_name);
                     js_free(ctx, s.exported_names.cast());
                     return Err(-1);
@@ -291,7 +288,7 @@ impl ModuleDef {
         if let Some(ns) = unsafe { (*self.0.module_ns.as_ptr()).clone() } {
             Ok(ns)
         } else {
-            let ns = unsafe { self.build_ns(ctx)? };
+            let ns = unsafe { self.make_ns(ctx)? };
             self.0.module_ns.replace(Some(ns.clone()));
             Ok(ns)
         }
@@ -317,147 +314,23 @@ pub unsafe fn find_export_entry(m: &ModuleDef, export_name: JSAtom) -> Option<JS
         .map(|v| *v.clone())
 }
 
-#[deprecated(note = "use ModuleDef::resolve_export1() instead")]
-pub unsafe fn js_resolve_export1(
+pub fn add_star_export_entry(
     ctx: &JSContext,
-    pmodule: *mut *mut ModuleDefInner,
-    pme: *mut *mut JSExportEntry,
     m: &ModuleDef,
-    export_name: JSAtom,
-    s: *mut JSResolveState,
-) -> JSResolveResultEnum {
-    unreachable!("unused");
-
-    // *pmodule = std::ptr::null_mut();
-    // *pme = std::ptr::null_mut();
-
-    // if (*s).find(m, export_name).is_some() {
-    //     return JSResolveResultEnum::JS_RESOLVE_RES_CIRCULAR;
-    // }
-    // if add_resolve_entry(ctx, s, m, export_name).is_err() {
-    //     return JSResolveResultEnum::JS_RESOLVE_RES_EXCEPTION;
-    // }
-
-    // if let Some(me) = find_export_entry(m, export_name) {
-    //     match me.export_type {
-    //         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. } => {
-    //             *pmodule = m;
-    //             *pme = me as *const JSExportEntry as *mut JSExportEntry;
-    //             return JSResolveResultEnum::JS_RESOLVE_RES_FOUND;
-    //         }
-    //         JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-    //             let m1 = (*m
-    //                 .0
-    //                 .borrow()
-    //                 .req_module_entries
-    //                 .offset(req_module_idx as isize))
-    //             .module
-    //             .as_ref()
-    //             .unwrap();
-
-    //             return if (*me).local_name == JS_ATOM__star_ {
-    //                 // export ns from
-    //                 *pmodule = m.clone();
-    //                 *pme = me as *const JSExportEntry as *mut JSExportEntry;
-    //                 JSResolveResultEnum::JS_RESOLVE_RES_FOUND
-    //             } else {
-    //                 js_resolve_export1(ctx, pmodule, pme, m1, (*me).local_name, s)
-    //             };
-    //         }
-    //     }
-    // } else {
-    //     if export_name != JS_ATOM_default {
-    //         // not found in direct or indirect exports: try star exports
-    //         for i in 0..m.0.borrow().star_export_entries_count {
-    //             let idx = (*m.0.borrow_mut().star_export_entries.offset(i as isize)).req_module_idx;
-    //             let m1 = (*m.0.borrow().req_module_entries.add(idx as usize))
-    //                 .module
-    //                 .clone()
-    //                 .unwrap();
-
-    //             let mut res_m: *mut JSModuleDefInner = std::ptr::null_mut();
-    //             let mut res_me: *mut JSExportEntry = std::ptr::null_mut();
-    //             let ret = js_resolve_export1(ctx, &mut res_m, &mut res_me, &m1, export_name, s);
-    //             if ret == JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS
-    //                 || ret == JSResolveResultEnum::JS_RESOLVE_RES_EXCEPTION
-    //             {
-    //                 return ret;
-    //             } else if ret == JSResolveResultEnum::JS_RESOLVE_RES_FOUND {
-    //                 if !(*pme).is_null() {
-    //                     if *pmodule != res_m || (*res_me).local_name != (**pme).local_name {
-    //                         *pmodule = std::ptr::null_mut();
-    //                         *pme = std::ptr::null_mut();
-    //                         return JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS;
-    //                     }
-    //                 } else {
-    //                     *pmodule = res_m;
-    //                     *pme = res_me;
-    //                 }
-    //             }
-    //         }
-    //         if !(*pme).is_null() {
-    //             return JSResolveResultEnum::JS_RESOLVE_RES_FOUND;
-    //         }
-    //     }
-
-    //     return JSResolveResultEnum::JS_RESOLVE_RES_NOT_FOUND;
-    // }
-}
-
-// If the return value is JS_RESOLVE_RES_FOUND, return the module
-// (*pmodule) and the corresponding local export entry
-// (*pme). Otherwise return (NULL, NULL)
-#[deprecated(note = "use ModuleDef::resolve_export() instead")]
-pub unsafe fn js_resolve_export(
-    ctx: &JSContext,
-    pmodule: *mut *mut ModuleDefInner,
-    pme: *mut *mut JSExportEntry,
-    m: &mut ModuleDef,
-    export_name: JSAtom,
-) -> JSResolveResultEnum {
-    unreachable!("unused");
-
-    // let mut ss = JSResolveState {
-    //     array: std::ptr::null_mut(),
-    //     size: 0,
-    //     count: 0,
-    // };
-
-    // let s = &mut ss;
-    // let ret: JSResolveResultEnum = js_resolve_export1(ctx, pmodule, pme, m, export_name, s);
-
-    // for i in 0..s.count {
-    //     JS_FreeAtom(ctx, (*(*s).array.offset(i as isize)).name);
-    // }
-    // js_free(ctx, s.array.cast());
-
-    // ret
-}
-
-pub unsafe fn add_star_export_entry(
-    ctx: &JSContext,
-    m: *mut ModuleDefInner,
-    req_module_idx: i32,
-) -> i32 {
-    if js_resize_array(
-        ctx,
-        std::ptr::addr_of_mut!((*m).star_export_entries).cast(),
-        std::mem::size_of::<JSStarExportEntry>() as _,
-        std::ptr::addr_of_mut!((*m).star_export_entries_size),
-        (*m).star_export_entries_count + 1,
-    ) != 0
-    {
-        return -1;
+    req_module_idx: u16,
+) -> Result<(), i32> {
+    if m.0.star_export_entries.borrow().len() == m.0.star_export_entries.borrow().capacity() {
+        m.0.star_export_entries
+            .borrow_mut()
+            .try_reserve(4)
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
     }
 
-    let se = (*m)
-        .star_export_entries
-        .offset((*m).star_export_entries_count as _);
-
-    (*se).req_module_idx = req_module_idx;
-    (*m).star_export_entries_count += 1;
-
-    0
+    m.0.star_export_entries.borrow_mut().push(req_module_idx);
+    Ok(())
 }
 
 #[deprecated(note = "use JSModuleDefInner::get_exportd_names() instead")]

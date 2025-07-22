@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowStackOverflow, JSResult},
     function::{AsyncFunction, CallContext, JS_Call},
-    module::{JSModuleStatus, ModuleDefInner, js_create_module_function, js_link_module},
+    module::{JSModuleStatus, ModuleDefInner, js_create_module_function},
     promise::js_promise_then,
     runtime::js_check_stack_overflow,
     value::JSValue,
@@ -51,24 +51,10 @@ impl ModuleDef {
         } else {
             unreachable!()
         }
-
-        // old code:
-        // let mut flags = JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY;
-        // if strip {
-        //     flags |= JS_EVAL_FLAG_STRIP
-        // }        // let global = ctx.0.borrow().global_obj.clone();
-        // if let JSValue::Module(md) = ctx
-        //     .eval_script(&global, source, filename, flags, -1)
-        //     .check_exception()?
-        // {
-        //     Ok(md)
-        // } else {
-        //     unreachable!()
-        // }
     }
 
     /// Run the <eval> function of the module and of all its dependent modules.
-    /// Returns Promise or Exception.
+    /// Returns Promise.
     pub fn eval(&self, ctx: &JSContext) -> Result<Promise, i32> {
         debug_assert!(matches!(
             self.status(),
@@ -82,9 +68,7 @@ impl ModuleDef {
             return Err(-1);
         }
 
-        if js_link_module(ctx, self) < 0 {
-            return Err(-1);
-        }
+        self.link(ctx)?;
 
         let m = match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_LINKED => self.clone(),
@@ -208,8 +192,8 @@ impl ModuleDef {
 
         let mut index = index + 1;
 
-        for rme in self.0.req_module_entries.borrow().iter() {
-            let mut m1 = rme.module.clone().unwrap();
+        for dep in self.0.dependencies.borrow().iter() {
+            let mut m1 = dep.module.clone().unwrap();
             index = m1.do_eval(ctx, index, pstack_top)?;
 
             let (

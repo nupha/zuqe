@@ -1,46 +1,50 @@
-use crate::module::ModuleDefInner;
 use crate::{
-    atom::{JSAtom, consts::JS_ATOM__star_},
+    atom::JSAtom,
     context::JSContext,
-    error::{JS_ThrowReferenceError, JS_ThrowStackOverflow, JS_ThrowSyntaxError},
-    function::JS_Call,
-    mem::js_resize_array,
-    module::{
-        JSExportTypeEnum, ModuleDef, ModuleResolveExport, js_create_module_var,
-        js_default_module_normalize_name,
-    },
-    runtime::js_check_stack_overflow,
-    value::JSValue,
+    error::JS_ThrowReferenceError,
+    module::{ModuleDef, js_default_module_normalize_name},
 };
 
-pub struct JSReqModuleEntry {
+pub struct ModuleDependency {
     pub module_name: JSAtom,
-    pub module: Option<ModuleDef>, /* used using resolution */
+    /// None if module is not resolved.
+    pub module: Option<ModuleDef>,
 }
 
-#[repr(C)]
 pub struct JSResolveEntry {
     pub module: ModuleDef,
     pub name: JSAtom,
 }
 
-#[repr(C)]
-#[deprecated(note = "use Vec<JSResultEntry> instead")]
-pub struct JSResolveState {
-    pub array: *mut JSResolveEntry,
-    pub size: i32,
-    pub count: i32,
-}
+impl ModuleDef {
+    /// add module dependency, returns the dependency index.
+    /// `module_name` is not consumed.
+    pub fn add_dependency(&self, ctx: &JSContext, module_name: JSAtom) -> Result<u16, i32> {
+        if let Some(i) = self
+            .0
+            .dependencies
+            .borrow()
+            .iter()
+            .position(|req| req.module_name == module_name)
+        {
+            // dep is already present, returns dep index directly
+            return Ok(i as u16);
+        }
 
-impl JSResolveState {
-    pub(super) unsafe fn find(&self, m: &ModuleDef, name: JSAtom) -> Option<i32> {
-        for i in 0..self.count {
-            let re = self.array.add(i as usize).as_ref().unwrap();
-            if re.module.id() == m.id() && re.name == name {
-                return Some(i);
+        if self.0.dependencies.borrow().len() == self.0.dependencies.borrow().capacity() {
+            if self.0.dependencies.borrow_mut().try_reserve(4).is_err() {
+                ctx.throw_out_of_memory();
+                return Err(-1);
             }
         }
-        None
+
+        self.0.dependencies.borrow_mut().push(ModuleDependency {
+            module_name: module_name.dup(&ctx.rt()),
+            module: None,
+        });
+
+        // return the new dep index
+        Ok(self.0.dependencies.borrow().len() as u16 - 1)
     }
 }
 
@@ -60,7 +64,8 @@ impl JSContext {
         })
     }
 
-    /// Load all the required modules for module 'm'
+    /// Load all the required modules (dependent modules) for module 'm'.
+    /// TODO: migrate to ModuleDef::resolve()
     pub fn resolve_module(&self, m: &ModuleDef) -> Result<(), i32> {
         if m.0.resolved.get() {
             return Ok(());
@@ -82,11 +87,11 @@ impl JSContext {
 
         m.0.resolved.set(true);
 
-        // resolve each requested module
+        // resolve dep modules
         let module_name = m.0.module_name;
-        for rme in m.0.req_module_entries.borrow_mut().iter_mut() {
-            let m1 = js_host_resolve_imported_module_atom(self, module_name, rme.module_name)?;
-            rme.module = Some(m1.clone());
+        for dep in m.0.dependencies.borrow_mut().iter_mut() {
+            let m1 = js_host_resolve_imported_module_atom(self, module_name, dep.module_name)?;
+            dep.module = Some(m1.clone());
 
             // already done in js_host_resolve_imported_module() except if
             // the module was loaded with JS_EvalBinary()
@@ -95,15 +100,6 @@ impl JSContext {
 
         Ok(())
     }
-}
-
-#[deprecated(note = "use JSResolveState::find()")]
-pub unsafe fn find_resolve_entry(
-    s: *mut JSResolveState,
-    m: &ModuleDef,
-    name: JSAtom,
-) -> Option<i32> {
-    unreachable!("unused");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,109 +120,6 @@ pub enum JSModuleStatus {
     JS_MODULE_STATUS_EVALUATING,
     JS_MODULE_STATUS_EVALUATING_ASYNC,
     JS_MODULE_STATUS_EVALUATED,
-}
-
-pub unsafe fn add_req_module_entry(ctx: &JSContext, m: &ModuleDef, module_name: JSAtom) -> i32 {
-    // no need to add the module request if it is already present
-    if let Some(i) =
-        m.0.req_module_entries
-            .borrow()
-            .iter()
-            .position(|req| req.module_name == module_name)
-    {
-        return i as i32; // found
-    }
-
-    if m.0.req_module_entries.borrow().len() == m.0.req_module_entries.borrow().capacity() {
-        if m.0.req_module_entries.borrow_mut().try_reserve(4).is_err() {
-            ctx.throw_out_of_memory();
-            return -1;
-        }
-    }
-
-    m.0.req_module_entries.borrow_mut().push(JSReqModuleEntry {
-        module_name: module_name.dup(&ctx.rt()),
-        module: None,
-    });
-
-    // return the last req index
-    m.0.req_module_entries.borrow().len() as i32 - 1
-}
-
-pub unsafe fn add_resolve_entry(
-    ctx: &JSContext,
-    lst: &mut Vec<JSResolveEntry>,
-    m: &ModuleDef,
-    name: JSAtom,
-) -> Result<(), i32> {
-    if lst.len() == lst.capacity() {
-        lst.try_reserve(4).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-    }
-
-    lst.push(JSResolveEntry {
-        module: m.clone(),
-        name: name.dup(&ctx.rt()),
-    });
-
-    Ok(())
-}
-
-#[deprecated(note = "unused")]
-pub unsafe fn js_resolve_export_throw_error(
-    ctx: &JSContext,
-    res: JSResolveResultEnum,
-    m: &ModuleDef,
-    export_name: JSAtom,
-) {
-    match res {
-        JSResolveResultEnum::JS_RESOLVE_RES_EXCEPTION => {}
-        JSResolveResultEnum::JS_RESOLVE_RES_NOT_FOUND => {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!(
-                    "Could not find export '{}' in module '{}'",
-                    export_name.to_str(ctx.rt()),
-                    m.0.module_name.to_str(ctx.rt()),
-                ),
-            );
-        }
-        JSResolveResultEnum::JS_RESOLVE_RES_CIRCULAR => {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!(
-                    "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_str(ctx.rt()),
-                    m.0.module_name.to_str(ctx.rt()),
-                ),
-            );
-        }
-        JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS => {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!(
-                    "export '{}' in module '{}' is ambiguous",
-                    export_name.to_str(ctx.rt()),
-                    m.0.module_name.to_str(ctx.rt()),
-                ),
-            );
-        }
-        _ => {}
-    }
-}
-
-/// find the loaded module by module name
-#[deprecated(note = "use JSContext::find_loaded_module() instead")]
-pub fn js_find_loaded_module(ctx: &JSContext, name: JSAtom) -> Option<ModuleDef> {
-    ctx.find_loaded_module(name)
-}
-
-// Load all the required modules for module 'm'
-#[deprecated(note = "use JSContext::resolve_module() instead")]
-pub unsafe fn js_resolve_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
-    ctx.resolve_module(m).map_or(-1, |_| 0)
 }
 
 pub fn js_host_resolve_imported_module(
@@ -264,320 +157,4 @@ pub fn js_host_resolve_imported_module_atom(
     let base_cname = base_module_name.to_utf8_string(ctx)?;
     let cname = module_name1.to_utf8_string(ctx)?;
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
-}
-
-/// Prepare a module to be executed by resolving all the imported variables.
-pub fn js_link_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
-    #[cfg(DUMP_MODULE_RESOLVE)]
-    {
-        let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-        println!(
-            "js_link_module '{}':\n",
-            JS_AtomGetStr(
-                ctx,
-                buf1.as_mut_ptr(),
-                std::mem::size_of::<[u8; ATOM_GET_STR_BUF_SIZE]>(),
-                (*m).module_name
-            )
-        );
-    }
-
-    debug_assert!(matches!(
-        m.status(),
-        JSModuleStatus::JS_MODULE_STATUS_UNLINKED
-            | JSModuleStatus::JS_MODULE_STATUS_LINKED
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-    ));
-
-    let mut stack_top: Option<ModuleDef> = None;
-
-    if m.inner_module_linking(ctx, &mut stack_top, 0).is_err() {
-        while let Some(m1) = stack_top.take() {
-            debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_LINKING);
-            m1.0.status.set(JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
-            stack_top = m1.0.stack_prev.take();
-        }
-        return -1;
-    }
-
-    debug_assert!(stack_top.is_none());
-    debug_assert!(matches!(
-        m.status(),
-        JSModuleStatus::JS_MODULE_STATUS_LINKED
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-    ));
-
-    0
-}
-
-// Prepare a module to be executed by resolving all the imported variables.
-#[deprecated(note = "use ModuleDef::inner_module_linking() instead")]
-pub unsafe fn js_inner_module_linking(
-    ctx: &JSContext,
-    m: &ModuleDef, // FIXME: use ModuleInner instead
-    pstack_top: &mut Option<ModuleDef>,
-    index: i32,
-) -> i32 {
-    unreachable!("unused")
-
-    // if js_check_stack_overflow(ctx.rt(), 0) {
-    //     JS_ThrowStackOverflow(ctx);
-    //     return -1;
-    // }
-    //
-    // #[cfg(DUMP_MODULE_RESOLVE)]
-    // {
-    //     let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-    //     println!(
-    //         "js_inner_module_linking '{}':\n",
-    //         std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-    //             JS_AtomGetStr(ctx, buf1.as_mut_ptr(), buf1.len(), (*m).module_name),
-    //             buf1.len()
-    //         ))
-    //     );
-    // }
-    //
-    // {
-    //     let mut inner = m.0.borrow_mut();
-    //
-    //     if matches!(
-    //         inner.status,
-    //         JSModuleStatus::JS_MODULE_STATUS_LINKING
-    //             | JSModuleStatus::JS_MODULE_STATUS_LINKED
-    //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-    //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-    //     ) {
-    //         return index;
-    //     }
-    //
-    //     debug_assert!(inner.status == JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
-    //     inner.status = JSModuleStatus::JS_MODULE_STATUS_LINKING;
-    //     inner.dfs_index = index;
-    //     inner.dfs_ancestor_index = index;
-    //
-    //     // push 'm' on stack
-    //     inner.stack_prev = pstack_top.take();
-    //     pstack_top.replace(m.clone());
-    //
-    //     let mut index = index + 1;
-    //
-    //     for i in 0..inner.req_module_entries_count {
-    //         let rme: *mut JSReqModuleEntry = inner.req_module_entries.offset(i as isize);
-    //         let m1 = (*rme).module.as_ref().unwrap();
-    //
-    //         // FIXME: m.0 is borrowed_mut() at line 368, panic!
-    //         index = js_inner_module_linking(ctx, m1, pstack_top, index);
-    //         if index < 0 {
-    //             return -1;
-    //         }
-    //
-    //         debug_assert!(matches!(
-    //             m1.0.borrow().status,
-    //             JSModuleStatus::JS_MODULE_STATUS_LINKING
-    //                 | JSModuleStatus::JS_MODULE_STATUS_LINKED
-    //                 | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-    //                 | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-    //         ));
-    //
-    //         if m1.0.borrow_mut().status == JSModuleStatus::JS_MODULE_STATUS_LINKING {
-    //             inner.dfs_ancestor_index =
-    //                 std::cmp::min(inner.dfs_ancestor_index, m1.0.borrow().dfs_ancestor_index);
-    //         }
-    //     }
-    // }
-    //
-    // #[cfg(DUMP_MODULE_RESOLVE)]
-    // {
-    //     let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-    //     println!(
-    //         "instantiating module '{}':\n",
-    //         std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-    //             JS_AtomGetStr(ctx, buf1.as_mut_ptr(), buf1.len(), (*m).module_name),
-    //             buf1.len()
-    //         ))
-    //     );
-    // }
-    //
-    // // check the indirect exports
-    // {
-    //     let inner = m.0.borrow();
-    //
-    //     for me in inner.export_entries.iter() {
-    //         if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = me.export_type {
-    //             if me.local_name != JS_ATOM__star_ {
-    //                 let m1 = (*inner.req_module_entries.add(req_module_idx as usize))
-    //                     .module
-    //                     .as_ref()
-    //                     .unwrap();
-    //
-    //                 match m1.resolve_export(ctx, me.local_name, None) {
-    //                     ModuleResolveExport::Found { .. } => {}
-    //                     ret => {
-    //                         ret.throw_error(ctx, &m, me.export_name);
-    //                         return -1;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // #[cfg(DUMP_MODULE_RESOLVE)]
-    // {
-    //     println!("exported bindings:\n");
-    //     i = 0;
-    //     while i < (*m).export_entries_count {
-    //         let me: *mut JSExportEntry = (*m).export_entries.offset(i as isize);
-    //         print!(" name=");
-    //         print_atom(ctx, (*me).export_name);
-    //         print!(" local=");
-    //         print_atom(ctx, (*me).local_name);
-    //         println!(" type={} idx={}", (*me).export_type, (*me).u.local.var_idx);
-    //         i += 1;
-    //     }
-    // }
-    //
-    // let is_c_module = m.0.borrow().init_func.is_some();
-    // if !is_c_module {
-    //     let inner = m.0.borrow();
-    //     let mut isa = inner.bytecode.object_unchecked().0.payload.borrow_mut();
-    //     let var_refs = isa.func_mut().unwrap().var_refs.as_mut_slice();
-    //
-    //     for mi in m.0.borrow().import_entries.iter() {
-    //         #[cfg(DUMP_MODULE_RESOLVE)]
-    //         {
-    //             print!("import var_idx={} name=", (*mi).var_idx);
-    //             print_atom(ctx, (*mi).import_name);
-    //             print!(": ");
-    //         }
-    //
-    //         let m1 = m.0.borrow().req_module_entries[mi.req_module_idx as usize]
-    //             .module
-    //             .clone()
-    //             .unwrap();
-    //
-    //         if  mi .import_name == JS_ATOM__star_ {
-    //             // name space import
-    //             if let Ok(val) = m1.ns(ctx) {
-    //                 var_refs[ mi .var_idx as usize].set_value(val);
-    //
-    //                 #[cfg(DUMP_MODULE_RESOLVE)]
-    //                 {
-    //                     println!("namespace");
-    //                 }
-    //             } else {
-    //                 return -1;
-    //             }
-    //         } else {
-    //             match m1.resolve_export(ctx, (*mi).import_name, None) {
-    //                 ModuleResolveExport::Found { module, entry } => {
-    //                     match entry.export_type {
-    //                         JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-    //                             if entry.local_name == JS_ATOM__star_ {
-    //                                 // name space import from
-    //                                 let m2 = (*module
-    //                                     .0
-    //                                     .borrow()
-    //                                     .req_module_entries
-    //                                     .add(req_module_idx as usize))
-    //                                 .module
-    //                                 .clone()
-    //                                 .unwrap();
-    //
-    //                                 let val = if let Ok(o) = m2.ns(ctx) {
-    //                                     o
-    //                                 } else {
-    //                                     return -1;
-    //                                 };
-    //
-    //                                 if let Ok(vref) = js_create_module_var(ctx, true) {
-    //                                     vref.set_value(val);
-    //                                     var_refs[(*mi).var_idx as usize] = vref;
-    //
-    //                                     #[cfg(DUMP_MODULE_RESOLVE)]
-    //                                     {
-    //                                         println!("namespace from");
-    //                                     }
-    //                                 } else {
-    //                                     return -1;
-    //                                 }
-    //                             }
-    //                         }
-    //                         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-    //                             debug_assert_ne!(entry.local_name, JS_ATOM__star_);
-    //                             debug_assert_ne!(var_idx, u16::MAX);
-    //
-    //                             var_refs[(*mi).var_idx as usize] = if let Some(v) = var_ref {
-    //                                 v
-    //                             } else {
-    //                                 module
-    //                                     .0
-    //                                     .borrow()
-    //                                     .bytecode
-    //                                     .object_unchecked()
-    //                                     .0
-    //                                     .payload
-    //                                     .borrow()
-    //                                     .func()
-    //                                     .unwrap()
-    //                                     .var_refs[var_idx as usize]
-    //                                     .clone()
-    //                             };
-    //
-    //                             #[cfg(DUMP_MODULE_RESOLVE)]
-    //                             {
-    //                                 println!("local export (var_ref={:?})", var_ref);
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //                 ret => {
-    //                     ret.throw_error(ctx, &m1, (*mi).import_name);
-    //                     return -1;
-    //                 }
-    //             }
-    //         }
-    //     }
-    //
-    //     // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
-    //     for me in m.0.borrow_mut().export_entries.iter_mut() {
-    //         if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } = &mut me.export_type
-    //         {
-    //             debug_assert_ne!(*var_idx, u16::MAX);
-    //             var_ref.replace(var_refs[*var_idx as usize].clone());
-    //         }
-    //     }
-    //
-    //     // initialize the global variables
-    //     let ret_val = JS_Call(ctx, &m.0.borrow_mut().bytecode, &JSValue::Bool(true), &[]);
-    //     if ret_val.is_exception() {
-    //         return -1;
-    //     }
-    // }
-    //
-    // debug_assert!(m.0.borrow().dfs_ancestor_index <= m.0.borrow().dfs_index);
-    //
-    // if m.0.borrow().dfs_index == m.0.borrow().dfs_ancestor_index {
-    //     loop {
-    //         // pop m1 from stack
-    //         let m1 = pstack_top.take().unwrap();
-    //         let mut m1 = m1.0.borrow_mut();
-    //
-    //         m1.status = JSModuleStatus::JS_MODULE_STATUS_LINKED;
-    //         *pstack_top = m1.stack_prev.take();
-    //
-    //         if m1.id() == m.id() {
-    //             break;
-    //         }
-    //     }
-    // }
-    //
-    // #[cfg(DUMP_MODULE_RESOLVE)]
-    // {
-    //     println!("js_inner_module_linking done");
-    // }
-    //
-    // index
 }

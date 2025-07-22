@@ -1,11 +1,12 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*},
     bytecode::OpCodeTemp,
     context::JSContext,
+    defer,
     error::JS_ThrowSyntaxError,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{
-        JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_req_module_entry,
+        JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry,
         find_export_entry,
     },
 };
@@ -29,6 +30,8 @@ pub enum JSParseExportEnum {
 }
 
 impl<'s> JSParseState<'s> {
+    /// return atom of module name.
+    /// returned atom is duplicated, caller should free it after use.
     fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
         if !self.token_is_pseudo_keyword(JS_ATOM_from) {
             self.throw_syntax_error("from clause expected");
@@ -190,278 +193,213 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?;
         }
 
-        let idx = unsafe { add_req_module_entry(&self.ctx, &m, module_name) };
+        let idx = m.add_dependency(&self.ctx, module_name);
         JS_FreeAtom(&self.ctx, module_name);
-        if idx < 0 {
-            return Err(-1);
-        }
+        let idx = idx?;
 
         for imp in &mut m.0.import_entries.borrow_mut()[first_import..] {
-            imp.req_module_idx = idx;
+            imp.req_module_idx = idx as _;
+        }
+
+        self.parse_expect_semi()
+    }
+
+    pub fn parse_export(&mut self) -> Result<(), i32> {
+        let md = self.cur_func().module.as_ref().cloned().unwrap();
+
+        self.next_token()?;
+        let tok = self.token.val;
+
+        if tok == TOK_CLASS {
+            return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED);
+        } else if tok == TOK_FUNCTION
+            || (self.token_is_pseudo_keyword(JS_ATOM_async)
+                && self.peek_token(true) == TOK_FUNCTION)
+        {
+            return unsafe {
+                self.parse_function_decl2(
+                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                    JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    JS_ATOM_NULL,
+                    self.token.ptr,
+                    self.token.line_num,
+                    JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
+                    std::ptr::null_mut(),
+                )
+            };
+        }
+
+        self.next_token()?;
+
+        let mut local_name = JS_ATOM_NULL;
+        let mut export_name = JS_ATOM_NULL;
+        let local_name = &mut local_name;
+        let export_name = &mut export_name;
+
+        // free atom when exit
+        let local_name_ptr = local_name as *mut JSAtom;
+        let export_name_ptr = export_name as *mut JSAtom;
+        let rt_ptr = self.ctx.rt_ptr();
+        defer!(unsafe {
+            JS_FreeAtomRT(rt_ptr.as_ptr(), *local_name_ptr);
+            JS_FreeAtomRT(rt_ptr.as_ptr(), *export_name_ptr);
+        });
+
+        match tok {
+            // '{'
+            0x7b => {
+                let first_export = md.0.export_entries.borrow().len();
+
+                while self.token.val != b'}' as i32 {
+                    *local_name = parse_export_name(self)?;
+
+                    self.next_token()?;
+
+                    if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                        self.next_token()?;
+                        *export_name = parse_export_name(self)?;
+                        self.next_token()?;
+                    } else {
+                        *export_name = local_name.dup(self.ctx.rt());
+                    }
+
+                    add_export_entry(
+                        self,
+                        &md,
+                        *local_name,
+                        *export_name,
+                        JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                            var_idx: u16::MAX, // unknown for now
+                            var_ref: None,
+                        },
+                    )?;
+
+                    // reset name atoms
+                    JS_FreeAtom(&self.ctx, *local_name);
+                    JS_FreeAtom(&self.ctx, *export_name);
+                    *local_name = JS_ATOM_NULL;
+                    *export_name = JS_ATOM_NULL;
+
+                    if self.token.val != CHAR_COMMA {
+                        break;
+                    }
+
+                    self.next_token()?;
+                }
+
+                self.parse_expect('}' as i32)?;
+
+                // Handle re-exports
+                if self.token_is_pseudo_keyword(JS_ATOM_from) {
+                    let module_name = self.parse_from_clause()?;
+                    let idx = md.add_dependency(&self.ctx, module_name);
+                    JS_FreeAtom(&self.ctx, module_name);
+
+                    let idx = idx?;
+
+                    for me in &mut md.0.export_entries.borrow_mut()[first_export..] {
+                        me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx as _);
+                    }
+                }
+            }
+
+            // *
+            0x2a => {
+                if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                    // export ns from
+                    self.next_token()?;
+                    *export_name = parse_export_name(self)?;
+                    self.next_token()?;
+
+                    let module_name = self.parse_from_clause()?;
+                    let idx = md.add_dependency(&self.ctx, module_name);
+                    JS_FreeAtom(&self.ctx, module_name);
+
+                    let idx = idx?;
+                    add_export_entry(
+                        self,
+                        &md,
+                        JS_ATOM__star_,
+                        *export_name,
+                        JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx as _),
+                    )?;
+                } else {
+                    let module_name = self.parse_from_clause()?;
+                    let dep_idx = md.add_dependency(&self.ctx, module_name);
+                    JS_FreeAtom(&self.ctx, module_name);
+
+                    let idx = dep_idx?;
+                    add_star_export_entry(&self.ctx, &md, idx)?;
+                }
+            }
+
+            TOK_DEFAULT => {
+                if self.token.val == TOK_CLASS {
+                    return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT);
+                } else if self.token.val == TOK_FUNCTION
+                    || (self.token_is_pseudo_keyword(JS_ATOM_async)
+                        && self.peek_token(true) == TOK_FUNCTION)
+                {
+                    return unsafe {
+                        self.parse_function_decl2(
+                            JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                            JSFunctionKindEnum::JS_FUNC_NORMAL,
+                            JS_ATOM_NULL,
+                            self.token.ptr,
+                            self.token.line_num,
+                            JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
+                            std::ptr::null_mut(),
+                        )
+                    };
+                } else {
+                    self.parse_assign_expr()?;
+                }
+
+                // set the name of anonymous functions
+                self.set_object_name(JS_ATOM_default);
+
+                // store the value in the _default_ global variable and export it
+                let loc = JS_ATOM__default_;
+                self.define_var_cur_func(loc, JSVarDefEnum::JS_VAR_DEF_LET)?;
+                self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                self.emit_atom_dup(loc);
+                self.emit_u16(0);
+
+                add_export_entry(
+                    self,
+                    &md,
+                    loc,
+                    JS_ATOM_default,
+                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                        var_idx: u16::MAX, // unknown for now
+                        var_ref: None,
+                    },
+                )?;
+            }
+
+            TOK_VAR | TOK_LET | TOK_CONST => {
+                return unsafe { self.parse_var(1, tok, true) };
+            }
+
+            _ => {
+                self.throw_syntax_error("invalid export syntax");
+                return Err(-1);
+            }
         }
 
         self.parse_expect_semi()
     }
 }
 
-/// Parse an identifier and return its atom
-unsafe fn parse_export_name(s: *mut JSParseState) -> JSAtom {
-    if !JSParseState::token_is_ident((*s).token.val) {
-        (*s).throw_syntax_error("identifier expected");
-        return JS_ATOM_NULL;
+/// Parse an identifier and return its atom.
+/// returned atom is duplicated. caller should free it after use.
+fn parse_export_name(s: &mut JSParseState) -> Result<JSAtom, i32> {
+    if !JSParseState::token_is_ident(s.token.val) {
+        s.throw_syntax_error("identifier expected");
+        Err(-1)
+    } else {
+        Ok(s.token.data.ident_atom().unwrap().dup(&s.ctx.rt()))
     }
-    (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt())
-}
-
-/// Parse an 'as' clause and return the export name
-unsafe fn parse_as_clause(s: *mut JSParseState, name: JSAtom) -> JSAtom {
-    let ctx = &(*s).ctx;
-    let mut export_name = name;
-
-    if (*s).token_is_pseudo_keyword(JS_ATOM_as) {
-        if (*s).next_token().is_err() {
-            JS_FreeAtom(ctx, export_name);
-            return JS_ATOM_NULL;
-        }
-        export_name = parse_export_name(s);
-        if export_name == JS_ATOM_NULL {
-            return JS_ATOM_NULL;
-        }
-        if (*s).next_token().is_err() {
-            JS_FreeAtom(ctx, export_name);
-            return JS_ATOM_NULL;
-        }
-    }
-
-    export_name
-}
-
-pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
-    let ctx = &(*s).ctx;
-    let m: &ModuleDef = (*s).cur_func().module.as_ref().unwrap();
-
-    let mut local_name: JSAtom;
-    let mut export_name: JSAtom;
-
-    if (*s).next_token().is_err() {
-        return -1;
-    }
-
-    let tok = (*s).token.val;
-    if tok == TOK_CLASS {
-        return (*s)
-            .parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED)
-            .map_or(-1, |_| 0);
-    } else if tok == TOK_FUNCTION
-        || ((*s).token_is_pseudo_keyword(JS_ATOM_async) && (*s).peek_token(true) == TOK_FUNCTION)
-    {
-        return (*s)
-            .parse_function_decl2(
-                JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                JSFunctionKindEnum::JS_FUNC_NORMAL,
-                JS_ATOM_NULL,
-                (*s).token.ptr,
-                (*s).token.line_num,
-                JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
-                std::ptr::null_mut(),
-            )
-            .map_or(-1, |_| 0);
-    }
-
-    if (*s).next_token().is_err() {
-        return -1;
-    }
-
-    match tok {
-        // '{'
-        0x7b => {
-            // Get all named exports first
-            let mut exports = Vec::new();
-            while (*s).token.val != b'}' as i32 {
-                local_name = parse_export_name(s);
-                if local_name == JS_ATOM_NULL {
-                    return -1;
-                }
-                export_name = JS_ATOM_NULL;
-                if (*s).next_token().is_err() {
-                    JS_FreeAtom(ctx, local_name);
-                    return -1;
-                }
-                export_name = parse_as_clause(s, local_name);
-                if export_name == JS_ATOM_NULL {
-                    JS_FreeAtom(ctx, local_name);
-                    return -1;
-                }
-                exports.push((local_name, export_name));
-
-                if (*s).token.val != CHAR_COMMA {
-                    break;
-                }
-                if (*s).next_token().is_err() {
-                    return -1;
-                }
-            }
-
-            if (*s).parse_expect(CHAR_CURLY_R).is_err() {
-                return -1;
-            }
-
-            // Process named exports
-            let first_export = m.0.export_entries.borrow().len();
-            for (local_name, export_name) in exports {
-                match add_export_entry(
-                    s.as_mut().unwrap(),
-                    m,
-                    local_name,
-                    export_name,
-                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                        var_idx: u16::MAX, // unknown for now
-                        var_ref: None,
-                    },
-                ) {
-                    Ok(_) => {
-                        JS_FreeAtom(ctx, local_name);
-                        JS_FreeAtom(ctx, export_name);
-                    }
-                    Err(_) => {
-                        return -1;
-                    }
-                }
-
-                // me = add_export_entry(
-                //     s,
-                //     m,
-                //     local_name,
-                //     export_name,
-                //     JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                //         var_idx: u16::MAX, // unknown for now
-                //         var_ref: None,
-                //     },
-                // );
-                // JS_FreeAtom(ctx, local_name);
-                // JS_FreeAtom(ctx, export_name);
-                // if me.is_null() {
-                //     return -1;
-                // }
-            }
-
-            // Handle re-exports
-            if (*s).token_is_pseudo_keyword(JS_ATOM_from) {
-                let module_name = if let Ok(n) = (*s).parse_from_clause() {
-                    n
-                } else {
-                    return -1;
-                };
-                let idx = add_req_module_entry(ctx, m, module_name);
-                JS_FreeAtom(ctx, module_name);
-                if idx < 0 {
-                    return -1;
-                }
-
-                for me in &mut m.0.export_entries.borrow_mut()[first_export..] {
-                    me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx);
-                }
-            }
-        }
-
-        // *
-        0x2a => {
-            export_name = parse_as_clause(s, JS_ATOM__star_);
-            if export_name == JS_ATOM_NULL {
-                return -1;
-            }
-
-            let module_name = if let Ok(n) = (*s).parse_from_clause() {
-                n
-            } else {
-                JS_FreeAtom(ctx, export_name);
-                return -1;
-            };
-            let idx = add_req_module_entry(ctx, m, module_name);
-            JS_FreeAtom(ctx, module_name);
-            if idx < 0 {
-                JS_FreeAtom(ctx, export_name);
-                return -1;
-            }
-
-            let me = add_export_entry(
-                s.as_mut().unwrap(),
-                m,
-                JS_ATOM__star_,
-                export_name,
-                JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx),
-            );
-            JS_FreeAtom(ctx, export_name);
-            if me.is_err() {
-                return -1;
-            }
-        }
-
-        TOK_DEFAULT => {
-            if (*s).token.val == TOK_CLASS {
-                return (*s)
-                    .parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT)
-                    .map_or(-1, |_| 0);
-            } else if (*s).token.val == TOK_FUNCTION
-                || ((*s).token_is_pseudo_keyword(JS_ATOM_async)
-                    && (*s).peek_token(true) == TOK_FUNCTION)
-            {
-                return (*s)
-                    .parse_function_decl2(
-                        JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        JS_ATOM_NULL,
-                        (*s).token.ptr,
-                        (*s).token.line_num,
-                        JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
-                        std::ptr::null_mut(),
-                    )
-                    .map_or(-1, |_| 0);
-            } else {
-                if (*s).parse_assign_expr().is_err() {
-                    return -1;
-                }
-            }
-            (*s).set_object_name(JS_ATOM_default);
-
-            local_name = JS_ATOM__default_;
-            if (*s)
-                .define_var_cur_func(local_name, JSVarDefEnum::JS_VAR_DEF_LET)
-                .is_err()
-            {
-                return -1;
-            }
-            (*s).emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            (*s).emit_atom_dup(local_name);
-            (*s).emit_u16(0);
-
-            if add_export_entry(
-                s.as_mut().unwrap(),
-                m,
-                local_name,
-                JS_ATOM_default,
-                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
-                    var_idx: u16::MAX, // unknown for now
-                    var_ref: None,
-                },
-            )
-            .is_err()
-            {
-                return -1;
-            }
-        }
-
-        TOK_VAR | TOK_LET | TOK_CONST => {
-            return (*s).parse_var(1, tok, true).map_or(-1, |_| 0);
-        }
-
-        _ => {
-            (*s).throw_syntax_error("invalid export syntax");
-            return -1;
-        }
-    }
-
-    (*s).parse_expect_semi().map_or(-1, |_| 0)
 }
 
 unsafe fn add_export_entry2(
@@ -511,6 +449,7 @@ unsafe fn add_export_entry2(
     Ok(())
 }
 
+/// `local_name`, `export_name` are not consumed.
 pub fn add_export_entry<'a>(
     s: &mut JSParseState,
     m: &ModuleDef,

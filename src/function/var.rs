@@ -231,6 +231,7 @@ impl JSFunctionDef {
     }
 
     #[inline]
+    /// `name` is not consumed.
     pub fn find_global_var(&self, name: JSAtom) -> Option<&JSGlobalVar> {
         self.global_vars.iter().find(|x| x.var_name == name)
     }
@@ -241,12 +242,14 @@ impl JSFunctionDef {
     }
 
     #[inline]
+    /// `name` is not consumed.
     pub fn find_lexical_global_var(&self, name: JSAtom) -> Option<&JSGlobalVar> {
         self.find_global_var(name)
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
     }
 
     #[inline]
+    /// `name` is not consumed.
     pub fn find_lexical_global_var_mut(&mut self, name: JSAtom) -> Option<&mut JSGlobalVar> {
         self.find_global_var_mut(name)
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
@@ -262,10 +265,10 @@ impl JSFunctionDef {
         }
 
         if self.args.len() == self.args.capacity() {
-            if self.args.try_reserve_exact(2).is_err() {
+            self.args.try_reserve_exact(2).map_err(|_| {
                 ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+                -1
+            })?;
         }
 
         self.args.push(JSVarDef {
@@ -279,7 +282,8 @@ impl JSFunctionDef {
         Ok(self.args.len() as u16 - 1)
     }
 
-    /// add variable defination. return the new variable index or error
+    /// add variable defination. return the new variable index or error.
+    /// `name` is not consumed
     pub fn add_var(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.throw_internal_error("too many local variables");
@@ -374,6 +378,7 @@ impl JSFunctionDef {
     }
 
     /// find argument var by `name`.
+    /// `name` is not consumed.
     ///
     /// returns
     /// * the variable index or'ed with ARGUMENT_VAR_OFFSET as var id
@@ -394,6 +399,7 @@ impl JSFunctionDef {
 
     /// find variable by `name`. if `name` is not found in vars, find it in arguments.
     /// for argument var, returned id is or'ed with ARGUMENT_VAR_OFFSET.
+    /// `name` is not consumed.
     pub fn find_var(&self, name: JSAtom) -> Option<u32> {
         self.vars
             .iter()
@@ -409,7 +415,8 @@ impl JSFunctionDef {
             .or(self.find_arg(name)) // not found is vars, then search in args
     }
 
-    /// will check global lexcical only when `scope` is minus
+    /// will check global lexcical only when `scope` is minus.
+    /// `name` is not consumed.
     pub fn find_lexical_decl(
         &mut self,
         name: JSAtom,

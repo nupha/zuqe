@@ -2,7 +2,6 @@ use crate::{
     atom::consts::JS_ATOM__star_, context::JSContext, error::JS_ThrowStackOverflow,
     function::JS_Call, runtime::js_check_stack_overflow, value::JSValue,
 };
-use std::ops::{Deref, DerefMut};
 
 use super::{
     JSExportTypeEnum, JSModuleStatus, ModuleDef, ModuleDefInner, ModuleResolveExport,
@@ -57,26 +56,26 @@ impl ModuleDefInner {
 
         let mut index = index + 1;
 
-        for req_entry in self.req_module_entries.borrow().iter() {
-            let req_m = req_entry.module.clone().unwrap();
-            index = req_m.inner_module_linking(ctx, stack_top, index)?;
+        for dep in self.dependencies.borrow().iter() {
+            let dep_m = dep.module.clone().unwrap();
+            index = dep_m.inner_module_linking(ctx, stack_top, index)?;
             debug_assert!(index > 0);
             // if index < 0 {
             //     return Err(-1);
             // }
 
             debug_assert!(matches!(
-                req_m.status(),
+                dep_m.status(),
                 JSModuleStatus::JS_MODULE_STATUS_LINKING
                     | JSModuleStatus::JS_MODULE_STATUS_LINKED
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
             ));
 
-            if req_m.status() == JSModuleStatus::JS_MODULE_STATUS_LINKING {
+            if dep_m.status() == JSModuleStatus::JS_MODULE_STATUS_LINKING {
                 self.dfs_ancestor_index.set(std::cmp::min(
                     self.dfs_ancestor_index.get(),
-                    req_m.0.dfs_ancestor_index.get(),
+                    dep_m.0.dfs_ancestor_index.get(),
                 ));
             }
         }
@@ -84,12 +83,12 @@ impl ModuleDefInner {
         //
         // let entries_count = self.0.borrow().req_module_entries_count;
         // for i in 0..entries_count {
-        //     // let rme: *mut JSReqModuleEntry = self.0.borrow().req_module_entries.add(i as usize);
+        //     // let rme: *mut ModuleDependency = self.0.borrow().dependencies.add(i as usize);
         //     // let m1 = (*rme).module.as_ref().unwrap();
         //     let m1 = self
         //         .0
         //         .borrow()
-        //         .req_module_entries
+        //         .dependencies
         //         .add(i as usize)
         //         .as_ref()
         //         .unwrap()
@@ -136,11 +135,11 @@ impl ModuleDefInner {
             if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp_entry.export_type
                 && exp_entry.local_name != JS_ATOM__star_
             {
-                let m1 = self.req_module_entries.borrow()[req_module_idx as usize]
+                let m1 = self.dependencies.borrow()[req_module_idx as usize]
                     .module
                     .clone()
                     .unwrap();
-                let ret = m1.resolve_export(ctx, exp_entry.local_name, None);
+                let ret = m1.resolve_export(ctx, exp_entry.local_name, None)?;
                 if !matches!(ret, ModuleResolveExport::Found { .. }) {
                     ret.throw_error_inner(ctx, self, exp_entry.export_name);
                     return Err(-1);
@@ -176,7 +175,8 @@ impl ModuleDefInner {
                 for imp_entry in self.import_entries.borrow().iter() {
                     let import_name = imp_entry.import_name;
                     let import_var_idx = imp_entry.var_idx;
-                    let m1 = self.req_module_entries.borrow()[imp_entry.req_module_idx as usize]
+
+                    let dep_m = self.dependencies.borrow()[imp_entry.req_module_idx as usize]
                         .module
                         .clone()
                         .unwrap();
@@ -190,7 +190,7 @@ impl ModuleDefInner {
 
                     if import_name == JS_ATOM__star_ {
                         // name space import
-                        let val = m1.ns(ctx)?;
+                        let val = dep_m.ns(ctx)?;
                         var_refs[import_var_idx as usize].set_value(val.into());
 
                         #[cfg(DUMP_MODULE_RESOLVE)]
@@ -198,13 +198,13 @@ impl ModuleDefInner {
                             println!("namespace");
                         }
                     } else {
-                        match m1.resolve_export(ctx, import_name, None) {
+                        match dep_m.resolve_export(ctx, import_name, None)? {
                             ModuleResolveExport::Found { module, entry } => {
                                 match entry.export_type {
                                     JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                                         if entry.local_name == JS_ATOM__star_ {
                                             // name space import from
-                                            let m2 = module.0.req_module_entries.borrow()
+                                            let m2 = module.0.dependencies.borrow()
                                                 [req_module_idx as usize]
                                                 .module
                                                 .clone()
@@ -251,7 +251,7 @@ impl ModuleDefInner {
                                 }
                             }
                             ret => {
-                                ret.throw_error(ctx, &m1, import_name);
+                                ret.throw_error(ctx, &dep_m, import_name);
                                 return Err(-1);
                             }
                         }
@@ -265,7 +265,7 @@ impl ModuleDefInner {
                 //         let br = self.0.borrow();
                 //         let entry = br.import_entries.add(i as usize);
                 //         (
-                //             (*br.req_module_entries.add((*entry).req_module_idx as usize))
+                //             (*br.dependencies.add((*entry).req_module_idx as usize))
                 //                 .module
                 //                 .clone()
                 //                 .unwrap(),
@@ -303,7 +303,7 @@ impl ModuleDefInner {
                 //                             let m2 = (*module
                 //                                 .0
                 //                                 .borrow()
-                //                                 .req_module_entries
+                //                                 .dependencies
                 //                                 .add(req_module_idx as usize))
                 //                             .module
                 //                             .clone()
@@ -427,20 +427,53 @@ impl ModuleDef {
         stack_top: &mut Option<ModuleDef>,
         index: i32,
     ) -> Result<i32, i32> {
-        let st0 = self.status();
+        self.0
+            .inner_module_linking(ctx, self.clone(), stack_top, index)
+    }
 
-        let idx = self
-            .0
-            .inner_module_linking(ctx, self.clone(), stack_top, index)?;
+    /// Prepare a module to be executed by resolving all the imported variables.
+    pub fn link(&self, ctx: &JSContext) -> Result<(), i32> {
+        #[cfg(DUMP_MODULE_RESOLVE)]
+        {
+            let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
+            println!(
+                "js_link_module '{}':\n",
+                JS_AtomGetStr(
+                    ctx,
+                    buf1.as_mut_ptr(),
+                    std::mem::size_of::<[u8; ATOM_GET_STR_BUF_SIZE]>(),
+                    (*m).module_name
+                )
+            );
+        }
 
-        // if st0 == JSModuleStatus::JS_MODULE_STATUS_UNLINKED
-        //     && self.status() == JSModuleStatus::JS_MODULE_STATUS_LINKING
-        // {
-        //     // push `self` on stack
-        //     self.0.borrow_mut().stack_prev = stack_top.take();
-        //     stack_top.replace(self.clone());
-        // }
+        debug_assert!(matches!(
+            self.status(),
+            JSModuleStatus::JS_MODULE_STATUS_UNLINKED
+                | JSModuleStatus::JS_MODULE_STATUS_LINKED
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+        ));
 
-        return Ok(idx);
+        let mut stack_top: Option<ModuleDef> = None;
+
+        if self.inner_module_linking(ctx, &mut stack_top, 0).is_err() {
+            while let Some(m1) = stack_top.take() {
+                debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_LINKING);
+                m1.0.status.set(JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
+                stack_top = m1.0.stack_prev.take();
+            }
+            return Err(-1);
+        }
+
+        debug_assert!(stack_top.is_none());
+        debug_assert!(matches!(
+            self.status(),
+            JSModuleStatus::JS_MODULE_STATUS_LINKED
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+        ));
+
+        Ok(())
     }
 }
