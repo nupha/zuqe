@@ -573,9 +573,8 @@ impl JSValue {
         } else {
             #[cfg(debug_assertions)]
             unreachable!("{self:?}");
-
             #[cfg(not(debug_assertions))]
-            unreachable_unchecked();
+            std::hint::unreachable_unchecked();
         }
     }
 
