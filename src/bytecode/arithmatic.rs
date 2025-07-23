@@ -17,7 +17,6 @@ pub(super) enum TwoNumbers {
 
 impl TwoNumbers {
     /// accepts int, bool, or optionally float
-    #[inline(always)]
     pub fn from_numeric(op1: JSValue, op2: JSValue, allow_float: bool) -> Option<Self> {
         match (op1, op2) {
             (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(a, b)),
@@ -190,7 +189,6 @@ pub(super) enum UnaryOp {
 
 impl UnaryOp {
     /// `val` is consumed
-    #[inline(always)]
     pub fn new(ctx: &JSContext, val: JSValue, allow_float: bool) -> Result<Self, i32> {
         match val {
             JSValue::Int(i) => Ok(UnaryOp::Int(i)),
@@ -354,7 +352,6 @@ impl JSValue {
     }
 
     /// arithmatic add of two values.
-    #[inline(always)]
     pub fn arith_add(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
         if matches!(
             (&op1, &op2),

@@ -300,7 +300,6 @@ impl JSValue {
         matches!(self, Self::UNINITIALIZED)
     }
 
-    #[inline]
     pub fn is_htmldda(&self) -> bool {
         if let Self::Object(obj) = self {
             obj.flags().is_htmldda()
@@ -331,7 +330,7 @@ impl JSValue {
     }
 
     /// check if self is an exception. returns Err if yes, otherwise returns Ok(value)
-    #[inline]
+    #[inline(always)]
     pub fn check_exception(self) -> Result<Self, i32> {
         if self.is_exception() {
             Err(-1)
@@ -354,7 +353,7 @@ impl JSValue {
                 let u = JSFloat64Union { uint64: *d as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]) * 3163 }
             }
-            Self::String(s) | Self::Symbol(s) => unsafe { s.content().calc_hash(AtomType::String) },
+            Self::String(s) | Self::Symbol(s) => s.content().calc_hash(AtomType::String),
             Self::Float64(d) => {
                 let mut d = *d;
                 if d.is_nan() {

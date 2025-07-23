@@ -407,39 +407,39 @@ pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> 
     res
 }
 
-#[deprecated(note = "use JSParseState::set_eval_ret_undefined() instead")]
-pub fn set_eval_ret_undefined(s: &mut JSParseState) {
-    s.set_eval_ret_undefined();
-}
+// #[deprecated(note = "use JSParseState::set_eval_ret_undefined() instead")]
+// pub fn set_eval_ret_undefined(s: &mut JSParseState) {
+//     s.set_eval_ret_undefined();
+// }
 
-#[deprecated(note = "use JSParseState::parse_block() instead")]
-pub unsafe fn js_parse_block(s: &mut JSParseState) -> Result<(), i32> {
-    s.parse_block()
-}
+// #[deprecated(note = "use JSParseState::parse_block() instead")]
+// pub unsafe fn js_parse_block(s: &mut JSParseState) -> Result<(), i32> {
+//     s.parse_block()
+// }
 
-#[deprecated(note = "use JSParseState::parse_statement() instead")]
-pub unsafe fn js_parse_statement(s: &mut JSParseState) -> Result<(), i32> {
-    s.parse_statement()
-}
+// #[deprecated(note = "use JSParseState::parse_statement() instead")]
+// pub unsafe fn js_parse_statement(s: &mut JSParseState) -> Result<(), i32> {
+//     s.parse_statement()
+// }
 
-#[inline(always)]
-unsafe fn stmt_return(s: &mut JSParseState) -> Result<(), i32> {
-    s.next_token()?;
+// #[inline(always)]
+// unsafe fn stmt_return(s: &mut JSParseState) -> Result<(), i32> {
+//     s.next_token()?;
 
-    if s.got_lf {
-        s.throw_syntax_error("line terminator not allowed after throw");
-        return Err(-1);
-    }
-    if s.parse_expr().is_err() {
-        return Err(-1);
-    }
-    s.emit_op(OpCode::THROW);
-    if s.parse_expect_semi().is_err() {
-        return Err(-1);
-    }
+//     if s.got_lf {
+//         s.throw_syntax_error("line terminator not allowed after throw");
+//         return Err(-1);
+//     }
+//     if s.parse_expr().is_err() {
+//         return Err(-1);
+//     }
+//     s.emit_op(OpCode::THROW);
+//     if s.parse_expect_semi().is_err() {
+//         return Err(-1);
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 #[inline(always)]
 unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {

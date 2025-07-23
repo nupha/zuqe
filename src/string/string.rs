@@ -167,7 +167,6 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    #[inline(always)]
     pub fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
         let sc = s.parse::<StringContent>()?;
         Ok(Self::new(rt, Rc::new(sc)))

@@ -378,13 +378,6 @@ impl JSValue {
             false
         }
     }
-
-    // #[inline(always)]
-    // pub unsafe fn as_native_function_unchecked(self) -> NativeFunction {
-    //     debug_assert!(self.is_object());
-    //     debug_assert_eq!(self.object_unchecked().class_id(), JS_CLASS_C_FUNCTION);
-    //     std::mem::transmute(self)
-    // }
 }
 
 impl JSContext {

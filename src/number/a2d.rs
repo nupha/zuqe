@@ -18,7 +18,6 @@ pub const ATOD_TYPE_BIG_INT: i32 = 1 << 7;
 /// accept -0x1
 pub const ATOD_ACCEPT_PREFIX_AFTER_SIGN: i32 = 1 << 10;
 
-#[inline(always)]
 pub const fn to_digit(c: u8) -> i32 {
     if c.is_ascii_digit() {
         (c - b'0') as _

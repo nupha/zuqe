@@ -306,14 +306,12 @@ impl ModuleDef {
     }
 }
 
-#[inline(always)]
 pub unsafe fn find_exported_name(s: *mut GetExportNamesState, name: JSAtom) -> Option<i32> {
     for i in 0..(*s).exported_names_count {
         if (*(*s).exported_names.offset(i as isize)).export_name == name {
             return Some(i);
         }
     }
-
     return None;
 }
 

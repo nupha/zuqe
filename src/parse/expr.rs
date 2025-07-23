@@ -172,7 +172,7 @@ impl<'s> JSParseState<'s> {
     /// a short-cut to `self.parse_assign_expr2(PF_IN_ACCEPTED)`
     #[inline(always)]
     pub fn parse_assign_expr(&mut self) -> Result<(), i32> {
-        unsafe { self.parse_assign_expr2(PF_IN_ACCEPTED) }
+        self.parse_assign_expr2(PF_IN_ACCEPTED)
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED

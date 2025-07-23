@@ -173,23 +173,19 @@ impl Promise {
 
     /// get Promise meta data.
     fn with_meta<R>(&self, f: impl FnOnce(&ObjPromise) -> R) -> Option<R> {
-        unsafe {
-            if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow().deref() {
-                Some(f(p))
-            } else {
-                None
-            }
+        if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow().deref() {
+            Some(f(p))
+        } else {
+            None
         }
     }
 
     /// get Promise meta data.
     fn with_meta_mut<R>(&self, f: impl FnOnce(&mut ObjPromise) -> R) -> Option<R> {
-        unsafe {
-            if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
-                Some(f(p))
-            } else {
-                None
-            }
+        if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
+            Some(f(p))
+        } else {
+            None
         }
     }
 
@@ -201,7 +197,7 @@ impl Promise {
 
     /// get Promise result.
     /// returned value is duplicated, caller must free it.
-    #[inline(always)]
+    #[inline]
     pub fn result(&self) -> JSValue {
         self.with_meta(|s| s.promise_result.clone())
             .unwrap_or(JSValue::UNDEFINED)
@@ -272,7 +268,7 @@ impl JSContext {
     /// this is just a shortcut for `Promise::new(ctx, ctor)`.
     #[inline(always)]
     pub fn create_promise(&self, ctor: &JSValueConst) -> Result<(Promise, [JSValue; 2]), i32> {
-        unsafe { Promise::new(self, ctor) }
+        Promise::new(self, ctor)
     }
 }
 

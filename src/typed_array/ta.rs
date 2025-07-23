@@ -24,7 +24,6 @@ pub const TYPED_ARRAY_SIZE_LOG2: [u8; JS_TYPED_ARRAY_COUNT] = [
 #[inline(always)]
 pub fn typed_array_size_log2(classid: JSClassID) -> u8 {
     debug_assert!((JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&classid));
-
     TYPED_ARRAY_SIZE_LOG2[(classid - JS_CLASS_UINT8C_ARRAY) as usize]
 }
 
@@ -117,7 +116,6 @@ impl ObjTypedArray {
     }
 
     /// get underlaying array buffer.
-    #[inline(always)]
     pub fn array_buffer(&self) -> ObjArrayBuffer {
         self.buffer
             .0

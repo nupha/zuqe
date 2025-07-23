@@ -47,7 +47,7 @@ impl AsyncFunction {
     }
 
     /// hook to call an async function
-    #[inline(always)]
+    #[inline]
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -55,7 +55,7 @@ impl AsyncFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let afunc: AsyncFunction = func_obj.clone().try_into()?;
+        let afunc = AsyncFunction::try_from(func_obj.clone())?;
         afunc
             .call(ctx, this_obj.clone(), args, flags)
             .map(|p| p.into())

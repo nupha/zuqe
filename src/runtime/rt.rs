@@ -452,7 +452,6 @@ pub unsafe fn JS_SetMaxStackSize(rt: *mut JSRuntime, stack_size: usize) {
     update_stack_limit(rt);
 }
 
-#[inline(always)]
 pub fn JS_UpdateStackTop(rt: *mut JSRuntime) {
     unsafe {
         (*rt).stack_top = js_get_stack_pointer() as usize;

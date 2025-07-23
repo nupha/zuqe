@@ -16,7 +16,6 @@ impl Default for list_head {
     }
 }
 
-#[inline(always)]
 pub fn init_list_head(head: *mut list_head) {
     unsafe {
         (*head).prev = head;
@@ -24,7 +23,6 @@ pub fn init_list_head(head: *mut list_head) {
     }
 }
 
-#[inline(always)]
 pub unsafe fn list_del(el: *mut list_head) {
     let prev = (*el).prev;
     let next = (*el).next;
@@ -39,7 +37,6 @@ pub unsafe fn list_del(el: *mut list_head) {
 }
 
 /* insert 'el' between 'prev' and 'next' */
-#[inline(always)]
 unsafe fn __list_add(el: *mut list_head, prev: *mut list_head, next: *mut list_head) {
     (*prev).next = el;
     (*el).prev = prev;
@@ -48,14 +45,12 @@ unsafe fn __list_add(el: *mut list_head, prev: *mut list_head, next: *mut list_h
 }
 
 /* add 'el' at the head of the list 'head' (= after element head) */
-#[inline(always)]
 pub unsafe fn list_add(el: *mut list_head, head: *mut list_head) {
     debug_assert!(!head.is_null());
     __list_add(el, head, (*head).next);
 }
 
 /* add 'el' at the end of the list 'head' (= before element head) */
-#[inline]
 pub unsafe fn list_add_tail(el: *mut list_head, head: *mut list_head) {
     debug_assert!(!(*head).prev.is_null());
     __list_add(el, (*head).prev, head);
@@ -84,7 +79,6 @@ pub fn list_count(head: *const list_head) -> usize {
     cnt
 }
 
-#[inline(always)]
 pub fn list_empty(el: *const list_head) -> bool {
     unsafe { std::ptr::eq((*el).next, el) }
 }

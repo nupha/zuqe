@@ -241,7 +241,7 @@ impl JSParseState<'_> {
     }
 
     /// test if `c` is allowed in non-first char of an ident
-    #[inline(always)]
+    #[inline]
     pub const fn is_ident_next(c: char) -> bool {
         if c.is_ascii() {
             matches!(c, '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' | '$')
@@ -259,7 +259,7 @@ impl JSParseState<'_> {
     }
 
     /// test if `c` could be used as first char of an ident
-    #[inline(always)]
+    #[inline]
     pub const fn is_ident_first(c: char) -> bool {
         if c.is_ascii() {
             matches!(c,  '$' | 'A'..='Z' | 'a'..='z' | '_')

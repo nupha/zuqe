@@ -291,7 +291,6 @@ impl ObjAsyncGenerator {
         );
     }
 
-    #[inline(always)]
     pub fn resolve(&mut self, ctx: &JSContext, value: JSValue, done: bool) {
         let result = js_create_iterator_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
