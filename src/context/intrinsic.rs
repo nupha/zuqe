@@ -71,9 +71,9 @@ impl JSContext {
             .define_property(
                 self,
                 JS_ATOM_caller,
-                &JSValue::UNDEFINED,
-                &obj1,
-                &self.0.borrow().throw_type_error,
+                JSValue::UNDEFINED,
+                obj1.clone(),
+                self.0.borrow().throw_type_error.clone(),
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
@@ -84,9 +84,9 @@ impl JSContext {
             .define_property(
                 self,
                 JS_ATOM_arguments,
-                &JSValue::UNDEFINED,
-                &obj1,
-                &self.0.borrow().throw_type_error,
+                JSValue::UNDEFINED,
+                obj1.clone(),
+                self.0.borrow().throw_type_error.clone(),
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();

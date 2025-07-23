@@ -73,7 +73,7 @@ impl JSObject {
                 .to_str(rt),
         );
 
-        if self.flags().is_exotic() && self.flags().fast_array() {
+        if self.flags().is_exotic() && self.flags().is_fast_array() {
             print!("[ ");
 
             match self.class_id() {

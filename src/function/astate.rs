@@ -228,17 +228,17 @@ impl ObjAsyncState {
         )
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.borrow().id()
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_completed(&self) -> bool {
         self.0.borrow().is_completed
     }
@@ -284,7 +284,6 @@ impl ObjAsyncState {
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.0.borrow().frame.cur_sp_offset > 0);
-
                 ret = Ok(unsafe {
                     std::ptr::replace(
                         // HINT: stack_cur_ptr advances the addr of stack top value by 1.
@@ -312,10 +311,12 @@ impl ObjAsyncState {
         ret
     }
 
+    #[inline(always)]
     pub fn gc_has_mark(&self) -> bool {
         self.0.borrow().header.gc_has_mark()
     }
 
+    #[inline(always)]
     pub fn gc_set_mark(&self, mark: bool) {
         self.0.borrow_mut().header.gc_set_mark(mark);
     }

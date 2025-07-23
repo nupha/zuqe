@@ -13,8 +13,9 @@ use super::{
 };
 
 impl JSObject {
-    /// Similar to define_property(), usually for new instance property initialization.
-    /// If property already exists, modify its slot value; otherwise add own property and set slot value.
+    /// Similar to define_property(), usually used to initialize property for new instance.
+    /// If property already exists, modify its slot value;
+    /// otherwise add as own property and set slot value.
     /// `prop` is not consumed.
     pub fn create_property(
         &self,
@@ -61,14 +62,15 @@ impl JSObject {
             };
         }
 
-        // add a new property or modify an existing exotic one
         let obj_flags = self.flags();
+
+        // add a new property or modify an existing exotic one
         if obj_flags.is_exotic() {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     let idx: u32;
 
-                    if obj_flags.fast_array() {
+                    if obj_flags.is_fast_array() {
                         if prop.is_int_type() {
                             idx = __JS_AtomToUInt32(prop);
                             if idx == self.array_length_unchecked() as u32 {
@@ -86,12 +88,12 @@ impl JSObject {
                                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                                     convert_to_array!(self, idx);
                                 }
+
                                 let prop_flags = get_prop_flags(flags, 0);
                                 if prop_flags != JS_PROP_C_W_E {
                                     convert_to_array!(self, idx);
                                 }
                                 return self.add_fast_array_element(ctx, val, flags);
-                                //return add_fast_array_element(ctx, self, val.dup(), flags);
                             } else {
                                 convert_to_array!(self, idx);
                             }
@@ -121,16 +123,17 @@ impl JSObject {
                 }
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0 {
-                        let em = ctx.rt().class_defs[cid as usize].exotic;
-                        if !em.is_null() {
-                            if let Some(cb) = unsafe { (*em).define_own_property } {
+                        if let Some(em) =
+                            unsafe { ctx.rt().class_defs[cid as usize].exotic.as_ref() }
+                        {
+                            if let Some(cb) = em.define_own_property {
                                 let r = cb(
                                     ctx,
                                     &JSValue::Object(self.clone()),
                                     prop,
-                                    &val,
-                                    &getter,
-                                    &setter,
+                                    val,
+                                    getter,
+                                    setter,
                                     flags as _,
                                 );
                                 return if r < 0 { Err(-1) } else { Ok(r != 0) };

@@ -819,13 +819,14 @@ pub fn js_string_get_own_property(
     Ok(None)
 }
 
+/// prop is not consumed
 pub fn js_string_define_own_property(
     ctx: &JSContext,
-    this_obj: &JSValueConst,
+    this_obj: &JSValue,
     prop: JSAtom,
-    val: &JSValueConst,
-    getter: &JSValueConst,
-    setter: &JSValueConst,
+    val: JSValueConst,
+    getter: JSValueConst,
+    setter: JSValueConst,
     flags: i32,
 ) -> i32 {
     macro_rules! fail {
@@ -843,9 +844,9 @@ pub fn js_string_define_own_property(
                 .define_property(
                     ctx,
                     prop,
-                    &val,
-                    &getter,
-                    &setter,
+                    val,
+                    getter,
+                    setter,
                     flags as u32 | JS_PROP_NO_EXOTIC,
                 )
                 .map_or(-1, |b| b as i32);

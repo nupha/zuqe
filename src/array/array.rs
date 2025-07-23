@@ -83,7 +83,7 @@ impl JSContext {
         let arr = self.create_array()?;
         unsafe {
             debug_assert!(
-                arr.object_unchecked().flags().fast_array(),
+                arr.object_unchecked().flags().is_fast_array(),
                 "must be a fast array"
             );
         }
@@ -114,12 +114,50 @@ impl JSObject {
 
     /// test if object is fast array (could be one of Array, Argument, TypedArray fast array).
     pub fn is_fast_array(&self) -> bool {
-        self.flags().fast_array()
+        self.flags().is_fast_array()
+    }
+
+    /// if object `self` is fast array, convert it to slow array.
+    /// can be called on Array or Arguments objects only.
+    pub(crate) fn destruct_fast_array(&self, ctx: &JSContext) -> Result<(), i32> {
+        debug_assert!(matches!(
+            self.class_id(),
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS
+        ));
+
+        if self.is_fast_array() {
+            self.shape_prepare_update(ctx)?;
+
+            // clear fast array list, take values out as `items`
+            let items = self
+                .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
+                .unwrap();
+
+            for (i, v) in items.into_iter().enumerate() {
+                // add_property cannot fail here
+                // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
+                self.add_shape_property_then(
+                    ctx,
+                    JSAtom::new_u32(i as _), // int as property name
+                    JS_PROP_C_W_E,
+                    |pr| {
+                        *pr = JSProperty::Normal(v);
+                    },
+                )
+                .expect("FIXME: add_property error");
+            }
+
+            unsafe {
+                (*self.0.obj_flags.as_ptr()).set_fast_array(false);
+            }
+        }
+
+        Ok(())
     }
 
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
-        if self.flags().fast_array() {
+        if self.flags().is_fast_array() {
             self.0
                 .payload
                 .borrow()
@@ -135,7 +173,7 @@ impl JSObject {
         &self,
         f: impl FnOnce(&mut Vec<JSValue>) -> R,
     ) -> Option<R> {
-        if self.flags().fast_array() {
+        if self.flags().is_fast_array() {
             self.0
                 .payload
                 .borrow_mut()
@@ -246,7 +284,7 @@ impl JSObject {
             };
         }
 
-        if self.flags().fast_array() {
+        if self.flags().is_fast_array() {
             // is fast array.
             self.with_fast_array_values_mut(|lst| {
                 let old_len = lst.len();
@@ -376,39 +414,42 @@ impl JSValue {
 
 /// can be called on Array or Arguments objects. return < 0 if memory alloc error.
 /// returns -1 if fail.
-pub unsafe fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i32 {
-    debug_assert!(obj.with(|p| {
-        p.obj_flags.get().fast_array()
-            && matches!(p.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-    }));
+#[deprecated(note = "use JSObject::destruct_fast_array() instead")]
+pub fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i32 {
+    obj.destruct_fast_array(ctx).map_or(-1, |_| 0)
 
-    if obj.shape_prepare_update(ctx).is_err() {
-        return -1;
-    }
+    // debug_assert!(obj.with(|p| {
+    //     p.obj_flags.get().is_fast_array()
+    //         && matches!(p.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
+    // }));
 
-    // clear fast array list, take values out as `items`
-    let items = obj
-        .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
-        .unwrap();
+    // if obj.shape_prepare_update(ctx).is_err() {
+    //     return -1;
+    // }
 
-    for (i, v) in items.into_iter().enumerate() {
-        // add_property cannot fail here
-        // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
-        obj.add_shape_property_then(
-            ctx,
-            JSAtom::new_u32(i as _), // int as property name
-            JS_PROP_C_W_E,
-            |pr| {
-                *pr = JSProperty::Normal(v);
-            },
-        )
-        .expect("FIXME: add_property error");
-    }
+    // // clear fast array list, take values out as `items`
+    // let items = obj
+    //     .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
+    //     .unwrap();
 
-    unsafe {
-        (*obj.0.obj_flags.as_ptr()).set_fast_array(false);
-    }
-    0
+    // for (i, v) in items.into_iter().enumerate() {
+    //     // add_property cannot fail here
+    //     // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
+    //     obj.add_shape_property_then(
+    //         ctx,
+    //         JSAtom::new_u32(i as _), // int as property name
+    //         JS_PROP_C_W_E,
+    //         |pr| {
+    //             *pr = JSProperty::Normal(v);
+    //         },
+    //     )
+    //     .expect("FIXME: add_property error");
+    // }
+
+    // unsafe {
+    //     (*obj.0.obj_flags.as_ptr()).set_fast_array(false);
+    // }
+    // 0
 }
 
 pub unsafe fn JS_ToArrayLengthFree(
@@ -472,7 +513,7 @@ pub fn JS_CopySubArray(
     dir: i32,
 ) -> Result<(), i32> {
     let fast_array = if let JSValue::Object(p0) = obj {
-        if p0.class_id() == JS_CLASS_ARRAY && p0.flags().fast_array() {
+        if p0.class_id() == JS_CLASS_ARRAY && p0.flags().is_fast_array() {
             Some(p0)
         } else {
             None

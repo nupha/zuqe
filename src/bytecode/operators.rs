@@ -117,7 +117,7 @@ pub fn js_op_define_class(
     sframe: &mut StackFrame,
     is_computed_name: bool,
 ) -> Result<(), i32> {
-    // SP[-1]: bytecode value
+    // SP[-1] is bytecode
     let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
     let bc = match bc_val {
         JSValue::Bytecode(b) => b,

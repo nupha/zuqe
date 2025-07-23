@@ -60,7 +60,7 @@ impl JSContext {
     pub fn define_global_function(
         &self,
         prop: JSAtom,
-        func: &JSValueConst,
+        func: JSValue,
         def_flags: u32,
     ) -> Result<bool, i32> {
         let gobj = self.global_obj();
@@ -83,8 +83,8 @@ impl JSContext {
             self,
             prop,
             func,
-            &JSValue::UNDEFINED,
-            &JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
             flags,
         )
     }

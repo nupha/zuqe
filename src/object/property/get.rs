@@ -79,7 +79,7 @@ impl JSObject {
             // 2. try array or exotic handler
             let ob_flags = cur_obj.flags();
             if ob_flags.is_exotic() {
-                if ob_flags.fast_array() {
+                if ob_flags.is_fast_array() {
                     if prop.is_int_type() {
                         let idx = __JS_AtomToUInt32(prop);
                         if idx < cur_obj.array_length_unchecked() as u32 {

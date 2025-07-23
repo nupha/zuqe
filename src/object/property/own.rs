@@ -19,7 +19,7 @@ impl JSObject {
 
         let flags = self.flags();
         if flags.is_exotic() {
-            if flags.fast_array() {
+            if flags.is_fast_array() {
                 if prop.is_int_type() {
                     let idx = __JS_AtomToUInt32(prop);
                     if idx < self.array_length_unchecked() as u32 {
@@ -101,7 +101,7 @@ impl JSObject {
 
         let flags = self.flags();
         if flags.is_exotic() {
-            if flags.fast_array() {
+            if flags.is_fast_array() {
                 // specific case for fast arrays
                 if prop.is_int_type() {
                     let idx = __JS_AtomToUInt32(prop);

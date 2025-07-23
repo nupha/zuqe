@@ -1065,14 +1065,12 @@ impl Bytecode {
                     OpCode::DEFINE_FUNC => {
                         let atom = JSAtom(PC_FETCH!(u32));
                         let flags = PC_FETCH!(u8);
-                        if ctx
-                            .define_global_function(atom, SP_REF!(-1), flags as _)
-                            .is_err()
-                        {
+
+                        let func = SP_TAKE!(-1);
+                        SP_GO!(-1);
+
+                        if ctx.define_global_function(atom, func, flags as _).is_err() {
                             break State::Exception;
-                        } else {
-                            SP_TAKE!(-1);
-                            SP_GO!(-1);
                         }
                     }
                     OpCode::GET_LOC => {
@@ -1502,7 +1500,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::LNOT => {
-                        let op_1 = SP_REF!(-1);
+                        let op_1: &JSValue = SP_REF!(-1);
                         let b = match op_1 {
                             JSValue::Int(i) => *i != 0,
                             JSValue::Bool(b) => *b,
@@ -1674,7 +1672,7 @@ impl Bytecode {
                             flags |= JS_PROP_ENUMERABLE
                         }
 
-                        let this_obj = SP_REF!(if is_computed { -3 } else { -2 });
+                        let this_obj: &JSValue = SP_REF!(if is_computed { -3 } else { -2 });
 
                         let func_obj: &JSValue;
                         let mut value = JSValue::UNDEFINED;
@@ -1704,7 +1702,7 @@ impl Bytecode {
                             js_method_set_properties(ctx, func_obj, name, flags, this_obj);
                         if ret >= 0 {
                             ret = this_obj
-                                .define_property(ctx, name, &value, &getter, &setter, flags)
+                                .define_property(ctx, name, value, getter, setter, flags)
                                 .map_or(-1, |b| b as i32);
                         }
 
@@ -1866,7 +1864,7 @@ impl Bytecode {
                         // [array, prop, value, ^] -> [array, prop, ^]
                         let ret = SP_REF!(-3).define_property_value_value(
                             ctx,
-                            SP_REF!(-2).clone(),
+                            SP_REF!(-2),
                             SP_TAKE!(-1),
                             JS_PROP_C_W_E | JS_PROP_THROW,
                         );
@@ -2152,7 +2150,7 @@ impl Bytecode {
                         let diff = PC_FETCH!(i32);
                         let is_with = PC_FETCH!(u8);
 
-                        let obj = SP_REF!(-1);
+                        let obj: &JSValue = SP_REF!(-1);
 
                         if let Ok(ret) = obj.has_property(ctx, atom) {
                             let has_with = if ret {

@@ -163,15 +163,15 @@ pub unsafe fn js_object___defineGetter__(
     argv: *mut JSValueConst,
     magic: i32,
 ) -> JSValue {
-    let prop = &*argv.offset(0);
-    let value = &*argv.offset(1);
-
     let obj = this_val
         .coerce_to_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;
     }
+
+    let prop = &(*argv.offset(0));
+    let value = &(*argv.offset(1));
 
     if value.ensure_callable(ctx).is_err() {
         return JSValue::EXCEPTION;
@@ -190,13 +190,13 @@ pub unsafe fn js_object___defineGetter__(
 
     let (get, set) = if magic != 0 {
         flags |= JS_PROP_HAS_SET;
-        (&JSValue::UNDEFINED, value)
+        (JSValue::UNDEFINED, value.clone())
     } else {
         flags |= JS_PROP_HAS_GET;
-        (value, &JSValue::UNDEFINED)
+        (value.clone(), JSValue::UNDEFINED)
     };
 
-    let ret = obj.define_property(ctx, atom, &JSValue::UNDEFINED, get, set, flags);
+    let ret = obj.define_property(ctx, atom, JSValue::UNDEFINED, get, set, flags);
     JS_FreeAtom(ctx, atom);
 
     if ret.is_err() {

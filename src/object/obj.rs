@@ -91,7 +91,7 @@ impl ObjectFlags {
         }
     }
 
-    pub const fn fast_array(&self) -> bool {
+    pub const fn is_fast_array(&self) -> bool {
         self.bitfield & Self::MASK_FAST_ARRAY != 0
     }
     pub const fn set_fast_array(&mut self, b: bool) {
@@ -641,12 +641,13 @@ impl JSValue {
                     this.define_property(
                         cx,
                         prop,
-                        &JSValue::UNDEFINED,
-                        &JSValue::UNDEFINED,
-                        &JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
                         flags,
-                    )
-                    .map(|_| ())
+                    )?;
+
+                    Ok(())
                 },
             )?;
         }

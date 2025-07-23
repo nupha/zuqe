@@ -32,12 +32,12 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: &JSValue,
-        getter: &JSValue,
-        setter: &JSValue,
+        val: JSValue,
+        getter: JSValue,
+        setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let mut val = val.clone();
+        let mut val = val;
 
         loop {
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
@@ -77,13 +77,7 @@ impl JSObject {
                 {
                     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                         self.update_prop_slot_getset(
-                            ctx,
-                            prop,
-                            prs_flags,
-                            idx,
-                            getter.clone(),
-                            setter.clone(),
-                            flags,
+                            ctx, prop, prs_flags, idx, getter, setter, flags,
                         )?
                     } else {
                         self.update_prop_slot_normal(ctx, prop, prs_flags, idx, val, flags)?
@@ -112,43 +106,12 @@ impl JSObject {
                 let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
                 self.js_update_property_flags(ctx, prop, (prs_flags2 & !mask) | (flags & mask))?;
 
-                // if flags & JS_PROP_LENGTH != 0 {
-                //     // change flags of special property length: reset the writable flag if needed.
-                //     // The JS_PROP_LENGTH is kept because the Uint32 test is still done if the length
-                //     // property is read-only.
-                //     if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
-                //         self.js_update_property_flags(ctx, prop, prs_flags & !JS_PROP_WRITABLE)?;
-                //     }
-                // } else {
-                //     let mut mask = 0;
-                //     if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
-                //         mask |= JS_PROP_CONFIGURABLE;
-                //     }
-                //     if flags & JS_PROP_HAS_ENUMERABLE != 0 {
-                //         mask |= JS_PROP_ENUMERABLE;
-                //     }
-                //     // special prop '.length' is not writable
-                //     if flags & JS_PROP_LENGTH != 0 {
-                //         if flags & JS_PROP_HAS_WRITABLE != 0 {
-                //             mask |= JS_PROP_WRITABLE;
-                //         }
-                //     }
-                //
-                //     // Note: shape may have been changed, should reload current shape property
-                //     let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
-                //     self.js_update_property_flags(
-                //         ctx,
-                //         prop,
-                //         (prs_flags2 & !mask) | (flags & mask),
-                //     )?;
-                // }
-
                 return Ok(res);
             }
 
             // at this point, shape property does not exist.
             // try fast array element
-            if self.flags().fast_array() {
+            if self.flags().is_fast_array() {
                 match self.class_id() {
                     JS_CLASS_ARRAY => {
                         if prop.is_int_type() {
@@ -285,7 +248,7 @@ impl JSObject {
     }
 
     /// shortcut to add or redefine a new property value.
-    /// Note: `prop` is not consumed, `val` is consumed.
+    /// Note: `prop` is not consumed.
     pub fn define_property_value(
         &self,
         ctx: &JSContext,
@@ -296,9 +259,9 @@ impl JSObject {
         self.define_property(
             ctx,
             prop,
-            &val,
-            &JSValue::UNDEFINED,
-            &JSValue::UNDEFINED,
+            val,
+            JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
             flags
                 | JS_PROP_HAS_VALUE
                 | JS_PROP_HAS_CONFIGURABLE
@@ -333,7 +296,7 @@ impl JSObject {
         ret
     }
 
-    /// define property from descriptor object configuration.
+    /// define property using descriptor object configuration.
     /// `prop` is not consumed.
     pub fn define_property_desc(
         &self,
@@ -343,7 +306,7 @@ impl JSObject {
         flags: u32,
     ) -> Result<bool, i32> {
         let d = JSPropertyDescriptor::parse(ctx, desc)?;
-        self.define_property(ctx, prop, &d.value, &d.getter, &d.setter, d.flags | flags)
+        self.define_property(ctx, prop, d.value, d.getter, d.setter, d.flags | flags)
     }
 
     #[inline(always)]
@@ -389,9 +352,9 @@ impl JSObject {
         self.define_property(
             ctx,
             prop,
-            &JSValue::UNDEFINED,
-            &getter,
-            &setter,
+            JSValue::UNDEFINED,
+            getter,
+            setter,
             flags
                 | JS_PROP_HAS_GET
                 | JS_PROP_HAS_SET
@@ -416,9 +379,9 @@ impl JSValue {
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: &JSValue,
-        getter: &JSValue,
-        setter: &JSValue,
+        val: JSValue,
+        getter: JSValue,
+        setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(p) = self {
@@ -429,8 +392,8 @@ impl JSValue {
         }
     }
 
-    /// shortcut to add or redefine a new property value.
-    /// Note: `prop` is not consumed, `val` is consumed.
+    /// short cut to add or redefine a new property value.
+    /// Note: `prop` is not consumed.
     #[inline]
     pub fn define_property_value(
         &self,
@@ -442,9 +405,9 @@ impl JSValue {
         self.define_property(
             ctx,
             prop,
-            &val,
-            &JSValue::UNDEFINED,
-            &JSValue::UNDEFINED,
+            val,
+            JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
             flags
                 | JS_PROP_HAS_VALUE
                 | JS_PROP_HAS_CONFIGURABLE
@@ -453,7 +416,6 @@ impl JSValue {
         )
     }
 
-    /// Note: `val` is consumed.
     pub fn define_property_value_str(
         &self,
         ctx: &JSContext,
@@ -467,11 +429,10 @@ impl JSValue {
         ret
     }
 
-    /// Note: both `prop` and `val` are consumed.
     pub fn define_property_value_value(
         &self,
         ctx: &JSContext,
-        prop: JSValue,
+        prop: &JSValue,
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -523,9 +484,9 @@ impl JSValue {
         self.define_property(
             ctx,
             prop,
-            &JSValue::UNDEFINED,
-            &getter,
-            &setter,
+            JSValue::UNDEFINED,
+            getter,
+            setter,
             flags
                 | JS_PROP_HAS_GET
                 | JS_PROP_HAS_SET

@@ -76,7 +76,7 @@ impl JSObject {
 
         let mut new_state = SetPropState::ExoticAndGoUp;
 
-        if self.flags().fast_array() {
+        if self.flags().is_fast_array() {
             // set array element
             if prop.is_int_type() {
                 let idx = __JS_AtomToUInt32(prop);
@@ -137,9 +137,9 @@ impl JSObject {
                                 .define_property(
                                     ctx,
                                     prop,
-                                    &val,
-                                    &JSValue::UNDEFINED,
-                                    &JSValue::UNDEFINED,
+                                    val,
+                                    JSValue::UNDEFINED,
+                                    JSValue::UNDEFINED,
                                     JS_PROP_HAS_VALUE,
                                 )
                                 .map_err(|_| None);
@@ -270,7 +270,7 @@ impl JSObject {
                             if this == self {
                                 let ob_flags = this.flags();
                                 if ob_flags.is_exotic() {
-                                    if ob_flags.fast_array()
+                                    if ob_flags.is_fast_array()
                                         && self.class_id() == JS_CLASS_ARRAY
                                         && prop.is_int_type()
                                     {
@@ -318,9 +318,9 @@ impl JSObject {
                                         return this_obj.define_property(
                                             ctx,
                                             prop,
-                                            &val,
-                                            &JSValue::UNDEFINED,
-                                            &JSValue::UNDEFINED,
+                                            val,
+                                            JSValue::UNDEFINED,
+                                            JSValue::UNDEFINED,
                                             JS_PROP_HAS_VALUE,
                                         );
                                     }
@@ -418,7 +418,7 @@ impl JSObject {
                 JS_CLASS_ARRAY => {
                     // fast path: fast array
                     let ob_flags = self.flags();
-                    if ob_flags.fast_array() && ob_flags.extensible() {
+                    if ob_flags.is_fast_array() && ob_flags.extensible() {
                         let r = self
                             .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
                                 match idx.cmp(&(lst.len() as i32)) {
@@ -436,7 +436,7 @@ impl JSObject {
                                             let sh1 = p.shape().unwrap();
                                             match p.class_id() {
                                                 JS_CLASS_ARRAY => {
-                                                    if !p.flags().fast_array() {
+                                                    if !p.flags().is_fast_array() {
                                                         use_slow_path = true;
                                                         break;
                                                     }

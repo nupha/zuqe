@@ -10,7 +10,6 @@ use crate::{
     object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectDetail},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
-    utils::UncheckedInto,
     value::{JSValue, JSValueConst},
 };
 

@@ -327,7 +327,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
     });
 
     if let JSValue::Object(ob) = obj {
-        if ob.flags().fast_array() {
+        if ob.flags().is_fast_array() {
             // check that there are no enumerable normal fields
             if !ob
                 .shape()

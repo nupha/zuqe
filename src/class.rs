@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     array::convert_fast_array_to_array,
     atom::{
@@ -8,7 +6,7 @@ use crate::{
     },
     context::JSContext,
     error::JSResult,
-    function::{JS_GetFunctionRealm, JSFunctionDef, NativeCallback, NativeFunctionType},
+    function::{JSFunctionDef, NativeCallback, NativeFunctionType},
     gc::set_cycle_flag,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSPropertyDescriptor,
@@ -32,8 +30,7 @@ pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize
 
 pub type JSClassGCMark = fn(val: JSValue);
 
-/// class native constructor callback func
-pub type JSClassCall = fn(
+pub type ClassCallFn = fn(
     ctx: &JSContext,
     func_obj: &JSValue,
     this_val: &JSValue,
@@ -41,30 +38,42 @@ pub type JSClassCall = fn(
     flags: i32,
 ) -> JSResult;
 
-#[derive(Copy, Clone, Default)]
-#[repr(C)]
-pub struct JSClassExoticMethods {
-    pub get_own_property:
-        Option<fn(&JSContext, JSValue, JSAtom) -> Result<Option<JSPropertyDescriptor>, i32>>,
+pub type DefineOwnPropertyFn = fn(
+    ctx: &JSContext,
+    target: &JSValue,
+    prop: JSAtom,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
+    flags: i32,
+) -> i32;
+pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: JSAtom) -> i32;
+pub type GetPropertyFn =
+    fn(ctx: &JSContext, target: JSValue, prop: JSAtom, this_obj: JSValue) -> JSValue;
+pub type GetOwnPropertyFn =
+    fn(ctx: &JSContext, target: JSValue, prop: JSAtom) -> Result<Option<JSPropertyDescriptor>, i32>;
+pub type SetPropertyFn = fn(
+    ctx: &JSContext,
+    target: JSValue,
+    prop: JSAtom,
+    val: JSValue,
+    this_obj: JSValue,
+    flags: i32,
+) -> Result<bool, i32>;
+pub type DeletePropertyFn = fn(ctx: &JSContext, val: JSValue, prop: JSAtom) -> Result<bool, i32>;
 
+#[derive(Copy, Clone, Default)]
+pub struct JSClassExoticMethods {
+    pub get_own_property: Option<GetOwnPropertyFn>,
     pub get_own_property_names:
         Option<fn(&JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> i32>,
-
-    pub delete_property: Option<fn(&JSContext, JSValue, JSAtom) -> Result<bool, i32>>,
-
-    /// both JSValue(s), JSAtom should not be consumed.
-    pub define_own_property:
-        Option<fn(&JSContext, &JSValue, JSAtom, &JSValue, &JSValue, &JSValue, i32) -> i32>,
-
-    pub has_property: Option<fn(ctx: &JSContext, this_obj: &JSObject, prop: JSAtom) -> i32>,
-
-    pub get_property: Option<fn(&JSContext, JSValue, JSAtom, JSValue) -> JSValue>,
-
-    pub set_property:
-        Option<fn(&JSContext, JSValue, JSAtom, JSValue, JSValue, i32) -> Result<bool, i32>>,
+    pub delete_property: Option<DeletePropertyFn>,
+    pub define_own_property: Option<DefineOwnPropertyFn>,
+    pub has_property: Option<HasPropertyFn>,
+    pub get_property: Option<GetPropertyFn>,
+    pub set_property: Option<SetPropertyFn>,
 }
 
-#[repr(C)]
 pub struct JSClassShortDef {
     pub class_name: JSAtom,
     pub finalizer: Option<JSClassFinalizer>,
@@ -78,17 +87,19 @@ pub struct JSClassDef {
     pub gc_mark: Option<JSClassGCMark>,
 
     /// native callback when called
-    pub call: Option<JSClassCall>,
+    pub call: Option<ClassCallFn>,
 
     pub exotic: *const JSClassExoticMethods,
 }
 
 impl Default for JSClassDef {
     fn default() -> Self {
-        let mut s = core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
+        Self {
+            class_name: "",
+            finalizer: None,
+            gc_mark: None,
+            call: None,
+            exotic: std::ptr::null(),
         }
     }
 }
@@ -103,7 +114,7 @@ pub struct JSClass {
     pub gc_mark: Option<JSClassGCMark>,
 
     /// native callback when called
-    pub call: Option<JSClassCall>,
+    pub call: Option<ClassCallFn>,
 
     /// pointers for exotic behavior, can be NULL if none are present
     pub exotic: *const JSClassExoticMethods,
@@ -380,19 +391,20 @@ pub unsafe fn js_create_from_ctor(ctx: &JSContext, ctor: JSValue, class_id: JSCl
     unreachable!("unused");
 }
 
+/// prop is not consumed
 fn js_arguments_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
     prop: JSAtom,
-    val: &JSValue,
-    getter: &JSValue,
-    setter: &JSValue,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
     flags: i32,
 ) -> i32 {
     let p = unsafe { this_obj.object_unchecked() };
 
     /* convert to normal array when redefining an existing numeric field */
-    if p.flags().fast_array()
+    if p.flags().is_fast_array()
         && prop
             .to_array_index(ctx.rt())
             .map_or(false, |i| i < p.array_length_unchecked())

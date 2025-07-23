@@ -796,7 +796,7 @@ pub unsafe fn JS_DefineProperty(
     flags: u32,
 ) -> i32 {
     this_obj
-        .define_property(ctx, prop, &val, &getter, &setter, flags)
+        .define_property(ctx, prop, val, getter, setter, flags)
         .map_or(-1, |b| b as i32)
 }
 
@@ -837,7 +837,7 @@ pub unsafe fn JS_DefinePropertyValueValue(
     flags: u32,
 ) -> i32 {
     this_obj
-        .define_property_value_value(ctx, prop, val, flags)
+        .define_property_value_value(ctx, &prop, val, flags)
         .map_or(-1, |b| b as i32)
 }
 
@@ -2508,7 +2508,7 @@ pub fn JS_DefineGlobalFunction(
     func: &JSValueConst,
     def_flags: u32,
 ) -> i32 {
-    ctx.define_global_function(prop, func, def_flags)
+    ctx.define_global_function(prop, func.clone(), def_flags)
         .map_or(-1, |_| 0)
 }
 

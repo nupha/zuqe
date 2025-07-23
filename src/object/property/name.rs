@@ -81,7 +81,7 @@ impl JSObject {
         }
 
         if self.flags().is_exotic() {
-            if self.flags().fast_array() {
+            if self.flags().is_fast_array() {
                 if (flags & JS_GPN_STRING_MASK) != 0 {
                     for i in 0..self.array_length_unchecked() {
                         callback(

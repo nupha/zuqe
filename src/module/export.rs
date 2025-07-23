@@ -318,11 +318,6 @@ pub unsafe fn find_exported_name(s: *mut GetExportNamesState, name: JSAtom) -> O
 #[deprecated(note = "use ModuleDef::find_export() instead")]
 pub unsafe fn find_export_entry(m: &ModuleDef, export_name: JSAtom) -> Option<JSExportEntry> {
     m.find_export(export_name)
-    // m.0.export_entries
-    //     .borrow()
-    //     .iter()
-    //     .find(|me| me.export_name == export_name)
-    //     .map(|v| *v.clone())
 }
 
 pub fn add_star_export_entry(

@@ -53,7 +53,7 @@ impl JSObject {
 
             // check for array index or exotic.
             if obj_flags.is_exotic() {
-                if obj_flags.fast_array() {
+                if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_array_index(ctx.rt()) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
