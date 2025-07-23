@@ -62,10 +62,8 @@ pub enum JSExportTypeEnum {
 #[derive(Debug, Clone)]
 pub struct JSExportEntry {
     pub export_type: JSExportTypeEnum,
-
     /// '*' if export ns from. not used for local export after compilation
     pub local_name: JSAtom,
-
     /// exported variable name
     pub export_name: JSAtom,
 }
@@ -99,7 +97,10 @@ impl ModuleDef {
             }
         }
 
-        s.modules.try_reserve(1).map_err(|_| -1)?;
+        s.modules.try_reserve(1).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
         s.modules.push(self.clone());
 
         for me in self.0.export_entries.borrow().iter() {

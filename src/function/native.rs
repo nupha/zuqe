@@ -4,7 +4,7 @@ use crate::{
     atom::JS_FreeAtom,
     context::{JSContext, JSContextWeakref},
     defer,
-    error::{JS_ThrowStackOverflow, JSResult},
+    error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
     object::{JSObject, ObjectDetail},
@@ -145,7 +145,7 @@ impl ObjNativeFunc {
 
         // better to always check stack overflow
         if js_check_stack_overflow(rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
-            JS_ThrowStackOverflow(ctx);
+            ctx.throw_stack_overflow();
             return Err(-1);
         }
 

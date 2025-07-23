@@ -8,7 +8,7 @@ use crate::{
     },
     bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
     context::JSContext,
-    error::{JS_ThrowRangeError, JS_ThrowStackOverflow, JSResult},
+    error::{JS_ThrowRangeError, JSResult},
     function::{
         CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke, NativeField,
     },
@@ -1250,7 +1250,7 @@ fn JS_FlattenIntoArray(
     this_arg: &JSValue,
 ) -> Result<i64, i32> {
     if js_check_stack_overflow(ctx.rt(), 0) {
-        JS_ThrowStackOverflow(ctx);
+        ctx.throw_stack_overflow();
         return Err(-1);
     }
 

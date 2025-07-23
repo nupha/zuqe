@@ -130,6 +130,10 @@ impl JSContext {
         self.throw_error(ErrorKind::Internal, message);
     }
 
+    pub fn throw_stack_overflow(&self) {
+        self.throw_internal_error("stack overflow");
+    }
+
     #[inline(always)]
     pub fn throw_type_error(&self, message: &str) {
         self.throw_error(ErrorKind::Type, message);
@@ -385,10 +389,6 @@ pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {
         ctx,
         &format!("redeclaration of '{}'", prop.to_str(ctx.rt())),
     );
-}
-
-pub fn JS_ThrowStackOverflow(ctx: &JSContext) {
-    ctx.throw_internal_error("stack overflow");
 }
 
 /// used to avoid catching interrupt exceptions

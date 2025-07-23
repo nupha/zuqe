@@ -156,6 +156,11 @@ impl<'s> JSParseState<'s> {
         unsafe { simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator) }
     }
 
+    // HINT: DON'T INLINE THIS.
+    // inline this method will be very slow due to check stack overflow,
+    // and will consume large stack space for each function that call this method,
+    // which will soon use up stack space, and cause stack overflow.
+    #[inline(never)]
     pub fn next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");

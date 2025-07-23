@@ -106,7 +106,7 @@ impl GCObject {
 #[derive(Debug, Clone)]
 pub enum GCObjectWeakref {
     Object(JSObjectWeakref),
-    FunctionBytecode(BytecodeWeakref),
+    Bytecode(BytecodeWeakref),
     String(JSStringWeakref),
     Shape(JSShapeWeakref),
     VarRef(JSVarRefWeakref),
@@ -118,7 +118,7 @@ impl GCObjectWeakref {
     pub fn upgrade(&self) -> Option<GCObject> {
         match self {
             Self::Object(o) => o.upgrade().map(GCObject::Object),
-            Self::FunctionBytecode(o) => o.upgrade().map(GCObject::FunctionBytecode),
+            Self::Bytecode(o) => o.upgrade().map(GCObject::FunctionBytecode),
             Self::String(o) => o.upgrade().map(GCObject::String),
             Self::Shape(o) => o.upgrade().map(GCObject::Shape),
             Self::VarRef(o) => o.upgrade().map(GCObject::VarRef),

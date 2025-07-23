@@ -17,7 +17,7 @@ use crate::{
 use super::JSFunctionDef;
 
 impl JSFunctionDef {
-    /// Compile function def and returns result bytecode.
+    /// Compile function def to bytecode.
     /// All the child functions are also created. It must be done this way to resolve all the variables.
     /// Returns a bytecode value.
     ///
@@ -74,16 +74,16 @@ impl JSFunctionDef {
             }
         }
 
-        // first create all child functions
+        // compile child functions
         for fd1 in self.child_list.drain(..) {
-            let fd1 = Box::from_raw(fd1.as_ptr());
+            let sub_fd = Box::from_raw(fd1.as_ptr()); // restore ownership
 
-            let cpool_idx: i32 = fd1.parent_cpool_idx;
+            let cpool_idx: i32 = sub_fd.parent_cpool_idx;
             debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-            let sub_bc = fd1.compile(ctx)?;
+            let sub_bc = sub_fd.compile(ctx)?;
 
-            // put child function to parent's constant pool
+            // strore child function to parent's constant pool slot
             self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
         }
 
@@ -314,7 +314,7 @@ impl JSFunctionDef {
         }
 
         ctx.rt_mut()
-            .gc_add_object(bc.id(), GCObjectWeakref::FunctionBytecode(bc.downgrade()));
+            .gc_add_object(bc.id(), GCObjectWeakref::Bytecode(bc.downgrade()));
 
         Ok(bc)
     }

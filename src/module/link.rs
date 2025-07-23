@@ -1,6 +1,6 @@
 use crate::{
-    atom::consts::JS_ATOM__star_, context::JSContext, error::JS_ThrowStackOverflow,
-    function::JS_Call, runtime::js_check_stack_overflow, value::JSValue,
+    atom::consts::JS_ATOM__star_, context::JSContext, function::JS_Call,
+    runtime::js_check_stack_overflow, value::JSValue,
 };
 
 use super::{
@@ -18,7 +18,7 @@ impl ModuleDefInner {
         index: i32,
     ) -> Result<i32, i32> {
         if js_check_stack_overflow(ctx.rt(), 0) {
-            JS_ThrowStackOverflow(ctx);
+            ctx.throw_stack_overflow();
             return Err(-1);
         }
 

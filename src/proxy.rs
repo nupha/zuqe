@@ -3,7 +3,7 @@ use std::ops::Deref;
 use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
-    error::{JS_ThrowStackOverflow, JS_ThrowTypeErrorRevokedProxy},
+    error::JS_ThrowTypeErrorRevokedProxy,
     function::JS_Call,
     object::{JS_PreventExtensions, JS_SetPrototypeInternal, ObjectDetail},
     runtime::{JSRuntime, js_check_stack_overflow},
@@ -55,7 +55,7 @@ pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = val {
         if let ObjectDetail::PROXY(s) = p.0.payload.borrow().deref() {
             if js_check_stack_overflow(ctx.rt(), 0) {
-                JS_ThrowStackOverflow(ctx);
+                ctx.throw_stack_overflow();
                 return Err(-1);
             }
             if s.is_revoked {

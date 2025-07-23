@@ -51,7 +51,9 @@ fn get_frame_address(level: usize) -> Option<*const c_void> {
 /// get stack top level addr
 #[inline(always)]
 pub fn js_get_stack_pointer() -> *const c_void {
-    get_frame_address(0).unwrap()
+    // get_frame_address(0).unwrap()
+    let _d = 0_usize;
+    &_d as *const usize as _
 }
 
 //

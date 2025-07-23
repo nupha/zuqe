@@ -430,7 +430,6 @@ impl Drop for JSRuntime {
     }
 }
 
-#[inline(always)]
 pub fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> bool {
     let sp = js_get_stack_pointer() as usize - alloca_size;
     if rt.stack_limit > 0 {
@@ -453,6 +452,7 @@ pub unsafe fn JS_SetMaxStackSize(rt: *mut JSRuntime, stack_size: usize) {
     update_stack_limit(rt);
 }
 
+#[inline(always)]
 pub fn JS_UpdateStackTop(rt: *mut JSRuntime) {
     unsafe {
         (*rt).stack_top = js_get_stack_pointer() as usize;

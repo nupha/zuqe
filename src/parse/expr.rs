@@ -240,12 +240,11 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
                 }
-
                 self.next_token()?;
             }
-            TOK_TEMPLATE => unsafe {
+            TOK_TEMPLATE => {
                 self.parse_template(false, core::ptr::null_mut())?;
-            },
+            }
             TOK_STRING => {
                 if self.emit_push_const(self.token.data.string().unwrap().clone(), true) != 0 {
                     return Err(-1);

@@ -3,7 +3,6 @@ use std::{ops::DerefMut, ptr::NonNull};
 use crate::{
     atom::consts::JS_ATOM__eval_,
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
-    eval,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     object::JSObject,
@@ -224,7 +223,7 @@ impl JSContext {
                 let sframe = unsafe {
                     let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
                     debug_assert!(!sf_ptr.is_null());
-                    debug_assert!(unsafe { (*sf_ptr).cur_running.is_object() });
+                    debug_assert!((*sf_ptr).cur_running.is_object());
                     sf_ptr.as_mut().unwrap()
                 };
                 // current function of stack frame

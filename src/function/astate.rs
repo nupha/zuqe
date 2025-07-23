@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     context::{JS_MODE_ASYNC, JSContext},
-    error::{JS_ThrowStackOverflow, JSResult},
+    error::JSResult,
     gc::GCObjectHeader,
     object::{GCObjectWeakref, ObjectDetail},
     runtime::{JSRuntime, js_check_stack_overflow},
@@ -258,7 +258,7 @@ impl ObjAsyncState {
         debug_assert!(!self.0.borrow().is_completed);
 
         if js_check_stack_overflow(ctx.rt(), 0) {
-            JS_ThrowStackOverflow(ctx);
+            ctx.throw_stack_overflow();
             return Err(-1);
         }
 

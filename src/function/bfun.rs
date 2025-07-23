@@ -1,5 +1,3 @@
-use std::ffi::c_void;
-
 use smallvec::SmallVec;
 
 use crate::{
@@ -11,6 +9,7 @@ use crate::{
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
     object::{JS_SetPrototypeInternal, JSObject},
     object_cast,
+    runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -69,6 +68,12 @@ impl BytecodeFunction {
         };
         let sf = &mut sframe;
 
+        // FIXME
+        if js_check_stack_overflow(caller_ctx.rt(), 64) {
+            caller_ctx.throw_stack_overflow();
+            return JSValue::EXCEPTION;
+        }
+
         // make local buffer and running bytecodes with it.
         // local_buf layout:
         //
@@ -118,6 +123,8 @@ impl BytecodeFunction {
 
         sf.prev_frame = caller_ctx.rt().cur_stack_frame;
         caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();
+
+        println!("[O.o] {bc:?} frame={sf:p} ------------------------ run");
 
         let retval = bc.run(
             caller_ctx,

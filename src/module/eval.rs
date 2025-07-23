@@ -3,7 +3,7 @@ use crate::eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE};
 use crate::promise::Promise;
 use crate::{
     context::JSContext,
-    error::{JS_ThrowStackOverflow, JSResult},
+    error::JSResult,
     function::{AsyncFunction, CallContext, JS_Call},
     module::{JSModuleStatus, ModuleDefInner, js_create_module_function},
     promise::js_promise_then,
@@ -140,7 +140,7 @@ impl ModuleDef {
         pstack_top: &mut Option<ModuleDef>,
     ) -> Result<i32, JSValue> {
         if js_check_stack_overflow(&ctx.rt(), 0) {
-            JS_ThrowStackOverflow(ctx);
+            ctx.throw_stack_overflow();
             return Err(ctx.take_exception());
         }
 
@@ -447,7 +447,7 @@ impl ModuleDef {
     /// async module execution reject callback
     pub fn execute_async_reject_callback(ctx: &JSContext, args: CallContext) -> JSResult {
         if unsafe { js_check_stack_overflow(&ctx.rt(), 0) } {
-            JS_ThrowStackOverflow(ctx);
+            ctx.throw_stack_overflow();
             return Err(-1);
         }
 
@@ -797,7 +797,7 @@ fn gather_module_ancestors(
     result: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
     if js_check_stack_overflow(&ctx.rt(), 0) {
-        JS_ThrowStackOverflow(ctx);
+        ctx.throw_stack_overflow();
         return Err(-1);
     }
 
