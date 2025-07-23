@@ -600,10 +600,9 @@ impl<'s> JSParseState<'s> {
                     }
                 },
 
-                c if !c.is_ascii() => unsafe {
+                c if !c.is_ascii() => {
                     match unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p)? {
                         '\u{2028}' | '\u{2029}' => {
-                            // C2RS: 处理行终止符
                             // XXX: should avoid incrementing line_number, but needed to handle HTML comments
                             self.got_lf = true;
                             self.line_num += 1;
@@ -612,15 +611,17 @@ impl<'s> JSParseState<'s> {
                         ch => {
                             if ch.is_whitespace() {
                                 continue 'redo;
-                            } else if JSParseState::is_ident_first(ch) {
-                                state = Some(State::HasIdent(ch, false));
+                            }
+
+                            state = if JSParseState::is_ident_first(ch) {
+                                Some(State::HasIdent(ch, false))
                             } else {
                                 self.throw_syntax_error("unexpected character");
-                                state = Some(State::Fail);
-                            }
+                                Some(State::Fail)
+                            };
                         }
                     }
-                },
+                }
                 c => {
                     state = Some(State::DefaultToken(c));
                 }
@@ -629,12 +630,12 @@ impl<'s> JSParseState<'s> {
             // handle token type
             if let Some(what) = state.take() {
                 match what {
-                    State::DefaultToken(ch) => unsafe {
+                    State::DefaultToken(ch) => {
                         self.token.val = ch as i32;
                         self.token.data = TokenData::Char(ch);
-                        p = p.offset(1);
-                    },
-                    State::HasIdent(first_char, escaped) => unsafe {
+                        p = unsafe { p.offset(1) };
+                    }
+                    State::HasIdent(first_char, escaped) => {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
                             self.token.val = TOK_IDENT;
@@ -652,7 +653,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                             return Err(-1);
                         }
-                    },
+                    }
                     State::LineTerminator => {
                         self.got_lf = true;
                         self.line_num += 1;
@@ -762,8 +763,8 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn token_is_ident(tok: i32) -> bool {
-        /* Accept keywords and reserved words as property names */
+    pub fn token_maybe_ident(tok: i32) -> bool {
+        // Accept keywords and reserved words as property names
         tok == TOK_IDENT || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&tok)
     }
 

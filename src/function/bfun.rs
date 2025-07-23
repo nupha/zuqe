@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
-    function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm, func_kind_to_class_id},
+    function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm},
     object::{JS_SetPrototypeInternal, JSObject},
     object_cast,
     runtime::js_check_stack_overflow,
@@ -68,8 +68,8 @@ impl BytecodeFunction {
         };
         let sf = &mut sframe;
 
-        // FIXME
-        if js_check_stack_overflow(caller_ctx.rt(), 64) {
+        // ensure stack has minimal free space.
+        if js_check_stack_overflow(caller_ctx.rt(), 32) {
             caller_ctx.throw_stack_overflow();
             return JSValue::EXCEPTION;
         }
@@ -124,8 +124,6 @@ impl BytecodeFunction {
         sf.prev_frame = caller_ctx.rt().cur_stack_frame;
         caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();
 
-        println!("[O.o] {bc:?} frame={sf:p} ------------------------ run");
-
         let retval = bc.run(
             caller_ctx,
             home_obj.as_ref(),
@@ -146,7 +144,7 @@ impl BytecodeFunction {
         );
 
         // stack frame is about to drop
-        sf.finalize();
+        sf.clear();
 
         retval
     }
@@ -226,9 +224,7 @@ impl BytecodeFunction {
 
             if !proto.is_object() {
                 let realm = JS_GetFunctionRealm(ctx, &new_target)?;
-                proto = realm.0.borrow().class_proto
-                    [func_kind_to_class_id[func_kind as usize] as usize]
-                    .clone();
+                proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
             }
 
             JS_SetPrototypeInternal(ctx, &func_val, proto, true)?;

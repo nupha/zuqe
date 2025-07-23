@@ -294,10 +294,14 @@ fn run_test_script(
         )
     };
 
-    let ret_promise = is_async || is_module;
+    let has_promise = is_async || is_module;
     let async_done = 0; // counter of "Test262:AsyncTestComplete" messages
 
-    if ret_promise && !ret_val.is_exception() {
+    if has_promise && !ret_val.is_exception() {
+        if let JSValue::Module(md) = ret_val {
+            ret_val = md.promise().map_or(JSValue::UNDEFINED, |p| p.into());
+        }
+
         // ret_val is Promise, execute pending jobs
         loop {
             match ctx.rt_mut().tick() {
@@ -314,7 +318,7 @@ fn run_test_script(
                         }
                         ret_val = JSValue::UNDEFINED;
                     } else {
-                        // check that the returned promise is fulfilled
+                        // check if the returned promise is fulfilled
                         let promise: Promise = TryFrom::try_from(JSValue::from(ret_val)).unwrap();
 
                         ret_val = match promise.state() {

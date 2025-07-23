@@ -130,6 +130,7 @@ impl JSContext {
         self.throw_error(ErrorKind::Internal, message);
     }
 
+    #[inline(always)]
     pub fn throw_stack_overflow(&self) {
         self.throw_internal_error("stack overflow");
     }

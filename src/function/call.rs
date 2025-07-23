@@ -147,11 +147,22 @@ pub fn JS_CallInternal(
         return JSValue::EXCEPTION;
     }
 
-    let rt = caller_ctx.rt_mut();
-
-    if !func_obj.is_object() {
-        // must be async state resume: the special value.
-        return if let JSValue::AsyncStateResume(state) = func_obj {
+    match func_obj {
+        JSValue::Object(o) => {
+            if let Ok(bf) = BytecodeFunction::try_from(o.clone()) {
+                bf.call(caller_ctx, this_obj, new_target, args, flags)
+            } else {
+                // non bytecode function: bound function, native function, async function etc.
+                // use callback defined on the class.
+                if let Some(cb) = caller_ctx.rt().class_defs[o.class_id() as usize].call {
+                    cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
+                } else {
+                    caller_ctx.throw_type_error("not callable");
+                    JSValue::EXCEPTION
+                }
+            }
+        }
+        JSValue::AsyncStateResume(state) => {
             // `func_obj` is a generator function, get attached JSFuncAsyncState.
             // the JSFuncAsyncState provides a dedicated stack frame for the async function
             debug_assert!(flags & JS_CALL_FLAG_GENERATOR != 0);
@@ -172,6 +183,7 @@ pub fn JS_CallInternal(
             let sp_offset = std::mem::replace(&mut frame.cur_sp_offset, -1);
             debug_assert!(sp_offset >= 0);
 
+            let rt = caller_ctx.rt_mut();
             frame.prev_frame = rt.cur_stack_frame;
             rt.cur_stack_frame = (frame.deref_mut() as *mut StackFrame).cast();
 
@@ -195,26 +207,9 @@ pub fn JS_CallInternal(
             );
 
             ret_val
-        } else {
+        }
+        _ => {
             caller_ctx.throw_type_error("not a function");
-            JSValue::EXCEPTION
-        };
-    }
-
-    let class_id = unsafe { func_obj.object_unchecked().class_id() };
-
-    if class_id == JS_CLASS_BYTECODE_FUNCTION {
-        // bytecode function
-        BytecodeFunction::try_from(func_obj.clone())
-            .unwrap()
-            .call(caller_ctx, this_obj, new_target, args, flags)
-    } else {
-        // non-bytecode function: bound function, native function, async function etc.
-        // use callback defined on the class.
-        if let Some(cb) = rt.class_defs[class_id as usize].call {
-            cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
-        } else {
-            caller_ctx.throw_type_error("not callable");
             JSValue::EXCEPTION
         }
     }

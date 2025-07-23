@@ -29,7 +29,7 @@ impl<'s> JSParseState<'s> {
             self.emit_atom_dup(self.token.data.ident_atom().unwrap());
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
-            if !Self::token_is_ident(self.token.val) {
+            if !Self::token_maybe_ident(self.token.val) {
                 self.throw_syntax_error("expecting field name");
                 return Err(-1);
             }

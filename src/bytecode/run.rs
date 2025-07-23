@@ -54,16 +54,16 @@ impl Bytecode {
         &self,
         caller_ctx: &JSContext, // Context of the calling environment
         func_home_obj: Option<&JSObject>,
-        sframe: &mut StackFrame, // The working stack frame
-        this_obj: &JSValue,      // The 'this' value for the function execution
-        new_target: JSValue,     // The new.target value for constructor calls
-        pc_offset: usize,        // Current instruction pointer (program counter) offset
-        sp_offset: usize,        // Current stack pointer offset
+        stack_frame: &mut StackFrame, // The stack frame for execution
+        this_obj: &JSValue,           // The 'this' binding for the function execution
+        new_target: JSValue,          // The new.target value for constructor calls
+        pc_offset: usize,             // Current instruction pointer (program counter) offset
+        sp_offset: usize,             // Current stack pointer offset
         closure_var_refs: &[JSVarRef],
         args: &[JSValue], // actual calling arguments pass in by caller, not padded length
         throwed: bool,    // Indicates if an exception has been thrown
     ) -> JSValue {
-        let mode = sframe.js_mode;
+        let mode = stack_frame.js_mode;
 
         // use bytecode's context
         let realm = self.0.borrow().realm.upgrade().unwrap();
@@ -79,7 +79,7 @@ impl Bytecode {
 
         let cpools = self.cpools_slice();
 
-        let sp_base = sframe.stack_base_ptr().as_ptr();
+        let sp_base = stack_frame.stack_base_ptr().as_ptr();
         let pc_base = bytecodes.as_ptr();
         // convert index to pointer
         let (mut pc, mut sp) = unsafe { (pc_base.add(pc_offset), sp_base.add(sp_offset)) };
@@ -93,7 +93,7 @@ impl Bytecode {
                 )
             };
 
-            if let Some((new_pc, new_sp)) = sframe.handle_exception(ctx, cur_pc, cur_sp) {
+            if let Some((new_pc, new_sp)) = stack_frame.handle_exception(ctx, cur_pc, cur_sp) {
                 // continue execution: update pc and sp.
                 unsafe {
                     pc = pc_base.offset(new_pc as _);
@@ -101,7 +101,7 @@ impl Bytecode {
                 }
             } else {
                 // abort execution: sp=0, pc unchanged
-                sframe.handle_exit(
+                stack_frame.handle_exit(
                     ctx,
                     cur_pc,
                     0,
@@ -199,26 +199,32 @@ impl Bytecode {
         #[cfg(debug_assertions)]
         macro_rules! ARG_REF {
             ($idx:expr) => {
-                unsafe { sframe.arg_base_ptr.offset(($idx) as _).as_mut().unwrap() }
+                unsafe {
+                    stack_frame
+                        .arg_base_ptr
+                        .offset(($idx) as _)
+                        .as_mut()
+                        .unwrap()
+                }
             };
         }
         #[cfg(not(debug_assertions))]
         macro_rules! ARG_REF {
             ($idx:expr) => {
-                unsafe { &mut *sframe.arg_base_ptr.offset(($idx) as _) }
+                unsafe { &mut *stack_frame.arg_base_ptr.offset(($idx) as _) }
             };
         }
 
         #[cfg(debug_assertions)]
         macro_rules! VAR_REF {
         [$idx:expr] => {
-            unsafe { (sframe.var_base_ptr.offset(($idx) as isize).as_mut().unwrap()) }
+            unsafe { (stack_frame.var_base_ptr.offset(($idx) as isize).as_mut().unwrap()) }
         };
     }
         #[cfg(not(debug_assertions))]
         macro_rules! VAR_REF {
         [$idx:expr] => {
-            unsafe { (&mut *sframe.var_base_ptr.offset(($idx) as isize)) }
+            unsafe { (&mut *stack_frame.var_base_ptr.offset(($idx) as isize)) }
         };
     }
 
@@ -373,7 +379,7 @@ impl Bytecode {
                                     js_build_mapped_arguments(
                                         ctx,
                                         args,
-                                        sframe,
+                                        stack_frame,
                                         std::cmp::min(
                                             args.len() as i32,
                                             self.0.borrow().arg_count as i32
@@ -386,7 +392,7 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::ThisFunc => {
-                                SP_PUT!(0, sframe.cur_running.clone());
+                                SP_PUT!(0, stack_frame.cur_running.clone());
                                 SP_GO!(1);
                             }
                             SpecialObject::NewTarget => {
@@ -635,7 +641,7 @@ impl Bytecode {
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
                             SP_PUT!(
                                 0,
-                                bc.make_closure(ctx, closure_var_refs, Some(sframe))
+                                bc.make_closure(ctx, closure_var_refs, Some(stack_frame))
                                     .unwrap_or(JSValue::EXCEPTION)
                             );
                             SP_GO!(1);
@@ -656,8 +662,9 @@ impl Bytecode {
                         let call_argc = PC_FETCH!(u16);
                         let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
 
-                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
+                        // could have resursive call. tail_call optimization needed.
                         let ret_val = JS_CallInternal(
                             ctx,
                             unsafe { &*call_argv.offset(-1) },
@@ -685,7 +692,7 @@ impl Bytecode {
                     OpCode::CALL_CONSTRUCTOR => {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         let ret_val = JS_CallConstructorInternal(
                             ctx,
@@ -715,8 +722,9 @@ impl Bytecode {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
 
-                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
+                        // could have recursive call.
                         let ret_val = JS_CallInternal(
                             ctx,
                             unsafe { &*call_argv.offset(-1) },
@@ -879,7 +887,7 @@ impl Bytecode {
                         let scope_idx = PC_FETCH!(u16) as i32 - 1;
 
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        sframe.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
+                        stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };
 
                         // function val
                         let func_val = unsafe { &*call_argv.offset(-1) };
@@ -1190,7 +1198,7 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        sframe.close_lexical_var(ctx, idx, false);
+                        stack_frame.close_lexical_var(ctx, idx, false);
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = JSAtom(PC_FETCH!(u32));
@@ -1208,7 +1216,7 @@ impl Bytecode {
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
                             Ok(closure_var_refs[idx as usize].clone())
                         } else {
-                            sframe.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
+                            stack_frame.get_var_ref(ctx, idx, opcode == OpCode::MAKE_ARG_REF)
                         };
                         match var_ref {
                             Ok(vr) => unsafe {
@@ -1722,7 +1730,7 @@ impl Bytecode {
                             atom,
                             class_flags as _,
                             closure_var_refs,
-                            sframe,
+                            stack_frame,
                             opcode == OpCode::DEFINE_CLASS_COMPUTED,
                         )
                         .is_err()
@@ -2304,7 +2312,7 @@ impl Bytecode {
                     };
 
                     if let Some((new_pc, new_sp)) =
-                        sframe.handle_exception(ctx, pc_offset, sp_offset)
+                        stack_frame.handle_exception(ctx, pc_offset, sp_offset)
                     {
                         // continue running, update pc and sp pointer, and jump
                         unsafe {
@@ -2314,7 +2322,7 @@ impl Bytecode {
                         continue 'restart;
                     } else {
                         // abort with sp=0, pc unchanged
-                        sframe.handle_exit(
+                        stack_frame.handle_exit(
                             ctx,
                             pc_offset,
                             0,
@@ -2324,12 +2332,12 @@ impl Bytecode {
                     }
                 }
 
-                State::Done(ret_val, is_async) => {
-                    sframe.handle_exit(
+                State::Done(ret_val, is_generator) => {
+                    stack_frame.handle_exit(
                         ctx,
                         unsafe { pc.offset_from(pc_base) as usize },
                         unsafe { sp.offset_from(sp_base) as usize },
-                        is_async,
+                        is_generator,
                     );
                     return ret_val;
                 }

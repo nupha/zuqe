@@ -7,7 +7,6 @@ use crate::{
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
     function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
-    gc::set_cycle_flag,
     iterator::{
         JS_GetIterator, JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
         JSIteratorKindEnum, build_for_in_iterator, js_array_iterator_next,

@@ -152,7 +152,7 @@ impl AsyncStateInner {
         }
 
         // clean up var refs
-        self.frame.finalize();
+        self.frame.clear();
     }
 
     fn finalize(&mut self) {

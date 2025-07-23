@@ -114,7 +114,7 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    if !Self::token_is_ident(self.token.val) {
+                    if !Self::token_maybe_ident(self.token.val) {
                         self.throw_syntax_error("identifier expected");
                         return Err(-1);
                     }
@@ -133,7 +133,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     while self.token.val != '}' as i32 {
-                        if !Self::token_is_ident(self.token.val) {
+                        if !Self::token_maybe_ident(self.token.val) {
                             self.throw_syntax_error("identifier expected");
                             return Err(-1);
                         }
@@ -151,7 +151,7 @@ impl<'s> JSParseState<'s> {
                         let local_name = if self.token_is_pseudo_keyword(JS_ATOM_as) {
                             self.next_token()?;
 
-                            if !Self::token_is_ident(self.token.val) {
+                            if !Self::token_maybe_ident(self.token.val) {
                                 self.throw_syntax_error("identifier expected");
                                 return Err(-1);
                             }
@@ -482,7 +482,7 @@ impl<'s> JSParseState<'s> {
 /// Parse an identifier and return its atom.
 /// returned atom is duplicated. caller should free it after use.
 fn parse_export_name(s: &JSParseState) -> Result<JSAtom, i32> {
-    if !JSParseState::token_is_ident(s.token.val) {
+    if !JSParseState::token_maybe_ident(s.token.val) {
         s.throw_syntax_error("identifier expected");
         Err(-1)
     } else {

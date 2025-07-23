@@ -979,7 +979,7 @@ pub unsafe fn js_parse_property_name(
                 }
                 private = PROP_TYPE_PRIVATE;
             }
-            t if JSParseState::token_is_ident(t) => {
+            t if JSParseState::token_maybe_ident(t) => {
                 /* variable can only be a non-reserved identifier */
                 let is_non_reserved_ident =
                     (*s).token.val == TOK_IDENT && !(*s).token.data.is_reserved();

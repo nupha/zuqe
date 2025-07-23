@@ -160,8 +160,8 @@ impl JSParseState<'_> {
         Ok(())
     }
 
-    /// returns (atom, has_escape) result
-    pub unsafe fn parse_ident(
+    /// returns (atom, has_escape)
+    pub fn parse_ident(
         &mut self,
         input: *mut *const u8,
         first_char: char,
@@ -175,7 +175,7 @@ impl JSParseState<'_> {
 
         let mut has_escape = false;
         let mut c = first_char;
-        let mut p = *input;
+        let mut p = unsafe { *input };
         let mut p1;
 
         loop {
@@ -184,18 +184,23 @@ impl JSParseState<'_> {
             if c.is_ascii() {
                 buf.push(c as u8);
             } else {
-                let n = unicode_to_utf8(buf.as_mut_ptr().add(buf.len()), c as u32) as usize;
-                buf.set_len(buf.len() + n);
+                let n =
+                    unsafe { unicode_to_utf8(buf.as_mut_ptr().add(buf.len()), c as u32) } as usize;
+                unsafe {
+                    buf.set_len(buf.len() + n);
+                }
             }
 
-            // next char
-            c = (*p1) as char;
-            p1 = p1.add(1);
+            unsafe {
+                // next char
+                c = (*p1) as char;
+                p1 = p1.add(1);
+            }
 
-            if c == '\\' && *p1 == b'u' {
+            if c == '\\' && unsafe { *p1 } == b'u' {
                 // escape \uXXXX
                 let mut p_temp = p1;
-                let cp = self.parse_string_escape(&mut p_temp, 1)?;
+                let cp = unsafe { self.parse_string_escape(&mut p_temp, 1)? };
                 c = if let Some(u) = char::from_u32(cp) {
                     u
                 } else {
@@ -224,9 +229,13 @@ impl JSParseState<'_> {
             }
         }
 
-        let atom = self.ctx.create_atom(std::str::from_utf8_unchecked(&buf))?;
+        let atom = self
+            .ctx
+            .create_atom(unsafe { std::str::from_utf8_unchecked(&buf) })?;
 
-        *input = p; // consume input string: move pointer forward
+        unsafe {
+            *input = p; // consume input string: move pointer forward
+        }
 
         Ok((atom, has_escape))
     }

@@ -8,7 +8,8 @@ use crate::{
     value::JSValue,
 };
 
-/// Represents a call stack frame in JavaScript execution, tracking function state and local variables
+/// Represents a call stack frame in JavaScript execution, tracking function state and local variables.
+/// StackFrame is usually allocated on stack, not heap.
 #[derive(Debug)]
 pub struct StackFrame {
     /// Pointer to previous stack frame (NULL for first frame)
@@ -21,7 +22,7 @@ pub struct StackFrame {
     /// - bytecode function/generator object
     /// - async function/generator  object
     /// - native function object
-    /// - undefined, when stack frame is detached
+    /// - undefined, when stack frame is detached (cleared)
     pub cur_running: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space
@@ -82,7 +83,6 @@ impl Default for StackFrame {
 
 impl StackFrame {
     /// Returns a slice of argument values for this frame
-    #[inline(always)]
     pub const fn args_slice(&self) -> &[JSValue] {
         if self.arg_count == 0 {
             &[]
@@ -158,15 +158,20 @@ impl StackFrame {
     }
 
     /// Prepare to exit bytecode running.
-    pub(crate) fn handle_exit(&mut self, ctx: &JSContext, pc: usize, sp: usize, is_async: bool) {
+    pub(crate) fn handle_exit(
+        &mut self,
+        ctx: &JSContext,
+        pc: usize,
+        sp: usize,
+        is_generator: bool,
+    ) {
         debug_assert!(
-            std::ptr::eq(ctx.rt_mut().cur_stack_frame as *mut Self, self,),
-            "StackFrame::handle_exit() must be called on current active stack frame"
+            std::ptr::eq(ctx.rt_mut().cur_stack_frame as *mut Self, self),
+            "StackFrame::handle_exit() must be called on active stack frame"
         );
 
-        if is_async {
-            // is async function.
-            // the local variables are freed by the caller.
+        if is_generator {
+            // for async, local variables are freed by the caller.
             // Hence the label 'done' should never be reached in async execution.
             self.cur_pc_offset = pc;
             self.cur_sp_offset = sp as i32;
@@ -178,7 +183,7 @@ impl StackFrame {
             }
 
             // free local buf up to stack top (sp)
-            // this is not needed because when local_buf is dropped, rust will automatically do free stuff.
+            // NOTE: this seems not needed. because when local_buf is dropped, rust will automatically do free stuff.
             if !self.local_buf.is_empty() {
                 let mut pval = self.local_buf.as_mut_ptr();
                 let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
@@ -195,8 +200,8 @@ impl StackFrame {
         ctx.rt_mut().cur_stack_frame = self.prev_frame;
     }
 
-    /// Cleans up resources when frame is no longer needed
-    pub(crate) fn finalize(&mut self) {
+    /// Cleans ups for stack frame
+    pub(crate) fn clear(&mut self) {
         self.cur_running = JSValue::UNDEFINED;
         self.local_buf.clear();
         self.var_ref_list.clear();

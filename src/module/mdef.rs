@@ -18,6 +18,7 @@ use crate::{
         ModuleDependency,
     },
     object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
+    promise::Promise,
     runtime::JSRuntime,
     stack_frame::StackFrame,
     value::JSValue,
@@ -254,6 +255,11 @@ impl ModuleDef {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.id()
+    }
+
+    /// get promise of module <eval> function result
+    pub fn promise(&self) -> Option<Promise> {
+        unsafe { Promise::try_from((*self.0.promise.as_ptr()).clone()).ok() }
     }
 
     pub fn downgrade(&self) -> JSModuleDefWeakref {

@@ -5,6 +5,7 @@ enough to call the interrupt callback often. */
 pub const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
 
 impl JSContext {
+    #[inline(never)]
     pub fn poll_interrupts(&self) -> Result<(), i32> {
         let intr = self.with_mut(|ctx| {
             ctx.interrupt_counter -= 1;
