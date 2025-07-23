@@ -78,7 +78,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
 
     let new_obj = if ctor.is_undefined() {
-        ctx.create_array_buffer(
+        ctx.create_array_buffer_ex(
             &JSValue::UNDEFINED,
             cc.magic() as JSClassID,
             new_len as usize,

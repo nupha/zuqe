@@ -282,7 +282,7 @@ pub unsafe fn js_malloc_rt_typed<T>(
 }
 
 /// Throw out of memory in case of error
-#[inline(always)]
+#[inline]
 pub unsafe fn js_malloc_typed<T>(
     ctx: &JSContext,
     count: usize,

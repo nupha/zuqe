@@ -147,16 +147,6 @@ impl JSArrayBufferInner {
     pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         self.content.with_bytes_mut(f)
     }
-
-    // #[inline(always)]
-    // pub unsafe fn with_bytes_ptr<R>(&self, f: impl FnOnce(*const u8) -> R) -> R {
-    //     self.content.with_bytes_ptr(f)
-    // }
-
-    // #[inline(always)]
-    // pub unsafe fn with_bytes_mut_ptr<R>(&mut self, f: impl FnOnce(*mut u8) -> R) -> R {
-    //     self.content.with_bytes_mut_ptr(f)
-    // }
 }
 
 #[derive(Debug, Clone)]
@@ -236,7 +226,7 @@ impl JSContext {
     }
 
     /// create empty array buffer instance with required capacity.
-    pub fn create_array_buffer(
+    pub fn create_array_buffer_ex(
         &self,
         new_target: &JSValue,
         class_id: JSClassID,
@@ -267,6 +257,16 @@ impl JSContext {
         };
 
         self.do_create_array_buffer(new_target, class_id, content, opaque)
+    }
+
+    #[inline(always)]
+    pub fn create_array_buffer(&self, byte_length: usize) -> JSResult {
+        self.create_array_buffer_ex(
+            &JSValue::UNDEFINED,
+            JS_CLASS_ARRAY_BUFFER,
+            byte_length,
+            std::ptr::null_mut(),
+        )
     }
 
     #[inline(always)]
@@ -306,76 +306,14 @@ impl JSContext {
     }
 }
 
-#[deprecated(note = "use JSContext::create_array_buffer_inner0() instead")]
-pub unsafe fn js_array_buffer_constructor3(
-    ctx: &JSContext,
-    new_target: JSValueConst,
-    byte_length: usize,
-    class_id: JSClassID,
-    buf: *mut u8,
-    free_func: Option<JSFreeArrayBufferDataFunc>,
-    opaque: *mut c_void,
-    alloc_flag: bool,
-) -> JSValue {
-    // ctx
-    //     .create_array_buffer_inner0(
-    //         new_target,
-    //         class_id,
-    //         buf,
-    //         byte_length,
-    //         free_func,
-    //         opaque,
-    //         alloc_flag,
-    //     )
-    //     .unwrap_or(JSValue::EXCEPTION)
-    unreachable!()
-}
-
-/// the callback to free ObjArrayBuffer.
-/// - opaque: ObjArrayBuffer.opaque field
-/// - data: ObjArrayBuffer.data field
-/// - data_length: ObjArrayBuffer.byte_length field
-#[deprecated(note = "not used")]
-pub unsafe fn js_array_buffer_free(
-    rt: *mut JSRuntime,
-    opaque: *mut c_void,
-    data: *mut u8,
-    data_length: usize,
-) {
-    // (data, data_length) is actually raw pointer to Box<[u8]>,
-    // restore then drop it.
-    let s = std::ptr::slice_from_raw_parts_mut(data, data_length);
-    drop(Box::from_raw(s));
-}
-
-#[deprecated(note = "use JSContext::create_array_buffer() instead")]
-pub unsafe fn js_array_buffer_constructor2(
-    ctx: &JSContext,
-    new_target: &JSValueConst,
-    byte_length: usize,
-    class_id: JSClassID,
-) -> JSValue {
-    ctx.create_array_buffer(new_target, class_id, byte_length, std::ptr::null_mut())
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-#[inline(always)]
-pub unsafe fn js_array_buffer_constructor1(
-    ctx: &JSContext,
-    new_target: &JSValueConst,
-    byte_length: usize,
-) -> JSValue {
-    js_array_buffer_constructor2(ctx, new_target, byte_length, JS_CLASS_ARRAY_BUFFER)
-}
-
 pub fn js_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let size = cc.arg(0).coerce_to_index(ctx)?;
-    unsafe { js_array_buffer_constructor1(ctx, cc.this(), size).check_exception() }
+    ctx.create_array_buffer_ex(cc.this(), JS_CLASS_ARRAY_BUFFER, size, std::ptr::null_mut())
 }
 
 pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = cc.arg(0).coerce_to_index(ctx)?;
-    ctx.create_array_buffer(
+    ctx.create_array_buffer_ex(
         cc.this(),
         JS_CLASS_SHARED_ARRAY_BUFFER,
         len,

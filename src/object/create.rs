@@ -91,7 +91,7 @@ impl JSContext {
 
     /// create new object with `payload` data.
     /// New object's prototype and shape are determined by `payload` automatically.
-    #[inline(always)]
+    #[inline]
     pub fn create_object(&self, payload: ObjectDetail) -> Result<JSObject, ObjectDetail> {
         self.create_object_from_proto(
             self.0.borrow().class_proto[payload.class_id() as usize].clone(),

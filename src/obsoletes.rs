@@ -1,17 +1,18 @@
 #![allow(clippy::all)]
 
-use crate::error::JS_ThrowSyntaxError;
-use crate::module::{
-    JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDefInner,
+use std::{
+    ffi::{CStr, c_char, c_void},
+    ptr::NonNull,
 };
-use crate::object::JSObject;
+
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    array_buffer::JSFreeArrayBufferDataFunc,
     atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct},
     bytecode::arithmatic::JSStrictEqModeEnum,
     class::{JSClassDef, JSClassID},
     context::JSContext,
-    error::{JS_ThrowRangeError, JSResult},
+    error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
     function::{
         Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
         JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeField,
@@ -20,10 +21,14 @@ use crate::{
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::ObjAsyncGenerator,
     iterator::JSIteratorKindEnum,
-    module::ModuleDef,
+    module::{
+        JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
+        ModuleDefInner,
+    },
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
-        JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectDetail, PropertyEnum,
+        JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectDetail,
+        PropertyEnum,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
@@ -31,13 +36,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{JSString, JSStringInner},
-    utils::UncheckedInto,
     value::{JSValue, JSValueConst},
-};
-use std::hint::unreachable_unchecked;
-use std::{
-    ffi::{CStr, CString, c_char, c_void},
-    ptr::NonNull,
 };
 
 #[deprecated]
@@ -3294,4 +3293,61 @@ pub unsafe fn add_import(
     import_name: JSAtom,
 ) -> i32 {
     unreachable!("unused");
+}
+
+#[deprecated(note = "use JSContext::create_array_buffer_inner0() instead")]
+pub unsafe fn js_array_buffer_constructor3(
+    ctx: &JSContext,
+    new_target: JSValueConst,
+    byte_length: usize,
+    class_id: JSClassID,
+    buf: *mut u8,
+    free_func: Option<JSFreeArrayBufferDataFunc>,
+    opaque: *mut c_void,
+    alloc_flag: bool,
+) -> JSValue {
+    unreachable!()
+}
+
+/// the callback to free ObjArrayBuffer.
+/// - opaque: ObjArrayBuffer.opaque field
+/// - data: ObjArrayBuffer.data field
+/// - data_length: ObjArrayBuffer.byte_length field
+#[deprecated(note = "not used")]
+pub unsafe fn js_array_buffer_free(
+    rt: *mut JSRuntime,
+    opaque: *mut c_void,
+    data: *mut u8,
+    data_length: usize,
+) {
+    // (data, data_length) is actually raw pointer to Box<[u8]>,
+    // restore then drop it.
+    let s = std::ptr::slice_from_raw_parts_mut(data, data_length);
+    drop(Box::from_raw(s));
+}
+
+#[deprecated(note = "use JSContext::create_array_buffer() instead")]
+pub unsafe fn js_array_buffer_constructor2(
+    ctx: &JSContext,
+    new_target: &JSValueConst,
+    byte_length: usize,
+    class_id: JSClassID,
+) -> JSValue {
+    ctx.create_array_buffer_ex(new_target, class_id, byte_length, std::ptr::null_mut())
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+#[deprecated(note = "not used")]
+pub unsafe fn js_array_buffer_constructor1(
+    ctx: &JSContext,
+    new_target: &JSValueConst,
+    byte_length: usize,
+) -> JSValue {
+    ctx.create_array_buffer_ex(
+        new_target,
+        JS_CLASS_ARRAY_BUFFER,
+        byte_length,
+        std::ptr::null_mut(),
+    )
+    .unwrap_or(JSValue::EXCEPTION)
 }

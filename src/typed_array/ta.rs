@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
     JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    array_buffer::{ObjArrayBuffer, js_array_buffer_constructor1},
+    array_buffer::ObjArrayBuffer,
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
@@ -273,10 +273,7 @@ impl TypedArray {
         let count = self.length();
         let size_log2 = typed_array_size_log2(class_id as _);
 
-        let new_buf = unsafe {
-            js_array_buffer_constructor1(ctx, &JSValue::UNDEFINED, count << size_log2)
-                .check_exception()?
-        };
+        let new_buf = ctx.create_array_buffer(count << size_log2)?;
 
         // Note: necessary to check detacth again, because it could have been detached
         if self.is_detached() {
@@ -499,12 +496,10 @@ impl JSContext {
         class_id: JSClassID,
     ) -> JSResult {
         // create empty array buffer
-        let buffer = unsafe {
+        let buffer = {
             let size_log2 = typed_array_size_log2(class_id);
-            js_array_buffer_constructor1(self, &JSValue::UNDEFINED, count << size_log2)
-                .check_exception()?
+            self.create_array_buffer(count << size_log2)?
         };
-
         self.do_create_typed_array(new_target, buffer, 0, count, class_id)
     }
 
@@ -559,17 +554,8 @@ impl JSContext {
                             (source.clone(), js_get_length64(self, source)? as usize)
                         };
 
-                        // create empty array buffer
-                        let buffer = unsafe {
-                            js_array_buffer_constructor1(
-                                self,
-                                &JSValue::UNDEFINED,
-                                count << size_log2,
-                            )
-                            .check_exception()?
-                        };
-
-                        let new_arr =
+                        let buffer = self.create_array_buffer(count << size_log2)?;
+                        let new_ta =
                             self.do_create_typed_array(new_target, buffer, 0, count, class_id)?;
 
                         // put elements to buffer
@@ -578,10 +564,10 @@ impl JSContext {
                                 .get_property_u32(self, i as u32)
                                 .check_exception()?;
 
-                            new_arr.set_property_u32(self, i as u32, val)?;
+                            new_ta.set_property_u32(self, i as u32, val)?;
                         }
 
-                        Ok(new_arr)
+                        Ok(new_ta)
                     }
                 }
             }
