@@ -35,7 +35,6 @@ impl PromiseResolvingFunc {
         flags: i32,
     ) -> JSResult {
         let p = unsafe { func_obj.object_unchecked() };
-
         let payload = p.0.payload.borrow();
         let class_id = payload.class_id();
         matches!(
@@ -56,16 +55,6 @@ impl PromiseResolvingFunc {
             } else {
                 JSValue::UNDEFINED
             };
-
-            #[cfg(DUMP_PROMISE)]
-            {
-                printf(
-                    c"js_promise_resolving_function_call: is_reject=%d resolution=",
-                    is_reject as i32,
-                );
-                JS_DumpValue(ctx, resolution);
-                printf(c"\n");
-            }
 
             if is_reject || !resolution.is_object() {
                 s.promise.fulfill_or_reject(ctx, resolution, is_reject);
@@ -107,16 +96,5 @@ impl PromiseResolvingFunc {
         if let Some(s) = isa.promise_func_data() {
             s.promise.0.gc_mark();
         }
-    }
-}
-
-impl JSValue {
-    pub unsafe fn as_promise_resolving_func_unchecked(self) -> PromiseResolvingFunc {
-        debug_assert!(self.is_object());
-        debug_assert!(matches!(
-            self.object_unchecked().class_id(),
-            JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
-        ));
-        std::mem::transmute(self)
     }
 }
