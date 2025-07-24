@@ -5,7 +5,7 @@ use crate::{
     array_buffer::ObjArrayBuffer,
     function::{ObjAsyncState, ObjFunc},
     map::JSMapState,
-    promise::ObjPromiseFunc,
+    promise::ObjPromiseResolvingState,
     typed_array::ObjTypedArray,
     value::JSValue,
 };
@@ -89,35 +89,8 @@ impl ObjectDetail {
         self.typed_array_mut().map(f)
     }
 
-    // pub const fn typed_array_replace(
-    //     &mut self,
-    //     ta: Option<Box<ObjTypedArray>>,
-    // ) -> Result<Option<Box<ObjTypedArray>>, i32> {
-    //     match self {
-    //         Self::UINT8C_ARRAY(a)
-    //         | Self::INT8_ARRAY(a)
-    //         | Self::UINT8_ARRAY(a)
-    //         | Self::INT16_ARRAY(a)
-    //         | Self::UINT16_ARRAY(a)
-    //         | Self::INT32_ARRAY(a)
-    //         | Self::UINT32_ARRAY(a)
-    //         | Self::BIG_INT64_ARRAY(a)
-    //         | Self::BIG_UINT64_ARRAY(a)
-    //         | Self::FLOAT32_ARRAY(a)
-    //         | Self::FLOAT64_ARRAY(a)
-    //         | Self::DATAVIEW(a) => Ok(a.replace(ta)),
-    //         _ => Err(-1),
-    //     }
-    // }
-
-    pub const fn promise_func_data(&self) -> Option<&ObjPromiseFunc> {
-        match self {
-            Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
-            _ => None,
-        }
-    }
-
-    pub const fn promise_func_data_mut(&mut self) -> Option<&mut ObjPromiseFunc> {
+    /// get detail for promise resolving function
+    pub const fn promise_func_data(&self) -> Option<&ObjPromiseResolvingState> {
         match self {
             Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
             _ => None,

@@ -15,11 +15,10 @@ use crate::{
     object_cast,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
-    utils::{UncheckedFrom, UncheckedInto},
     value::{JSValue, JSValueConst},
 };
 
-use super::{ObjPromiseFunc, job::promise_reaction_job};
+use super::{ObjPromiseResolvingState, job::promise_reaction_job};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &JSContext,
@@ -146,7 +145,7 @@ impl Promise {
         let resolved = Rc::new(Cell::new(false));
 
         for i in 0..2 {
-            let s = ObjPromiseFunc {
+            let s = ObjPromiseResolvingState {
                 promise: self.clone(),
                 resolved: resolved.clone(), // shared between two functions
             };
@@ -206,12 +205,7 @@ impl Promise {
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(self, ctx: &JSContext, value: JSValue, is_reject: bool) {
-        #[cfg(DUMP_PROMISE)]
-        {
-            println!("fulfill_or_reject_promise: is_reject={}", is_reject);
-        }
-
+    pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
         let (promise_state, is_handled) = self
             .with_meta_mut(|s| {
                 debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);

@@ -331,14 +331,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
-            Some("crate::promise::ObjPromiseFunc"),
+            Some("crate::promise::ObjPromiseResolvingState"),
             Some("crate::promise::PromiseResolvingFunc::hook_finalizer"),
             Some("crate::promise::PromiseResolvingFunc::hook_mark")
         ),
         class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
-            Some("crate::promise::ObjPromiseFunc"),
+            Some("crate::promise::ObjPromiseResolvingState"),
             Some("crate::promise::PromiseResolvingFunc::hook_finalizer"),
             Some("crate::promise::PromiseResolvingFunc::hook_mark")
         ),

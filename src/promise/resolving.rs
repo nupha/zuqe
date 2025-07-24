@@ -12,13 +12,16 @@ use crate::{
 
 use super::{Promise, js_promise_resolve_thenable_job};
 
+/// State of promise resolving function.
 #[derive(Debug, Clone)]
-pub struct ObjPromiseFunc {
+pub struct ObjPromiseResolvingState {
+    /// the target Promise
     pub promise: Promise,
+    /// is resolved?
     pub resolved: Rc<Cell<bool>>,
 }
 
-/// Represent a promise resolve or reject function.
+/// Promise resolving function
 #[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct PromiseResolvingFunc(JSValue);
@@ -33,10 +36,14 @@ impl PromiseResolvingFunc {
     ) -> JSResult {
         let p = unsafe { func_obj.object_unchecked() };
 
-        let mut payload = p.0.payload.borrow_mut();
+        let payload = p.0.payload.borrow();
         let class_id = payload.class_id();
+        matches!(
+            class_id,
+            JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
+        );
 
-        if let Some(s) = payload.promise_func_data_mut() {
+        if let Some(s) = payload.promise_func_data() {
             if s.resolved.get() {
                 return Ok(JSValue::UNDEFINED);
             }
@@ -61,16 +68,14 @@ impl PromiseResolvingFunc {
             }
 
             if is_reject || !resolution.is_object() {
-                s.promise
-                    .clone()
-                    .fulfill_or_reject(ctx, resolution, is_reject);
+                s.promise.fulfill_or_reject(ctx, resolution, is_reject);
                 return Ok(JSValue::UNDEFINED);
             }
 
             if resolution.is_same(&s.promise.clone().into()) {
                 ctx.throw_type_error("promise self resolution");
                 let error = ctx.take_exception();
-                s.promise.clone().fulfill_or_reject(ctx, error, true);
+                s.promise.fulfill_or_reject(ctx, error, true);
                 return Ok(JSValue::UNDEFINED);
             }
 
@@ -78,11 +83,9 @@ impl PromiseResolvingFunc {
 
             if then.is_exception() {
                 let error = ctx.take_exception();
-                s.promise.clone().fulfill_or_reject(ctx, error, true);
+                s.promise.fulfill_or_reject(ctx, error, true);
             } else if !then.is_callable() {
-                s.promise
-                    .clone()
-                    .fulfill_or_reject(ctx, resolution, is_reject);
+                s.promise.fulfill_or_reject(ctx, resolution, is_reject);
             } else {
                 ctx.queue_job(
                     js_promise_resolve_thenable_job,
