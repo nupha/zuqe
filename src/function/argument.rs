@@ -1,3 +1,4 @@
+use crate::error::JSResult;
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
@@ -12,6 +13,18 @@ use crate::{
     stack_frame::StackFrame,
     value::JSValue,
 };
+
+impl JSContext {
+    pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
+        let arr = self.create_array()?;
+        if !args.is_empty() {
+            for (i, v) in args.iter().enumerate().skip(first) {
+                arr.define_property_value_u32(self, (i - first) as _, v.clone(), JS_PROP_C_W_E)?;
+            }
+        }
+        Ok(arr)
+    }
+}
 
 pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let obj: JSObject = if let Ok(o) = ctx.create_object_from_proto(
@@ -154,20 +167,9 @@ pub unsafe fn js_build_mapped_arguments(
     val
 }
 
+#[deprecated(note = "use JSContext::build_rest() instead")]
 pub fn js_build_rest(ctx: &JSContext, first: usize, args: &[JSValue]) -> JSValue {
-    if let Ok(val) = ctx.create_array() {
-        for (i, v) in args[first..].iter().enumerate() {
-            if val
-                .define_property_value_u32(ctx, (i - first) as _, v.clone(), JS_PROP_C_W_E)
-                .is_err()
-            {
-                return JSValue::EXCEPTION;
-            }
-        }
-        val
-    } else {
-        JSValue::EXCEPTION
-    }
+    ctx.build_rest(first, args).unwrap_or(JSValue::EXCEPTION)
 }
 
 // XXX: should use ValueArray
