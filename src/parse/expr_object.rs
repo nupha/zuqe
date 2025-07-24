@@ -1,17 +1,23 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::JS_ATOM___proto__},
+    atom::{
+        JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom,
+        consts::{JS_ATOM___proto__, JS_ATOM_async, JS_ATOM_get, JS_ATOM_set},
+    },
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
+    defer,
     function::JSFunctionKindEnum,
     object::{
-        PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_SET, PROP_TYPE_STAR,
-        PROP_TYPE_VAR,
+        PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
+        PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
     },
     parse::{
         JSParseFunctionEnum,
-        class::js_parse_property_name,
         obj::set_object_name_computed,
-        token::{CHAR_BRACKET_L, CHAR_COLON, CHAR_CURLY_R, TOK_ELLIPSIS},
+        token::{
+            CHAR_BRACKET_L, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SQUARE_L, TOK_ELLIPSIS,
+            TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STRING,
+        },
     },
 };
 
@@ -48,12 +54,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
             }
 
-            let mut name: JSAtom = JS_ATOM_NULL;
-            let prop_type = js_parse_property_name(self, &mut name, true, true, false);
-            if prop_type < 0 {
-                JS_FreeAtom(&self.ctx, name);
-                return Err(-1);
-            };
+            let (name, prop_type) = self.parse_property_name(true, true, false)?;
 
             if prop_type == PROP_TYPE_VAR {
                 // shortcut for x: x
@@ -154,5 +155,139 @@ impl<'s> JSParseState<'s> {
         } // while
 
         self.parse_expect(CHAR_CURLY_R)
+    }
+
+    /// if the property is an expression, name = JS_ATOM_NULL.
+    /// return atom and property type.
+    pub fn parse_property_name(
+        &mut self,
+        allow_method: bool,
+        allow_var: bool,
+        allow_private: bool,
+    ) -> Result<(JSAtom, i32), i32> {
+        let mut prop_type = PROP_TYPE_IDENT;
+        let mut private = 0_i32;
+        let mut is_non_reserved_ident = false;
+
+        let mut name: JSAtom = JS_ATOM_NULL;
+        let name = &mut name;
+
+        let atom_ptr = name as *mut JSAtom;
+        let rt_ptr = self.ctx.rt_ptr();
+        defer!(unsafe {
+            JS_FreeAtomRT(rt_ptr.as_ptr(), *atom_ptr);
+        });
+
+        if allow_method {
+            if self.token_is_pseudo_keyword(JS_ATOM_get)
+                || self.token_is_pseudo_keyword(JS_ATOM_set)
+            {
+                /* get x(), set x() */
+                *name = self.token.data.ident_atom().unwrap().dup(self.ctx.rt());
+                self.next_token()?;
+
+                if matches!(
+                    self.token.val,
+                    CHAR_COLON | CHAR_COMMA | CHAR_CURLY_R | CHAR_BRACKET_L
+                ) {
+                    // :,}(
+                    is_non_reserved_ident = true;
+                } else {
+                    prop_type = if *name == JS_ATOM_get {
+                        PROP_TYPE_GET
+                    } else {
+                        PROP_TYPE_SET
+                    };
+                    JS_FreeAtom(&self.ctx, *name);
+                    *name = JS_ATOM_NULL;
+                }
+            } else if self.token.val == '*' as i32 {
+                self.next_token()?;
+                prop_type = PROP_TYPE_STAR;
+            } else if self.token_is_pseudo_keyword(JS_ATOM_async)
+                && self.peek_token(true) != '\n' as i32
+            {
+                *name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+                self.next_token()?;
+
+                if matches!(
+                    self.token.val,
+                    CHAR_COLON | CHAR_COMMA | CHAR_CURLY_R | CHAR_BRACKET_L
+                ) {
+                    // :,}(
+                    is_non_reserved_ident = true;
+                } else {
+                    JS_FreeAtom(&self.ctx, *name);
+                    *name = JS_ATOM_NULL;
+
+                    prop_type = if self.token.val == '*' as i32 {
+                        self.next_token()?;
+                        PROP_TYPE_ASYNC_STAR
+                    } else {
+                        PROP_TYPE_ASYNC
+                    };
+                }
+            }
+        }
+
+        if *name == JS_ATOM_NULL {
+            match self.token.val {
+                TOK_STRING => {
+                    *name = self
+                        .token
+                        .data
+                        .string()
+                        .unwrap()
+                        .coerce_to_atom(&self.ctx)?;
+                    self.next_token()?;
+                }
+                TOK_NUMBER => {
+                    *name = self
+                        .token
+                        .data
+                        .number()
+                        .unwrap()
+                        .coerce_to_atom(&self.ctx)?;
+                    self.next_token()?;
+                }
+                // '['
+                CHAR_SQUARE_L => {
+                    self.next_token()?;
+                    self.parse_expr()?;
+                    self.parse_expect(']' as i32)?;
+                }
+                TOK_PRIVATE_NAME if allow_private => {
+                    *name = self.token.data.ident_atom().unwrap().dup(self.ctx.rt());
+                    self.next_token()?;
+                    private = PROP_TYPE_PRIVATE;
+                }
+                t if JSParseState::token_maybe_ident(t) => {
+                    /* variable can only be a non-reserved identifier */
+                    is_non_reserved_ident =
+                        self.token.val == TOK_IDENT && !self.token.data.is_reserved();
+
+                    /* keywords and reserved words have a valid atom */
+                    *name = self.token.atom().unwrap().dup(&self.ctx.rt());
+                    self.next_token()?;
+                }
+                _ => {
+                    self.throw_syntax_error("invalid property name");
+                    return Err(-1);
+                }
+            }
+        }
+
+        if is_non_reserved_ident && prop_type == PROP_TYPE_IDENT && allow_var {
+            if !(self.token.val == ':' as i32 || (self.token.val == '(' as i32 && allow_method)) {
+                prop_type = PROP_TYPE_VAR;
+            }
+        }
+
+        if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR) && self.token.val != '(' as i32 {
+            self.throw_syntax_error("invalid property name");
+            return Err(-1);
+        }
+
+        Ok((name.clone(), prop_type | private))
     }
 }

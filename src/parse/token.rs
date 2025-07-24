@@ -53,6 +53,21 @@ pub struct JSToken {
     pub data: TokenData,
 }
 
+impl JSToken {
+    /// if data is ident type or is reserved keyword TOK_, returns atom.
+    pub fn atom(&self) -> Option<JSAtom> {
+        match self.val {
+            TOK_IDENT => self.data.ident_atom(),
+            t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
+                // convert keyword token to atom
+                let a = t - TOK_FIRST_KEYWORD + 1;
+                Some(JSAtom(a as u32))
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum TokenData {
     None,
@@ -80,7 +95,7 @@ impl Default for TokenData {
 }
 
 impl TokenData {
-    /// if data is ident type, returns atom.
+    /// if data is ident, returns then atom.
     /// Returned atom is not duplicated. Caller must dup if need to reference it.
     pub fn ident_atom(&self) -> Option<JSAtom> {
         if let Self::Ident { atom, .. } = self {
@@ -160,7 +175,6 @@ impl<'s> JSParseState<'s> {
     // inline this method will be very slow due to check stack overflow,
     // and will consume large stack space for each function that call this method,
     // which will soon use up stack space, and cause stack overflow.
-    #[inline(never)]
     pub fn next_token(&mut self) -> Result<(), i32> {
         if js_check_stack_overflow(self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");

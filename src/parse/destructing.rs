@@ -13,7 +13,6 @@ use crate::{
 };
 
 use super::{
-    class::js_parse_property_name,
     expr_lvalue::PutLValueEnum,
     function::js_parse_check_duplicate_parameter,
     parse::js_parse_skip_parens_token,
@@ -214,11 +213,9 @@ impl<'s> JSParseState<'s> {
                 continue;
             }
 
-            let prop_type =
-                unsafe { js_parse_property_name(self, &mut prop_name, false, true, false) };
-            if prop_type < 0 {
-                return Err(-1);
-            }
+            let r = self.parse_property_name(false, true, false)?;
+            prop_name = r.0;
+            let prop_type = r.1;
 
             var_name = JS_ATOM_NULL;
             opcode = opcodes::op_scope_get_var as _;
