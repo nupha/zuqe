@@ -101,7 +101,6 @@ impl JSObject {
                                     match self.destruct_fast_array(ctx) {
                                         Ok(_) => {
                                             update_array_length!(self, idx);
-                                            // will adopt generic array ...
                                         }
                                         Err(e) => {
                                             return if ctx.can_throw_error(flags) {

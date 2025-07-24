@@ -2928,9 +2928,10 @@ pub unsafe fn get_closure_var2(
     is_lexical: bool,
     var_kind: JSVarKindEnum,
 ) -> Result<u16, i32> {
-    s.get_closure_var2(
-        ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
-    )
+    unreachable!("unused");
+    // s.get_closure_var2(
+    //     ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    // )
 }
 
 #[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
@@ -2945,9 +2946,10 @@ pub unsafe fn get_closure_var(
     is_lexical: bool,
     var_kind: JSVarKindEnum,
 ) -> Result<u16, i32> {
-    s.get_closure_var2(
-        ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
-    )
+    unreachable!("unused");
+    // s.get_closure_var2(
+    //     ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    // )
 }
 
 #[deprecated(note = "use JSParseState::parse_destructuring_element() instead")]

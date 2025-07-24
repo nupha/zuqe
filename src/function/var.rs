@@ -68,6 +68,7 @@ pub struct JSVarDef {
     pub scope_level: i32,
 
     /// index of previous var in same scope.
+    /// TODO: use Option<u16>
     pub scope_next: i32,
 
     // Combines is_const, is_lexical, is_captured, is_static_private, and var_kind
