@@ -15,7 +15,6 @@ use crate::{
 use super::{
     expr_lvalue::PutLValueEnum,
     function::js_parse_check_duplicate_parameter,
-    parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
     token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
 };
@@ -230,7 +229,10 @@ impl<'s> JSParseState<'s> {
                 // token: [{ && after-parens-token: ,=}
                 if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L)
                     && matches!(
-                        unsafe { js_parse_skip_parens_token(self, std::ptr::null_mut(), false) },
+                        {
+                            let mut _p = 0;
+                            self.parse_skip_parens_token(&mut _p, false)?
+                        },
                         CHAR_COMMA | CHAR_EQUAL | CHAR_CURLY_R // , | = | }
                     )
                 {
@@ -438,7 +440,7 @@ impl<'s> JSParseState<'s> {
                     false
                 }
                 CHAR_SQUARE_L | CHAR_CURLY_L => {
-                    match unsafe { js_parse_skip_parens_token(self, &mut skip_bits, false) } {
+                    match self.parse_skip_parens_token(&mut skip_bits, false)? {
                         t @ (CHAR_COMMA | CHAR_EQUAL | CHAR_SQUARE_R) => {
                             if has_spread {
                                 if t == '=' as i32 {
@@ -574,9 +576,7 @@ impl<'s> JSParseState<'s> {
         let mut skip_bits: i32 = 0;
         if has_ellipsis < 0 {
             // Pre-parse destructuration target for spread detection
-            unsafe {
-                js_parse_skip_parens_token(self, &mut skip_bits as *mut i32, false);
-            }
+            self.parse_skip_parens_token(&mut skip_bits, false)?;
             has_ellipsis = skip_bits & SKIP_HAS_ELLIPSIS;
         }
 
@@ -1227,16 +1227,13 @@ impl<'s> JSParseState<'s> {
     pub fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
         if (self.token.val != TOK_IDENT || self.token.data.is_reserved())
             || (self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
-                && matches!(
-                    self.token.data.ident_atom().unwrap(),
-                    JS_ATOM_eval | JS_ATOM_arguments
-                ))
+                && matches!(self.token.atom().unwrap(), JS_ATOM_eval | JS_ATOM_arguments))
         {
             self.throw_syntax_error("invalid destructuring target");
             return Err(-1);
         }
 
-        let name = self.token.data.ident_atom().unwrap().dup(self.ctx.rt());
+        let name = self.token.atom().unwrap().dup(self.ctx.rt());
         if is_arg && unsafe { js_parse_check_duplicate_parameter(self, name) != 0 } {
             JS_FreeAtom(&self.ctx, name);
             return Err(-1);

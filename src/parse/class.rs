@@ -47,7 +47,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
             // next_token() will free the atom, dup it in advance.
-            class_name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+            class_name = self.token.atom().unwrap().dup(&self.ctx.rt());
             self.next_token().inspect_err(|_| {
                 JS_FreeAtom(&self.ctx, class_name);
             })?;

@@ -26,7 +26,7 @@ impl<'s> JSParseState<'s> {
                 self.optional_chain_test(optional_chaining_label, 1);
             }
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD);
-            self.emit_atom_dup(self.token.data.ident_atom().unwrap());
+            self.emit_atom_dup(self.token.atom().unwrap());
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
             if !Self::token_maybe_ident(self.token.val) {
@@ -34,12 +34,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
             if get_prev_opcode(fd) == opcodes::OP_get_super {
-                let val = self
-                    .token
-                    .data
-                    .ident_atom()
-                    .unwrap()
-                    .to_value(&self.ctx, false);
+                let val = self.token.atom().unwrap().to_value(&self.ctx, false);
                 let ret = self.emit_push_const(val, true);
                 if ret != 0 {
                     return Err(-1);
@@ -50,7 +45,7 @@ impl<'s> JSParseState<'s> {
                     self.optional_chain_test(optional_chaining_label, 1);
                 }
                 self.emit_op(OpCode::GET_FIELD);
-                self.emit_atom_dup(self.token.data.ident_atom().unwrap());
+                self.emit_atom_dup(self.token.atom().unwrap());
             }
         }
 

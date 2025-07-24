@@ -12,7 +12,6 @@ use super::{
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
-    parse::js_parse_skip_parens_token,
     regexp::js_parse_regexp,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
     token::{
@@ -33,7 +32,7 @@ impl<'s> JSParseState<'s> {
 
         // name0 is used to check for OP_set_name pattern, not duplicated
         let name0 = if self.token.val == TOK_IDENT {
-            self.token.data.ident_atom().unwrap()
+            self.token.atom().unwrap()
         } else {
             JS_ATOM_NULL
         };
@@ -308,9 +307,10 @@ impl<'s> JSParseState<'s> {
             },
 
             // '('
-            CHAR_BRACKET_L => unsafe {
-                if (parse_flags & PF_ARROW_FUNC) != 0
-                    && js_parse_skip_parens_token(self, core::ptr::null_mut(), true) == TOK_ARROW
+            CHAR_BRACKET_L => {
+                let mut _p = 0;
+                if parse_flags & PF_ARROW_FUNC != 0
+                    && self.parse_skip_parens_token(&mut _p, true)? == TOK_ARROW
                 {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
@@ -322,7 +322,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_expr_parens()?;
                 }
-            },
+            }
             TOK_FUNCTION => {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
@@ -389,11 +389,10 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else if (parse_flags & PF_ARROW_FUNC) != 0
-                        && (self.token.val == b'(' as i32
-                            && unsafe {
-                                js_parse_skip_parens_token(self, core::ptr::null_mut(), true)
-                                    == TOK_ARROW
-                            })
+                        && (self.token.val == b'(' as i32 && {
+                            let mut _p = 0;
+                            self.parse_skip_parens_token(&mut _p, true)? == TOK_ARROW
+                        })
                         || (self.token.val == TOK_IDENT
                             && !self.token.data.is_reserved()
                             && self.peek_token(true) == TOK_ARROW)
@@ -412,7 +411,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
                 } else {
-                    if self.token.data.ident_atom().unwrap() == JS_ATOM_arguments
+                    if self.token.atom().unwrap() == JS_ATOM_arguments
                         && !self.cur_func().arguments_allowed
                     {
                         self.throw_syntax_error(
@@ -421,7 +420,7 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+                    name = self.token.atom().unwrap().dup(&self.ctx.rt());
 
                     if self.next_token().is_err() {
                         JS_FreeAtom(&self.ctx, name);
@@ -437,7 +436,7 @@ impl<'s> JSParseState<'s> {
             // '{' | '['
             CHAR_CURLY_L | CHAR_SQUARE_L => unsafe {
                 let mut skip_bits: i32 = 0;
-                if js_parse_skip_parens_token(self, &mut skip_bits, false) == '=' as i32 {
+                if self.parse_skip_parens_token(&mut skip_bits, false)? == '=' as i32 {
                     self.parse_destructuring_element(
                         0,
                         false,

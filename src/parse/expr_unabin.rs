@@ -30,10 +30,8 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_expr_binary(&mut self, level: i32, parse_flags: i32) -> Result<(), i32> {
         if level == 0 {
             return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
-        }
-
-        if self.token.val == TOK_PRIVATE_NAME
-            && (parse_flags & PF_IN_ACCEPTED) != 0
+        } else if self.token.val == TOK_PRIVATE_NAME
+            && parse_flags & PF_IN_ACCEPTED != 0
             && level == 4
             && self.peek_token(false) == TOK_IN
         {
@@ -75,7 +73,6 @@ impl<'s> JSParseState<'s> {
 
         loop {
             let op = self.token.val;
-
             let opcode = match level {
                 1 => match op {
                     CHAR_STAR => OpCode::MUL,    // '*'

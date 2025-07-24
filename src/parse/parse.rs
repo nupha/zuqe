@@ -27,7 +27,7 @@ use super::{
         TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_OF, TOK_PACKAGE, TOK_PRIVATE, TOK_PROTECTED,
         TOK_PUBLIC, TOK_REGEXP, TOK_RETURN, TOK_STATIC, TOK_STRING, TOK_SUPER, TOK_SWITCH,
         TOK_TEMPLATE, TOK_THIS, TOK_THROW, TOK_TRUE, TOK_TRY, TOK_TYPEOF, TOK_VAR, TOK_WHILE,
-        TOK_WITH, is_regexp_allowed,
+        TOK_WITH,
     },
 };
 
@@ -290,22 +290,12 @@ impl JSParseState<'_> {
                     return Err(-1);
                 }
 
-                if self.token.data.ident_atom().unwrap() == JS_ATOM_let
-                    && matches!(tok, TOK_LET | TOK_CONST)
-                {
+                if self.token.atom().unwrap() == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
                     self.throw_syntax_error("'let' is not a valid lexical identifier");
                     return Err(-1);
                 }
 
-                #[cfg(debug_assertions)]
-                let _name_refcnt = self
-                    .token
-                    .data
-                    .ident_atom()
-                    .unwrap()
-                    .ref_count(self.ctx.rt());
-
-                let name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+                let name = self.token.atom().unwrap().dup(&self.ctx.rt());
 
                 if self.next_token().is_err() {
                     JS_FreeAtom(&self.ctx, name);
@@ -412,8 +402,8 @@ impl JSParseState<'_> {
             } else {
                 let mut skip_bits: i32 = 0;
 
-                if (self.token.val == '[' as i32 || self.token.val == '{' as i32)
-                    && js_parse_skip_parens_token(self, &mut skip_bits, false) == '=' as i32
+                if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) // '[' '{'
+                    && self.parse_skip_parens_token(&mut skip_bits, false)? == '=' as i32
                 {
                     self.emit_op(OpCode::UNDEFINED);
                     self.parse_destructuring_element(
@@ -473,6 +463,146 @@ impl JSParseState<'_> {
             self.next_token()
         }
     }
+
+    // XXX: improve speed with early bailout
+    // XXX: no longer works if regexps are present. Could use previous
+    //   regexp parsing heuristics to handle most cases
+    pub fn parse_skip_parens_token(
+        &mut self,
+        pbits: &mut i32,
+        no_line_terminator: bool,
+    ) -> Result<i32, i32> {
+        let mut tok: i32 = TOK_EOF;
+        let mut bits: i32 = 0;
+
+        // protect from underflow
+        let mut state = [0u8; 256];
+        let mut level = 1_usize;
+
+        let pos = self.get_pos();
+        let mut last_tok = 0;
+
+        loop {
+            match self.token.val {
+                // '(',  '[',  '{'
+                CHAR_BRACKET_L | CHAR_SQUARE_L | CHAR_CURLY_L => {
+                    if level >= state.len() {
+                        break;
+                    }
+                    state[level] = self.token.val as u8;
+                    level += 1;
+                }
+                // ')'
+                CHAR_BRACKET_R => {
+                    level -= 1;
+                    if state[level] != b'(' {
+                        break;
+                    }
+                }
+                // ']'
+                CHAR_SQUARE_R => {
+                    level -= 1;
+                    if state[level] != b'[' {
+                        break;
+                    }
+                }
+                // '}'
+                CHAR_CURLY_R => {
+                    level -= 1;
+                    let c = state[level] as i32;
+                    if c == '`' as i32 {
+                        // continue the parsing of the template
+                        self.clear_atom_value();
+                        // Resume TOK_TEMPLATE parsing (s->token.line_num and
+                        // s->token.ptr are OK)
+                        self.got_lf = false;
+                        self.last_line_num = self.token.line_num;
+                        if unsafe { self.parse_template_part(self.buf_ptr).is_err() } {
+                            break;
+                        } else {
+                            continue;
+                        }
+                    } else if c != '{' as i32 {
+                        break;
+                    }
+                }
+                // ';'
+                CHAR_SEMI => {
+                    if level == 2 {
+                        bits |= SKIP_HAS_SEMI;
+                    }
+                }
+                // '='
+                CHAR_EQUAL => {
+                    bits |= SKIP_HAS_ASSIGNMENT;
+                }
+                t @ (TOK_DIV_ASSIGN | CHAR_SLASH) => {
+                    if is_regexp_allowed(last_tok) {
+                        self.buf_ptr = unsafe {
+                            self.buf_ptr
+                                .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 })
+                        };
+                        if unsafe { js_parse_regexp(self) } != 0 {
+                            // XXX: should clear the exception
+                            break;
+                        }
+                    }
+                }
+                TOK_TEMPLATE => {
+                    // handle_template:
+                    if self.token.data.string_sep().unwrap() != '`' as i32 {
+                        // '${' inside the template : closing '}' and continue
+                        // parsing the template
+                        if level >= 256 {
+                            break;
+                        }
+                        state[level] = b'`';
+                        level += 1;
+                    }
+                }
+                TOK_EOF => {
+                    break;
+                }
+                TOK_ELLIPSIS => {
+                    if level == 2 {
+                        bits |= SKIP_HAS_ELLIPSIS;
+                    }
+                }
+
+                _ => {}
+            }
+
+            // last_tok is only used to recognize regexps
+            last_tok = if self.token.val == TOK_IDENT
+                && (self.token_is_pseudo_keyword(JS_ATOM_of)
+                    || self.token_is_pseudo_keyword(JS_ATOM_yield))
+            {
+                TOK_OF
+            } else {
+                self.token.val
+            };
+
+            if self.next_token().is_err() {
+                // XXX: should clear the exception generated by next_token()
+                break;
+            }
+            if level <= 1 {
+                tok = self.token.val;
+                if self.token_is_pseudo_keyword(JS_ATOM_of) {
+                    tok = TOK_OF;
+                }
+                if no_line_terminator && self.last_line_num != self.token.line_num {
+                    tok = '\n' as i32;
+                }
+                break;
+            }
+        }
+
+        // done:
+        *pbits = bits;
+        self.seek_token(&pos)?;
+        Ok(tok)
+    }
 }
 
 pub fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u8 {
@@ -506,164 +636,6 @@ pub fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u8 {
     p
 }
 
-// XXX: improve speed with early bailout
-// XXX: no longer works if regexps are present. Could use previous
-//   regexp parsing heuristics to handle most cases
-pub unsafe fn js_parse_skip_parens_token(
-    s: *mut JSParseState,
-    pbits: *mut i32,
-    no_line_terminator: bool,
-) -> i32 {
-    let mut tok: i32 = TOK_EOF;
-    let mut tok_len: i32;
-    let mut bits: i32 = 0;
-
-    // protect from underflow
-    let mut state = [0u8; 256];
-    let mut level = 1_usize;
-
-    let pos = (*s).get_pos();
-    let mut last_tok = 0;
-
-    loop {
-        match (*s).token.val {
-            // '(',  '[',  '{'
-            CHAR_BRACKET_L | CHAR_SQUARE_L | CHAR_CURLY_L => {
-                if level >= state.len() {
-                    break;
-                }
-                state[level] = (*s).token.val as u8;
-                level += 1;
-            }
-            // ')'
-            CHAR_BRACKET_R => {
-                level -= 1;
-                if state[level] != b'(' {
-                    break;
-                }
-            }
-            // ']'
-            CHAR_SQUARE_R => {
-                level -= 1;
-                if state[level] != b'[' {
-                    break;
-                }
-            }
-            // '}'
-            CHAR_CURLY_R => {
-                level -= 1;
-                let c = state[level] as i32;
-                if c == '`' as i32 {
-                    // continue the parsing of the template
-                    (*s).clear_atom_value();
-                    // Resume TOK_TEMPLATE parsing (s->token.line_num and
-                    // s->token.ptr are OK)
-                    (*s).got_lf = false;
-                    (*s).last_line_num = (*s).token.line_num;
-                    if (*s).parse_template_part((*s).buf_ptr).is_err() {
-                        break;
-                    }
-                    // C2RS: goto handle_template; 转换为直接跳转到 handle_template 标签的逻辑
-                    continue;
-                } else if c != '{' as i32 {
-                    break;
-                }
-            }
-            // ';'
-            CHAR_SEMI => {
-                if level == 2 {
-                    bits |= SKIP_HAS_SEMI;
-                }
-            }
-            // '='
-            CHAR_EQUAL => {
-                bits |= SKIP_HAS_ASSIGNMENT;
-            }
-            // '/'
-            CHAR_SLASH => {
-                tok_len = 1;
-                // parse_regexp:
-                if is_regexp_allowed(last_tok) {
-                    (*s).buf_ptr = (*s).buf_ptr.offset(-tok_len as _);
-                    if js_parse_regexp(s.as_mut().unwrap()) != 0 {
-                        // XXX: should clear the exception
-                        break;
-                    }
-                }
-            }
-
-            TOK_TEMPLATE => {
-                // handle_template:
-                if (*s).token.data.string_sep().unwrap() != '`' as i32 {
-                    // '${' inside the template : closing '}' and continue
-                    // parsing the template
-                    if level >= 256 {
-                        break;
-                    }
-                    state[level] = b'`';
-                    level += 1;
-                }
-            }
-            TOK_ELLIPSIS => {
-                if level == 2 {
-                    bits |= SKIP_HAS_ELLIPSIS;
-                }
-            }
-            TOK_DIV_ASSIGN => {
-                tok_len = 2;
-                if is_regexp_allowed(last_tok) {
-                    (*s).buf_ptr = (*s).buf_ptr.offset(-tok_len as _);
-                    if js_parse_regexp(s.as_mut().unwrap()) != 0 {
-                        // XXX: should clear the exception
-                        break;
-                    }
-                }
-                continue;
-            }
-            TOK_EOF => {
-                break;
-            }
-
-            _ => {}
-        }
-
-        // last_tok is only used to recognize regexps
-        last_tok = if (*s).token.val == TOK_IDENT
-            && ((*s).token_is_pseudo_keyword(JS_ATOM_of)
-                || (*s).token_is_pseudo_keyword(JS_ATOM_yield))
-        {
-            TOK_OF
-        } else {
-            (*s).token.val
-        };
-
-        if (*s).next_token().is_err() {
-            // XXX: should clear the exception generated by next_token()
-            break;
-        }
-        if level <= 1 {
-            tok = (*s).token.val;
-            if (*s).token_is_pseudo_keyword(JS_ATOM_of) {
-                tok = TOK_OF;
-            }
-            if no_line_terminator && (*s).last_line_num != (*s).token.line_num {
-                tok = '\n' as i32;
-            }
-            break;
-        }
-    }
-
-    // done:
-    if !pbits.is_null() {
-        *pbits = bits;
-    }
-    if (*s).seek_token(&pos).is_err() {
-        return -1;
-    }
-
-    tok
-}
-
 // // if the current token is an identifier or keyword, reparse it
 // // according to the current function type
 // pub unsafe fn reparse_ident_token(s: *mut JSParseState) {
@@ -673,3 +645,25 @@ pub unsafe fn js_parse_skip_parens_token(
 //         (*s).update_token_ident();
 //     }
 // }
+
+/// return TRUE if a regexp literal is allowed after token `tok`
+#[inline(always)]
+pub const fn is_regexp_allowed(tok: i32) -> bool {
+    // regexp may occur after
+    !matches!(
+        tok,
+        TOK_NUMBER
+            | TOK_STRING
+            | TOK_REGEXP
+            | TOK_DEC
+            | TOK_INC
+            | TOK_NULL
+            | TOK_FALSE
+            | TOK_TRUE
+            | TOK_THIS
+            | TOK_IDENT
+            | CHAR_BRACKET_R
+            | CHAR_SQUARE_R
+            | CHAR_CURLY_R /* XXX: regexp may occur after */
+    )
+}

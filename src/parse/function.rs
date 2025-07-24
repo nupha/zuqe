@@ -13,7 +13,6 @@ use crate::{
 use super::{
     emit::js_is_live_code,
     esm::JSParseExportEnum,
-    parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL,
@@ -155,7 +154,7 @@ impl<'s> JSParseState<'s> {
                 fail!();
             }
 
-            let name = self.token.data.ident_atom().unwrap();
+            let name = self.token.atom().unwrap();
             if fd1.add_arg(&self.ctx, name).is_err() {
                 fail!();
             };
@@ -165,9 +164,9 @@ impl<'s> JSParseState<'s> {
                 let mut skip_bits: i32 = 0;
                 /* if there is an '=' inside the parameter list, we
                 consider there is a parameter expression inside */
-                unsafe {
-                    js_parse_skip_parens_token(self, &mut skip_bits, false);
-                }
+                if self.parse_skip_parens_token(&mut skip_bits, false).is_err() {
+                    fail!();
+                };
                 if skip_bits & SKIP_HAS_ASSIGNMENT != 0 {
                     fd1.has_parameter_expressions = true;
                 }
@@ -237,7 +236,7 @@ impl<'s> JSParseState<'s> {
                         fail!();
                     }
 
-                    let name = self.token.data.ident_atom().unwrap();
+                    let name = self.token.atom().unwrap();
                     if name == JS_ATOM_yield
                         && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
@@ -525,7 +524,7 @@ impl<'s> JSParseState<'s> {
     /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
     /// `func_name` is **NOT CONSUMED** inside.
-    pub(super) unsafe fn parse_function_decl2(
+    pub(super) fn parse_function_decl2(
         &mut self,
         func_type: JSParseFunctionEnum,
         mut func_kind: JSFunctionKindEnum,
@@ -541,7 +540,7 @@ impl<'s> JSParseState<'s> {
         );
 
         // save original cur_func
-        let fd0 = self.cur_func_ptr.as_mut().unwrap();
+        let fd0 = unsafe { self.cur_func_ptr.as_mut().unwrap() };
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
@@ -562,17 +561,21 @@ impl<'s> JSParseState<'s> {
 
                 if self.token.val == CHAR_STAR {
                     self.next_token()?;
-                    func_kind = std::mem::transmute::<u8, JSFunctionKindEnum>(
-                        func_kind as u8 | JSFunctionKindEnum::JS_FUNC_GENERATOR as u8,
-                    )
+                    func_kind = unsafe {
+                        std::mem::transmute::<u8, JSFunctionKindEnum>(
+                            func_kind as u8 | JSFunctionKindEnum::JS_FUNC_GENERATOR as u8,
+                        )
+                    }
                 }
 
                 if self.token.val == TOK_IDENT {
+                    let atom = self.token.atom().unwrap();
+
                     if self.token.data.is_reserved()
-                        || (self.token.data.ident_atom().unwrap() == JS_ATOM_yield
+                        || (atom == JS_ATOM_yield
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                             && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                        || (self.token.data.ident_atom().unwrap() == JS_ATOM_await
+                        || (atom == JS_ATOM_await
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                                 && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
                                     != 0)
@@ -589,7 +592,7 @@ impl<'s> JSParseState<'s> {
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
-                    func_name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+                    func_name = self.token.atom().unwrap().dup(&self.ctx.rt());
                     if self.next_token().is_err() {
                         JS_FreeAtom(&self.ctx, func_name);
                         return Err(-1);
@@ -832,7 +835,9 @@ impl<'s> JSParseState<'s> {
         // rust should give up its ownership.
         let fd_ptr = Box::into_raw(fd1);
         if !pfd.is_null() {
-            *pfd = fd_ptr;
+            unsafe {
+                *pfd = fd_ptr;
+            }
         }
 
         Ok(())

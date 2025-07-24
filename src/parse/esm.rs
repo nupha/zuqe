@@ -87,8 +87,7 @@ impl<'s> JSParseState<'s> {
                     // "default" import
                     let local_name = self
                         .token
-                        .data
-                        .ident_atom()
+                        .atom()
                         .unwrap()
                         .dup(&self.ctx.rt())
                         .into_rc(&self.ctx.rt());
@@ -121,8 +120,7 @@ impl<'s> JSParseState<'s> {
 
                     let local_name = self
                         .token
-                        .data
-                        .ident_atom()
+                        .atom()
                         .unwrap()
                         .dup(&self.ctx.rt())
                         .into_rc(&self.ctx.rt());
@@ -140,8 +138,7 @@ impl<'s> JSParseState<'s> {
 
                         let import_name = self
                             .token
-                            .data
-                            .ident_atom()
+                            .atom()
                             .unwrap()
                             .dup(&self.ctx.rt())
                             .into_rc(&self.ctx.rt());
@@ -156,7 +153,7 @@ impl<'s> JSParseState<'s> {
                                 return Err(-1);
                             }
 
-                            let ln = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+                            let ln = self.token.atom().unwrap().dup(&self.ctx.rt());
                             self.next_token()?;
                             ln
                         } else {
@@ -486,7 +483,7 @@ fn parse_export_name(s: &JSParseState) -> Result<JSAtom, i32> {
         s.throw_syntax_error("identifier expected");
         Err(-1)
     } else {
-        Ok(s.token.data.ident_atom().unwrap().dup(&s.ctx.rt()))
+        s.token.atom().ok_or(-1).map(|a| a.dup(s.ctx.rt()))
     }
 }
 

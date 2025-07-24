@@ -97,7 +97,7 @@ impl Default for TokenData {
 impl TokenData {
     /// if data is ident, returns then atom.
     /// Returned atom is not duplicated. Caller must dup if need to reference it.
-    pub fn ident_atom(&self) -> Option<JSAtom> {
+    fn ident_atom(&self) -> Option<JSAtom> {
         if let Self::Ident { atom, .. } = self {
             Some(*atom) // not duplicated here!
         } else {
@@ -971,26 +971,4 @@ pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) ->
             }
         }
     }
-}
-
-/// return TRUE if a regexp literal is allowed after token `tok`
-#[inline(always)]
-pub const fn is_regexp_allowed(tok: i32) -> bool {
-    // regexp may occur after
-    matches!(
-        tok,
-        TOK_NUMBER
-            | TOK_STRING
-            | TOK_REGEXP
-            | TOK_DEC
-            | TOK_INC
-            | TOK_NULL
-            | TOK_FALSE
-            | TOK_TRUE
-            | TOK_THIS
-            | TOK_IDENT
-            | CHAR_BRACKET_R
-            | CHAR_SQUARE_R
-            | CHAR_CURLY_R
-    )
 }

@@ -14,7 +14,6 @@ use super::{
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
-    parse::js_parse_skip_parens_token,
     state::{JSParseState, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COLON, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL,
@@ -90,7 +89,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
     // specific label handling
     // XXX: support multiple labels on loop statements
     if is_label(s) {
-        label_name = s.token.data.ident_atom().unwrap().dup(&s.ctx.rt());
+        label_name = s.token.atom().unwrap().dup(&s.ctx.rt());
 
         let mut be = s.cur_func().top_break;
         while !be.is_null() {
@@ -220,7 +219,7 @@ pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -
                 fail!();
             }
             let label = if !s.got_lf && s.token.val == TOK_IDENT && !s.token.data.is_reserved() {
-                s.token.data.ident_atom().unwrap()
+                s.token.atom().unwrap()
             } else {
                 JS_ATOM_NULL
             };
@@ -495,7 +494,7 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
     let mut is_async = false;
 
     if s.token.val == '(' as i32 {
-        js_parse_skip_parens_token(s, &mut bits, false);
+        s.parse_skip_parens_token(&mut bits, false)?;
     } else if s.token.val == TOK_AWAIT {
         if matches!(
             s.cur_func().func_kind,
@@ -775,7 +774,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                     return Err(-1);
                 }
             } else {
-                let name = s.token.data.ident_atom().unwrap().dup(&s.ctx.rt());
+                let name = s.token.atom().unwrap().dup(&s.ctx.rt());
                 if s.next_token().is_err() || s.define_var(name, TOK_CATCH).is_err() {
                     JS_FreeAtom(&s.ctx, name);
                     return Err(-1);
@@ -1118,7 +1117,7 @@ pub unsafe fn js_parse_for_in_of(
             }
             var_name = JS_ATOM_NULL;
         } else {
-            var_name = s.token.data.ident_atom().unwrap().dup(&s.ctx.rt());
+            var_name = s.token.atom().unwrap().dup(&s.ctx.rt());
             if s.next_token().is_err() {
                 JS_FreeAtom(&s.ctx, var_name);
                 return Err(-1);
@@ -1143,7 +1142,7 @@ pub unsafe fn js_parse_for_in_of(
         let mut skip_bits: i32 = 0;
         if matches!(s.token.val, CHAR_SQUARE_L | CHAR_CURLY_L)
             && matches!(
-                js_parse_skip_parens_token(s, &mut skip_bits, false),
+                s.parse_skip_parens_token(&mut skip_bits, false)?,
                 TOK_IN | TOK_OF
             )
         {

@@ -152,7 +152,7 @@ impl JSAtom {
         }
     }
 
-    /// Convert atom to JSValue, returns EXCEPTION on failure.
+    /// Convert atom to JSValue (String or Symbol), returns EXCEPTION on failure.
     /// Note: atom is not consumed.
     pub fn to_value(self, ctx: &JSContext, force_string: bool) -> JSValue {
         if self.is_int_type() {

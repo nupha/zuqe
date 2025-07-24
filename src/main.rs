@@ -17,7 +17,7 @@ fn main() {
             })
             .unwrap();
 
-        let src = "function g(a){return a+10} g('x')"; // ok
+        let src = "(x / y) = 1;";
         //  let src = "function g(a){return a+10} g(20)"; // ok
         //  let src = "function g(a){return a+10}"; // ok
         // let src = "function g(){return 20}"; // ok
@@ -37,11 +37,7 @@ fn main() {
         // "#;
 
         if false {
-            let r = ctx.eval(
-                src.as_bytes(),
-                "<test>",
-                JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_COMPILE_ONLY,
-            );
+            let r = ctx.eval(src.as_bytes(), "<test>", JS_EVAL_TYPE_GLOBAL);
             println!("::::::::::::::: eval: {r:?}");
             js.as_mut().gc_dump_objects(1);
         }

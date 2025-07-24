@@ -183,7 +183,7 @@ impl<'s> JSParseState<'s> {
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
                 /* get x(), set x() */
-                *name = self.token.data.ident_atom().unwrap().dup(self.ctx.rt());
+                *name = self.token.atom().unwrap().dup(self.ctx.rt());
                 self.next_token()?;
 
                 if matches!(
@@ -207,7 +207,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token_is_pseudo_keyword(JS_ATOM_async)
                 && self.peek_token(true) != '\n' as i32
             {
-                *name = self.token.data.ident_atom().unwrap().dup(&self.ctx.rt());
+                *name = self.token.atom().unwrap().dup(&self.ctx.rt());
                 self.next_token()?;
 
                 if matches!(
@@ -257,7 +257,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_expect(']' as i32)?;
                 }
                 TOK_PRIVATE_NAME if allow_private => {
-                    *name = self.token.data.ident_atom().unwrap().dup(self.ctx.rt());
+                    *name = self.token.atom().unwrap().dup(self.ctx.rt());
                     self.next_token()?;
                     private = PROP_TYPE_PRIVATE;
                 }

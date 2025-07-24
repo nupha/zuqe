@@ -1963,7 +1963,7 @@ pub fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i32 {
 pub unsafe fn js_parse_error_reserved_identifier(s: *mut JSParseState) -> i32 {
     (*s).throw_syntax_error(&format!(
         "'{}' is a reserved identifier",
-        (*s).token.data.ident_atom().unwrap().to_str(&(*s).ctx.rt()),
+        (*s).token.atom().unwrap().to_str(&(*s).ctx.rt()),
     ));
     -1
 }
@@ -3540,4 +3540,17 @@ pub unsafe fn js_parse_property_name(
     //     *pname = name;
     //     prop_type | private
     // }
+}
+
+// XXX: improve speed with early bailout
+// XXX: no longer works if regexps are present. Could use previous
+//   regexp parsing heuristics to handle most cases
+#[deprecated(note = "use JSParseState::parse_skip_parens_token() instead")]
+pub unsafe fn js_parse_skip_parens_token(
+    s: *mut JSParseState,
+    pbits: *mut i32,
+    no_line_terminator: bool,
+) -> i32 {
+    (*s).parse_skip_parens_token(pbits.as_mut().unwrap(), no_line_terminator)
+        .unwrap_or(-1)
 }
