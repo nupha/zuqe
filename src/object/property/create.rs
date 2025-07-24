@@ -98,16 +98,21 @@ impl JSObject {
 
                                 let prop_flags = get_prop_flags(flags, 0);
                                 if prop_flags != JS_PROP_C_W_E {
-                                    if let Err(e) = self.destruct_fast_array(ctx) {
-                                        return if ctx.can_throw_error(flags) {
-                                            Err(e)
-                                        } else {
-                                            Ok(false)
-                                        };
+                                    match self.destruct_fast_array(ctx) {
+                                        Ok(_) => {
+                                            update_array_length!(self, idx);
+                                            // will adopt generic array ...
+                                        }
+                                        Err(e) => {
+                                            return if ctx.can_throw_error(flags) {
+                                                Err(e)
+                                            } else {
+                                                Ok(false)
+                                            };
+                                        }
                                     }
-                                    update_array_length!(self, idx);
-                                    // will adopt generic array ...
                                 } else {
+                                    // fast array: exit early for fast array
                                     return self.add_fast_array_element(ctx, val, flags);
                                 }
                             } else {
