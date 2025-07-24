@@ -140,10 +140,15 @@ impl JSContext {
         self.throw_error(ErrorKind::Type, message);
     }
 
+    /// test if allowed to throw error
+    #[inline(always)]
+    pub fn can_throw_error(&self, flags: u32) -> bool {
+        flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
+    }
+
     /// returns: true=exception raised; false=no exception raised
     pub fn throw_type_error_or_false(&self, flags: u32, message: &str) -> bool {
-        if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
-        {
+        if self.can_throw_error(flags) {
             self.throw_type_error(message);
             true
         } else {

@@ -186,13 +186,14 @@ impl JSObject {
 
     /// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p is fast_array and p is extensible.
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
-    /// Note: `val` is consumed.
     pub fn add_fast_array_element(
         &self,
         ctx: &JSContext,
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
+        debug_assert!(self.flags().is_fast_array(), "must be a fast array");
+
         // extend the array by one
         // XXX: convert to slow array if new_len > u32::MAX elements
         let new_len = self.with_fast_array_values(|lst| lst.len() + 1).unwrap();
