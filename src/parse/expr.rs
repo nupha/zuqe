@@ -30,7 +30,8 @@ impl<'s> JSParseState<'s> {
             return self.parse_yield(parse_flags);
         }
 
-        // name0 is used to check for OP_set_name pattern, not duplicated
+        // name0 is used to check for OP_set_name pattern,
+        // this atom is not duplicated
         let name0 = if self.token.val == TOK_IDENT {
             self.token.atom().unwrap()
         } else {
@@ -41,13 +42,14 @@ impl<'s> JSParseState<'s> {
 
         let mut opcode: i32 = 0;
         let mut scope: i32 = 0;
-        let mut name = JS_ATOM_NULL;
 
         match self.token.val {
             op @ (CHAR_EQUAL | TOK_MUL_ASSIGN..=TOK_POW_ASSIGN) => {
                 self.next_token()?;
 
                 let mut label: i32 = 0;
+                let mut name = JS_ATOM_NULL;
+
                 self.get_lvalue(
                     &mut opcode,
                     &mut scope,
@@ -58,10 +60,9 @@ impl<'s> JSParseState<'s> {
                     op,
                 )?;
 
-                if self.parse_assign_expr2(parse_flags).is_err() {
+                self.parse_assign_expr2(parse_flags).inspect_err(|_| {
                     JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
+                })?;
 
                 if op == CHAR_EQUAL {
                     if opcode == OpCode::GET_REF_VALUE as _ && name == name0 {
@@ -99,6 +100,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut label: i32 = 0;
                 let mut depth_lvalue: i32 = 0;
+                let mut name = JS_ATOM_NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -124,10 +126,9 @@ impl<'s> JSParseState<'s> {
                 );
                 self.emit_op(OpCode::DROP);
 
-                if self.parse_assign_expr2(parse_flags).is_err() {
+                self.parse_assign_expr2(parse_flags).inspect_err(|_| {
                     JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
+                })?;
 
                 if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
                     self.set_object_name(name);
@@ -162,6 +163,7 @@ impl<'s> JSParseState<'s> {
 
                 self.emit_label(label2);
             }
+
             _ => {}
         }
 
@@ -235,9 +237,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::PUSH_I32);
                     self.emit_u32(i as u32);
                 } else {
-                    if self.emit_push_const(val, false) < 0 {
-                        return Err(-1);
-                    }
+                    self.emit_push_const(val, false)?;
                 }
                 self.next_token()?;
             }
@@ -245,9 +245,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_template(false, core::ptr::null_mut())?;
             }
             TOK_STRING => {
-                if self.emit_push_const(self.token.data.string().unwrap().clone(), true) != 0 {
-                    return Err(-1);
-                }
+                self.emit_push_const(self.token.data.string().cloned().unwrap(), true)?;
                 self.next_token()?;
             }
 
@@ -264,7 +262,7 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    self.emit_push_const(self.token.data.regexp_body().unwrap().clone(), false);
+                    self.emit_push_const(self.token.data.regexp_body().unwrap().clone(), false)?;
 
                     let str = cb(
                         &self.ctx,
@@ -290,10 +288,7 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    let ret = self.emit_push_const(str, false);
-                    if ret != 0 {
-                        return Err(-1);
-                    }
+                    self.emit_push_const(str, false)?;
 
                     /* we use a specific opcode to be sure the correct
                     function is called (otherwise the bytecode would have
@@ -420,16 +415,14 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    name = self.token.atom().unwrap().dup(&self.ctx.rt());
+                    name = self.token.atom().unwrap().dup(self.ctx.rt());
 
-                    if self.next_token().is_err() {
+                    self.next_token().inspect_err(|_| {
                         JS_FreeAtom(&self.ctx, name);
-                        return Err(-1);
-                    }
+                    })?;
 
-                    // do_get_var:
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_u32(name.0);
+                    self.emit_u32(name.0); // `name` is referenced here
                     self.emit_u16(self.cur_func().scope_level as _);
                 }
             }

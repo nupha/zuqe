@@ -64,11 +64,6 @@ impl JSObject {
                                             Ok(true)
                                         } else if idx < lst.len() {
                                             // convert to slow array, then delete property
-                                            if unsafe { convert_fast_array_to_array(ctx, self) }
-                                                != 0
-                                            {
-                                                return Err(-1);
-                                            }
                                             Ok(false)
                                         } else {
                                             unreachable!()
@@ -80,6 +75,8 @@ impl JSObject {
                                         return Ok(true); // fast array done
                                     }
                                     false => {
+                                        // convert to slow array, then delete property
+                                        self.destruct_fast_array(ctx)?;
                                         continue; // redo
                                     }
                                 }

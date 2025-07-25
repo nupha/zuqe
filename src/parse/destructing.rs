@@ -1234,15 +1234,15 @@ impl<'s> JSParseState<'s> {
         }
 
         let name = self.token.atom().unwrap().dup(self.ctx.rt());
+
         if is_arg && unsafe { js_parse_check_duplicate_parameter(self, name) != 0 } {
             JS_FreeAtom(&self.ctx, name);
             return Err(-1);
         }
 
-        if self.next_token().is_err() {
+        self.next_token().inspect_err(|_| {
             JS_FreeAtom(&self.ctx, name);
-            return Err(-1);
-        }
+        })?;
 
         Ok(name)
     }

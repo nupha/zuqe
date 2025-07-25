@@ -12,11 +12,18 @@ pub struct JSAtomRc {
 }
 
 impl JSAtomRc {
+    /// return NULL atom rc
     pub fn null(rt: &JSRuntime) -> Self {
         Self {
             rt: NonNull::from(rt),
             atom: JS_ATOM_NULL,
         }
+    }
+
+    /// wrap a atom to atom rc by cloning it
+    #[inline]
+    pub fn clone_from(rt: &JSRuntime, atom: JSAtom) -> Self {
+        atom.dup(rt).into_rc(rt)
     }
 }
 

@@ -353,7 +353,20 @@ impl JSRuntime {
             }
         }
 
-        // free atom descriptors
+        // guard: all non-const atom should be freed by logic.
+        #[cfg(debug_assertions)]
+        {
+            for (_, ids) in self.atom_hash_lut.iter() {
+                for id in ids {
+                    let a = crate::atom::JSAtom(id.get() as u32);
+                    if !a.is_const() {
+                        println!("[atom leak] {id}: {}", a.to_str(self));
+                    }
+                }
+            }
+        }
+
+        // free atoms
         self.atom_hash_lut.clear();
         for a in self.atom_slots.drain(..) {
             if !a.is_null() {
@@ -361,65 +374,26 @@ impl JSRuntime {
             }
         }
 
-        // dump string leakage
-        #[cfg(feature = "dump_leaks")]
+        #[cfg(debug_assertions)]
         {
-            // if !list_empty(&mut rt.debug_string_list) {
-            //     if !rt.rt_info.is_null() {
-            //         println!(
-            //             "{}:1: string leakage:",
-            //             std::ffi::CStr::from_ptr(rt.rt_info).to_string_lossy()
+            let s = &mut self.malloc_state;
+            println!("MemState: {:?}", s);
+
+            // TODO:
+            // if (*s).malloc_count > 1 {
+            //     if !(*rt).rt_info.is_null() {
+            //         print!(
+            //             "{}:1: ",
+            //             std::ffi::CStr::from_ptr((*rt).rt_info).to_string_lossy()
             //         );
-            //     } else {
-            //         println!("String leaks:\n");
             //     }
-
-            //     list_foreach_safe(&mut rt.debug_string_list, |el| {
-            //         let str = list_entry!(el, JSGCObjectHeader, link).cast::<JSString>();
-
-            //         if !rt.rt_info.is_null() {
-            //             print!(" ");
-            //         } else {
-            //             print!("    {:6} ", (*str).ref_count());
-            //         }
-
-            //         JS_DumpString(rt, str);
-
-            //         if !rt.rt_info.is_null() {
-            //             println!(":{}", (*str).ref_count());
-            //         } else {
-            //             println!("");
-            //         }
-
-            //         list_del(&mut (*str).link);
-            //         drop(Box::from_raw(str));
-            //     });
-
-            //     if !rt.rt_info.is_null() {
-            //         println!("");
-            //     }
+            //     println!(
+            //         "Memory leak: {} bytes lost in {} block{}",
+            //         (*s).malloc_size as usize - std::mem::size_of::<JSRuntime>(),
+            //         (*s).malloc_count - 1,
+            //         if (*s).malloc_count == 2 { "" } else { "s" }
+            //     );
             // }
-
-            {
-                let s = &mut self.malloc_state;
-                println!("MemState: {:?}", s);
-
-                // TODO:
-                // if (*s).malloc_count > 1 {
-                //     if !(*rt).rt_info.is_null() {
-                //         print!(
-                //             "{}:1: ",
-                //             std::ffi::CStr::from_ptr((*rt).rt_info).to_string_lossy()
-                //         );
-                //     }
-                //     println!(
-                //         "Memory leak: {} bytes lost in {} block{}",
-                //         (*s).malloc_size as usize - std::mem::size_of::<JSRuntime>(),
-                //         (*s).malloc_count - 1,
-                //         if (*s).malloc_count == 2 { "" } else { "s" }
-                //     );
-                // }
-            }
         }
     }
 }

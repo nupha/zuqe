@@ -193,31 +193,31 @@ impl JSFunctionDef {
         }
     }
 
-    /// Note: `val` keep ref_count unchanged after calling this function
-    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool, last_line_num: i32) -> i32 {
-        if val.is_string() && as_atom {
-            // Note: converting to atom will consume the string,
-            // so clone the string description to keep val's refcount
+    pub fn emit_push_const(
+        &mut self,
+        val: JSValue,
+        as_atom: bool,
+        last_line_num: i32,
+    ) -> Result<(), i32> {
+        if let JSValue::String(ss) = &val
+            && as_atom
+        {
             if let Ok(atom) = self
                 .ctx
                 .rt_mut()
-                .register_atom_jsstring(val.string().unwrap().clone(), AtomType::String)
+                .register_atom_jsstring(ss.clone(), AtomType::String)
+                && !atom.is_int_type()
             {
-                if !atom.is_int_type() {
-                    self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
-                    self.emit_u32(atom.0);
-                    return 0;
-                }
+                self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
+                self.emit_u32(atom.0);
+                return Ok(());
             }
         }
 
-        if let Ok(idx) = self.cpool_add(val) {
-            self.emit_op(OpCode::PUSH_CONST, last_line_num);
-            self.emit_u32(idx as u32);
-            0
-        } else {
-            -1
-        }
+        let cidx = self.cpool_add(val)?;
+        self.emit_op(OpCode::PUSH_CONST, last_line_num);
+        self.emit_u32(cidx as u32);
+        Ok(())
     }
 
     /* initialize the class fields, called by the constructor. Note:
@@ -423,7 +423,7 @@ impl<'s> JSParseState<'s> {
 
     /// emit on current function def
     #[inline(always)]
-    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> i32 {
+    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> Result<(), i32> {
         let ln = self.last_line_num;
         self.cur_func_mut().emit_push_const(val, as_atom, ln)
     }
@@ -452,7 +452,8 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_return(hasval, ln);
     }
 
-    /// emit on current function def
+    /// emit on current function def.
+    /// `name` is not consumed.
     pub fn emit_break(&mut self, name: JSAtom, is_continue: bool) -> i32 {
         let (mut scope_level, mut top_break) = {
             let f = self.cur_func();
@@ -602,8 +603,8 @@ pub fn get_prev_opcode(fd: *const JSFunctionDef) -> u8 {
     }
 }
 
-pub unsafe fn js_is_live_code(s: *mut JSParseState) -> bool {
-    match get_prev_opcode((*s).cur_func()) {
+pub fn js_is_live_code(s: &JSParseState) -> bool {
+    match get_prev_opcode(s.cur_func()) {
         opcodes::OP_tail_call
         | opcodes::OP_tail_call_method
         | opcodes::OP_return
@@ -619,117 +620,4 @@ pub unsafe fn js_is_live_code(s: *mut JSParseState) -> bool {
 
         _ => true,
     }
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_u8(s: *mut JSParseState, val: u8) {
-    (*s).cur_func_mut().emit_u8(val)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_u16(s: *mut JSParseState, val: u16) {
-    (*s).cur_func_mut().emit_u16(val)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_u32(s: *mut JSParseState, val: u32) {
-    (*s).cur_func_mut().emit_u32(val)
-}
-
-/// emit an atom, increase ref_count
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_atom_dup(s: *mut JSParseState, name: JSAtom) {
-    (*s).cur_func_mut().emit_atom_dup(name)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-unsafe fn emit_op_u8(s: *mut JSParseState, op: u8) {
-    (*s).cur_func_mut().emit_op_u8(op, (*s).last_line_num)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
-    (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
-}
-
-/* don't update the last opcode and don't emit line number info */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_label_raw(s: *mut JSParseState, label: i32) {
-    (*s).cur_func_mut().emit_label_raw(label)
-}
-
-/* return the label ID offset */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_label(s: *mut JSParseState, label: i32) -> i32 {
-    (*s).cur_func_mut().emit_label(label, (*s).last_line_num)
-}
-
-/* return label or -1 if dead code */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_goto(s: *mut JSParseState, opcode: OpCode, label: i32) -> i32 {
-    (*s).cur_func_mut()
-        .emit_goto(opcode, label, (*s).last_line_num)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValueConst, as_atom: bool) -> i32 {
-    (*s).cur_func_mut()
-        .emit_push_const(val, as_atom, (*s).last_line_num)
-}
-
-/* initialize the class fields, called by the constructor. Note:
-super() can be called in an arrow function, so <this> and
-<class_fields_init> can be variable references */
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
-    (*s).cur_func_mut()
-        .emit_class_field_init((*s).last_line_num)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
-    (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
-}
-
-#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
-    (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
-}
-
-#[deprecated(note = "use JSParseState::emit_break() instead")]
-pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) -> i32 {
-    (*s).emit_break(name, is_continue)
-}
-
-#[deprecated(note = "use JSParseState::emit_spread_code() instead")]
-pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
-    (*s).emit_spread_code(depth);
-}
-
-#[deprecated(note = "use JSParseState::emit_class_init_start() instead")]
-pub unsafe fn emit_class_init_start(
-    s: *mut JSParseState,
-    cf: *mut ClassFieldsDef,
-) -> Result<(), i32> {
-    (*s).emit_class_init_start(cf.as_mut().unwrap())
-}
-
-#[deprecated(note = "use JSParseState::emit_class_init_end() instead")]
-pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {
-    unreachable!("unused");
-
-    // (*s).cur_func_ptr = (*cf).fields_init_fd;
-    // emit_op(s, OpCode::RETURN_UNDEF);
-    // (*s).cur_func_ptr = (*s).cur_func().parent;
-
-    // let cpool_idx = (*s)
-    //     .cur_func_mut()
-    //     .cpool_add(JSValue::NULL)
-    //     .map_or(-1, |x| x as i32);
-
-    // (*(*cf).fields_init_fd).parent_cpool_idx = cpool_idx;
-    // emit_op(s, OpCode::FCLOSURE);
-    // emit_u32(s, cpool_idx as _);
-
-    // emit_op(s, OpCode::SET_HOME_OBJECT);
 }

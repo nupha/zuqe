@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 use crate::{
     atom::{
         JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*, js_atom_concat_num,
@@ -16,12 +14,9 @@ use crate::{
     module::JSExportTypeEnum,
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
-        PROP_TYPE_SET, PROP_TYPE_STAR, PROP_TYPE_VAR,
+        PROP_TYPE_SET, PROP_TYPE_STAR,
     },
-    parse::{
-        obj::set_object_name_computed,
-        token::{CHAR_SQUARE_L, JSToken},
-    },
+    parse::{obj::set_object_name_computed, token::JSToken},
     utils::write_to_ptr,
 };
 
@@ -29,35 +24,36 @@ use super::{
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     state::JSParseState,
-    token::{TOK_EXTENDS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STATIC, TOK_STRING},
+    token::{TOK_EXTENDS, TOK_IDENT, TOK_STATIC},
 };
 
 impl<'s> JSParseState<'s> {
     /// caller should free the returned Atom.
+    /// TODO: return Result<Option<JSAtom>,i32>
     fn parse_class_name(
         &mut self,
         is_class_expr: bool,
         export_flag: JSParseExportEnum,
     ) -> Result<JSAtom, i32> {
-        let mut class_name = JS_ATOM_NULL;
-
         if self.token.val == TOK_IDENT {
             if self.token.data.is_reserved() {
                 self.throw_reserved_identifier_error();
                 return Err(-1);
             }
-            // next_token() will free the atom, dup it in advance.
-            class_name = self.token.atom().unwrap().dup(&self.ctx.rt());
+
+            // Note: next_token() will free the atom, dup class_name atom to keep it.
+            let class_name = self.token.atom().unwrap().dup(self.ctx.rt());
+
             self.next_token().inspect_err(|_| {
                 JS_FreeAtom(&self.ctx, class_name);
             })?;
+            Ok(class_name)
         } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
             self.throw_syntax_error("class statement requires a name");
-            JS_FreeAtom(&self.ctx, class_name);
-            return Err(-1);
+            Err(-1)
+        } else {
+            Ok(JS_ATOM_NULL)
         }
-
-        Ok(class_name)
     }
 
     /// parse class field defination
@@ -73,17 +69,15 @@ impl<'s> JSParseState<'s> {
         // XXX: could try to avoid creating a new function and
         // reuse 'fields_init_fd' with a specific 'var' scope
         // stack is now: <empty>
-        unsafe {
-            self.parse_function_decl2(
-                JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT,
-                JSFunctionKindEnum::JS_FUNC_NORMAL,
-                JS_ATOM_NULL,
-                self.token.ptr,
-                self.token.line_num,
-                JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-                std::ptr::addr_of_mut!(init),
-            )?;
-        }
+        self.parse_function_decl2(
+            JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT,
+            JSFunctionKindEnum::JS_FUNC_NORMAL,
+            JS_ATOM_NULL,
+            self.token.ptr,
+            self.token.line_num,
+            JSParseExportEnum::JS_PARSE_EXPORT_NONE,
+            std::ptr::addr_of_mut!(init),
+        )?;
 
         // stack is now: fclosure
         self.push_scope()?;
@@ -194,13 +188,15 @@ impl<'s> JSParseState<'s> {
                 }
                 self.emit_atom_dup(setter_name);
 
-                let ret = add_private_class_field(
-                    self,
-                    self.cur_func_mut(),
-                    setter_name,
-                    JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
-                    is_static,
-                );
+                let ret = unsafe {
+                    add_private_class_field(
+                        self,
+                        self.cur_func_mut(),
+                        setter_name,
+                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
+                        is_static,
+                    )
+                };
                 JS_FreeAtom(&self.ctx, setter_name);
                 if ret < 0 {
                     return Err(-1);
@@ -482,17 +478,15 @@ impl<'s> JSParseState<'s> {
                         class_fields[is_static as usize].need_brand = true;
                     }
 
-                    unsafe {
-                        self.parse_function_decl2(
-                            func_type,
-                            func_kind,
-                            JS_ATOM_NULL,
-                            start_ptr,
-                            self.token.line_num,
-                            JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-                            &mut method_fd,
-                        )?;
-                    }
+                    self.parse_function_decl2(
+                        func_type,
+                        func_kind,
+                        JS_ATOM_NULL,
+                        start_ptr,
+                        self.token.line_num,
+                        JSParseExportEnum::JS_PARSE_EXPORT_NONE,
+                        &mut method_fd,
+                    )?;
 
                     if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
                         || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR

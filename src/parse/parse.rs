@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -18,7 +18,7 @@ use super::{
     function::JSParseFunctionEnum,
     regexp::js_parse_regexp,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
-    statement::{DECL_MASK_ALL, js_parse_statement_or_decl},
+    statement::DECL_MASK_ALL,
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_DOT, CHAR_EQUAL,
         CHAR_SEMI, CHAR_SLASH, CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CLASS, TOK_CONST, TOK_DEBUGGER,
@@ -129,35 +129,45 @@ impl JSParseState<'_> {
     }
 
     pub fn parse_source_element(&mut self) -> Result<(), i32> {
-        let tok = self.token.val;
+        let is_module = self.cur_func().module.is_some();
 
-        if tok == TOK_FUNCTION
-            || (self.token_is_pseudo_keyword(JS_ATOM_async)
-                && self.peek_token(true) == TOK_FUNCTION)
-        {
-            // 'function' or 'async function'
-            self.parse_function_decl(
-                JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                JSFunctionKindEnum::JS_FUNC_NORMAL,
-                JS_ATOM_NULL,
-                self.token.ptr,
-                self.token.line_num,
-            )?;
-        } else if tok == TOK_EXPORT && self.cur_func().module.is_some() {
-            self.parse_export()?;
-        } else if tok == TOK_IMPORT
-            && self.cur_func().module.is_some()
-            && !matches!(self.peek_token(false), CHAR_BRACKET_L | CHAR_DOT)
-        {
-            // the peek_token is needed to avoid confusion with 'import()' or 'import.meta'
-            self.parse_import()?;
-        } else {
-            if unsafe { js_parse_statement_or_decl(self, DECL_MASK_ALL) != 0 } {
-                return Err(-1);
+        match self.token.val {
+            TOK_FUNCTION => {
+                // function
+                self.parse_function_decl(
+                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                    JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    JS_ATOM_NULL,
+                    self.token.ptr,
+                    self.token.line_num,
+                )
+            }
+            TOK_EXPORT if is_module => self.parse_export(),
+
+            // peek_token is needed to avoid confusion with 'import()' or 'import.meta'
+            TOK_IMPORT
+                if is_module && !matches!(self.peek_token(false), CHAR_BRACKET_L | CHAR_DOT) =>
+            {
+                self.parse_import()
+            }
+
+            _ => {
+                if self.token_is_pseudo_keyword(JS_ATOM_async)
+                    && self.peek_token(true) == TOK_FUNCTION
+                {
+                    // async function
+                    self.parse_function_decl(
+                        JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        JS_ATOM_NULL,
+                        self.token.ptr,
+                        self.token.line_num,
+                    )
+                } else {
+                    self.parse_statement_or_decl(DECL_MASK_ALL)
+                }
             }
         }
-
-        Ok(())
     }
 
     /// returns (atom, has_escape)
@@ -277,12 +287,7 @@ impl JSParseState<'_> {
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED
-    pub unsafe fn parse_var(
-        &mut self,
-        parse_flags: i32,
-        tok: i32,
-        export_flag: bool,
-    ) -> Result<(), i32> {
+    pub fn parse_var(&mut self, parse_flags: i32, tok: i32, export_flag: bool) -> Result<(), i32> {
         loop {
             if self.token.val == TOK_IDENT {
                 if self.token.data.is_reserved() {
@@ -290,42 +295,32 @@ impl JSParseState<'_> {
                     return Err(-1);
                 }
 
-                if self.token.atom().unwrap() == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
+                let atom = self.token.atom().unwrap();
+                if atom == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
                     self.throw_syntax_error("'let' is not a valid lexical identifier");
                     return Err(-1);
                 }
 
-                let name = self.token.atom().unwrap().dup(&self.ctx.rt());
+                let name = JSAtomRc::clone_from(self.ctx.rt(), atom);
 
-                if self.next_token().is_err() {
-                    JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
-                if self.define_var(name, tok).is_err() {
-                    JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
+                self.next_token()?;
+                self.define_var(*name, tok)?;
 
                 if export_flag {
                     self.add_module_export(
                         None,
-                        name,
-                        name,
+                        *name,
+                        *name,
                         JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
                             var_idx: u16::MAX,
                             var_ref: None,
                         },
-                    )
-                    .inspect_err(|_| {
-                        JS_FreeAtom(&self.ctx, name);
-                    })?;
+                    )?;
                 }
 
                 if self.token.val == '=' as i32 {
-                    if self.next_token().is_err() {
-                        JS_FreeAtom(&self.ctx, name);
-                        return Err(-1);
-                    }
+                    self.next_token()?;
+
                     if tok == TOK_VAR {
                         // Must make a reference for proper `with` semantics
                         let mut opcode: i32 = 0;
@@ -334,7 +329,7 @@ impl JSParseState<'_> {
                         let mut name1: JSAtom = JS_ATOM_NULL;
 
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom_dup(name);
+                        self.emit_atom_dup(*name);
                         self.emit_u16(self.cur_func().scope_level as u16);
 
                         if self
@@ -350,17 +345,15 @@ impl JSParseState<'_> {
                             .is_err()
                         {
                             JS_FreeAtom(&self.ctx, name1);
-                            JS_FreeAtom(&self.ctx, name);
                             return Err(-1);
                         }
 
                         if self.parse_assign_expr2(parse_flags).is_err() {
                             JS_FreeAtom(&self.ctx, name1);
-                            JS_FreeAtom(&self.ctx, name);
                             return Err(-1);
                         }
 
-                        self.set_object_name(name);
+                        self.set_object_name(*name);
 
                         self.put_lvalue(
                             opcode,
@@ -371,34 +364,28 @@ impl JSParseState<'_> {
                             false,
                         );
                     } else {
-                        if self.parse_assign_expr2(parse_flags).is_err() {
-                            JS_FreeAtom(&self.ctx, name);
-                            return Err(-1);
-                        }
-                        self.set_object_name(name);
+                        self.parse_assign_expr2(parse_flags)?;
+                        self.set_object_name(*name);
                         self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                             OpCodeTemp::SCOPE_PUT_VAR_INIT
                         } else {
                             OpCodeTemp::SCOPE_PUT_VAR
                         });
-                        self.emit_atom_dup(name);
+                        self.emit_atom_dup(*name);
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 } else {
                     if tok == TOK_CONST {
                         self.throw_syntax_error("missing initializer for const variable");
-                        JS_FreeAtom(&self.ctx, name);
                         return Err(-1);
                     } else if tok == TOK_LET {
                         // initialize lexical variable upon entering its scope
                         self.emit_op(OpCode::UNDEFINED);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom_dup(name);
+                        self.emit_atom_dup(*name);
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 }
-
-                JS_FreeAtom(&self.ctx, name);
             } else {
                 let mut skip_bits: i32 = 0;
 
@@ -512,7 +499,7 @@ impl JSParseState<'_> {
                     let c = state[level] as i32;
                     if c == '`' as i32 {
                         // continue the parsing of the template
-                        self.clear_atom_value();
+                        self.clear_atom_in_token();
                         // Resume TOK_TEMPLATE parsing (s->token.line_num and
                         // s->token.ptr are OK)
                         self.got_lf = false;

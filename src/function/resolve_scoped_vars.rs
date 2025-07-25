@@ -58,7 +58,7 @@ impl JSFunctionDef {
             if vd.var_name == var_name {
                 if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
                     if vd.is_const() {
-                        push_vec_u8(bc, opcodes::OP_throw_error);
+                        push_vec_u8(bc, OpCode::THROW_ERROR as _);
                         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                         push_vec_u8(bc, JS_THROW_VAR_RO);
                         done!(label_done);
@@ -67,7 +67,7 @@ impl JSFunctionDef {
                 var_idx = idx;
                 break;
             } else if vd.var_name == JS_ATOM__with_ && !is_pseudo_var {
-                push_vec_u8(bc, opcodes::OP_get_loc);
+                push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, idx as _);
                 label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
             }
@@ -104,7 +104,7 @@ impl JSFunctionDef {
             if !is_arg_scope && self.var_object_idx.is_some() {
                 // check eval object:
                 // test `var_name` defined on `<val>` object
-                push_vec_u8(bc, opcodes::OP_get_loc);
+                push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, self.var_object_idx.unwrap());
                 label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
             }
@@ -112,7 +112,7 @@ impl JSFunctionDef {
             if let Some(av) = self.arg_var_object_idx {
                 // check eval object in argument scope:
                 // test `var_name` defined on `<arg_val>` object
-                push_vec_u8(bc, opcodes::OP_get_loc);
+                push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, av);
                 label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
             }
@@ -141,7 +141,7 @@ impl JSFunctionDef {
                         opcodes::op_scope_put_var | opcodes::op_scope_make_ref
                     ) {
                         if svar.vd.is_const() {
-                            push_vec_u8(bc, opcodes::OP_throw_error);
+                            push_vec_u8(bc, OpCode::THROW_ERROR as _);
                             push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                             push_vec_u8(bc, JS_THROW_VAR_RO);
                             done!(label_done);
@@ -166,7 +166,7 @@ impl JSFunctionDef {
                         JSVarKindEnum::JS_VAR_NORMAL,
                     ) {
                         Ok(vi) => {
-                            push_vec_u8(bc, opcodes::OP_get_var_ref);
+                            push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                             push_vec_u16(bc, vi);
                             label_done.replace(
                                 self.var_object_test(ctx, var_name, op, bc, label_done, true),
@@ -232,7 +232,7 @@ impl JSFunctionDef {
                         )
                         .unwrap();
 
-                    push_vec_u8(bc, opcodes::OP_get_var_ref);
+                    push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                     push_vec_u16(bc, cv_id);
                     label_done
                         .replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
@@ -261,7 +261,7 @@ impl JSFunctionDef {
                         )
                         .unwrap();
 
-                    push_vec_u8(bc, opcodes::OP_get_var_ref);
+                    push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                     push_vec_u16(bc, cv_id);
                     label_done
                         .replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
@@ -326,7 +326,7 @@ impl JSFunctionDef {
                             i as u16
                         };
 
-                        push_vec_u8(bc, opcodes::OP_get_var_ref);
+                        push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                         push_vec_u16(bc, cv_id);
                         label_done.replace(self.var_object_test(
                             ctx,
@@ -391,7 +391,8 @@ impl JSFunctionDef {
         }
     }
 
-    /// acccess found vardef: for a var or arg
+    /// acccess found vardef: for a var or arg.
+    /// `var_name` is not consumed.
     fn resolve_scope_var_vardef(
         &mut self,
         ctx: &JSContext,
@@ -413,7 +414,7 @@ impl JSFunctionDef {
         {
             // in case assigning a function expression name in strict mode.
             // this is not allowed.
-            push_vec_u8(bc, opcodes::OP_throw_error);
+            push_vec_u8(bc, OpCode::THROW_ERROR as _);
             push_vec_u32(bc, var_name.dup(ctx.rt()).0);
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
@@ -431,12 +432,12 @@ impl JSFunctionDef {
                             == JSVarKindEnum::JS_VAR_FUNCTION_NAME
                     {
                         // Create a dummy object reference for the func_var
-                        push_vec_u8(bc, opcodes::OP_object);
-                        push_vec_u8(bc, opcodes::OP_get_loc);
+                        push_vec_u8(bc, OpCode::OBJECT as _);
+                        push_vec_u8(bc, OpCode::GET_LOC as _);
                         push_vec_u16(bc, var_id as u16);
-                        push_vec_u8(bc, opcodes::OP_define_field);
+                        push_vec_u8(bc, OpCode::DEFINE_FIELD as _);
                         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
-                        push_vec_u8(bc, opcodes::OP_push_atom_value);
+                        push_vec_u8(bc, OpCode::PUSH_ATOM_VALUE as _);
                         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                     } else if label_done.is_none() && can_optimize_put_ref_value(bc_buf, label.pos)
                     {
@@ -456,11 +457,11 @@ impl JSFunctionDef {
                         // Create a dummy object with a named slot that is
                         // a reference to the local variable
                         if var_id & ARGUMENT_VAR_OFFSET != 0 {
-                            push_vec_u8(bc, opcodes::OP_make_arg_ref);
+                            push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
                             push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                             push_vec_u16(bc, (var_id - ARGUMENT_VAR_OFFSET) as _);
                         } else {
-                            push_vec_u8(bc, opcodes::OP_make_loc_ref);
+                            push_vec_u8(bc, OpCode::MAKE_LOC_REF as _);
                             push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                             push_vec_u16(bc, var_id as u16);
                         }
@@ -480,7 +481,7 @@ impl JSFunctionDef {
                     );
 
                     if op == opcodes::op_scope_get_ref {
-                        push_vec_u8(bc, opcodes::OP_undefined);
+                        push_vec_u8(bc, OpCode::UNDEFINED as _);
                     }
                     if var_id & ARGUMENT_VAR_OFFSET != 0 {
                         push_vec_u8(
@@ -533,7 +534,7 @@ impl JSFunctionDef {
                     }
                 }
                 opcodes::op_scope_delete_var => {
-                    push_vec_u8(bc, opcodes::OP_push_false);
+                    push_vec_u8(bc, OpCode::PUSH_FALSE as _);
                 }
                 _ => {}
             }
@@ -575,7 +576,7 @@ impl JSFunctionDef {
                 opcodes::op_scope_put_var | opcodes::op_scope_make_ref
             )
         {
-            push_vec_u8(bc, opcodes::OP_throw_error);
+            push_vec_u8(bc, OpCode::THROW_ERROR as _);
             push_vec_u32(bc, var_name.dup(ctx.rt()).0);
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
@@ -587,12 +588,12 @@ impl JSFunctionDef {
 
                     if cv.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_NAME {
                         // Create a dummy object reference for the func_var
-                        push_vec_u8(bc, opcodes::OP_object);
-                        push_vec_u8(bc, opcodes::OP_get_var_ref);
+                        push_vec_u8(bc, OpCode::OBJECT as _);
+                        push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                         push_vec_u16(bc, idx as _);
-                        push_vec_u8(bc, opcodes::OP_define_field);
+                        push_vec_u8(bc, OpCode::DEFINE_FIELD as _);
                         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
-                        push_vec_u8(bc, opcodes::OP_push_atom_value);
+                        push_vec_u8(bc, OpCode::PUSH_ATOM_VALUE as _);
                         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                     } else if label_done.is_none() && can_optimize_put_ref_value(bc_buf, label.pos)
                     {
@@ -611,7 +612,7 @@ impl JSFunctionDef {
                     } else {
                         // Create a dummy object with a named slot that is
                         // a reference to the closure variable
-                        push_vec_u8(bc, opcodes::OP_make_var_ref_ref);
+                        push_vec_u8(bc, OpCode::MAKE_VAR_REF_REF as _);
                         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                         push_vec_u16(bc, idx as _);
                     }
@@ -629,7 +630,7 @@ impl JSFunctionDef {
                     if op == opcodes::op_scope_get_ref {
                         // XXX: should create a dummy object with a named slot that is
                         // a reference to the closure variable
-                        push_vec_u8(bc, opcodes::OP_undefined);
+                        push_vec_u8(bc, OpCode::UNDEFINED as _);
                     }
 
                     if is_put {
@@ -637,30 +638,30 @@ impl JSFunctionDef {
                             if op == opcodes::op_scope_put_var_init {
                                 // 'this' can only be initialized once
                                 if var_name == JS_ATOM_this {
-                                    push_vec_u8(bc, opcodes::OP_put_var_ref_check_init);
+                                    push_vec_u8(bc, OpCode::PUT_VAR_REF_CHECK_INIT as _);
                                 } else {
-                                    push_vec_u8(bc, opcodes::OP_put_var_ref);
+                                    push_vec_u8(bc, OpCode::PUT_VAR_REF as _);
                                 }
                             } else {
-                                push_vec_u8(bc, opcodes::OP_put_var_ref_check);
+                                push_vec_u8(bc, OpCode::PUT_VAR_REF_CHECK as _);
                             }
                         } else {
-                            push_vec_u8(bc, opcodes::OP_put_var_ref);
+                            push_vec_u8(bc, OpCode::PUT_VAR_REF as _);
                         }
                     } else {
                         push_vec_u8(
                             bc,
                             if cv.is_lexical() {
-                                opcodes::OP_get_var_ref_check
+                                OpCode::GET_VAR_REF_CHECK
                             } else {
-                                opcodes::OP_get_var_ref
-                            },
+                                OpCode::GET_VAR_REF
+                            } as _,
                         );
                     }
                     push_vec_u16(bc, idx as _);
                 }
                 opcodes::op_scope_delete_var => {
-                    push_vec_u8(bc, opcodes::OP_push_false);
+                    push_vec_u8(bc, OpCode::PUSH_FALSE as _);
                 }
                 _ => {}
             } // match op
@@ -706,15 +707,15 @@ impl JSFunctionDef {
                         var_name,
                     ) as _;
                 } else {
-                    push_vec_u8(bc, opcodes::OP_make_var_ref);
+                    push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
                     push_vec_u32(bc, var_name.dup(ctx.rt()).0);
                 }
             }
             opcodes::op_scope_get_ref => {
                 // XXX: should create a dummy object with a named slot that is
                 // a reference to the global variable
-                push_vec_u8(bc, opcodes::OP_undefined);
-                push_vec_u8(bc, opcodes::OP_get_var);
+                push_vec_u8(bc, OpCode::UNDEFINED as _);
+                push_vec_u8(bc, OpCode::GET_VAR as _);
                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
             }
             opcodes::op_scope_get_var_undef
@@ -722,16 +723,16 @@ impl JSFunctionDef {
             | opcodes::op_scope_put_var => {
                 push_vec_u8(
                     bc,
-                    opcodes::OP_get_var_undef + (op as u8 - opcodes::op_scope_get_var_undef),
+                    OpCode::GET_VAR_UNDEF as u8 + (op as u8 - opcodes::op_scope_get_var_undef),
                 );
                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
             }
             opcodes::op_scope_put_var_init => {
-                push_vec_u8(bc, opcodes::OP_put_var_init);
+                push_vec_u8(bc, OpCode::PUT_VAR_INIT as _);
                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
             }
             opcodes::op_scope_delete_var => {
-                push_vec_u8(bc, opcodes::OP_delete_var);
+                push_vec_u8(bc, OpCode::DELETE_VAR as _);
                 push_vec_u32(bc, var_name.dup(ctx.rt()).0);
             }
             _ => {}
@@ -805,11 +806,12 @@ impl JSFunctionDef {
 
         push_vec_u8(
             bc,
-            if op == opcodes::op_scope_get_var_undef {
-                opcodes::OP_with_get_var as u8
-            } else {
-                opcodes::OP_with_get_var + (op as u8 - opcodes::op_scope_get_var)
-            },
+            OpCode::WITH_GET_VAR as u8
+                + if op == opcodes::op_scope_get_var_undef {
+                    0
+                } else {
+                    op as u8 - opcodes::op_scope_get_var
+                },
         );
         push_vec_u32(bc, var_name.dup(ctx.rt()).0);
         push_vec_u32(bc, label);

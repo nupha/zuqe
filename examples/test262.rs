@@ -469,17 +469,19 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
                 let exc = ctx.exception();
 
                 println!("EXCEPTION: {:?}", exc);
-                debug_assert!(!exc.is_undefined_or_null());
-                if let JSValue::Object(o) = &exc {
+                //debug_assert!(!exc.is_undefined_or_null());
+                let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
-                }
 
-                let msg = exc.get_property(&ctx, JS_ATOM_message);
-                let msg = msg.coerce_to_utf8(&ctx).unwrap();
+                    let msg = o.get_property(&ctx, JS_ATOM_message);
+                    msg.coerce_to_utf8(&ctx).unwrap().to_string()
+                } else {
+                    "<no msg>".into()
+                };
 
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {
-                        let err_class = msg.as_ref().split(":").next().unwrap();
+                        let err_class = msg.split(":").next().unwrap();
                         if err_class == ty {
                             writeln!(outf, "pass").unwrap();
                         } else {

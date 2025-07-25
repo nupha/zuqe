@@ -55,6 +55,8 @@ pub struct JSToken {
 
 impl JSToken {
     /// if data is ident type or is reserved keyword TOK_, returns atom.
+    ///
+    /// Note: returned atom is not duplicated, caller should clone to reference it.
     pub fn atom(&self) -> Option<JSAtom> {
         match self.val {
             TOK_IDENT => self.data.ident_atom(),
@@ -181,7 +183,7 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        self.clear_atom_value();
+        self.clear_atom_in_token();
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum State {

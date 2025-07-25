@@ -1,11 +1,10 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom,
+        JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc,
         consts::{JS_ATOM___proto__, JS_ATOM_async, JS_ATOM_get, JS_ATOM_set},
     },
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
-    defer,
     function::JSFunctionKindEnum,
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
@@ -168,22 +167,18 @@ impl<'s> JSParseState<'s> {
         let mut prop_type = PROP_TYPE_IDENT;
         let mut private = 0_i32;
         let mut is_non_reserved_ident = false;
-
-        let mut name: JSAtom = JS_ATOM_NULL;
-        let name = &mut name;
-
-        let atom_ptr = name as *mut JSAtom;
-        let rt_ptr = self.ctx.rt_ptr();
-        defer!(unsafe {
-            JS_FreeAtomRT(rt_ptr.as_ptr(), *atom_ptr);
-        });
+        let mut name: Option<JSAtomRc> = None;
 
         if allow_method {
             if self.token_is_pseudo_keyword(JS_ATOM_get)
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
-                /* get x(), set x() */
-                *name = self.token.atom().unwrap().dup(self.ctx.rt());
+                // get x(), set x()
+                name.replace(JSAtomRc::clone_from(
+                    self.ctx.rt(),
+                    self.token.atom().unwrap(),
+                ));
+
                 self.next_token()?;
 
                 if matches!(
@@ -193,13 +188,11 @@ impl<'s> JSParseState<'s> {
                     // :,}(
                     is_non_reserved_ident = true;
                 } else {
-                    prop_type = if *name == JS_ATOM_get {
+                    prop_type = if *name.take().unwrap() == JS_ATOM_get {
                         PROP_TYPE_GET
                     } else {
                         PROP_TYPE_SET
                     };
-                    JS_FreeAtom(&self.ctx, *name);
-                    *name = JS_ATOM_NULL;
                 }
             } else if self.token.val == '*' as i32 {
                 self.next_token()?;
@@ -207,7 +200,11 @@ impl<'s> JSParseState<'s> {
             } else if self.token_is_pseudo_keyword(JS_ATOM_async)
                 && self.peek_token(true) != '\n' as i32
             {
-                *name = self.token.atom().unwrap().dup(&self.ctx.rt());
+                name.replace(JSAtomRc::clone_from(
+                    self.ctx.rt(),
+                    self.token.atom().unwrap(),
+                ));
+
                 self.next_token()?;
 
                 if matches!(
@@ -217,9 +214,7 @@ impl<'s> JSParseState<'s> {
                     // :,}(
                     is_non_reserved_ident = true;
                 } else {
-                    JS_FreeAtom(&self.ctx, *name);
-                    *name = JS_ATOM_NULL;
-
+                    name.take();
                     prop_type = if self.token.val == '*' as i32 {
                         self.next_token()?;
                         PROP_TYPE_ASYNC_STAR
@@ -230,24 +225,28 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        if *name == JS_ATOM_NULL {
+        if name.is_none() {
             match self.token.val {
                 TOK_STRING => {
-                    *name = self
-                        .token
-                        .data
-                        .string()
-                        .unwrap()
-                        .coerce_to_atom(&self.ctx)?;
+                    name.replace(
+                        self.token
+                            .data
+                            .string()
+                            .unwrap()
+                            .coerce_to_atom(&self.ctx)?
+                            .into_rc(self.ctx.rt()),
+                    );
                     self.next_token()?;
                 }
                 TOK_NUMBER => {
-                    *name = self
-                        .token
-                        .data
-                        .number()
-                        .unwrap()
-                        .coerce_to_atom(&self.ctx)?;
+                    name.replace(
+                        self.token
+                            .data
+                            .number()
+                            .unwrap()
+                            .coerce_to_atom(&self.ctx)?
+                            .into_rc(self.ctx.rt()),
+                    );
                     self.next_token()?;
                 }
                 // '['
@@ -257,7 +256,10 @@ impl<'s> JSParseState<'s> {
                     self.parse_expect(']' as i32)?;
                 }
                 TOK_PRIVATE_NAME if allow_private => {
-                    *name = self.token.atom().unwrap().dup(self.ctx.rt());
+                    name.replace(JSAtomRc::clone_from(
+                        self.ctx.rt(),
+                        self.token.atom().unwrap(),
+                    ));
                     self.next_token()?;
                     private = PROP_TYPE_PRIVATE;
                 }
@@ -267,7 +269,11 @@ impl<'s> JSParseState<'s> {
                         self.token.val == TOK_IDENT && !self.token.data.is_reserved();
 
                     /* keywords and reserved words have a valid atom */
-                    *name = self.token.atom().unwrap().dup(&self.ctx.rt());
+                    name.replace(JSAtomRc::clone_from(
+                        self.ctx.rt(),
+                        self.token.atom().unwrap(),
+                    ));
+
                     self.next_token()?;
                 }
                 _ => {
@@ -288,6 +294,6 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        Ok((name.clone(), prop_type | private))
+        Ok((name.map_or(JS_ATOM_NULL, |a| a.into()), prop_type | private))
     }
 }

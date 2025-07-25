@@ -7,6 +7,7 @@ use crate::{
 use super::{emit::get_prev_opcode, state::JSParseState};
 
 impl<'s> JSParseState<'s> {
+    /// `name` is not consumed.
     pub fn set_object_name(&mut self, name: JSAtom) {
         let ctx = self.ctx.clone();
         let fd = self.cur_func_mut();
@@ -35,12 +36,15 @@ impl<'s> JSParseState<'s> {
                 );
 
                 // for consistency we free the previous atom which is JS_ATOM_empty_string
-                let atom = JSAtom(unsafe {
-                    read_from_ptr::<u32>(
-                        fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
-                    )
-                });
-                JS_FreeAtom(&ctx, atom);
+                JS_FreeAtom(
+                    &ctx,
+                    JSAtom(unsafe {
+                        read_from_ptr::<u32>(
+                            fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
+                        )
+                    }),
+                );
+
                 unsafe {
                     write_to_ptr::<u32>(
                         fd.byte_code

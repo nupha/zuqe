@@ -9,8 +9,8 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct},
-    bytecode::arithmatic::JSStrictEqModeEnum,
-    class::{JSClassDef, JSClassID},
+    bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
+    class::{ClassFieldsDef, JSClassDef, JSClassID},
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
     function::{
@@ -3373,173 +3373,6 @@ pub unsafe fn js_parse_property_name(
             -1
         }
     }
-
-    // let ctx = &(*s).ctx;
-    // let mut name: JSAtom = JS_ATOM_NULL;
-    // let mut prop_type = PROP_TYPE_IDENT;
-    // let mut private = 0_i32;
-
-    // enum GotoLabel {
-    //     IdentFound(bool),
-    //     InvalidProp,
-    //     Fail(JSAtom),
-    // }
-
-    // let mut goto: Option<GotoLabel> = loop {
-    //     if allow_method {
-    //         if (*s).token_is_pseudo_keyword(JS_ATOM_get)
-    //             || (*s).token_is_pseudo_keyword(JS_ATOM_set)
-    //         {
-    //             /* get x(), set x() */
-    //             name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
-    //             if (*s).next_token().is_err() {
-    //                 break Some(GotoLabel::Fail(name));
-    //             }
-    //             if (*s).token.val == ':' as i32
-    //                 || (*s).token.val == ',' as i32
-    //                 || (*s).token.val == '}' as i32
-    //                 || (*s).token.val == '(' as i32
-    //             {
-    //                 break Some(GotoLabel::IdentFound(true));
-    //             }
-
-    //             prop_type = if name == JS_ATOM_get {
-    //                 PROP_TYPE_GET
-    //             } else {
-    //                 PROP_TYPE_SET
-    //             };
-    //             JS_FreeAtom(ctx, name);
-    //         } else if (*s).token.val == '*' as i32 {
-    //             if (*s).next_token().is_err() {
-    //                 break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //             }
-    //             prop_type = PROP_TYPE_STAR;
-    //         } else if (*s).token_is_pseudo_keyword(JS_ATOM_async)
-    //             && (*s).peek_token(true) != '\n' as i32
-    //         {
-    //             name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
-    //             if (*s).next_token().is_err() {
-    //                 break Some(GotoLabel::Fail(name));
-    //             }
-
-    //             if (*s).token.val == ':' as i32
-    //                 || (*s).token.val == ',' as i32
-    //                 || (*s).token.val == '}' as i32
-    //                 || (*s).token.val == '(' as i32
-    //             {
-    //                 break Some(GotoLabel::IdentFound(true));
-    //             }
-
-    //             JS_FreeAtom(ctx, name);
-    //             if (*s).token.val == '*' as i32 {
-    //                 if (*s).next_token().is_err() {
-    //                     break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //                 }
-    //                 prop_type = PROP_TYPE_ASYNC_STAR;
-    //             } else {
-    //                 prop_type = PROP_TYPE_ASYNC;
-    //             }
-    //         }
-    //     }
-
-    //     match (*s).token.val {
-    //         TOK_STRING => {
-    //             if let Ok(a) = (*s).token.data.string().unwrap().coerce_to_atom(ctx) {
-    //                 name = a;
-    //                 if (*s).next_token().is_err() {
-    //                     break Some(GotoLabel::Fail(a));
-    //                 }
-    //             } else {
-    //                 break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //             }
-    //         }
-    //         TOK_NUMBER => {
-    //             // JSValue int32 or float64
-    //             if let Ok(a) = (*s).token.data.number().unwrap().coerce_to_atom(ctx) {
-    //                 name = a;
-    //                 if (*s).next_token().is_err() {
-    //                     break Some(GotoLabel::Fail(a));
-    //                 }
-    //             } else {
-    //                 break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //             }
-    //         }
-    //         // '['
-    //         CHAR_SQUARE_L => {
-    //             if (*s).next_token().is_err() {
-    //                 break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //             }
-    //             if (*s).parse_expr().is_err() {
-    //                 break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //             }
-    //             if (*s).parse_expect(']' as i32).is_err() {
-    //                 break Some(GotoLabel::Fail(JS_ATOM_NULL));
-    //             }
-    //             name = JS_ATOM_NULL;
-    //         }
-    //         TOK_PRIVATE_NAME if allow_private => {
-    //             name = (*s).token.data.ident_atom().unwrap().dup(&(*s).ctx.rt());
-    //             if (*s).next_token().is_err() {
-    //                 break Some(GotoLabel::Fail(name));
-    //             }
-    //             private = PROP_TYPE_PRIVATE;
-    //         }
-    //         t if JSParseState::token_maybe_ident(t) => {
-    //             /* variable can only be a non-reserved identifier */
-    //             let is_non_reserved_ident =
-    //                 (*s).token.val == TOK_IDENT && !(*s).token.data.is_reserved();
-    //             /* keywords and reserved words have a valid atom */
-    //             name = (*s).token.atom().unwrap().dup(&(*s).ctx.rt());
-    //             if (*s).next_token().is_err() {
-    //                 break Some(GotoLabel::Fail(name));
-    //             }
-
-    //             break Some(GotoLabel::IdentFound(is_non_reserved_ident));
-    //         }
-    //         _ => {
-    //             break Some(GotoLabel::InvalidProp);
-    //         }
-    //     }
-
-    //     break None;
-    // };
-
-    // if let Some(l) = goto.take() {
-    //     match l {
-    //         GotoLabel::IdentFound(is_non_reserved_ident) => {
-    //             if is_non_reserved_ident && prop_type == PROP_TYPE_IDENT && allow_var {
-    //                 if !((*s).token.val == ':' as i32
-    //                     || ((*s).token.val == '(' as i32 && allow_method))
-    //                 {
-    //                     prop_type = PROP_TYPE_VAR;
-    //                 }
-    //             }
-    //         }
-    //         GotoLabel::InvalidProp => {
-    //             JS_FreeAtom(ctx, name);
-    //             (*s).throw_syntax_error("invalid property name");
-    //             *pname = JS_ATOM_NULL;
-    //             return -1;
-    //         }
-    //         GotoLabel::Fail(atom) => {
-    //             if atom != JS_ATOM_NULL {
-    //                 JS_FreeAtom(ctx, atom);
-    //             }
-    //             *pname = JS_ATOM_NULL;
-    //             return -1;
-    //         }
-    //     }
-    // }
-
-    // if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR) && (*s).token.val != '(' as i32 {
-    //     JS_FreeAtom(ctx, name);
-    //     (*s).throw_syntax_error("invalid property name");
-    //     *pname = JS_ATOM_NULL;
-    //     -1
-    // } else {
-    //     *pname = name;
-    //     prop_type | private
-    // }
 }
 
 // XXX: improve speed with early bailout
@@ -3553,4 +3386,114 @@ pub unsafe fn js_parse_skip_parens_token(
 ) -> i32 {
     (*s).parse_skip_parens_token(pbits.as_mut().unwrap(), no_line_terminator)
         .unwrap_or(-1)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_u8(s: *mut JSParseState, val: u8) {
+    (*s).cur_func_mut().emit_u8(val)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_u16(s: *mut JSParseState, val: u16) {
+    (*s).cur_func_mut().emit_u16(val)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_u32(s: *mut JSParseState, val: u32) {
+    (*s).cur_func_mut().emit_u32(val)
+}
+
+/// emit an atom, increase ref_count
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_atom_dup(s: *mut JSParseState, name: JSAtom) {
+    (*s).cur_func_mut().emit_atom_dup(name)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+unsafe fn emit_op_u8(s: *mut JSParseState, op: u8) {
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_op_u8(op, (*s).last_line_num)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
+    (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
+}
+
+/* don't update the last opcode and don't emit line number info */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_label_raw(s: *mut JSParseState, label: i32) {
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_label_raw(label)
+}
+
+/* return the label ID offset */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_label(s: *mut JSParseState, label: i32) -> i32 {
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_label(label, (*s).last_line_num)
+}
+
+/* return label or -1 if dead code */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_goto(s: *mut JSParseState, opcode: OpCode, label: i32) -> i32 {
+    unreachable!("unused");
+    // (*s).cur_func_mut()
+    //     .emit_goto(opcode, label, (*s).last_line_num)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValueConst, as_atom: bool) -> i32 {
+    unreachable!("unused");
+    // (*s).cur_func_mut()
+    //     .emit_push_const(val, as_atom, (*s).last_line_num)
+    //     .map_or(-1, |_| 0)
+}
+
+/* initialize the class fields, called by the constructor. Note:
+super() can be called in an arrow function, so <this> and
+<class_fields_init> can be variable references */
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
+    (*s).cur_func_mut()
+        .emit_class_field_init((*s).last_line_num)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
+    (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
+}
+
+#[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
+pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
+    (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
+}
+
+#[deprecated(note = "use JSParseState::emit_break() instead")]
+pub unsafe fn emit_break(s: *mut JSParseState, name: JSAtom, is_continue: bool) -> i32 {
+    (*s).emit_break(name, is_continue)
+}
+
+#[deprecated(note = "use JSParseState::emit_spread_code() instead")]
+pub unsafe fn js_emit_spread_code(s: *mut JSParseState, depth: i32) {
+    (*s).emit_spread_code(depth);
+}
+
+#[deprecated(note = "use JSParseState::emit_class_init_start() instead")]
+pub unsafe fn emit_class_init_start(
+    s: *mut JSParseState,
+    cf: *mut ClassFieldsDef,
+) -> Result<(), i32> {
+    unreachable!("unused");
+    // (*s).emit_class_init_start(cf.as_mut().unwrap())
+}
+
+#[deprecated(note = "use JSParseState::emit_class_init_end() instead")]
+pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDef) {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSParseState::parse_statement_or_decl() instead")]
+pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -> i32 {
+    unreachable!("unused");
 }

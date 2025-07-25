@@ -99,10 +99,7 @@ impl<'s> JSParseState<'s> {
             // Create an array of raw strings and store it to the raw property
             template_object = self.ctx.create_array()?;
 
-            let ret = self.emit_push_const(template_object.clone(), false);
-            if ret != 0 {
-                return Err(-1);
-            }
+            self.emit_push_const(template_object.clone(), false)?;
 
             raw_array = self.ctx.create_array()?;
 
@@ -134,9 +131,9 @@ impl<'s> JSParseState<'s> {
                     .is_err()
                 {
                     // TODO: this is not nessecary, because ::drop() will handle string value free
-                    if let TokenData::Str { str, .. } = &mut cooked.data {
-                        *str = JSValue::UNDEFINED;
-                    }
+                    // if let TokenData::Str { str, .. } = &mut cooked.data {
+                    //     *str = JSValue::UNDEFINED;
+                    // }
                 }
 
                 template_object.define_property_value_u32(
@@ -150,19 +147,14 @@ impl<'s> JSParseState<'s> {
                 // syntax error if it contains invalid sequences
 
                 // TODO: this is not nessecary, because ::drop() will handle string value free
-                if let TokenData::Str { str, .. } = &mut cooked.data {
-                    *str = JSValue::UNDEFINED;
-                }
+                // if let TokenData::Str { str, .. } = &mut cooked.data {
+                //     *str = JSValue::UNDEFINED;
+                // }
 
                 self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
                 let str = unsafe { cooked.data.string().unwrap().string_unchecked() };
                 if depth == 0 || !str.is_empty() {
-                    let ret = self.emit_push_const(JSValue::String(str.clone()), true);
-                    // emit_push_const(self, cooked.u.str.str.replace(JSValue::UNDEFINED), true);
-
-                    if ret != 0 {
-                        return Err(-1);
-                    }
+                    self.emit_push_const(JSValue::String(str.clone()), true)?;
 
                     if depth == 0 {
                         if self.token.data.string_sep().unwrap() == b'`' as i32 {
@@ -205,7 +197,7 @@ impl<'s> JSParseState<'s> {
             }
 
             // XXX: should convert to string at this stage?
-            self.clear_atom_value();
+            self.clear_atom_in_token();
             // Resume TOK_TEMPLATE parsing (s->token.line_num and  s->token.ptr are OK)
             self.got_lf = false;
             self.last_line_num = self.token.line_num;

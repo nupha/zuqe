@@ -89,8 +89,8 @@ impl<'s> JSParseState<'s> {
                         .token
                         .atom()
                         .unwrap()
-                        .dup(&self.ctx.rt())
-                        .into_rc(&self.ctx.rt());
+                        .dup(self.ctx.rt())
+                        .into_rc(self.ctx.rt());
 
                     self.next_token()?;
                     self.add_module_import(&md, *local_name, JS_ATOM_default)?;
@@ -122,8 +122,8 @@ impl<'s> JSParseState<'s> {
                         .token
                         .atom()
                         .unwrap()
-                        .dup(&self.ctx.rt())
-                        .into_rc(&self.ctx.rt());
+                        .dup(self.ctx.rt())
+                        .into_rc(self.ctx.rt());
 
                     self.next_token()?;
                     self.add_module_import(&md, *local_name, JS_ATOM__star_)?;
@@ -140,8 +140,8 @@ impl<'s> JSParseState<'s> {
                             .token
                             .atom()
                             .unwrap()
-                            .dup(&self.ctx.rt())
-                            .into_rc(&self.ctx.rt());
+                            .dup(self.ctx.rt())
+                            .into_rc(self.ctx.rt());
 
                         self.next_token()?;
 
@@ -153,7 +153,7 @@ impl<'s> JSParseState<'s> {
                                 return Err(-1);
                             }
 
-                            let ln = self.token.atom().unwrap().dup(&self.ctx.rt());
+                            let ln = self.token.atom().unwrap().dup(self.ctx.rt());
                             self.next_token()?;
                             ln
                         } else {

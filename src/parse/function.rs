@@ -154,8 +154,7 @@ impl<'s> JSParseState<'s> {
                 fail!();
             }
 
-            let name = self.token.atom().unwrap();
-            if fd1.add_arg(&self.ctx, name).is_err() {
+            if fd1.add_arg(&self.ctx, self.token.atom().unwrap()).is_err() {
                 fail!();
             };
             fd1.defined_arg_count = 1;
@@ -237,6 +236,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     let name = self.token.atom().unwrap();
+
                     if name == JS_ATOM_yield
                         && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
@@ -523,7 +523,7 @@ impl<'s> JSParseState<'s> {
     ///
     /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
-    /// `func_name` is **NOT CONSUMED** inside.
+    /// `func_name` is not consumed.
     pub(super) fn parse_function_decl2(
         &mut self,
         func_type: JSParseFunctionEnum,
@@ -592,11 +592,10 @@ impl<'s> JSParseState<'s> {
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
-                    func_name = self.token.atom().unwrap().dup(&self.ctx.rt());
-                    if self.next_token().is_err() {
+                    func_name = self.token.atom().unwrap().dup(self.ctx.rt());
+                    self.next_token().inspect_err(|_| {
                         JS_FreeAtom(&self.ctx, func_name);
-                        return Err(-1);
-                    }
+                    })?;
                 } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                     && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
                 {
@@ -606,7 +605,7 @@ impl<'s> JSParseState<'s> {
             }
             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {}
             _ => {
-                func_name = func_name.dup(&self.ctx.rt());
+                func_name = func_name.dup(self.ctx.rt());
             }
         }
 

@@ -35,10 +35,7 @@ impl<'s> JSParseState<'s> {
             }
             if get_prev_opcode(fd) == opcodes::OP_get_super {
                 let val = self.token.atom().unwrap().to_value(&self.ctx, false);
-                let ret = self.emit_push_const(val, true);
-                if ret != 0 {
-                    return Err(-1);
-                }
+                self.emit_push_const(val, true)?;
                 self.emit_op(OpCode::GET_SUPER_VALUE);
             } else {
                 if has_optional_chain {

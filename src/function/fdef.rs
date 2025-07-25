@@ -458,7 +458,10 @@ pub struct LineNumberSlot {
 
 pub struct BlockEnv {
     pub prev: *mut BlockEnv,
-    /// JS_ATOM_NULL if none
+
+    /// JS_ATOM_NULL for none.
+    /// this field don't require ownership of atom,
+    /// do not clone the atom for this field.
     pub label_name: JSAtom,
 
     /// -1 if none
@@ -525,6 +528,7 @@ pub unsafe fn update_label(fd: *mut JSFunctionDef, label: u32, delta: i32) -> i3
     (*fd).update_label_ref_count(label, delta)
 }
 
+/// `label_name` is not consumed
 pub unsafe fn push_break_entry(
     fd: *mut JSFunctionDef,
     be: *mut BlockEnv,

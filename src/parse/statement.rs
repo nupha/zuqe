@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     function::{
@@ -31,6 +31,13 @@ pub const DECL_MASK_FUNC_WITH_LABEL: i32 = 1 << 1;
 pub const DECL_MASK_OTHER: i32 = 1 << 2; /* all other declarations */
 pub const DECL_MASK_ALL: i32 = DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL | DECL_MASK_OTHER;
 
+enum TodoState {
+    HasLet(i32),
+    HasExpr,
+    ParseFuncVar,
+    FuncDeclError,
+}
+
 impl<'s> JSParseState<'s> {
     pub fn parse_block(&mut self) -> Result<(), i32> {
         self.parse_expect(CHAR_CURLY_L)?;
@@ -38,9 +45,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val != CHAR_CURLY_R {
             self.push_scope()?;
             loop {
-                if unsafe { js_parse_statement_or_decl(self, DECL_MASK_ALL) } != 0 {
-                    return Err(-1);
-                }
+                self.parse_statement_or_decl(DECL_MASK_ALL)?;
                 if self.token.val == CHAR_CURLY_R {
                     break;
                 }
@@ -51,16 +56,223 @@ impl<'s> JSParseState<'s> {
         self.next_token()
     }
 
-    #[inline(always)]
-    pub fn parse_statement(&mut self) -> Result<(), i32> {
-        if unsafe { js_parse_statement_or_decl(self, 0) } == -1 {
-            Err(-1)
-        } else {
-            Ok(())
+    pub(super) fn parse_statement_or_decl(&mut self, decl_mask: i32) -> Result<(), i32> {
+        let mut label_name: JSAtomRc = JS_ATOM_NULL.into_rc(self.ctx.rt());
+
+        // specific label handling
+        // XXX: support multiple labels on loop statements
+        if is_label(self) {
+            label_name = JSAtomRc::clone_from(self.ctx.rt(), self.token.atom().unwrap());
+
+            let mut be = self.cur_func().top_break;
+            while !be.is_null() {
+                if unsafe { (*be).label_name } == *label_name {
+                    self.throw_syntax_error("duplicate label name");
+                    return Err(-1);
+                }
+                be = unsafe { (*be).prev };
+            }
+
+            self.next_token()?;
+            self.parse_expect(':' as i32)?;
+
+            if !matches!(self.token.val, TOK_FOR | TOK_DO | TOK_WHILE) {
+                // labelled regular statement
+                let mut break_entry = BlockEnv::default();
+                let label_break = self.cur_func_mut().add_label().map_or(-1, |l| l as i32);
+                unsafe {
+                    push_break_entry(
+                        self.cur_func_mut(),
+                        &mut break_entry,
+                        *label_name,
+                        label_break,
+                        -1,
+                        0,
+                    );
+                }
+
+                self.parse_statement_or_decl(
+                    if self.cur_func().js_mode & JS_MODE_STRICT as u8 == 0
+                        && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
+                    {
+                        DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL
+                    } else {
+                        0
+                    },
+                )?;
+
+                self.emit_label(label_break);
+
+                unsafe {
+                    pop_break_entry(self.cur_func_mut());
+                }
+
+                return Ok(());
+            }
         }
+
+        let mut todo: Option<TodoState> = None;
+
+        match self.token.val {
+            // '{'
+            CHAR_CURLY_L => {
+                self.parse_block()?;
+            }
+            TOK_RETURN => {
+                let fd = self.cur_func();
+                if fd.is_eval {
+                    self.throw_syntax_error("return not in a function");
+                    return Err(-1);
+                } else if fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
+                    self.throw_syntax_error("return in a static initializer block");
+                    return Err(-1);
+                }
+
+                self.next_token()?;
+
+                if !matches!(self.token.val, CHAR_SEMI | CHAR_CURLY_R) && !self.got_lf {
+                    self.parse_expr()?;
+                    self.emit_return(true);
+                } else {
+                    self.emit_return(false);
+                }
+
+                self.parse_expect_semi()?;
+            }
+            TOK_THROW => {
+                self.next_token()?;
+                if self.got_lf {
+                    self.throw_syntax_error("line terminator not allowed after throw");
+                    return Err(-1);
+                }
+                self.parse_expr()?;
+                self.emit_op(OpCode::THROW);
+                self.parse_expect_semi()?;
+            }
+            tok @ (TOK_LET | TOK_CONST | TOK_VAR) => {
+                todo.replace(TodoState::HasLet(tok));
+            }
+            TOK_IF => {
+                stmt_if(self)?;
+            }
+            TOK_WHILE => {
+                stmt_while(self, *label_name)?;
+            }
+            TOK_DO => {
+                stmt_do(self, *label_name)?;
+            }
+            TOK_FOR => {
+                stmt_for(self, *label_name)?;
+            }
+            tok @ (TOK_BREAK | TOK_CONTINUE) => {
+                self.next_token()?;
+                let label = if !self.got_lf
+                    && self.token.val == TOK_IDENT
+                    && !self.token.data.is_reserved()
+                {
+                    self.token.atom().unwrap()
+                } else {
+                    JS_ATOM_NULL
+                };
+                if self.emit_break(label, tok == TOK_CONTINUE) != 0 {
+                    return Err(-1);
+                }
+                if label != JS_ATOM_NULL {
+                    self.next_token()?;
+                }
+                self.parse_expect_semi()?;
+            }
+            TOK_SWITCH => {
+                stmt_switch(self, *label_name)?;
+            }
+            TOK_TRY => {
+                stmt_try(self)?;
+            }
+            // ';'
+            CHAR_SEMI => {
+                // empty statement
+                self.next_token()?;
+            }
+            TOK_WITH => {
+                stmt_with(self)?;
+            }
+            TOK_FUNCTION => {
+                // ES6 Annex B.3.2 and B.3.3 semantics
+                todo.replace(
+                    if decl_mask & DECL_MASK_FUNC == 0
+                        || (decl_mask & DECL_MASK_OTHER == 0
+                            && self.peek_token(false) == '*' as i32)
+                    {
+                        TodoState::FuncDeclError
+                    } else {
+                        TodoState::ParseFuncVar
+                    },
+                );
+            }
+            TOK_IDENT => {
+                todo.replace(stmt_ident(self, decl_mask)?);
+            }
+            TOK_CLASS => {
+                if decl_mask & DECL_MASK_OTHER == 0 {
+                    self.throw_syntax_error(
+                        "class declarations can't appear in single-statement context",
+                    );
+                    return Err(-1);
+                }
+                self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NONE)?;
+            }
+            TOK_DEBUGGER => {
+                // currently no debugger, so just skip the keyword
+                self.next_token()?;
+                self.parse_expect_semi()?;
+            }
+            t @ (TOK_ENUM | TOK_EXPORT | TOK_EXTENDS) => {
+                // convert keyword token to atom
+                let a = t - TOK_FIRST_KEYWORD + 1;
+                debug_assert!(a > 0);
+                js_unsupported_keyword(self, JSAtom(a as u32));
+                return Err(-1);
+            }
+            _ => {
+                todo.replace(TodoState::HasExpr);
+            }
+        }
+
+        while let Some(st) = todo.take() {
+            match st {
+                TodoState::HasLet(t) => {
+                    stmt_let_const_var(self, t, decl_mask)?;
+                }
+                TodoState::HasExpr => {
+                    hasexpr(self)?;
+                }
+                TodoState::ParseFuncVar => {
+                    self.parse_function_decl(
+                        JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
+                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        JS_ATOM_NULL,
+                        self.token.ptr,
+                        self.token.line_num,
+                    )?;
+                }
+                TodoState::FuncDeclError => {
+                    self.throw_syntax_error(
+                        "function declarations can't appear in single-statement context",
+                    );
+                    return Err(-1);
+                }
+            }
+        }
+
+        Ok(())
     }
 
-    pub fn set_eval_ret_undefined(&mut self) {
+    #[inline(always)]
+    pub fn parse_statement(&mut self) -> Result<(), i32> {
+        self.parse_statement_or_decl(0)
+    }
+
+    fn set_eval_ret_undefined(&mut self) {
         if let Some(vidx) = self.cur_func().eval_ret_idx {
             self.emit_op(OpCode::UNDEFINED);
             self.emit_op(OpCode::PUT_LOC);
@@ -69,320 +281,41 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-enum StmtState {
-    HasLet(i32),
-    HasExpr,
-    ParseFuncVar,
-    FuncDeclError,
-}
-
-pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -> i32 {
-    let mut label_name: JSAtom = JS_ATOM_NULL;
-
-    macro_rules! fail {
-        () => {
-            JS_FreeAtom(&s.ctx, label_name);
-            return -1;
-        };
-    }
-
-    // specific label handling
-    // XXX: support multiple labels on loop statements
-    if is_label(s) {
-        label_name = s.token.atom().unwrap().dup(&s.ctx.rt());
-
-        let mut be = s.cur_func().top_break;
-        while !be.is_null() {
-            if (*be).label_name == label_name {
-                s.throw_syntax_error("duplicate label name");
-                fail!();
-            }
-            be = (*be).prev;
-        }
-
-        if s.next_token().is_err() {
-            fail!();
-        }
-        if s.parse_expect(CHAR_COLON).is_err() {
-            fail!();
-        }
-
-        if !matches!(s.token.val, TOK_FOR | TOK_DO | TOK_WHILE) {
-            // labelled regular statement
-            let mut break_entry = BlockEnv::default();
-            let label_break = s.cur_func_mut().add_label().map_or(-1, |l| l as i32);
-            push_break_entry(
-                s.cur_func_mut(),
-                &mut break_entry,
-                label_name,
-                label_break,
-                -1,
-                0,
-            );
-
-            let mask = if s.cur_func().js_mode & JS_MODE_STRICT as u8 == 0
-                && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
-            {
-                DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL
-            } else {
-                0
-            };
-            if js_parse_statement_or_decl(s, mask) != 0 {
-                fail!();
-            }
-            s.emit_label(label_break);
-
-            pop_break_entry(s.cur_func_mut());
-
-            // done
-            JS_FreeAtom(&s.ctx, label_name);
-            return 0;
-        }
-    }
-
-    let mut state: Option<StmtState> = None;
-
-    match s.token.val {
-        // '{'
-        CHAR_CURLY_L => {
-            if s.parse_block().is_err() {
-                fail!();
-            }
-        }
-        TOK_RETURN => {
-            let fd = s.cur_func();
-            if fd.is_eval {
-                s.throw_syntax_error("return not in a function");
-                fail!();
-            }
-            if fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-                s.throw_syntax_error("return in a static initializer block");
-                fail!();
-            }
-            if s.next_token().is_err() {
-                fail!();
-            }
-
-            if !matches!(s.token.val, CHAR_SEMI | CHAR_CURLY_R) && !s.got_lf {
-                if s.parse_expr().is_err() {
-                    fail!();
-                }
-                s.emit_return(true);
-            } else {
-                s.emit_return(false);
-            }
-            if s.parse_expect_semi().is_err() {
-                fail!();
-            }
-        }
-        TOK_THROW => {
-            if s.next_token().is_err() {
-                fail!();
-            }
-            if s.got_lf {
-                s.throw_syntax_error("line terminator not allowed after throw");
-                fail!();
-            }
-            if s.parse_expr().is_err() {
-                fail!();
-            }
-            s.emit_op(OpCode::THROW);
-            if s.parse_expect_semi().is_err() {
-                fail!();
-            }
-        }
-        tok @ (TOK_LET | TOK_CONST | TOK_VAR) => {
-            state.replace(StmtState::HasLet(tok));
-        }
-        TOK_IF => {
-            if stmt_if(s).is_err() {
-                fail!();
-            }
-        }
-        TOK_WHILE => {
-            if stmt_while(s, label_name).is_err() {
-                fail!();
-            }
-        }
-        TOK_DO => {
-            if stmt_do(s, label_name).is_err() {
-                fail!();
-            }
-        }
-        TOK_FOR => {
-            if stmt_for(s, label_name).is_err() {
-                fail!();
-            }
-        }
-        tok @ (TOK_BREAK | TOK_CONTINUE) => {
-            if s.next_token().is_err() {
-                fail!();
-            }
-            let label = if !s.got_lf && s.token.val == TOK_IDENT && !s.token.data.is_reserved() {
-                s.token.atom().unwrap()
-            } else {
-                JS_ATOM_NULL
-            };
-            if s.emit_break(label, tok == TOK_CONTINUE) != 0 {
-                fail!();
-            }
-            if label != JS_ATOM_NULL {
-                if s.next_token().is_err() {
-                    fail!();
-                }
-            }
-            if s.parse_expect_semi().is_err() {
-                fail!();
-            }
-        }
-        TOK_SWITCH => {
-            if stmt_switch(s, label_name).is_err() {
-                fail!();
-            }
-        }
-        TOK_TRY => {
-            if stmt_try(s).is_err() {
-                fail!();
-            }
-        }
-        // ';'
-        CHAR_SEMI => {
-            // empty statement
-            if s.next_token().is_err() {
-                fail!();
-            }
-        }
-        TOK_WITH => {
-            if stmt_with(s).is_err() {
-                fail!();
-            }
-        }
-        TOK_FUNCTION => {
-            // ES6 Annex B.3.2 and B.3.3 semantics
-            if (decl_mask & DECL_MASK_FUNC == 0)
-                || (decl_mask & DECL_MASK_OTHER == 0 && s.peek_token(false) == '*' as i32)
-            {
-                state.replace(StmtState::FuncDeclError);
-            } else {
-                state.replace(StmtState::ParseFuncVar);
-            }
-        }
-        TOK_IDENT => {
-            if let Ok(st) = stmt_ident(s, decl_mask) {
-                state.replace(st);
-            } else {
-                fail!();
-            }
-        }
-        TOK_CLASS => {
-            if (decl_mask & DECL_MASK_OTHER) == 0 {
-                s.throw_syntax_error("class declarations can't appear in single-statement context");
-                fail!();
-            }
-            if s.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NONE)
-                .is_err()
-            {
-                return -1;
-            }
-        }
-        TOK_DEBUGGER => {
-            // currently no debugger, so just skip the keyword
-            if s.next_token().is_err() {
-                fail!();
-            }
-            if s.parse_expect_semi().is_err() {
-                fail!();
-            }
-        }
-        t @ (TOK_ENUM | TOK_EXPORT | TOK_EXTENDS) => {
-            // convert keyword token to atom
-            let a = t - TOK_FIRST_KEYWORD + 1;
-            debug_assert!(a > 0);
-            js_unsupported_keyword(s, JSAtom(a as u32));
-            fail!();
-        }
-        _ => {
-            state.replace(StmtState::HasExpr);
-        }
-    }
-
-    while let Some(st) = state.take() {
-        match st {
-            StmtState::HasLet(t) => {
-                if stmt_let_const_var(s, t, decl_mask).is_err() {
-                    fail!();
-                }
-            }
-            StmtState::HasExpr => {
-                if hasexpr(s).is_err() {
-                    fail!();
-                }
-            }
-            StmtState::ParseFuncVar => {
-                if s.parse_function_decl(
-                    JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
-                    JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JS_ATOM_NULL,
-                    s.token.ptr,
-                    s.token.line_num,
-                )
-                .is_err()
-                {
-                    fail!();
-                }
-            }
-            StmtState::FuncDeclError => {
-                s.throw_syntax_error(
-                    "function declarations can't appear in single-statement context",
-                );
-                fail!();
-            }
-        }
-    }
-
-    JS_FreeAtom(&s.ctx, label_name);
-    0
-}
-
 pub fn js_unsupported_keyword(s: &mut JSParseState, atom: JSAtom) -> i32 {
     s.throw_syntax_error(&format!("unsupported keyword: {}", atom.to_str(s.ctx.rt())));
     -1
 }
 
 // test if the current token is a label. Use simplistic look-ahead scanner
-pub unsafe fn is_label(s: *mut JSParseState) -> bool {
-    (*s).token.val == TOK_IDENT
-        && !(*s).token.data.is_reserved()
-        && (*s).peek_token(false) == ':' as i32
+fn is_label(s: &mut JSParseState) -> bool {
+    s.token.val == TOK_IDENT && !s.token.data.is_reserved() && s.peek_token(false) == ':' as i32
 }
 
 // test if the current token is a let keyword. Use simplistic look-ahead scanner
-pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
+fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
     let mut res = Ok(false);
 
-    if (*s).token_is_pseudo_keyword(JS_ATOM_let) {
+    if s.token_is_pseudo_keyword(JS_ATOM_let) {
         {
             let pos = (*s).get_pos();
 
             loop {
-                (*s).next_token()?;
+                s.next_token()?;
 
-                if (*s).token.val == b'[' as i32 {
+                if s.token.val == b'[' as i32 {
                     // let [ is a syntax restriction:
                     // it never introduces an ExpressionStatement
                     res = Ok(true);
                     break;
                 }
-                if (*s).token.val == b'{' as i32
+                if s.token.val == b'{' as i32
                     || ((*s).token.val == TOK_IDENT && !(*s).token.data.is_reserved())
                     || matches!((*s).token.val, TOK_LET | TOK_YIELD | TOK_AWAIT)
                 {
                     // Check for possible ASI if not scanning for Declaration
                     // XXX: should also check that `{` introduces a BindingPattern,
                     // but Firefox does not and rejects eval("let=1;let\n{if(1)2;}")
-                    if (*s).last_line_num == (*s).token.line_num
-                        || (decl_mask & DECL_MASK_OTHER) != 0
-                    {
+                    if s.last_line_num == s.token.line_num || (decl_mask & DECL_MASK_OTHER) != 0 {
                         res = Ok(true);
                         break;
                     }
@@ -391,7 +324,7 @@ pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> 
                 break;
             }
 
-            (*s).seek_token(&pos)?;
+            s.seek_token(&pos)?;
         }
 
         // experimental?
@@ -441,7 +374,7 @@ pub unsafe fn is_let(s: *mut JSParseState, decl_mask: i32) -> Result<bool, i32> 
 // }
 
 #[inline(always)]
-unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
+fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     let (label_cont, label_break, label1) = {
         let fd = s.cur_func_mut();
 
@@ -452,17 +385,17 @@ unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
         )
     };
 
-    let mut break_entry: BlockEnv = std::mem::zeroed();
-
-    push_break_entry(
-        s.cur_func_mut(),
-        &mut break_entry,
-        label_name,
-        label_break,
-        label_cont,
-        0,
-    );
-
+    let mut break_entry = BlockEnv::default();
+    unsafe {
+        push_break_entry(
+            s.cur_func_mut(),
+            &mut break_entry,
+            label_name,
+            label_break,
+            label_cont,
+            0,
+        );
+    }
     s.next_token()?;
     s.emit_label(label1);
     s.set_eval_ret_undefined();
@@ -480,13 +413,15 @@ unsafe fn stmt_do(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     s.emit_goto(OpCode::IF_TRUE, label1);
     s.emit_label(label_break);
 
-    pop_break_entry(s.cur_func_mut());
+    unsafe {
+        pop_break_entry(s.cur_func_mut());
+    }
 
     Ok(())
 }
 
 #[inline(always)]
-unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
+fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
 
@@ -554,16 +489,18 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
         )
     };
 
-    let mut break_entry: BlockEnv = std::mem::zeroed();
+    let mut break_entry = BlockEnv::default();
 
-    push_break_entry(
-        s.cur_func_mut(),
-        &mut break_entry,
-        label_name,
-        label_break,
-        label_cont,
-        0,
-    );
+    unsafe {
+        push_break_entry(
+            s.cur_func_mut(),
+            &mut break_entry,
+            label_name,
+            label_break,
+            label_cont,
+            0,
+        );
+    }
 
     // test expression
     if s.token.val == CHAR_SEMI {
@@ -643,29 +580,33 @@ unsafe fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> 
 
     s.emit_label(label_break);
 
-    pop_break_entry(s.cur_func_mut());
+    unsafe {
+        pop_break_entry(s.cur_func_mut());
+    }
     s.pop_scope();
 
     Ok(())
 }
 
 #[inline(always)]
-unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
-    let mut break_entry: BlockEnv = std::mem::zeroed();
+fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
+    let mut break_entry = BlockEnv::default();
 
     let (label_cont, label_break) = {
         let fd = s.cur_func_mut();
         (fd.add_label()? as i32, fd.add_label()? as i32)
     };
 
-    push_break_entry(
-        s.cur_func_mut(),
-        &mut break_entry,
-        label_name,
-        label_break,
-        label_cont,
-        0,
-    );
+    unsafe {
+        push_break_entry(
+            s.cur_func_mut(),
+            &mut break_entry,
+            label_name,
+            label_break,
+            label_cont,
+            0,
+        );
+    }
 
     s.next_token()?;
     s.set_eval_ret_undefined();
@@ -677,13 +618,15 @@ unsafe fn stmt_while(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32
     s.emit_goto(OpCode::GOTO, label_cont);
     s.emit_label(label_break);
 
-    pop_break_entry(s.cur_func_mut());
+    unsafe {
+        pop_break_entry(s.cur_func_mut());
+    }
 
     Ok(())
 }
 
 #[inline(always)]
-unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
+fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.next_token()?;
 
     // create a new scope for `let f;if(1) function f(){}`
@@ -697,18 +640,15 @@ unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     } else {
         DECL_MASK_FUNC // Annex B.3.4
     };
-    if js_parse_statement_or_decl(s, mask) != 0 {
-        return Err(-1);
-    }
+
+    s.parse_statement_or_decl(mask)?;
 
     if s.token.val == TOK_ELSE {
         let label2 = s.emit_goto(OpCode::GOTO, -1);
         s.next_token()?;
 
         s.emit_label(label1);
-        if js_parse_statement_or_decl(s, mask) != 0 {
-            return Err(-1);
-        }
+        s.parse_statement_or_decl(mask)?;
 
         label1 = label2;
     }
@@ -719,7 +659,7 @@ unsafe fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
 }
 
 #[inline(always)]
-unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
+fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
     s.set_eval_ret_undefined();
     s.next_token()?;
 
@@ -738,11 +678,15 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
     s.emit_goto(OpCode::CATCH, label_catch);
 
-    push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
+    unsafe {
+        push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
+    }
     block_env.label_finally = label_finally;
 
     s.parse_block()?;
-    pop_break_entry(s.cur_func_mut());
+    unsafe {
+        pop_break_entry(s.cur_func_mut());
+    }
 
     if js_is_live_code(s) {
         // drop the catch offset
@@ -774,7 +718,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                     return Err(-1);
                 }
             } else {
-                let name = s.token.atom().unwrap().dup(&s.ctx.rt());
+                let name = s.token.atom().unwrap().dup(s.ctx.rt());
                 if s.next_token().is_err() || s.define_var(name, TOK_CATCH).is_err() {
                     JS_FreeAtom(&s.ctx, name);
                     return Err(-1);
@@ -792,10 +736,14 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.emit_goto(OpCode::CATCH, label_catch2);
 
         s.push_scope()?; // catch block
-        push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
+        unsafe {
+            push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 1);
+        }
         block_env.label_finally = label_finally;
         s.parse_block()?;
-        pop_break_entry(s.cur_func_mut());
+        unsafe {
+            pop_break_entry(s.cur_func_mut());
+        }
 
         s.pop_scope(); // catch block
         s.pop_scope(); // catch variable
@@ -834,7 +782,9 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.next_token()?;
 
         // on the stack: ret_value gosub_ret_value
-        push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
+        unsafe {
+            push_break_entry(s.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
+        }
 
         let mut saved_eval_ret_idx: u16 = 0;
 
@@ -858,7 +808,9 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
             s.emit_op(OpCode::PUT_LOC);
             s.emit_u16(vidx);
         }
-        pop_break_entry(s.cur_func_mut());
+        unsafe {
+            pop_break_entry(s.cur_func_mut());
+        }
     }
 
     s.emit_op(OpCode::RET);
@@ -868,7 +820,7 @@ unsafe fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 }
 
 #[inline(always)]
-unsafe fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> Result<(), i32> {
+fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> Result<(), i32> {
     if matches!(tok, TOK_LET | TOK_CONST) {
         if (decl_mask & DECL_MASK_OTHER) == 0 {
             s.throw_syntax_error("lexical declarations can't appear in single-statement context");
@@ -879,11 +831,12 @@ unsafe fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> 
     s.next_token()?;
     s.parse_var(1, tok, false)?;
     s.parse_expect_semi()?;
+
     Ok(())
 }
 
 #[inline(always)]
-unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
+fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
     s.parse_expr_parens()?;
@@ -893,15 +846,16 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
     let label_break = s.cur_func_mut().add_label()? as i32;
     let mut break_entry = BlockEnv::default();
 
-    push_break_entry(
-        s.cur_func_mut(),
-        &mut break_entry,
-        label_name,
-        label_break,
-        -1,
-        1,
-    );
-
+    unsafe {
+        push_break_entry(
+            s.cur_func_mut(),
+            &mut break_entry,
+            label_name,
+            label_break,
+            -1,
+            1,
+        );
+    }
     s.parse_expect(CHAR_CURLY_L)?;
 
     let mut default_label_pos = -1;
@@ -960,9 +914,7 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
                 s.throw_syntax_error("invalid switch statement");
                 return Err(-1);
             }
-            if js_parse_statement_or_decl(s, DECL_MASK_ALL) != 0 {
-                return Err(-1);
-            }
+            s.parse_statement_or_decl(DECL_MASK_ALL)?;
         }
     }
 
@@ -971,10 +923,12 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
     if default_label_pos >= 0 {
         // Ugly patch for the the `default` label, shameful and risky
         let fd = s.cur_func_mut();
-        write_to_ptr::<u32>(
-            fd.byte_code.as_mut_ptr().add(default_label_pos as usize),
-            label_case as u32,
-        );
+        unsafe {
+            write_to_ptr::<u32>(
+                fd.byte_code.as_mut_ptr().add(default_label_pos as usize),
+                label_case as u32,
+            );
+        }
         fd.label_slots[label_case as usize].pos = default_label_pos + 4;
     } else {
         s.emit_label(label_case);
@@ -982,14 +936,16 @@ unsafe fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i3
     s.emit_label(label_break);
     s.emit_op(OpCode::DROP); // drop the switch expression
 
-    pop_break_entry(s.cur_func_mut());
+    unsafe {
+        pop_break_entry(s.cur_func_mut());
+    }
     s.pop_scope();
 
     Ok(())
 }
 
 #[inline(always)]
-unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
+fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     if s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
         s.throw_syntax_error("invalid keyword: with");
         Err(-1)
@@ -1016,28 +972,28 @@ unsafe fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
 }
 
 #[inline(always)]
-unsafe fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<StmtState, i32> {
+fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
     if s.token.data.is_reserved() {
         s.throw_reserved_identifier_error();
         return Err(-1);
     }
     // Determine if `let` introduces a Declaration or an ExpressionStatement
     if is_let(s, decl_mask)? {
-        return Ok(StmtState::HasLet(TOK_LET));
+        return Ok(TodoState::HasLet(TOK_LET));
     }
-    if (*s).token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(true) == TOK_FUNCTION {
+    if s.token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(true) == TOK_FUNCTION {
         if decl_mask & DECL_MASK_OTHER == 0 {
             s.throw_syntax_error("function declarations can't appear in single-statement context");
             return Err(-1);
         }
-        return Ok(StmtState::ParseFuncVar);
+        return Ok(TodoState::ParseFuncVar);
     }
 
-    Ok(StmtState::HasExpr)
+    Ok(TodoState::HasExpr)
 }
 
 #[inline(always)]
-unsafe fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
+fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr()?;
 
     if let Some(vidx) = s.cur_func().eval_ret_idx {
@@ -1054,7 +1010,7 @@ unsafe fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
 
 // XXX: handle IteratorClose when exiting the loop before the
 // enumeration is done
-pub unsafe fn js_parse_for_in_of(
+pub fn js_parse_for_in_of(
     s: &mut JSParseState,
     label_name: JSAtom,
     is_async: bool,
@@ -1081,14 +1037,16 @@ pub unsafe fn js_parse_for_in_of(
     // local for_in scope starts here so individual elements
     // can be closed in statement.
     let mut break_entry = BlockEnv::default();
-    push_break_entry(
-        s.cur_func_mut(),
-        &mut break_entry,
-        label_name,
-        label_break,
-        label_cont,
-        1,
-    );
+    unsafe {
+        push_break_entry(
+            s.cur_func_mut(),
+            &mut break_entry,
+            label_name,
+            label_break,
+            label_cont,
+            1,
+        );
+    }
     break_entry.scope_level = block_scope_level;
 
     let label_expr = s.emit_goto(OpCode::GOTO, -1);
@@ -1117,7 +1075,7 @@ pub unsafe fn js_parse_for_in_of(
             }
             var_name = JS_ATOM_NULL;
         } else {
-            var_name = s.token.atom().unwrap().dup(&s.ctx.rt());
+            var_name = s.token.atom().unwrap().dup(s.ctx.rt());
             if s.next_token().is_err() {
                 JS_FreeAtom(&s.ctx, var_name);
                 return Err(-1);
@@ -1325,13 +1283,15 @@ pub unsafe fn js_parse_for_in_of(
     s.emit_op(OpCode::DROP);
 
     s.emit_label(label_break);
-    if is_for_of {
-        // close and drop enum_rec
-        s.emit_op(OpCode::ITERATOR_CLOSE);
+    s.emit_op(if is_for_of {
+        OpCode::ITERATOR_CLOSE // close and drop enum_rec
     } else {
-        s.emit_op(OpCode::DROP);
+        OpCode::DROP
+    });
+
+    unsafe {
+        pop_break_entry(s.cur_func_mut());
     }
-    pop_break_entry(s.cur_func_mut());
     s.pop_scope();
 
     Ok(())

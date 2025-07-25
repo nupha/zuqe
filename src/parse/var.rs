@@ -153,6 +153,7 @@ impl<'s> JSParseState<'s> {
         Ok(var_id)
     }
 
+    /// `name` is not consumed.
     pub fn define_var(&mut self, name: JSAtom, tok: i32) -> Result<(), i32> {
         let func = self.cur_func();
 

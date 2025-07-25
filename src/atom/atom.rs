@@ -78,10 +78,10 @@ impl JSAtom {
         Self(n | JS_ATOM_TAG_INT)
     }
 
+    /// check if is const atom?
     #[inline(always)]
     pub fn is_const(self) -> bool {
-        // NOTE: for u32 atoms, `v as i32` should be minus.
-
+        // Hint: for u32 atoms, `self.0 as i32` should be minus.
         #[cfg(feature = "dump_leaks")]
         {
             self.0 as i32 <= 0
@@ -433,7 +433,7 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
 
     let aptr = unsafe {
         std::ptr::replace(
-            &mut (&mut (*rt).atom_slots)[aid as usize],
+            &mut (*rt).atom_slots[aid as usize],
             std::ptr::null::<JSStringInner>(),
         )
     };
@@ -447,23 +447,13 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
     if ids.len() == 1 {
         debug_assert_eq!(u16::from(ids[0]), aid as u16);
     } else {
-        let idx = ids
+        let i = ids
             .iter()
             .position(|&x| u16::from(x) == aid as u16)
             .unwrap();
-        ids.swap_remove(idx);
+        ids.swap_remove(i);
         (*rt).atom_hash_lut.insert(hash, ids);
     }
-
-    // #[cfg(feature = "dump_leaks")]
-    // {
-    //     debug_assert!(list_find(
-    //         &mut p.as_mut().link,
-    //         &mut (*rt).debug_string_list
-    //     ));
-
-    //     crate::types::list_del(&mut p.as_mut().link);
-    // }
 }
 
 /// test if the `atom` can be used as an array index (in 0..u32::MAX range).
