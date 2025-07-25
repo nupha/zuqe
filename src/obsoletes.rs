@@ -8,7 +8,9 @@ use std::{
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     array_buffer::JSFreeArrayBufferDataFunc,
-    atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomKindEnum, JSAtomStruct},
+    atom::{
+        AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct,
+    },
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID},
     context::JSContext,
@@ -231,7 +233,7 @@ pub unsafe fn JS_AtomGetStr(
 pub unsafe fn __JS_NewAtom(
     rt: *mut JSRuntime,
     str: *mut JSString,
-    atom_type: AtomType,
+    atom_type: AtomTypeHint,
 ) -> Result<JSAtom, i32> {
     unreachable!("use JSRuntime::add_atom() instead");
 }
@@ -240,7 +242,7 @@ pub unsafe fn __JS_NewAtom(
 pub unsafe fn __JS_NewAtomInit(
     rt: &mut JSRuntime,
     str: &str,
-    atom_type: AtomID,
+    atom_type: AtomHintAndId,
 ) -> Result<JSAtom, i32> {
     unreachable!("use JSRuntime::add_atom_str() instead");
 }
@@ -3074,13 +3076,17 @@ pub(crate) fn js_symbol_to_atom(val: &JSValue) -> JSAtom {
 
 /// `atom` must be a non-numeric string atom
 #[deprecated(note = "use JSContext::create_symbol_from_atom() instead")]
-pub unsafe fn JS_NewSymbolFromAtom(ctx: &JSContext, atom: JSAtom, atom_type: AtomType) -> JSValue {
+pub unsafe fn JS_NewSymbolFromAtom(
+    ctx: &JSContext,
+    atom: JSAtom,
+    atom_type: AtomTypeHint,
+) -> JSValue {
     ctx.create_symbol_from_atom(atom, atom_type)
         .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSContext::create_symbol() instead")]
-pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomType) -> JSValue {
+pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomTypeHint) -> JSValue {
     match ctx.rt_mut().register_atom(Some(p), atom_type) {
         Ok(a) => {
             let ss = ctx.rt().get_atom_desc(a).unwrap();
@@ -3525,7 +3531,7 @@ pub unsafe fn JS_DupAtom(ctx: &JSContext, v: JSAtom) -> JSAtom {
 }
 
 #[deprecated(note = "use JSAtom::kind() instead")]
-pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> JSAtomKindEnum {
+pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> AtomDescKind {
     v.kind(ctx.rt())
 }
 

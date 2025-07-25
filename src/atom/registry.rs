@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::{
-    AtomID, AtomType, JS_ATOM_MAX_INT, JS_ATOM_NULL, JSAtom,
+    AtomHintAndId, AtomTypeHint, JS_ATOM_MAX_INT, JS_ATOM_NULL, JSAtom,
     consts::{
         JS_ATOM_INIT_COUNT, JS_ATOM_Private_brand, JS_ATOM_Symbol_toPrimitive,
         JS_DEFAULT_ATOMS_TEXT,
@@ -42,17 +42,15 @@ impl JSRuntime {
     pub(crate) fn register_atom(
         &mut self,
         mut desc: Option<JSString>,
-        type_hint: AtomType,
+        type_hint: AtomTypeHint,
     ) -> Result<JSAtom, i32> {
-        debug_assert_ne!(type_hint, AtomType::None);
-
         // match str aginst existing atoms, don't register twice for same content.
         let atom_desc = match type_hint {
-            AtomType::String | AtomType::GlobalSymbol => {
+            AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
                 let ss = desc.take().unwrap();
 
                 if let Some(at) = ss.atom_info() {
-                    if at.hint() == type_hint {
+                    if at.type_hint() == type_hint {
                         let a = at.atom();
                         if !a.is_const() {
                             let _ = Rc::into_raw(ss.0); // leak string strong count
@@ -73,7 +71,7 @@ impl JSRuntime {
                             let aptr = self.atom_slots[u16::from(aid) as usize];
                             if !aptr.is_null() {
                                 let at = unsafe { (*aptr).atom_info().unwrap() };
-                                if at.hint() == type_hint
+                                if at.type_hint() == type_hint
                                     && unsafe { (*aptr).content() } == ss.content()
                                 {
                                     // found existing atom, clone and reuse it.
@@ -97,7 +95,7 @@ impl JSRuntime {
                 ss.set_hash(hash);
                 ss
             }
-            AtomType::Symbol | AtomType::Private => {
+            AtomTypeHint::Symbol | AtomTypeHint::Private => {
                 // these atom types are unique, even for same string content.
                 let ss = if let Some(s) = desc.take() {
                     if s.atom_info().is_none() {
@@ -113,9 +111,6 @@ impl JSRuntime {
                 let hash = ss.content().calc_hash(type_hint);
                 ss.set_hash(hash);
                 ss
-            }
-            AtomType::None => {
-                unreachable!()
             }
         };
 
@@ -145,13 +140,10 @@ impl JSRuntime {
         };
 
         atom_desc.set_atom_type(match type_hint {
-            AtomType::String => AtomID::String(aid),
-            AtomType::GlobalSymbol => AtomID::GlobalSymbol(aid),
-            AtomType::Symbol => AtomID::Symbol(aid),
-            AtomType::Private => AtomID::Private(aid),
-            AtomType::None => {
-                unreachable!()
-            }
+            AtomTypeHint::String => AtomHintAndId::String(aid),
+            AtomTypeHint::GlobalSymbol => AtomHintAndId::GlobalSymbol(aid),
+            AtomTypeHint::Symbol => AtomHintAndId::Symbol(aid),
+            AtomTypeHint::Private => AtomHintAndId::Private(aid),
         });
 
         match self.atom_hash_lut.entry(atom_desc.hash()) {
@@ -181,7 +173,7 @@ impl JSRuntime {
     pub fn register_atom_jsstring(
         &mut self,
         str: JSString,
-        type_hint: AtomType,
+        type_hint: AtomTypeHint,
     ) -> Result<JSAtom, i32> {
         if let Ok(i) = str.content().parse_u32() {
             if i <= JS_ATOM_MAX_INT {
@@ -193,7 +185,7 @@ impl JSRuntime {
     }
 
     /// register an atom from str
-    pub fn register_atom_str(&mut self, str: &str, type_hint: AtomType) -> Result<JSAtom, i32> {
+    pub fn register_atom_str(&mut self, str: &str, type_hint: AtomTypeHint) -> Result<JSAtom, i32> {
         let s = JSString::from_str(self, str)?;
         self.register_atom_jsstring(s, type_hint)
     }
@@ -203,7 +195,7 @@ impl JSRuntime {
             JSAtom::new_u32(n as u32)
         } else {
             if let Ok(tmp) = JSString::from_utf8(self, format!("{n}").into_bytes()) {
-                self.register_atom_jsstring(tmp, AtomType::String)
+                self.register_atom_jsstring(tmp, AtomTypeHint::String)
                     .unwrap_or(JS_ATOM_NULL)
             } else {
                 JS_ATOM_NULL
@@ -241,11 +233,11 @@ impl JSRuntime {
         let mut p = JS_DEFAULT_ATOMS_TEXT.as_ptr();
         for i in 1..JS_ATOM_INIT_COUNT {
             let atom_type = if i == JS_ATOM_Private_brand.0 {
-                AtomType::Private
+                AtomTypeHint::Private
             } else if i >= JS_ATOM_Symbol_toPrimitive.0 {
-                AtomType::Symbol
+                AtomTypeHint::Symbol
             } else {
-                AtomType::String
+                AtomTypeHint::String
             };
 
             let cstr = unsafe { CStr::from_ptr(p.cast()) };

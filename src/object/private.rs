@@ -1,5 +1,5 @@
 use crate::{
-    atom::{AtomType, JS_FreeAtom, consts::*},
+    atom::{AtomTypeHint, JS_FreeAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
     object::{JSObject, JSProperty},
@@ -164,7 +164,7 @@ impl JSValue {
                 }
             } else {
                 // the private <brand> prop is not present, add it
-                let br = ctx.create_symbol_from_atom(JS_ATOM__brand_, AtomType::Private)?;
+                let br = ctx.create_symbol_from_atom(JS_ATOM__brand_, AtomTypeHint::Private)?;
                 home.add_shape_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
                     *pr = JSProperty::Normal(br.clone());
                 })?;

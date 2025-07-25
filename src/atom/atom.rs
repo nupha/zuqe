@@ -12,41 +12,42 @@ use crate::{
 
 use super::consts::*;
 
+/// atom descriptor kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(u8)]
-pub enum JSAtomKindEnum {
+pub enum AtomDescKind {
     JS_ATOM_KIND_STRING,
     JS_ATOM_KIND_SYMBOL,
     JS_ATOM_KIND_PRIVATE,
 }
 
-// TODO: merge this with JSAtomKindEnum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(u8)]
-pub enum AtomType {
-    None = 0,
+pub enum AtomTypeHint {
     String = 1,
     GlobalSymbol = 2,
     Symbol = 3,
     Private = 4,
 }
 
+/// atom id and type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
-pub enum AtomID {
+#[repr(u8)]
+pub enum AtomHintAndId {
     String(NonZeroU16),
     GlobalSymbol(NonZeroU16),
     Symbol(NonZeroU16),
     Private(NonZeroU16),
 }
 
-impl AtomID {
+impl AtomHintAndId {
     /// Get atom type hint
-    pub fn hint(self) -> AtomType {
+    pub fn type_hint(self) -> AtomTypeHint {
         match self {
-            Self::String(_) => AtomType::String,
-            Self::Symbol(_) => AtomType::Symbol,
-            Self::GlobalSymbol(_) => AtomType::GlobalSymbol,
-            Self::Private(_) => AtomType::Private,
+            Self::String(_) => AtomTypeHint::String,
+            Self::Symbol(_) => AtomTypeHint::Symbol,
+            Self::GlobalSymbol(_) => AtomTypeHint::GlobalSymbol,
+            Self::Private(_) => AtomTypeHint::Private,
         }
     }
 
@@ -98,17 +99,19 @@ impl JSAtom {
         (self.0 & JS_ATOM_TAG_INT) != 0
     }
 
-    /// get atom kind
-    pub fn kind(self, rt: &JSRuntime) -> JSAtomKindEnum {
+    /// get atom descriptor kind
+    pub fn kind(self, rt: &JSRuntime) -> AtomDescKind {
         if self.is_int_type() {
-            return JSAtomKindEnum::JS_ATOM_KIND_STRING;
+            return AtomDescKind::JS_ATOM_KIND_STRING;
         }
 
         let p = rt.get_atom_desc(self).expect("INVALID ATOM");
         match p.atom_info().unwrap() {
-            AtomID::String(_) => JSAtomKindEnum::JS_ATOM_KIND_STRING,
-            AtomID::Symbol(_) | AtomID::GlobalSymbol(_) => JSAtomKindEnum::JS_ATOM_KIND_SYMBOL,
-            AtomID::Private(_) => JSAtomKindEnum::JS_ATOM_KIND_PRIVATE,
+            AtomHintAndId::String(_) => AtomDescKind::JS_ATOM_KIND_STRING,
+            AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => {
+                AtomDescKind::JS_ATOM_KIND_SYMBOL
+            }
+            AtomHintAndId::Private(_) => AtomDescKind::JS_ATOM_KIND_PRIVATE,
         }
     }
 
@@ -159,7 +162,7 @@ impl JSAtom {
             ctx.create_string_from_utf8(format!("{}", __JS_AtomToUInt32(self)).into_bytes())
         } else {
             let ss = ctx.rt().get_atom_desc(self).expect("INVALID ATOM").clone();
-            if let AtomID::String(_) = ss.atom_info().unwrap() {
+            if let AtomHintAndId::String(_) = ss.atom_info().unwrap() {
                 ss.into()
             } else if force_string {
                 ss.into()
@@ -177,7 +180,7 @@ impl JSAtom {
             Some(__JS_AtomToUInt32(self) as usize)
         } else {
             if let Some(p) = rt.get_atom_desc(self) {
-                if let Some(AtomID::String(_)) = p.atom_info() {
+                if let Some(AtomHintAndId::String(_)) = p.atom_info() {
                     if let Ok(n) = p.content().parse_u32() {
                         if n != u32::MAX {
                             return Some(n as usize);
@@ -239,14 +242,14 @@ impl JSContext {
         }
 
         if str.is_empty() || !is_digit(str.as_bytes()[0]) {
-            if let Some(atom) = __JS_FindAtom(&self.rt(), str, AtomType::String) {
+            if let Some(atom) = __JS_FindAtom(&self.rt(), str, AtomTypeHint::String) {
                 return Ok(atom);
             }
         }
 
         let s = self.create_string(str).check_exception()?;
         self.rt_mut()
-            .register_atom_jsstring(unsafe { s.into_string_unchecked() }, AtomType::String)
+            .register_atom_jsstring(unsafe { s.into_string_unchecked() }, AtomTypeHint::String)
     }
 
     pub fn create_atom_string(&self, str: &str) -> JSResult {
@@ -270,7 +273,7 @@ impl JSValue {
             JSValue::Float64(_) | JSValue::Object(_) | JSValue::String(_) | JSValue::Int(_) => {
                 match self.coerce_to_propkey(ctx)? {
                     Self::Symbol(s) => Ok(s.atom_info().unwrap().atom().clone()),
-                    Self::String(s) => ctx.rt_mut().register_atom_jsstring(s, AtomType::String),
+                    Self::String(s) => ctx.rt_mut().register_atom_jsstring(s, AtomTypeHint::String),
                     _ => unreachable!(),
                 }
             }
@@ -289,7 +292,7 @@ impl JSValue {
 }
 
 /// find atom by str
-pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomType) -> Option<JSAtom> {
+pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<JSAtom> {
     let hash = StringContent::calc_hash_for_str(str, atom_type);
 
     if let Some(ids) = rt.atom_hash_lut.get(&hash) {
@@ -299,7 +302,7 @@ pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomType) -> Option<J
             debug_assert!(!p.is_null());
 
             if unsafe {
-                (*p).atom_info().unwrap().hint() == atom_type && (*p).content().eq_str(str)
+                (*p).atom_info().unwrap().type_hint() == atom_type && (*p).content().eq_str(str)
             } {
                 let a = JSAtom(id);
 
@@ -400,7 +403,7 @@ pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> boo
         true
     } else {
         if let Some(p) = ctx.rt().get_atom_desc(atom) {
-            if let Some(AtomID::String(_)) = p.atom_info() {
+            if let Some(AtomHintAndId::String(_)) = p.atom_info() {
                 if let Ok(n) = p.content().parse_u32() {
                     if n != u32::MAX {
                         unsafe {
@@ -432,7 +435,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         return JSValue::UNDEFINED;
     }
 
-    if let AtomID::String(_) = p.atom_info().unwrap() {
+    if let AtomHintAndId::String(_) = p.atom_info().unwrap() {
         let len = p.len();
 
         // check for: -0, Infinity, -Infinity
@@ -581,8 +584,8 @@ pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
             print!(
                 "  {}: {{ {} {:08x} ",
                 i + JS_ATOM_INIT_COUNT as usize,
-                p.atom_info().unwrap().hint() as u8,
-                p.content().calc_hash(AtomType::String)
+                p.atom_info().unwrap().type_hint() as u8,
+                p.content().calc_hash(AtomTypeHint::String)
             );
             p.content().dump();
             // JS_DumpString(rt, p);

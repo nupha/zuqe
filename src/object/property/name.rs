@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_STRING,
-    atom::{JS_FreeAtom, JSAtom, JSAtomKindEnum},
+    atom::{AtomDescKind, JS_FreeAtom, JSAtom},
     context::JSContext,
     error::JSResult,
     iterator::JSIteratorKindEnum,
@@ -68,7 +68,7 @@ impl JSObject {
                         atom: prs.atom, // NOTE: atom is not duplicated here.
                         isa: if let Some(num_key) = prs.atom.to_array_index(ctx.rt()) {
                             PropertyEnumIsa::Index(num_key as u32)
-                        } else if kind == JSAtomKindEnum::JS_ATOM_KIND_STRING {
+                        } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
                             PropertyEnumIsa::String
                         } else {
                             PropertyEnumIsa::Symbol
@@ -143,7 +143,7 @@ impl JSObject {
                         {
                             let isa = if let Some(num_key) = atom.to_array_index(ctx.rt()) {
                                 PropertyEnumIsa::Index(num_key as u32)
-                            } else if kind == JSAtomKindEnum::JS_ATOM_KIND_STRING {
+                            } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                 PropertyEnumIsa::String
                             } else {
                                 PropertyEnumIsa::Symbol

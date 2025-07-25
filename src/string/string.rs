@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    atom::{__JS_AtomToUInt32, AtomID, JSAtom, consts::*},
+    atom::{__JS_AtomToUInt32, AtomHintAndId, JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
@@ -45,7 +45,7 @@ pub struct JSStringInner {
     hash_and_type: Cell<u32>,
 
     /// atom info of string, None if not registered as atom.
-    atom_type: Cell<Option<AtomID>>,
+    atom_type: Cell<Option<AtomHintAndId>>,
 
     /// string content
     content: StringContentRc,
@@ -109,13 +109,13 @@ impl JSStringInner {
     /// - An interned string atom (String)
     /// - A unique symbol (Symbol)
     #[inline(always)]
-    pub const fn atom_info(&self) -> Option<AtomID> {
+    pub const fn atom_info(&self) -> Option<AtomHintAndId> {
         self.atom_type.get()
     }
 
     /// Sets the atom type
     /// Used when converting a string to an atom or symbol.
-    pub fn set_atom_type(&self, t: AtomID) {
+    pub fn set_atom_type(&self, t: AtomHintAndId) {
         debug_assert!(self.atom_type.get().is_none());
         self.atom_type.set(Some(t));
     }
@@ -226,7 +226,7 @@ impl JSString {
         self.0.set_hash(h);
     }
 
-    pub fn set_atom_type(&self, t: AtomID) {
+    pub fn set_atom_type(&self, t: AtomHintAndId) {
         self.0.set_atom_type(t);
     }
 
@@ -237,7 +237,7 @@ impl JSString {
     /// - An interned string atom (String)
     /// - A unique symbol (Symbol)
     #[inline(always)]
-    pub fn atom_info(&self) -> Option<AtomID> {
+    pub fn atom_info(&self) -> Option<AtomHintAndId> {
         self.0.atom_info()
     }
 

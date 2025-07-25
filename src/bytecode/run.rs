@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom,
+        AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom,
         consts::{JS_ATOM_return, JS_ATOM_throw},
     },
     bytecode::{
@@ -1555,7 +1555,7 @@ impl Bytecode {
                     }
                     OpCode::PRIVATE_SYMBOL => {
                         let atom = JSAtom(PC_FETCH!(u32));
-                        if let Ok(val) = ctx.create_symbol_from_atom(atom, AtomType::Private) {
+                        if let Ok(val) = ctx.create_symbol_from_atom(atom, AtomTypeHint::Private) {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
@@ -1568,10 +1568,11 @@ impl Bytecode {
                         let val = op_2
                             .get_private_field(ctx, &op_1)
                             .unwrap_or(JSValue::EXCEPTION);
-                        SP_PUT!(-2, val.clone());
+                        SP_PUT!(-2, val);
                         SP_GO!(-1);
 
-                        if val.is_exception() {
+                        // because has done go(-1), so SP[-1] is orginal SP[-2]
+                        if SP_REF!(-1).is_exception() {
                             break State::Exception;
                         }
                     }

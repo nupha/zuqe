@@ -1,5 +1,5 @@
 use crate::{
-    atom::{AtomType, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{AtomTypeHint, JS_ATOM_NULL, JSAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
@@ -205,7 +205,7 @@ impl JSFunctionDef {
             if let Ok(atom) = self
                 .ctx
                 .rt_mut()
-                .register_atom_jsstring(ss.clone(), AtomType::String)
+                .register_atom_jsstring(ss.clone(), AtomTypeHint::String)
                 && !atom.is_int_type()
             {
                 self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);

@@ -1,5 +1,5 @@
 use crate::{
-    atom::{AtomID, AtomType, JSAtom},
+    atom::{AtomHintAndId, AtomTypeHint, JSAtom},
     context::JSContext,
     error::JSResult,
     string::JSString,
@@ -8,7 +8,7 @@ use crate::{
 use super::value::JSValue;
 
 impl JSContext {
-    pub fn create_symbol(&self, str: JSString, atom_type: AtomType) -> JSResult {
+    pub fn create_symbol(&self, str: JSString, atom_type: AtomTypeHint) -> JSResult {
         let rt = self.rt_mut();
         let a = rt.register_atom(Some(str), atom_type)?;
         let ss = rt.get_atom_desc(a).unwrap();
@@ -16,7 +16,7 @@ impl JSContext {
     }
 
     /// `atom` must be a non-numeric string atom
-    pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomType) -> JSResult {
+    pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomTypeHint) -> JSResult {
         debug_assert!(!atom.is_int_type());
         let s = self.rt().get_atom_desc(atom).unwrap().clone();
         self.create_symbol(s, atom_type)
@@ -43,7 +43,7 @@ pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
         .map(|p| {
             matches!(
                 p.atom_info().unwrap(),
-                AtomID::Symbol(_) | AtomID::GlobalSymbol(_)
+                AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_)
             ) && !(p.is_empty() && p.is_wide_char())
         })
         .unwrap()

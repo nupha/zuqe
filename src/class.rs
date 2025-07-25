@@ -1,7 +1,7 @@
 use crate::{
     array::convert_fast_array_to_array,
     atom::{
-        __JS_FindAtom, AtomType, JS_ATOM_NULL, JSAtom,
+        __JS_FindAtom, AtomTypeHint, JS_ATOM_NULL, JSAtom,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     context::JSContext,
@@ -187,10 +187,10 @@ impl JSRuntime {
 
     /// register a class def to runtime, with given class_id
     pub fn add_class(&mut self, class_id: JSClassID, class_def: &JSClassDef) -> Result<(), i32> {
-        let name = if let Some(a) = __JS_FindAtom(self, class_def.class_name, AtomType::String) {
+        let name = if let Some(a) = __JS_FindAtom(self, class_def.class_name, AtomTypeHint::String) {
             a
         } else {
-            self.register_atom_str(class_def.class_name, AtomType::String)?
+            self.register_atom_str(class_def.class_name, AtomTypeHint::String)?
         }
         .into_rc(self);
         unsafe { self.add_class_internal(class_id, class_def, *name) }
