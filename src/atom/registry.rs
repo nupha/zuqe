@@ -37,13 +37,14 @@ impl JSRuntime {
         }
     }
 
-    /// register an atom from JSString. the JSString is consumed.
+    /// register an atom using JSString.
+    /// returned atom has ownership, caller should free it after use.
     pub(crate) fn register_atom(
         &mut self,
         mut desc: Option<JSString>,
         type_hint: AtomType,
     ) -> Result<JSAtom, i32> {
-        debug_assert!(type_hint != AtomType::None);
+        debug_assert_ne!(type_hint, AtomType::None);
 
         // match str aginst existing atoms, don't register twice for same content.
         let (atom_desc, hash) = match type_hint {
@@ -75,12 +76,15 @@ impl JSRuntime {
                                 if at.hint() == type_hint
                                     && unsafe { (*aptr).content() } == ss.content()
                                 {
+                                    // found existing atom, clone and reuse it.
                                     let a = at.atom();
                                     if !a.is_const() {
                                         unsafe {
                                             let d = Rc::from_raw(aptr);
-                                            let _ = d.clone();
+                                            let s = d.clone();
                                             let _ = Rc::into_raw(d);
+                                            let _ = Rc::into_raw(s);
+                                            // now strong ref count increased by 1.
                                         }
                                     }
                                     return Ok(a);
@@ -176,6 +180,7 @@ impl JSRuntime {
     }
 
     /// convering a JSString into atom.
+    /// Note: caller should free the result atom.
     pub fn register_atom_jsstring(
         &mut self,
         str: JSString,
@@ -216,7 +221,6 @@ impl JSRuntime {
 
     /// get atom description for atom.
     /// returns None if atom does not exist.
-    #[inline]
     pub fn get_atom_desc(&self, atom: JSAtom) -> Option<JSString> {
         debug_assert!(atom.0 != 0);
 
@@ -225,6 +229,7 @@ impl JSRuntime {
             .get(atom.0 as usize)
             .and_then(|p| unsafe { p.as_ref() })
         {
+            // increament strong ref count and leak.
             let d = unsafe { Rc::from_raw(s) };
             let s = JSString(d.clone());
             let _ = Rc::into_raw(d);
