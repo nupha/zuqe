@@ -47,7 +47,7 @@ impl JSRuntime {
         debug_assert_ne!(type_hint, AtomType::None);
 
         // match str aginst existing atoms, don't register twice for same content.
-        let (atom_desc, hash) = match type_hint {
+        let atom_desc = match type_hint {
             AtomType::String | AtomType::GlobalSymbol => {
                 let ss = desc.take().unwrap();
 
@@ -94,7 +94,8 @@ impl JSRuntime {
                     }
                 }
 
-                (ss, hash)
+                ss.set_hash(hash);
+                ss
             }
             AtomType::Symbol | AtomType::Private => {
                 // these atom types are unique, even for same string content.
@@ -110,7 +111,8 @@ impl JSRuntime {
                 };
 
                 let hash = ss.content().calc_hash(type_hint);
-                (ss, hash)
+                ss.set_hash(hash);
+                ss
             }
             AtomType::None => {
                 unreachable!()
@@ -122,12 +124,10 @@ impl JSRuntime {
         //
 
         if self.atom_hash_lut.len() == self.atom_hash_lut.capacity() {
-            if self.atom_hash_lut.try_reserve(16).is_err() {
-                return Err(-1);
-            }
+            self.atom_hash_lut.try_reserve(16).map_err(|_| -1)?;
         }
 
-        // find a free slot
+        // find free atom slot
         let (idx, aid) = if let Some(idx) = self
             .atom_slots
             .iter()
@@ -144,7 +144,7 @@ impl JSRuntime {
             (None, NonZeroU16::new(self.atom_slots.len() as u16).unwrap())
         };
 
-        let at = match type_hint {
+        atom_desc.set_atom_type(match type_hint {
             AtomType::String => AtomID::String(aid),
             AtomType::GlobalSymbol => AtomID::GlobalSymbol(aid),
             AtomType::Symbol => AtomID::Symbol(aid),
@@ -152,12 +152,9 @@ impl JSRuntime {
             AtomType::None => {
                 unreachable!()
             }
-        };
+        });
 
-        atom_desc.set_hash(hash);
-        atom_desc.set_atom_type(at);
-
-        match self.atom_hash_lut.entry(hash) {
+        match self.atom_hash_lut.entry(atom_desc.hash()) {
             Entry::Vacant(kv) => {
                 kv.insert(vec![aid]);
             }
@@ -176,7 +173,7 @@ impl JSRuntime {
             debug_assert_eq!(self.atom_slots.len() - 1, u16::from(aid) as usize);
         }
 
-        Ok(at.atom())
+        Ok(JSAtom(aid.get() as u32))
     }
 
     /// convering a JSString into atom.
