@@ -1,15 +1,15 @@
-use super::ModuleDef;
-use crate::eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE};
-use crate::promise::Promise;
 use crate::{
     context::JSContext,
     error::JSResult,
+    eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::{AsyncFunction, CallContext, JS_Call},
     module::{JSModuleStatus, ModuleDefInner, js_create_module_function},
-    promise::js_promise_then,
+    promise::{Promise, js_promise_then},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
+
+use super::ModuleDef;
 
 impl ModuleDefInner {
     /// set module status to `evaluated`
@@ -457,7 +457,7 @@ impl ModuleDef {
             unreachable!()
         };
 
-        let mut err_val = args.get_raw(0);
+        let err_val = args.get_raw(0);
 
         if module.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
             debug_assert!(module.0.eval_has_exception.get());
@@ -510,14 +510,14 @@ impl ModuleDef {
     /// execute module in sync mode. returns error value on failure.
     pub fn execute_sync(&self, ctx: &JSContext) -> Result<(), JSValue> {
         if let Some(f) = self.0.init_func {
-            // has native module init fn: no asynchronous execution
+            // is native module: no asynchronous execution
             if f(ctx, self) < 0 {
                 return Err(ctx.take_exception());
             }
         } else {
             // is bytecode function
             let func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
-            let ret = JS_Call(ctx, &func, &JSValue::UNDEFINED, &[])
+            JS_Call(ctx, &func, &JSValue::UNDEFINED, &[])
                 .check_exception()
                 .map_err(|_| ctx.take_exception())?;
 

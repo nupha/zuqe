@@ -80,44 +80,6 @@ impl ModuleDefInner {
             }
         }
 
-        //
-        // let entries_count = self.0.borrow().req_module_entries_count;
-        // for i in 0..entries_count {
-        //     // let rme: *mut ModuleDependency = self.0.borrow().dependencies.add(i as usize);
-        //     // let m1 = (*rme).module.as_ref().unwrap();
-        //     let m1 = self
-        //         .0
-        //         .borrow()
-        //         .dependencies
-        //         .add(i as usize)
-        //         .as_ref()
-        //         .unwrap()
-        //         .module
-        //         .clone()
-        //         .unwrap();
-        //
-        //     index = m1.inner_module_linking(ctx, pstack_top, index);
-        //     if index < 0 {
-        //         return -1;
-        //     }
-        //
-        //     let inner1 = m1.0.borrow();
-        //
-        //     debug_assert!(matches!(
-        //         inner1.status,
-        //         JSModuleStatus::JS_MODULE_STATUS_LINKING
-        //             | JSModuleStatus::JS_MODULE_STATUS_LINKED
-        //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-        //             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-        //     ));
-        //
-        //     if inner1.status == JSModuleStatus::JS_MODULE_STATUS_LINKING {
-        //         let mut inner = self.0.borrow_mut();
-        //         inner.dfs_ancestor_index =
-        //             std::cmp::min(inner.dfs_ancestor_index, m1.0.borrow().dfs_ancestor_index);
-        //     }
-        // }
-
         #[cfg(DUMP_MODULE_RESOLVE)]
         {
             let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
@@ -258,114 +220,6 @@ impl ModuleDefInner {
                     }
                 }
 
-                ////
-                // let entries_count = self.0.borrow().import_entries_count;
-                // for i in 0..entries_count {
-                //     let (m1, import_name, import_var_idx) = {
-                //         let br = self.0.borrow();
-                //         let entry = br.import_entries.add(i as usize);
-                //         (
-                //             (*br.dependencies.add((*entry).req_module_idx as usize))
-                //                 .module
-                //                 .clone()
-                //                 .unwrap(),
-                //             (*entry).import_name,
-                //             (*entry).var_idx,
-                //         )
-                //     };
-                //
-                //     #[cfg(DUMP_MODULE_RESOLVE)]
-                //     {
-                //         print!("import var_idx={} name=", import_var_idx);
-                //         print_atom(ctx, import_name);
-                //         print!(": ");
-                //     }
-                //
-                //     if import_name == JS_ATOM__star_ {
-                //         // name space import
-                //         if let Ok(val) = m1.ns(ctx) {
-                //             var_refs[import_var_idx as usize].set_value(val);
-                //
-                //             #[cfg(DUMP_MODULE_RESOLVE)]
-                //             {
-                //                 println!("namespace");
-                //             }
-                //         } else {
-                //             return -1;
-                //         }
-                //     } else {
-                //         match m1.resolve_export(ctx, import_name, None) {
-                //             ModuleResolveExport::Found { module, entry } => {
-                //                 match entry.export_type {
-                //                     JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                //                         if entry.local_name == JS_ATOM__star_ {
-                //                             // name space import from
-                //                             let m2 = (*module
-                //                                 .0
-                //                                 .borrow()
-                //                                 .dependencies
-                //                                 .add(req_module_idx as usize))
-                //                             .module
-                //                             .clone()
-                //                             .unwrap();
-                //
-                //                             let val = if let Ok(o) = m2.ns(ctx) {
-                //                                 o
-                //                             } else {
-                //                                 return -1;
-                //                             };
-                //
-                //                             if let Ok(vref) = js_create_module_var(ctx, true) {
-                //                                 vref.set_value(val);
-                //                                 var_refs[import_var_idx as usize] = vref;
-                //
-                //                                 #[cfg(DUMP_MODULE_RESOLVE)]
-                //                                 {
-                //                                     println!("namespace from");
-                //                                 }
-                //                             } else {
-                //                                 return -1;
-                //                             }
-                //                         }
-                //                     }
-                //                     JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                //                         debug_assert_ne!(entry.local_name, JS_ATOM__star_);
-                //                         debug_assert_ne!(var_idx, u16::MAX);
-                //
-                //                         var_refs[import_var_idx as usize] = if let Some(v) = var_ref
-                //                         {
-                //                             v
-                //                         } else {
-                //                             module
-                //                                 .0
-                //                                 .borrow()
-                //                                 .bytecode
-                //                                 .object_unchecked()
-                //                                 .0
-                //                                 .payload
-                //                                 .borrow()
-                //                                 .func()
-                //                                 .unwrap()
-                //                                 .var_refs
-                //                                 [var_idx as usize]
-                //                                 .clone()
-                //                         };
-                //
-                //                         #[cfg(DUMP_MODULE_RESOLVE)]
-                //                         {
-                //                             println!("local export (var_ref={:?})", var_ref);
-                //                         }
-                //                     }
-                //                 }
-                //             }
-                //             ret => {
-                //                 ret.throw_error(ctx, &m1, import_name);
-                //                 return -1;
-                //             }
-                //         }
-                //     }
-                // }
-
                 // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
                 {
                     for me in self.export_entries.borrow_mut().iter_mut() {
@@ -383,7 +237,7 @@ impl ModuleDefInner {
             }
 
             // initialize the global variables
-            let ret_val = JS_Call(ctx, &JSValue::Object(func_obj), &JSValue::Bool(true), &[])
+            JS_Call(ctx, &JSValue::Object(func_obj), &JSValue::Bool(true), &[])
                 .check_exception()?;
         }
 

@@ -12,11 +12,7 @@ use crate::{
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
     function::{JSFunctionDef, JSVarKindEnum, JSVarRef, ObjFunc},
-    mem::js_free_rt,
-    module::{
-        JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, JSStarExportEntry,
-        ModuleDependency,
-    },
+    module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
     promise::Promise,
     runtime::JSRuntime,
