@@ -8,7 +8,7 @@ use std::{
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     array_buffer::JSFreeArrayBufferDataFunc,
-    atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct},
+    atom::{AtomID, AtomType, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomKindEnum, JSAtomStruct},
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID},
     context::JSContext,
@@ -3496,4 +3496,41 @@ pub unsafe fn emit_class_init_end(s: *mut JSParseState, cf: *const ClassFieldsDe
 #[deprecated(note = "use JSParseState::parse_statement_or_decl() instead")]
 pub unsafe fn js_parse_statement_or_decl(s: &mut JSParseState, decl_mask: i32) -> i32 {
     unreachable!("unused");
+}
+
+#[deprecated(note = "use JSAtom::is_const() instead")]
+pub fn __JS_AtomIsConst(v: JSAtom) -> bool {
+    v.is_const()
+}
+
+#[deprecated(note = "use JSAtom::is_int_type() instead")]
+pub fn __JS_AtomIsTaggedInt(v: JSAtom) -> bool {
+    v.is_int_type()
+}
+
+#[deprecated(note = "use JSAtom::from_u32() instead")]
+pub fn __JS_AtomFromUInt32(n: u32) -> JSAtom {
+    JSAtom::new_u32(n)
+}
+
+#[deprecated(note = "use JSAtom::dup() instead")]
+pub unsafe fn JS_DupAtomRT(rt: *mut JSRuntime, v: JSAtom) -> JSAtom {
+    v.dup(rt.as_ref().unwrap())
+}
+
+#[deprecated(note = "use JSAtom::dup() instead")]
+#[inline(always)]
+pub unsafe fn JS_DupAtom(ctx: &JSContext, v: JSAtom) -> JSAtom {
+    v.dup(ctx.rt())
+}
+
+#[deprecated(note = "use JSAtom::kind() instead")]
+pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> JSAtomKindEnum {
+    v.kind(ctx.rt())
+}
+
+/// debug helper: print atom, don't use in production code
+#[deprecated(note = "use JSAtom::to_str() instead")]
+pub unsafe fn print_atom(rt: &JSRuntime, atom: JSAtom) {
+    print!("{}", atom.to_str(rt));
 }

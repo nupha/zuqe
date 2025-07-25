@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JSAtomStruct, consts::*};
+use super::consts::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(u8)]
@@ -206,77 +206,11 @@ pub const JS_ATOM_TAG_INT: u32 = 1 << 31;
 pub const JS_ATOM_MAX_INT: u32 = JS_ATOM_TAG_INT - 1;
 pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
 
-#[inline(always)]
-fn JS_ATOM_COUNT_RESIZE(n: i32) -> i32 {
-    n * 2
-}
-
-#[inline(always)]
-fn atom_get_free(p: *const JSAtomStruct) -> usize {
-    p as usize >> 1
-}
-
-#[inline(always)]
-pub fn atom_set_free(v: usize) -> *mut JSAtomStruct {
-    ((v << 1) | 1) as *mut JSAtomStruct
-}
-
-pub fn atom_is_free(p: *const JSAtomStruct) -> bool {
-    (p as usize & 1) != 0
-}
-
-#[deprecated(note = "use JSAtom::is_const() instead")]
-#[inline(always)]
-pub fn __JS_AtomIsConst(v: JSAtom) -> bool {
-    // NOTE: for u32 atoms, `v as i32` should be minus.
-
-    #[cfg(feature = "dump_leaks")]
-    {
-        v.0 as i32 <= 0
-    }
-    #[cfg(not(feature = "dump_leaks"))]
-    {
-        (v.0 as i32) < JS_ATOM_INIT_COUNT as i32
-    }
-}
-
-#[deprecated(note = "use JSAtom::is_int_type() instead")]
-pub fn __JS_AtomIsTaggedInt(v: JSAtom) -> bool {
-    v.is_int_type()
-}
-
-#[deprecated(note = "use JSAtom::from_u32() instead")]
-pub fn __JS_AtomFromUInt32(n: u32) -> JSAtom {
-    JSAtom::new_u32(n)
-}
+pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 #[inline(always)]
 pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
     atom.0 & !JS_ATOM_TAG_INT
-}
-
-#[deprecated(note = "use JSAtom::dup() instead")]
-pub unsafe fn JS_DupAtomRT(rt: *mut JSRuntime, v: JSAtom) -> JSAtom {
-    v.dup(rt.as_ref().unwrap())
-}
-
-#[deprecated(note = "use JSAtom::dup() instead")]
-#[inline(always)]
-pub unsafe fn JS_DupAtom(ctx: &JSContext, v: JSAtom) -> JSAtom {
-    v.dup(ctx.rt())
-}
-
-#[deprecated(note = "use JSAtom::kind() instead")]
-pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> JSAtomKindEnum {
-    v.kind(ctx.rt())
-}
-
-pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
-
-/// debug helper: print atom, don't use in production code
-#[deprecated(note = "use JSAtom::to_str() instead")]
-pub unsafe fn print_atom(rt: &JSRuntime, atom: JSAtom) {
-    print!("{}", atom.to_str(rt));
 }
 
 impl JSContext {
