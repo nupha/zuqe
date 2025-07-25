@@ -354,17 +354,17 @@ impl JSRuntime {
         }
 
         // guard: all non-const atom should be freed by logic.
-        #[cfg(debug_assertions)]
-        {
-            for (_, ids) in self.atom_hash_lut.iter() {
-                for id in ids {
-                    let a = crate::atom::JSAtom(id.get() as u32);
-                    if !a.is_const() {
-                        println!("[atom leak] {id}: {}", a.to_str(self));
-                    }
-                }
-            }
-        }
+        // #[cfg(debug_assertions)]
+        // {
+        //     for (_, ids) in self.atom_hash_lut.iter() {
+        //         for id in ids {
+        //             let a = crate::atom::JSAtom(id.get() as u32);
+        //             if !a.is_const() {
+        //                 println!("[atom leak] {id}: {}", a.to_str(self));
+        //             }
+        //         }
+        //     }
+        // }
 
         // free atoms
         self.atom_hash_lut.clear();

@@ -1183,15 +1183,22 @@ impl Bytecode {
                             SP_GO!(1);
                         }
                     }
-                    OpCode::PUT_LOC_CHECK | OpCode::PUT_LOC_CHECK_INIT => {
+                    OpCode::PUT_LOC_CHECK => {
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if pval.is_uninitialized() {
-                            if opcode == OpCode::PUT_LOC_CHECK {
-                                JS_ThrowReferenceErrorUninitialized2(ctx, self, idx, false);
-                            } else {
-                                JS_ThrowReferenceError(ctx, "'this' can be initialized only once");
-                            }
+                            JS_ThrowReferenceErrorUninitialized2(ctx, self, idx, false);
+                            break State::Exception;
+                        } else {
+                            *pval = SP_TAKE!(-1);
+                            SP_GO!(-1);
+                        }
+                    }
+                    OpCode::PUT_LOC_CHECK_INIT => {
+                        let idx = PC_FETCH!(u16);
+                        let pval = VAR_REF![idx];
+                        if !pval.is_uninitialized() {
+                            JS_ThrowReferenceError(ctx, "'this' can be initialized only once");
                             break State::Exception;
                         } else {
                             *pval = SP_TAKE!(-1);
