@@ -9,7 +9,7 @@ impl JSParseState<'_> {
     /// given an `exc_obj` object, build traceback and throw it as current exception.
     /// old exception will be freed.
     pub fn throw(&self, exc_obj: JSValue) {
-        let backtrace_flags = if !self.cur_func_ptr.is_null() && self.cur_func().backtrace_barrier {
+        let backtrace_flags = if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
             JS_BACKTRACE_FLAG_SINGLE_LEVEL
         } else {
             0
@@ -27,7 +27,7 @@ impl JSParseState<'_> {
     pub fn throw_syntax_error(&self, message: &str) {
         self.ctx.throw_error_ex(ErrorKind::Syntax, message, false);
 
-        let backtrace_flags = if !self.cur_func_ptr.is_null() && self.cur_func().backtrace_barrier {
+        let backtrace_flags = if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
             JS_BACKTRACE_FLAG_SINGLE_LEVEL
         } else {
             0

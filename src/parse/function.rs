@@ -53,7 +53,7 @@ impl<'s> JSParseState<'s> {
         is_expr: bool,
     ) -> Result<Box<JSFunctionDef>, i32> {
         // save original cur_func
-        let fd0 = self.cur_func_ptr;
+        let fd0 = self.cur_func_def;
 
         let mut sub_fd = JSFunctionDef::new(
             &self.ctx,
@@ -117,7 +117,7 @@ impl<'s> JSParseState<'s> {
 
         // make sub_fd to be the cur_func
         let fd1 = sub_fd.deref_mut();
-        self.cur_func_ptr = fd1;
+        self.cur_func_def = fd1;
 
         macro_rules! fail {
             () => {
@@ -460,7 +460,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 // function declareation done, returns new fd.
-                self.cur_func_ptr = fd0; // restore cur_func to previoud fd
+                self.cur_func_def = fd0; // restore cur_func to previoud fd
                 return Ok(sub_fd);
             }
         }
@@ -514,7 +514,7 @@ impl<'s> JSParseState<'s> {
             fd1.emit_return(false, self.last_line_num);
         }
 
-        self.cur_func_ptr = fd0; // restore cur_func to previoud fd
+        self.cur_func_def = fd0; // restore cur_func to previoud fd
         Ok(sub_fd)
     }
 
@@ -540,7 +540,7 @@ impl<'s> JSParseState<'s> {
         );
 
         // save original cur_func
-        let fd0 = unsafe { self.cur_func_ptr.as_mut().unwrap() };
+        let fd0 = unsafe { self.cur_func_def.as_mut().unwrap() };
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
@@ -659,7 +659,7 @@ impl<'s> JSParseState<'s> {
                 /* Always create a lexical name, fail if at the same scope as existing name */
                 /* Lexical variable will be initialized upon entering scope */
                 // now fd0 is still the cur_func
-                debug_assert_eq!(fd0 as *mut JSFunctionDef, self.cur_func_ptr);
+                debug_assert_eq!(fd0 as *mut JSFunctionDef, self.cur_func_def);
                 lexical_func_idx = if let Ok(i) = self.define_var_cur_func(
                     func_name,
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {

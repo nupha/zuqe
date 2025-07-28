@@ -34,30 +34,31 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
     pub ctx: JSContext,
-    /// Line number of the previously processed token
-    pub last_line_num: i32,
-    /// Current line number being processed
-    pub line_num: i32,
+
     /// Source file name being parsed
     pub filename: &'s str,
-    /// Current token being processed
-    pub token: Token,
-    /// Indicates if a line feed was encountered before current token
-    pub got_lf: bool,
+    /// input bytes
+    pub(super) input: &'s [u8],
 
-    /// input buffer
-    pub buf: &'s [u8],
     /// Current position in the input buffer
-    pub buf_ptr: *const u8,
+    pub(super) buf_ptr: *const u8,
     /// End of the input buffer
-    pub buf_end: *const u8,
-
+    pub(super) buf_end: *const u8,
     /// Pointer to the last processed character
-    pub last_ptr: *const u8,
+    pub(super) last_ptr: *const u8,
 
-    /// Raw pointer to current parsing function def.
+    /// Current token being processed
+    pub(super) token: Token,
+    /// Indicates if a line feed was encountered before current token
+    pub(super) got_lf: bool,
+    /// Line number of the previously processed token
+    pub(super) last_line_num: i32,
+    /// Current line number being processed
+    pub(super) line_num: i32,
+
+    /// A raw pointer to current parsing function def.
     /// null if no current function def.
-    pub cur_func_ptr: *mut JSFunctionDef,
+    pub(super) cur_func_def: *mut JSFunctionDef,
 
     /// Indicates if parsing a JavaScript module
     pub is_module: bool,
@@ -94,7 +95,7 @@ impl<'s> JSParseState<'s> {
         Self {
             ctx: ctx.clone(),
 
-            buf: source,
+            input: source,
             buf_ptr: source.as_ptr(),
             buf_end: unsafe { source.as_ptr().add(source.len()) },
 
@@ -109,7 +110,7 @@ impl<'s> JSParseState<'s> {
             },
 
             last_ptr: std::ptr::null(),
-            cur_func_ptr: fd.as_ptr(),
+            cur_func_def: fd.as_ptr(),
             is_module: false,
             allow_html_comments: false,
             ext_json: false,
@@ -138,14 +139,14 @@ impl<'s> JSParseState<'s> {
     /// Will panic if cur_func is null.
     #[inline(always)]
     pub const fn cur_func(&self) -> &JSFunctionDef {
-        unsafe { self.cur_func_ptr.as_ref().unwrap() }
+        unsafe { self.cur_func_def.as_ref().unwrap() }
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
     pub const fn cur_func_mut(&self) -> &mut JSFunctionDef {
-        unsafe { self.cur_func_ptr.as_mut().unwrap() }
+        unsafe { self.cur_func_def.as_mut().unwrap() }
     }
 
     /// Run closure with cur_func mut ref.
@@ -155,7 +156,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         f: impl FnOnce(&mut JSParseState, &mut JSFunctionDef) -> R,
     ) -> Option<R> {
-        unsafe { self.cur_func_ptr.as_mut().map(|fd| f(self, fd)) }
+        unsafe { self.cur_func_def.as_mut().map(|fd| f(self, fd)) }
     }
 
     /// Perform push scope on current function def. For detail, see JSFunctionDef::push_scope()
@@ -165,8 +166,8 @@ impl<'s> JSParseState<'s> {
     /// * `Ok(scope_id)` - ID of the newly created scope
     /// * `Err(-1)` - If scope creation fails
     pub fn push_scope(&mut self) -> Result<u16, i32> {
-        if !self.cur_func_ptr.is_null() {
-            unsafe { (*self.cur_func_ptr).push_scope(self.last_line_num) }
+        if !self.cur_func_def.is_null() {
+            unsafe { (*self.cur_func_def).push_scope(self.last_line_num) }
         } else {
             #[cfg(debug_assertions)]
             unreachable!("empty current function def");
@@ -177,10 +178,10 @@ impl<'s> JSParseState<'s> {
 
     /// Perform pop scope on current function def. For detail, see JSFunctionDef::pop_scope()
     pub fn pop_scope(&mut self) {
-        if !self.cur_func_ptr.is_null() {
+        if !self.cur_func_def.is_null() {
             let last_line_num = self.last_line_num;
             unsafe {
-                (*self.cur_func_ptr).pop_scope(last_line_num);
+                (*self.cur_func_def).pop_scope(last_line_num);
             }
         } else {
             #[cfg(debug_assertions)]
@@ -190,9 +191,9 @@ impl<'s> JSParseState<'s> {
 
     /// Perform close scopes on current function def. For detail, see JSFunctionDef::close_scopes()
     pub fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
-        if !self.cur_func_ptr.is_null() {
+        if !self.cur_func_def.is_null() {
             unsafe {
-                (*self.cur_func_ptr).close_scopes(scope as _, scope_stop as _, self.last_line_num);
+                (*self.cur_func_def).close_scopes(scope as _, scope_stop as _, self.last_line_num);
             }
         } else {
             #[cfg(debug_assertions)]

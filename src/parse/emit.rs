@@ -545,7 +545,7 @@ impl<'s> JSParseState<'s> {
 
         clsdef.fields_init_fd =
             Box::into_raw(unsafe { js_parse_function_class_fields_init(self)? });
-        self.cur_func_ptr = clsdef.fields_init_fd;
+        self.cur_func_def = clsdef.fields_init_fd;
 
         if !clsdef.is_static {
             // add the brand to the newly created instance
@@ -567,15 +567,15 @@ impl<'s> JSParseState<'s> {
             self.emit_op(OpCode::ADD_BRAND);
             self.emit_label(label_add_brand);
         }
-        self.cur_func_ptr = self.cur_func().parent;
+        self.cur_func_def = self.cur_func().parent;
 
         Ok(())
     }
 
     pub(super) fn emit_class_init_end(&mut self, clsdef: &ClassFieldsDef) {
-        self.cur_func_ptr = clsdef.fields_init_fd;
+        self.cur_func_def = clsdef.fields_init_fd;
         self.emit_op(OpCode::RETURN_UNDEF);
-        self.cur_func_ptr = self.cur_func().parent;
+        self.cur_func_def = self.cur_func().parent;
 
         let cpool_idx = self
             .cur_func_mut()

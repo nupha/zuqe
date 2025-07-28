@@ -64,7 +64,7 @@ impl<'s> JSParseState<'s> {
             self.emit_class_init_start(cfields)?;
         }
 
-        self.cur_func_ptr = cfields.fields_init_fd;
+        self.cur_func_def = cfields.fields_init_fd;
 
         // XXX: could try to avoid creating a new function and
         // reuse 'fields_init_fd' with a specific 'var' scope
@@ -93,7 +93,7 @@ impl<'s> JSParseState<'s> {
         self.emit_op(OpCode::DROP);
         // stack is now: <empty>
         self.pop_scope();
-        self.cur_func_ptr = self.cur_func().parent;
+        self.cur_func_def = self.cur_func().parent;
 
         Ok(())
     }
@@ -109,7 +109,7 @@ impl<'s> JSParseState<'s> {
     ) -> Result<(), i32> {
         if is_private {
             let ctx = self.ctx.clone();
-            let fd = self.cur_func_ptr;
+            let fd = self.cur_func_def;
 
             let idx = find_private_class_field(&ctx, fd, name, (*fd).scope_level);
             if idx >= 0 {
@@ -351,7 +351,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     if is_private {
-                        let fd = self.cur_func_ptr;
+                        let fd = self.cur_func_def;
                         if unsafe {
                             find_private_class_field(&self.ctx, fd, *name, (*fd).scope_level) >= 0
                         } {
@@ -410,7 +410,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
 
-                    self.cur_func_ptr = cf.fields_init_fd;
+                    self.cur_func_def = cf.fields_init_fd;
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
                     self.emit_atom_dup(JS_ATOM_this);
                     self.emit_u16(0);
@@ -449,7 +449,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::DEFINE_FIELD);
                         self.emit_atom_dup(*name);
                     }
-                    self.cur_func_ptr = self.cur_func().parent;
+                    self.cur_func_def = self.cur_func().parent;
                     self.parse_expect_semi()?;
                 }
 
@@ -496,7 +496,7 @@ impl<'s> JSParseState<'s> {
                         unsafe {
                             (*method_fd).need_home_object = true; // needed for brand check
                         }
-                        let fd = self.cur_func_ptr;
+                        let fd = self.cur_func_def;
                         if unsafe {
                             find_private_class_field(&self.ctx, fd, *name, (*fd).scope_level)
                         } >= 0
@@ -607,7 +607,7 @@ impl<'s> JSParseState<'s> {
             m
         };
         // Note: restore original mode on exit
-        let _cur_func_ptr = self.cur_func_ptr;
+        let _cur_func_ptr = self.cur_func_def;
         defer!(unsafe {
             _cur_func_ptr.as_mut().unwrap().js_mode = orig_mode;
         });

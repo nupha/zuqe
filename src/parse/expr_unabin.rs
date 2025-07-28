@@ -303,7 +303,7 @@ impl<'s> JSParseState<'s> {
     }
 
     pub fn parse_delete(&mut self) -> Result<(), i32> {
-        let fd0 = self.cur_func_ptr;
+        let fd0 = self.cur_func_def;
 
         self.next_token()?;
         self.parse_unary(PF_POW_FORBIDDEN)?;

@@ -1963,11 +1963,12 @@ pub fn peek_token(s: *const JSParseState, no_line_terminator: bool) -> i32 {
 /// always returns -1
 #[deprecated(note = "use JSParseState::throw_reserved_identifier_error() instead")]
 pub unsafe fn js_parse_error_reserved_identifier(s: *mut JSParseState) -> i32 {
-    (*s).throw_syntax_error(&format!(
-        "'{}' is a reserved identifier",
-        (*s).token.atom().unwrap().to_str(&(*s).ctx.rt()),
-    ));
-    -1
+    unreachable!("unused");
+    // (*s).throw_syntax_error(&format!(
+    //     "'{}' is a reserved identifier",
+    //     (*s).token.atom().unwrap().to_str(&(*s).ctx.rt()),
+    // ));
+    // -1
 }
 
 #[deprecated(note = "use JSParseState::parse_delete() instead")]
@@ -3423,7 +3424,8 @@ unsafe fn emit_op_u8(s: *mut JSParseState, op: u8) {
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op(s: *mut JSParseState, op: OpCode) {
-    (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_op(op, (*s).last_line_num)
 }
 
 /* don't update the last opcode and don't emit line number info */
@@ -3461,18 +3463,21 @@ super() can be called in an arrow function, so <this> and
 <class_fields_init> can be variable references */
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_class_field_init(s: *mut JSParseState) {
-    (*s).cur_func_mut()
-        .emit_class_field_init((*s).last_line_num)
+    unreachable!("unused");
+    // (*s).cur_func_mut()
+    //     .emit_class_field_init((*s).last_line_num)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_op_temp(s: *mut JSParseState, op: OpCodeTemp) {
-    (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_op_temp(op, (*s).last_line_num)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
-    (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_return(hasval, (*s).last_line_num)
 }
 
 #[deprecated(note = "use JSParseState::emit_break() instead")]

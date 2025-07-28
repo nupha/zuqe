@@ -58,7 +58,7 @@ impl<'s> JSParseState<'s> {
                     }
                     '\u{0}'..'\u{20}' => {
                         // ASCII control characters
-                        if self.cur_func_ptr.is_null() {
+                        if self.cur_func_def.is_null() {
                             if do_throw {
                                 self.throw_syntax_error("invalid character in a JSON string");
                             }
@@ -111,7 +111,7 @@ impl<'s> JSParseState<'s> {
                                 continue;
                             }
                             c1 @ ('0'..='9') => {
-                                if self.cur_func_ptr.is_null() {
+                                if self.cur_func_def.is_null() {
                                     if do_throw {
                                         self.throw_syntax_error(
                                             "malformed escape sequence in string literal",
