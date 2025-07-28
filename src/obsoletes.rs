@@ -3545,3 +3545,28 @@ pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> AtomDescKind {
 pub unsafe fn print_atom(rt: &JSRuntime, atom: JSAtom) {
     print!("{}", atom.to_str(rt));
 }
+
+#[deprecated(note = "use JSFunctionDef::new() instead")]
+pub unsafe fn js_new_function_def(
+    ctx: &JSContext,
+    parent: *mut JSFunctionDef,
+    is_eval: bool,
+    is_func_expr: bool,
+    filename: &str,
+    line_num: i32,
+) -> *mut JSFunctionDef {
+    unreachable!("use JSFunctionDef::new() instead");
+
+    // if let Ok(d) = JSFunctionDef::new(ctx, parent, is_eval, is_func_expr, filename, line_num) {
+    //     debug_assert_eq!(d.scope_first, -1);
+    //     Box::into_raw(d)
+    // } else {
+    //     std::ptr::null_mut()
+    // }
+}
+
+/// update label ref count by delta. returns new ref count.
+#[deprecated(note = "use JSFunctionDef::update_label_ref_count() instead")]
+pub unsafe fn update_label(fd: *mut JSFunctionDef, label: u32, delta: i32) -> i32 {
+    (*fd).update_label_ref_count(label, delta)
+}

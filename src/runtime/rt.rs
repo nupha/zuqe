@@ -327,14 +327,16 @@ impl JSRuntime {
             });
 
             for (_, mut sh_lst) in self.shape_registry.drain() {
+                #[cfg(debug_assertions)]
                 sh_lst.retain(|w| {
                     if let Some(s) = w.upgrade() {
+                        println!("[O.o] shape is still alive: {s:?}");
                         true
                     } else {
                         false
                     }
                 });
-                debug_assert!(sh_lst.is_empty());
+                debug_assert!(sh_lst.is_empty(), "{sh_lst:?}");
             }
 
             debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
