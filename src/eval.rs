@@ -65,19 +65,11 @@ impl JSContext {
         let (cur_frame_bc, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
             let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
             debug_assert!(!sf_ptr.is_null());
-            debug_assert!(unsafe { (*sf_ptr).cur_running.is_object() });
+            debug_assert!(unsafe { (*sf_ptr).cur_func.is_object() });
 
             sframe = unsafe { sf_ptr.as_mut() };
-            cur_frame_func = unsafe {
-                Some(
-                    sframe
-                        .as_ref()
-                        .unwrap()
-                        .cur_running
-                        .object_unchecked()
-                        .clone(),
-                )
-            };
+            cur_frame_func =
+                unsafe { Some(sframe.as_ref().unwrap().cur_func.object_unchecked().clone()) };
 
             let bc = cur_frame_func
                 .as_ref()
@@ -223,11 +215,11 @@ impl JSContext {
                 let sframe = unsafe {
                     let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
                     debug_assert!(!sf_ptr.is_null());
-                    debug_assert!((*sf_ptr).cur_running.is_object());
+                    debug_assert!((*sf_ptr).cur_func.is_object());
                     sf_ptr.as_mut().unwrap()
                 };
                 // current function of stack frame
-                let frame_func = unsafe { sframe.cur_running.object_unchecked().clone() };
+                let frame_func = unsafe { sframe.cur_func.object_unchecked().clone() };
                 let payload = frame_func.0.payload.borrow();
                 let var_refs = payload.func().unwrap().var_refs.as_slice();
 

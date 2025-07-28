@@ -257,9 +257,9 @@ impl Promise {
 }
 
 impl JSContext {
-    /// create Promise object and its resolving function paris.
-    /// returns Promise object and [resolve, reject] functions.
-    /// this is just a shortcut for `Promise::new(ctx, ctor)`.
+    /// create Promise and associated resolving functions.
+    /// returns Promise and [resolve, reject] functions pair.
+    /// this is a shortcut for `Promise::new(ctx, ctor)`.
     #[inline(always)]
     pub fn create_promise(&self, ctor: &JSValueConst) -> Result<(Promise, [JSValue; 2]), i32> {
         Promise::new(self, ctor)

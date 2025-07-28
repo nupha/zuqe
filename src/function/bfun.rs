@@ -62,7 +62,7 @@ impl BytecodeFunction {
         };
 
         let mut sframe = StackFrame {
-            cur_running: JSValue::Object(self.0.clone()),
+            cur_func: JSValue::Object(self.0.clone()),
             js_mode,
             ..Default::default()
         };

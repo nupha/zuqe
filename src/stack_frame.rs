@@ -15,15 +15,15 @@ pub struct StackFrame {
     /// Pointer to previous stack frame (NULL for first frame)
     pub prev_frame: *mut Pin<Self>,
 
-    /// Current executing target.
+    /// Currently executing function.
     ///
     /// The value could be:
     /// - bytecode
     /// - bytecode function/generator object
     /// - async function/generator  object
     /// - native function object
-    /// - undefined, when stack frame is detached (cleared)
-    pub cur_running: JSValue,
+    /// - undefined, which means stack frame is detached (cleared)
+    pub cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space
     /// TODO: Replace with Box<[JSValue]> for better memory efficiency
@@ -65,7 +65,7 @@ impl Default for StackFrame {
     fn default() -> Self {
         Self {
             prev_frame: std::ptr::null_mut(),
-            cur_running: JSValue::UNDEFINED,
+            cur_func: JSValue::UNDEFINED,
             local_buf: Vec::new(),
             arg_base_ptr: std::ptr::null_mut(),
             arg_count: 0,
@@ -202,7 +202,7 @@ impl StackFrame {
 
     /// Cleans ups for stack frame
     pub(crate) fn clear(&mut self) {
-        self.cur_running = JSValue::UNDEFINED;
+        self.cur_func = JSValue::UNDEFINED;
         self.local_buf.clear();
         self.var_ref_list.clear();
     }

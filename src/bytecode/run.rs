@@ -392,7 +392,7 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::ThisFunc => {
-                                SP_PUT!(0, stack_frame.cur_running.clone());
+                                SP_PUT!(0, stack_frame.cur_func.clone());
                                 SP_GO!(1);
                             }
                             SpecialObject::NewTarget => {

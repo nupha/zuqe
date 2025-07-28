@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{AsyncFunction, CallContext, JS_Call},
+    function::{AsyncFunction, CallContext, JS_Call, ObjAsyncState},
     module::{JSModuleStatus, ModuleDefInner},
     promise::{Promise, js_promise_then},
     runtime::js_check_stack_overflow,
@@ -333,17 +333,20 @@ impl ModuleDef {
     /// execute module in async manner
     fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
         // Hint: bytecode is now a Function object
-        let func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
+        let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
         debug_assert_eq!(
-            func.object().unwrap().class_id(),
+            md_func.object().unwrap().class_id(),
             JS_CLASS_BYTECODE_FUNCTION
         );
 
-        let afunc = AsyncFunction::try_from(func).unwrap();
-        let promise = afunc.call(ctx, JSValue::UNDEFINED, &[], 0)?;
+        let (promise, _) = ctx.create_promise(&JSValue::UNDEFINED)?;
+        let astate = ObjAsyncState::new(ctx, &md_func, JSValue::UNDEFINED, &[])?;
+        astate.resume(ctx)?;
+
+        // let afunc = AsyncFunction::try_from(func).unwrap();
+        // let promise = afunc.call(ctx, JSValue::UNDEFINED, &[], 0)?;
 
         let data = [JSValue::Module(self.clone())];
-
         let resolve_funcs: [JSValue; 2] = [
             ctx.create_native_callable_object(
                 ModuleDef::execute_async_fulfill_callback,
@@ -358,7 +361,6 @@ impl ModuleDef {
                 &data,
             )?,
         ];
-
         let cc = CallContext::new(ctx, promise.into(), &resolve_funcs, 0, None);
         // TODO: use Promise::then()
         js_promise_then(ctx, cc)?;
@@ -516,14 +518,14 @@ impl ModuleDef {
             }
         } else {
             // is bytecode function
-            let func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
+            let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
             debug_assert_eq!(
-                func.object().unwrap().class_id(),
+                md_func.object().unwrap().class_id(),
                 JS_CLASS_BYTECODE_FUNCTION
             );
 
             // eval bytecode function
-            JS_Call(ctx, &func, &JSValue::UNDEFINED, &[])
+            JS_Call(ctx, &md_func, &JSValue::UNDEFINED, &[])
                 .check_exception()
                 .map_err(|_| ctx.take_exception())?;
 

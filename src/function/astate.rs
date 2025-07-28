@@ -8,6 +8,7 @@ use std::{
 use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     error::JSResult,
+    function::BytecodeFunction,
     gc::GCObjectHeader,
     object::{GCObjectWeakref, ObjectDetail},
     runtime::{JSRuntime, js_check_stack_overflow},
@@ -36,7 +37,7 @@ pub(crate) struct AsyncStateInner {
     /// for async function only
     pub resolving_funcs: [JSValue; 2],
 
-    /// stack frame to run async function
+    /// a dedicated stack frame to run async function
     pub frame: Box<StackFrame>,
 }
 
@@ -58,7 +59,6 @@ impl AsyncStateInner {
             let isa = unsafe { func_obj.object_unchecked().0.payload.borrow() };
             let bc = isa.func().unwrap().bytecode.as_ref().unwrap();
             let b = bc.0.borrow();
-
             (b.arg_count, b.var_count, b.stack_size, b.js_mode)
         };
 
@@ -87,8 +87,9 @@ impl AsyncStateInner {
             lst
         };
 
-        let o = Self {
+        let s = Self {
             header: GCObjectHeader::new(ctx.rt_mut(), 1),
+
             argc: args.len() as _,
             this_val: this_obj,
             resolving_funcs: resolvings,
@@ -97,7 +98,7 @@ impl AsyncStateInner {
 
             frame: Box::new(StackFrame {
                 js_mode: js_mode as i32 | JS_MODE_ASYNC,
-                cur_running: func_obj.clone(),
+                cur_func: func_obj.clone(),
                 arg_base_ptr: local_buf.as_mut_ptr(),
                 arg_count: arg_count as _,
                 var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
@@ -106,7 +107,7 @@ impl AsyncStateInner {
                 ..Default::default()
             }),
         };
-        Ok(o)
+        Ok(s)
     }
 
     #[inline(always)]

@@ -356,7 +356,7 @@ impl JSValue {
 
 impl StackFrame {
     pub fn gc_mark(&self) {
-        self.cur_running.gc_mark();
+        self.cur_func.gc_mark();
         for a in self.args_slice() {
             a.gc_mark();
         }
