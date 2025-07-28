@@ -340,14 +340,14 @@ impl ModuleDef {
         );
 
         let (promise, _) = ctx.create_promise(&JSValue::UNDEFINED)?;
+
         let astate = ObjAsyncState::new(ctx, &md_func, JSValue::UNDEFINED, &[])?;
         astate.resume(ctx)?;
 
-        // let afunc = AsyncFunction::try_from(func).unwrap();
-        // let promise = afunc.call(ctx, JSValue::UNDEFINED, &[], 0)?;
-
+        // reaction with promise
         let data = [JSValue::Module(self.clone())];
-        let resolve_funcs: [JSValue; 2] = [
+        promise.then(
+            ctx,
             ctx.create_native_callable_object(
                 ModuleDef::execute_async_fulfill_callback,
                 0,
@@ -360,10 +360,7 @@ impl ModuleDef {
                 0,
                 &data,
             )?,
-        ];
-        let cc = CallContext::new(ctx, promise.into(), &resolve_funcs, 0, None);
-        // TODO: use Promise::then()
-        js_promise_then(ctx, cc)?;
+        )?;
 
         Ok(())
     }
