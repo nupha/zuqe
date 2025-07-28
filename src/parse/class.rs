@@ -16,7 +16,7 @@ use crate::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR,
     },
-    parse::{obj::set_object_name_computed, token::JSToken},
+    parse::{obj::set_object_name_computed, token::Token},
     utils::write_to_ptr,
 };
 
@@ -817,7 +817,7 @@ impl<'s> JSParseState<'s> {
         // save current state
         let orig_buf_ptr = self.buf_ptr;
         let orig_buf_end = self.buf_end;
-        let orig_token = std::mem::replace(&mut self.token, JSToken::default());
+        let orig_token = std::mem::replace(&mut self.token, Token::default());
 
         // set new source and parse
         self.buf_ptr = src.as_ptr();

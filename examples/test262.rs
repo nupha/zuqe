@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 use std::{
-    ffi::CString,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
@@ -15,9 +14,7 @@ use zhuque::{
     },
     context::JSContext,
     error::{JS_ThrowReferenceError, JSResult},
-    eval::{
-        JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE,
-    },
+    eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
@@ -361,7 +358,12 @@ fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Writ
     }
 }
 
-fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
+fn run_test_file(
+    filename: &Path,
+    include_harness: bool,
+    excludes: Option<&[String]>,
+    outf: &mut dyn Write,
+) {
     write!(outf, "{} ... ", filename.display()).unwrap();
 
     // read source
@@ -377,6 +379,16 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
     } else {
         TestConfig::default()
     };
+
+    match (config.features.as_deref(), excludes) {
+        (Some(features), Some(excl)) => {
+            if features.iter().any(|x| excl.contains(x)) {
+                write!(outf, "skip");
+                return;
+            }
+        }
+        _ => {}
+    }
 
     let mut harness_files = Vec::<PathBuf>::new();
 
@@ -529,8 +541,9 @@ fn run_test_file(filename: &Path, include_harness: bool, outf: &mut dyn Write) {
 #[derive(Debug, Deserialize, Default)]
 pub struct AppConfig {
     base_path: Option<String>,
-    tests: Option<Vec<String>>,
     out_path: Option<String>,
+    tests: Option<Vec<String>>,
+    exclude_features: Option<Vec<String>>,
 }
 
 fn main() {
@@ -626,11 +639,17 @@ fn main() {
     // fp.flush().unwrap();
 
     if let Some(tests) = app_cfg.tests.take() {
+        let excludes = if let Some(lst) = app_cfg.exclude_features.take() {
+            if lst.is_empty() { None } else { Some(lst) }
+        } else {
+            None
+        };
+
         for item in tests {
             let pat = base_path.join(format!("./test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
                 let fname = fname.unwrap();
-                run_test_file(&fname, true, &mut outf);
+                run_test_file(&fname, true, excludes.as_deref(), &mut outf);
                 outf.flush().unwrap();
             }
         }

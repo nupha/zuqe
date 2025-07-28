@@ -329,7 +329,7 @@ pub unsafe fn js_parse_string(
     sep: char,
     do_throw: bool,
     p: *const u8,
-    token: *mut c_void, //JSToken,
+    token: *mut c_void, //Token,
     pp: *mut *const u8,
 ) -> i32 {
     unreachable!("unused");
@@ -2110,8 +2110,8 @@ pub unsafe fn next_token(s: *mut JSParseState) -> i32 {
 }
 
 // #[deprecated(note = "use JSParseState::free_token() instead")]
-// pub unsafe fn free_token(s: *mut JSParseState, token: *mut JSToken) {
-//     debug_assert_eq!(&mut (*s).token as *mut JSToken, token);
+// pub unsafe fn free_token(s: *mut JSParseState, token: *mut Token) {
+//     debug_assert_eq!(&mut (*s).token as *mut Token, token);
 //     (*s).free_token();
 // }
 

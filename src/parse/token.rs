@@ -45,7 +45,7 @@ pub const CHAR_BACK_SLASH: i32 = '\\' as i32;
 pub const CHAR_BACKTICK: i32 = '`' as i32;
 
 #[derive(Default, Debug, Clone)]
-pub struct JSToken {
+pub struct Token {
     pub val: i32,
     /// line number of token start
     pub line_num: i32,
@@ -53,7 +53,7 @@ pub struct JSToken {
     pub data: TokenData,
 }
 
-impl JSToken {
+impl Token {
     /// if data is ident type or is reserved keyword TOK_, returns atom.
     ///
     /// Note: returned atom is not duplicated, caller should clone to reference it.
@@ -186,7 +186,7 @@ impl<'s> JSParseState<'s> {
         self.clear_atom_in_token();
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum State {
+        enum Todo {
             DefaultToken(char),
             SkipLineComment,
             HasIdent(char, bool),
@@ -194,12 +194,14 @@ impl<'s> JSParseState<'s> {
             ParseNumber,
             Fail,
         }
-        let mut state: Option<State> = None;
+        let mut todo: Option<Todo> = None;
 
-        let mut p = self.buf_ptr;
         self.last_ptr = self.buf_ptr;
         self.got_lf = false;
         self.last_line_num = self.token.line_num;
+
+        // current pointer to input
+        let mut p = self.buf_ptr;
 
         'redo: loop {
             if p >= self.buf_end {
@@ -213,21 +215,21 @@ impl<'s> JSParseState<'s> {
 
             match unsafe { (*p) as char } {
                 '\0' => {
-                    state = Some(State::DefaultToken('\0'));
+                    todo = Some(Todo::DefaultToken('\0'));
                 }
                 '`' => unsafe {
                     if self.parse_template_part(p.offset(1)).is_err() {
-                        state = Some(State::Fail);
+                        todo = Some(Todo::Fail);
                     } else {
                         p = self.buf_ptr;
                     }
                 },
-                c @ ('\'' | '\"') => unsafe {
-                    if self
-                        .parse_string(c, true, p.offset(1), None, &mut p)
-                        .is_err()
-                    {
-                        state = Some(State::Fail);
+                c @ ('\'' | '\"') => match self.parse_string(c, true, unsafe { p.add(1) }, None) {
+                    Ok(p2) => {
+                        p = p2;
+                    }
+                    Err(_) => {
+                        todo = Some(Todo::Fail);
                     }
                 },
                 c @ ('\r' | '\n') => unsafe {
@@ -236,7 +238,7 @@ impl<'s> JSParseState<'s> {
                         p = p.offset(1);
                     }
                     p = p.offset(1);
-                    state = Some(State::LineTerminator);
+                    todo = Some(Todo::LineTerminator);
                 },
                 // 0x0c='\f', 0x0b='\v'
                 '\u{000c}' | '\u{000b}' | ' ' | '\t' => unsafe {
@@ -248,7 +250,7 @@ impl<'s> JSParseState<'s> {
                         b'*' => {
                             // block comment
                             p = p.offset(2);
-                            'comment_loop: loop {
+                            'in_comment: loop {
                                 if *p == 0 && p >= self.buf_end {
                                     self.throw_syntax_error("unexpected end of comment");
                                     self.token.val = TOK_ERROR;
@@ -257,7 +259,7 @@ impl<'s> JSParseState<'s> {
                                 }
                                 if *p == b'*' && *p.offset(1) == b'/' {
                                     p = p.offset(2);
-                                    break 'comment_loop;
+                                    break 'in_comment;
                                 }
                                 if *p == b'\n' {
                                     self.line_num += 1;
@@ -286,7 +288,7 @@ impl<'s> JSParseState<'s> {
                         b'/' => {
                             // line comment
                             p = p.add(2);
-                            state = Some(State::SkipLineComment);
+                            todo = Some(Todo::SkipLineComment);
                         }
                         b'=' => {
                             // /=
@@ -302,7 +304,7 @@ impl<'s> JSParseState<'s> {
                     } // starts with '/'
                 },
                 '\\' => unsafe {
-                    state = Some(State::DefaultToken('\\'));
+                    todo = Some(Todo::DefaultToken('\\'));
 
                     let bad = if *p.add(1) == b'u' {
                         let mut p1 = p.add(1);
@@ -310,7 +312,7 @@ impl<'s> JSParseState<'s> {
                             if let Some(c1) = char::from_u32(cp) {
                                 if Self::is_ident_first(c1) {
                                     p = p1;
-                                    state = Some(State::HasIdent(c1, true));
+                                    todo = Some(Todo::HasIdent(c1, true));
                                     false
                                 } else {
                                     true
@@ -333,7 +335,7 @@ impl<'s> JSParseState<'s> {
                 ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => unsafe {
                     // identifier
                     p = p.add(1);
-                    state = Some(State::HasIdent(ch, false));
+                    todo = Some(Todo::HasIdent(ch, false));
                 },
                 '#' => unsafe {
                     // private name
@@ -352,7 +354,7 @@ impl<'s> JSParseState<'s> {
 
                     if !Self::is_ident_first(c1) {
                         self.throw_syntax_error("invalid first charactor of private name");
-                        state = Some(State::Fail);
+                        todo = Some(Todo::Fail);
                     } else {
                         p = p1;
                         if let Ok((a, has_escape)) = self.parse_ident(&mut p, c1, true) {
@@ -363,7 +365,7 @@ impl<'s> JSParseState<'s> {
                                 is_reserved: false,
                             };
                         } else {
-                            state = Some(State::Fail);
+                            todo = Some(Todo::Fail);
                         }
                     }
                 },
@@ -373,22 +375,22 @@ impl<'s> JSParseState<'s> {
                         self.token.val = TOK_ELLIPSIS;
                         self.token.data = TokenData::None;
                     } else if (*p.add(1)).is_ascii_digit() {
-                        state = Some(State::ParseNumber);
+                        todo = Some(Todo::ParseNumber);
                     } else {
-                        state = Some(State::DefaultToken('.'))
+                        todo = Some(Todo::DefaultToken('.'))
                     }
                 },
                 '0' => unsafe {
                     // in strict mode, octal literals are not accepted
                     if is_digit(*p.add(1)) && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
-                        state = Some(State::Fail);
+                        todo = Some(Todo::Fail);
                     } else {
-                        state = Some(State::ParseNumber);
+                        todo = Some(Todo::ParseNumber);
                     }
                 },
                 '1'..='9' => {
-                    state = Some(State::ParseNumber);
+                    todo = Some(Todo::ParseNumber);
                 }
                 '*' => unsafe {
                     if *p.offset(1) == b'=' {
@@ -406,7 +408,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                     } else {
-                        state = Some(State::DefaultToken('*'));
+                        todo = Some(Todo::DefaultToken('*'));
                     }
                 },
                 '%' => unsafe {
@@ -415,7 +417,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val = TOK_MOD_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
-                        state = Some(State::DefaultToken('%'));
+                        todo = Some(Todo::DefaultToken('%'));
                     }
                 },
                 '+' => unsafe {
@@ -428,7 +430,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val = TOK_INC;
                         self.token.data = TokenData::None;
                     } else {
-                        state = Some(State::DefaultToken('+'));
+                        todo = Some(Todo::DefaultToken('+'));
                     }
                 },
                 '-' => unsafe {
@@ -452,7 +454,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                     } else {
-                        state = Some(State::DefaultToken('-'));
+                        todo = Some(Todo::DefaultToken('-'));
                     }
                 },
                 '<' => unsafe {
@@ -479,7 +481,7 @@ impl<'s> JSParseState<'s> {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     } else {
-                        state = Some(State::DefaultToken('<'));
+                        todo = Some(Todo::DefaultToken('<'));
                     }
                 },
                 '>' => unsafe {
@@ -508,7 +510,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                     } else {
-                        state = Some(State::DefaultToken('>'));
+                        todo = Some(Todo::DefaultToken('>'));
                     }
                 },
                 '=' => unsafe {
@@ -544,7 +546,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                     } else {
-                        state = Some(State::DefaultToken('!'));
+                        todo = Some(Todo::DefaultToken('!'));
                     }
                 },
                 '&' => unsafe {
@@ -563,7 +565,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                     } else {
-                        state = Some(State::DefaultToken('&'));
+                        todo = Some(Todo::DefaultToken('&'));
                     }
                 },
                 '^' => unsafe {
@@ -572,7 +574,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val = TOK_XOR_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
-                        state = Some(State::DefaultToken('^'))
+                        todo = Some(Todo::DefaultToken('^'))
                     }
                 },
                 '|' => unsafe {
@@ -591,7 +593,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                     } else {
-                        state = Some(State::DefaultToken('|'));
+                        todo = Some(Todo::DefaultToken('|'));
                     }
                 },
                 '?' => unsafe {
@@ -612,7 +614,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val = TOK_QUESTION_MARK_DOT;
                         self.token.data = TokenData::None;
                     } else {
-                        state = Some(State::DefaultToken('?'));
+                        todo = Some(Todo::DefaultToken('?'));
                     }
                 },
 
@@ -629,29 +631,29 @@ impl<'s> JSParseState<'s> {
                                 continue 'redo;
                             }
 
-                            state = if JSParseState::is_ident_first(ch) {
-                                Some(State::HasIdent(ch, false))
+                            todo = if JSParseState::is_ident_first(ch) {
+                                Some(Todo::HasIdent(ch, false))
                             } else {
                                 self.throw_syntax_error("unexpected character");
-                                Some(State::Fail)
+                                Some(Todo::Fail)
                             };
                         }
                     }
                 }
                 c => {
-                    state = Some(State::DefaultToken(c));
+                    todo = Some(Todo::DefaultToken(c));
                 }
             } // match ch
 
             // handle token type
-            if let Some(what) = state.take() {
+            if let Some(what) = todo.take() {
                 match what {
-                    State::DefaultToken(ch) => {
+                    Todo::DefaultToken(ch) => {
                         self.token.val = ch as i32;
                         self.token.data = TokenData::Char(ch);
                         p = unsafe { p.offset(1) };
                     }
-                    State::HasIdent(first_char, escaped) => {
+                    Todo::HasIdent(first_char, escaped) => {
                         if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
                         {
                             self.token.val = TOK_IDENT;
@@ -670,27 +672,22 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     }
-                    State::LineTerminator => {
+                    Todo::LineTerminator => {
                         self.got_lf = true;
                         self.line_num += 1;
                         continue 'redo;
                     }
-                    State::SkipLineComment => unsafe {
+                    Todo::SkipLineComment => unsafe {
                         p = self.next_token_skip_line_comment(p);
                         continue 'redo;
                     },
-                    State::ParseNumber => {
-                        // NOTE: p may be changed after calling next_token_parse_number()
-                        if self
-                            .next_token_parse_number(std::ptr::addr_of_mut!(p))
-                            .is_err()
-                        {
+                    Todo::ParseNumber => {
+                        p = self.next_token_parse_number(p).inspect_err(|_| {
                             self.token.val = TOK_ERROR;
                             self.token.data = TokenData::None;
-                            return Err(-1);
-                        }
+                        })?;
                     }
-                    State::Fail => {
+                    Todo::Fail => {
                         self.token.val = TOK_ERROR;
                         self.token.data = TokenData::None;
                         return Err(-1);
@@ -705,14 +702,23 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
+    /// returns updated str pointer
     #[inline(always)]
-    fn next_token_parse_number(&mut self, p: *mut *const u8) -> Result<(), i32> {
-        let flags = ATOD_ACCEPT_BIN_OCT
-            | ATOD_ACCEPT_LEGACY_OCTAL
-            | ATOD_ACCEPT_UNDERSCORES
-            | ATOD_ACCEPT_SUFFIX;
+    fn next_token_parse_number(&mut self, ptr: *const u8) -> Result<*const u8, i32> {
+        let mut p = ptr;
 
-        let ret = unsafe { js_atof(&self.ctx, *p, p, 0, flags) };
+        let ret = unsafe {
+            js_atof(
+                &self.ctx,
+                ptr,
+                &mut p,
+                0,
+                ATOD_ACCEPT_BIN_OCT
+                    | ATOD_ACCEPT_LEGACY_OCTAL
+                    | ATOD_ACCEPT_UNDERSCORES
+                    | ATOD_ACCEPT_SUFFIX,
+            )
+        };
         if ret.is_exception() {
             let exc_obj = self.ctx.take_exception();
             self.throw(exc_obj);
@@ -724,9 +730,11 @@ impl<'s> JSParseState<'s> {
             }
         }
 
+        debug_assert!(self.buf_end >= p);
+
         // reject `10instanceof Number`
-        let len = unsafe { self.buf_end.offset_from(*p) as usize };
-        if let Some(c) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(*p, len) })
+        let len = unsafe { self.buf_end.offset_from(p) as usize };
+        if let Some(c) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(p, len) })
             .map_err(|_| {
                 self.throw_syntax_error("invalid UTF-8 sequence");
                 -1
@@ -743,13 +751,16 @@ impl<'s> JSParseState<'s> {
         self.token.val = TOK_NUMBER;
         self.token.data = TokenData::Num(ret);
 
-        Ok(())
+        debug_assert!(p >= ptr);
+        Ok(p)
     }
 
     /// returns new pointer
-    unsafe fn next_token_skip_line_comment(&self, mut p: *const u8) -> *const u8 {
+    unsafe fn next_token_skip_line_comment(&self, ptr: *const u8) -> *const u8 {
+        let mut p = ptr;
+
         loop {
-            if (*p == 0 && p >= self.buf_end) || matches!(*p, b'\r' | b'\n') {
+            if matches!(*p, b'\r' | b'\n') || (*p == 0 && p >= self.buf_end) {
                 break;
             }
 
@@ -770,11 +781,11 @@ impl<'s> JSParseState<'s> {
         p
     }
 
-    pub fn seek_token(&mut self, sp: &JSParsePos) -> Result<(), i32> {
-        self.token.line_num = sp.last_line_num;
-        self.line_num = sp.line_num;
-        self.buf_ptr = sp.ptr;
-        self.got_lf = sp.got_lf;
+    pub fn seek_token(&mut self, pos: &JSParsePos) -> Result<(), i32> {
+        self.token.line_num = pos.last_line_num;
+        self.line_num = pos.line_num;
+        self.buf_ptr = pos.ptr;
+        self.got_lf = pos.got_lf;
         self.next_token()
     }
 

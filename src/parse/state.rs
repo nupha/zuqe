@@ -8,7 +8,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::token::JSToken;
+use super::token::Token;
 
 // Parse flags for controlling expression parsing behavior
 /// Allow the 'in' binary operator
@@ -41,7 +41,7 @@ pub struct JSParseState<'s> {
     /// Source file name being parsed
     pub filename: &'s str,
     /// Current token being processed
-    pub token: JSToken,
+    pub token: Token,
     /// Indicates if a line feed was encountered before current token
     pub got_lf: bool,
 
@@ -101,7 +101,7 @@ impl<'s> JSParseState<'s> {
             last_line_num: 0,
             line_num: 1,
             filename,
-            token: JSToken {
+            token: Token {
                 val: ' ' as i32,
                 line_num: 1,
                 ptr: std::ptr::null(),

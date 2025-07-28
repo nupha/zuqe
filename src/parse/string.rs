@@ -8,7 +8,7 @@ use crate::{
 
 use super::{
     state::JSParseState,
-    token::{JSToken, TOK_STRING},
+    token::{TOK_STRING, Token},
 };
 
 impl<'s> JSParseState<'s> {
@@ -16,11 +16,11 @@ impl<'s> JSParseState<'s> {
         &mut self,
         sep: char,
         do_throw: bool,
-        mut p: *const u8,
-        token: Option<&mut JSToken>,
-        pp: *mut *const u8,
-    ) -> Result<(), i32> {
+        ptr: *const u8,
+        token: Option<&mut Token>,
+    ) -> Result<*const u8, i32> {
         let mut content = StringContent::Empty;
+        let mut p = ptr;
 
         loop {
             if p >= self.buf_end {
@@ -31,10 +31,10 @@ impl<'s> JSParseState<'s> {
             }
 
             if content.capacity() == content.len() {
-                if content.try_reserve_exact(32).is_err() {
+                content.try_reserve_exact(32).map_err(|_| {
                     self.ctx.throw_out_of_memory();
-                    return Err(-1);
-                }
+                    -1
+                })?;
             }
 
             let mut char_code: u32 = 0;
@@ -56,8 +56,8 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     }
-                    c if (c as u32) < 0x20 => {
-                        // handle ASCII control characters
+                    '\u{0}'..'\u{20}' => {
+                        // ASCII control characters
                         if self.cur_func_ptr.is_null() {
                             if do_throw {
                                 self.throw_syntax_error("invalid character in a JSON string");
@@ -243,10 +243,7 @@ impl<'s> JSParseState<'s> {
             sep: sep as i32,
         };
 
-        unsafe {
-            *pp = p;
-        }
-        Ok(())
+        Ok(p)
     }
 
     /// parse char escape \u{XXXX}, \uXXXX, \xXX.

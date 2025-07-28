@@ -113,7 +113,7 @@ impl<'s> JSParseState<'s> {
 
         let mut depth = 0;
         while self.token.val == TOK_TEMPLATE {
-            let mut p = unsafe { self.token.ptr.offset(1) };
+            let mut p = unsafe { self.token.ptr.add(1) };
             let mut cooked = self.token.clone();
 
             if call {
@@ -126,14 +126,16 @@ impl<'s> JSParseState<'s> {
 
                 // re-parse the string with escape sequences but do not throw a
                 // syntax error if it contains invalid sequences
-                if self
-                    .parse_string('`', false, p, Some(&mut cooked), &mut p)
-                    .is_err()
-                {
-                    // TODO: this is not nessecary, because ::drop() will handle string value free
-                    // if let TokenData::Str { str, .. } = &mut cooked.data {
-                    //     *str = JSValue::UNDEFINED;
-                    // }
+                match self.parse_string('`', false, p, Some(&mut cooked)) {
+                    Ok(p2) => {
+                        p = p2;
+                    }
+                    Err(_) => {
+                        // TODO: this is not nessecary, because ::drop() will handle string value free
+                        // if let TokenData::Str { str, .. } = &mut cooked.data {
+                        //     *str = JSValue::UNDEFINED;
+                        // }
+                    }
                 }
 
                 template_object.define_property_value_u32(
@@ -151,7 +153,7 @@ impl<'s> JSParseState<'s> {
                 //     *str = JSValue::UNDEFINED;
                 // }
 
-                self.parse_string('`', true, p, Some(&mut cooked), &mut p)?;
+                p = self.parse_string('`', true, p, Some(&mut cooked))?;
                 let str = unsafe { cooked.data.string().unwrap().string_unchecked() };
                 if depth == 0 || !str.is_empty() {
                     self.emit_push_const(JSValue::String(str.clone()), true)?;
@@ -186,9 +188,7 @@ impl<'s> JSParseState<'s> {
 
             // 处理模板表达式
             self.next_token()?;
-            unsafe {
-                self.parse_expr()?;
-            }
+            self.parse_expr()?;
 
             depth += 1;
             if self.token.val != b'}' as i32 {
