@@ -59,7 +59,7 @@ impl JSToken {
     /// Note: returned atom is not duplicated, caller should clone to reference it.
     pub fn atom(&self) -> Option<JSAtom> {
         match self.val {
-            TOK_IDENT => self.data.ident_atom(),
+            TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom(),
             t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
                 // convert keyword token to atom
                 let a = t - TOK_FIRST_KEYWORD + 1;
