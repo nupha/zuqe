@@ -187,9 +187,11 @@ impl ObjNativeFunc {
             debug_assert_eq!(sf.local_buf.len(), arg_length as usize);
 
             sf.arg_count = arg_length as _;
+            sf.arg_real_count = args.len() as _;
             sf.arg_base_ptr = sf.local_buf.as_mut_ptr();
         } else {
             sf.arg_count = args.len() as _;
+            sf.arg_real_count = args.len() as _;
             sf.arg_base_ptr = args.as_ptr() as *mut JSValue;
         }
 

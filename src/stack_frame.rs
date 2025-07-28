@@ -32,7 +32,8 @@ pub struct StackFrame {
     /// Arguments array base pointer and count
     /// Points into local_buf (self-referencing)
     pub arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
-    pub arg_count: u16,
+    pub arg_real_count: u16,
+    pub arg_count: u16, // at least has `length`
 
     /// Local variables base pointer and count
     /// Points into local_buf (self-referencing)
@@ -68,6 +69,7 @@ impl Default for StackFrame {
             cur_func: JSValue::UNDEFINED,
             local_buf: Vec::new(),
             arg_base_ptr: std::ptr::null_mut(),
+            arg_real_count: 0,
             arg_count: 0,
             var_base_ptr: std::ptr::null_mut(),
             var_count: 0,
@@ -82,12 +84,12 @@ impl Default for StackFrame {
 }
 
 impl StackFrame {
-    /// Returns a slice of argument values for this frame
+    /// Returns slice of actual argument values for this frame
     pub const fn args_slice(&self) -> &[JSValue] {
-        if self.arg_count == 0 {
+        if self.arg_real_count == 0 {
             &[]
         } else {
-            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_count as usize) }
+            unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_real_count as usize) }
         }
     }
 

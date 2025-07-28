@@ -100,6 +100,7 @@ impl AsyncStateInner {
                 js_mode: js_mode as i32 | JS_MODE_ASYNC,
                 cur_func: func_obj.clone(),
                 arg_base_ptr: local_buf.as_mut_ptr(),
+                arg_real_count: args.len() as _,
                 arg_count: arg_count as _,
                 var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
                 var_count,
@@ -122,12 +123,12 @@ impl AsyncStateInner {
 
     #[inline(always)]
     pub fn arg_count(&self) -> usize {
-        self.frame.arg_count as usize
+        self.frame.arg_real_count as usize
     }
 
     pub fn arg_slice(&self) -> &[JSValue] {
         unsafe {
-            std::slice::from_raw_parts(self.frame.arg_base_ptr, self.frame.arg_count as usize)
+            std::slice::from_raw_parts(self.frame.arg_base_ptr, self.frame.arg_real_count as usize)
         }
     }
 
