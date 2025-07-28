@@ -280,7 +280,7 @@ impl Promise {
     /// arg#0: resolve function, arg#1: reject function
     fn hook_executor(ctx: &JSContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
-            if !cc.data_raw(i).is_undefined() {
+            if !cc.data(i).is_undefined() {
                 ctx.throw_type_error("resolving function already set");
                 return Err(-1);
             } else {
@@ -342,11 +342,11 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
     let resolve_type = cc.magic() & 3;
     let is_reject = cc.magic() & 4;
 
-    let alreadyCalled = cc.data_raw(0).coerce_to_bool(ctx)?;
-    let values = cc.data_raw(2);
-    let resolve = cc.data_raw(3);
-    let resolve_element_env = cc.data_raw(4);
-    let index = cc.data_raw(1).coerce_to_i32(ctx)?;
+    let alreadyCalled = cc.data(0).coerce_to_bool(ctx)?;
+    let values = cc.data(2);
+    let resolve = cc.data(3);
+    let resolve_element_env = cc.data(4);
+    let index = cc.data(1).coerce_to_i32(ctx)?;
 
     if alreadyCalled {
         return Ok(JSValue::UNDEFINED);

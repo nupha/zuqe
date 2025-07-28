@@ -207,7 +207,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
             mapfn.ensure_callable(ctx)?;
             mapping = true;
             if argc > 2 {
-                this_arg = args.get_raw(2);
+                this_arg = args.arg(2).clone();
             }
         }
     }
@@ -978,7 +978,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if p.is_detached() {
         // if the array was detached, no need to go further (but no exception is raised)
         // "includes" scans all the properties, so "undefined" can match
-        if special == special_includes && cc.get_raw(0).is_undefined() && len > 0 {
+        if special == special_includes && cc.arg(0).is_undefined() && len > 0 {
             res = 0;
         }
         return Ok(if special == special_includes {

@@ -156,7 +156,7 @@ impl ModuleDef {
                 if let Some(o) = (*self.0.meta_obj.as_ptr()).as_ref() {
                     o.gc_mark();
                 }
-                (*self.0.promise.as_ptr()).gc_mark();
+                (*self.0.promise.as_ptr()).as_ref().map(|p| p.0.gc_mark());
                 (*self.0.resolving_funcs.as_ptr())[0].gc_mark();
                 (*self.0.resolving_funcs.as_ptr())[1].gc_mark();
             }
@@ -177,7 +177,7 @@ impl ModuleDef {
         self.0.bytecode.set(JSValue::UNDEFINED);
         self.0.eval_exception.set(JSValue::UNDEFINED);
         self.0.meta_obj.take();
-        self.0.promise.set(JSValue::UNDEFINED);
+        self.0.promise.take();
         self.0
             .resolving_funcs
             .set([JSValue::UNDEFINED, JSValue::UNDEFINED]);

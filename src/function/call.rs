@@ -76,12 +76,6 @@ impl<'a> CallContext<'a> {
         self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
     }
 
-    /// get nth argument value, cloned
-    #[inline(always)]
-    pub fn get_raw(&self, nth: usize) -> JSValue {
-        self.args.get(nth).cloned().unwrap_or(JSValue::UNDEFINED)
-    }
-
     /// get argument values slice
     #[inline(always)]
     pub fn arguments(&self) -> &[JSValue] {
@@ -89,15 +83,19 @@ impl<'a> CallContext<'a> {
     }
 
     /// get nth extra data value.
-    /// if you are referencing the value, must dup it by yourself.
-    /// returned value is cloned.
+    /// returned value is cloned, caller should free it after use.
     #[inline(always)]
-    pub fn data_raw(&self, nth: usize) -> JSValue {
+    pub fn data(&self, nth: usize) -> JSValue {
         self.data
             .as_deref()
             .and_then(|d| d.get(nth))
             .cloned()
             .unwrap_or(JSValue::UNDEFINED)
+    }
+
+    #[inline(always)]
+    pub fn data_slice(&self) -> Option<&[JSValue]> {
+        self.data.as_deref()
     }
 
     /// set nth data value. returns old value, or Err if nth is out of range.
@@ -110,11 +108,6 @@ impl<'a> CallContext<'a> {
         }
 
         Err(-1)
-    }
-
-    #[inline(always)]
-    pub fn data_slice(&self) -> Option<&[JSValue]> {
-        self.data.as_deref()
     }
 }
 
@@ -349,16 +342,16 @@ pub fn js_function_apply(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this_raw();
     this_val.ensure_callable(ctx)?;
 
-    let this_arg = args.get_raw(0);
-    let array_arg = args.get_raw(1);
+    let this_arg = args.arg(0);
+    let array_arg = args.arg(1);
 
     if array_arg.is_undefined_or_null() && args.magic() != 2 {
-        return Ok(JS_Call(ctx, &this_val, &this_arg, &[]));
+        return Ok(JS_Call(ctx, &this_val, this_arg, &[]));
     }
 
     let arg_list = build_arg_list(ctx, &array_arg)?;
     let ret = if args.magic() & 1 != 0 {
-        JS_CallConstructor2(ctx, &this_val, this_arg, arg_list.as_ref())
+        JS_CallConstructor2(ctx, &this_val, this_arg.clone(), arg_list.as_ref())
     } else {
         JS_Call(ctx, &this_val, &this_arg, arg_list.as_ref())
     };

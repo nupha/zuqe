@@ -23,7 +23,7 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
         if i > 0 {
             print!(" ");
         }
-        let arg = args.get_raw(i);
+        let arg = args.arg(i);
         print!("{}", arg.coerce_to_utf8(ctx)?);
     }
     println!();

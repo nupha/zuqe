@@ -33,7 +33,7 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
         if i > 0 {
             print!(" ");
         }
-        let arg = args.get_raw(i);
+        let arg = args.arg(i);
         print!("{}", arg.coerce_to_utf8(ctx)?);
     }
     println!();
@@ -319,7 +319,7 @@ fn run_test_script(
                         ret_val = JSValue::UNDEFINED;
                     } else {
                         // check if the returned promise is fulfilled
-                        let promise: Promise = TryFrom::try_from(JSValue::from(ret_val)).unwrap();
+                        let promise = Promise::try_from(ret_val).unwrap();
 
                         ret_val = match promise.state() {
                             Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,

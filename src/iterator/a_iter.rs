@@ -60,7 +60,7 @@ pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValue
 }
 
 pub fn js_async_from_sync_iterator_unwrap(ctx: &JSContext, args: CallContext) -> JSResult {
-    let done = args.data_raw(0).coerce_to_bool(ctx)?;
+    let done = args.data(0).coerce_to_bool(ctx)?;
     js_create_iterator_result(ctx, args.arg(0).clone(), done)
 }
 
