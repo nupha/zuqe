@@ -119,17 +119,15 @@ impl<'s> JSParseState<'s> {
         let fd1 = sub_fd.deref_mut();
         self.cur_func_def = fd1;
 
-        macro_rules! fail {
-            () => {
-                self.cur_func_ptr = fd0; // restore original cur_func
-                return Err(-1);
-            };
-        }
+        // IMPORTANT: to restore original cur_func on exit.
+        let mut self_ptr = unsafe { std::ptr::NonNull::new_unchecked(self) };
+        crate::defer!(unsafe {
+            self_ptr.as_mut().cur_func_def = fd0;
+        });
 
         //
         // generate opcodes for sub_fd
         //
-
         if matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
@@ -151,46 +149,34 @@ impl<'s> JSParseState<'s> {
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
             if self.token.data.is_reserved() {
                 self.throw_reserved_identifier_error();
-                fail!();
+                return Err(-1);
             }
 
-            if fd1.add_arg(&self.ctx, self.token.atom().unwrap()).is_err() {
-                fail!();
-            };
+            fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
             fd1.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.val == CHAR_BRACKET_L {
                 let mut skip_bits: i32 = 0;
                 /* if there is an '=' inside the parameter list, we
                 consider there is a parameter expression inside */
-                if self.parse_skip_parens_token(&mut skip_bits, false).is_err() {
-                    fail!();
-                };
+                self.parse_skip_parens_token(&mut skip_bits, false)?;
                 if skip_bits & SKIP_HAS_ASSIGNMENT != 0 {
                     fd1.has_parameter_expressions = true;
                 }
-                if self.next_token().is_err() {
-                    fail!();
-                }
+                self.next_token()?;
             } else {
-                if self.parse_expect(CHAR_BRACKET_L).is_err() {
-                    fail!();
-                }
+                self.parse_expect(CHAR_BRACKET_L)?;
             }
 
             if fd1.has_parameter_expressions {
                 fd1.scope_level = -1; // force no parent scope
-                if self.push_scope().is_err() {
-                    fail!();
-                }
+                self.push_scope()?;
             }
 
             while self.token.val != CHAR_BRACKET_R {
                 let rest = if self.token.val == TOK_ELLIPSIS {
                     fd1.has_simple_parameter_list = false;
-                    if self.next_token().is_err() {
-                        fail!();
-                    }
+                    self.next_token()?;
                     true
                 } else {
                     false
@@ -208,7 +194,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(idx as _);
                     }
 
-                    let has_initializer = if let Ok(b) = self.parse_destructuring_element(
+                    let has_initializer = self.parse_destructuring_element(
                         if fd1.has_parameter_expressions {
                             TOK_LET
                         } else {
@@ -218,11 +204,7 @@ impl<'s> JSParseState<'s> {
                         true,
                         -1,
                         true,
-                    ) {
-                        b
-                    } else {
-                        fail!();
-                    };
+                    )?;
                     if has_initializer {
                         has_opt_arg = true;
                     }
@@ -232,7 +214,7 @@ impl<'s> JSParseState<'s> {
                 } else if self.token.val == TOK_IDENT {
                     if self.token.data.is_reserved() {
                         self.throw_reserved_identifier_error();
-                        fail!();
+                        return Err(-1);
                     }
 
                     let name = self.token.atom().unwrap();
@@ -241,28 +223,16 @@ impl<'s> JSParseState<'s> {
                         && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
                         self.throw_reserved_identifier_error();
-                        fail!();
+                        return Err(-1);
                     }
                     if fd1.has_parameter_expressions {
                         // fd1 is the cur_func
-                        if self
-                            .define_var_cur_func(name, JSVarDefEnum::JS_VAR_DEF_LET)
-                            .is_err()
-                        {
-                            fail!();
-                        }
+                        self.define_var_cur_func(name, JSVarDefEnum::JS_VAR_DEF_LET)?;
                     }
 
                     /* XXX: could avoid allocating an argument if rest is true */
-                    let idx = if let Ok(id) = fd1.add_arg(&self.ctx, name) {
-                        id as i32
-                    } else {
-                        fail!();
-                    };
-
-                    if self.next_token().is_err() {
-                        fail!();
-                    }
+                    let idx = fd1.add_arg(&self.ctx, name)? as i32;
+                    self.next_token()?;
 
                     if rest {
                         fd1.emit_op(OpCode::REST, self.last_line_num);
@@ -283,15 +253,9 @@ impl<'s> JSParseState<'s> {
                         fd1.has_simple_parameter_list = false;
                         has_opt_arg = true;
 
-                        if self.next_token().is_err() {
-                            fail!();
-                        }
+                        self.next_token()?;
 
-                        let label = if let Ok(l) = fd1.add_label() {
-                            l as i32
-                        } else {
-                            fail!();
-                        };
+                        let label = fd1.add_label()? as i32;
 
                         fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
@@ -301,9 +265,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_goto(OpCode::IF_FALSE, label, self.last_line_num);
                         fd1.emit_op(OpCode::DROP, self.last_line_num);
 
-                        if self.parse_assign_expr().is_err() {
-                            fail!();
-                        }
+                        self.parse_assign_expr()?;
 
                         self.set_object_name(name);
 
@@ -330,27 +292,25 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     self.throw_syntax_error("missing formal parameter");
-                    fail!();
+                    return Err(-1);
                 }
 
                 if rest && self.token.val != CHAR_BRACKET_R {
                     let _ = self.parse_expect(CHAR_BRACKET_R);
-                    fail!();
+                    return Err(-1);
                 }
 
                 if self.token.val == CHAR_BRACKET_R {
                     break;
                 }
-                if self.parse_expect(CHAR_COMMA).is_err() {
-                    fail!();
-                }
+                self.parse_expect(CHAR_COMMA)?;
             }
 
             if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && !fd1.args.is_empty())
                 || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_SETTER && fd1.args.len() != 1)
             {
                 self.throw_syntax_error("invalid number of arguments for getter or setter");
-                fail!();
+                return Err(-1);
             }
         }
 
@@ -371,10 +331,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if fd1.find_var(var_name).is_none() {
-                    if fd1.add_var(&self.ctx, var_name).is_err() {
-                        fail!();
-                    }
-
+                    fd1.add_var(&self.ctx, var_name)?;
                     let var_name = {
                         let vd = fd1.vars.get(idx as usize).unwrap();
                         vd.var_name
@@ -401,9 +358,7 @@ impl<'s> JSParseState<'s> {
             fd1.scope_first = fd1.scopes[fd1.scope_level as usize].first;
         }
 
-        if self.next_token().is_err() {
-            fail!();
-        }
+        self.next_token()?;
 
         /* generator function: yield after the parameters are evaluated */
         if matches!(
@@ -419,16 +374,12 @@ impl<'s> JSParseState<'s> {
         fd1.body_scope = self.push_scope().unwrap() as i32;
 
         if self.token.val == TOK_ARROW {
-            if self.next_token().is_err() {
-                fail!();
-            }
+            self.next_token()?;
             if self.token.val != CHAR_CURLY_L {
                 if unsafe { js_parse_function_check_names(self, fd1, func_name) } != 0 {
-                    fail!();
+                    return Err(-1);
                 }
-                if self.parse_assign_expr().is_err() {
-                    fail!();
-                }
+                self.parse_assign_expr()?;
 
                 fd1.emit_op(
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
@@ -451,7 +402,7 @@ impl<'s> JSParseState<'s> {
                         let mut src = Vec::<u8>::new();
                         if src.try_reserve_exact(src_len).is_err() {
                             self.ctx.throw_out_of_memory();
-                            fail!();
+                            return Err(-1);
                         }
                         src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
                         fd1.source
@@ -466,24 +417,18 @@ impl<'s> JSParseState<'s> {
         }
 
         if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-            if self.parse_expect(CHAR_CURLY_L).is_err() {
-                fail!();
-            }
+            self.parse_expect(CHAR_CURLY_L)?;
         }
 
-        if self.parse_directives().is_err() {
-            fail!();
-        }
+        self.parse_directives()?;
 
         /* in strict_mode, check function and argument names */
         if unsafe { js_parse_function_check_names(self, fd1, func_name) } != 0 {
-            fail!();
+            return Err(-1);
         }
 
         while self.token.val != CHAR_CURLY_R {
-            if self.parse_source_element().is_err() {
-                fail!();
-            }
+            self.parse_source_element()?;
         }
 
         if fd1.js_mode & JS_MODE_STRIP as u8 == 0 {
@@ -496,7 +441,7 @@ impl<'s> JSParseState<'s> {
                 let mut src = Vec::<u8>::new();
                 if src.try_reserve_exact(src_len).is_err() {
                     self.ctx.throw_out_of_memory();
-                    fail!();
+                    return Err(-1);
                 }
                 src.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, src_len) });
                 let s = unsafe { String::from_utf8_unchecked(src) };
@@ -505,16 +450,17 @@ impl<'s> JSParseState<'s> {
         }
 
         // consume the '}'
-        if self.next_token().is_err() {
-            fail!();
-        }
+        self.next_token()?;
 
         /* in case there is no return, add one */
-        if unsafe { js_is_live_code(self) } {
+        if js_is_live_code(self) {
             fd1.emit_return(false, self.last_line_num);
         }
 
-        self.cur_func_def = fd0; // restore cur_func to previoud fd
+        // restore cur_func to previoud fd:
+        // this is done in defer!()
+        // self.cur_func_def = fd0;
+
         Ok(sub_fd)
     }
 
