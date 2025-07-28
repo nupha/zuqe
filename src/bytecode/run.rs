@@ -317,7 +317,8 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::PUSH_THIS => {
-                        // only called at the start of a function
+                        // only called at the start of a function.
+                        // could be EXCEPTION.
                         let val = if mode & JS_MODE_STRICT == 0 {
                             match this_obj {
                                 JSValue::Object(_) => this_obj.clone(),
@@ -335,7 +336,6 @@ impl Bytecode {
                         } else {
                             this_obj.clone()
                         };
-                        debug_assert!(!val.is_exception());
 
                         SP_PUT!(0, val);
                         SP_GO!(1);
