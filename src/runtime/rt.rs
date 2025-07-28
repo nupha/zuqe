@@ -327,10 +327,9 @@ impl JSRuntime {
             });
 
             for (_, mut sh_lst) in self.shape_registry.drain() {
-                #[cfg(debug_assertions)]
                 sh_lst.retain(|w| {
                     if let Some(s) = w.upgrade() {
-                        println!("[O.o] shape is still alive: {s:?}");
+                        println!("[O.o] shape is alive: {s:?}");
                         true
                     } else {
                         false
