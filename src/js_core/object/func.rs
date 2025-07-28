@@ -53,10 +53,7 @@ pub fn JS_ObjectDefineProperties(
 }
 
 pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    debug_assert!(cc.length() > 0, "at least one slot for argument");
-
     let new_target = cc.this();
-
     if !new_target.is_undefined() && unsafe { !JS_GetActiveFunction(ctx).eq(new_target) } {
         ctx.create_object_apply_ctor(new_target, ObjectDetail::OBJECT)
             .map_err(|_| -1)
