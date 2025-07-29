@@ -13,12 +13,13 @@ impl JSFunctionDef {
         ctx: &JSContext,
         var_name: JSAtom,
         mut scope_level: i32,
-    ) -> Result<(i32, JSVarKindEnum, bool), i32> {
+    ) -> Result<(u16, JSVarKindEnum, bool), i32> {
         let mut root_fd: Option<&JSFunctionDef> = None;
         let mut is_ref = false;
-        for (cur_fd, scope) in self.parent_iter(true) {
+
+        for (cur_fd, cur_scope) in self.parent_iter(true) {
             if let Some(mut idx) = cur_fd.find_private_class_field_all(var_name, scope_level) {
-                let var_kind = cur_fd.vars.get(idx as usize).unwrap().var_kind();
+                let var_kind = cur_fd.vars[idx as usize].var_kind();
                 if is_ref {
                     idx = self.get_closure_var2(
                         ctx,
@@ -30,12 +31,12 @@ impl JSFunctionDef {
                         true,
                         true,
                         JSVarKindEnum::JS_VAR_NORMAL,
-                    )? as i32;
+                    )?;
                 }
                 return Ok((idx, var_kind, is_ref));
             }
 
-            scope_level = scope;
+            scope_level = cur_scope;
             root_fd = Some(cur_fd);
             is_ref = true;
         }
@@ -66,9 +67,9 @@ impl JSFunctionDef {
                         cv.is_const(),
                         cv.is_lexical(),
                         cv.var_kind(),
-                    )? as i32
+                    )?
                 } else {
-                    i as i32
+                    i as u16
                 };
                 return Ok((idx, var_kind, true));
             }
@@ -84,13 +85,13 @@ impl JSFunctionDef {
 
     /// search `var_name` in all scopes since `scope_level`.
     /// `var_name` is not consumed.
-    fn find_private_class_field_all(&self, var_name: JSAtom, scope_level: i32) -> Option<i32> {
+    fn find_private_class_field_all(&self, var_name: JSAtom, scope_level: i32) -> Option<u16> {
         debug_assert!(scope_level >= 0);
 
         let mut idx = self.scopes[scope_level as usize].first;
         while idx >= 0 {
-            if self.vars.get(idx as usize).unwrap().var_name == var_name {
-                return Some(idx);
+            if self.vars[idx as usize].var_name == var_name {
+                return Some(idx as _);
             }
             idx = self.vars.get(idx as usize).unwrap().scope_next;
         }

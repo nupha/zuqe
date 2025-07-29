@@ -23,7 +23,7 @@ use super::LabelSlot;
 pub struct JSFunctionDef {
     pub ctx: JSContext,
 
-    /// parent function def
+    /// parent function def, null for root fd.
     pub parent: *mut JSFunctionDef,
     /// scope level of parent fd
     pub parent_scope_level: i32,
@@ -623,7 +623,7 @@ pub fn skip_dead_code(
     current_pos
 }
 
-pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
+pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
     // if the field is not initialized, the error is catched when accessing it
     push_vec_u8(
         bc,
@@ -633,7 +633,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: i32) {
             opcodes::OP_get_loc
         },
     );
-    push_vec_u16(bc, idx as u16);
+    push_vec_u16(bc, idx);
 }
 
 pub unsafe fn instantiate_hoisted_definitions(

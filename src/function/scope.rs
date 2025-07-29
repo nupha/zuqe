@@ -13,7 +13,6 @@ use super::{ARG_SCOPE_END, JSVarDef};
 pub struct JSVarScope {
     /// id of parent scope. -1 for none.
     pub parent: i32,
-
     /// index of the last variable defined in `vars` list up to this scope.
     /// -1 for none.
     pub first: i32,

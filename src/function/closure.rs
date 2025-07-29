@@ -110,6 +110,8 @@ impl JSFunctionDef {
         is_lexical: bool,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
+        debug_assert!(!self.parent.is_null());
+
         let vidx = if fd != self.parent {
             // search var_idx along ancestor path
             let i = unsafe {
@@ -138,11 +140,12 @@ impl JSFunctionDef {
         )
     }
 
+    /// `fd` must be an ancestor of `self`.
     #[inline(always)]
-    pub fn get_closure_var(
+    pub(super) fn get_closure_var(
         &mut self,
         ctx: &JSContext,
-        up_fd: *const JSFunctionDef,
+        fd: *const JSFunctionDef,
         is_arg: bool,
         var_idx: u16,
         var_name: JSAtom,
@@ -151,7 +154,7 @@ impl JSFunctionDef {
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
         self.get_closure_var2(
-            ctx, up_fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+            ctx, fd, true, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
         )
     }
 
@@ -205,7 +208,7 @@ impl JSFunctionDef {
     }
 
     /// find closure var by name, returning index of the closure var
-    pub unsafe fn find_closure_var(&self, var_name: JSAtom) -> Option<u16> {
+    pub fn find_closure_var(&self, var_name: JSAtom) -> Option<u16> {
         self.closure_vars
             .as_ref()
             .and_then(|lst| lst.iter().position(|cv| cv.var_name == var_name))
