@@ -14,8 +14,8 @@ mod label;
 mod mkbc;
 mod native;
 mod optimize;
-mod private;
 mod resolve_labels;
+mod resolve_scoped_private;
 mod resolve_scoped_vars;
 mod resolve_vars;
 mod scope;
@@ -25,6 +25,6 @@ mod var_ref;
 
 pub use {
     afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, closure::*, fdef::*,
-    fields::*, fun::*, label::*, native::*, optimize::*, private::*, resolve_vars::*, scope::*,
-    var::*, var_ref::*,
+    fields::*, fun::*, label::*, native::*, optimize::*, resolve_vars::*, scope::*, var::*,
+    var_ref::*,
 };

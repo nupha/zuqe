@@ -24,7 +24,6 @@ pub struct JSFunctionDef {
     pub ctx: JSContext,
 
     /// parent function def
-    /// TODO: use Option<Box<JSFunctionDef>>
     pub parent: *mut JSFunctionDef,
     /// scope level of parent fd
     pub parent_scope_level: i32,
@@ -431,7 +430,7 @@ impl JSFunctionDef {
             upper.child_list.retain(|f| !std::ptr::eq(f.as_ptr(), self))
         }
 
-        // // dropped function def must not exist in parent's children list
+        // ensure dropped function def must not exist in parent's children list
         // #[cfg(debug_assertions)]
         // if let Some(upper) = unsafe { self.parent.as_mut() } {
         //     debug_assert!(
