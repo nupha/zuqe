@@ -1,7 +1,8 @@
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
-    JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
-    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW,
+    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
+    JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array_buffer::ObjArrayBuffer,
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
@@ -458,8 +459,19 @@ impl JSContext {
             JS_CLASS_INT32_ARRAY => ObjectDetail::UINT32_ARRAY(arr),
             JS_CLASS_FLOAT32_ARRAY => ObjectDetail::FLOAT32_ARRAY(arr),
             JS_CLASS_FLOAT64_ARRAY => ObjectDetail::FLOAT64_ARRAY(arr),
-            _ => {
-                unreachable!()
+            c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
+                self.throw_type_error(&format!(
+                    "typed array for {} is unsupported",
+                    if c == JS_CLASS_BIG_INT64_ARRAY {
+                        "BigInt"
+                    } else {
+                        "BigUint"
+                    }
+                ));
+                return Err(-1);
+            }
+            c => {
+                unreachable!("{c}")
             }
         };
         let ta = self
