@@ -1,18 +1,13 @@
-use std::{ffi::CString, path::PathBuf};
+use std::path::PathBuf;
 
 use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
     error::{JS_ThrowReferenceError, JSResult},
-    eval::{
-        JS_EVAL_FLAG_COMPILE_ONLY, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MASK,
-        JS_EVAL_TYPE_MODULE,
-    },
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    parse::JS_DetectModule,
     promise::Promise,
     runtime::JSRuntime,
     value::JSValue,
@@ -52,7 +47,17 @@ fn main() {
         JS_SetModuleLoaderFunc(js.as_mut(), None, js_module_loader, std::ptr::null_mut());
     }
 
+    // default context
     let ctx = js.create_context().unwrap();
+
+    // the minimal ctx
+    // let ctx = js
+    //     .create_context_customize(|c| {
+    //         c.init_core_objects_ex(false, false, false);
+    //         c.intrinsic_global_object(&[]);
+    //         Ok(())
+    //     })
+    //     .unwrap();
 
     {
         let global = JSValue::Object(ctx.global_obj());
@@ -67,34 +72,6 @@ fn main() {
     }
 
     let r = ctx.eval_auto(script.as_bytes(), &filename);
-
-    // let eval_flags = if filename.ends_with(".mjs") {
-    //     JS_EVAL_TYPE_MODULE
-    // } else if unsafe { JS_DetectModule(script.as_bytes()) } {
-    //     JS_EVAL_TYPE_MODULE
-    // } else {
-    //     JS_EVAL_TYPE_GLOBAL
-    // };
-    //
-    // let r = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
-    //     // is module script:
-    //     // compile then run to be able to set import.meta
-    //     // let esm_func = ctx.eval(
-    //     //     script.as_bytes(),
-    //     //     &filename,
-    //     //     eval_flags | JS_EVAL_FLAG_COMPILE_ONLY,
-    //     // );
-    //
-    //     if let Ok(md) = ModuleDef::compile(&ctx, script.as_bytes(), &filename, false) {
-    //         js_module_set_import_meta(&ctx, &md, 1, true);
-    //         md.eval(&ctx).map_or(JSValue::EXCEPTION, |p| p.into())
-    //     } else {
-    //         JSValue::EXCEPTION
-    //     }
-    // } else {
-    //     // is normal script.
-    //     ctx.eval(script.as_bytes(), &filename, eval_flags)
-    // };
 
     loop {
         match js.tick() {
