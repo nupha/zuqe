@@ -786,28 +786,19 @@ pub unsafe fn instantiate_hoisted_definitions(
 
 pub struct FunctionDefParentIter<'a> {
     cur_fd: *const JSFunctionDef,
-    cur_scope: i32,
     _mark: PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for FunctionDefParentIter<'a> {
-    type Item = (&'a JSFunctionDef, i32);
+    type Item = &'a JSFunctionDef;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.cur_fd.is_null() {
             let fd = self.cur_fd;
-            let sc = self.cur_scope;
-
-            if let Some((up, sc)) = unsafe {
-                self.cur_fd
-                    .as_ref()
-                    .map(|x| (x.parent, x.parent_scope_level))
-            } {
+            if let Some(up) = unsafe { self.cur_fd.as_ref().map(|x| x.parent) } {
                 self.cur_fd = up;
-                self.cur_scope = sc;
             }
-
-            Some((unsafe { fd.as_ref().unwrap() }, sc))
+            Some(unsafe { fd.as_ref().unwrap() })
         } else {
             None
         }
@@ -820,7 +811,6 @@ impl JSFunctionDef {
         if include_self {
             FunctionDefParentIter {
                 cur_fd: self as *const Self,
-                cur_scope: self.scope_level,
                 _mark: PhantomData,
             }
         } else {
@@ -829,13 +819,11 @@ impl JSFunctionDef {
                 debug_assert_eq!(self.parent_scope_level, unsafe { (*p).scope_level });
                 FunctionDefParentIter {
                     cur_fd: p,
-                    cur_scope: self.parent_scope_level,
                     _mark: PhantomData,
                 }
             } else {
                 FunctionDefParentIter {
                     cur_fd: std::ptr::null(),
-                    cur_scope: 0,
                     _mark: PhantomData,
                 }
             }

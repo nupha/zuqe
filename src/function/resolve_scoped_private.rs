@@ -17,7 +17,7 @@ impl JSFunctionDef {
         let mut root_fd: Option<&JSFunctionDef> = None;
         let mut is_ref = false;
 
-        for (cur_fd, cur_scope) in self.parent_iter(true) {
+        for cur_fd in self.parent_iter(true) {
             if let Some(mut idx) = cur_fd.find_private_class_field_all(var_name, scope_level) {
                 let var_kind = cur_fd.vars[idx as usize].var_kind();
                 if is_ref {
@@ -36,7 +36,7 @@ impl JSFunctionDef {
                 return Ok((idx, var_kind, is_ref));
             }
 
-            scope_level = cur_scope;
+            scope_level = cur_fd.parent_scope_level;
             root_fd = Some(cur_fd);
             is_ref = true;
         }
