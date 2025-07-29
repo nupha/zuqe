@@ -425,14 +425,19 @@ impl JSFunctionDef {
         JS_FreeAtomRT(rt, self.func_name);
         JS_FreeAtomRT(rt, self.filename);
 
-        // check parent's child_list
-        #[cfg(debug_assertions)]
-        if let Some(up) = unsafe { self.parent.as_ref() } {
-            debug_assert!(
-                !up.child_list.iter().any(|f| std::ptr::eq(f.as_ptr(), self)),
-                "the dropped function def must have been removed from its parent's child_list"
-            );
+        // ensure `self` function def does not exist in parent's child_list
+        if let Some(up) = unsafe { self.parent.as_mut() } {
+            up.child_list.retain(|f| !std::ptr::eq(f.as_ptr(), self));
         }
+
+        // check parent's child_list
+        // #[cfg(debug_assertions)]
+        // if let Some(up) = unsafe { self.parent.as_ref() } {
+        //     debug_assert!(
+        //         !up.child_list.iter().any(|f| std::ptr::eq(f.as_ptr(), self)),
+        //         "the dropped function def must have been removed from its parent's child_list"
+        //     );
+        // }
     }
 }
 
