@@ -1,4 +1,4 @@
-use std::{ops::DerefMut, ptr::NonNull};
+use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*},
@@ -26,13 +26,11 @@ pub struct JSFunctionDef {
     /// parent function def
     /// TODO: use Option<Box<JSFunctionDef>>
     pub parent: *mut JSFunctionDef,
-
+    /// scope level of parent fd
+    pub parent_scope_level: i32,
     /// 在父级常量池中的索引，-1表示无
     /// TODO: use Option<u16>
     pub parent_cpool_idx: i32,
-
-    // 父级作用域层级
-    pub parent_scope_level: i32,
 
     /// list of children function defs
     pub child_list: Vec<NonNull<JSFunctionDef>>,
@@ -128,9 +126,9 @@ pub struct JSFunctionDef {
 
     /// scopes stack
     pub scopes: Vec<JSVarScope>,
-    /// current scope level
+    /// scope level of self function def
     pub scope_level: i32,
-    /// denotes the starting index to retrive chain of variable defs since this scope.
+    /// the starting index to retrive chain of variable defs since this scope.
     pub scope_first: i32,
 
     /// scope for function body, should be 1 after setup.
@@ -310,20 +308,18 @@ impl JSFunctionDef {
         let mut fd = Self::new0(ctx, is_eval, is_func_expr, filename, line_num)?;
 
         if !parent.is_null() {
-            fd.parent = parent;
-            fd.js_mode = unsafe { (*parent).js_mode };
-            fd.parent_scope_level = unsafe { (*parent).scope_level as i32 };
-
             unsafe {
+                fd.parent = parent;
+                fd.parent_scope_level = (*parent).scope_level;
+                fd.js_mode = (*parent).js_mode;
+
                 if (*parent).child_list.len() == (*parent).child_list.capacity() {
                     (*parent).child_list.try_reserve(8).map_err(|_| {
                         ctx.throw_out_of_memory();
                         -1
                     })?;
                 }
-
-                let fd_ptr = NonNull::from(fd.deref_mut());
-                (*parent).child_list.push(fd_ptr);
+                (*parent).child_list.push(NonNull::from(fd.deref_mut()));
             }
         }
 
@@ -789,4 +785,63 @@ pub unsafe fn instantiate_hoisted_definitions(
     }
 
     (*s).global_vars.clear();
+}
+
+pub struct FunctionDefParentIter<'a> {
+    cur_fd: *const JSFunctionDef,
+    cur_scope: i32,
+    _mark: PhantomData<&'a ()>,
+}
+
+impl<'a> Iterator for FunctionDefParentIter<'a> {
+    type Item = (&'a JSFunctionDef, i32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.cur_fd.is_null() {
+            let fd = self.cur_fd;
+            let sc = self.cur_scope;
+
+            if let Some((up, sc)) = unsafe {
+                self.cur_fd
+                    .as_ref()
+                    .map(|x| (x.parent, x.parent_scope_level))
+            } {
+                self.cur_fd = up;
+                self.cur_scope = sc;
+            }
+
+            Some((unsafe { fd.as_ref().unwrap() }, sc))
+        } else {
+            None
+        }
+    }
+}
+
+impl JSFunctionDef {
+    /// iterate over parent function def chain.
+    pub fn parent_iter<'a>(&self, include_self: bool) -> FunctionDefParentIter<'a> {
+        if include_self {
+            FunctionDefParentIter {
+                cur_fd: self as *const Self,
+                cur_scope: self.scope_level,
+                _mark: PhantomData,
+            }
+        } else {
+            let p = self.parent;
+            if !p.is_null() {
+                debug_assert_eq!(self.parent_scope_level, unsafe { (*p).scope_level });
+                FunctionDefParentIter {
+                    cur_fd: p,
+                    cur_scope: self.parent_scope_level,
+                    _mark: PhantomData,
+                }
+            } else {
+                FunctionDefParentIter {
+                    cur_fd: std::ptr::null(),
+                    cur_scope: 0,
+                    _mark: PhantomData,
+                }
+            }
+        }
+    }
 }

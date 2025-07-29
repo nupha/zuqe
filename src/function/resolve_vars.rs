@@ -6,7 +6,7 @@ use crate::{
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
         JSFunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
-        resolve_scope_private_field, skip_dead_code,
+        skip_dead_code,
     },
     utils::{M2, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
 };
@@ -69,7 +69,7 @@ impl JSFunctionDef {
 
         let mut bc_out = Vec::<u8>::new();
         if bc_out
-            .try_reserve_exact(bc_buf_len + std::cmp::max(bc_buf_len >> 3, 64))
+            .try_reserve(bc_buf_len + std::cmp::max(bc_buf_len >> 3, 64))
             .is_err()
         {
             ctx.throw_out_of_memory();
@@ -89,8 +89,6 @@ impl JSFunctionDef {
                 .expect("TODO: handle bytecode alloc exception");
             };
         }
-
-        //let mut cc = CodeContext::from_raw(bc_buf_ptr, bc_buf_len);
 
         let mut line_num = 0_i32;
         let mut pos = 0_usize;
@@ -206,23 +204,18 @@ impl JSFunctionDef {
                             read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
                         )
                     };
-                    // let var_name = JSAtom(get_u32(unsafe { bc_buf_ptr.add(pos + 1) }));
-                    // let scope = get_u16(unsafe { bc_buf_ptr.add(pos + 5) });
-                    if resolve_scope_private_field(
-                        ctx,
-                        self,
-                        var_name,
-                        scope as i32,
-                        op,
-                        &mut bc_out,
-                    ) < 0
+
+                    if self
+                        .resolve_scope_private_field(ctx, var_name, scope as _, op, &mut bc_out)
+                        .is_err()
                     {
                         // fail: continue the copy to keep the atom refcounts consistent
-                        // XXX: find a better solution ? */
+                        // XXX: find a better solution ?
                         while pos < bc_buf_len {
                             let op_len1 =
                                 opcode_info_intermediate(self.byte_code[pos]).size as usize;
                             pos_next = pos + op_len1;
+
                             if push_vec_slice(
                                 &mut bc_out,
                                 unsafe { bc_buf_ptr.add(pos as usize) },
@@ -235,13 +228,12 @@ impl JSFunctionDef {
                             }
                             pos = pos_next;
                         }
-
                         bc_out.shrink_to_fit();
                         self.byte_code = bc_out;
                         return Err(-1);
+                    } else {
+                        JS_FreeAtom(ctx, var_name);
                     }
-
-                    JS_FreeAtom(ctx, var_name);
                 }
                 opcodes::OP_gosub => {
                     #[cfg(feature = "short_opcode")]

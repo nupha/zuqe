@@ -6,165 +6,23 @@ use crate::{
     function::{JSFunctionDef, JSVarKindEnum, get_loc_or_ref},
 };
 
-/// var_name is not consumed.
-// return 0 if OK or -1 if the private field could not be resolved
-pub fn resolve_scope_private_field(
-    ctx: &JSContext,
-    s: *mut JSFunctionDef,
-    var_name: JSAtom,
-    scope_level: i32,
-    op: u8,
-    bc: &mut Vec<u8>,
-) -> i32 {
-    let mut is_ref = false;
-    let mut var_kind = JSVarKindEnum::JS_VAR_NORMAL;
-
-    let idx =
-        resolve_scope_private_field1(ctx, &mut is_ref, &mut var_kind, s, var_name, scope_level);
-    if idx < 0 {
-        return -1;
-    }
-    debug_assert_ne!(var_kind, JSVarKindEnum::JS_VAR_NORMAL);
-
-    match op as u8 {
-        opcodes::op_scope_get_private_field | opcodes::op_scope_get_private_field2 => {
-            match var_kind {
-                JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
-                    if op == opcodes::op_scope_get_private_field2 {
-                        bc.push(opcodes::OP_dup);
-                    }
-                    get_loc_or_ref(bc, is_ref, idx);
-                    bc.push(opcodes::OP_get_private_field);
-                }
-                JSVarKindEnum::JS_VAR_PRIVATE_METHOD => {
-                    get_loc_or_ref(bc, is_ref, idx);
-                    bc.push(opcodes::OP_check_brand);
-                    if op != opcodes::op_scope_get_private_field2 {
-                        bc.push(opcodes::OP_nip);
-                    }
-                }
-                JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
-                    if op == opcodes::op_scope_get_private_field2 {
-                        bc.push(opcodes::OP_dup);
-                    }
-                    get_loc_or_ref(bc, is_ref, idx);
-
-                    bc.push(opcodes::OP_check_brand);
-                    bc.push(opcodes::OP_call_method);
-                    bc.extend_from_slice(&[0, 0]); // 0_u16
-                }
-                JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
-                    // XXX: add clearer error message
-                    bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
-                    bc.push(JS_THROW_VAR_RO);
-                }
-                _ => {
-                    unreachable!();
-                }
-            }
-        }
-        opcodes::op_scope_put_private_field => {
-            match var_kind {
-                JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
-                    get_loc_or_ref(bc, is_ref, idx);
-                    bc.push(opcodes::OP_put_private_field);
-                }
-                JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
-                    // XXX: add clearer error message
-                    bc.push(opcodes::OP_throw_error);
-                    bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
-                    bc.push(JS_THROW_VAR_RO);
-                }
-                JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
-                    let setter_name = get_private_setter_name(ctx, var_name);
-                    if setter_name == JS_ATOM_NULL {
-                        return -1;
-                    }
-                    let idx = resolve_scope_private_field1(
+impl JSFunctionDef {
+    /// `var_name` is not consumed
+    fn resolve_scope_private_field1(
+        &mut self,
+        ctx: &JSContext,
+        var_name: JSAtom,
+        mut scope_level: i32,
+    ) -> Result<(i32, JSVarKindEnum, bool), i32> {
+        let mut root_fd: Option<&JSFunctionDef> = None;
+        let mut is_ref = false;
+        for (cur_fd, scope) in self.parent_iter(true) {
+            if let Some(mut idx) = cur_fd.find_private_class_field_all(var_name, scope_level) {
+                let var_kind = cur_fd.vars.get(idx as usize).unwrap().var_kind();
+                if is_ref {
+                    idx = self.get_closure_var2(
                         ctx,
-                        &mut is_ref,
-                        &mut var_kind,
-                        s,
-                        setter_name,
-                        scope_level,
-                    );
-                    JS_FreeAtom(ctx, setter_name);
-                    if idx < 0 {
-                        return -1;
-                    }
-                    debug_assert_eq!(var_kind, JSVarKindEnum::JS_VAR_PRIVATE_SETTER);
-
-                    get_loc_or_ref(bc, is_ref, idx);
-
-                    bc.push(opcodes::OP_swap);
-                    // obj func value
-                    bc.push(opcodes::OP_rot3r);
-                    // value obj func
-                    bc.push(opcodes::OP_check_brand);
-                    bc.push(opcodes::OP_rot3l);
-                    // obj func value
-                    bc.push(opcodes::OP_call_method);
-                    bc.extend_from_slice(1_u16.to_ne_bytes().as_slice());
-                    bc.push(opcodes::OP_drop);
-                }
-                _ => {
-                    unreachable!(); // C2RS: Replaced abort() with unreachable!()
-                }
-            }
-        }
-        opcodes::op_scope_in_private_field => {
-            get_loc_or_ref(bc, is_ref, idx);
-            bc.push(opcodes::OP_private_in);
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-
-    0
-}
-
-// search in all scopes
-pub fn find_private_class_field_all(fd: *mut JSFunctionDef, name: JSAtom, scope_level: i32) -> i32 {
-    debug_assert!(scope_level >= 0);
-
-    let mut idx = unsafe { (*fd).scopes[scope_level as usize].first };
-    while idx >= 0 {
-        if unsafe { (*fd).vars.get(idx as usize).unwrap().var_name } == name {
-            return idx;
-        }
-        idx = unsafe { (*fd).vars.get(idx as usize).unwrap().scope_next };
-    }
-
-    return -1;
-}
-
-/// var_name is not consumed
-pub fn resolve_scope_private_field1(
-    ctx: &JSContext,
-    pis_ref: *mut bool,
-    pvar_kind: *mut JSVarKindEnum,
-    s: *mut JSFunctionDef,
-    var_name: JSAtom,
-    mut scope_level: i32,
-) -> i32 {
-    let mut fd = s;
-    let mut is_ref = false;
-    let mut idx: i32;
-    let var_kind: JSVarKindEnum;
-
-    'outer: loop {
-        idx = find_private_class_field_all(fd, var_name, scope_level);
-        if idx >= 0 {
-            var_kind = unsafe { (*fd).vars.get(idx as usize).unwrap().var_kind() };
-            if is_ref {
-                idx = if let Ok(vi) = unsafe {
-                    (*s).get_closure_var2(
-                        ctx,
-                        fd,
+                        cur_fd,
                         true,
                         false,
                         idx as u16,
@@ -172,75 +30,183 @@ pub fn resolve_scope_private_field1(
                         true,
                         true,
                         JSVarKindEnum::JS_VAR_NORMAL,
-                    )
-                } {
-                    vi as i32
-                } else {
-                    return -1;
+                    )? as i32;
                 }
+                return Ok((idx, var_kind, is_ref));
             }
-            break 'outer;
+
+            scope_level = scope;
+            root_fd = Some(cur_fd);
+            is_ref = true;
         }
 
-        scope_level = unsafe { (*fd).parent_scope_level };
-        if unsafe { (*fd).parent.is_null() } {
-            if unsafe { (*fd).is_eval } {
-                // closure of the eval function (top level)
-                if let Some(cvars) = unsafe { (*fd).closure_vars.as_ref() } {
-                    for (i, cv) in cvars.iter().enumerate() {
-                        if cv.var_name == var_name {
-                            var_kind = cv.var_kind();
-                            is_ref = true;
+        // reach here because var_name was not found till root fd.
 
-                            if fd != s {
-                                idx = if let Ok(vi) = unsafe {
-                                    (*s).get_closure_var2(
-                                        ctx,
-                                        fd,
-                                        false,
-                                        (*cv).is_arg(),
-                                        i as _,
-                                        cv.var_name,
-                                        cv.is_const(),
-                                        cv.is_lexical(),
-                                        cv.var_kind(),
-                                    )
-                                } {
-                                    vi as i32
-                                } else {
-                                    return -1;
-                                }
-                            }
+        let root_fd = root_fd.unwrap();
+        if root_fd.is_eval {
+            // find in closure of the eval function (the root fd)
+            if let Some((i, cv)) = root_fd.closure_vars.as_ref().and_then(|cvars| {
+                cvars.iter().enumerate().find_map(|(i, cv)| {
+                    if cv.var_name == var_name {
+                        Some((i, cv))
+                    } else {
+                        None
+                    }
+                })
+            }) {
+                let var_kind = cv.var_kind();
+                let idx = if !std::ptr::eq(root_fd, self) {
+                    self.get_closure_var2(
+                        ctx,
+                        root_fd,
+                        false,
+                        cv.is_arg(),
+                        i as _,
+                        cv.var_name,
+                        cv.is_const(),
+                        cv.is_lexical(),
+                        cv.var_kind(),
+                    )? as i32
+                } else {
+                    i as i32
+                };
+                return Ok((idx, var_kind, true));
+            }
+        }
 
-                            break 'outer; // goto done
+        // XXX: no line number info
+        JS_ThrowSyntaxError(
+            ctx,
+            &format!("undefined private field '{}'", var_name.to_str(ctx.rt())),
+        );
+        return Err(-1);
+    }
+
+    /// search `var_name` in all scopes since `scope_level`.
+    /// `var_name` is not consumed.
+    fn find_private_class_field_all(&self, var_name: JSAtom, scope_level: i32) -> Option<i32> {
+        debug_assert!(scope_level >= 0);
+
+        let mut idx = self.scopes[scope_level as usize].first;
+        while idx >= 0 {
+            if self.vars.get(idx as usize).unwrap().var_name == var_name {
+                return Some(idx);
+            }
+            idx = self.vars.get(idx as usize).unwrap().scope_next;
+        }
+
+        None
+    }
+
+    /// `var_name` is not consumed.
+    pub(super) fn resolve_scope_private_field(
+        &mut self,
+        ctx: &JSContext,
+        var_name: JSAtom,
+        scope_level: i32,
+        op: u8,
+        bc: &mut Vec<u8>,
+    ) -> Result<(), i32> {
+        let (mut idx, mut var_kind, mut is_ref) =
+            self.resolve_scope_private_field1(ctx, var_name, scope_level)?;
+        debug_assert_ne!(var_kind, JSVarKindEnum::JS_VAR_NORMAL);
+
+        match op as u8 {
+            opcodes::op_scope_get_private_field | opcodes::op_scope_get_private_field2 => {
+                match var_kind {
+                    JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
+                        if op == opcodes::op_scope_get_private_field2 {
+                            bc.push(opcodes::OP_dup);
                         }
+                        get_loc_or_ref(bc, is_ref, idx);
+                        bc.push(opcodes::OP_get_private_field);
+                    }
+                    JSVarKindEnum::JS_VAR_PRIVATE_METHOD => {
+                        get_loc_or_ref(bc, is_ref, idx);
+                        bc.push(opcodes::OP_check_brand);
+                        if op != opcodes::op_scope_get_private_field2 {
+                            bc.push(opcodes::OP_nip);
+                        }
+                    }
+                    JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                    | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
+                        if op == opcodes::op_scope_get_private_field2 {
+                            bc.push(opcodes::OP_dup);
+                        }
+                        get_loc_or_ref(bc, is_ref, idx);
+
+                        bc.push(opcodes::OP_check_brand);
+                        bc.push(opcodes::OP_call_method);
+                        bc.extend_from_slice(&[0, 0]); // 0_u16
+                    }
+                    JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
+                        // XXX: add clearer error message
+                        bc.push(opcodes::OP_throw_error);
+                        bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
+                        bc.push(JS_THROW_VAR_RO);
+                    }
+                    _ => {
+                        unreachable!();
                     }
                 }
             }
+            opcodes::op_scope_put_private_field => {
+                match var_kind {
+                    JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
+                        get_loc_or_ref(bc, is_ref, idx);
+                        bc.push(opcodes::OP_put_private_field);
+                    }
+                    JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
+                        // XXX: add clearer error message
+                        bc.push(opcodes::OP_throw_error);
+                        bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
+                        bc.push(JS_THROW_VAR_RO);
+                    }
+                    JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                    | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
+                        let setter_name = get_private_setter_name(ctx, var_name);
+                        if setter_name == JS_ATOM_NULL {
+                            return Err(-1);
+                        }
 
-            // XXX: no line number info
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!("undefined private field '{}'", var_name.to_str(ctx.rt())),
-            );
-            return -1;
-        } else {
-            fd = unsafe { (*fd).parent };
+                        let r = self.resolve_scope_private_field1(ctx, setter_name, scope_level);
+                        JS_FreeAtom(ctx, setter_name);
+                        (idx, var_kind, is_ref) = r?;
+                        debug_assert_eq!(var_kind, JSVarKindEnum::JS_VAR_PRIVATE_SETTER);
+
+                        get_loc_or_ref(bc, is_ref, idx);
+
+                        bc.push(opcodes::OP_swap);
+                        // obj func value
+                        bc.push(opcodes::OP_rot3r);
+                        // value obj func
+                        bc.push(opcodes::OP_check_brand);
+                        bc.push(opcodes::OP_rot3l);
+                        // obj func value
+                        bc.push(opcodes::OP_call_method);
+                        bc.extend_from_slice(1_u16.to_ne_bytes().as_slice());
+                        bc.push(opcodes::OP_drop);
+                    }
+                    _ => {
+                        unreachable!(); // C2RS: Replaced abort() with unreachable!()
+                    }
+                }
+            }
+            opcodes::op_scope_in_private_field => {
+                get_loc_or_ref(bc, is_ref, idx);
+                bc.push(opcodes::OP_private_in);
+            }
+
+            _ => {
+                unreachable!();
+            }
         }
 
-        is_ref = true;
+        Ok(())
     }
-
-    // done:
-    unsafe {
-        *pis_ref = is_ref;
-        *pvar_kind = var_kind;
-    }
-
-    idx
 }
 
-/* build a private setter function name from the private getter name */
-pub fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
+/// build a private setter function name from the private getter name
+fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
     unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }

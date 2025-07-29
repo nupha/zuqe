@@ -3570,3 +3570,59 @@ pub unsafe fn js_new_function_def(
 pub unsafe fn update_label(fd: *mut JSFunctionDef, label: u32, delta: i32) -> i32 {
     (*fd).update_label_ref_count(label, delta)
 }
+
+/// var_name is not consumed.
+// return 0 if OK or -1 if the private field could not be resolved
+#[deprecated(note = "use JSFunctionDef::resolve_scope_private_field() instead")]
+pub fn resolve_scope_private_field(
+    ctx: &JSContext,
+    s: *mut JSFunctionDef,
+    var_name: JSAtom,
+    scope_level: i32,
+    op: u8,
+    bc: &mut Vec<u8>,
+) -> i32 {
+    unreachable!("unused");
+    // unsafe {
+    //     (*s).resolve_scope_private_field(ctx, var_name, scope_level, op, bc)
+    //         .map_or(-1, |_| 0)
+    // }
+}
+
+// search in all scopes
+#[deprecated(note = "use JSFunctionDef::find_private_class_field_all() instead")]
+pub fn find_private_class_field_all(
+    fd: *const JSFunctionDef,
+    name: JSAtom,
+    scope_level: i32,
+) -> i32 {
+    unreachable!("unused");
+    // unsafe {
+    //     (*fd)
+    //         .find_private_class_field_all(name, scope_level)
+    //         .unwrap_or(-1)
+    // }
+}
+
+/// var_name is not consumed
+#[deprecated(note = "use JSFunctionDef::resolve_scope_private_field1() instead")]
+pub fn resolve_scope_private_field1(
+    ctx: &JSContext,
+    pis_ref: *mut bool,
+    pvar_kind: *mut JSVarKindEnum,
+    s: *mut JSFunctionDef,
+    var_name: JSAtom,
+    scope_level: i32,
+) -> i32 {
+    unreachable!("unused");
+    // unsafe {
+    //     match (*s).resolve_scope_private_field1(ctx, var_name, scope_level) {
+    //         Ok((idx, kind, is_ref)) => {
+    //             *pis_ref = is_ref;
+    //             *pvar_kind = kind;
+    //             idx
+    //         }
+    //         Err(_) => -1,
+    //     }
+    // }
+}
