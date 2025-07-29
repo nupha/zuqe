@@ -87,11 +87,11 @@ impl JSContext {
 
             self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array.clone().into();
 
-            let array_sh =
+            let array_shape0 =
                 JSShape::with_capacity(self, Some(array.clone()), JS_PROP_INITIAL_HASH_SIZE, 1)
                     .unwrap();
             // define length property at index 0
-            array_sh
+            array_shape0
                 .add_shape_property(
                     self,
                     JS_ATOM_length,
@@ -99,10 +99,7 @@ impl JSContext {
                     None,
                 )
                 .unwrap();
-
-            self.with_mut(|cx| {
-                cx.array_shape.replace(array_sh);
-            });
+            self.0.borrow_mut().array_shape.replace(array_shape0);
         }
 
         /* XXX: could test it on first context creation to ensure that no

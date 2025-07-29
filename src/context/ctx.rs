@@ -436,7 +436,7 @@ impl JSRuntime {
     pub fn create_context(&mut self) -> Result<JSContext, i32> {
         let ctx = self.create_context_core()?;
 
-        unsafe {
+        {
             ctx.intrinsic_base_objects();
             ctx.intrinsic_async();
             ctx.intrinsic_typed_arrays();

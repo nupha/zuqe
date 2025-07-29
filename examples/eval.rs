@@ -47,17 +47,23 @@ fn main() {
         JS_SetModuleLoaderFunc(js.as_mut(), None, js_module_loader, std::ptr::null_mut());
     }
 
-    // default context
-    let ctx = js.create_context().unwrap();
+    // the default context
+    // let ctx = js.create_context().unwrap();
 
-    // the minimal ctx
-    // let ctx = js
-    //     .create_context_customize(|c| {
-    //         c.init_core_objects_ex(false, false, false);
-    //         c.intrinsic_global_object(&[]);
-    //         Ok(())
-    //     })
-    //     .unwrap();
+    // the customized ctx
+    let ctx = js
+        .create_context_customize(|c| {
+            c.init_core_objects_ex(true, true, true);
+            //c.intrinsic_base_objects();
+
+            c.intrinsic_global_object(&[]);
+            c.intrinsic_async();
+            c.intrinsic_typed_arrays();
+            // c.intrinsic_math();
+
+            Ok(())
+        })
+        .unwrap();
 
     {
         let global = JSValue::Object(ctx.global_obj());

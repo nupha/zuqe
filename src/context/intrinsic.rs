@@ -390,7 +390,7 @@ impl JSContext {
         );
     }
 
-    unsafe fn intrinsic_eval(&self) {
+    fn intrinsic_eval(&self) {
         self.0.borrow_mut().eval_handle.replace(
             |ctx: &JSContext,
              this_obj: &JSValue,
@@ -419,7 +419,7 @@ impl JSContext {
     }
 
     /// the `Math` name space.
-    pub unsafe fn intrinsic_math(&self) {
+    pub fn intrinsic_math(&self) {
         self.0.borrow_mut().init_random_seed();
         self.0
             .borrow()
@@ -459,7 +459,7 @@ impl JSContext {
         // make global object - this must come first. (isNan, parseInt, undefined, NaN etc)
         self.intrinsic_global_object(&js_global_props);
 
-        unsafe {
+        {
             self.intrinsic_throw_error(); // throw TypeError()
 
             self.intrinsic_object(); // Object
