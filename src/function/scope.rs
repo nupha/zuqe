@@ -178,31 +178,55 @@ impl JSFunctionDef {
     }
 }
 
+pub struct ScopedVarsIterItem<'a> {
+    /// index of vardef
+    pub idx: i32,
+    /// reference to vardef
+    pub vd: &'a JSVarDef,
+    pub arg_scope_end: bool,
+}
+
 pub struct ScopedVarsIter<'s> {
-    fd: *const JSFunctionDef,
-    cur_vardef_idx: Option<i32>,
+    cur_fd: *const JSFunctionDef,
+    cur_idx: i32,
     _mark: PhantomData<&'s ()>,
 }
 
 impl<'s> Iterator for ScopedVarsIter<'s> {
-    type Item = (i32, &'s super::JSVarDef);
+    type Item = ScopedVarsIterItem<'s>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(idx) = self.cur_vardef_idx {
-            let vd = unsafe { (*self.fd).vars.get(idx as usize).unwrap() };
-            self.cur_vardef_idx = if vd.scope_next >= 0 {
-                Some(vd.scope_next as _)
-            } else {
-                None
+        if self.cur_idx >= 0 {
+            let idx = self.cur_idx;
+            let vd = unsafe {
+                self.cur_fd
+                    .as_ref()
+                    .unwrap()
+                    .vars
+                    .get(idx as usize)
+                    .unwrap()
             };
-            Some((idx, vd))
+            self.cur_idx = vd.scope_next;
+
+            Some(ScopedVarsIterItem {
+                idx,
+                vd,
+                arg_scope_end: self.cur_idx == ARG_SCOPE_END,
+            })
         } else {
             None
         }
     }
 }
 
-pub struct ScopedVarsIterItem<'a> {
+impl<'s> ScopedVarsIter<'s> {
+    #[inline(always)]
+    pub fn is_arg_scope(&self) -> bool {
+        self.cur_idx == ARG_SCOPE_END
+    }
+}
+
+pub struct ScopedVarsIterMutItem<'a> {
     /// index of vardef
     pub idx: i32,
     /// reference to vardef
@@ -217,7 +241,7 @@ pub struct ScopedVarsIterMut<'s> {
 }
 
 impl<'s> Iterator for ScopedVarsIterMut<'s> {
-    type Item = ScopedVarsIterItem<'s>;
+    type Item = ScopedVarsIterMutItem<'s>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_idx >= 0 {
@@ -225,7 +249,7 @@ impl<'s> Iterator for ScopedVarsIterMut<'s> {
             let vd = unsafe { self.fd.as_mut().vars.get_mut(idx as usize).unwrap() };
             self.cur_idx = vd.scope_next;
 
-            Some(ScopedVarsIterItem {
+            Some(ScopedVarsIterMutItem {
                 idx,
                 vd,
                 arg_scope_end: self.cur_idx == ARG_SCOPE_END,
@@ -247,8 +271,8 @@ impl JSFunctionDef {
     pub fn scoped_vars_iter<'a>(&self, scope: u16) -> ScopedVarsIter<'a> {
         let idx = self.scopes[scope as usize].first;
         ScopedVarsIter {
-            fd: self,
-            cur_vardef_idx: if idx >= 0 { Some(idx) } else { None },
+            cur_fd: self as *const Self,
+            cur_idx: idx,
             _mark: PhantomData,
         }
     }

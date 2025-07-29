@@ -52,7 +52,9 @@ impl JSFunctionDef {
 
         // resolve local scoped variables: iterate over scoped vars
         let mut is_arg_scope = false;
-        for (idx, vd) in self.scoped_vars_iter(scope_level as _) {
+        for svar in self.scoped_vars_iter(scope_level as _) {
+            let idx = svar.idx;
+            let vd = svar.vd;
             is_arg_scope = idx == ARG_SCOPE_END;
 
             if vd.var_name == var_name {
