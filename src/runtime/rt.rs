@@ -223,6 +223,16 @@ impl JSRuntime {
     fn finalize(&mut self) {
         self.job_list.clear();
         self.cur_exception = JSValue::UNDEFINED;
+
+        #[cfg(debug_assertions)]
+        for c in self.context_list.drain(..) {
+            debug_assert_eq!(
+                Rc::strong_count(&c.0),
+                1,
+                "Context must have 1 strong ref count when Runtime is dropped"
+            );
+        }
+        #[cfg(not(debug_assertions))]
         self.context_list.clear();
 
         self.gc();

@@ -64,27 +64,43 @@ impl JSFunctionDef {
         // so it is necessary to create the closure variables before any
         // other variable lookup is done.
         if self.has_eval_call {
-            add_eval_variables(ctx, &mut self);
+            unsafe {
+                add_eval_variables(ctx, &mut self);
+            }
         }
 
         // add the module global variables in the closure
         if self.module.is_some() {
-            if add_module_variables(ctx, &mut self) != 0 {
+            if unsafe { add_module_variables(ctx, &mut self) } != 0 {
                 return Err(-1);
             }
         }
 
-        // compile child functions
+        // compile child functions.
+        // IMPORTANT: must consume all children fds, even compile a child function has failure.
+        let mut has_err = false;
         for fd1 in self.child_list.drain(..) {
-            let sub_fd = Box::from_raw(fd1.as_ptr()); // restore ownership
+            // restore children fd ownership: allow auto drop after use.
+            let sub_fd = unsafe { Box::from_raw(fd1.as_ptr()) };
 
-            let cpool_idx: i32 = sub_fd.parent_cpool_idx;
-            debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
+            if !has_err {
+                let cpool_idx: i32 = sub_fd.parent_cpool_idx;
+                debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-            let sub_bc = sub_fd.compile(ctx)?;
-
-            // strore child function to parent's constant pool slot
-            self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
+                if let Ok(sub_bc) = unsafe { sub_fd.compile(ctx) } {
+                    // strore child function to parent's constant pool slot
+                    self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
+                } else {
+                    has_err = true;
+                }
+            }
+        }
+        debug_assert!(
+            self.child_list.is_empty(),
+            "must consume all children function defs"
+        );
+        if has_err {
+            return Err(-1);
         }
 
         #[cfg(feature = "dump_bytecode")]
@@ -194,45 +210,53 @@ impl JSFunctionDef {
         })?;
 
         // initialize buf with zero: don't change order.
-        bin.set_len(bin_size);
-        bin.fill(0);
+        unsafe {
+            bin.set_len(bin_size);
+            bin.fill(0);
+        }
 
         // 1. cpool section
         if inner.cpool_start >= 0 {
             // migrate cpool values to function bytecode binary.
-            let mut dst = bin
-                .as_mut_ptr()
-                .add(inner.cpool_start as usize)
-                .cast::<JSValue>();
+            unsafe {
+                let mut dst = bin
+                    .as_mut_ptr()
+                    .add(inner.cpool_start as usize)
+                    .cast::<JSValue>();
 
-            for v in self.cpool.drain(..) {
-                *dst = v;
-                dst = dst.add(1);
+                for v in self.cpool.drain(..) {
+                    *dst = v;
+                    dst = dst.add(1);
+                }
             }
         }
 
         // 2. vardef section
         if inner.vardefs_start >= 0 {
             if inner.arg_count != 0 {
-                std::ptr::copy_nonoverlapping(
-                    self.args.as_ptr(),
-                    bin.as_mut_ptr()
-                        .add(inner.vardefs_start as usize)
-                        .cast::<JSVarDef>(),
-                    inner.arg_count as usize,
-                );
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        self.args.as_ptr(),
+                        bin.as_mut_ptr()
+                            .add(inner.vardefs_start as usize)
+                            .cast::<JSVarDef>(),
+                        inner.arg_count as usize,
+                    );
+                }
             }
             if inner.var_count != 0 {
-                std::ptr::copy_nonoverlapping(
-                    self.vars.as_ptr(),
-                    bin.as_mut_ptr()
-                        .add(
-                            inner.vardefs_start as usize
-                                + inner.arg_count as usize * std::mem::size_of::<JSVarDef>(),
-                        )
-                        .cast::<JSVarDef>(),
-                    inner.var_count as usize,
-                );
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        self.vars.as_ptr(),
+                        bin.as_mut_ptr()
+                            .add(
+                                inner.vardefs_start as usize
+                                    + inner.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                            )
+                            .cast::<JSVarDef>(),
+                        inner.var_count as usize,
+                    );
+                }
             }
 
             // SAFEGUARD: we have copy arg and var definations to function bytecode above.
@@ -260,14 +284,16 @@ impl JSFunctionDef {
             inner.closure_var_count = cvars.len() as _;
             debug_assert!(inner.closure_var_count < u16::MAX as _);
 
-            let mut ptr = bin
-                .as_mut_ptr()
-                .add(inner.closure_var_start as usize)
-                .cast::<JSClosureVar>();
+            unsafe {
+                let mut ptr = bin
+                    .as_mut_ptr()
+                    .add(inner.closure_var_start as usize)
+                    .cast::<JSClosureVar>();
 
-            for cv in cvars {
-                ptr.write(cv);
-                ptr = ptr.add(1);
+                for cv in cvars {
+                    ptr.write(cv);
+                    ptr = ptr.add(1);
+                }
             }
         }
 
@@ -276,11 +302,14 @@ impl JSFunctionDef {
             inner.opcodes_start as usize + self.byte_code.len(),
             bin.len()
         );
-        std::ptr::copy_nonoverlapping(
-            self.byte_code.as_ptr(),
-            bin.as_mut_ptr().add(inner.opcodes_start as usize),
-            self.byte_code.len(),
-        );
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.byte_code.as_ptr(),
+                bin.as_mut_ptr().add(inner.opcodes_start as usize),
+                self.byte_code.len(),
+            );
+        }
+
         // SAFEGUARD: clear bytecode, so that js_free_function_def() will not free atoms in it.
         self.byte_code.clear();
 

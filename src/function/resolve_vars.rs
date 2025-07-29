@@ -210,7 +210,7 @@ impl JSFunctionDef {
                         .is_err()
                     {
                         // fail: continue the copy to keep the atom refcounts consistent
-                        // XXX: find a better solution ?
+                        // TODO: use std::ptr::copy()?
                         while pos < bc_buf_len {
                             let op_len1 =
                                 opcode_info_intermediate(self.byte_code[pos]).size as usize;
@@ -228,6 +228,7 @@ impl JSFunctionDef {
                             }
                             pos = pos_next;
                         }
+
                         bc_out.shrink_to_fit();
                         self.byte_code = bc_out;
                         return Err(-1);
