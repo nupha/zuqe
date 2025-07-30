@@ -140,33 +140,20 @@ impl JSAtom {
         }
     }
 
-    /// convert atom to str
-    pub fn to_str(self, rt: &JSRuntime) -> Cow<'_, str> {
-        if self.is_int_type() {
-            Cow::Owned(format!("{}", __JS_AtomToUInt32(self)))
-        } else {
-            if self.eq(&JS_ATOM_NULL) {
-                Cow::Borrowed("<null>")
-            } else {
-                let str = rt.get_atom_desc(self).expect("INVALID ATOM");
-                let s = str.content().to_str();
-                s.into_owned().into()
-            }
-        }
-    }
-
-    /// Convert atom to JSValue (String or Symbol), returns EXCEPTION on failure.
+    /// Convert atom to JSValue (String or Symbol), returns EXCEPTION when out of memory.
     /// Note: atom is not consumed.
     pub fn to_value(self, ctx: &JSContext, force_string: bool) -> JSValue {
         if self.is_int_type() {
             ctx.create_string_from_utf8(format!("{}", __JS_AtomToUInt32(self)).into_bytes())
         } else {
             let ss = ctx.rt().get_atom_desc(self).expect("INVALID ATOM").clone();
-            if let AtomHintAndId::String(_) = ss.atom_info().unwrap() {
+
+            if force_string {
                 ss.into()
-            } else if force_string {
+            } else if let AtomHintAndId::String(_) = ss.atom_info().unwrap() {
                 ss.into()
             } else {
+                // Symbol, GlobalSymbol, Private
                 JSValue::Symbol(ss)
             }
         }
@@ -192,10 +179,56 @@ impl JSAtom {
         }
     }
 
-    /// convert atom to string
+    /// run closure with utf8 bytes converted from atom
+    pub fn with_utf8<R>(self, rt: &JSRuntime, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
+        if self.eq(&JS_ATOM_NULL) {
+            f(Cow::Borrowed("<null>"))
+        } else if self.is_int_type() {
+            f(Cow::Owned(format!("{}", __JS_AtomToUInt32(self))))
+        } else {
+            f(rt.get_atom_desc(self)
+                .expect("INVALID ATOM")
+                .content()
+                .to_str())
+        }
+    }
+
+    /// convert atom to utf8 encoded String
+    #[inline]
+    pub fn utf8(self, rt: &JSRuntime) -> String {
+        self.with_utf8(rt, |s| s.into_owned())
+    }
+
+    /// convert atom to utf8 Cow str
+    #[deprecated(note = "use JSAtom::utf8() or JSAtom::with_utf8() instead")]
+    pub fn to_str(self, rt: &JSRuntime) -> Cow<'_, str> {
+        if self.is_int_type() {
+            Cow::Owned(format!("{}", __JS_AtomToUInt32(self)))
+        } else {
+            if self.eq(&JS_ATOM_NULL) {
+                Cow::Borrowed("<null>")
+            } else {
+                rt.get_atom_desc(self)
+                    .expect("INVALID ATOM")
+                    .content()
+                    .to_str()
+                    .into_owned()
+                    .into()
+            }
+        }
+    }
+
+    /// convert atom to utf8 owned string
+    #[deprecated(note = "may equivelent to `JSAtom::utf8()`")]
     pub fn to_utf8_string(&self, ctx: &JSContext) -> Result<String, i32> {
-        let v = self.to_value(ctx, true).check_exception()?;
-        v.coerce_to_utf8(ctx).map(|x| x.to_string())
+        // XXX: same result as following?
+        Ok(self.utf8(ctx.rt()))
+
+        // XXX: same result as following?
+        // self.to_value(ctx, true)
+        //     .check_exception()?
+        //     .coerce_to_utf8(ctx)
+        //     .map(|x| x.to_string())
     }
 }
 

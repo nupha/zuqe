@@ -218,7 +218,7 @@ static ATOM_DEFS: &[&str] = &[
     "URIError",
     "InternalError",
     //
-    // private symbols
+    // privates
     //
     "Private_brand",
     //
@@ -280,14 +280,34 @@ pub fn gen_atoms(outfile: &Path) {
     }
 
     output.push("".into());
+
     output.push(format!(
-        "pub const JS_ATOM_INIT_COUNT:u32={};",
+        "/// count of builtin const atoms\npub const JS_ATOM_INIT_COUNT:u32={};",
         ATOM_DEFS.len() + 1
     ));
-    output.push("pub const JS_ATOM_FIRST: JSAtom = JS_ATOM_null;".into());
+
+    output.push(format!(
+        "/// the first builtin const atom\npub const JS_ATOM_FIRST: JSAtom = JS_ATOM_{};",
+        ATOM_DEFS.first().unwrap()
+    ));
+    output.push(format!(
+        "/// the last builtin const atom\npub const JS_ATOM_LAST: JSAtom = JS_ATOM_{};",
+        ATOM_DEFS.last().unwrap()
+    ));
+
     output.push("pub const JS_ATOM_LAST_KEYWORD: JSAtom = JS_ATOM_super;".into());
     output.push("pub const JS_ATOM_FIRST_STRICT_KEYWORD: JSAtom = JS_ATOM_implements;".into());
     output.push("pub const JS_ATOM_LAST_STRICT_KEYWORD: JSAtom = JS_ATOM_yield;".into());
+
+    // Symbol_XXX
+    output.push(format!(
+        "/// the first builtin const Symbol_XXX atom\npub const JS_ATOM_FIRST_SYMBOL: JSAtom = JS_ATOM_{};",
+        ATOM_DEFS.iter().find(|x|x.starts_with("Symbol_")).unwrap()
+    ));
+    output.push(format!(
+        "/// the last builtin const Symbol_XXX atom\npub const JS_ATOM_LAST_SYMBOL: JSAtom = JS_ATOM_{};",
+        ATOM_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
+    ));
 
     std::fs::write(outfile, output.join("\n")).unwrap();
 }

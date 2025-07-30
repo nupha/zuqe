@@ -48,22 +48,22 @@ fn main() {
     }
 
     // the default context
-    // let ctx = js.create_context().unwrap();
+    let ctx = js.create_context().unwrap();
 
     // the customized ctx
-    let ctx = js
-        .create_context_customize(|c| {
-            c.init_core_objects_ex(true, true, true);
-            //c.intrinsic_base_objects();
+    // let ctx = js
+    //     .create_context_customize(|c| {
+    //         c.init_core_objects_ex(true, true, true);
+    //         //c.intrinsic_base_objects();
 
-            c.intrinsic_global_object(&[]);
-            c.intrinsic_async();
-            c.intrinsic_typed_arrays();
-            // c.intrinsic_math();
+    //         c.intrinsic_global_object(&[]);
+    //         c.intrinsic_async();
+    //         c.intrinsic_typed_arrays();
+    //         // c.intrinsic_math();
 
-            Ok(())
-        })
-        .unwrap();
+    //         Ok(())
+    //     })
+    //     .unwrap();
 
     {
         let global = JSValue::Object(ctx.global_obj());

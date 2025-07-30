@@ -168,13 +168,13 @@ impl JSContext {
 
     pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
         let name = self.rt().class_defs[class_id as usize].class_name;
-        self.throw_type_error(&format!("{} object expected", name.to_str(self.rt())))
+        self.throw_type_error(&format!("{} object expected", name.utf8(self.rt())))
     }
 
     /// flags: 1=raise exception; 0=don't raise exception
     /// returns: true=exception raised; false=no exception raised
     pub fn JS_ThrowTypeErrorReadOnly(&self, flags: u32, atom: JSAtom) -> bool {
-        self.throw_type_error_or_false(flags, &format!("'{}' is read-only", atom.to_str(self.rt())))
+        self.throw_type_error_or_false(flags, &format!("'{}' is read-only", atom.utf8(self.rt())))
     }
 
     pub fn throw_out_of_memory(&self) {
@@ -340,10 +340,7 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: JSAtom) {
     if name == JS_ATOM_NULL {
         JS_ThrowReferenceError(ctx, "lexical variable is not initialized");
     } else {
-        JS_ThrowReferenceError(
-            ctx,
-            &format!("{} is not initialized", name.to_str(&ctx.rt())),
-        );
+        JS_ThrowReferenceError(ctx, &format!("{} is not initialized", name.utf8(&ctx.rt())));
     }
 }
 
@@ -352,7 +349,7 @@ pub fn JS_ThrowReferenceError(ctx: &JSContext, message: &str) {
 }
 
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
-    JS_ThrowReferenceError(ctx, &format!("'{}' is not defined", name.to_str(ctx.rt())))
+    JS_ThrowReferenceError(ctx, &format!("'{}' is not defined", name.utf8(ctx.rt())))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {
@@ -378,7 +375,7 @@ pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &JSContext) {
 pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
-        atom.to_str(ctx.rt())
+        atom.utf8(ctx.rt())
     ));
 }
 
@@ -391,10 +388,7 @@ pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
 }
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {
-    JS_ThrowSyntaxError(
-        ctx,
-        &format!("redeclaration of '{}'", prop.to_str(ctx.rt())),
-    );
+    JS_ThrowSyntaxError(ctx, &format!("redeclaration of '{}'", prop.utf8(ctx.rt())));
 }
 
 /// used to avoid catching interrupt exceptions

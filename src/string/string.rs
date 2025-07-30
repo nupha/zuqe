@@ -503,13 +503,13 @@ impl JSContext {
     }
 
     /// create string jsvalue from an utf8 encoded str.
-    pub fn create_string_from_utf8(&self, data: Vec<u8>) -> JSValue {
-        if data.is_empty() {
+    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> JSValue {
+        if utf8_bytes.is_empty() {
             JS_ATOM_empty_string.to_value(self, true)
-        } else if data.len() > JS_STRING_LEN_MAX {
+        } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
             self.throw_internal_error("string too long");
             JSValue::EXCEPTION
-        } else if let Ok(ss) = JSString::from_utf8(self.rt_mut(), data) {
+        } else if let Ok(ss) = JSString::from_utf8(self.rt_mut(), utf8_bytes) {
             JSValue::String(ss)
         } else {
             self.throw_out_of_memory();

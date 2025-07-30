@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_ERROR,
     JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
     JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
-    JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
     },
@@ -18,8 +18,8 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
-        js_async_function_proto_funcs,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeCallback, NativeField,
+        NativeFunctionType, js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -45,6 +45,7 @@ use crate::{
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectDetail, js_object_seal,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
+    symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
         js_typed_array_base_constructor, js_typed_array_base_funcs,
@@ -333,6 +334,39 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
     }
 
+    fn intrinsic_symbol(&self) {
+        let symbol_obj = self.create_base_object().unwrap();
+        symbol_obj
+            .install_native_fields(self, &js_symbol_proto_funcs)
+            .unwrap();
+
+        let symbol_ctor = self
+            .create_global_constructor(
+                "Symbol",
+                js_symbol_constructor,
+                0,
+                &symbol_obj.clone().into(),
+                0,
+            )
+            .unwrap();
+        symbol_ctor
+            .install_native_fields(self, &js_symbol_funcs)
+            .unwrap();
+
+        // pre-define builtin Symbol_XXX
+        for i in JS_ATOM_FIRST_SYMBOL.0..=JS_ATOM_LAST_SYMBOL.0 {
+            let a = JSAtom(i);
+            a.with_utf8(self.rt(), |s| {
+                let str = s.as_ref().split_once('.').unwrap().1; // skip "Symbol."
+                symbol_ctor
+                    .define_property_value_str(self, str, a.to_value(self, false), 0)
+                    .unwrap();
+            });
+        }
+
+        self.0.borrow_mut().class_proto[JS_CLASS_SYMBOL as usize] = symbol_obj.into();
+    }
+
     fn intrinsic_iterator(&self) {
         // self.iterator_proto = JS_NewObject(ctx);
         // JS_SetPropertyFunctionList(
@@ -480,40 +514,7 @@ impl JSContext {
             //     std::mem::size_of_val(js_reflect_obj) / std::mem::size_of::<JSFunction>(),
             // );
 
-            // ES6 Symbol
-            // ctx.class_proto[JS_CLASS_SYMBOL] = JS_NewObject(ctx);
-            // JS_SetPropertyFunctionList(
-            //     ctx,
-            //     ctx.class_proto[JS_CLASS_SYMBOL],
-            //     js_symbol_proto_funcs.as_ptr(),
-            //     std::mem::size_of_val(js_symbol_proto_funcs) / std::mem::size_of::<JSFunction>(),
-            // );
-            // obj = JS_NewGlobalCConstructor(
-            //     ctx,
-            //     c"Symbol",
-            //     js_symbol_constructor,
-            //     0,
-            //     ctx.class_proto[JS_CLASS_SYMBOL],
-            // );
-            // JS_SetPropertyFunctionList(
-            //     ctx,
-            //     obj,
-            //     js_symbol_funcs.as_ptr(),
-            //     std::mem::size_of_val(js_symbol_funcs) / std::mem::size_of::<JSFunction>(),
-            // );
-            // for i in JS_ATOM_Symbol_toPrimitive..JS_ATOM_END {
-            //     let mut buf: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-            //     let str: *const i8;
-            //     let mut p: *const i8;
-            //     str = JS_AtomGetStr(ctx, buf.as_mut_ptr(), std::mem::size_of_val(&buf) as u32, i);
-            //     // skip "Symbol."
-            //     p = strchr(str, '.' as i32);
-            //     if !p.is_null() {
-            //         str = p.offset(1);
-            //     }
-            //     JS_DefinePropertyValueStr(ctx, obj, str, JS_AtomToValue(ctx, i), 0);
-            // }
-
+            self.intrinsic_symbol(); // ES6 Symbol
             self.intrinsic_generator(); // ES6 Generator
 
             self.intrinsic_eval(); // enable `eval()` function
