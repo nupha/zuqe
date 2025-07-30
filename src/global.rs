@@ -8,7 +8,7 @@ use crate::{
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD,
         JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE, JSProperty,
     },
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 impl JSContext {

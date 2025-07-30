@@ -5,7 +5,7 @@ use crate::{
     },
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
-    function::{BlockEnv, pop_break_entry, push_break_entry},
+    function::BlockEnv,
     object::PROP_TYPE_IDENT,
     parse::token::{
         CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
@@ -405,11 +405,12 @@ impl<'s> JSParseState<'s> {
         self.next_token()?;
 
         // the block environment is only needed in generators in case 'yield' triggers a 'return'
-        let mut block_env = BlockEnv::default();
-        unsafe {
-            push_break_entry(self.cur_func_mut(), &mut block_env, JS_ATOM_NULL, -1, -1, 2);
-        }
-        block_env.has_iterator = true;
+        let mut block_env = BlockEnv {
+            drop_count: 2,
+            has_iterator: true,
+            ..Default::default()
+        };
+        self.cur_func_mut().push_break_entry(&mut block_env);
         self.emit_op(OpCode::FOR_OF_START);
 
         let mut has_spread = false;
@@ -558,9 +559,8 @@ impl<'s> JSParseState<'s> {
         // close iterator object:
         // if completed, enum_obj has been replaced by undefined
         self.emit_op(OpCode::ITERATOR_CLOSE);
-        unsafe {
-            pop_break_entry(self.cur_func_mut());
-        }
+
+        self.cur_func_mut().pop_break_entry();
 
         self.next_token()
     }

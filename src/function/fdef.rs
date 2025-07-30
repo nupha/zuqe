@@ -144,7 +144,8 @@ pub struct JSFunctionDef {
 
     pub label_slots: Vec<LabelSlot>,
 
-    /// break/continue label stack
+    /// raw pointer to top break entry chain.
+    /// this pointer does not take ownership of block env.
     pub top_break: *mut BlockEnv,
 
     /// jump slots capacity
@@ -492,31 +493,6 @@ pub struct JumpSlot {
     pub size: i32,
     pub pos: i32,
     pub label: i32,
-}
-
-/// `label_name` is not consumed
-pub unsafe fn push_break_entry(
-    fd: *mut JSFunctionDef,
-    be: *mut BlockEnv,
-    label_name: JSAtom,
-    label_break: i32,
-    label_cont: i32,
-    drop_count: i32,
-) {
-    (*be).prev = (*fd).top_break;
-    (*fd).top_break = be;
-    (*be).label_name = label_name;
-    (*be).label_break = label_break;
-    (*be).label_cont = label_cont;
-    (*be).drop_count = drop_count;
-    (*be).label_finally = -1;
-    (*be).scope_level = (*fd).scope_level;
-    (*be).has_iterator = false;
-}
-
-pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
-    let be = (*fd).top_break;
-    (*fd).top_break = (*be).prev;
 }
 
 pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {

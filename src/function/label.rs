@@ -1,7 +1,10 @@
 use crate::{
+    atom::JSAtom,
     bytecode::{opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
-    function::{JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE},
+    function::{
+        BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
+    },
     utils::{push_vec_leb128, push_vec_sleb128, push_vec_u8, read_from_ptr},
 };
 
@@ -94,6 +97,20 @@ impl JSFunctionDef {
         }
 
         false
+    }
+
+    /// push a break entry on break stack of the function def.
+    pub fn push_break_entry(&mut self, be: &mut BlockEnv) {
+        be.scope_level = self.scope_level;
+
+        // chain up break entry stack
+        be.prev = self.top_break;
+        self.top_break = be as *mut _;
+    }
+
+    pub fn pop_break_entry(&mut self) {
+        let top = self.top_break;
+        self.top_break = unsafe { (*top).prev };
     }
 }
 

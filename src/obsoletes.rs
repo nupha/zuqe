@@ -16,8 +16,8 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
     function::{
-        Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum, JSGlobalVar,
-        JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeField,
+        BlockEnv, Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum,
+        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeField,
         NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry, js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
@@ -3614,4 +3614,31 @@ pub fn resolve_scope_private_field1(
     //         Err(_) => -1,
     //     }
     // }
+}
+
+/// `label_name` is not consumed
+#[deprecated(note = "use JSFunctionDef::push_break_entry() instead")]
+pub unsafe fn push_break_entry(
+    fd: *mut JSFunctionDef,
+    be: *mut BlockEnv,
+    label_name: JSAtom,
+    label_break: i32,
+    label_cont: i32,
+    drop_count: i32,
+) {
+    (*be).prev = (*fd).top_break;
+    (*fd).top_break = be;
+    (*be).label_name = label_name;
+    (*be).label_break = label_break;
+    (*be).label_cont = label_cont;
+    (*be).drop_count = drop_count;
+    (*be).label_finally = -1;
+    (*be).scope_level = (*fd).scope_level;
+    (*be).has_iterator = false;
+}
+
+#[deprecated(note = "use JSFunctionDef::pop_break_entry() instead")]
+pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
+    let be = (*fd).top_break;
+    (*fd).top_break = (*be).prev;
 }

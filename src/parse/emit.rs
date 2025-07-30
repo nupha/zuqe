@@ -452,8 +452,8 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_return(hasval, ln);
     }
 
-    /// emit on current function def.
-    /// `name` is not consumed.
+    /// emit on current function def. `name` is the label name, JS_ATOM_NULL for none.
+    /// Note: `name` is not consumed.
     pub fn emit_break(&mut self, name: JSAtom, is_continue: bool) -> i32 {
         let (mut scope_level, mut top_break) = {
             let f = self.cur_func();
