@@ -19,7 +19,7 @@ use super::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK, JS_
 impl JSObject {
     /// walk up proto chain and get property in shape or by exotic handler.
     /// Note: returned value is duplicated.
-    pub(crate) fn get_property_ex(
+    pub(crate) fn get_property_internal(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -33,7 +33,7 @@ impl JSObject {
                 return JSValue::EXCEPTION;
             };
 
-            // 1. find own property in shape
+            // 1. try own property (in shape)
             if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
@@ -151,7 +151,7 @@ impl JSObject {
     /// returns EXCEPTION when fail
     #[inline(always)]
     pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSValue {
-        self.get_property_ex(ctx, prop, &JSValue::Object(self.clone()), false)
+        self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
     /// returns EXCEPTION when fail
@@ -290,18 +290,18 @@ impl JSValue {
         throw_ref_error: bool,
     ) -> JSValue {
         match self {
-            Self::Object(o) => o.get_property_ex(ctx, prop, this_obj, throw_ref_error),
+            Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::NULL => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of null",
-                    prop.to_str(ctx.rt())
+                    prop.utf8(ctx.rt())
                 ));
                 JSValue::EXCEPTION
             }
             Self::UNDEFINED => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of undefined",
-                    prop.to_str(ctx.rt())
+                    prop.utf8(ctx.rt())
                 ));
                 JSValue::EXCEPTION
             }
@@ -314,20 +314,20 @@ impl JSValue {
                         return ctx.create_string_from_char(ch);
                     }
                 } else if prop == JS_ATOM_length {
-                    return JSValue::Int(ss.len() as i32);
+                    return JSValue::from(ss.len() as u32);
                 }
 
                 unsafe {
                     JS_GetPrototypePrimitive(ctx, self)
                         .object()
-                        .map(|o| o.get_property_ex(ctx, prop, this_obj, throw_ref_error))
+                        .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
                         .unwrap_or(JSValue::UNDEFINED)
                 }
             }
             _ => unsafe {
                 JS_GetPrototypePrimitive(ctx, self)
                     .object()
-                    .map(|o| o.get_property_ex(ctx, prop, this_obj, throw_ref_error))
+                    .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
                     .unwrap_or(JSValue::UNDEFINED)
             },
         }

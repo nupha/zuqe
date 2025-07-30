@@ -449,99 +449,120 @@ pub fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this();
-
-    let len = unsafe { js_typed_array_get_length_internal(ctx, &this_val)? as i32 };
-    let ta: TypedArray = this_val.clone().try_into()?;
-
-    let v64: u64;
-
-    match ta.class_id() {
-        JS_CLASS_UINT8C_ARRAY => {
-            v64 = cc.arg(0).coerce_to_u8_clamp(ctx)? as _;
-        }
-        JS_CLASS_UINT32_ARRAY => {
-            v64 = cc.arg(0).coerce_to_u32(ctx)? as _;
-        }
-        JS_CLASS_BIG_UINT64_ARRAY => {
-            //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
-            ctx.throw_type_error("BigInt64 is not supported");
-            return Err(-1);
-        }
-        cid => {
-            let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
-            if cid == JS_CLASS_FLOAT32_ARRAY {
-                #[repr(C)]
-                union Float32Union {
-                    f: f32,
-                    uint32: u32,
-                }
-                v64 = unsafe {
-                    let u = Float32Union { f: d as f32 };
-                    u.uint32 as u64
-                };
-            } else {
-                v64 = unsafe {
-                    let u = JSFloat64Union { d };
-                    u.uint64
-                };
-            }
-        }
-    }
-
-    let k = if cc.length() > 1 {
-        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
-    } else {
-        0
-    };
-
-    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).coerce_to_i32_clamp(ctx, 0, len, len)?
-    } else {
-        len
-    };
+    let ta = TypedArray::try_from(cc.this().clone())?;
 
     if ta.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
+    let len = ta.length();
+
+    let start = if cc.length() > 1 {
+        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len as _, len as _)?
+    } else {
+        0
+    };
+    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        cc.arg(2).coerce_to_i32_clamp(ctx, 0, len as _, len as _)?
+    } else {
+        len as _
+    };
 
     let shift = typed_array_size_log2(ta.class_id());
+    let mut data = [0u8; 8];
+
+    match ta.class_id() {
+        c @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY | JS_CLASS_UINT8C_ARRAY) => {
+            data[0] = if c == JS_CLASS_INT8_ARRAY {
+                cc.arg(0).coerce_to_i32(ctx)? as i8 as u8
+            } else {
+                cc.arg(0).coerce_to_u8_clamp(ctx)?
+            };
+        }
+        c @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
+            let bb: [u8; 2] = if c == JS_CLASS_INT16_ARRAY {
+                (cc.arg(0).coerce_to_i32(ctx)? as i16).to_ne_bytes()
+            } else {
+                (cc.arg(0).coerce_to_i32(ctx)? as u16).to_ne_bytes()
+            };
+            data[..2].copy_from_slice(&bb);
+        }
+        JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
+            data[..4].copy_from_slice(&cc.arg(0).coerce_to_i32(ctx)?.to_ne_bytes());
+        }
+        JS_CLASS_FLOAT32_ARRAY => {
+            let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
+            let bb = unsafe {
+                #[repr(C)]
+                union Float32Union {
+                    f: f32,
+                    uint32: u32,
+                }
+                let u = Float32Union { f: d as f32 };
+                u.uint32
+            }
+            .to_ne_bytes();
+            data[..4].copy_from_slice(&bb);
+        }
+        JS_CLASS_FLOAT64_ARRAY => {
+            let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
+            data.copy_from_slice(&d.to_ne_bytes());
+        }
+        c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
+            //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
+            ctx.throw_type_error(&format!(
+                "typed array for {} is not supported",
+                if c == JS_CLASS_BIG_INT64_ARRAY {
+                    "BigInt"
+                } else {
+                    "BigUint"
+                }
+            ));
+            return Err(-1);
+        }
+        _ => {
+            unreachable!()
+        }
+    }
+
     match shift {
         0 => {
-            if k < final_ {
+            if start < final_ {
                 ta.with_bytes_mut(|buf| unsafe {
                     std::ptr::write_bytes(
-                        buf.as_mut_ptr().offset(k as isize),
-                        v64 as u8,
-                        (final_ - k) as usize,
+                        buf.as_mut_ptr().offset(start as isize),
+                        data[0],
+                        (final_ - start) as usize,
                     );
                 });
             }
         }
         1 => {
             ta.with_bytes_mut(|buf| unsafe {
+                let v = data.as_ptr().cast::<u16>().read();
                 let mut ptr = buf.as_mut_ptr().cast::<u16>();
-                for _ in k..final_ {
-                    ptr.write(v64 as u16);
+                for _ in start..final_ {
+                    ptr.write(v);
                     ptr = ptr.add(1);
                 }
             });
         }
         2 => {
             ta.with_bytes_mut(|buf| unsafe {
+                let v = data.as_ptr().cast::<u32>().read();
                 let mut ptr = buf.as_mut_ptr().cast::<u32>();
-                for _ in k..final_ {
-                    ptr.write(v64 as u32);
+                for _ in start..final_ {
+                    ptr.write(v);
                     ptr = ptr.add(1);
                 }
             });
         }
         3 => {
             ta.with_bytes_mut(|buf| unsafe {
+                let v = data.as_ptr().cast::<u64>().read();
                 let mut ptr = buf.as_mut_ptr().cast::<u64>();
-                for _ in k..final_ {
-                    ptr.write(v64);
+                for _ in start..final_ {
+                    ptr.write(v);
                     ptr = ptr.add(1);
                 }
             });
@@ -1080,7 +1101,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = TryInto::<Float32Array>::try_into(p)?.with_data(|lst| {
+                    let found = Float32Array::try_from(p)?.with_elements(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
                         } else {
@@ -1110,7 +1131,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = TryInto::<Float64Array>::try_into(p)?.with_data(|lst| {
+                    let found = Float64Array::try_from(p)?.with_elements(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
                         } else {

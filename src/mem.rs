@@ -7,7 +7,7 @@ pub const MALLOC_OVERHEAD: usize = 0;
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub const MALLOC_OVERHEAD: usize = 8;
 
-pub const JS_DEFAULT_STACK_SIZE: usize = 256 * 1024;
+pub const JS_DEFAULT_STACK_SIZE: usize = 512 * 1024;
 
 #[derive(Debug)]
 #[repr(C)]

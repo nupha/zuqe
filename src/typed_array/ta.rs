@@ -323,16 +323,16 @@ macro_rules! typed_array_obj_of {
                 self.0.length()
             }
 
-            /// run closure with data slice.
-            pub fn with_data<R>(&self, f: impl FnOnce(&[$ty]) -> R) -> R {
+            /// run closure with elements slice.
+            pub fn with_elements<R>(&self, f: impl FnOnce(&[$ty]) -> R) -> R {
                 let len = self.length();
                 self.0.with_bytes(|b| {
                     f(unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<$ty>(), len) })
                 })
             }
 
-            /// run closure with data slice.
-            pub fn with_data_mut<R>(&self, f: impl FnOnce(&mut [$ty]) -> R) -> R {
+            /// run closure with elements slice.
+            pub fn with_elements_mut<R>(&self, f: impl FnOnce(&mut [$ty]) -> R) -> R {
                 let len = self.length();
                 self.0.with_bytes_mut(|b| {
                     f(
@@ -347,7 +347,7 @@ macro_rules! typed_array_obj_of {
             /// if `nth` is out of bound, returns Err
             pub fn element(&self, nth: usize) -> Result<$ty, i32> {
                 if nth < self.length() {
-                    Ok(self.with_data(|p| p[nth]))
+                    Ok(self.with_elements(|p| p[nth]))
                 } else {
                     Err(-1)
                 }
@@ -357,7 +357,7 @@ macro_rules! typed_array_obj_of {
             /// if `nth` is out of bound, returns Err
             pub fn set_element(&mut self, nth: usize, val: $ty) -> Result<(), i32> {
                 if nth < self.length() {
-                    self.with_data_mut(|p| {
+                    self.with_elements_mut(|p| {
                         p[nth] = val;
                         Ok(())
                     })
@@ -588,6 +588,7 @@ impl JSContext {
 
 /// Get the length of the TypedArray, equivalent to TypedArrayObj::length() but
 /// will return an error if the TypedArray is detached.
+#[deprecated(note = "use TypedArray::length() instead")]
 pub unsafe fn js_typed_array_get_length_internal(
     ctx: &JSContext,
     obj: &JSValueConst,

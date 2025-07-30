@@ -514,10 +514,10 @@ impl JSContext {
             //     std::mem::size_of_val(js_reflect_obj) / std::mem::size_of::<JSFunction>(),
             // );
 
-            self.intrinsic_symbol(); // ES6 Symbol
-            self.intrinsic_generator(); // ES6 Generator
+            self.intrinsic_symbol(); // Symbol
+            self.intrinsic_generator(); // Generator
 
-            self.intrinsic_eval(); // enable `eval()` function
+            self.intrinsic_eval(); // `eval()` function
         }
     }
 
