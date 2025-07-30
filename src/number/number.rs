@@ -63,15 +63,10 @@ impl From<i64> for JSValue {
 impl From<f64> for JSValue {
     #[inline]
     fn from(d: f64) -> Self {
-        let val = d as i32;
-        let u = JSFloat64Union { d };
-        let t = JSFloat64Union { d: val as f64 };
-
-        // Note: -0.0 cannot be represented as integer, so we compare the bit representation
-        if unsafe { u.uint64 == t.uint64 } {
-            Self::Int(val)
+        if d.fract() == 0.0 && (i32::MIN as f64..=i32::MAX as f64).contains(&d) {
+            Self::Int(d as i32)
         } else {
-            Self::from_f64_as_is(d)
+            Self::Float64(d)
         }
     }
 }

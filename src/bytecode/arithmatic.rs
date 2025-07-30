@@ -54,8 +54,9 @@ impl TwoNumbers {
     pub fn add(self) -> JSValue {
         match self {
             TwoNumbers::Int(a, b) => {
-                let r = a as i64 + b as i64; // may overflow i32 ranges
-                JSValue::from(r)
+                JSValue::from(
+                    a as i64 + b as i64, // result may overflow i32 ranges
+                )
             }
             TwoNumbers::Float(a, b) => JSValue::from(a + b),
         }
@@ -64,7 +65,7 @@ impl TwoNumbers {
     pub fn sub(self) -> JSValue {
         match self {
             TwoNumbers::Int(a, b) => JSValue::from(a - b),
-            TwoNumbers::Float(a, b) => JSValue::from(a + b),
+            TwoNumbers::Float(a, b) => JSValue::from(a - b),
         }
     }
 
