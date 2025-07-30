@@ -701,15 +701,15 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 /// - ctx: Runtime context
 /// - obj: Object to modify
 /// - proto_val: New prototype (or null)
-/// - throw_flag: Whether to throw on error
+/// - can_throw: Whether to throw on error
 /// Returns: Result indicating success/failure
 pub fn JS_SetPrototypeInternal(
     ctx: &JSContext,
     obj: &JSValue,
     proto_val: JSValue,
-    throw_flag: bool,
+    can_throw: bool,
 ) -> Result<bool, i32> {
-    if throw_flag && obj.is_undefined_or_null() {
+    if can_throw && obj.is_undefined_or_null() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
@@ -724,11 +724,11 @@ pub fn JS_SetPrototypeInternal(
             return Err(-1);
         };
 
-        if throw_flag && !obj.is_object() {
+        if can_throw && !obj.is_object() {
             return Ok(true);
         }
         if p.class_id() == JS_CLASS_PROXY {
-            return unsafe { js_proxy_setPrototypeOf(ctx, obj, proto_val, throw_flag) };
+            return unsafe { js_proxy_setPrototypeOf(ctx, obj, proto_val, can_throw) };
         }
 
         if p.shape().unwrap().0.borrow().proto.as_ref() == proto {
@@ -736,7 +736,7 @@ pub fn JS_SetPrototypeInternal(
         }
 
         if !p.flags().extensible() {
-            if throw_flag {
+            if can_throw {
                 ctx.throw_type_error("object is not extensible");
                 return Err(-1);
             } else {
@@ -749,7 +749,7 @@ pub fn JS_SetPrototypeInternal(
 
             loop {
                 if p1.eq(p) {
-                    if throw_flag {
+                    if can_throw {
                         ctx.throw_type_error("circular prototype chain");
                         return Err(-1);
                     } else {

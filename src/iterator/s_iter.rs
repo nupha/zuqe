@@ -81,7 +81,7 @@ impl JSForInIterator {
             let lst = unsafe {
                 self.obj
                     .object_unchecked()
-                    .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+                    .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
             }?;
             self.is_array = false;
             self.atom_count = lst.len() as _;
@@ -348,7 +348,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
         if !it.is_array {
             // not an array - get own property names list
             if let Ok(names) =
-                ob.get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+                ob.query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
             {
                 it.atom_count = names.len() as _;
                 it.prop_enums = names;

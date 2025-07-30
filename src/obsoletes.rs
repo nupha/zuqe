@@ -1807,7 +1807,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 // }
 
 // ptab and its atoms must be freed by the user.
-#[deprecated(note = "use JSObject::get_own_property_names_internal instead")]
+#[deprecated(note = "use JSObject::query_own_property_names() instead")]
 pub unsafe fn JS_GetOwnPropertyNamesInternal(
     ctx: &JSContext,
     ptab: *mut *mut PropertyEnum,
@@ -1816,17 +1816,6 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     flags: i32,
 ) -> Result<(), i32> {
     unreachable!("unused");
-
-    // // clear pointer for consistency in case of failure
-    // *ptab = std::ptr::null_mut();
-    // *plen = 0;
-
-    // let res = (*p).get_own_property_names_internal(ctx, flags)?;
-    // let mut lst = res;
-    // *plen = lst.len() as u32;
-    // *ptab = lst.as_mut_ptr();
-    // Box::leak(lst);
-    // Ok(())
 }
 
 #[deprecated(note = "use JSContext::create_object_with_proto_and_classid() instead")]

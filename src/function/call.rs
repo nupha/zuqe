@@ -338,19 +338,19 @@ pub fn JS_InvokeFree(
 }
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
-pub fn js_function_apply(ctx: &JSContext, args: CallContext) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this_raw();
     this_val.ensure_callable(ctx)?;
 
-    let this_arg = args.arg(0);
-    let array_arg = args.arg(1);
+    let this_arg = cc.arg(0);
+    let array_arg = cc.arg(1);
 
-    if array_arg.is_undefined_or_null() && args.magic() != 2 {
+    if array_arg.is_undefined_or_null() && cc.magic() != 2 {
         return Ok(JS_Call(ctx, &this_val, this_arg, &[]));
     }
 
     let arg_list = build_arg_list(ctx, &array_arg)?;
-    let ret = if args.magic() & 1 != 0 {
+    let ret = if cc.magic() & 1 != 0 {
         JS_CallConstructor2(ctx, &this_val, this_arg.clone(), arg_list.as_ref())
     } else {
         JS_Call(ctx, &this_val, &this_arg, arg_list.as_ref())

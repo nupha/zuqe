@@ -45,6 +45,7 @@ use crate::{
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectDetail, js_object_seal,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
+    reflect::js_reflect_obj,
     symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
@@ -481,7 +482,6 @@ impl JSContext {
 
         // global var object
         let gvobj = self.create_base_object_from_proto(JSValue::NULL).unwrap();
-
         {
             let mut cx = self.0.borrow_mut();
             cx.global_obj = global;
@@ -490,9 +490,18 @@ impl JSContext {
     }
 
     pub fn intrinsic_base_objects(&self) {
-        // make global object - this must come first. (isNan, parseInt, undefined, NaN etc)
-        self.intrinsic_global_object(&js_global_props);
+        // global object - this must come first.
+        {
+            // isNan, parseInt, undefined, NaN etc
+            self.intrinsic_global_object(&js_global_props);
 
+            // Reflect: create as autoinit object in global
+            self.global_obj()
+                .install_native_fields(self, &js_reflect_obj)
+                .unwrap();
+        }
+
+        // builtin objects
         {
             self.intrinsic_throw_error(); // throw TypeError()
 
@@ -505,14 +514,6 @@ impl JSContext {
             self.intrinsic_number(); // Number
             self.intrinsic_boolean(); // Boolean
             self.intrinsic_string(); // String
-
-            // ES6 Reflect: create as autoinit object
-            // JS_SetPropertyFunctionList(
-            //     ctx,
-            //     ctx.global_obj,
-            //     js_reflect_obj.as_ptr(),
-            //     std::mem::size_of_val(js_reflect_obj) / std::mem::size_of::<JSFunction>(),
-            // );
 
             self.intrinsic_symbol(); // Symbol
             self.intrinsic_generator(); // Generator

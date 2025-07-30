@@ -17,6 +17,7 @@ impl JSObject {
         let obj_flags = self.flags();
 
         loop {
+            // find in shape properties
             if let Some((idx, prs_flags)) = self
                 .shape()
                 .unwrap()
@@ -26,7 +27,7 @@ impl JSObject {
                 .get_full(&prop.0)
                 .map(|(i, _, p)| (i, p.flags()))
             {
-                // property found
+                // shape property found
                 if prs_flags & JS_PROP_CONFIGURABLE == 0 {
                     return Ok(false);
                 }
@@ -109,22 +110,37 @@ impl JSObject {
         // not found
         Ok(true)
     }
+
+    /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
+    /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
+    pub fn delete_property_ex(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        match self.delete_property(ctx, prop) {
+            Ok(b) => Ok(b),
+            Err(_) => {
+                if flags & JS_PROP_THROW != 0
+                    || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
+                {
+                    ctx.throw_type_error("could not delete property");
+                    Err(-1)
+                } else {
+                    Ok(false)
+                }
+            }
+        }
+    }
 }
 
 impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
-        if self.coerce_to_object(ctx)?.delete_property(ctx, prop)? {
-            Ok(true)
-        } else if flags & JS_PROP_THROW != 0
-            || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
-        {
-            ctx.throw_type_error("could not delete property");
-            Err(-1)
-        } else {
-            Ok(false)
-        }
+        self.coerce_to_object(ctx)
+            .and_then(|o| o.delete_property_ex(ctx, prop, flags))
     }
 
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {

@@ -184,7 +184,7 @@ impl JSObject {
     /// - Sorted by: numbers first, then strings, symbols, and exotic names
     /// - Each atom is cloned (dup) so that it needs to be freed by caller
     /// - Can be filtered using flags
-    pub fn get_own_property_names_internal(
+    pub(crate) fn query_own_property_names(
         &self,
         ctx: &JSContext,
         flags: i32,
@@ -257,7 +257,7 @@ impl JSObject {
     /// * Exception if operation fails
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
-    pub fn get_own_property_names2(
+    pub(crate) fn get_own_property_names_ex(
         &self,
         ctx: &JSContext,
         flags: i32,
@@ -265,7 +265,7 @@ impl JSObject {
     ) -> JSResult {
         // make result array
         let ret_array = ctx.create_array()?;
-        let lst = self.get_own_property_names_internal(ctx, flags & !JS_GPN_ENUM_ONLY)?;
+        let lst = self.query_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut idx: u32 = 0;
         let mut has_err = false;
@@ -369,13 +369,14 @@ impl JSValue {
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
     ///
     /// Properties are sorted according to the standard JavaScript property enumeration order.
+    #[inline]
     pub fn get_own_property_names2(
         &self,
         ctx: &JSContext,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {
-        self.coerce_to_object(ctx)?
-            .get_own_property_names2(ctx, flags, kind)
+        self.coerce_to_object(ctx)
+            .and_then(|o| o.get_own_property_names_ex(ctx, flags, kind))
     }
 }

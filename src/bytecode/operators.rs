@@ -503,7 +503,7 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                 if let Ok(names) = it
                     .obj
                     .object_unchecked()
-                    .get_own_property_names_internal(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+                    .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
                 {
                     it.atom_count = names.len() as _;
                     it.prop_enums = names;

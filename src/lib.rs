@@ -27,6 +27,7 @@ pub mod object;
 pub mod parse;
 pub mod promise;
 pub mod proxy;
+pub mod reflect;
 pub mod regexp;
 pub mod runtime;
 pub mod stack_frame;
