@@ -1,10 +1,11 @@
 use std::ops::Deref;
 
 use crate::{
+    JS_CFUNC_NATIVE_DEF,
     atom::{JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, JS_Call, NativeFunctionType},
+    function::{CallContext, IteratorState, JS_Call, NativeField, NativeFunctionType},
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
@@ -471,3 +472,14 @@ pub unsafe fn js_array_from_iterator(
     *plen = k as u32;
     arr
 }
+
+pub fn js_iterator_proto_iterator(_: &JSContext, cc: CallContext) -> JSResult {
+    Ok(cc.this().clone())
+}
+
+pub const js_iterator_proto_funcs: [NativeField; 1] = [JS_CFUNC_NATIVE_DEF!(
+    "[Symbol.iterator]",
+    0,
+    js_iterator_proto_iterator,
+    0
+)];

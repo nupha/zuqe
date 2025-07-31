@@ -13,7 +13,6 @@ impl JSObject {
     /// test if own property prop exists.
     pub fn has_own_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
         if self.has_shape_property(prop) {
-            // shape property is own property
             return Ok(true);
         }
 

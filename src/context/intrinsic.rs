@@ -18,15 +18,15 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeCallback, NativeField,
-        NativeFunctionType, js_async_function_proto_funcs,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
+        js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
         js_async_iterator_proto_funcs, js_function_constructor, js_generator_function_proto_funcs,
         js_generator_proto_funcs,
     },
-    iterator::js_async_from_sync_iterator_proto_funcs,
+    iterator::{js_async_from_sync_iterator_proto_funcs, js_iterator_proto_funcs},
     js_core::{
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
@@ -372,13 +372,11 @@ impl JSContext {
     }
 
     fn intrinsic_iterator(&self) {
-        // self.iterator_proto = JS_NewObject(ctx);
-        // JS_SetPropertyFunctionList(
-        //     self,
-        //     self.iterator_proto,
-        //     js_iterator_proto_funcs.as_ptr(),
-        //     std::mem::size_of_val(js_iterator_proto_funcs) / std::mem::size_of::<JSFunction>(),
-        // );
+        let iter_obj = self.create_base_object().unwrap();
+        iter_obj
+            .install_native_fields(self, &js_iterator_proto_funcs)
+            .unwrap();
+        self.0.borrow_mut().iterator_proto = iter_obj.into();
     }
 
     fn intrinsic_generator(&self) {
