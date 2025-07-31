@@ -97,7 +97,7 @@ impl JSForInIterator {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct IteratorObject(pub(crate) JSObject);
 
@@ -127,7 +127,7 @@ impl TryFrom<JSValue> for IteratorObject {
 
 impl IteratorObject {
     /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
-    fn apply_next_method(
+    pub(super) fn apply_next_method(
         &self,
         ctx: &JSContext,
         method: &JSValue,
@@ -326,7 +326,7 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
 }
 
 /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
-#[deprecated(note = "use IteratorObject::call_next_method() instead")]
+#[deprecated(note = "use IteratorObject::apply_next_method() instead")]
 pub fn JS_IteratorNext2(
     ctx: &JSContext,
     enum_obj: &JSValue,
@@ -378,30 +378,31 @@ pub fn JS_IteratorNext(
     args: &[JSValue],
     pdone: &mut bool,
 ) -> JSValue {
-    let mut done: i32 = 0;
-    let obj = JS_IteratorNext2(ctx, enum_obj, method, args, &mut done);
-    if obj.is_exception() {
-        *pdone = false;
-        return JSValue::EXCEPTION;
-    }
+    unreachable!("unused");
+    // let mut done: i32 = 0;
+    // let obj = JS_IteratorNext2(ctx, enum_obj, method, args, &mut done);
+    // if obj.is_exception() {
+    //     *pdone = false;
+    //     return JSValue::EXCEPTION;
+    // }
 
-    if done != 2 {
-        *pdone = done != 0;
-        return obj;
-    }
+    // if done != 2 {
+    //     *pdone = done != 0;
+    //     return obj;
+    // }
 
-    if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
-        *pdone = done_val.coerce_to_bool(ctx).unwrap_or(true);
-        if !*pdone {
-            obj.get_property(ctx, JS_ATOM_value)
-                .unwrap_or(JSValue::EXCEPTION)
-        } else {
-            JSValue::UNDEFINED
-        }
-    } else {
-        *pdone = false;
-        return JSValue::EXCEPTION;
-    }
+    // if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
+    //     *pdone = done_val.coerce_to_bool(ctx).unwrap_or(true);
+    //     if !*pdone {
+    //         obj.get_property(ctx, JS_ATOM_value)
+    //             .unwrap_or(JSValue::EXCEPTION)
+    //     } else {
+    //         JSValue::UNDEFINED
+    //     }
+    // } else {
+    //     *pdone = false;
+    //     return JSValue::EXCEPTION;
+    // }
 }
 
 /// TODO: migrate to Iterator::close()
