@@ -2,7 +2,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JSContext},
-    function::{JSFunctionDef, LabelSlot, find_jump_target},
+    function::{JSFunctionDef, Label},
     utils::{
         M2, M3, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16, push_vec_u32,
         read_from_ptr, write_to_ptr,
@@ -437,10 +437,9 @@ impl JSFunctionDef {
         debug_assert!(matches!(op, opcodes::OP_if_true | opcodes::OP_if_false));
 
         let bc_buf = self.byte_code.as_ptr();
-        let mut label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
 
-        let mut _op1: u8 = 0;
-        label = unsafe { find_jump_target(self, label, &mut _op1, std::ptr::null_mut()) };
+        let mut label = unsafe { read_from_ptr::<u32>(bc_buf.add(pos + 1)) };
+        (label, _, _) = self.find_jump_target(label);
 
         /* transform if_false/if_true(l1) label(l1) -> drop label(l1) */
         if self.code_has_label(*pos_next, label) {
@@ -543,7 +542,7 @@ pub fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
 pub fn optimize_scope_make_ref(
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
-    label: &LabelSlot,
+    label: &Label,
     mut pos_next: usize,
     get_op: OpCode,
     var_idx: i32,
@@ -602,7 +601,7 @@ pub fn optimize_scope_make_global_ref(
     js_mode: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
-    label: &LabelSlot,
+    label: &Label,
     mut pos_next: u32,
     var_name: JSAtom,
 ) -> u32 {

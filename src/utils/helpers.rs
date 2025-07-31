@@ -206,7 +206,7 @@ pub fn push_vec_slice(buf: &mut Vec<u8>, data: *const u8, len: usize) -> Result<
     Ok(())
 }
 
-pub unsafe fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
+pub fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
     let mut v = val;
     loop {
         let a = (v & 0x7f) as u8;
@@ -221,7 +221,7 @@ pub unsafe fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
     }
 }
 
-pub unsafe fn push_vec_sleb128(s: &mut Vec<u8>, val: i32) {
+pub fn push_vec_sleb128(s: &mut Vec<u8>, val: i32) {
     let v = if val < 0 { 2 * val + 1 } else { 2 * val } as u32;
     push_vec_leb128(s, v);
 }

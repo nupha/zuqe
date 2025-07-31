@@ -2,14 +2,14 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom},
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
-    function::{BlockEnv, CodeMatchState, JSFunctionDef, find_jump_target, skip_dead_code},
+    function::{CodeMatchState, JSFunctionDef, skip_dead_code},
     utils::{
         M2, M3, M4, push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u8,
         push_vec_u16, push_vec_u32, read_from_ptr, write_to_ptr,
     },
 };
 
-use super::{compute_pc2line_info, optimize::OPTIMIZE};
+use super::optimize::OPTIMIZE;
 
 #[derive(Debug, Copy, Clone)]
 enum ResolveLabelsState {
@@ -258,9 +258,10 @@ impl JSFunctionDef {
                     label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 5)) };
                     let is_with = unsafe { *bc_ptr.add(pos + 9) };
                     if OPTIMIZE {
-                        label = unsafe {
-                            find_jump_target(self, label, &mut op1, std::ptr::null_mut())
-                        };
+                        (label, op1, _) = self.find_jump_target(label);
+                        // label = unsafe {
+                        //     find_jump_target(self, label, &mut op1, std::ptr::null_mut())
+                        // };
                     }
                     debug_assert!(label < self.label_slots.len() as u32);
 
@@ -669,9 +670,9 @@ impl JSFunctionDef {
                         op: goto_op,
                     } => {
                         if OPTIMIZE {
-                            let mut line1 = -1;
-                            /* Use custom matcher because multiple labels can follow */
-                            label = unsafe { find_jump_target(self, label, &mut op1, &mut line1) };
+                            // Use custom matcher because multiple labels can follow
+                            let line1;
+                            (label, op1, line1) = self.find_jump_target(label);
 
                             if self.code_has_label(pos_next as usize, label) {
                                 /* jump to next instruction: remove jump */
@@ -683,6 +684,7 @@ impl JSFunctionDef {
                                 /* jump to return/throw: remove jump, append return/throw */
                                 /* updating the line number obfuscates assembly listing */
                                 //if (line1 >= 0) line_num = line1;
+
                                 self.update_label_ref_count(label, -1);
                                 self.add_pc2line_info(bc_out.len() as _, line_num);
                                 push_vec_u8(&mut bc_out, op1);
@@ -960,9 +962,7 @@ impl JSFunctionDef {
         }
 
         // XXX: should delay until copying to runtime bytecode function /
-        unsafe {
-            compute_pc2line_info(self);
-        }
+        self.compute_pc2line_info();
 
         self.label_slots.clear();
         self.line_number_slots.clear();

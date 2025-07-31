@@ -3,8 +3,8 @@ use crate::{
     bytecode::OpcodeFormat,
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
-        Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, LabelSlot,
-        PC2LINE_BASE, PC2LINE_OP_FIRST, PC2LINE_RANGE,
+        Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
+        PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
     unicode::unicode_from_utf8,
     utils::read_from_ptr,
@@ -234,7 +234,7 @@ pub unsafe fn dump_opcodes(
     cpools: &[JSValue],
     source: Option<&str>,
     line_num: i32,
-    labels: &[LabelSlot], // for pass 1, 2 only
+    labels: &[Label], // for pass 1, 2 only
     bc: Option<&Bytecode>,
 ) {
     use crate::utils::read_from_ptr;

@@ -17,7 +17,7 @@ use crate::{
     error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
     function::{
         BlockEnv, Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum,
-        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, LabelSlot, NativeCallback, NativeField,
+        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label, NativeCallback, NativeField,
         NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry, js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
@@ -1157,7 +1157,7 @@ pub unsafe fn cpool_add(s: *mut JSParseState, ctx: &JSContext, val: JSValue) -> 
 #[deprecated(note = "use LabelInfo::add_reloc() instead")]
 pub unsafe fn add_reloc(
     ctx: &JSContext,
-    ls: *mut LabelSlot,
+    ls: *mut Label,
     addr: usize,
     size: i32,
 ) -> *mut RelocEntry {
@@ -1312,7 +1312,7 @@ pub unsafe fn resolve_scope_var(
     op: u8,
     bc: &[u8],
     bc_buf: *mut u8, // JSFunctionDef::byte_code buffer ptr
-    label: Option<&LabelSlot>,
+    label: Option<&Label>,
     pos_next: usize,
 ) -> usize {
     unreachable!("use JSFUnctionDef::resolve_scope_var() instead");
@@ -3641,4 +3641,33 @@ pub unsafe fn push_break_entry(
 pub unsafe fn pop_break_entry(fd: *mut JSFunctionDef) {
     let be = (*fd).top_break;
     (*fd).top_break = (*be).prev;
+}
+
+/// return the target label, following the OP_goto jumps
+/// the first opcode at destination is stored in *pop
+#[deprecated(note = "use JSFunctionDef::find_jump_target() instead")]
+pub unsafe fn find_jump_target(
+    s: *mut JSFunctionDef,
+    label: u32,
+    pop: *mut u8,
+    pline: *mut i32,
+) -> u32 {
+    let (label, op, line) = (*s).find_jump_target(label);
+    if !pop.is_null() {
+        *pop = op;
+    }
+    if !pline.is_null() {
+        *pline = line
+    }
+    label
+}
+
+#[deprecated(note = "use JSFunctionDef::compute_pc2line_info() instead")]
+pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
+    (*s).compute_pc2line_info();
+}
+
+#[deprecated(note = "use JSFunctionDef::code_has_label() instead")]
+pub unsafe fn code_has_label(s: *mut std::ffi::c_void, mut pos: usize, label: u32) -> bool {
+    unreachable!("unused")
 }

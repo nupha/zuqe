@@ -1,5 +1,4 @@
 use crate::{
-    atom::JSAtom,
     bytecode::{opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
     function::{
@@ -15,7 +14,7 @@ pub struct RelocEntry {
 }
 
 #[derive(Debug)]
-pub struct LabelSlot {
+pub struct Label {
     pub ref_count: i32,
 
     /// phase 1 address, -1 means not resolved yet
@@ -29,7 +28,7 @@ pub struct LabelSlot {
     pub pending_relocs: Vec<RelocEntry>,
 }
 
-impl LabelSlot {
+impl Label {
     pub fn add_reloc(&mut self, ctx: &JSContext, addr: usize, size: i32) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity() {
             if self.pending_relocs.try_reserve_exact(4).is_err() {
@@ -44,7 +43,7 @@ impl LabelSlot {
 }
 
 impl JSFunctionDef {
-    /// Create new label in JSFunctionDef, returns new label id.
+    /// Create a new label in function def. returns new label id.
     pub fn add_label(&mut self) -> Result<u32, i32> {
         if self.label_slots.len() == self.label_slots.capacity() {
             if self.label_slots.try_reserve_exact(4).is_err() {
@@ -53,7 +52,7 @@ impl JSFunctionDef {
             }
         }
 
-        self.label_slots.push(LabelSlot {
+        self.label_slots.push(Label {
             ref_count: 0,
             pos: -1,
             pos2: -1,
@@ -112,132 +111,106 @@ impl JSFunctionDef {
         let top = self.top_break;
         self.top_break = unsafe { (*top).prev };
     }
-}
 
-// pub unsafe fn code_has_label(s: *mut CodeContext, mut pos: usize, label: u32) -> bool {
-//     while pos < (*s).bc_len {
-//         let op = *(*s).bc_buf.offset(pos as isize);
-//         if op == opcodes::op_line_num {
-//             pos += 5;
-//             continue;
-//         }
-//         if op == opcodes::op_label {
-//             let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
-//             if lab == label {
-//                 return true;
-//             }
-//             pos += 5;
-//             continue;
-//         }
-//         if op == opcodes::OP_goto {
-//             let lab = read_from_ptr::<u32>((*s).bc_buf.offset((pos + 1) as isize));
-//             if lab == label {
-//                 return true;
-//             }
-//         }
-//         break;
-//     }
+    /// return the target label, following the OP_goto jumps.
+    /// returns tuple:
+    /// 1. label: the label jump to
+    /// 1. opcode: the first opcode at destination
+    /// 1. line: line number
+    pub(crate) fn find_jump_target(&mut self, mut label: u32) -> (u32, u8, i32) {
+        self.update_label_ref_count(label as _, -1);
 
-//     false
-// }
+        let mut op: u8 = 0;
+        let mut line = -1;
 
-pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
-    if (*s).js_mode & JS_MODE_STRIP as u8 == 0 && !(*s).line_number_slots.is_empty() {
-        let mut last_line_num = (*s).line_num;
-        let mut last_pc: u32 = 0;
+        for _ in 0..10 {
+            debug_assert!(label < self.label_slots.len() as u32);
 
-        if (*s).pc2line.is_none() {
-            (*s).pc2line.replace(Vec::with_capacity(64));
-        }
+            let mut pos = self.label_slots[label as usize].pos2;
 
-        let lst = (*s).pc2line.as_mut().unwrap();
-
-        for ln in (*s).line_number_slots.iter() {
-            let pc = ln.pc;
-            let line_num = ln.line_num;
-            if line_num < 0 {
-                continue;
-            }
-
-            let diff_pc = pc.wrapping_sub(last_pc) as i32;
-            let diff_line = line_num - last_line_num;
-            if diff_line == 0 || diff_pc < 0 {
-                continue;
-            }
-
-            if diff_line >= PC2LINE_BASE
-                && diff_line < PC2LINE_BASE + PC2LINE_RANGE
-                && diff_pc <= PC2LINE_DIFF_PC_MAX
-            {
-                push_vec_u8(
-                    lst,
-                    ((diff_line - PC2LINE_BASE) + diff_pc * PC2LINE_RANGE + PC2LINE_OP_FIRST) as u8,
-                );
-            } else {
-                // longer encoding
-                push_vec_u8(lst, 0);
-                push_vec_leb128(lst, diff_pc as u32);
-                push_vec_sleb128(lst, diff_line);
-            }
-
-            last_pc = pc;
-            last_line_num = line_num;
-        }
-    }
-}
-
-/// return the target label, following the OP_goto jumps
-/// the first opcode at destination is stored in *pop
-pub unsafe fn find_jump_target(
-    s: *mut JSFunctionDef,
-    mut label: u32,
-    pop: *mut u8,
-    pline: *mut i32,
-) -> u32 {
-    (*s).update_label_ref_count(label as _, -1);
-
-    let mut op: u8 = 0;
-
-    for _ in 0..10 {
-        debug_assert!(label < (*s).label_slots.len() as u32);
-        let mut pos = (*s).label_slots[label as usize].pos2;
-
-        loop {
-            op = (*s).byte_code[pos as usize];
-            match op {
-                opcodes::op_line_num | opcodes::op_label => {
-                    if op == opcodes::op_line_num {
-                        if !pline.is_null() {
-                            *pline = read_from_ptr::<i32>(
-                                (*s).byte_code.as_ptr().offset(pos as isize + 1),
-                            );
+            loop {
+                op = self.byte_code[pos as usize];
+                match op {
+                    opcodes::op_line_num | opcodes::op_label => {
+                        if op == opcodes::op_line_num {
+                            line = unsafe {
+                                read_from_ptr::<i32>(
+                                    self.byte_code.as_ptr().offset(pos as isize + 1),
+                                )
+                            };
+                        }
+                        pos += opcode_info_intermediate(op).size as i32;
+                        continue;
+                    }
+                    opcodes::OP_goto => {
+                        label = unsafe {
+                            read_from_ptr::<u32>(self.byte_code.as_ptr().offset((pos + 1) as isize))
+                        };
+                    }
+                    opcodes::OP_drop => {
+                        // ignore drop opcodes if followed by OP_return_undef
+                        while self.byte_code[(pos + 1) as usize] == opcodes::OP_drop {
+                            pos += 1;
+                        }
+                        if self.byte_code[pos as usize] == opcodes::OP_return_undef {
+                            op = opcodes::OP_return_undef;
                         }
                     }
-                    pos += opcode_info_intermediate(op).size as i32;
-                    continue;
+                    _ => {}
                 }
-                opcodes::OP_goto => {
-                    label =
-                        read_from_ptr::<u32>((*s).byte_code.as_ptr().offset((pos + 1) as isize));
-                }
-                opcodes::OP_drop => {
-                    // ignore drop opcodes if followed by OP_return_undef
-                    while *(*s).byte_code.as_ptr().offset((pos + 1) as isize) == opcodes::OP_drop {
-                        pos += 1;
-                    }
-                    if (*s).byte_code[pos as usize] == opcodes::OP_return_undef {
-                        op = opcodes::OP_return_undef;
-                    }
-                }
-                _ => {}
+
+                break;
+            } // loop
+        } // for
+
+        self.update_label_ref_count(label, 1);
+
+        (label, op, line)
+    }
+
+    pub fn compute_pc2line_info(&mut self) {
+        if self.js_mode & JS_MODE_STRIP as u8 == 0 && !self.line_number_slots.is_empty() {
+            let mut last_line_num = self.line_num;
+            let mut last_pc: u32 = 0;
+
+            if self.pc2line.is_none() {
+                self.pc2line.replace(Vec::with_capacity(64));
             }
 
-            break;
-        } // loop
-    } // for
+            let lst = self.pc2line.as_mut().unwrap();
 
-    // done:
-    *pop = op;
-    (*s).update_label_ref_count(label, 1);
-    label
+            for ln in self.line_number_slots.iter() {
+                let pc = ln.pc;
+                let line_num = ln.line_num;
+                if line_num < 0 {
+                    continue;
+                }
+
+                let diff_pc = pc.wrapping_sub(last_pc) as i32;
+                let diff_line = line_num - last_line_num;
+                if diff_line == 0 || diff_pc < 0 {
+                    continue;
+                }
+
+                if diff_line >= PC2LINE_BASE
+                    && diff_line < PC2LINE_BASE + PC2LINE_RANGE
+                    && diff_pc <= PC2LINE_DIFF_PC_MAX
+                {
+                    push_vec_u8(
+                        lst,
+                        ((diff_line - PC2LINE_BASE) + diff_pc * PC2LINE_RANGE + PC2LINE_OP_FIRST)
+                            as u8,
+                    );
+                } else {
+                    // longer encoding
+                    push_vec_u8(lst, 0);
+                    push_vec_leb128(lst, diff_pc as u32);
+                    push_vec_sleb128(lst, diff_line);
+                }
+
+                last_pc = pc;
+                last_line_num = line_num;
+            }
+        }
+    }
 }

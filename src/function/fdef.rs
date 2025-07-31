@@ -17,7 +17,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::LabelSlot;
+use super::Label;
 
 #[derive(Debug)]
 pub struct JSFunctionDef {
@@ -142,7 +142,7 @@ pub struct JSFunctionDef {
     /// 是否使用短操作码
     pub use_short_opcodes: bool,
 
-    pub label_slots: Vec<LabelSlot>,
+    pub label_slots: Vec<Label>,
 
     /// raw pointer to top break entry chain.
     /// this pointer does not take ownership of block env.
@@ -327,7 +327,7 @@ impl JSFunctionDef {
     }
 
     /// update label ref count by delta. returns updated ref count.
-    pub fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
+    pub(crate) fn update_label_ref_count(&mut self, label: u32, delta: i32) -> i32 {
         debug_assert!(
             label < self.label_slots.len() as u32,
             "label={label}, count={}",
