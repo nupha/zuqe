@@ -147,50 +147,42 @@ impl JSObject {
 
     /// returns EXCEPTION when fail
     pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
-        // check fast path: fast array and index within slice bound.
-        if prop.is_int() {
-            let idx = if let JSValue::Int(i) = prop {
-                *i
-            } else {
-                unreachable!()
-            };
-            debug_assert!(idx >= 0);
-            let idx = idx as usize;
+        if let JSValue::Int(i) = prop
+            && *i >= 0
+        {
+            // fast path: property is positive int, check fast array
+            let nth = *i as usize;
 
             macro_rules! typed_array_elemnt {
                 ($ty:ident, $vtype:ident) => {
-                    if let Some(el) = self
-                        .0
-                        .payload
-                        .borrow()
-                        .with_typed_array(|ta| {
-                            if idx < ta.count as usize {
-                                let n = ta.with_bytes(|buf| unsafe {
-                                    *buf.as_ptr().cast::<$ty>().add(idx)
-                                });
-                                Some(JSValue::from(n as $vtype))
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap()
-                    {
-                        return Ok(el);
-                    }
+                    return Ok(
+                        self.0
+                            .payload
+                            .borrow()
+                            .with_typed_array(|ta| {
+                                if nth < ta.count as usize {
+                                    let n = ta.with_bytes(|buf| unsafe {
+                                        *buf.as_ptr().cast::<$ty>().add(nth)
+                                    });
+                                    JSValue::from(n as $vtype)
+                                } else {
+                                    JSValue::UNDEFINED
+                                }
+                            })
+                            .unwrap(), // must be typed array object
+                    );
                 };
             }
 
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    if let Some(el) = self
-                        .with_fast_array_values(|lst| {
-                            if idx < lst.len() {
-                                return Some(lst[idx as usize].clone()); // use fast array value
-                            }
-                            None
-                        })
-                        .flatten()
-                    {
+                    if let Some(el) = self.with_fast_array_values(|lst| {
+                        if nth < lst.len() {
+                            lst[nth as usize].clone() // element in fast array values
+                        } else {
+                            JSValue::UNDEFINED
+                        }
+                    }) {
                         return Ok(el);
                     }
                 }
@@ -276,30 +268,18 @@ impl JSValue {
     ) -> JSResult {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
-            Self::NULL => {
-                ctx.throw_type_error(&format!(
-                    "cannot read property '{}' of null",
-                    prop.utf8(ctx.rt())
-                ));
-                Err(-1)
-            }
-            Self::UNDEFINED => {
-                ctx.throw_type_error(&format!(
-                    "cannot read property '{}' of undefined",
-                    prop.utf8(ctx.rt())
-                ));
-                Err(-1)
-            }
-            Self::EXCEPTION => Err(-1),
             Self::String(ss) => {
-                if prop.is_int_type() {
-                    let idx = __JS_AtomToUInt32(prop);
-                    if idx < ss.len() as u32 {
-                        let ch = ss.content().chars().nth(idx as usize).unwrap();
-                        return ctx.create_string_from_char(ch).check_exception();
-                    }
-                } else if prop == JS_ATOM_length {
+                if prop == JS_ATOM_length {
                     return Ok(JSValue::from(ss.len() as u32));
+                }
+                if prop.is_int_type() {
+                    let nth = __JS_AtomToUInt32(prop);
+                    return if nth < ss.len() as u32 {
+                        let ch = ss.content().chars().nth(nth as usize).unwrap();
+                        ctx.create_string_from_char(ch).check_exception()
+                    } else {
+                        Ok(JSValue::UNDEFINED)
+                    };
                 }
 
                 unsafe {
@@ -309,6 +289,15 @@ impl JSValue {
                         .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
             }
+            Self::NULL | Self::UNDEFINED => {
+                ctx.throw_type_error(&format!(
+                    "cannot read property '{}' of {}",
+                    prop.utf8(ctx.rt()),
+                    self
+                ));
+                Err(-1)
+            }
+            Self::EXCEPTION => Err(-1),
             _ => unsafe {
                 JS_GetPrototypePrimitive(ctx, self)
                     .object()
