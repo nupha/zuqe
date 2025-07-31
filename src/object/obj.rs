@@ -891,9 +891,7 @@ pub fn JS_SpeciesConstructor(
         return Err(-1);
     }
 
-    let ctor = obj
-        .get_property(ctx, JS_ATOM_constructor)
-        .check_exception()?;
+    let ctor = obj.get_property(ctx, JS_ATOM_constructor)?;
     if ctor.is_undefined() {
         return Ok(default_constructor);
     }
@@ -903,9 +901,7 @@ pub fn JS_SpeciesConstructor(
         return Err(-1);
     }
 
-    let species = ctor
-        .get_property(ctx, JS_ATOM_Symbol_species)
-        .check_exception()?;
+    let species = ctor.get_property(ctx, JS_ATOM_Symbol_species)?;
     if species.is_undefined_or_null() {
         return Ok(default_constructor);
     }

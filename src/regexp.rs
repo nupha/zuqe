@@ -131,10 +131,7 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
         return Ok(false);
     }
 
-    let m = obj.get_property(ctx, JS_ATOM_Symbol_match);
-    if m.is_exception() {
-        return Err(-1);
-    }
+    let m = obj.get_property(ctx, JS_ATOM_Symbol_match)?;
     if !m.is_undefined() {
         return m.coerce_to_bool(ctx);
     }

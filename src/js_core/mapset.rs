@@ -63,10 +63,12 @@ pub unsafe fn js_map_constructor(
     };
 
     if !arr.is_undefined_or_null() {
-        let adder = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set });
-        if adder.is_exception() {
-            return JSValue::EXCEPTION;
-        }
+        let adder =
+            if let Ok(x) = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set }) {
+                x
+            } else {
+                return JSValue::EXCEPTION;
+            };
         if !adder.is_callable() {
             ctx.throw_type_error("set/add is not a function");
             return JSValue::EXCEPTION;
@@ -85,13 +87,15 @@ pub unsafe fn js_map_constructor(
         }
 
         let next_method = iter.get_property(ctx, JS_ATOM_next);
-        if next_method.is_exception() {
+        if next_method.is_err() {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 let _ = JS_IteratorClose(ctx, &iter, true);
             }
             return JSValue::EXCEPTION;
         }
+
+        let next_method = next_method.unwrap();
 
         loop {
             let mut done = false;
@@ -115,15 +119,17 @@ pub unsafe fn js_map_constructor(
                     fail!(&iter, next_method, adder);
                 }
 
-                let key = item.get_property_u32(ctx, 0);
-                if key.is_exception() {
+                let key = if let Ok(x) = item.get_property_u32(ctx, 0) {
+                    x
+                } else {
                     fail!(&iter, next_method, adder);
-                }
+                };
 
-                let value = item.get_property_u32(ctx, 1);
-                if value.is_exception() {
+                let value = if let Ok(x) = item.get_property_u32(ctx, 1) {
+                    x
+                } else {
                     fail!(&iter, next_method, adder);
-                }
+                };
 
                 let r = JS_Call(ctx, &adder, &obj, &[key, value]);
                 if r.is_exception() {

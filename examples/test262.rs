@@ -348,10 +348,10 @@ fn run_test_script(
 fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Write) {
     writeln!(outf, "[MESSAGE] {msg}",).unwrap();
 
-    let s = err_val.get_property(ctx, JS_ATOM_stack);
-    match s {
-        JSValue::EXCEPTION | JSValue::NULL | JSValue::UNDEFINED => {}
-        _ => {
+    match err_val.get_property(ctx, JS_ATOM_stack) {
+        Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
+        Err(_) => {}
+        Ok(s) => {
             let ss = s.coerce_to_utf8(ctx).unwrap();
             writeln!(outf, "[STACK] {}", ss).unwrap();
         }
@@ -484,8 +484,7 @@ fn run_test_file(
                 //debug_assert!(!exc.is_undefined_or_null());
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
-
-                    let msg = o.get_property(&ctx, JS_ATOM_message);
+                    let msg = o.get_property(&ctx, JS_ATOM_message).unwrap();
                     msg.coerce_to_utf8(&ctx).unwrap().to_string()
                 } else {
                     "<no msg>".into()

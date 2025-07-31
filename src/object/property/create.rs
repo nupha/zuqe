@@ -28,7 +28,7 @@ impl JSObject {
         macro_rules! update_array_length {
             ($p:expr, $idx:expr) => {
                 let lenval = $p.0.prop_values.borrow()[0]
-                    .value(ctx, &JSValue::UNDEFINED)
+                    .value(ctx, &JSValue::UNDEFINED)?
                     .coerce_to_i32(ctx);
 
                 match lenval {

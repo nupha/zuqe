@@ -68,19 +68,18 @@ impl PromiseResolvingFunc {
                 return Ok(JSValue::UNDEFINED);
             }
 
-            let then = resolution.get_property(ctx, JS_ATOM_then);
-
-            if then.is_exception() {
-                let error = ctx.take_exception();
-                s.promise.fulfill_or_reject(ctx, error, true);
-            } else if !then.is_callable() {
-                s.promise.fulfill_or_reject(ctx, resolution, is_reject);
+            if let Ok(then) = resolution.get_property(ctx, JS_ATOM_then) {
+                if !then.is_callable() {
+                    s.promise.fulfill_or_reject(ctx, resolution, is_reject);
+                } else {
+                    ctx.queue_job(
+                        js_promise_resolve_thenable_job,
+                        &[s.promise.clone().into(), resolution, then], // arg values are not consumed
+                    )
+                    .unwrap();
+                }
             } else {
-                ctx.queue_job(
-                    js_promise_resolve_thenable_job,
-                    &[s.promise.clone().into(), resolution, then], // arg values are not consumed
-                )
-                .unwrap();
+                s.promise.fulfill_or_reject(ctx, ctx.take_exception(), true);
             }
 
             Ok(JSValue::UNDEFINED)

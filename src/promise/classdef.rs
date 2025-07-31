@@ -110,10 +110,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !is_reject && Promise::try_from(arg0.clone()).is_ok() {
         // resolve and argument #0 is a Promise
-        let ctor = arg0
-            .get_property(ctx, JS_ATOM_constructor)
-            .check_exception()?;
-
+        let ctor = arg0.get_property(ctx, JS_ATOM_constructor)?;
         if ctor.is_same(cc.this()) {
             return Ok(arg0);
         }
@@ -141,7 +138,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_promise_any = cc.magic() == PROMISE_MAGIC_any;
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
 
-    let fail_reject = |ret: JSValue| -> JSResult {
+    let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
         JS_Call(
             ctx,
@@ -150,42 +147,49 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             std::slice::from_ref(&error),
         )
         .check_exception()?;
-        Ok(ret)
+
+        Ok(JSValue::Object(result_promise.clone().into()))
     };
 
-    let promise_resolve = cc.this().get_property(ctx, JS_ATOM_resolve);
+    let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, JS_ATOM_resolve) {
+        if x.ensure_callable(ctx).is_err() {
+            return fail_reject();
+        } else {
+            x
+        }
+    } else {
+        return fail_reject();
+    };
 
-    if promise_resolve.is_exception() || promise_resolve.ensure_callable(ctx).is_err() {
-        return fail_reject(promise_resolve);
-    }
+    let iter = if let Ok(x) = cc.arg(0).iterator(ctx, false) {
+        JSValue::Object(x)
+    } else {
+        return fail_reject();
+    };
 
-    let iter = cc.arg(0).iterator(ctx, false);
-    if iter.is_err() {
-        return fail_reject(promise_resolve);
-    }
-    let iter = JSValue::Object(iter.unwrap());
-    let next_method = iter.get_property(ctx, JS_ATOM_next);
-    if next_method.is_exception() {
-        return fail_reject(promise_resolve);
+    let next_method = if let Ok(x) = iter.get_property(ctx, JS_ATOM_next) {
+        x
+    } else {
+        return fail_reject();
     };
 
     let mut values = if let Ok(a) = ctx.create_array() {
         a
     } else {
-        return fail_reject(promise_resolve);
+        return fail_reject();
     };
 
     let resolve_element_env = if let Ok(a) = ctx.create_array() {
         a
     } else {
-        return fail_reject(promise_resolve);
+        return fail_reject();
     };
 
     if resolve_element_env
         .define_property_value_u32(ctx, 0, JSValue::Int(1), 0x7)
         .is_err()
     {
-        return fail_reject(promise_resolve);
+        return fail_reject();
     }
 
     let mut index = 0;
@@ -195,7 +199,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
         if item.is_exception() {
             let _ = JS_IteratorClose(ctx, &iter, true);
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
 
         if done {
@@ -210,7 +214,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         );
         if next_promise.is_exception() {
             let _ = JS_IteratorClose(ctx, &iter, true);
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
 
         let resolve_element_data = [
@@ -232,7 +236,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if resolve_element.is_exception() {
             let _ = JS_IteratorClose(ctx, &iter, true);
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
 
         let reject_element = match cc.magic() {
@@ -247,22 +251,8 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                     r
                 } else {
                     let _ = JS_IteratorClose(ctx, &iter, true);
-                    return fail_reject(promise_resolve);
+                    return fail_reject();
                 }
-
-                // let r = JS_NewCFunctionData(
-                //     ctx,
-                //     js_promise_all_resolve_element,
-                //     1,
-                //     cc.magic() | 4,
-                //     5,
-                //     resolve_element_data.as_ptr(),
-                // );
-                // if r.is_exception() {
-                //     JS_IteratorClose(ctx, &iter, true);
-                //     return fail_reject(promise_resolve);
-                // }
-                // r
             }
             PROMISE_MAGIC_any => {
                 if values
@@ -270,7 +260,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                     .is_err()
                 {
                     let _ = JS_IteratorClose(ctx, &iter, true);
-                    return fail_reject(promise_resolve);
+                    return fail_reject();
                 }
                 std::mem::replace(&mut resolve_element, resolving_funcs[0].clone()) // take out old value
             }
@@ -279,7 +269,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if remainingElementsCount_add(ctx, resolve_element_env.clone(), 1).is_err() {
             let _ = JS_IteratorClose(ctx, &iter, true);
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
 
         let ret = JS_Invoke(
@@ -290,7 +280,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         );
         if ret.is_exception() {
             let _ = JS_IteratorClose(ctx, &iter, true);
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
 
         index += 1;
@@ -301,7 +291,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             if cc.magic() == PROMISE_MAGIC_any {
                 let error = js_aggregate_error_constructor(ctx, values);
                 if error.is_exception() {
-                    return fail_reject(promise_resolve);
+                    return fail_reject();
                 }
                 values = error;
             }
@@ -313,12 +303,12 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 std::slice::from_ref(&values),
             );
             if ret.is_exception() {
-                return fail_reject(promise_resolve);
+                return fail_reject();
             }
         }
         Ok(0) => {}
         Err(_) => {
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
         Ok(_) => {
             unreachable!()
@@ -336,7 +326,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
 
-    let fail_reject = |retval: JSValue| -> JSResult {
+    let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
         JS_Call(
             ctx,
@@ -345,31 +335,35 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
             std::slice::from_ref(&error),
         )
         .check_exception()?;
-
-        Ok(retval)
+        Ok(result_promise.clone().into())
     };
 
-    let promise_resolve = cc.this().get_property(ctx, JS_ATOM_resolve);
+    let promise_resolve = cc
+        .this()
+        .get_property(ctx, JS_ATOM_resolve)
+        .unwrap_or(JSValue::EXCEPTION);
 
     if promise_resolve.is_exception() || promise_resolve.ensure_callable(ctx).is_err() {
-        return fail_reject(promise_resolve);
+        return fail_reject();
     }
 
     let iter = cc.arg(0).iterator(ctx, false);
     if iter.is_err() {
-        return fail_reject(promise_resolve);
+        return fail_reject();
     }
+
     let iter = JSValue::Object(iter.unwrap());
-    let next_method = iter.get_property(ctx, JS_ATOM_next);
-    if next_method.is_exception() {
-        return fail_reject(promise_resolve);
-    }
+    let next_method = if let Ok(x) = iter.get_property(ctx, JS_ATOM_next) {
+        x
+    } else {
+        return fail_reject();
+    };
 
     loop {
         let mut done = false;
         let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
         if item.is_exception() {
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
         if done {
             break;
@@ -382,12 +376,12 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
             std::slice::from_ref(&item),
         );
         if next_promise.is_exception() {
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
 
         let ret = JS_Invoke(ctx, &next_promise, JS_ATOM_then, &resolving_funcs);
         if ret.is_exception() {
-            return fail_reject(promise_resolve);
+            return fail_reject();
         }
     }
 

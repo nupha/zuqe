@@ -34,7 +34,7 @@ pub fn JS_ObjectDefineProperties(
             ctx,
             JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
             |cx, name: PropertyEnum| {
-                let desc = props.get_property(cx, name.atom).check_exception()?;
+                let desc = props.get_property(cx, name.atom)?;
                 if let JSValue::Object(desc) = desc {
                     obj.define_property_desc(cx, name.atom, &desc, JS_PROP_THROW)
                         .map(|_| ())
@@ -175,7 +175,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     cb.ensure_callable(ctx)?;
 
     let iter = cc.arg(0).iterator(ctx, false)?;
-    let next = iter.get_property(ctx, JS_ATOM_next).check_exception()?;
+    let next = iter.get_property(ctx, JS_ATOM_next)?;
 
     let is_map = cc.magic();
     let groups = if is_map != 0 {
@@ -214,7 +214,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
 
         // get prop value array and key atom
-        let (mut props_arr, key_atom): (JSValue, JSAtom) = if is_map != 0 {
+        let (props_arr, key_atom): (JSResult, JSAtom) = if is_map != 0 {
             (
                 unsafe {
                     js_map_get(
@@ -224,6 +224,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                         std::slice::from_ref(&key).as_ptr() as _,
                         0,
                     )
+                    .check_exception()
                 },
                 JS_ATOM_NULL,
             )
@@ -234,16 +235,9 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             (groups.get_property(ctx, atom), atom)
         };
 
-        // free `key_atom` when exit
-        let rt = ctx.rt_ptr();
-        let _a = JSAtom(key_atom.0);
-        defer!({
-            JS_FreeAtomRT(rt.as_ptr(), _a);
-        });
-
-        if props_arr.is_exception() {
-            return Err(-1);
-        }
+        // don't change order
+        let key_atom = key_atom.into_rc(ctx.rt());
+        let mut props_arr = props_arr?;
 
         if props_arr.is_undefined() {
             // entry is missing, create the entry
@@ -262,7 +256,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                     ),
                 )?;
             } else {
-                groups.define_property_value(ctx, key_atom, props_arr.clone(), JS_PROP_C_W_E)?;
+                groups.define_property_value(ctx, *key_atom, props_arr.clone(), JS_PROP_C_W_E)?;
             }
         }
 
@@ -446,13 +440,10 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
     let iter = cc.arg(0).iterator(ctx, false)?;
-    let next_method = iter
-        .get_property(ctx, JS_ATOM_next)
-        .check_exception()
-        .inspect_err(|_| {
-            // close the iterator object, preserving pending exception
-            JS_IteratorClose(ctx, &JSValue::Object(iter.clone()), true).unwrap();
-        })?;
+    let next_method = iter.get_property(ctx, JS_ATOM_next).inspect_err(|_| {
+        // close the iterator object, preserving pending exception
+        JS_IteratorClose(ctx, &JSValue::Object(iter.clone()), true).unwrap();
+    })?;
 
     let iter = JSValue::Object(iter);
     loop {
@@ -479,23 +470,25 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let key = item.get_property_u32(ctx, 0);
-        if key.is_exception() {
+        let key = if let Ok(x) = item.get_property_u32(ctx, 0) {
+            x
+        } else {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
-        }
+        };
 
-        let value = item.get_property_u32(ctx, 1);
-        if value.is_exception() {
+        let value = if let Ok(x) = item.get_property_u32(ctx, 1) {
+            x
+        } else {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception
                 JS_IteratorClose(ctx, &iter, true)?;
             }
             return Err(-1);
-        }
+        };
 
         if obj
             .define_property_value_value(ctx, key, value, JS_PROP_C_W_E | JS_PROP_THROW)

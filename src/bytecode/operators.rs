@@ -145,9 +145,7 @@ pub fn js_op_define_class(
                 return Err(-1);
             }
 
-            let p = parent_class
-                .get_property(ctx, JS_ATOM_prototype)
-                .check_exception()?;
+            let p = parent_class.get_property(ctx, JS_ATOM_prototype)?;
 
             if !matches!(p, JSValue::NULL | JSValue::Object(_)) {
                 ctx.throw_type_error("parent prototype must be an object or null");
@@ -221,18 +219,21 @@ pub fn js_op_define_class(
 }
 
 pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i32 {
-    let arr = obj.get_property(ctx, JS_ATOM_Symbol_unscopables);
-    if arr.is_exception() {
+    let arr = if let Ok(x) = obj.get_property(ctx, JS_ATOM_Symbol_unscopables) {
+        x
+    } else {
         return -1;
-    }
+    };
 
-    let ret = if arr.is_object() {
-        let val = arr.get_property(ctx, atom);
-        val.coerce_to_bool(ctx).map_or(-1, |b| b as i32)
+    if arr.is_object() {
+        if let Ok(val) = arr.get_property(ctx, atom) {
+            val.coerce_to_bool(ctx).map_or(-1, |b| b as i32)
+        } else {
+            -1
+        }
     } else {
         0
-    };
-    ret
+    }
 }
 
 pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
@@ -311,9 +312,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
     //       - check if array_iterator_prototype next method is built-in and
     //         avoid constructing actual iterator object?
     //       - build this into js_for_of_start and use in all `for (x of o)` loops
-    let iterator = src
-        .get_property(ctx, JS_ATOM_Symbol_iterator)
-        .check_exception()?;
+    let iterator = src.get_property(ctx, JS_ATOM_Symbol_iterator)?;
 
     let is_array_iterator = iterator.match_native_callback(
         NativeFunctionType::Func(js_create_array_iterator),
@@ -321,7 +320,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
     );
 
     let enum_obj = src.iterator(ctx, false)?;
-    let method = enum_obj.get_property(ctx, JS_ATOM_next).check_exception()?;
+    let method = enum_obj.get_property(ctx, JS_ATOM_next)?;
 
     macro_rules! fail {
         () => {
@@ -586,7 +585,7 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
     let obj = unsafe { &*sp.offset(-1) };
     let enum_obj = obj.iterator(ctx, is_async)?;
-    let next = enum_obj.get_property(ctx, JS_ATOM_next).check_exception()?;
+    let next = enum_obj.get_property(ctx, JS_ATOM_next)?;
 
     unsafe {
         std::ptr::replace(sp.offset(-1), enum_obj.into());

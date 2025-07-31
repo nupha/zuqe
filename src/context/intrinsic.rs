@@ -247,11 +247,14 @@ impl JSContext {
             .install_native_fields(self, &js_array_iterator_proto_funcs)
             .unwrap();
 
-        // needed to initialize arguments[Symbol.iterator]
-        let mut cx = self.0.borrow_mut();
-        cx.array_proto_values =
-            cx.class_proto[JS_CLASS_ARRAY as usize].get_property(self, JS_ATOM_values);
-        cx.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
+        {
+            let mut cx = self.0.borrow_mut();
+
+            cx.array_proto_values = cx.class_proto[JS_CLASS_ARRAY as usize]
+                .get_property(self, JS_ATOM_values)
+                .unwrap();
+            cx.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
+        }
     }
 
     fn intrinsic_number(&self) {
@@ -581,7 +584,8 @@ impl JSContext {
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
             let to_string = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                .get_property(self, JS_ATOM_toString);
+                .get_property(self, JS_ATOM_toString)
+                .unwrap();
 
             // XXX: should use alias method in JSCFunctionListEntry
             typed_array_base_proto

@@ -1453,41 +1453,40 @@ impl Bytecode {
                         // [      -4,   -3,           -2,  -1, 0]
                         let flags = PC_FETCH!(u8);
 
-                        let method = SP_REF!(-4).get_property(
+                        if let Ok(method) = SP_REF!(-4).get_property(
                             ctx,
                             if flags & 1 != 0 {
                                 JS_ATOM_throw
                             } else {
                                 JS_ATOM_return
                             },
-                        );
-                        if method.is_exception() {
+                        ) {
+                            let ret_flag = if method.is_undefined_or_null() {
+                                true
+                            } else {
+                                let ret = JS_Call(
+                                    ctx,
+                                    &method,
+                                    SP_REF!(-4),
+                                    if flags & 2 != 0 {
+                                        &[]
+                                    } else {
+                                        std::slice::from_ref(SP_REF!(-1))
+                                    },
+                                );
+                                if ret.is_exception() {
+                                    break State::Exception;
+                                } else {
+                                    SP_PUT!(-1, ret);
+                                }
+                                false
+                            };
+
+                            SP_PUT!(0, JSValue::Bool(ret_flag));
+                            SP_GO!(1);
+                        } else {
                             break State::Exception;
                         }
-
-                        let ret_flag = if method.is_undefined_or_null() {
-                            true
-                        } else {
-                            let ret = JS_Call(
-                                ctx,
-                                &method,
-                                SP_REF!(-4),
-                                if flags & 2 != 0 {
-                                    &[]
-                                } else {
-                                    std::slice::from_ref(SP_REF!(-1))
-                                },
-                            );
-                            if ret.is_exception() {
-                                break State::Exception;
-                            } else {
-                                SP_PUT!(-1, ret);
-                            }
-                            false
-                        };
-
-                        SP_PUT!(0, JSValue::Bool(ret_flag));
-                        SP_GO!(1);
                     }
                     OpCode::LNOT => {
                         let op_1: &JSValue = SP_REF!(-1);
@@ -1509,14 +1508,16 @@ impl Bytecode {
                         // get_field: [obj, ^] -> [value, ^]
                         // get_field2: [obj, ^] -> [obj, value, ^]
                         let atom = JSAtom(PC_FETCH!(u32));
-                        let val = SP_REF!(-1).get_property(ctx, atom);
-                        if val.is_exception() {
-                            break State::Exception;
-                        } else if opcode == OpCode::GET_FIELD {
-                            SP_PUT!(-1, val);
+
+                        if let Ok(val) = SP_REF!(-1).get_property(ctx, atom) {
+                            if opcode == OpCode::GET_FIELD {
+                                SP_PUT!(-1, val);
+                            } else {
+                                SP_PUT!(0, val);
+                                SP_GO!(1)
+                            }
                         } else {
-                            SP_PUT!(0, val);
-                            SP_GO!(1)
+                            break State::Exception;
                         }
                     }
                     OpCode::PUT_FIELD => {
@@ -1729,7 +1730,9 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
-                        let val = SP_REF!(-2).get_property_value(ctx, &SP_TAKE!(-1));
+                        let val = SP_REF!(-2)
+                            .get_property_value(ctx, &SP_TAKE!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
                         SP_PUT!(-2, val.clone());
                         SP_GO!(-1);
                         if val.is_exception() {
@@ -1738,8 +1741,12 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL2 => {
                         // [array, prop, ^] -> [array, value, ^]
-                        let val = SP_REF!(-2).get_property_value(ctx, SP_REF!(-1));
-                        SP_PUT!(-1, val);
+                        SP_PUT!(
+                            -1,
+                            SP_REF!(-2)
+                                .get_property_value(ctx, SP_REF!(-1))
+                                .unwrap_or(JSValue::EXCEPTION)
+                        );
                         if SP_REF!(-1).is_exception() {
                             break State::Exception;
                         }
@@ -1753,12 +1760,11 @@ impl Bytecode {
                             }
                             break State::Exception;
                         } else {
-                            let val = SP_REF!(-2).get_property_value(ctx, SP_REF!(-1));
-                            if val.is_exception() {
-                                break State::Exception;
-                            } else {
+                            if let Ok(val) = SP_REF!(-2).get_property_value(ctx, SP_REF!(-1)) {
                                 SP_PUT!(0, val);
                                 SP_GO!(1);
+                            } else {
+                                break State::Exception;
                             }
                         }
                     }
@@ -1767,14 +1773,15 @@ impl Bytecode {
                             let val =
                                 SP_REF!(-2).get_property_internal(ctx, atom, SP_REF!(-3), false);
                             JS_FreeAtom(ctx, atom);
-                            if val.is_exception() {
+
+                            if let Ok(val) = val {
+                                SP_TAKE!(-1);
+                                SP_TAKE!(-2);
+                                SP_PUT!(-3, val);
+                                SP_GO!(-2);
+                            } else {
                                 break State::Exception;
                             }
-
-                            SP_TAKE!(-1);
-                            SP_TAKE!(-2);
-                            SP_PUT!(-3, val);
-                            SP_GO!(-2);
                         } else {
                             break State::Exception;
                         }
@@ -2166,11 +2173,10 @@ impl Bytecode {
                             if has_with {
                                 match opcode {
                                     OpCode::WITH_GET_VAR => {
-                                        let val = obj.get_property(ctx, atom);
-                                        if val.is_exception() {
-                                            break State::Exception;
-                                        } else {
+                                        if let Ok(val) = obj.get_property(ctx, atom) {
                                             SP_PUT!(-1, val);
+                                        } else {
+                                            break State::Exception;
                                         }
                                     }
                                     OpCode::WITH_PUT_VAR => {
@@ -2205,23 +2211,21 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_GET_REF => {
                                         // produce a pair object/method on the stack
-                                        let val = obj.get_property(ctx, atom);
-                                        if val.is_exception() {
-                                            break State::Exception;
-                                        } else {
+                                        if let Ok(val) = obj.get_property(ctx, atom) {
                                             SP_PUT!(0, val);
                                             SP_GO!(1);
+                                        } else {
+                                            break State::Exception;
                                         }
                                     }
                                     OpCode::WITH_GET_REF_UNDEF => {
                                         // produce a pair undefined/function on the stack
-                                        let val = obj.get_property(ctx, atom);
-                                        if val.is_exception() {
-                                            break State::Exception;
-                                        } else {
+                                        if let Ok(val) = obj.get_property(ctx, atom) {
                                             SP_PUT!(-1, JSValue::UNDEFINED);
                                             SP_PUT!(0, val);
                                             SP_GO!(1);
+                                        } else {
+                                            break State::Exception;
                                         }
                                     }
                                     _ => {

@@ -297,8 +297,9 @@ impl JSObject {
                     }
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                    val = self.get_property(ctx, name.atom);
-                    if val.is_exception() {
+                    if let Ok(v) = self.get_property(ctx, name.atom) {
+                        val = v;
+                    } else {
                         has_err = true;
                         break;
                     }
@@ -324,15 +325,15 @@ impl JSObject {
                         break;
                     }
 
-                    let v2 = self.get_property(ctx, name.atom);
-                    if v2.is_exception() {
-                        has_err = true;
-                        break;
-                    }
-                    if val
-                        .create_data_property_u32(ctx, 1, v2, JS_PROP_THROW)
-                        .is_err()
-                    {
+                    if let Ok(v2) = self.get_property(ctx, name.atom) {
+                        if val
+                            .create_data_property_u32(ctx, 1, v2, JS_PROP_THROW)
+                            .is_err()
+                        {
+                            has_err = true;
+                            break;
+                        }
+                    } else {
                         has_err = true;
                         break;
                     }

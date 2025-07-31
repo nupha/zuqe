@@ -71,7 +71,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
         {
             JSValue::Int(0)
         } else {
-            let len = this_val.get_property(ctx, JS_ATOM_length);
+            let len = this_val.get_property(ctx, JS_ATOM_length)?;
             match len {
                 JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
                 JSValue::Float64(mut d) => {
@@ -87,9 +87,6 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
                     }
                     JSValue::Float64(d)
                 }
-                JSValue::EXCEPTION => {
-                    return Err(-1);
-                }
                 _ => JSValue::Int(0),
             }
         };
@@ -98,10 +95,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
             .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
             .unwrap();
 
-        let mut name = args
-            .this_raw()
-            .get_property(ctx, JS_ATOM_name)
-            .check_exception()?;
+        let mut name = args.this_raw().get_property(ctx, JS_ATOM_name)?;
 
         if !name.is_string() {
             name = JS_ATOM_empty_string.to_value(ctx, true);
@@ -142,7 +136,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
         _ => c"function ",
     };
     let suff = c"() {\n    [native code]\n}";
-    let mut name = this_val.get_property(ctx, JS_ATOM_name);
+    let mut name = this_val.get_property(ctx, JS_ATOM_name)?;
     if name.is_undefined() {
         name = JS_ATOM_empty_string.to_value(ctx, true);
     }

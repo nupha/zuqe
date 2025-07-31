@@ -303,9 +303,8 @@ impl JSObject {
                 .borrow()
                 .first()
                 .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
-                .ok_or(-1)
-                .and_then(|v| v.coerce_to_u32(ctx))
-                .unwrap() as usize;
+                .unwrap() // `length` property must be defined in slot #0
+                .and_then(|v| v.coerce_to_u32(ctx))? as usize;
 
             if len < cur_len {
                 // shrink

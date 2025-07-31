@@ -320,10 +320,10 @@ pub fn JS_CallConstructor(ctx: &JSContext, func_obj: &JSValue, args: &[JSValue])
 /// `this_val` is not consumed
 pub fn JS_Invoke(ctx: &JSContext, this_val: &JSValue, atom: JSAtom, args: &[JSValue]) -> JSValue {
     let func_obj = this_val.get_property(ctx, atom);
-    if func_obj.is_exception() {
+    if func_obj.is_err() {
         return JSValue::EXCEPTION;
     }
-    JS_Call(ctx, &func_obj, this_val, args)
+    JS_Call(ctx, &func_obj.unwrap(), this_val, args)
 }
 
 /// `this_val` is consumed

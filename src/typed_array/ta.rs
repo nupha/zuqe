@@ -302,7 +302,7 @@ impl TypedArray {
         } else {
             // slow path: get then set as props
             for i in 0..count {
-                let val = self.0.get_property_u32(ctx, i as u32).check_exception()?;
+                let val = self.0.get_property_u32(ctx, i as u32)?;
                 new_ta.0.set_property_u32(ctx, i as u32, val)?;
             }
         }
@@ -547,9 +547,7 @@ impl JSContext {
                     _ => {
                         // source is an enumetable object.
                         // get property from source object and set to new array.
-                        let iter = source
-                            .get_property(self, JS_ATOM_Symbol_iterator)
-                            .check_exception()?;
+                        let iter = source.get_property(self, JS_ATOM_Symbol_iterator)?;
 
                         let (enum_obj, count) = if !iter.is_undefined_or_null() {
                             let mut n: u32 = 0;
@@ -570,11 +568,11 @@ impl JSContext {
 
                         // put elements to buffer
                         for i in 0..count {
-                            let val = enum_obj
-                                .get_property_u32(self, i as u32)
-                                .check_exception()?;
-
-                            new_ta.set_property_u32(self, i as u32, val)?;
+                            new_ta.set_property_u32(
+                                self,
+                                i as u32,
+                                enum_obj.get_property_u32(self, i as u32)?,
+                            )?;
                         }
 
                         Ok(new_ta)
@@ -684,7 +682,7 @@ pub fn js_typed_array_set_internal(
             }
 
             for i in 0..count as u32 {
-                let val = src_p.get_property_u32(ctx, i).check_exception()?;
+                let val = src_p.get_property_u32(ctx, i)?;
                 dst.set_property_u32(ctx, offset as u32 + i, val)?;
             }
         }

@@ -121,9 +121,7 @@ impl JSObject {
                     ctx,
                     atom,
                     LazyInit::Prop(unsafe {
-                        NonNull::new_unchecked(
-                            e as *const NativeField as *mut NativeField,
-                        )
+                        NonNull::new_unchecked(e as *const NativeField as *mut NativeField)
                     }),
                     prop_flags as _,
                 );
@@ -142,19 +140,18 @@ impl JSObject {
                 val = JSValue::UNDEFINED;
             }
 
-            NativeFieldDetail::Alias { name, base } => unsafe {
+            NativeFieldDetail::Alias { name, base } => {
                 // using autoinit for aliases is not safe
-                let name_atom = ctx.create_atom(name)?;
+                let name_atom = ctx.create_atom(name)?.into_rc(ctx.rt());
                 val = match base {
-                    -1 => self.get_property(ctx, name_atom),
-                    0 => ctx.global_obj().get_property(ctx, name_atom),
+                    -1 => self.get_property(ctx, *name_atom)?,
+                    0 => ctx.global_obj().get_property(ctx, *name_atom)?,
                     1 => ctx.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                        .get_property(ctx, name_atom),
+                        .get_property(ctx, *name_atom)?,
                     _ => {
                         unreachable!();
                     }
                 };
-                JS_FreeAtom(ctx, name_atom);
 
                 if atom == JS_ATOM_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
@@ -163,7 +160,7 @@ impl JSObject {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
-            },
+            }
         }
 
         self.define_property_value(ctx, atom, val, prop_flags as _)
@@ -258,19 +255,18 @@ impl JSValue {
                 val = JSValue::UNDEFINED;
             }
 
-            NativeFieldDetail::Alias { name, base } => unsafe {
+            NativeFieldDetail::Alias { name, base } => {
                 // using autoinit for aliases is not safe
-                let name_atom = ctx.create_atom(name)?;
+                let name_atom = ctx.create_atom(name)?.into_rc(ctx.rt());
                 val = match base {
-                    -1 => self.get_property(ctx, name_atom),
-                    0 => ctx.global_obj().get_property(ctx, name_atom),
+                    -1 => self.get_property(ctx, *name_atom)?,
+                    0 => ctx.global_obj().get_property(ctx, *name_atom)?,
                     1 => ctx.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                        .get_property(ctx, name_atom),
+                        .get_property(ctx, *name_atom)?,
                     _ => {
                         unreachable!();
                     }
                 };
-                JS_FreeAtom(ctx, name_atom);
 
                 if atom == JS_ATOM_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
@@ -279,7 +275,7 @@ impl JSValue {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
-            },
+            }
         }
 
         let _ = self.define_property_value(ctx, atom, val, prop_flags as _);

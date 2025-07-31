@@ -62,7 +62,8 @@ impl JSObject {
 
             match prs_flags & JS_PROP_TMASK {
                 JS_PROP_NORMAL => {
-                    desc.value = self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED);
+                    desc.value =
+                        self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
                 }
                 JS_PROP_GETSET => {
                     desc.flags |= JS_PROP_GETSET;
@@ -76,7 +77,8 @@ impl JSObject {
                     }
                 }
                 JS_PROP_VARREF => {
-                    desc.value = self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED);
+                    desc.value =
+                        self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
                     if desc.value.is_uninitialized() {
                         JS_ThrowReferenceErrorUninitialized(ctx, prop);
                         return Err(-1);
@@ -108,7 +110,7 @@ impl JSObject {
                     if idx < self.array_length_unchecked() as u32 {
                         return Ok(Some(JSPropertyDescriptor {
                             flags: JS_PROP_C_W_E,
-                            value: self.get_property_value(ctx, &JSValue::from(idx)),
+                            value: self.get_property_value(ctx, &JSValue::from(idx))?,
                             getter: JSValue::UNDEFINED,
                             setter: JSValue::UNDEFINED,
                         }));

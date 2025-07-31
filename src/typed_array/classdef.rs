@@ -211,9 +211,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
         }
     }
 
-    let iter = items
-        .get_property(ctx, JS_ATOM_Symbol_iterator)
-        .check_exception()?;
+    let iter = items.get_property(ctx, JS_ATOM_Symbol_iterator)?;
 
     let arr: JSValue;
 
@@ -257,7 +255,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     let res_ta = js_typed_array_create(ctx, args.this(), &[len_val])?;
 
     for i in 0..len {
-        let mut el = arr.get_property_i64(ctx, i).check_exception()?;
+        let mut el = arr.get_property_i64(ctx, i)?;
         if mapping {
             el = JS_Call(ctx, mapfn, &this_arg, &[el, JSValue::Int(i as i32)]).check_exception()?;
         }
@@ -356,9 +354,7 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    cc.this()
-        .get_property_value(ctx, &JSValue::from(idx))
-        .check_exception()
+    cc.this().get_property_value(ctx, &JSValue::from(idx))
 }
 
 pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -598,9 +594,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
 
     while k != end {
         let index_val = JSValue::Int(k);
-        let val = this_val
-            .get_property_value(ctx, &index_val)
-            .check_exception()?;
+        let val = this_val.get_property_value(ctx, &index_val)?;
 
         let res = JS_Call(
             ctx,
@@ -734,9 +728,7 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // slow path using property set
         for n in 0..count {
-            let val = this_val
-                .get_property_value(ctx, &JSValue::Int(start + n))
-                .check_exception()?;
+            let val = this_val.get_property_value(ctx, &JSValue::Int(start + n))?;
             arr.set_property_value(ctx, &JSValue::Int(n), val, JS_PROP_THROW)?;
         }
     }
@@ -901,7 +893,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             };
         }
 
-        let el = this_val.get_property_u32(ctx, i).check_exception()?;
+        let el = this_val.get_property_u32(ctx, i)?;
         if !el.is_undefined_or_null() {
             let v = if to_locale {
                 el.to_locale_string(ctx)

@@ -132,7 +132,7 @@ impl JSContext {
             if prs.is_none() && !gobj.flags().extensible() {
                 self.throw_type_error(&format!(
                     "cannot define variable '{}' ",
-                    prop.to_str(self.rt())
+                    prop.utf8(self.rt())
                 ));
                 return Err(-1);
             }
@@ -184,6 +184,7 @@ impl JSContext {
             // search global object
             let gobj = self.global_obj();
             gobj.get_property_internal(self, prop, &JSValue::Object(gobj.clone()), throw_ref_error)
+                .unwrap_or(JSValue::EXCEPTION)
         }
     }
 

@@ -71,7 +71,7 @@ impl JSContext {
         let proto = if ctor.is_undefined() {
             self.0.borrow().class_proto[class_id as usize].clone()
         } else {
-            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype).check_exception() {
+            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype) {
                 if !p.is_object() {
                     if let Ok(realm) = JS_GetFunctionRealm(self, &ctor) {
                         realm.0.borrow().class_proto[class_id as usize].clone()

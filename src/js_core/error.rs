@@ -16,9 +16,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         new_target = unsafe { JS_GetActiveFunction(ctx).clone() };
     }
 
-    let mut proto = new_target
-        .get_property(ctx, JS_ATOM_prototype)
-        .check_exception()?;
+    let mut proto = new_target.get_property(ctx, JS_ATOM_prototype)?;
 
     if !proto.is_object() {
         let realm = JS_GetFunctionRealm(ctx, &new_target)?;
@@ -56,7 +54,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let options = cc.arg(arg_index as usize);
         if options.is_object() {
             if options.has_property(ctx, JS_ATOM_cause)? {
-                let cause = options.get_property(ctx, JS_ATOM_cause).check_exception()?;
+                let cause = options.get_property(ctx, JS_ATOM_cause)?;
                 obj.define_property_value(
                     ctx,
                     JS_ATOM_cause,

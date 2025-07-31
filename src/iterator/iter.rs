@@ -102,26 +102,18 @@ impl JSObject {
     /// and return result of the method - an enumerable object.
     pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
         let method = if is_async {
-            let m = self
-                .get_property(ctx, JS_ATOM_Symbol_asyncIterator)
-                .check_exception()?;
-
+            let m = self.get_property(ctx, JS_ATOM_Symbol_asyncIterator)?;
             if m.is_undefined_or_null() {
                 // use Symbol.iterator instead, if Symbol.asyncIterator is not available
-                let sync_iter = self.call_iterator_method(
-                    ctx,
-                    &self
-                        .get_property(ctx, JS_ATOM_Symbol_iterator)
-                        .check_exception()?,
-                )?;
+                let sync_iter = self
+                    .call_iterator_method(ctx, &self.get_property(ctx, JS_ATOM_Symbol_iterator)?)?;
                 // wrap sync iterator to async iterartor
                 return ctx.create_async_from_sync_iterator(JSValue::Object(sync_iter));
             } else {
                 m
             }
         } else {
-            self.get_property(ctx, JS_ATOM_Symbol_iterator)
-                .check_exception()?
+            self.get_property(ctx, JS_ATOM_Symbol_iterator)?
         };
 
         if !method.is_callable() {
@@ -231,17 +223,17 @@ pub fn JS_IteratorNext(
         return obj;
     }
 
-    let done_val = obj.get_property(ctx, JS_ATOM_done);
-    if done_val.is_exception() {
+    if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
+        *pdone = done_val.coerce_to_bool(ctx).unwrap_or(true);
+        if !*pdone {
+            obj.get_property(ctx, JS_ATOM_value)
+                .unwrap_or(JSValue::EXCEPTION)
+        } else {
+            JSValue::UNDEFINED
+        }
+    } else {
         *pdone = false;
         return JSValue::EXCEPTION;
-    }
-
-    *pdone = done_val.coerce_to_bool(ctx).unwrap_or(true);
-    if !*pdone {
-        obj.get_property(ctx, JS_ATOM_value)
-    } else {
-        JSValue::UNDEFINED
     }
 }
 
@@ -252,32 +244,49 @@ pub fn JS_IteratorClose(
     enum_obj: &JSValue,
     has_exception: bool,
 ) -> Result<(), i32> {
-    let (exc, mut has_err) = if has_exception {
-        (ctx.take_exception(), true)
+    let pending_exc = if has_exception {
+        ctx.take_exception()
     } else {
-        (JSValue::UNDEFINED, false)
+        JSValue::UNDEFINED
     };
 
-    let method = enum_obj.get_property(ctx, JS_ATOM_return);
-    if method.is_exception() {
-        has_err = true;
-    } else if !method.is_undefined_or_null() {
+    let method = enum_obj
+        .get_property(ctx, JS_ATOM_return)
+        .inspect_err(|_| {
+            // restore original error
+            ctx.throw(pending_exc.clone());
+        })?;
+
+    if !method.is_undefined_or_null() {
         let ret = JS_Call(ctx, &method, enum_obj, &[]);
         if !has_exception {
-            if ret.is_exception() {
-                has_err = true;
-            } else if !ret.is_object() {
+            if !ret.check_exception()?.is_object() {
                 ctx.throw_type_error_not_an_object();
-                has_err = true;
+                return Err(-1);
             }
         }
     }
 
-    if has_exception {
-        ctx.throw(exc);
-    }
+    // if method.is_exception() {
+    //     has_err = true;
+    // } else if !method.is_undefined_or_null() {
+    //     let ret = JS_Call(ctx, &method, enum_obj, &[]);
+    //     if !has_exception {
+    //         if ret.is_exception() {
+    //             has_err = true;
+    //         } else if !ret.is_object() {
+    //             ctx.throw_type_error_not_an_object();
+    //             has_err = true;
+    //         }
+    //     }
+    // }
 
-    if has_err { Err(-1) } else { Ok(()) }
+    if has_exception {
+        ctx.throw(pending_exc);
+        Err(-1)
+    } else {
+        Ok(())
+    }
 }
 
 pub unsafe fn JS_IteratorGetCompleteValue(
@@ -285,20 +294,20 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     obj: &JSValueConst,
     pdone: *mut bool,
 ) -> JSValue {
-    let done_val = obj.get_property(ctx, JS_ATOM_done);
-    if done_val.is_exception() {
-        *pdone = false;
-        return JSValue::EXCEPTION;
-    }
-    let done = done_val.coerce_to_bool(ctx).unwrap();
+    if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
+        let done = done_val.coerce_to_bool(ctx).unwrap();
 
-    let value = obj.get_property(ctx, JS_ATOM_value);
-    if value.is_exception() {
+        if let Ok(value) = obj.get_property(ctx, JS_ATOM_value) {
+            *pdone = done;
+            value
+        } else {
+            *pdone = false;
+            return JSValue::EXCEPTION;
+        }
+    } else {
         *pdone = false;
-        return JSValue::EXCEPTION;
+        JSValue::EXCEPTION
     }
-    *pdone = done;
-    value
 }
 
 pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, _id: usize) {
@@ -377,7 +386,7 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
 
 pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
     let iter = JSValue::Object(items.iterator(ctx, false)?);
-    let next_method = iter.get_property(ctx, JS_ATOM_next).check_exception()?;
+    let next_method = iter.get_property(ctx, JS_ATOM_next)?;
 
     let r = ctx.create_array()?;
     let mut k = 0;
@@ -430,10 +439,11 @@ pub unsafe fn js_array_from_iterator(
         return JSValue::EXCEPTION;
     }
 
-    let next_method = iter.get_property(ctx, JS_ATOM_next);
-    if next_method.is_exception() {
+    let next_method = if let Ok(x) = iter.get_property(ctx, JS_ATOM_next) {
+        x
+    } else {
         return JSValue::EXCEPTION;
-    }
+    };
 
     let mut k = 0;
 

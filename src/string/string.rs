@@ -366,7 +366,7 @@ impl JSString {
                     }
 
                     if (1..captures_len).contains(&k) {
-                        let s = captures.get_property_i64(ctx, k as i64).check_exception()?;
+                        let s = captures.get_property_i64(ctx, k as i64)?;
                         if !s.is_undefined() {
                             let sval = s.coerce_to_string(ctx)?;
                             res_content
@@ -389,9 +389,7 @@ impl JSString {
                     // $<name> -> names_captures[name]
                     if let Some(k) = rep_cc.find_char('>', j as _) {
                         let name = replacement.sub_string(ctx, j, k)?;
-                        let capture = named_captures
-                            .get_property_value(ctx, &name)
-                            .check_exception()?;
+                        let capture = named_captures.get_property_value(ctx, &name)?;
                         if !capture.is_undefined() {
                             let sval = capture.coerce_to_string(ctx)?;
                             res_content

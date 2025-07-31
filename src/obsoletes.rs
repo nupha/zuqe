@@ -931,13 +931,15 @@ pub unsafe fn JS_GetPropertyInternal(
     this_obj: JSValueConst,
     throw_ref_error: bool,
 ) -> JSValue {
-    obj.get_property_internal(ctx, prop, &this_obj, throw_ref_error)
+    unreachable!("unused");
+    // obj.get_property_internal(ctx, prop, &this_obj, throw_ref_error)
 }
 
 #[deprecated(note = "use JSValue::get_property() instead")]
 #[inline(always)]
 pub unsafe fn JS_GetProperty(ctx: &JSContext, this_obj: JSValueConst, prop: JSAtom) -> JSValue {
-    this_obj.get_property(ctx, prop)
+    unreachable!("unused");
+    // this_obj.get_property(ctx, prop)
 }
 
 #[deprecated(note = "use JSValue::get_property_str() instead")]
@@ -946,11 +948,8 @@ pub unsafe fn JS_GetPropertyStr(
     this_obj: JSValueConst,
     prop: *const c_char,
 ) -> JSValue {
-    this_obj.get_property_str(ctx, CStr::from_ptr(prop).to_string_lossy().as_ref())
-    // let atom = JS_NewAtom(ctx, CStr::from_ptr(prop));
-    // let ret = JS_GetProperty(ctx, this_obj, atom);
-    // JS_FreeAtom(ctx, atom);
-    // return ret;
+    unreachable!("unused");
+    // this_obj.get_property_str(ctx, CStr::from_ptr(prop).to_string_lossy().as_ref())
 }
 
 /// NOTE: returned property value has increased ref_count by 1
@@ -960,17 +959,20 @@ pub unsafe fn JS_GetPropertyValue(
     this_obj: JSValueConst,
     prop: JSValue,
 ) -> JSValue {
-    this_obj.get_property_value(ctx, &prop)
+    unreachable!("unused");
+    // this_obj.get_property_value(ctx, &prop)
 }
 
 #[deprecated(note = "use JSValue::get_property_u32() instead")]
 pub unsafe fn JS_GetPropertyUint32(ctx: &JSContext, this_obj: JSValueConst, idx: u32) -> JSValue {
-    this_obj.get_property_u32(ctx, idx)
+    unreachable!("unused");
+    // this_obj.get_property_u32(ctx, idx)
 }
 
 #[deprecated(note = "use JSValue::get_property_i64() instead")]
 pub unsafe fn JS_GetPropertyInt64(ctx: &JSContext, obj: JSValueConst, idx: i64) -> JSValue {
-    obj.get_property_i64(ctx, idx)
+    unreachable!("unused");
+    // obj.get_property_i64(ctx, idx)
 }
 
 /// Check if an object has a generalized numeric property `idx`. Returns:

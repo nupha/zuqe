@@ -220,10 +220,7 @@ impl BytecodeFunction {
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target
-                .get_property(ctx, JS_ATOM_prototype)
-                .check_exception()?;
-
+            let mut proto = new_target.get_property(ctx, JS_ATOM_prototype)?;
             if !proto.is_object() {
                 let realm = JS_GetFunctionRealm(ctx, &new_target)?;
                 proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();

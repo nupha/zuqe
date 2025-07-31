@@ -67,8 +67,7 @@ pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
         let prop = cc.arg(1);
         let receiver = if cc.length() > 2 { cc.arg(2) } else { obj };
         let atom = prop.coerce_to_atom(ctx)?;
-        let ret = obj.get_property_internal(ctx, atom, receiver, false);
-        debug_assert!(!ret.is_exception());
+        let ret = obj.get_property_internal(ctx, atom, receiver, false)?;
 
         JS_FreeAtom(ctx, atom);
         Ok(ret)

@@ -202,7 +202,7 @@ pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSVal
     {
         // slow array
         for i in 0..len {
-            tab.push(array_arg.get_property_u32(ctx, i).check_exception()?);
+            tab.push(array_arg.get_property_u32(ctx, i)?);
         }
     }
 

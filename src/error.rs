@@ -9,7 +9,6 @@ use crate::{
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectDetail,
     },
-    runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{JS_ConcatString, JS_ConcatString3, JS_IsEmptyString},
     value::{JSValue, JSValueConst},
@@ -416,14 +415,14 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut name = cc.this().get_property(ctx, JS_ATOM_name);
+    let mut name = cc.this().get_property(ctx, JS_ATOM_name)?;
     name = if name.is_undefined() {
         JS_ATOM_Error.to_value(ctx, true)
     } else {
         name.coerce_to_string(ctx)?
     };
 
-    let mut msg = cc.this().get_property(ctx, JS_ATOM_message);
+    let mut msg = cc.this().get_property(ctx, JS_ATOM_message)?;
     msg = if msg.is_undefined() {
         JS_ATOM_empty_string.to_value(ctx, true)
     } else {

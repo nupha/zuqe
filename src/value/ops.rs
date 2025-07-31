@@ -28,7 +28,7 @@ impl JSObject {
             unreachable!();
         }
 
-        match ctor.get_property(ctx, JS_ATOM_prototype) {
+        match ctor.get_property(ctx, JS_ATOM_prototype)? {
             JSValue::Object(proto) => {
                 let mut p = self.clone();
                 loop {
@@ -60,7 +60,6 @@ impl JSObject {
                     }
                 }
             }
-            JSValue::EXCEPTION => Err(-1),
             _ => {
                 ctx.throw_type_error("operand 'prototype' property is not an object");
                 Err(-1)
@@ -71,9 +70,7 @@ impl JSObject {
     /// check if object `self` is instance of constructor `ctor`.
     /// equivalent to js: `self instanceof ty`
     pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
-        let method = ctor
-            .get_property(ctx, JS_ATOM_Symbol_hasInstance)
-            .check_exception()?;
+        let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
 
         if !method.is_undefined_or_null() {
             let ret = JS_Call(

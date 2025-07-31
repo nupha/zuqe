@@ -8,7 +8,7 @@ use crate::{
         JSAtom, consts::*,
     },
     context::JSContext,
-    error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
+    error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     function::JS_Call,
     object::{JSObject, JSProperty},
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -18,6 +18,7 @@ use super::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK, JS_
 
 impl JSObject {
     /// walk up proto chain and get property in shape or by exotic handler.
+    /// `prop` is not consumed.
     /// Note: returned value is duplicated.
     pub(crate) fn get_property_internal(
         &self,
@@ -25,52 +26,46 @@ impl JSObject {
         prop: JSAtom,
         this_obj: &JSValue,
         throw_ref_error: bool,
-    ) -> JSValue {
+    ) -> JSResult {
         for cur_obj in self.prototype_iter(ctx, true) {
-            let cur_obj = if let Ok(o) = cur_obj {
-                o
-            } else {
-                return JSValue::EXCEPTION;
-            };
+            let cur_obj = cur_obj?;
 
             // 1. try own property (in shape)
             if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
                         if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
-                            val.clone()
+                            debug_assert!(!val.is_exception());
+                            Ok(val.clone())
                         } else {
                             unreachable!()
                         }
                     }
                     JS_PROP_GETSET => {
-                        let pr = cur_obj.0.prop_values.borrow()[idx].clone();
+                        let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
                         pr.value(ctx, this_obj)
                     }
                     JS_PROP_VARREF => {
-                        let pr = cur_obj.0.prop_values.borrow()[idx].clone();
-                        let val = pr.value(ctx, this_obj);
+                        let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
+                        let val = pr.value(ctx, this_obj)?;
                         if val.is_uninitialized() {
                             JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                            JSValue::EXCEPTION
+                            Err(-1)
                         } else {
-                            val
+                            Ok(val)
                         }
                     }
                     JS_PROP_AUTOINIT => {
                         // Lazy instantiate property.
-                        let mut pr = std::mem::take(&mut cur_obj.0.prop_values.borrow_mut()[idx]);
-                        let val = pr
-                            .instantiate(&cur_obj, prop, self)
-                            .unwrap_or(JSValue::EXCEPTION);
+                        let mut pr = std::mem::take(&mut cur_obj.0.prop_values.borrow_mut()[idx]); // borrow in short
+                        let val = pr.instantiate(&cur_obj, prop, self)?;
                         debug_assert!(matches!(pr, JSProperty::Normal(_)));
                         debug_assert_eq!(
                             cur_obj.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                             JS_PROP_NORMAL
                         );
                         cur_obj.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
-
-                        val
+                        Ok(val)
                     }
                     _ => unreachable!(),
                 };
@@ -89,7 +84,7 @@ impl JSObject {
                         if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
-                            return JSValue::UNDEFINED;
+                            return Ok(JSValue::UNDEFINED);
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
@@ -97,9 +92,9 @@ impl JSObject {
                         let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
                         if ret != 0 {
                             return if ret < 0 {
-                                JSValue::EXCEPTION
+                                Err(-1)
                             } else {
-                                JSValue::UNDEFINED
+                                Ok(JSValue::UNDEFINED)
                             };
                         }
                     }
@@ -118,21 +113,17 @@ impl JSObject {
                             JSValue::Object(cur_obj.clone()),
                             prop,
                             this_obj.clone(),
-                        );
+                        )
+                        .check_exception();
                     }
                     if let Some(cb) = xm.get_own_property {
-                        match cb(ctx, JSValue::Object(cur_obj.clone()), prop) {
-                            Ok(Some(desc)) => {
-                                return if desc.flags & JS_PROP_GETSET != 0 {
-                                    JS_Call(ctx, &desc.getter, this_obj, &[])
-                                } else {
-                                    desc.value
-                                };
-                            }
-                            Ok(None) => {}
-                            Err(_) => {
-                                return JSValue::EXCEPTION;
-                            }
+                        if let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)? {
+                            return if desc.flags & JS_PROP_GETSET != 0 {
+                                JS_Call(ctx, &desc.getter, this_obj, &[]).check_exception()
+                            } else {
+                                debug_assert!(!desc.value.is_exception());
+                                Ok(desc.value)
+                            };
                         }
                     }
                 }
@@ -141,21 +132,21 @@ impl JSObject {
 
         if throw_ref_error {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
-            JSValue::EXCEPTION
+            Err(-1)
         } else {
-            JSValue::UNDEFINED
+            Ok(JSValue::UNDEFINED)
         }
     }
 
     /// get property by atom name.
-    /// returns EXCEPTION when fail
+    /// `prop` is not consumed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSValue {
+    pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSResult {
         self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
     /// returns EXCEPTION when fail
-    pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSValue {
+    pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
         // check fast path: fast array and index within slice bound.
         if prop.is_int() {
             let idx = if let JSValue::Int(i) = prop {
@@ -168,7 +159,7 @@ impl JSObject {
 
             macro_rules! typed_array_elemnt {
                 ($ty:ident, $vtype:ident) => {
-                    if let Some(v) = self
+                    if let Some(el) = self
                         .0
                         .payload
                         .borrow()
@@ -184,14 +175,14 @@ impl JSObject {
                         })
                         .unwrap()
                     {
-                        return v;
+                        return Ok(el);
                     }
                 };
             }
 
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    if let Some(r) = self
+                    if let Some(el) = self
                         .with_fast_array_values(|lst| {
                             if idx < lst.len() {
                                 return Some(lst[idx as usize].clone()); // use fast array value
@@ -200,7 +191,7 @@ impl JSObject {
                         })
                         .flatten()
                     {
-                        return r;
+                        return Ok(el);
                     }
                 }
 
@@ -240,44 +231,38 @@ impl JSObject {
 
         // slow path
         {
-            let atom = prop.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-            if atom == JS_ATOM_NULL {
-                JSValue::EXCEPTION
-            } else {
-                let ret = self.get_property(ctx, atom);
-                JS_FreeAtom(ctx, atom);
-                ret
-            }
+            let atom = prop.coerce_to_atom(ctx)?;
+            let ret = self.get_property(ctx, atom);
+            JS_FreeAtom(ctx, atom);
+            ret
         }
     }
 
     #[inline(always)]
-    pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSValue {
+    pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSResult {
         self.get_property_value(ctx, &JSValue::from(idx))
     }
 
-    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSValue {
+    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
         if (idx as u64) <= i32::MAX as u64 {
             self.get_property_value(ctx, &JSValue::Int(idx as i32))
         } else {
             let prop = ctx.rt_mut().register_atom_i64(idx);
             if prop == JS_ATOM_NULL {
-                JSValue::EXCEPTION
+                Err(-1)
             } else {
-                self.get_property(ctx, prop)
+                let r = self.get_property(ctx, prop);
+                JS_FreeAtom(ctx, prop);
+                r
             }
         }
     }
 
-    /// returns Exception when fail.
-    pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSValue {
-        if let Ok(atom) = ctx.create_atom(prop) {
-            let ret = self.get_property(ctx, atom);
-            JS_FreeAtom(ctx, atom);
-            ret
-        } else {
-            JSValue::EXCEPTION
-        }
+    pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSResult {
+        let atom = ctx.create_atom(prop)?;
+        let ret = self.get_property(ctx, atom);
+        JS_FreeAtom(ctx, atom);
+        ret
     }
 }
 
@@ -288,7 +273,7 @@ impl JSValue {
         prop: JSAtom,
         this_obj: &JSValue,
         throw_ref_error: bool,
-    ) -> JSValue {
+    ) -> JSResult {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::NULL => {
@@ -296,89 +281,84 @@ impl JSValue {
                     "cannot read property '{}' of null",
                     prop.utf8(ctx.rt())
                 ));
-                JSValue::EXCEPTION
+                Err(-1)
             }
             Self::UNDEFINED => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of undefined",
                     prop.utf8(ctx.rt())
                 ));
-                JSValue::EXCEPTION
+                Err(-1)
             }
-            Self::EXCEPTION => JSValue::EXCEPTION,
+            Self::EXCEPTION => Err(-1),
             Self::String(ss) => {
                 if prop.is_int_type() {
                     let idx = __JS_AtomToUInt32(prop);
                     if idx < ss.len() as u32 {
                         let ch = ss.content().chars().nth(idx as usize).unwrap();
-                        return ctx.create_string_from_char(ch);
+                        return ctx.create_string_from_char(ch).check_exception();
                     }
                 } else if prop == JS_ATOM_length {
-                    return JSValue::from(ss.len() as u32);
+                    return Ok(JSValue::from(ss.len() as u32));
                 }
 
                 unsafe {
                     JS_GetPrototypePrimitive(ctx, self)
                         .object()
                         .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                        .unwrap_or(JSValue::UNDEFINED)
+                        .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
             }
             _ => unsafe {
                 JS_GetPrototypePrimitive(ctx, self)
                     .object()
                     .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                    .unwrap_or(JSValue::UNDEFINED)
+                    .unwrap_or(Ok(JSValue::UNDEFINED))
             },
         }
     }
 
     /// returns Exception when fail.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSValue {
+    pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSResult {
         self.get_property_internal(ctx, prop, self, false)
     }
 
     /// returns Exception when fail.
-    pub fn get_property_str(self, ctx: &JSContext, prop: &str) -> JSValue {
-        if let Ok(atom) = ctx.create_atom(prop) {
-            let ret = self.get_property(ctx, atom);
-            JS_FreeAtom(ctx, atom);
-            ret
-        } else {
-            JSValue::EXCEPTION
-        }
+    pub fn get_property_str(self, ctx: &JSContext, prop: &str) -> JSResult {
+        let atom = ctx.create_atom(prop)?;
+        let ret = self.get_property(ctx, atom);
+        JS_FreeAtom(ctx, atom);
+        ret
     }
 
-    pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSValue {
+    pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
         if self.is_object() {
             unsafe { self.object_unchecked().get_property_value(ctx, prop) }
         } else {
-            let atom = prop.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-            if atom == JS_ATOM_NULL {
-                JSValue::EXCEPTION
-            } else {
-                let ret = self.get_property(ctx, atom);
-                JS_FreeAtom(ctx, atom);
-                ret
-            }
+            let atom = prop.coerce_to_atom(ctx)?;
+            let ret = self.get_property(ctx, atom);
+            JS_FreeAtom(ctx, atom);
+            ret
         }
     }
 
     #[inline(always)]
-    pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSValue {
+    pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSResult {
         self.get_property_value(ctx, &JSValue::from(idx))
     }
 
-    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSValue {
+    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
         if (idx as u64) <= i32::MAX as u64 {
             self.get_property_value(ctx, &JSValue::Int(idx as i32))
         } else {
-            let prop = ctx.rt_mut().register_atom_i64(idx);
-            if prop == JS_ATOM_NULL {
-                JSValue::EXCEPTION
+            let atom = ctx.rt_mut().register_atom_i64(idx);
+            if atom == JS_ATOM_NULL {
+                Err(-1)
             } else {
-                self.get_property(ctx, prop)
+                let r = self.get_property(ctx, atom);
+                JS_FreeAtom(ctx, atom);
+                r
             }
         }
     }
@@ -389,10 +369,9 @@ impl JSValue {
         if idx as u64 <= JS_ATOM_MAX_INT as u64 {
             // fast path
             if self.has_property(ctx, JSAtom::new_u32(idx as u32))? {
-                let val = self
-                    .get_property_value(ctx, &JSValue::Int(idx as i32))
-                    .check_exception()?;
-                Ok(Some(val))
+                Ok(Some(
+                    self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
+                ))
             } else {
                 Ok(None)
             }
@@ -401,10 +380,9 @@ impl JSValue {
             let ret = if prop != JS_ATOM_NULL {
                 self.has_property(ctx, prop).and_then(|b| {
                     if b {
-                        let val = self
-                            .get_property_value(ctx, &JSValue::Int(idx as i32))
-                            .check_exception()?;
-                        Ok(Some(val))
+                        Ok(Some(
+                            self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
+                        ))
                     } else {
                         Ok(None) // does not exist
                     }

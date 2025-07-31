@@ -105,11 +105,9 @@ pub fn js_array_iterator_next(
 
         match it.kind {
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                it.obj.get_property_u32(ctx, idx).check_exception()
-            }
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.obj.get_property_u32(ctx, idx),
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                let val = it.obj.get_property_u32(ctx, idx).check_exception()?;
+                let val = it.obj.get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
                 unsafe { js_create_array(ctx, 2, [num, val].as_ptr()).check_exception() }
             }

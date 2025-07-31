@@ -79,9 +79,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
         );
     }
 
-    let mut ctor = obj
-        .get_property(ctx, JS_ATOM_constructor)
-        .check_exception()?;
+    let mut ctor = obj.get_property(ctx, JS_ATOM_constructor)?;
 
     if ctor.is_constructor() {
         // legacy web compatibility
@@ -92,9 +90,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
     }
 
     if ctor.is_object() {
-        let species = ctor
-            .get_property(ctx, JS_ATOM_Symbol_species)
-            .check_exception()?;
+        let species = ctor.get_property(ctx, JS_ATOM_Symbol_species)?;
         ctor = species;
         if ctor.is_null() {
             ctor = JSValue::UNDEFINED;
@@ -122,9 +118,7 @@ pub unsafe fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bo
         return Ok(false);
     }
 
-    let tmp = obj
-        .get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)
-        .check_exception()?;
+    let tmp = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)?;
 
     if !tmp.is_undefined() {
         tmp.coerce_to_bool(ctx)
@@ -355,7 +349,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         let mut val = JSValue::UNDEFINED;
 
         if special & special_TA as i32 != 0 {
-            val = obj.get_property_i64(ctx, k).check_exception()?;
+            val = obj.get_property_i64(ctx, k)?;
             present = true;
         } else {
             match obj.try_get_property_i64(ctx, k)? {
@@ -458,7 +452,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
             k += 1;
 
             if special & special_TA as i32 != 0 {
-                acc = obj.get_property_i64(ctx, k1).check_exception()?;
+                acc = obj.get_property_i64(ctx, k1)?;
                 break;
             } else {
                 match obj.try_get_property_i64(ctx, k1)? {
@@ -482,7 +476,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         k += 1;
 
         let present = if special & special_TA as i32 != 0 {
-            val = obj.get_property_i64(ctx, k1).check_exception()?;
+            val = obj.get_property_i64(ctx, k1)?;
             true
         } else {
             match obj.try_get_property_i64(ctx, k1)? {
@@ -567,7 +561,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     // TODO: add fast path for fast arrays
     while k != end {
         let index_val = JSValue::from(k);
-        let val = obj.get_property_value(ctx, &index_val).check_exception()?;
+        let val = obj.get_property_value(ctx, &index_val)?;
         let res = JS_Call(
             ctx,
             func,
@@ -702,7 +696,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // try properties
         while n < len {
-            let val: JSValue = obj.get_property_i64(ctx, n).check_exception()?.into();
+            let val: JSValue = obj.get_property_i64(ctx, n)?.into();
             let b = target.strict_eq_with_mode(&val, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO);
             if b {
                 res = true;
@@ -746,7 +740,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
 
-        let mut el = obj.get_property_u32(ctx, i as u32).check_exception()?;
+        let mut el = obj.get_property_u32(ctx, i as u32)?;
         if !el.is_undefined_or_null() {
             if toLocaleString != 0 {
                 el = el.to_locale_string(ctx)?;
@@ -768,7 +762,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
-    let method = obj.get_property(ctx, JS_ATOM_join).check_exception()?;
+    let method = obj.get_property(ctx, JS_ATOM_join)?;
 
     if !method.is_callable() {
         // Use intrinsic Object.prototype.toString
@@ -805,10 +799,10 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else {
             // slow array
             if shift != 0 {
-                res = obj.get_property_i64(ctx, 0).check_exception()?;
+                res = obj.get_property_i64(ctx, 0)?;
                 JS_CopySubArray(ctx, &obj, 0, 1, len as usize - 1, 1)?;
             } else {
-                res = obj.get_property_i64(ctx, new_len).check_exception()?;
+                res = obj.get_property_i64(ctx, new_len)?;
             }
             obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
         }
@@ -1414,9 +1408,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let iter = items
-        .get_property(ctx, JS_ATOM_Symbol_iterator)
-        .check_exception()?;
+    let iter = items.get_property(ctx, JS_ATOM_Symbol_iterator)?;
 
     let mut stack = [JSValue::UNDEFINED, JSValue::UNDEFINED];
     let mut k: i64 = 0;
@@ -1482,7 +1474,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         for i in 0..len {
-            let mut v = arrayLike.get_property_i64(ctx, i).check_exception()?;
+            let mut v = arrayLike.get_property_i64(ctx, i)?;
             if mapping {
                 v = JS_Call(ctx, mapfn, this_arg, &[v, JSValue::Int(i as i32)])
                     .check_exception()?;

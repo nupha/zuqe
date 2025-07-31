@@ -42,10 +42,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         };
 
-        tag_str = obj
-            .get_property(ctx, JS_ATOM_Symbol_toStringTag)
-            .check_exception()?;
-
+        tag_str = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)?;
         if !tag_str.is_string() {
             tag_str = atom.to_value(ctx, true);
         }

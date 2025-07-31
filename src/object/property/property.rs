@@ -4,6 +4,7 @@ use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
+    error::JSResult,
     function::{JS_Call, JSVarRef},
     object::{JSObject, LazyInit},
     proxy::js_proxy_isExtensible,
@@ -114,9 +115,7 @@ impl JSPropertyDescriptor {
         let mut setter: JSValue = JSValue::UNDEFINED;
 
         if desc.has_property(ctx, JS_ATOM_configurable)? {
-            let conf = desc
-                .get_property(ctx, JS_ATOM_configurable)
-                .check_exception()?;
+            let conf = desc.get_property(ctx, JS_ATOM_configurable)?;
             flags |= JS_PROP_HAS_CONFIGURABLE;
             if conf.coerce_to_bool(ctx)? {
                 flags |= JS_PROP_CONFIGURABLE;
@@ -124,7 +123,7 @@ impl JSPropertyDescriptor {
         }
 
         if desc.has_property(ctx, JS_ATOM_writable)? {
-            let conf = desc.get_property(ctx, JS_ATOM_writable).check_exception()?;
+            let conf = desc.get_property(ctx, JS_ATOM_writable)?;
             flags |= JS_PROP_HAS_WRITABLE;
             if conf.coerce_to_bool(ctx)? {
                 flags |= JS_PROP_WRITABLE;
@@ -132,9 +131,7 @@ impl JSPropertyDescriptor {
         }
 
         if desc.has_property(ctx, JS_ATOM_enumerable)? {
-            let conf = desc
-                .get_property(ctx, JS_ATOM_enumerable)
-                .check_exception()?;
+            let conf = desc.get_property(ctx, JS_ATOM_enumerable)?;
             flags |= JS_PROP_HAS_ENUMERABLE;
             if conf.coerce_to_bool(ctx)? {
                 flags |= JS_PROP_ENUMERABLE;
@@ -143,13 +140,13 @@ impl JSPropertyDescriptor {
 
         if desc.has_property(ctx, JS_ATOM_value)? {
             flags |= JS_PROP_HAS_VALUE;
-            value = desc.get_property(ctx, JS_ATOM_value).check_exception()?;
+            value = desc.get_property(ctx, JS_ATOM_value)?;
         }
 
         if desc.has_property(ctx, JS_ATOM_get)? {
             flags |= JS_PROP_HAS_GET;
-            getter = desc.get_property(ctx, JS_ATOM_get);
-            if getter.is_exception() || !(getter.is_undefined() || getter.is_callable()) {
+            getter = desc.get_property(ctx, JS_ATOM_get)?;
+            if !(getter.is_undefined() || getter.is_callable()) {
                 ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
@@ -157,8 +154,8 @@ impl JSPropertyDescriptor {
 
         if desc.has_property(ctx, JS_ATOM_set)? {
             flags |= JS_PROP_HAS_SET;
-            setter = desc.get_property(ctx, JS_ATOM_set);
-            if setter.is_exception() || !(setter.is_undefined() || setter.is_callable()) {
+            setter = desc.get_property(ctx, JS_ATOM_set)?;
+            if !(setter.is_undefined() || setter.is_callable()) {
                 ctx.throw_type_error("invalid setter");
                 return Err(-1);
             }
@@ -206,18 +203,21 @@ impl Default for JSProperty {
 
 impl JSProperty {
     /// retrive property value
-    pub fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSValue {
+    pub fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSResult {
         match self {
-            Self::Normal(val) => val.clone(),
+            Self::Normal(v) => {
+                debug_assert!(!v.is_exception());
+                Ok(v.clone())
+            }
             Self::GetSet { getter, .. } => {
                 if let Some(fun) = getter {
-                    JS_Call(ctx, &JSValue::Object(fun.clone()), this_obj, &[])
+                    JS_Call(ctx, &JSValue::Object(fun.clone()), this_obj, &[]).check_exception()
                 } else {
-                    JSValue::UNDEFINED
+                    Ok(JSValue::UNDEFINED)
                 }
             }
-            Self::VarRef(vref) => vref.value(),
-            Self::LazyInit { .. } => JSValue::UNDEFINED,
+            Self::VarRef(vref) => Ok(vref.value()),
+            Self::LazyInit { .. } => Ok(JSValue::UNDEFINED),
         }
     }
 
@@ -329,7 +329,7 @@ impl JSObject {
                 }
             }
 
-            let val = source.get_property(cx, name.atom).check_exception()?;
+            let val = source.get_property(cx, name.atom)?;
             if setprop {
                 self.set_property(cx, name.atom, val)?;
             } else {
@@ -434,13 +434,10 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
 /// Get object `length` property as u32
 pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
     obj.get_property(ctx, JS_ATOM_length)
-        .check_exception()
         .and_then(|v| v.coerce_to_u32(ctx))
 }
 
 /// Get object `length` property as i64
 pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
-    obj.get_property(ctx, JS_ATOM_length)
-        .check_exception()?
-        .coerce_to_length(ctx)
+    obj.get_property(ctx, JS_ATOM_length)?.coerce_to_length(ctx)
 }

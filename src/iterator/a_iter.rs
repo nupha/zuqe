@@ -36,9 +36,7 @@ pub const GEN_MAGIC_THROW: i32 = 2;
 impl JSContext {
     /// Create an AsyncIterator from a SyncIterator.
     pub fn create_async_from_sync_iterator(&self, sync_iter: JSValue) -> Result<JSObject, i32> {
-        let next_method = sync_iter
-            .get_property(self, JS_ATOM_next)
-            .check_exception()?;
+        let next_method = sync_iter.get_property(self, JS_ATOM_next)?;
 
         let s = JSAsyncFromSyncIteratorData {
             sync_iter,
@@ -84,59 +82,59 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     let this_val = cc.this();
 
     let p = unsafe { this_val.object_unchecked() };
+
     if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.payload.borrow().deref() {
         let method = if cc.magic() == GEN_MAGIC_NEXT {
             p.next_method.clone()
         } else {
-            let fval = p.sync_iter.get_property(
+            match p.sync_iter.get_property(
                 ctx,
                 if cc.magic() == GEN_MAGIC_RETURN {
                     JS_ATOM_return
                 } else {
                     JS_ATOM_throw
                 },
-            );
+            ) {
+                Ok(fval) => {
+                    if fval.is_undefined_or_null() {
+                        let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
+                            (js_create_iterator_result(ctx, cc.arg(0).clone(), true)?, 0)
+                        } else {
+                            (cc.arg(0).clone(), 1)
+                        };
+                        return Ok(done_resolve(
+                            resolving_funcs,
+                            err,
+                            is_reject,
+                            promise.into(),
+                        ));
+                    }
 
-            if fval.is_exception() {
-                return Ok(done_resolve(
-                    resolving_funcs,
-                    ctx.take_exception(),
-                    1,
-                    promise.into(),
-                ));
+                    fval
+                }
+                Err(_) => {
+                    return Ok(done_resolve(
+                        resolving_funcs,
+                        ctx.take_exception(),
+                        1,
+                        promise.into(),
+                    ));
+                }
             }
-
-            if fval.is_undefined_or_null() {
-                let (err, is_reject) = if cc.magic() == GEN_MAGIC_RETURN {
-                    (js_create_iterator_result(ctx, cc.arg(0).clone(), true)?, 0)
-                } else {
-                    (cc.arg(0).clone(), 1)
-                };
-                return Ok(done_resolve(
-                    resolving_funcs,
-                    err,
-                    is_reject,
-                    promise.into(),
-                ));
-            }
-
-            fval
         };
 
         let mut done = 0;
-        let mut value = unsafe {
-            JS_IteratorNext2(
-                ctx,
-                &p.sync_iter,
-                &method,
-                if cc.length() == 0 {
-                    &[]
-                } else {
-                    &cc.arguments()[0..1]
-                },
-                &mut done,
-            )
-        };
+        let mut value = JS_IteratorNext2(
+            ctx,
+            &p.sync_iter,
+            &method,
+            if cc.length() == 0 {
+                &[]
+            } else {
+                &cc.arguments()[0..1]
+            },
+            &mut done,
+        );
 
         if value.is_exception() {
             return Ok(done_resolve(

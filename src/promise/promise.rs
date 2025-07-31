@@ -326,12 +326,10 @@ pub fn remainingElementsCount_add(
     resolve_element_env: JSValue,
     addend: i32,
 ) -> Result<i32, i32> {
-    let val = resolve_element_env.get_property_u32(ctx, 0);
-    if val.is_exception() {
-        return Err(-1);
-    }
+    let mut remainingElementsCount = resolve_element_env
+        .get_property_u32(ctx, 0)?
+        .coerce_to_i32(ctx)?;
 
-    let mut remainingElementsCount = val.coerce_to_i32(ctx)?;
     remainingElementsCount += addend;
     resolve_element_env.set_property_u32(ctx, 0, JSValue::Int(remainingElementsCount))?;
 

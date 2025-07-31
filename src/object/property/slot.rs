@@ -30,7 +30,7 @@ impl JSObject {
                     && flags & JS_PROP_HAS_VALUE != 0
                 {
                     return if !val
-                        .is_same(&self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED))
+                        .is_same(&self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?)
                     {
                         if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                             Err(-1)

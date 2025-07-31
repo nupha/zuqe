@@ -236,9 +236,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
 
-        let replacer = search
-            .get_property(ctx, JS_ATOM_Symbol_replace)
-            .check_exception()?;
+        let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace)?;
 
         if !replacer.is_undefined_or_null() {
             return JS_Call(ctx, &replacer, search, &[this, replace.clone()]).check_exception();
@@ -371,9 +369,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut lengthA: u32 = 0;
 
     if !separator.is_undefined_or_null() {
-        let splitter = separator
-            .get_property(ctx, JS_ATOM_Symbol_split)
-            .check_exception()?;
+        let splitter = separator.get_property(ctx, JS_ATOM_Symbol_split)?;
         if !splitter.is_undefined_or_null() {
             args[0] = O;
             args[1] = limit.clone();
@@ -661,10 +657,11 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
     };
 
     if ret {
-        let mut flags = regexp.get_property(ctx, JS_ATOM_flags);
-        if flags.is_exception() {
+        let mut flags = if let Ok(x) = regexp.get_property(ctx, JS_ATOM_flags) {
+            x
+        } else {
             return -1;
-        }
+        };
         if flags.is_undefined_or_null() {
             ctx.throw_type_error("cannot convert to object");
             return -1;
@@ -696,7 +693,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if !regexp.is_undefined_or_null() {
-        let matcher = regexp.get_property(ctx, atom).check_exception()?;
+        let matcher = regexp.get_property(ctx, atom)?;
 
         if atom == JS_ATOM_Symbol_matchAll {
             if check_regexp_g_flag(ctx, regexp) < 0 {
@@ -1055,21 +1052,16 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     // raw(temp,...a)
-
     let cooked = cc.arg(0).coerce_to_object(ctx)?;
     let raw = cooked
-        .get_property(ctx, JS_ATOM_raw)
+        .get_property(ctx, JS_ATOM_raw)?
         .coerce_to_object(ctx)?;
 
     let n = js_get_length64(ctx, &raw.clone().into())?;
     let mut res_string = StringContent::Empty;
 
     for i in 0..n {
-        let str = raw
-            .get_property_i64(ctx, i)
-            .check_exception()?
-            .coerce_to_string(ctx)?;
-
+        let str = raw.get_property_i64(ctx, i)?.coerce_to_string(ctx)?;
         res_string
             .push(unsafe { str.string_unchecked().content() })
             .map_err(|_| {
