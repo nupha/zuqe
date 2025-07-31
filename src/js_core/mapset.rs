@@ -5,9 +5,9 @@ use crate::{
     atom::consts::{JS_ATOM_add, JS_ATOM_next, JS_ATOM_set},
     class::JSClassID,
     context::JSContext,
+    defer,
     error::JSResult,
     function::{CallContext, JS_Call},
-    iterator::{JS_IteratorClose, JS_IteratorNext},
     map::JSMapState,
     object::ObjectDetail,
     value::{JSValue, JSValueConst},
@@ -16,130 +16,77 @@ use crate::{
 const MAGIC_SET: i32 = 1 << 0;
 const MAGIC_WEAK: i32 = 1 << 1;
 
-pub unsafe fn js_map_constructor(
-    ctx: &JSContext,
-    new_target: &JSValueConst,
-    argc: i32,
-    argv: *mut JSValueConst,
-    magic: i32,
-) -> JSValue {
+pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let magic = cc.magic();
     let is_set = (magic & MAGIC_SET) != 0;
     let is_weak = (magic & MAGIC_WEAK) != 0;
+    let new_target = cc.this();
 
     let s = Box::new(JSMapState {
         is_weak,
         items: HashMap::with_capacity(4),
     });
+    let obj = ctx
+        .create_object_apply_ctor(
+            new_target,
+            match magic {
+                0 => ObjectDetail::MAP(s),
+                1 => ObjectDetail::SET(s),
+                2 => ObjectDetail::WEAKMAP(s),
+                3 => ObjectDetail::WEAKSET(s),
+                _ => unreachable!(),
+            },
+        )
+        .map_err(|_| -1)?;
 
-    let isa = match magic {
-        0 => ObjectDetail::MAP(s),
-        1 => ObjectDetail::SET(s),
-        2 => ObjectDetail::WEAKMAP(s),
-        3 => ObjectDetail::WEAKSET(s),
-        _ => unreachable!(),
-    };
-
-    let obj = match ctx.create_object_apply_ctor(new_target, isa) {
-        Ok(o) => JSValue::Object(o),
-        Err(_) => {
-            return JSValue::EXCEPTION;
-        }
-    };
-
-    macro_rules! fail {
-        ($iter:expr, $next_method:expr, $adder:expr) => {
-            if $iter.is_object() {
-                // close the iterator object, preserving pending exception
-                let _ = JS_IteratorClose(ctx, $iter, true);
-            }
-            return JSValue::EXCEPTION;
-        };
-    }
-
-    let arr = if argc > 0 {
-        &*argv.offset(0)
+    let arr = if cc.length() > 0 {
+        cc.arg(0)
     } else {
         &JSValue::UNDEFINED
     };
 
+    let obj: JSValue = obj.into();
+
     if !arr.is_undefined_or_null() {
-        let adder =
-            if let Ok(x) = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set }) {
-                x
-            } else {
-                return JSValue::EXCEPTION;
-            };
+        let adder = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set })?;
         if !adder.is_callable() {
             ctx.throw_type_error("set/add is not a function");
-            return JSValue::EXCEPTION;
+            return Err(-1);
         }
 
-        let iter = arr
-            .iterator(ctx, false)
-            .map_or(JSValue::EXCEPTION, JSValue::Object);
+        let iter_obj = arr.iterator(ctx, false)?;
 
-        if iter.is_exception() {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                let _ = JS_IteratorClose(ctx, &iter, true);
+        // IMPORTANT: close iterator on exit with pending exception
+        defer!({
+            if !ctx.exception().is_undefined_or_null() {
+                let _ = iter_obj.close(ctx, true);
             }
-            return JSValue::EXCEPTION;
-        }
+        });
 
-        let next_method = iter.get_property(ctx, JS_ATOM_next);
-        if next_method.is_err() {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                let _ = JS_IteratorClose(ctx, &iter, true);
-            }
-            return JSValue::EXCEPTION;
-        }
-
-        let next_method = next_method.unwrap();
+        let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
 
         loop {
-            let mut done = false;
-            let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
-            if item.is_exception() {
-                fail!(&iter, next_method, adder);
-            }
+            let (item, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
 
             if done {
                 break;
             }
 
             if is_set {
-                let r = JS_Call(ctx, &adder, &obj, &[item]);
-                if r.is_exception() {
-                    fail!(&iter, next_method, adder);
-                }
+                JS_Call(ctx, &adder, &obj, &[item]).check_exception()?;
             } else {
                 if !item.is_object() {
                     ctx.throw_type_error_not_an_object();
-                    fail!(&iter, next_method, adder);
+                    return Err(-1);
                 }
-
-                let key = if let Ok(x) = item.get_property_u32(ctx, 0) {
-                    x
-                } else {
-                    fail!(&iter, next_method, adder);
-                };
-
-                let value = if let Ok(x) = item.get_property_u32(ctx, 1) {
-                    x
-                } else {
-                    fail!(&iter, next_method, adder);
-                };
-
-                let r = JS_Call(ctx, &adder, &obj, &[key, value]);
-                if r.is_exception() {
-                    fail!(&iter, next_method, adder);
-                }
+                let key = item.get_property_u32(ctx, 0)?;
+                let value = item.get_property_u32(ctx, 1)?;
+                JS_Call(ctx, &adder, &obj, &[key, value]).check_exception()?;
             }
         }
     }
 
-    obj
+    Ok(obj)
 }
 
 pub unsafe fn js_map_get(

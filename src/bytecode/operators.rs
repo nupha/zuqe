@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 
+use crate::iterator::IteratorObject;
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
@@ -8,8 +9,8 @@ use crate::{
     context::JSContext,
     function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
     iterator::{
-        JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext, JSIteratorKindEnum,
-        build_for_in_iterator, js_array_iterator_next, js_create_array_iterator,
+        JS_IteratorGetCompleteValue, JSIteratorKindEnum, build_for_in_iterator,
+        js_array_iterator_next, js_create_array_iterator,
     },
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
@@ -307,39 +308,37 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
     let src = &*sp.offset(-1); // the source iterator or array
     let dest = &*sp.offset(-3); // the dest array
 
+    // .length property of the array
+    let len = js_get_length32(ctx, &src)? as usize;
+
     // XXX: further optimisations:
     //       - use ctx->array_proto_values?
     //       - check if array_iterator_prototype next method is built-in and
     //         avoid constructing actual iterator object?
     //       - build this into js_for_of_start and use in all `for (x of o)` loops
-    let iterator = src.get_property(ctx, JS_ATOM_Symbol_iterator)?;
+    let is_array_iterator = src
+        .get_property(ctx, JS_ATOM_Symbol_iterator)?
+        .match_native_callback(
+            NativeFunctionType::Func(js_create_array_iterator),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
+        );
 
-    let is_array_iterator = iterator.match_native_callback(
-        NativeFunctionType::Func(js_create_array_iterator),
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
-    );
-
-    let enum_obj = src.iterator(ctx, false)?;
-    let method = enum_obj.get_property(ctx, JS_ATOM_next)?;
+    let iter_obj = src.iterator(ctx, false)?;
+    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
 
     macro_rules! fail {
         () => {
-            JS_IteratorClose(ctx, &JSValue::Object(enum_obj.clone()), true).expect("TODO");
+            iter_obj.close(ctx, true);
             return Err(-1);
         };
     }
 
-    // .length property of the array
-    let len = if let Ok(l) = js_get_length32(ctx, &src) {
-        l as usize
-    } else {
-        fail!();
-    };
-
-    let slow_array = if is_array_iterator
-        && method.match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
+    let use_slow_array = if is_array_iterator
+        && next_method
+            .match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
     {
-        match src.with_fast_array_values(|lst| {
+        // fast path: try fast array
+        match src.with_fast_array_values(|lst| -> Result<bool, i32> {
             if lst.len() == len {
                 // `src` is a fast array
                 for v in lst {
@@ -351,10 +350,8 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
                 Ok(false)
             }
         }) {
-            Some(Err(e)) => {
-                // fast array has error
-                JS_IteratorClose(ctx, &JSValue::Object(enum_obj), true).unwrap();
-                return Err(e);
+            Some(Err(_)) => {
+                fail!(); // fast array has error
             }
             Some(Ok(true)) => {
                 false // is fast array, done
@@ -367,33 +364,32 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         true
     };
 
-    if slow_array {
+    if use_slow_array {
         // general case: slow array, use iterator
         loop {
-            let mut done = false;
-            let value = JS_IteratorNext(
-                ctx,
-                &JSValue::Object(enum_obj.clone()),
-                &method,
-                &[],
-                &mut done,
-            );
-            if value.is_exception() {
+            if let Ok((value, done)) = iter_obj.next_with_method(ctx, &next_method, &[]) {
+                if done {
+                    break; // value is JSValue::UNDEFINED
+                }
+
+                if dest
+                    .define_property_value_u32(ctx, pos as _, value, JS_PROP_C_W_E)
+                    .is_err()
+                {
+                    fail!();
+                }
+
+                pos += 1;
+            } else {
                 fail!();
             }
 
-            if done {
-                break; // value is JSValue::UNDEFINED
-            }
-
-            if dest
-                .define_property_value_u32(ctx, pos as _, value, JS_PROP_C_W_E)
-                .is_err()
-            {
-                fail!();
-            }
-
-            pos += 1;
+            // let mut done = false;
+            // let value =
+            //     JS_IteratorNext(ctx, &iter_obj.clone().into(), &next_method, &[], &mut done);
+            // if value.is_exception() {
+            //     fail!();
+            // }
         }
     }
 
@@ -584,50 +580,42 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 /// obj -> enum_rec (3 slots)
 pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
     let obj = unsafe { &*sp.offset(-1) };
-    let enum_obj = obj.iterator(ctx, is_async)?;
-    let next = enum_obj.get_property(ctx, JS_ATOM_next)?;
+    let iter_obj = obj.iterator(ctx, is_async)?;
+    let next = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
 
     unsafe {
-        std::ptr::replace(sp.offset(-1), enum_obj.into());
+        std::ptr::replace(sp.offset(-1), iter_obj.into());
         std::ptr::replace(sp.offset(0), next);
     }
 
     Ok(())
 }
 
-/// enum_rec [objs] -> enum_rec [objs] value done. There are 'offset'
-/// objs. If 'done' is true or in case of exception, 'enum_rec' is set
-/// to undefined. If 'done' is true, 'value' is always set to undefined.
-pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, offset: i32) -> Result<(), i32> {
+pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Result<(), i32> {
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
-    if !(*sp.offset(offset as isize)).is_undefined() {
-        value = JS_IteratorNext(
-            ctx,
-            &*sp.offset(offset as isize),
-            &*sp.offset((offset + 1) as isize),
-            &[],
-            &mut done,
-        );
-        if value.is_exception() {
-            // value is JSValue::UNDEFINED or JS_EXCEPTION
-            // replace the iteration object with undefined
-            std::ptr::replace(sp.offset(offset as isize), JSValue::UNDEFINED);
-            return Err(-1);
-        }
+    if let JSValue::Object(o) = &*sp.offset(base as isize) {
+        let iter_obj = IteratorObject(o.clone());
 
-        if done {
-            // value is JSValue::UNDEFINED or JS_EXCEPTION
+        if let Ok((v, d)) = iter_obj.next_with_method(ctx, &*sp.offset((base + 1) as isize), &[]) {
+            done = d;
+            value = if done {
+                // replace the iteration object with undefined
+                std::ptr::replace(sp.offset(base as isize), JSValue::UNDEFINED);
+                JSValue::UNDEFINED
+            } else {
+                v
+            };
+        } else {
             // replace the iteration object with undefined
-            std::ptr::replace(sp.offset(offset as isize), JSValue::UNDEFINED);
-            value = JSValue::UNDEFINED;
+            std::ptr::replace(sp.offset(base as isize), JSValue::UNDEFINED);
+            return Err(-1);
         }
     }
 
     std::ptr::replace(sp.offset(0), value);
     std::ptr::replace(sp.offset(1), JSValue::Bool(done));
-
     Ok(())
 }
 

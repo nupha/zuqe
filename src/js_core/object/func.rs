@@ -6,7 +6,7 @@ use crate::{
     defer,
     error::JSResult,
     function::{CallContext, JS_Call, NativeField},
-    iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum},
+    iterator::JSIteratorKindEnum,
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
     number::MAX_SAFE_INTEGER,
     object::{
@@ -174,32 +174,35 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cb = cc.arg(1);
     cb.ensure_callable(ctx)?;
 
-    let iter = cc.arg(0).iterator(ctx, false)?;
-    let next = iter.get_property(ctx, JS_ATOM_next)?;
+    let iter_obj = cc.arg(0).iterator(ctx, false)?;
+
+    // Important: close iterator on exit with pending exception
+    defer!({
+        if !ctx.exception().is_undefined_or_null() {
+            let _ = iter_obj.close(ctx, true);
+        }
+    });
+
+    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
 
     let is_map = cc.magic();
     let groups = if is_map != 0 {
-        unsafe {
-            js_map_constructor(ctx, &JSValue::UNDEFINED, 0, std::ptr::null_mut(), 0)
-                .check_exception()?
-        }
+        js_map_constructor(ctx, CallContext::new(ctx, JSValue::UNDEFINED, &[], 0, None))?
     } else {
         ctx.create_base_object_from_proto(JSValue::NULL)?.into()
     };
 
-    let iter = JSValue::Object(iter);
     let mut idx: i64 = 0;
     loop {
         if idx >= MAX_SAFE_INTEGER {
             ctx.throw_type_error("too many elements");
-            let _ = JS_IteratorClose(ctx, &iter, true);
             return Err(-1);
         }
 
-        let mut done = false;
-        let val = JS_IteratorNext(ctx, &iter, &next, &[], &mut done).check_exception()?;
+        let (val, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
+
         if done {
-            break; // v is JSValue::UNDEFINED
+            break; // val is JSValue::UNDEFINED
         }
 
         let key = JS_Call(
@@ -208,10 +211,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             &ctx.0.borrow().global_obj,
             &[val.clone(), JSValue::from(idx)],
         )
-        .check_exception()
-        .inspect_err(|_| {
-            let _ = JS_IteratorClose(ctx, &iter, true);
-        })?;
+        .check_exception()?;
 
         // get prop value array and key atom
         let (props_arr, key_atom): (JSResult, JSAtom) = if is_map != 0 {
@@ -229,9 +229,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                 JS_ATOM_NULL,
             )
         } else {
-            let atom = key.coerce_to_atom(ctx).inspect_err(|_| {
-                let _ = JS_IteratorClose(ctx, &iter, true);
-            })?;
+            let atom = key.coerce_to_atom(ctx)?;
             (groups.get_property(ctx, atom), atom)
         };
 
@@ -439,67 +437,33 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
-    let iter = cc.arg(0).iterator(ctx, false)?;
-    let next_method = iter.get_property(ctx, JS_ATOM_next).inspect_err(|_| {
-        // close the iterator object, preserving pending exception
-        JS_IteratorClose(ctx, &JSValue::Object(iter.clone()), true).unwrap();
-    })?;
+    let iter_obj = cc.arg(0).iterator(ctx, false)?;
 
-    let iter = JSValue::Object(iter);
-    loop {
-        let mut done = false;
-        let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
-        if item.is_exception() {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true)?;
-            }
-            return Err(-1);
+    // IMPORTANT: close iterator on exit with pending exception
+    defer!({
+        if !ctx.exception().is_undefined_or_null() {
+            let _ = iter_obj.close(ctx, true);
         }
+    });
+
+    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
+
+    loop {
+        let (item, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
 
         if done {
             break;
         }
 
-        if !item.is_object() {
-            ctx.throw_type_error_not_an_object();
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true)?;
-            }
-            return Err(-1);
-        }
+        debug_assert!(item.is_object());
+        // if !item.is_object() {
+        //     ctx.throw_type_error_not_an_object();
+        //     return Err(-1);
+        // }
 
-        let key = if let Ok(x) = item.get_property_u32(ctx, 0) {
-            x
-        } else {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true)?;
-            }
-            return Err(-1);
-        };
-
-        let value = if let Ok(x) = item.get_property_u32(ctx, 1) {
-            x
-        } else {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true)?;
-            }
-            return Err(-1);
-        };
-
-        if obj
-            .define_property_value_value(ctx, key, value, JS_PROP_C_W_E | JS_PROP_THROW)
-            .is_err()
-        {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true)?;
-            }
-            return Err(-1);
-        }
+        let key = item.get_property_u32(ctx, 0)?;
+        let value = item.get_property_u32(ctx, 1)?;
+        obj.define_property_value_value(ctx, key, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
     }
 
     Ok(obj.into())

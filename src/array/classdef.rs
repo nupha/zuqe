@@ -4,18 +4,15 @@ use crate::{
     array::{JS_CopySubArray, JS_ToArrayLengthFree},
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
-        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
+        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
     },
-    bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
+    bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
     function::{
         CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke, NativeField,
     },
-    iterator::{
-        JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_array_iterator_next,
-        js_create_array_iterator,
-    },
+    iterator::{JSIteratorKindEnum, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectDetail, js_get_length64},
@@ -1408,61 +1405,58 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let iter = items.get_property(ctx, JS_ATOM_Symbol_iterator)?;
-
-    let mut stack = [JSValue::UNDEFINED, JSValue::UNDEFINED];
     let mut k: i64 = 0;
     let res: JSValue;
 
-    macro_rules! exception_close {
-        () => {
-            if !stack[0].is_undefined() {
-                JS_IteratorClose(ctx, &stack[0], true);
-            }
-            return Err(-1);
-        };
-    }
-
-    if !iter.is_undefined() {
+    if !items
+        .get_property(ctx, JS_ATOM_Symbol_iterator)?
+        .is_undefined()
+    {
+        // `items` is iterable
         res = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[]).check_exception()?
         } else {
             ctx.create_array()?
         };
 
-        stack[0] = items.clone();
+        let enum_obj = items.iterator(ctx, false)?;
+        let next_method = enum_obj.0.get_property(ctx, JS_ATOM_next)?;
 
-        js_for_of_start(ctx, &mut stack[1], false)?;
+        macro_rules! exception_close {
+            () => {
+                let _ = enum_obj.close(ctx, true);
+                return Err(-1);
+            };
+        }
 
         loop {
-            let mut done = false;
-            let mut v = JS_IteratorNext(ctx, &stack[0], &stack[1], &[], &mut done);
-            if v.is_exception() {
-                exception_close!();
-            }
-            if done {
-                break;
-            }
+            if let Ok((mut el, done)) = enum_obj.next_with_method(ctx, &next_method, &[]) {
+                if done {
+                    break;
+                }
 
-            if mapping {
-                v = JS_Call(ctx, mapfn, this_arg, &[v, JSValue::Int(k as i32)]);
-                if v.is_exception() {
+                if mapping {
+                    el = JS_Call(ctx, mapfn, this_arg, &[el, JSValue::Int(k as i32)]);
+                    if el.is_exception() {
+                        exception_close!();
+                    }
+                }
+
+                if res
+                    .define_property_value_i64(ctx, k, el, JS_PROP_C_W_E | JS_PROP_THROW)
+                    .is_err()
+                {
                     exception_close!();
                 }
-            }
 
-            if res
-                .define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)
-                .is_err()
-            {
+                k += 1;
+            } else {
                 exception_close!();
             }
-
-            k += 1;
         }
     } else {
-        let arrayLike: JSValue = items.coerce_to_object(ctx)?.into();
-        let len = js_get_length64(ctx, &arrayLike)?;
+        let array_like: JSValue = items.coerce_to_object(ctx)?.into();
+        let len = js_get_length64(ctx, &array_like)?;
 
         res = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).check_exception()?
@@ -1474,7 +1468,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         for i in 0..len {
-            let mut v = arrayLike.get_property_i64(ctx, i)?;
+            let mut v = array_like.get_property_i64(ctx, i)?;
             if mapping {
                 v = JS_Call(ctx, mapfn, this_arg, &[v, JSValue::Int(i as i32)])
                     .check_exception()?;
@@ -1486,7 +1480,6 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     res.set_property(ctx, JS_ATOM_length, JSValue::from(k as u32))?;
-
     Ok(res)
 }
 

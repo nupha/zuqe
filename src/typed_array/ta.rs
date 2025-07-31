@@ -547,17 +547,9 @@ impl JSContext {
                     _ => {
                         // source is an enumetable object.
                         // get property from source object and set to new array.
-                        let iter = source.get_property(self, JS_ATOM_Symbol_iterator)?;
-
-                        let (enum_obj, count) = if !iter.is_undefined_or_null() {
-                            let mut n: u32 = 0;
-                            (
-                                unsafe {
-                                    js_array_from_iterator(self, &mut n, source.clone(), iter)
-                                        .check_exception()?
-                                },
-                                n as usize,
-                            )
+                        let iter_method = source.get_property(self, JS_ATOM_Symbol_iterator)?;
+                        let (enum_obj, count) = if !iter_method.is_undefined_or_null() {
+                            js_array_from_iterator(self, &source, &iter_method)?
                         } else {
                             (source.clone(), js_get_length64(self, source)? as usize)
                         };

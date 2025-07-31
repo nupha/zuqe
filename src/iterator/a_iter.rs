@@ -6,6 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call, NativeField},
+    iterator::IteratorObject,
     object::{JSObject, ObjectDetail},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
@@ -35,16 +36,19 @@ pub const GEN_MAGIC_THROW: i32 = 2;
 
 impl JSContext {
     /// Create an AsyncIterator from a SyncIterator.
-    pub fn create_async_from_sync_iterator(&self, sync_iter: JSValue) -> Result<JSObject, i32> {
+    pub fn create_async_from_sync_iterator(
+        &self,
+        sync_iter: JSValue,
+    ) -> Result<IteratorObject, i32> {
         let next_method = sync_iter.get_property(self, JS_ATOM_next)?;
-
-        let s = JSAsyncFromSyncIteratorData {
-            sync_iter,
-            next_method,
-        };
-
-        self.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(s))
-            .map_err(|_| -1)
+        self.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
+            JSAsyncFromSyncIteratorData {
+                sync_iter,
+                next_method,
+            },
+        ))
+        .map(IteratorObject)
+        .map_err(|_| -1)
     }
 }
 

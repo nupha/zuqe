@@ -12,13 +12,13 @@ use crate::{
         special_includes, special_indexOf, special_lastIndexOf, special_map, special_reduce,
         special_reduceRight, special_some,
     },
-    atom::consts::JS_ATOM_Symbol_iterator,
-    bytecode::js_for_of_start,
+    atom::consts::{JS_ATOM_Symbol_iterator, JS_ATOM_next},
     class::JSClassID,
     context::JSContext,
+    defer,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, JS_Call, JS_CallConstructor, NativeField},
-    iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
+    iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     string::StringContent,
@@ -211,41 +211,37 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
         }
     }
 
-    let iter = items.get_property(ctx, JS_ATOM_Symbol_iterator)?;
-
     let arr: JSValue;
 
-    if !iter.is_undefined() {
+    if !items
+        .get_property(ctx, JS_ATOM_Symbol_iterator)?
+        .is_undefined()
+    {
+        // target is enumerable
         arr = ctx.create_array()?;
 
-        // call iterator() of `items` to get enum object and next() method.
-        let mut stack = [items.clone(), JSValue::UNDEFINED]; // [enum_obj, next]
-        js_for_of_start(ctx, unsafe { stack.as_mut_ptr().add(1) }, false)?;
+        let iter_obj = items.iterator(ctx, false)?;
 
-        let enum_obj = &stack[0];
-        let next = &stack[1];
+        // IMPORTANT: close iterator on exit with pending exception
+        defer!({
+            if !ctx.exception().is_undefined_or_null() {
+                let _ = iter_obj.close(ctx, true);
+            }
+        });
+
+        let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
+
         let mut k = 0;
 
         loop {
-            let mut done = false;
-            let v = JS_IteratorNext(ctx, enum_obj, &next, &[], &mut done)
-                .check_exception()
-                .inspect_err(|_| {
-                    let _ = JS_IteratorClose(ctx, enum_obj, true);
-                })?;
-
+            let (v, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
             if done {
                 break;
             } else {
-                arr.define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)
-                    .inspect_err(|_| {
-                        let _ = JS_IteratorClose(ctx, enum_obj, true);
-                    })?;
+                arr.define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
                 k += 1;
             }
         }
-
-        let _ = JS_IteratorClose(ctx, &enum_obj, true);
     } else {
         arr = items.coerce_to_object(ctx)?.into();
     }
