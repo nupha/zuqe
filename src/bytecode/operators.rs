@@ -8,9 +8,8 @@ use crate::{
     context::JSContext,
     function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
     iterator::{
-        JS_GetIterator, JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext,
-        JSIteratorKindEnum, build_for_in_iterator, js_array_iterator_next,
-        js_create_array_iterator,
+        JS_IteratorClose, JS_IteratorGetCompleteValue, JS_IteratorNext, JSIteratorKindEnum,
+        build_for_in_iterator, js_array_iterator_next, js_create_array_iterator,
     },
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
@@ -321,12 +320,12 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
     );
 
-    let enumobj = JS_GetIterator(ctx, src, false).check_exception()?;
-    let method = enumobj.get_property(ctx, JS_ATOM_next).check_exception()?;
+    let enum_obj = src.iterator(ctx, false)?;
+    let method = enum_obj.get_property(ctx, JS_ATOM_next).check_exception()?;
 
     macro_rules! fail {
         () => {
-            JS_IteratorClose(ctx, &enumobj, true).expect("TODO");
+            JS_IteratorClose(ctx, &JSValue::Object(enum_obj.clone()), true).expect("TODO");
             return Err(-1);
         };
     }
@@ -355,7 +354,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         }) {
             Some(Err(e)) => {
                 // fast array has error
-                JS_IteratorClose(ctx, &enumobj, true).unwrap();
+                JS_IteratorClose(ctx, &JSValue::Object(enum_obj), true).unwrap();
                 return Err(e);
             }
             Some(Ok(true)) => {
@@ -373,7 +372,13 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         // general case: slow array, use iterator
         loop {
             let mut done = false;
-            let value = JS_IteratorNext(ctx, &enumobj, &method, &[], &mut done);
+            let value = JS_IteratorNext(
+                ctx,
+                &JSValue::Object(enum_obj.clone()),
+                &method,
+                &[],
+                &mut done,
+            );
             if value.is_exception() {
                 fail!();
             }
@@ -575,28 +580,20 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 }
 
 /// Get enumerate object and next method of sp[-1] object.
-/// Note: new values are updated to sp[-1], sp[0], old value of sp[-1] is consumed.
+/// Note: new values are updated to sp[-1], sp[0], old value in sp[-1] is consumed.
+/// if fail, sp[-1] is not consumed.
 /// obj -> enum_rec (3 slots)
-pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> i32 {
-    let op1 = unsafe { &*sp.offset(-1) };
-    let obj = JS_GetIterator(ctx, op1, is_async);
-    if obj.is_exception() {
-        return -1;
-    }
+pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
+    let obj = unsafe { &*sp.offset(-1) };
+    let enum_obj = obj.iterator(ctx, is_async)?;
+    let next = enum_obj.get_property(ctx, JS_ATOM_next).check_exception()?;
 
     unsafe {
-        std::ptr::replace(sp.offset(-1), obj.clone());
+        std::ptr::replace(sp.offset(-1), enum_obj.into());
+        std::ptr::replace(sp.offset(0), next);
     }
 
-    let method = obj.get_property(ctx, JS_ATOM_next);
-    if method.is_exception() {
-        return -1;
-    }
-
-    unsafe {
-        std::ptr::replace(sp.offset(0), method);
-    }
-    return 0;
+    Ok(())
 }
 
 /// enum_rec [objs] -> enum_rec [objs] value done. There are 'offset'

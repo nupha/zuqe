@@ -16,9 +16,10 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
     function::{
-        BlockEnv, Bytecode, JSCFunction, JSCFunctionMagic, JSFunctionDef, JSFunctionKindEnum,
-        JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label, NativeCallback, NativeField,
-        NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry, js_function_set_properties,
+        BlockEnv, Bytecode, JS_Call, JSCFunction, JSCFunctionMagic, JSFunctionDef,
+        JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label,
+        NativeCallback, NativeField, NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry,
+        js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::ObjAsyncGenerator,
@@ -3670,4 +3671,72 @@ pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
 #[deprecated(note = "use JSFunctionDef::code_has_label() instead")]
 pub unsafe fn code_has_label(s: *mut std::ffi::c_void, mut pos: usize, label: u32) -> bool {
     unreachable!("unused")
+}
+
+#[deprecated(note = "use JSObject::call_iterator_method() instead")]
+pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueConst) -> JSValue {
+    let enum_obj = JS_Call(ctx, method, obj, &[]);
+    if enum_obj.is_exception() {
+        return enum_obj;
+    }
+
+    if !enum_obj.is_object() {
+        ctx.throw_type_error_not_an_object();
+        return JSValue::EXCEPTION;
+    }
+
+    return enum_obj;
+}
+
+#[deprecated(note = "use JSObject::iterator() instead")]
+pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JSValue {
+    unreachable!("unused");
+    // let iter = if is_async {
+    //     let mut val = obj.get_property(ctx, JS_ATOM_Symbol_asyncIterator);
+    //     if val.is_exception() {
+    //         return JSValue::EXCEPTION;
+    //     }
+
+    //     if val.is_undefined_or_null() {
+    //         val = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
+    //         if val.is_exception() {
+    //             return val;
+    //         }
+
+    //         let sync_iter = JS_GetIterator2(ctx, obj, &val);
+    //         if sync_iter.is_exception() {
+    //             return JSValue::EXCEPTION;
+    //         }
+
+    //         let ret = ctx
+    //             .create_async_from_sync_iterator(sync_iter)
+    //             .map(JSValue::Object)
+    //             .unwrap_or(JSValue::EXCEPTION);
+
+    //         return ret;
+    //     }
+
+    //     val
+    // } else {
+    //     let v = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
+    //     if v.is_exception() {
+    //         return JSValue::EXCEPTION;
+    //     }
+    //     v
+    // };
+
+    // if !iter.is_callable() {
+    //     ctx.throw_type_error("value is not iterable");
+    //     return JSValue::EXCEPTION;
+    // }
+
+    // JS_GetIterator2(ctx, obj, &iter)
+}
+
+// return -1 if exception, 0 if slow case, 1 if the enumeration is finished
+#[deprecated(
+    note = "use JSForInIterator::prepare_prototype_chain_enum() + JSObject::define_property() to achieve"
+)]
+pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: &JSContext, enum_obj: &JSValue) -> i32 {
+    unreachable!("unused");
 }

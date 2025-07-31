@@ -6,10 +6,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call, NativeField},
-    object::ObjectDetail,
+    object::{JSObject, ObjectDetail},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
-    utils::UncheckedInto,
     value::{JSValue, JSValueConst},
 };
 
@@ -36,8 +35,7 @@ pub const GEN_MAGIC_THROW: i32 = 2;
 
 impl JSContext {
     /// Create an AsyncIterator from a SyncIterator.
-    ///  `sync_iter` is not consumed.
-    pub fn create_async_from_sync_iterator(&self, sync_iter: JSValue) -> JSResult {
+    pub fn create_async_from_sync_iterator(&self, sync_iter: JSValue) -> Result<JSObject, i32> {
         let next_method = sync_iter
             .get_property(self, JS_ATOM_next)
             .check_exception()?;
@@ -48,15 +46,13 @@ impl JSContext {
         };
 
         self.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(s))
-            .map(JSValue::Object)
             .map_err(|_| -1)
     }
 }
 
 #[deprecated(note = "use JSContext::create_async_from_sync_iterator() instead")]
 pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValueConst) -> JSValue {
-    ctx.create_async_from_sync_iterator(sync_iter)
-        .unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused")
 }
 
 pub fn js_async_from_sync_iterator_unwrap(ctx: &JSContext, args: CallContext) -> JSResult {

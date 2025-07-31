@@ -20,7 +20,6 @@ use crate::{
     function::{CallContext, JS_Call, JS_CallConstructor, NativeField},
     iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
-    number::JSFloat64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     string::StringContent,
     typed_array::{Float32Array, Float64Array, typed_array_size_log2},
@@ -223,9 +222,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
 
         // call iterator() of `items` to get enum object and next() method.
         let mut stack = [items.clone(), JSValue::UNDEFINED]; // [enum_obj, next]
-        if unsafe { js_for_of_start(ctx, stack.as_mut_ptr().add(1), false) } != 0 {
-            return Err(-1);
-        }
+        js_for_of_start(ctx, unsafe { stack.as_mut_ptr().add(1) }, false)?;
 
         let enum_obj = &stack[0];
         let next = &stack[1];

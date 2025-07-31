@@ -122,11 +122,11 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
         ObjectDetail::C_FUNCTION(cfunc) => {
             realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
         }
-        ObjectDetail::BYTECODE_FUNCTION(func)
-        | ObjectDetail::GENERATOR_FUNCTION(func)
-        | ObjectDetail::ASYNC_FUNCTION(func)
-        | ObjectDetail::ASYNC_GENERATOR_FUNCTION(func) => {
-            realm = func
+        ObjectDetail::BYTECODE_FUNCTION(fo)
+        | ObjectDetail::GENERATOR_FUNCTION(fo)
+        | ObjectDetail::ASYNC_FUNCTION(fo)
+        | ObjectDetail::ASYNC_GENERATOR_FUNCTION(fo) => {
+            realm = fo
                 .bytecode
                 .as_ref()
                 .unwrap()

@@ -6,7 +6,7 @@ use crate::{
     defer,
     error::JSResult,
     function::{CallContext, JS_Call, NativeField},
-    iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum},
+    iterator::{JS_IteratorClose, JS_IteratorNext, JSIteratorKindEnum},
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
     number::MAX_SAFE_INTEGER,
     object::{
@@ -174,7 +174,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cb = cc.arg(1);
     cb.ensure_callable(ctx)?;
 
-    let iter = JS_GetIterator(ctx, cc.arg(0), false).check_exception()?;
+    let iter = cc.arg(0).iterator(ctx, false)?;
     let next = iter.get_property(ctx, JS_ATOM_next).check_exception()?;
 
     let is_map = cc.magic();
@@ -187,6 +187,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.create_base_object_from_proto(JSValue::NULL)?.into()
     };
 
+    let iter = JSValue::Object(iter);
     let mut idx: i64 = 0;
     loop {
         if idx >= MAX_SAFE_INTEGER {
@@ -444,19 +445,16 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
-    let iterable = cc.arg(0);
-
-    let iter = JS_GetIterator(ctx, iterable, false).check_exception()?;
+    let iter = cc.arg(0).iterator(ctx, false)?;
     let next_method = iter
         .get_property(ctx, JS_ATOM_next)
         .check_exception()
         .inspect_err(|_| {
-            if iter.is_object() {
-                // close the iterator object, preserving pending exception
-                JS_IteratorClose(ctx, &iter, true).unwrap();
-            }
+            // close the iterator object, preserving pending exception
+            JS_IteratorClose(ctx, &JSValue::Object(iter.clone()), true).unwrap();
         })?;
 
+    let iter = JSValue::Object(iter);
     loop {
         let mut done = false;
         let item = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);

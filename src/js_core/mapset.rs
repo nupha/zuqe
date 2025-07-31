@@ -7,7 +7,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call},
-    iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
+    iterator::{JS_IteratorClose, JS_IteratorNext},
     map::JSMapState,
     object::ObjectDetail,
     value::{JSValue, JSValueConst},
@@ -72,7 +72,10 @@ pub unsafe fn js_map_constructor(
             return JSValue::EXCEPTION;
         }
 
-        let iter = JS_GetIterator(ctx, &arr, false);
+        let iter = arr
+            .iterator(ctx, false)
+            .map_or(JSValue::EXCEPTION, JSValue::Object);
+
         if iter.is_exception() {
             if iter.is_object() {
                 // close the iterator object, preserving pending exception

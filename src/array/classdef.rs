@@ -1440,9 +1440,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         stack[0] = items.clone();
 
-        if unsafe { js_for_of_start(ctx, &mut stack[1], false) } != 0 {
-            return Err(-1);
-        }
+        js_for_of_start(ctx, &mut stack[1], false)?;
 
         loop {
             let mut done = false;

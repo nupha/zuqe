@@ -68,7 +68,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if cc.magic() == ErrorKind::Aggregate as i32 {
-        let error_list = unsafe { iterator_to_array(ctx, cc.arg(0)).check_exception()? };
+        let error_list = unsafe { iterator_to_array(ctx, cc.arg(0))? };
         obj.define_property_value(
             ctx,
             JS_ATOM_errors,

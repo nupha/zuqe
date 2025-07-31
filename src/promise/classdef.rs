@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_Call, JS_Invoke, NativeField},
-    iterator::{JS_GetIterator, JS_IteratorClose, JS_IteratorNext},
+    iterator::{JS_IteratorClose, JS_IteratorNext},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
@@ -159,11 +159,11 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject(promise_resolve);
     }
 
-    let iter = JS_GetIterator(ctx, cc.arg(0), false);
-    if iter.is_exception() {
+    let iter = cc.arg(0).iterator(ctx, false);
+    if iter.is_err() {
         return fail_reject(promise_resolve);
     }
-
+    let iter = JSValue::Object(iter.unwrap());
     let next_method = iter.get_property(ctx, JS_ATOM_next);
     if next_method.is_exception() {
         return fail_reject(promise_resolve);
@@ -355,11 +355,11 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject(promise_resolve);
     }
 
-    let iter = JS_GetIterator(ctx, cc.arg(0), false);
-    if iter.is_exception() {
+    let iter = cc.arg(0).iterator(ctx, false);
+    if iter.is_err() {
         return fail_reject(promise_resolve);
     }
-
+    let iter = JSValue::Object(iter.unwrap());
     let next_method = iter.get_property(ctx, JS_ATOM_next);
     if next_method.is_exception() {
         return fail_reject(promise_resolve);

@@ -362,18 +362,22 @@ impl ObjectInner {
 
     /// Test if object `self` can be called like a function, that means value is a:
     ///
-    /// - Compiled bytecode functions
+    /// - bytecode functions
+    /// - native function
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     pub fn is_callable(&self) -> bool {
         match self.payload.borrow().deref() {
-            ObjectDetail::BYTECODE_FUNCTION(_) => true,
+            ObjectDetail::BYTECODE_FUNCTION(_)
+            | ObjectDetail::GENERATOR_FUNCTION(_)
+            | ObjectDetail::ASYNC_FUNCTION(_)
+            | ObjectDetail::ASYNC_GENERATOR_FUNCTION(_) => true,
             ObjectDetail::PROXY(x) => x.is_func,
-            s => {
-                // check if class proto is callable
+            p => {
+                // check if class proto has exotic call handler
                 self.rt()
                     .class_defs
-                    .get(s.class_id() as usize)
+                    .get(p.class_id() as usize)
                     .and_then(|c| c.call)
                     .is_some()
             }

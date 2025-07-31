@@ -8,7 +8,7 @@ use crate::{
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, ObjectDetail, PropertyEnum,
+        JS_PROP_THROW, JSObject, ObjectDetail, PropertyEnum,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -96,68 +96,76 @@ impl JSForInIterator {
     }
 }
 
+impl JSObject {
+    /// get enumerable object of `self`.
+    /// call Symbol.iterator or Symbol.asyncIterator method defined on `self`,
+    /// and return result of the method - an enumerable object.
+    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
+        let method = if is_async {
+            let m = self
+                .get_property(ctx, JS_ATOM_Symbol_asyncIterator)
+                .check_exception()?;
+
+            if m.is_undefined_or_null() {
+                // use Symbol.iterator instead, if Symbol.asyncIterator is not available
+                let sync_iter = self.call_iterator_method(
+                    ctx,
+                    &self
+                        .get_property(ctx, JS_ATOM_Symbol_iterator)
+                        .check_exception()?,
+                )?;
+                // wrap sync iterator to async iterartor
+                return ctx.create_async_from_sync_iterator(JSValue::Object(sync_iter));
+            } else {
+                m
+            }
+        } else {
+            self.get_property(ctx, JS_ATOM_Symbol_iterator)
+                .check_exception()?
+        };
+
+        if !method.is_callable() {
+            println!("[O.o] self={self:?}, method={method:?}");
+            ctx.throw_type_error("value is not iterable");
+            return Err(-1);
+        } else {
+            self.call_iterator_method(ctx, &method)
+        }
+    }
+
+    /// call Symbol.iterator() or Symbol.asyncIterator() method, returns result enumerable object.
+    fn call_iterator_method(&self, ctx: &JSContext, method: &JSValue) -> Result<JSObject, i32> {
+        if let JSValue::Object(o) =
+            JS_Call(ctx, method, &JSValue::Object(self.clone()), &[]).check_exception()?
+        {
+            Ok(o)
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
+    }
+}
+
+impl JSValue {
+    /// get enumerable object of `self`.
+    /// call Symbol.iterator or Symbol.asyncIterator method defined on `self`,
+    /// and return result of the method - an enumerable object.
+    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
+        if let Self::Object(o) = self {
+            o.iterator(ctx, is_async)
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
+    }
+}
+
 /// create an Object with two properties: `value` and `done`.
 pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) -> JSResult {
     let obj = ctx.create_base_object()?;
     obj.define_property_value(ctx, JS_ATOM_value, value, JS_PROP_C_W_E)?;
     obj.define_property_value(ctx, JS_ATOM_done, JSValue::Bool(done), JS_PROP_C_W_E)?;
     Ok(obj.into())
-}
-
-pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueConst) -> JSValue {
-    let enum_obj = JS_Call(ctx, method, obj, &[]);
-    if enum_obj.is_exception() {
-        return enum_obj;
-    }
-
-    if !enum_obj.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return JSValue::EXCEPTION;
-    }
-
-    return enum_obj;
-}
-
-pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JSValue {
-    let method = if is_async {
-        let mut val = obj.get_property(ctx, JS_ATOM_Symbol_asyncIterator);
-        if val.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-
-        if val.is_undefined_or_null() {
-            val = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
-            if val.is_exception() {
-                return val;
-            }
-
-            let sync_iter = JS_GetIterator2(ctx, obj, &val);
-            if sync_iter.is_exception() {
-                return JSValue::EXCEPTION;
-            }
-
-            let ret = ctx
-                .create_async_from_sync_iterator(sync_iter)
-                .unwrap_or(JSValue::EXCEPTION);
-
-            return ret;
-        }
-
-        val
-    } else {
-        let v = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
-        if v.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-        v
-    };
-
-    if !method.is_callable() {
-        ctx.throw_type_error("value is not iterable");
-        return JSValue::EXCEPTION;
-    }
-
-    JS_GetIterator2(ctx, obj, &method)
 }
 
 /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
@@ -237,9 +245,11 @@ pub fn JS_IteratorNext(
     }
 }
 
+/// TODO: migrate to Iterator::close()
+/// or replace enum_obj: &JSValue with enum_obj: &JSObject
 pub fn JS_IteratorClose(
     ctx: &JSContext,
-    enum_obj: &JSValueConst,
+    enum_obj: &JSValue,
     has_exception: bool,
 ) -> Result<(), i32> {
     let (exc, mut has_err) = if has_exception {
@@ -365,60 +375,42 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
     }
 }
 
-// return -1 if exception, 0 if slow case, 1 if the enumeration is finished
-#[deprecated(
-    note = "use JSForInIterator::prepare_prototype_chain_enum() + JSObject::define_property() to achieve"
-)]
-pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: &JSContext, enum_obj: &JSValue) -> i32 {
-    unreachable!("unused");
-}
+pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
+    let iter = JSValue::Object(items.iterator(ctx, false)?);
+    let next_method = iter.get_property(ctx, JS_ATOM_next).check_exception()?;
 
-pub unsafe fn iterator_to_array(ctx: &JSContext, items: &JSValueConst) -> JSValue {
-    let iter = JS_GetIterator(ctx, items, false);
-    if iter.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    let next_method = iter.get_property(ctx, JS_ATOM_next);
-    if next_method.is_exception() {
-        return JSValue::EXCEPTION;
-    }
-
-    if let Ok(r) = ctx.create_array() {
-        let mut k = 0;
-        loop {
-            let mut done = false;
-            let v = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
-            if v.is_exception() {
-                let _ = JS_IteratorClose(ctx, &iter, true);
-                return JSValue::EXCEPTION;
-            }
-
-            if done {
-                break;
-            }
-
-            if r.define_property_value(ctx, JSAtom(k), v, JS_PROP_C_W_E | JS_PROP_THROW)
-                .is_err()
-            {
-                let _ = JS_IteratorClose(ctx, &iter, true);
-                return JSValue::EXCEPTION;
-            }
-
-            k += 1;
+    let r = ctx.create_array()?;
+    let mut k = 0;
+    loop {
+        let mut done = false;
+        let v = JS_IteratorNext(ctx, &iter, &next_method, &[], &mut done);
+        if v.is_exception() {
+            unsafe { JS_IteratorClose(ctx, &iter, true) };
+            return Err(-1);
         }
 
-        r
-    } else {
-        JSValue::EXCEPTION
+        if done {
+            break;
+        }
+
+        if r.define_property_value(ctx, JSAtom(k), v, JS_PROP_C_W_E | JS_PROP_THROW)
+            .is_err()
+        {
+            unsafe { JS_IteratorClose(ctx, &iter, true) };
+            return Err(-1);
+        }
+
+        k += 1;
     }
+
+    Ok(r)
 }
 
 pub unsafe fn js_array_from_iterator(
     ctx: &JSContext,
     plen: *mut u32,
-    obj: JSValueConst,
-    method: JSValueConst,
+    obj: JSValue,
+    method: JSValue,
 ) -> JSValue {
     *plen = 0;
 
@@ -428,7 +420,12 @@ pub unsafe fn js_array_from_iterator(
         return JSValue::EXCEPTION;
     };
 
-    let iter = JS_GetIterator2(ctx, &obj, &method);
+    let iter = obj
+        .object_unchecked()
+        .call_iterator_method(ctx, &method)
+        .map_or(JSValue::EXCEPTION, JSValue::Object);
+    // let iter = JS_GetIterator2(ctx, &obj, &method);
+
     if iter.is_exception() {
         return JSValue::EXCEPTION;
     }

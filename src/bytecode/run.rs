@@ -1355,21 +1355,6 @@ impl Bytecode {
                             ctx.throw_internal_error("invalid ret value");
                             break State::Exception;
                         }
-
-                        // let op1 = SP![-1];
-                        // if JS_VALUE_GET_TAG(op1) != JS_TAG_INT {
-                        //     ctx.JS_ThrowInternalError(c"invalid ret value");
-                        //     break State::Exception;
-                        // } else {
-                        //     let pos = JS_VALUE_GET_INT(op1);
-                        //     if pos >= bytecodes.len() as i32 {
-                        //         ctx.JS_ThrowInternalError(c"invalid ret value");
-                        //         break State::Exception;
-                        //     } else {
-                        //         SP_GO!(-1);
-                        //         pc = pc_base.offset(pos as isize);
-                        //     }
-                        // }
                     }
                     OpCode::FOR_IN_START => {
                         if js_for_in_start(ctx, sp).is_err() {
@@ -1382,13 +1367,16 @@ impl Bytecode {
                         }
                         SP_GO!(2);
                     }
-                    OpCode::FOR_OF_START => {
-                        if js_for_of_start(ctx, sp, false) != 0 {
+                    OpCode::FOR_OF_START | OpCode::FOR_AWAIT_OF_START => {
+                        // [obj, ^] -> [obj[Symbol.iterator], next_method, catchoffset(0), ^]
+                        // [obj, ^] -> [obj[Symbol.asyncIterator], next_method, catchoffset(0), ^]
+                        if js_for_of_start(ctx, sp, opcode == OpCode::FOR_AWAIT_OF_START).is_err() {
                             break State::Exception;
+                        } else {
+                            SP_GO!(1);
+                            SP_PUT!(0, JSValue::CatchOffset(0));
+                            SP_GO!(1);
                         }
-                        SP_GO!(1);
-                        SP_PUT!(0, JSValue::CatchOffset(0));
-                        SP_GO!(1);
                     }
                     OpCode::FOR_OF_NEXT => {
                         let offset = -3 - PC_FETCH!(u8) as i32;
@@ -1396,15 +1384,6 @@ impl Bytecode {
                             break State::Exception;
                         }
                         SP_GO!(2);
-                    }
-                    OpCode::FOR_AWAIT_OF_START => {
-                        if js_for_of_start(ctx, sp, true) != 0 {
-                            break State::Exception;
-                        } else {
-                            SP_GO!(1);
-                            SP_PUT!(0, JSValue::CatchOffset(0));
-                            SP_GO!(1);
-                        }
                     }
                     OpCode::ITERATOR_GET_VALUE_DONE => {
                         if unsafe { js_iterator_get_value_done(ctx, sp) } != 0 {

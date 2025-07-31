@@ -87,7 +87,8 @@ impl JSValue {
     }
 }
 
-/// Only works for primitive types, otherwise return JS_NULL.
+/// For primitive types (number, bool, string, symbol), return prototype of associated type.
+/// Only works for primitive types, otherwise returns Null.
 pub unsafe fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValue {
     ctx.with_mut(|cx| match val {
         JSValue::Int(_) | JSValue::Float64(_) => cx.class_proto[JS_CLASS_NUMBER as usize].clone(),
