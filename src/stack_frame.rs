@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateWeakref, JSVarRef},
-    iterator::JS_IteratorClose,
+    iterator::IteratorObject,
     value::JSValue,
 };
 
@@ -130,21 +130,29 @@ impl StackFrame {
             ctx.build_backtrace_to(&ctx.rt().cur_exception, None, 0);
         }
 
-        if unsafe { !JS_IsUncatchableError(&ctx.exception()) } {
+        if unsafe { !JS_IsUncatchableError(ctx.exception()) } {
             let sp_base = self.stack_base_ptr().as_ptr();
 
             // find catch offset
             while sp > 0 {
                 sp -= 1;
-                let val = unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) };
-                if let JSValue::CatchOffset(pos) = val {
+                if let JSValue::CatchOffset(pos) =
+                    unsafe { std::ptr::replace(sp_base.add(sp), JSValue::UNDEFINED) }
+                {
                     if pos == 0 {
                         // enumerator: close it with a throw
-                        let iter =
-                            unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
-                        let _r = JS_IteratorClose(ctx, &iter, true);
-                        debug_assert!(_r.is_err());
+
+                        // drop the next method
+                        println!("[O.o] {:?}", unsafe { &*sp_base.add(sp - 1) });
+                        unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
                         sp -= 1;
+
+                        // abort iter obj if available
+                        if let Ok(iter_obj) = IteratorObject::try_from(unsafe {
+                            std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED)
+                        }) {
+                            let _ = iter_obj.close(ctx, true);
+                        }
                     } else {
                         unsafe {
                             std::ptr::replace(sp_base.add(sp), ctx.take_exception());

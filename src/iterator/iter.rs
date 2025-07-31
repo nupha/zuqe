@@ -232,7 +232,6 @@ impl IteratorObject {
         if let Ok(return_method) = self.0.get_property(ctx, JS_ATOM_return) {
             if !return_method.is_undefined_or_null() {
                 let ret = JS_Call(ctx, &return_method, &self.clone().into(), &[]);
-
                 if pending_exc.is_undefined_or_null() {
                     if !ret.check_exception()?.is_object() {
                         ctx.throw_type_error_not_an_object();
@@ -334,40 +333,42 @@ pub fn JS_IteratorNext2(
     args: &[JSValue],
     pdone: &mut i32,
 ) -> JSValue {
-    if let JSValue::Object(p) = method
-        && let ObjectDetail::C_FUNCTION(nfunc) = p.0.payload.borrow().deref()
-    {
-        // fast path for the built-in iterators (avoid creating the
-        // intermediate result object)
-        match nfunc.handler {
-            NativeFunctionType::IteratorNext(f) => {
-                let cc = CallContext::new(ctx, enum_obj.clone(), args, nfunc.magic as _, None);
-                let mut state = IteratorState::HasMore;
-                let ret = f(ctx, cc, &mut state).unwrap_or(JSValue::EXCEPTION);
-                *pdone = state as i32;
-                return ret;
-            }
-            NativeFunctionType::CIteratorNext(f) => {
-                let ret = f(ctx, enum_obj.clone(), args, pdone, nfunc.magic as _);
-                return ret;
-            }
-            _ => {}
-        }
-    }
+    unreachable!("unused");
 
-    let obj = JS_Call(ctx, method, enum_obj, args);
-    if obj.is_exception() {
-        *pdone = 0;
-        return JSValue::EXCEPTION;
-    }
-    if !obj.is_object() {
-        ctx.throw_type_error("iterator must return an object");
-        *pdone = 0;
-        return JSValue::EXCEPTION;
-    }
+    // if let JSValue::Object(p) = method
+    //     && let ObjectDetail::C_FUNCTION(nfunc) = p.0.payload.borrow().deref()
+    // {
+    //     // fast path for the built-in iterators (avoid creating the
+    //     // intermediate result object)
+    //     match nfunc.handler {
+    //         NativeFunctionType::IteratorNext(f) => {
+    //             let cc = CallContext::new(ctx, enum_obj.clone(), args, nfunc.magic as _, None);
+    //             let mut state = IteratorState::HasMore;
+    //             let ret = f(ctx, cc, &mut state).unwrap_or(JSValue::EXCEPTION);
+    //             *pdone = state as i32;
+    //             return ret;
+    //         }
+    //         NativeFunctionType::CIteratorNext(f) => {
+    //             let ret = f(ctx, enum_obj.clone(), args, pdone, nfunc.magic as _);
+    //             return ret;
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
-    *pdone = 2;
-    obj
+    // let obj = JS_Call(ctx, method, enum_obj, args);
+    // if obj.is_exception() {
+    //     *pdone = 0;
+    //     return JSValue::EXCEPTION;
+    // }
+    // if !obj.is_object() {
+    //     ctx.throw_type_error("iterator must return an object");
+    //     *pdone = 0;
+    //     return JSValue::EXCEPTION;
+    // }
+
+    // *pdone = 2;
+    // obj
 }
 
 #[deprecated(note = "use IteratorObject::next() instead")]
@@ -413,35 +414,36 @@ pub fn JS_IteratorClose(
     enum_obj: &JSValue,
     has_exception: bool,
 ) -> Result<(), i32> {
-    let pending_exc = if has_exception {
-        ctx.take_exception()
-    } else {
-        JSValue::UNDEFINED
-    };
+    unreachable!("unused");
+    // let pending_exc = if has_exception {
+    //     ctx.take_exception()
+    // } else {
+    //     JSValue::UNDEFINED
+    // };
 
-    let method = enum_obj
-        .get_property(ctx, JS_ATOM_return)
-        .inspect_err(|_| {
-            // restore original error
-            ctx.throw(pending_exc.clone());
-        })?;
+    // let method = enum_obj
+    //     .get_property(ctx, JS_ATOM_return)
+    //     .inspect_err(|_| {
+    //         // restore original error
+    //         ctx.throw(pending_exc.clone());
+    //     })?;
 
-    if !method.is_undefined_or_null() {
-        let ret = JS_Call(ctx, &method, enum_obj, &[]);
-        if !has_exception {
-            if !ret.check_exception()?.is_object() {
-                ctx.throw_type_error_not_an_object();
-                return Err(-1);
-            }
-        }
-    }
+    // if !method.is_undefined_or_null() {
+    //     let ret = JS_Call(ctx, &method, enum_obj, &[]);
+    //     if !has_exception {
+    //         if !ret.check_exception()?.is_object() {
+    //             ctx.throw_type_error_not_an_object();
+    //             return Err(-1);
+    //         }
+    //     }
+    // }
 
-    if has_exception {
-        ctx.throw(pending_exc);
-        Err(-1)
-    } else {
-        Ok(())
-    }
+    // if has_exception {
+    //     ctx.throw(pending_exc);
+    //     Err(-1)
+    // } else {
+    //     Ok(())
+    // }
 }
 
 pub unsafe fn JS_IteratorGetCompleteValue(
