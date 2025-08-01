@@ -1,6 +1,6 @@
 use std::ops::DerefMut;
 
-use crate::iterator::ObjectIter;
+use crate::iterator::{ForInIterator, ObjectIter};
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
@@ -9,8 +9,8 @@ use crate::{
     context::JSContext,
     function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
     iterator::{
-        JS_IteratorGetCompleteValue, JSIteratorKindEnum, build_for_in_iterator,
-        js_array_iterator_next, js_create_array_iterator,
+        JS_IteratorGetCompleteValue, JSIteratorKindEnum, js_array_iterator_next,
+        js_create_array_iterator,
     },
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
@@ -367,10 +367,10 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
 /// obj -> enum_obj
 pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
-        std::ptr::replace(
-            sp.offset(-1),
-            build_for_in_iterator(ctx, (*sp.offset(-1)).clone()),
-        );
+        let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
+        let it = ForInIterator::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
+
+        std::ptr::replace(sp.offset(-1), it);
 
         if (*sp.offset(-1)).is_exception() {
             Err(-1)

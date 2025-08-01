@@ -10,6 +10,7 @@ use crate::{
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct,
+        consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID},
@@ -23,15 +24,15 @@ use crate::{
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::ObjAsyncGenerator,
-    iterator::JSIteratorKindEnum,
+    iterator::{ForInIterator, JSIteratorKindEnum},
     module::{
         JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
         ModuleDefInner,
     },
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
-        JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectDetail,
-        PropertyEnum,
+        JS_PROP_C_W_E, JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
+        ObjectDetail, PropertyEnum,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
@@ -3741,4 +3742,43 @@ pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JS
 )]
 pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: &JSContext, enum_obj: &JSValue) -> i32 {
     unreachable!("unused");
+}
+
+/// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
+#[deprecated(note = "use IteratorObject::apply_next_method() instead")]
+pub fn JS_IteratorNext2(
+    ctx: &JSContext,
+    enum_obj: &JSValue,
+    method: &JSValue,
+    args: &[JSValue],
+    pdone: &mut i32,
+) -> JSValue {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use IteratorObject::next() instead")]
+pub fn JS_IteratorNext(
+    ctx: &JSContext,
+    enum_obj: &JSValue,
+    method: &JSValue,
+    args: &[JSValue],
+    pdone: &mut bool,
+) -> JSValue {
+    unreachable!("unused");
+}
+
+/// TODO: migrate to Iterator::close()
+/// or replace enum_obj: &JSValue with enum_obj: &JSObject
+#[deprecated(note = "use IteratorObject::close() instead")]
+pub fn JS_IteratorClose(
+    ctx: &JSContext,
+    enum_obj: &JSValue,
+    has_exception: bool,
+) -> Result<(), i32> {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSForInIterator::new() instead")]
+pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
+    ForInIterator::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
