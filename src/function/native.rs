@@ -233,7 +233,7 @@ impl ObjNativeFunc {
             NativeFunctionType::IteratorNext(f) => {
                 let cc =
                     CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                let mut iter_state = IteratorState::HasMore;
+                let mut iter_state = IteratorState::NotDone;
                 let mut r = f(realm, cc, &mut iter_state);
                 if !r.is_err() && iter_state != IteratorState::NotParsed {
                     r = js_create_iterator_result(

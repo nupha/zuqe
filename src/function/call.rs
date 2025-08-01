@@ -115,7 +115,7 @@ impl<'a> CallContext<'a> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IteratorState {
     /// iterator is not done
-    HasMore,
+    NotDone,
     /// iterator is done
     Done,
     /// iterator object is not parsed

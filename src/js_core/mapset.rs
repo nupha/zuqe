@@ -54,23 +54,8 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let iter_obj = arr.iterator(ctx, false)?;
-
-        // IMPORTANT: close iterator on exit with pending exception
-        defer!({
-            if !ctx.exception().is_undefined_or_null() {
-                let _ = iter_obj.close(ctx, true);
-            }
-        });
-
-        let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
-
-        loop {
-            let (item, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
-
-            if done {
-                break;
-            }
+        for item in arr.iter(ctx)? {
+            let item = item?;
 
             if is_set {
                 JS_Call(ctx, &adder, &obj, &[item]).check_exception()?;

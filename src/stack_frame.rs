@@ -146,11 +146,11 @@ impl StackFrame {
                         unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
                         sp -= 1;
 
-                        // abort iter obj if available
-                        if let Ok(iter_obj) = ObjectIter::try_from(unsafe {
-                            std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED)
-                        }) {
-                            let _ = iter_obj.close(ctx, true);
+                        // close iterator if SP[-1] is obj
+                        if let JSValue::Object(o) =
+                            unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) }
+                        {
+                            let _ = ObjectIter::do_close(ctx, &o, true);
                         }
                     } else {
                         unsafe {

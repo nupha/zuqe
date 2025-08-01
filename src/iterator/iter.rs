@@ -2,10 +2,11 @@ use std::ops::Deref;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
-    atom::{JS_FreeAtomRT, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, IteratorState, JS_Call, NativeField, NativeFunctionType},
+    iterator::JSAsyncFromSyncIteratorData,
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
@@ -98,38 +99,73 @@ impl JSForInIterator {
 }
 
 #[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct ObjectIter(pub(crate) JSObject);
+pub struct ObjectIter {
+    pub(crate) target: JSObject,
+    pub(crate) next_method: JSValue,
+    pub(crate) ctx: JSContext,
+    pub(crate) done: bool,
+}
+
+impl Iterator for ObjectIter {
+    type Item = JSResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            None
+        } else if let Ok((value, done)) =
+            Self::do_next_with_method(&self.ctx, &self.target, &self.next_method, &[])
+        {
+            self.done = done;
+            if done { None } else { Some(Ok(value)) }
+        } else {
+            Some(Err(-1))
+        }
+    }
+}
+
+impl Drop for ObjectIter {
+    fn drop(&mut self) {
+        if !self.done {
+            let has_exc = !self.ctx.exception().is_undefined_or_null();
+            self.close(has_exc);
+        }
+    }
+}
 
 impl From<ObjectIter> for JSObject {
-    fn from(value: ObjectIter) -> Self {
-        value.0
+    fn from(mut value: ObjectIter) -> Self {
+        value.done = true; // avoid close on drop
+        value.target.clone()
     }
 }
 
 impl From<ObjectIter> for JSValue {
     fn from(value: ObjectIter) -> Self {
-        Self::Object(value.0)
-    }
-}
-
-impl TryFrom<JSValue> for ObjectIter {
-    type Error = i32;
-
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-        if let JSValue::Object(o) = value {
-            Ok(Self(o))
-        } else {
-            Err(-1)
-        }
+        Self::Object(value.into())
     }
 }
 
 impl ObjectIter {
-    /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
-    pub(super) fn apply_next_method(
-        &self,
+    /// `next_method_name` is not consumed
+    pub fn new(ctx: &JSContext, target: JSObject, next_method_name: JSAtom) -> Result<Self, i32> {
+        let next_method = if next_method_name != JS_ATOM_NULL {
+            target.get_property(ctx, next_method_name)?
+        } else {
+            JSValue::UNDEFINED
+        };
+
+        Ok(Self {
+            target,
+            done: next_method.is_undefined(),
+            next_method,
+            ctx: ctx.clone(),
+        })
+    }
+
+    /// apply `method` on `obj` to evaluate next iterate value
+    pub(super) fn do_apply_next_method(
         ctx: &JSContext,
+        obj: &JSObject,
         method: &JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
@@ -140,28 +176,22 @@ impl ObjectIter {
             // intermediate result object)
             match nfunc.handler {
                 NativeFunctionType::IteratorNext(f) => {
-                    let mut state = IteratorState::HasMore;
+                    let mut state = IteratorState::NotDone;
                     let cc =
-                        CallContext::new(ctx, self.0.clone().into(), args, nfunc.magic as _, None);
+                        CallContext::new(ctx, obj.clone().into(), args, nfunc.magic as _, None);
                     let ret = f(ctx, cc, &mut state)?;
                     return Ok((ret, state));
                 }
                 NativeFunctionType::CIteratorNext(f) => {
                     let mut pdone = 0;
-                    let ret = f(
-                        ctx,
-                        self.0.clone().into(),
-                        args,
-                        &mut pdone,
-                        nfunc.magic as _,
-                    )
-                    .check_exception()?;
+                    let ret = f(ctx, obj.clone().into(), args, &mut pdone, nfunc.magic as _)
+                        .check_exception()?;
 
                     return if let JSValue::Object(ret) = ret {
                         Ok((
                             ret.into(),
                             match pdone {
-                                0 => IteratorState::HasMore,
+                                0 => IteratorState::NotDone,
                                 1 => IteratorState::Done,
                                 2 => IteratorState::NotParsed,
                                 _ => unreachable!(),
@@ -176,11 +206,12 @@ impl ObjectIter {
             }
         }
 
-        if let JSValue::Object(obj) =
-            JS_Call(ctx, method, &JSValue::Object(self.0.clone()), args).check_exception()?
+        if let JSValue::Object(o) =
+            JS_Call(ctx, method, &JSValue::Object(obj.clone()), args).check_exception()?
         {
-            Ok((obj.into(), IteratorState::NotParsed))
+            Ok((o.into(), IteratorState::NotParsed))
         } else {
+            // bytecode function must return an object
             ctx.throw_type_error("iterator must return an object");
             Err(-1)
         }
@@ -188,50 +219,49 @@ impl ObjectIter {
 
     /// get next value of iterator by calling specified `method`.
     /// returns: (next_value, is_iterator_done)
-    pub fn next_with_method(
-        &self,
+    pub(crate) fn do_next_with_method(
         ctx: &JSContext,
+        obj: &JSObject,
         method: &JSValue,
         args: &[JSValue],
     ) -> Result<(JSValue, bool), i32> {
-        let (obj, state) = self.apply_next_method(ctx, method, args)?;
-
-        match state {
-            IteratorState::HasMore | IteratorState::Done => {
-                Ok((obj.into(), state == IteratorState::Done))
+        match Self::do_apply_next_method(ctx, obj, method, args)? {
+            (ret, state @ (IteratorState::NotDone | IteratorState::Done)) => {
+                Ok((ret.into(), state == IteratorState::Done))
             }
-            IteratorState::NotParsed => {
-                let done = obj
+            (ret, IteratorState::NotParsed) => {
+                let done = ret
                     .get_property(ctx, JS_ATOM_done)?
                     .coerce_to_bool(ctx)
                     .unwrap_or(false);
-                let ret = if !done {
-                    obj.get_property(ctx, JS_ATOM_value)?
-                } else {
-                    JSValue::UNDEFINED
-                };
-                Ok((ret, done))
+
+                Ok((
+                    if !done {
+                        ret.get_property(ctx, JS_ATOM_value)?
+                    } else {
+                        JSValue::UNDEFINED
+                    },
+                    done,
+                ))
             }
         }
     }
 
-    /// get next value of iterator by calling default `next` method.
-    pub fn next(&self, ctx: &JSContext, args: &[JSValue]) -> Result<(JSValue, bool), i32> {
-        let next = self.0.get_property(ctx, JS_ATOM_next)?;
-        self.next_with_method(ctx, &next, args)
-    }
-
-    /// close iterator (pre-abort), calling `return` method if available.
-    pub fn close(&self, ctx: &JSContext, has_exception: bool) -> Result<(), i32> {
+    /// pre-close before iterate is done, calling `return` method if available.
+    pub(crate) fn do_close(
+        ctx: &JSContext,
+        obj: &JSObject,
+        has_exception: bool,
+    ) -> Result<(), i32> {
         let pending_exc = if has_exception {
             ctx.take_exception()
         } else {
             JSValue::UNDEFINED
         };
 
-        if let Ok(return_method) = self.0.get_property(ctx, JS_ATOM_return) {
+        if let Ok(return_method) = obj.get_property(ctx, JS_ATOM_return) {
             if !return_method.is_undefined_or_null() {
-                let ret = JS_Call(ctx, &return_method, &self.clone().into(), &[]);
+                let ret = JS_Call(ctx, &return_method, &obj.clone().into(), &[]);
                 if pending_exc.is_undefined_or_null() {
                     if !ret.check_exception()?.is_object() {
                         ctx.throw_type_error_not_an_object();
@@ -253,23 +283,37 @@ impl ObjectIter {
             Err(-1)
         }
     }
+
+    /// pre-close before iterate is done, calling `return` method if available.
+    pub fn close(&mut self, has_exception: bool) -> Result<(), i32> {
+        if !self.done {
+            self.done = true;
+            self.next_method = JSValue::UNDEFINED;
+            Self::do_close(&self.ctx, &self.target, has_exception)
+        } else if has_exception {
+            Err(-1)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl JSObject {
-    /// get enumerable object of `self`.
-    /// call Symbol.iterator or Symbol.asyncIterator method defined on `self`,
-    /// and return result of the method - an enumerable object.
-    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<ObjectIter, i32> {
+    /// get object iterator.
+    pub fn iterator_obj(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
         let method = if is_async {
             let m = self.get_property(ctx, JS_ATOM_Symbol_asyncIterator)?;
             if m.is_undefined_or_null() {
-                // use Symbol.iterator instead, if Symbol.asyncIterator is not available
-                let sync_iter = self.apply_iterator_method(
+                let obj = self.apply_iterator_method(
                     ctx,
                     &self.get_property(ctx, JS_ATOM_Symbol_iterator)?,
                 )?;
-                // wrap sync iterator to async iterartor
-                return ctx.create_async_from_sync_iterator(sync_iter.into());
+                let next_method = obj.get_property(ctx, JS_ATOM_next)?;
+                return ctx
+                    .create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
+                        JSAsyncFromSyncIteratorData { obj, next_method },
+                    ))
+                    .map_err(|_| -1);
             } else {
                 m
             }
@@ -279,18 +323,26 @@ impl JSObject {
 
         if !method.is_callable() {
             ctx.throw_type_error("value is not iterable");
-            return Err(-1);
+            Err(-1)
         } else {
             self.apply_iterator_method(ctx, &method)
         }
     }
 
-    /// call Symbol.iterator() or Symbol.asyncIterator() method, returns result enumerable object.
-    fn apply_iterator_method(&self, ctx: &JSContext, method: &JSValue) -> Result<ObjectIter, i32> {
+    pub fn iter(&self, ctx: &JSContext) -> Result<ObjectIter, i32> {
+        ObjectIter::new(ctx, self.iterator_obj(ctx, false)?, JS_ATOM_next)
+    }
+
+    /// call Symbol.iterator() or Symbol.asyncIterator() method to get object iterator.
+    fn apply_iterator_method(
+        &self,
+        ctx: &JSContext,
+        iterator_method: &JSValue,
+    ) -> Result<JSObject, i32> {
         if let JSValue::Object(o) =
-            JS_Call(ctx, method, &JSValue::Object(self.clone()), &[]).check_exception()?
+            JS_Call(ctx, iterator_method, &JSValue::Object(self.clone()), &[]).check_exception()?
         {
-            Ok(ObjectIter(o))
+            Ok(o)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
@@ -299,12 +351,19 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// get enumerable object of `self`.
-    /// call Symbol.iterator or Symbol.asyncIterator method defined on `self`,
-    /// and return result of the method - an enumerable object.
-    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<ObjectIter, i32> {
+    /// get object iterator.
+    pub fn iterator_obj(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
         if let Self::Object(o) = self {
-            o.iterator(ctx, is_async)
+            o.iterator_obj(ctx, is_async)
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
+    }
+
+    pub fn iter(&self, ctx: &JSContext) -> Result<ObjectIter, i32> {
+        if let Self::Object(o) = self {
+            o.iter(ctx)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
@@ -538,30 +597,11 @@ pub unsafe fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
 }
 
 pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
-    let iter_obj = items.iterator(ctx, false)?;
-    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
-
+    let it = items.iter(ctx)?;
     let arr = ctx.create_array()?;
-    let mut k = 0;
-    loop {
-        let (v, done) = iter_obj
-            .next_with_method(ctx, &next_method, &[])
-            .inspect_err(|_| {
-                let _ = iter_obj.close(ctx, true);
-            })?;
-
-        if done {
-            break;
-        }
-
-        arr.define_property_value(ctx, JSAtom(k), v, JS_PROP_C_W_E | JS_PROP_THROW)
-            .inspect_err(|_| {
-                let _ = iter_obj.close(ctx, true);
-            })?;
-
-        k += 1;
+    for (i, v) in it.enumerate() {
+        arr.define_property_value(ctx, JSAtom(i as u32), v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
     }
-
     Ok(arr)
 }
 
@@ -570,18 +610,17 @@ pub fn js_array_from_iterator(
     obj: &JSValue,
     method: &JSValue,
 ) -> Result<(JSValue, usize), i32> {
-    let iter_obj = unsafe { obj.object_unchecked().apply_iterator_method(ctx, method)? };
-    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
+    let iter = ObjectIter::new(
+        ctx,
+        unsafe { obj.object_unchecked().apply_iterator_method(ctx, method)? },
+        JS_ATOM_next,
+    )?;
 
     let arr = ctx.create_array()?;
     let mut k = 0_i64;
 
-    loop {
-        let (val, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
-        if done {
-            break;
-        }
-        arr.create_data_property_u32(ctx, k, val, JS_PROP_THROW)?;
+    for val in iter {
+        arr.create_data_property_u32(ctx, k, val?, JS_PROP_THROW)?;
         k += 1;
     }
 

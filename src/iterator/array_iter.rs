@@ -100,7 +100,7 @@ pub fn js_array_iterator_next(
             return Ok(JSValue::UNDEFINED);
         }
 
-        *state = IteratorState::HasMore;
+        *state = IteratorState::NotDone;
         it.idx = idx + 1;
 
         match it.kind {

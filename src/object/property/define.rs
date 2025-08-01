@@ -394,7 +394,7 @@ impl JSValue {
 
     /// short cut to add or redefine a new property value.
     /// Note: `prop` is not consumed.
-    #[inline]
+    #[inline(always)]
     pub fn define_property_value(
         &self,
         ctx: &JSContext,

@@ -174,16 +174,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cb = cc.arg(1);
     cb.ensure_callable(ctx)?;
 
-    let iter_obj = cc.arg(0).iterator(ctx, false)?;
-
-    // Important: close iterator on exit with pending exception
-    defer!({
-        if !ctx.exception().is_undefined_or_null() {
-            let _ = iter_obj.close(ctx, true);
-        }
-    });
-
-    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
+    let it = cc.arg(0).iter(ctx)?;
 
     let is_map = cc.magic();
     let groups = if is_map != 0 {
@@ -193,16 +184,12 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let mut idx: i64 = 0;
-    loop {
+    for val in it {
+        let val = val?;
+
         if idx >= MAX_SAFE_INTEGER {
             ctx.throw_type_error("too many elements");
             return Err(-1);
-        }
-
-        let (val, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
-
-        if done {
-            break; // val is JSValue::UNDEFINED
         }
 
         let key = JS_Call(
@@ -264,7 +251,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         )?;
 
         idx += 1;
-    } // loop
+    }
 
     Ok(groups)
 }
@@ -437,29 +424,9 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
-    let iter_obj = cc.arg(0).iterator(ctx, false)?;
-
-    // IMPORTANT: close iterator on exit with pending exception
-    defer!({
-        if !ctx.exception().is_undefined_or_null() {
-            let _ = iter_obj.close(ctx, true);
-        }
-    });
-
-    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
-
-    loop {
-        let (item, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
-
-        if done {
-            break;
-        }
-
+    for item in cc.arg(0).iter(ctx)? {
+        let item = item?;
         debug_assert!(item.is_object());
-        // if !item.is_object() {
-        //     ctx.throw_type_error_not_an_object();
-        //     return Err(-1);
-        // }
 
         let key = item.get_property_u32(ctx, 0)?;
         let value = item.get_property_u32(ctx, 1)?;

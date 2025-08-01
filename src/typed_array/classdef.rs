@@ -219,28 +219,8 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     {
         // target is enumerable
         arr = ctx.create_array()?;
-
-        let iter_obj = items.iterator(ctx, false)?;
-
-        // IMPORTANT: close iterator on exit with pending exception
-        defer!({
-            if !ctx.exception().is_undefined_or_null() {
-                let _ = iter_obj.close(ctx, true);
-            }
-        });
-
-        let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
-
-        let mut k = 0;
-
-        loop {
-            let (v, done) = iter_obj.next_with_method(ctx, &next_method, &[])?;
-            if done {
-                break;
-            } else {
-                arr.define_property_value_i64(ctx, k, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
-                k += 1;
-            }
+        for (i, v) in items.iter(ctx)?.enumerate() {
+            arr.define_property_value_i64(ctx, i as _, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
     } else {
         arr = items.coerce_to_object(ctx)?.into();

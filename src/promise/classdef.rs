@@ -161,20 +161,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject();
     };
 
-    let iter_obj = if let Ok(x) = cc.arg(0).iterator(ctx, false) {
-        x
-    } else {
-        return fail_reject();
-    };
-
-    // Important: close iterator on exit with pending exception
-    defer!({
-        if !ctx.exception().is_undefined_or_null() {
-            let _ = iter_obj.close(ctx, true);
-        }
-    });
-
-    let next_method = if let Ok(x) = iter_obj.0.get_property(ctx, JS_ATOM_next) {
+    let it = if let Ok(x) = cc.arg(0).iter(ctx) {
         x
     } else {
         return fail_reject();
@@ -200,13 +187,8 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let mut index = 0;
-
-    loop {
-        if let Ok((item, done)) = iter_obj.next_with_method(ctx, &next_method, &[]) {
-            if done {
-                break;
-            }
-
+    for item in it {
+        if let Ok(item) = item {
             let next_promise = JS_Call(
                 ctx,
                 &promise_resolve,
@@ -224,7 +206,6 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 resolving_funcs[is_promise_any as usize].clone(),
                 resolve_element_env.clone(),
             ];
-
             let mut resolve_element = ctx
                 .create_native_callable_object(
                     js_promise_all_resolve_element,
@@ -268,13 +249,14 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return fail_reject();
             }
 
-            let ret = JS_Invoke(
+            if JS_Invoke(
                 ctx,
                 &next_promise,
                 JS_ATOM_then,
                 &[resolve_element, reject_element],
-            );
-            if ret.is_exception() {
+            )
+            .is_exception()
+            {
                 return fail_reject();
             }
 
@@ -282,7 +264,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else {
             return fail_reject();
         }
-    } // loop
+    }
 
     match remainingElementsCount_add(ctx, resolve_element_env, -1) {
         Ok(1) => {
@@ -345,31 +327,14 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject();
     }
 
-    let iter_obj = if let Ok(x) = cc.arg(0).iterator(ctx, false) {
+    let it = if let Ok(x) = cc.arg(0).iter(ctx) {
         x
     } else {
         return fail_reject();
     };
 
-    // Important: close iterator on exit with pending exception
-    defer!({
-        if !ctx.exception().is_undefined_or_null() {
-            let _ = iter_obj.close(ctx, true);
-        }
-    });
-
-    let next_method = if let Ok(x) = iter_obj.0.get_property(ctx, JS_ATOM_next) {
-        x
-    } else {
-        return fail_reject();
-    };
-
-    loop {
-        if let Ok((item, done)) = iter_obj.next_with_method(ctx, &next_method, &[]) {
-            if done {
-                break;
-            }
-
+    for item in it {
+        if let Ok(item) = item {
             let next_promise = JS_Call(
                 ctx,
                 &promise_resolve,

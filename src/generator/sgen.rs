@@ -264,7 +264,7 @@ pub fn js_generator_next(
                     /* return (value, done) object */
                     IteratorState::NotParsed
                 } else {
-                    IteratorState::HasMore
+                    IteratorState::NotDone
                 };
 
                 ret_val.check_exception()

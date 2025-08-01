@@ -1419,40 +1419,14 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx.create_array()?
         };
 
-        let enum_obj = items.iterator(ctx, false)?;
-        let next_method = enum_obj.0.get_property(ctx, JS_ATOM_next)?;
-
-        macro_rules! exception_close {
-            () => {
-                let _ = enum_obj.close(ctx, true);
-                return Err(-1);
-            };
-        }
-
-        loop {
-            if let Ok((mut el, done)) = enum_obj.next_with_method(ctx, &next_method, &[]) {
-                if done {
-                    break;
-                }
-
-                if mapping {
-                    el = JS_Call(ctx, mapfn, this_arg, &[el, JSValue::Int(k as i32)]);
-                    if el.is_exception() {
-                        exception_close!();
-                    }
-                }
-
-                if res
-                    .define_property_value_i64(ctx, k, el, JS_PROP_C_W_E | JS_PROP_THROW)
-                    .is_err()
-                {
-                    exception_close!();
-                }
-
-                k += 1;
-            } else {
-                exception_close!();
+        for el in items.iter(ctx)? {
+            let mut el = el?;
+            if mapping {
+                el = JS_Call(ctx, mapfn, this_arg, &[el, JSValue::Int(k as i32)])
+                    .check_exception()?;
             }
+            res.define_property_value_i64(ctx, k, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            k += 1;
         }
     } else {
         let array_like: JSValue = items.coerce_to_object(ctx)?.into();

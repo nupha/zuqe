@@ -993,7 +993,7 @@ pub fn js_string_iterator_next(
 
         let c = ss.content().chars().nth(idx as usize).unwrap();
         it.idx = idx;
-        *state = IteratorState::HasMore;
+        *state = IteratorState::NotDone;
 
         ctx.create_string_from_char(c).check_exception()
     } else {

@@ -323,77 +323,38 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
             JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
         );
 
-    let iter_obj = src.iterator(ctx, false)?;
-    let next_method = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
+    let it = src.iter(ctx)?;
 
-    macro_rules! fail {
-        () => {
-            iter_obj.close(ctx, true);
-            return Err(-1);
-        };
-    }
-
-    let use_slow_array = if is_array_iterator
-        && next_method
+    let try_slow_array = if is_array_iterator
+        && it
+            .next_method
             .match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
     {
-        // fast path: try fast array
-        match src.with_fast_array_values(|lst| -> Result<bool, i32> {
+        // fast path: fast array
+        src.with_fast_array_values(|lst| -> Result<bool, i32> {
             if lst.len() == len {
                 // `src` is a fast array
                 for v in lst {
                     dest.define_property_value_u32(ctx, pos as _, v.clone(), JS_PROP_C_W_E)?;
                     pos += 1;
                 }
-                Ok(true)
+                Ok(false) // fast path applied, don't try slow path
             } else {
-                Ok(false)
+                Ok(true) // try slow path
             }
-        }) {
-            Some(Err(_)) => {
-                fail!(); // fast array has error
-            }
-            Some(Ok(true)) => {
-                false // is fast array, done
-            }
-            Some(Ok(false)) | None => {
-                true // use slow array
-            }
-        }
+        })
+        .unwrap_or(Ok(true))?
     } else {
         true
     };
 
-    if use_slow_array {
+    if try_slow_array {
         // general case: slow array, use iterator
-        loop {
-            if let Ok((value, done)) = iter_obj.next_with_method(ctx, &next_method, &[]) {
-                if done {
-                    break; // value is JSValue::UNDEFINED
-                }
-
-                if dest
-                    .define_property_value_u32(ctx, pos as _, value, JS_PROP_C_W_E)
-                    .is_err()
-                {
-                    fail!();
-                }
-
-                pos += 1;
-            } else {
-                fail!();
-            }
-
-            // let mut done = false;
-            // let value =
-            //     JS_IteratorNext(ctx, &iter_obj.clone().into(), &next_method, &[], &mut done);
-            // if value.is_exception() {
-            //     fail!();
-            // }
+        for value in it {
+            dest.define_property_value_u32(ctx, pos as _, value?, JS_PROP_C_W_E)?;
+            pos += 1;
         }
     }
-
-    // Note: could raise an error if too many elements
 
     // update end index to SP[-2]
     unsafe {
@@ -579,10 +540,8 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 /// if fail, sp[-1] is not consumed.
 /// obj -> enum_rec (3 slots)
 pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
-    let obj = unsafe { &*sp.offset(-1) };
-    let iter_obj = obj.iterator(ctx, is_async)?;
-    let next = iter_obj.0.get_property(ctx, JS_ATOM_next)?;
-
+    let iter_obj = unsafe { &*sp.offset(-1) }.iterator_obj(ctx, is_async)?;
+    let next = iter_obj.get_property(ctx, JS_ATOM_next)?;
     unsafe {
         std::ptr::replace(sp.offset(-1), iter_obj.into());
         std::ptr::replace(sp.offset(0), next);
@@ -595,10 +554,10 @@ pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Re
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
-    if let JSValue::Object(o) = &*sp.offset(base as isize) {
-        let iter_obj = ObjectIter(o.clone());
-
-        if let Ok((v, d)) = iter_obj.next_with_method(ctx, &*sp.offset((base + 1) as isize), &[]) {
+    if let JSValue::Object(iter_obj) = &*sp.offset(base as isize) {
+        if let Ok((v, d)) =
+            ObjectIter::do_next_with_method(ctx, iter_obj, &*sp.offset((base + 1) as isize), &[])
+        {
             done = d;
             value = if done {
                 // replace the iteration object with undefined

@@ -1405,17 +1405,15 @@ impl Bytecode {
                         SP_GO!(-2);
 
                         // SP[-1] is iter_obj
-                        if !SP_REF!(-1).is_undefined() {
-                            let iter_obj = ObjectIter::try_from(SP_REF!(-1).clone()).unwrap();
-                            if iter_obj.close(ctx, false).is_err() {
+                        if let JSValue::Object(o) = SP_REF!(-1) {
+                            if ObjectIter::do_close(ctx, o, false).is_err() {
                                 // leave iter_obj in stack
                                 break State::Exception;
                             } else {
                                 SP_TAKE!(-1);
                             }
                         }
-                        // pop iter_obj
-                        SP_GO!(-1);
+                        SP_GO!(-1); // pop iter_obj
                     }
                     OpCode::NIP_CATCH => {
                         // [catch_offset, ..., ret_val, ^] -> [ret_eval, ^]

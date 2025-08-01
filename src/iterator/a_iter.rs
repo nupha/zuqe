@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, IteratorState, JS_Call, NativeField},
     iterator::ObjectIter,
-    object::ObjectDetail,
+    object::{JSObject, ObjectDetail},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -17,33 +17,15 @@ use super::{JS_IteratorGetCompleteValue, js_create_iterator_result};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {
-    pub sync_iter: ObjectIter,
-    pub next_method: JSValue,
+    pub(crate) obj: JSObject,
+    pub(crate) next_method: JSValue,
 }
 
 pub const GEN_MAGIC_NEXT: i32 = 0;
 pub const GEN_MAGIC_RETURN: i32 = 1;
 pub const GEN_MAGIC_THROW: i32 = 2;
 
-impl JSContext {
-    /// Create an AsyncIterator wrapper from SyncIterator.
-    pub fn create_async_from_sync_iterator(
-        &self,
-        sync_iter: ObjectIter,
-    ) -> Result<ObjectIter, i32> {
-        let next_method = sync_iter.0.get_property(self, JS_ATOM_next)?;
-        self.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
-            JSAsyncFromSyncIteratorData {
-                sync_iter,
-                next_method,
-            },
-        ))
-        .map(ObjectIter)
-        .map_err(|_| -1)
-    }
-}
-
-#[deprecated(note = "use JSContext::create_async_from_sync_iterator() instead")]
+#[deprecated(note = "unused")]
 pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValueConst) -> JSValue {
     unreachable!("unused")
 }
@@ -82,7 +64,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
         let method = if cc.magic() == GEN_MAGIC_NEXT {
             p.next_method.clone()
         } else {
-            match p.sync_iter.0.get_property(
+            match p.obj.get_property(
                 ctx,
                 if cc.magic() == GEN_MAGIC_RETURN {
                     JS_ATOM_return
@@ -113,8 +95,9 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
             }
         };
 
-        if let Ok((mut value, state)) = p.sync_iter.apply_next_method(
+        if let Ok((mut value, state)) = ObjectIter::do_apply_next_method(
             ctx,
+            &p.obj,
             &method,
             if cc.length() == 0 {
                 &[]
@@ -122,25 +105,19 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
                 &cc.arguments()[0..1]
             },
         ) {
-            let done: bool;
-            match state {
-                IteratorState::HasMore => {
-                    done = false;
-                }
-                IteratorState::Done => {
-                    done = true;
-                }
+            let done: bool = match state {
+                IteratorState::NotDone => false,
+                IteratorState::Done => true,
                 IteratorState::NotParsed => {
-                    let obj = value;
                     let mut _done = false;
-                    value = unsafe { JS_IteratorGetCompleteValue(ctx, &obj, &mut _done) };
+                    value = unsafe { JS_IteratorGetCompleteValue(ctx, &value, &mut _done) };
                     if value.is_exception() {
                         let err = ctx.take_exception();
                         return Ok(done_resolve(resolving_funcs, err, 1, promise));
                     }
-                    done = _done;
+                    _done
                 }
-            }
+            };
 
             let value_wrapper_promise: Promise = {
                 let cc = CallContext::new(
@@ -197,9 +174,9 @@ pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDet
 
 pub fn js_async_from_sync_iterator_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(it) = p.0.payload.borrow().deref() {
-        it.sync_iter.0.gc_mark();
-        it.next_method.gc_mark();
+    if let ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(s) = p.0.payload.borrow().deref() {
+        s.obj.gc_mark();
+        s.next_method.gc_mark();
     }
 }
 
