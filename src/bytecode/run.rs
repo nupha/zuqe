@@ -1362,7 +1362,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::FOR_IN_NEXT => {
-                        if js_for_in_next(ctx, sp) != 0 {
+                        if js_for_in_next(ctx, sp).is_err() {
                             break State::Exception;
                         }
                         SP_GO!(2);

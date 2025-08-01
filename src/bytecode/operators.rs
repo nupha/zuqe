@@ -382,7 +382,7 @@ pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// enum_obj -> enum_obj value done
-pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let enum_obj = unsafe { &*sp.offset(-1) };
     debug_assert!(enum_obj.is_object());
 
@@ -399,45 +399,32 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                         std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
                         std::ptr::replace(sp.offset(1), JSValue::Bool(true));
                     }
-                    return 0;
+                    return Ok(());
                 }
 
                 if !it.in_prototype_chain {
-                    if let Ok(done) = it.prepare_prototype_chain_enum(ctx) {
-                        for name in it.prop_enums.iter() {
-                            if enum_obj
-                                .define_property_value(
-                                    ctx,
-                                    name.atom,
-                                    JSValue::NULL,
-                                    JS_PROP_ENUMERABLE,
-                                )
-                                .is_err()
-                            {
-                                return -1;
-                            }
+                    let done = it.prepare_prototype_chain_enum(ctx)?;
+                    for name in it.prop_enums.iter() {
+                        enum_obj.define_property_value(
+                            ctx,
+                            name.atom,
+                            JSValue::NULL,
+                            JS_PROP_ENUMERABLE,
+                        )?;
+                    }
+                    if done {
+                        unsafe {
+                            std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                            std::ptr::replace(sp.offset(1), JSValue::Bool(true));
                         }
-
-                        if done {
-                            unsafe {
-                                std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                                std::ptr::replace(sp.offset(1), JSValue::Bool(true));
-                            }
-                            return 0;
-                        } else {
-                            it.in_prototype_chain = true;
-                        }
+                        return Ok(());
                     } else {
-                        return -1;
+                        it.in_prototype_chain = true;
                     }
                 }
 
                 // walk up prototype chain.
-                it.obj = if let Ok(up) = it.obj.prototype(ctx) {
-                    up
-                } else {
-                    return -1;
-                };
+                it.obj = it.obj.prototype(ctx)?;
 
                 // end of prototype chain.
                 if it.obj.is_null() {
@@ -445,25 +432,20 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                         std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
                         std::ptr::replace(sp.offset(1), JSValue::Bool(true));
                     }
-                    return 0;
+                    return Ok(());
                 }
 
                 // must check for timeout to avoid infinite loop
-                if ctx.poll_interrupts().is_err() {
-                    return -1;
-                }
+                ctx.poll_interrupts()?;
 
-                if let Ok(names) = unsafe {
+                let names = unsafe {
                     it.obj
                         .object_unchecked()
-                        .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
-                } {
-                    it.prop_count = names.len() as _;
-                    it.prop_enums = names;
-                    it.idx = 0;
-                } else {
-                    return -1;
-                }
+                        .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)?
+                };
+                it.prop_count = names.len() as _;
+                it.prop_enums = names;
+                it.idx = 0;
             } else {
                 // enumerate on props_enum of current it.obj.
                 if it.is_array {
@@ -476,26 +458,18 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     it.idx += 1;
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match unsafe { enum_obj.object_unchecked().get_own_property(ctx, prop) } {
-                            Ok(Some(_)) => {
+                        match unsafe { enum_obj.object_unchecked().get_own_property(ctx, prop)? } {
+                            Some(_) => {
                                 continue; // already visited
                             }
-                            Ok(None) => {
+                            None => {
                                 // add to the visited property list
-                                if enum_obj
-                                    .define_property_value(
-                                        ctx,
-                                        prop,
-                                        JSValue::NULL,
-                                        JS_PROP_ENUMERABLE,
-                                    )
-                                    .is_err()
-                                {
-                                    return -1;
-                                }
-                            }
-                            Err(_) => {
-                                return -1;
+                                enum_obj.define_property_value(
+                                    ctx,
+                                    prop,
+                                    JSValue::NULL,
+                                    JS_PROP_ENUMERABLE,
+                                )?;
                             }
                         }
                     }
@@ -504,22 +478,15 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     }
                 }
 
-                match it.obj.get_own_property(ctx, prop) {
-                    Ok(Some(_)) => {
-                        break;
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        return -1;
-                    }
+                if it.obj.get_own_property(ctx, prop)?.is_some() {
+                    break;
                 }
             }
         }
 
-        // return the property
         unsafe {
-            std::ptr::replace(sp.offset(0), prop.to_value(ctx, false)); // 属性名
-            std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // 未完成标志
+            std::ptr::replace(sp.offset(0), prop.to_value(ctx, false)); // value
+            std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done?
         }
     } else {
         unsafe {
@@ -528,7 +495,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
         }
     }
 
-    0
+    Ok(())
 }
 
 /// Get enumerate object and next method of sp[-1] object.
