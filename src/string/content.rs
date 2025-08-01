@@ -388,11 +388,29 @@ impl StringContent {
     }
 
     /// string length
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
             Self::Utf8(s) => s.len(),
-            Self::Utf16(s) => s.len(),
+            Self::Utf16(slice) => {
+                // count unichars
+                let mut count = 0_usize;
+                let mut i = 0;
+                while i < slice.len() {
+                    let u = slice[i];
+                    if (0xD800..=0xDBFF).contains(&u) && i + 1 < slice.len() {
+                        let next = slice[i + 1];
+                        if (0xDC00..=0xDFFF).contains(&next) {
+                            count += 1;
+                            i += 2;
+                            continue;
+                        }
+                    }
+                    count += 1;
+                    i += 1;
+                }
+                count
+            }
         }
     }
 
@@ -406,7 +424,7 @@ impl StringContent {
     }
 
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
