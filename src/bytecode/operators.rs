@@ -382,21 +382,23 @@ pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// enum_obj -> enum_obj value done
-pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     let enum_obj = unsafe { &*sp.offset(-1) };
     debug_assert!(enum_obj.is_object());
 
-    let ob = enum_obj.object_unchecked();
+    let ob = unsafe { enum_obj.object_unchecked() };
 
     if let ObjectDetail::FOR_IN_ITERATOR(it) = ob.0.payload.borrow_mut().deref_mut() {
         let mut prop: JSAtom;
 
         loop {
-            if it.idx >= it.atom_count {
+            if it.idx >= it.prop_count {
                 if it.obj.is_undefined_or_null() {
-                    // current object has no upper prototype
-                    std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                    std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                    // object has no parent prototype
+                    unsafe {
+                        std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                        std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                    }
                     return 0;
                 }
 
@@ -417,8 +419,10 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                         }
 
                         if done {
-                            std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                            std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                            unsafe {
+                                std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                                std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                            }
                             return 0;
                         } else {
                             it.in_prototype_chain = true;
@@ -426,20 +430,6 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     } else {
                         return -1;
                     }
-
-                    // // FIXME: enum_obj is borrowed mut now, this will panic.
-                    // // move function as JSForInIterator::prepare_prototype_chain_enum()
-                    // let ret = js_for_in_prepare_prototype_chain_enum(ctx, enum_obj);
-                    // if ret < 0 {
-                    //     return -1;
-                    // }
-                    // if ret != 0 {
-                    //     std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                    //     std::ptr::replace(sp.offset(1), JSValue::Bool(true));
-                    //     return 0;
-                    // }
-
-                    // it.in_prototype_chain = true;
                 }
 
                 // walk up prototype chain.
@@ -451,8 +441,10 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 
                 // end of prototype chain.
                 if it.obj.is_null() {
-                    std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                    std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                    unsafe {
+                        std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                        std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                    }
                     return 0;
                 }
 
@@ -461,12 +453,12 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
                     return -1;
                 }
 
-                if let Ok(names) = it
-                    .obj
-                    .object_unchecked()
-                    .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
-                {
-                    it.atom_count = names.len() as _;
+                if let Ok(names) = unsafe {
+                    it.obj
+                        .object_unchecked()
+                        .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+                } {
+                    it.prop_count = names.len() as _;
                     it.prop_enums = names;
                     it.idx = 0;
                 } else {
@@ -525,11 +517,15 @@ pub unsafe fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> i32 {
         }
 
         // return the property
-        std::ptr::replace(sp.offset(0), prop.to_value(ctx, false)); // 属性名
-        std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // 未完成标志
+        unsafe {
+            std::ptr::replace(sp.offset(0), prop.to_value(ctx, false)); // 属性名
+            std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // 未完成标志
+        }
     } else {
-        std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-        std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+        unsafe {
+            std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+            std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+        }
     }
 
     0
