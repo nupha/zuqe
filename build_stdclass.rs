@@ -115,7 +115,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "ForInIterator",
             "FOR_IN_ITERATOR",
-            Some("Box<crate::iterator::JSForInIterator>"),
+            Some("Box<crate::iterator::ForInIterator>"),
             Some("crate::iterator::js_for_in_iterator_finalizer"),
             Some("crate::iterator::js_for_in_iterator_mark")
         ),
