@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateWeakref, JSVarRef},
-    iterator::IteratorObject,
+    iterator::ObjectIter,
     value::JSValue,
 };
 
@@ -143,12 +143,11 @@ impl StackFrame {
                         // enumerator: close it with a throw
 
                         // drop the next method
-                        println!("[O.o] {:?}", unsafe { &*sp_base.add(sp - 1) });
                         unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
                         sp -= 1;
 
                         // abort iter obj if available
-                        if let Ok(iter_obj) = IteratorObject::try_from(unsafe {
+                        if let Ok(iter_obj) = ObjectIter::try_from(unsafe {
                             std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED)
                         }) {
                             let _ = iter_obj.close(ctx, true);

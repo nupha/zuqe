@@ -31,7 +31,7 @@ use crate::{
         js_build_mapped_arguments, js_function_apply,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
-    iterator::IteratorObject,
+    iterator::ObjectIter,
     module::{js_dynamic_import, js_import_meta},
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
@@ -1406,7 +1406,7 @@ impl Bytecode {
 
                         // SP[-1] is iter_obj
                         if !SP_REF!(-1).is_undefined() {
-                            let iter_obj = IteratorObject::try_from(SP_REF!(-1).clone()).unwrap();
+                            let iter_obj = ObjectIter::try_from(SP_REF!(-1).clone()).unwrap();
                             if iter_obj.close(ctx, false).is_err() {
                                 // leave iter_obj in stack
                                 break State::Exception;

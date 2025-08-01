@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, IteratorState, JS_Call, NativeField},
-    iterator::IteratorObject,
+    iterator::ObjectIter,
     object::ObjectDetail,
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
@@ -17,7 +17,7 @@ use super::{JS_IteratorGetCompleteValue, js_create_iterator_result};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {
-    pub sync_iter: IteratorObject,
+    pub sync_iter: ObjectIter,
     pub next_method: JSValue,
 }
 
@@ -29,8 +29,8 @@ impl JSContext {
     /// Create an AsyncIterator wrapper from SyncIterator.
     pub fn create_async_from_sync_iterator(
         &self,
-        sync_iter: IteratorObject,
-    ) -> Result<IteratorObject, i32> {
+        sync_iter: ObjectIter,
+    ) -> Result<ObjectIter, i32> {
         let next_method = sync_iter.0.get_property(self, JS_ATOM_next)?;
         self.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
             JSAsyncFromSyncIteratorData {
@@ -38,7 +38,7 @@ impl JSContext {
                 next_method,
             },
         ))
-        .map(IteratorObject)
+        .map(ObjectIter)
         .map_err(|_| -1)
     }
 }

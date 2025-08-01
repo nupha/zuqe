@@ -99,21 +99,21 @@ impl JSForInIterator {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct IteratorObject(pub(crate) JSObject);
+pub struct ObjectIter(pub(crate) JSObject);
 
-impl From<IteratorObject> for JSObject {
-    fn from(value: IteratorObject) -> Self {
+impl From<ObjectIter> for JSObject {
+    fn from(value: ObjectIter) -> Self {
         value.0
     }
 }
 
-impl From<IteratorObject> for JSValue {
-    fn from(value: IteratorObject) -> Self {
+impl From<ObjectIter> for JSValue {
+    fn from(value: ObjectIter) -> Self {
         Self::Object(value.0)
     }
 }
 
-impl TryFrom<JSValue> for IteratorObject {
+impl TryFrom<JSValue> for ObjectIter {
     type Error = i32;
 
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
@@ -125,7 +125,7 @@ impl TryFrom<JSValue> for IteratorObject {
     }
 }
 
-impl IteratorObject {
+impl ObjectIter {
     /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
     pub(super) fn apply_next_method(
         &self,
@@ -259,7 +259,7 @@ impl JSObject {
     /// get enumerable object of `self`.
     /// call Symbol.iterator or Symbol.asyncIterator method defined on `self`,
     /// and return result of the method - an enumerable object.
-    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<IteratorObject, i32> {
+    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<ObjectIter, i32> {
         let method = if is_async {
             let m = self.get_property(ctx, JS_ATOM_Symbol_asyncIterator)?;
             if m.is_undefined_or_null() {
@@ -286,15 +286,11 @@ impl JSObject {
     }
 
     /// call Symbol.iterator() or Symbol.asyncIterator() method, returns result enumerable object.
-    fn apply_iterator_method(
-        &self,
-        ctx: &JSContext,
-        method: &JSValue,
-    ) -> Result<IteratorObject, i32> {
+    fn apply_iterator_method(&self, ctx: &JSContext, method: &JSValue) -> Result<ObjectIter, i32> {
         if let JSValue::Object(o) =
             JS_Call(ctx, method, &JSValue::Object(self.clone()), &[]).check_exception()?
         {
-            Ok(IteratorObject(o))
+            Ok(ObjectIter(o))
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
@@ -306,7 +302,7 @@ impl JSValue {
     /// get enumerable object of `self`.
     /// call Symbol.iterator or Symbol.asyncIterator method defined on `self`,
     /// and return result of the method - an enumerable object.
-    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<IteratorObject, i32> {
+    pub fn iterator(&self, ctx: &JSContext, is_async: bool) -> Result<ObjectIter, i32> {
         if let Self::Object(o) = self {
             o.iterator(ctx, is_async)
         } else {

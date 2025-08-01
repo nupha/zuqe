@@ -1,6 +1,6 @@
 use std::ops::DerefMut;
 
-use crate::iterator::IteratorObject;
+use crate::iterator::ObjectIter;
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
@@ -596,7 +596,7 @@ pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Re
     let mut done = true;
 
     if let JSValue::Object(o) = &*sp.offset(base as isize) {
-        let iter_obj = IteratorObject(o.clone());
+        let iter_obj = ObjectIter(o.clone());
 
         if let Ok((v, d)) = iter_obj.next_with_method(ctx, &*sp.offset((base + 1) as isize), &[]) {
             done = d;
