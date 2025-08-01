@@ -536,8 +536,8 @@ pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Re
         }
     }
 
-    std::ptr::replace(sp.offset(0), value);
-    std::ptr::replace(sp.offset(1), JSValue::Bool(done));
+    std::ptr::replace(sp.add(0), value);
+    std::ptr::replace(sp.add(1), JSValue::Bool(done));
     Ok(())
 }
 

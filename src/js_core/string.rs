@@ -988,14 +988,13 @@ pub fn js_string_iterator_next(
         if idx >= ss.len() as u32 {
             it.obj = JSValue::UNDEFINED;
             *state = IteratorState::Done;
-            return Ok(JSValue::UNDEFINED);
+            Ok(JSValue::UNDEFINED)
+        } else {
+            let c = ss.content().chars().nth(idx as usize).unwrap();
+            it.idx = idx + 1;
+            *state = IteratorState::NotDone;
+            ctx.create_string_from_char(c).check_exception()
         }
-
-        let c = ss.content().chars().nth(idx as usize).unwrap();
-        it.idx = idx;
-        *state = IteratorState::NotDone;
-
-        ctx.create_string_from_char(c).check_exception()
     } else {
         Err(-1)
     }
