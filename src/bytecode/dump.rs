@@ -15,8 +15,9 @@ use super::{
     OP_COUNT_FINAL, OP_COUNT_INTERMEDIATE, opcode_info_final, opcode_info_intermediate, opcodes,
 };
 
-#[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) -> usize {
+/// dump one opcode and its params at given pc.
+#[cfg(feature = "dump_bytecode")]
+pub fn dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) -> usize {
     let mut pos = pc;
     let tab = b.opcodes();
     let op = tab[pos];
@@ -27,18 +28,18 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
     }
 
     let oi = opcode_info_final(op);
-    let size = (*oi).size as usize;
+    let size = oi.size as usize;
     if pos + size > tab.len() {
         println!("truncated opcode (0x{:02x})", op);
         return 0;
     }
 
     // print opcode name
-    print!("{}", (*oi).name);
+    print!("{}", oi.name);
     pos += 1;
 
     // print arguments
-    match (*oi).fmt {
+    match oi.fmt {
         #[cfg(feature = "short_opcode")]
         "none_int" => {
             print!(" {}", op - opcodes::OP_push_0);
@@ -95,9 +96,10 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
             // addr = get_u32(tab.as_ptr().add(pos)) as _;
             // has_addr1!();
-
             if f == OpcodeFormat::LABEL_U16 {
-                print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)));
+                print!(", {}", unsafe {
+                    read_from_ptr::<u16>(tab.as_ptr().add(pos + 4))
+                });
             }
         }
 
@@ -111,17 +113,17 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         }
 
         OpcodeFormat::CONST => {
-            let idx = read_from_ptr::<u32>(tab.as_ptr().add(pos));
+            let idx = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
             print!(" {idx}:{}", b.load_const(idx as usize).unwrap().repr());
         }
         OpcodeFormat::ATOM => {
-            let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
+            let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
             JSAtom(a).with_utf8(ctx.rt(), |s| {
                 print!(" {a}'{s}");
             });
         }
         f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-            let atom = JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos)));
+            let atom = JSAtom(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
             atom.with_utf8(ctx.rt(), |s| {
                 print!(
                     " {}'{s}, {}",
@@ -129,13 +131,13 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
                     if f == OpcodeFormat::ATOM_U8 {
                         tab[pos as usize + 4] as usize
                     } else {
-                        read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)) as usize
+                        unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)) as usize }
                     }
                 );
             });
         }
         f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-            let atom = JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos)));
+            let atom = JSAtom(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
             atom.with_utf8(ctx.rt(), |s| {
                 print!(" {}'{s}", atom.0);
             });
@@ -150,9 +152,11 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
             // }
 
             if f == OpcodeFormat::ATOM_LABEL_U8 {
-                print!(", {}", *tab.as_ptr().add(pos + 8));
+                print!(", {}", unsafe { *tab.as_ptr().add(pos + 8) });
             } else {
-                print!(", {}", read_from_ptr::<u16>(tab.as_ptr().add(pos + 8)));
+                print!(", {}", unsafe {
+                    read_from_ptr::<u16>(tab.as_ptr().add(pos + 8))
+                });
             }
         }
 
@@ -167,9 +171,9 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
 
         f @ (OpcodeFormat::LOC8 | OpcodeFormat::LOC) => {
             let idx = if f == OpcodeFormat::LOC8 {
-                *tab.as_ptr().add(pos) as usize
+                unsafe { *tab.as_ptr().add(pos) as usize }
             } else {
-                read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize
+                unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize }
             };
 
             if let Some(a) = b.with_var(idx as _, |v| v.var_name) {
@@ -191,7 +195,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         }
 
         OpcodeFormat::ARG => {
-            let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
+            let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
             if let Some(a) = b.with_arg(idx as _, |vi| vi.var_name) {
                 a.with_utf8(ctx.rt(), |s| {
                     print!(" {idx}:{s}");
@@ -211,7 +215,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         }
 
         OpcodeFormat::VAR_REF => {
-            let idx = read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize;
+            let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
             b.with_closure_var(idx as _, |v| v.var_name)
                 .unwrap()
                 .with_utf8(ctx.rt(), |s| {
@@ -227,7 +231,7 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
 
 /// dump opcodes binary in pass 1,2,3
 #[cfg(feature = "dump_bytecode")]
-pub unsafe fn dump_opcodes(
+pub fn dump_opcodes(
     ctx: &JSContext,
     pass: i32,
     bin: &[u8],
@@ -240,7 +244,7 @@ pub unsafe fn dump_opcodes(
     labels: &[Label], // for pass 1, 2 only
     bc: Option<&Bytecode>,
 ) {
-    use crate::utils::read_from_ptr;
+    use crate::{bytecode::OpcodeFormat, utils::read_from_ptr};
 
     let len = bin.len();
     let use_short_opcodes = bc.is_some();
@@ -252,6 +256,8 @@ pub unsafe fn dump_opcodes(
 
     let mut pos = 0_usize;
     let mut pos_next: usize;
+
+    // flag to control whether print addr as label.
     let mut bits = vec![0_u8; len];
 
     // scan for jump targets
@@ -262,11 +268,9 @@ pub unsafe fn dump_opcodes(
         } else {
             opcode_info_intermediate(op)
         };
-        pos_next = pos + (*oi).size as usize;
+        pos_next = pos + oi.size as usize;
 
         if op < op_max {
-            use crate::bytecode::OpcodeFormat;
-
             match oi.fmt {
                 #[cfg(feature = "short_opcode")]
                 "label8" => {
@@ -358,8 +362,6 @@ pub unsafe fn dump_opcodes(
 
     pos = 0;
     while pos < len {
-        use crate::bytecode::OpcodeFormat;
-
         let op = bin[pos as usize];
 
         // print source code
@@ -380,9 +382,7 @@ pub unsafe fn dump_opcodes(
                     in_source = true;
 
                     print_lines(s, line as usize, line1 as usize);
-
                     line = line1;
-
                     // bits[pos as usize] |= 2;
                 }
             }
@@ -454,23 +454,31 @@ pub unsafe fn dump_opcodes(
                 print!(" {}", bin[pos as usize] as i8);
             }
             OpcodeFormat::U16 | OpcodeFormat::NPOP => {
-                print!(" {}", read_from_ptr::<u16>(bin.as_ptr().add(pos)));
+                print!(" {}", unsafe {
+                    read_from_ptr::<u16>(bin.as_ptr().add(pos))
+                });
             }
-            OpcodeFormat::NPOP_U16 => {
+            OpcodeFormat::NPOP_U16 => unsafe {
                 print!(
                     " {},{}",
                     read_from_ptr::<u16>(bin.as_ptr().add(pos)),
                     read_from_ptr::<u16>(bin.as_ptr().add(pos + 2)),
                 );
-            }
+            },
             OpcodeFormat::I16 => {
-                print!(" {}", read_from_ptr::<i16>(bin.as_ptr().offset(pos as _)));
+                print!(" {}", unsafe {
+                    read_from_ptr::<i16>(bin.as_ptr().offset(pos as _))
+                });
             }
             OpcodeFormat::I32 => {
-                print!(" {}", read_from_ptr::<i32>(bin.as_ptr().offset(pos as _)));
+                print!(" {}", unsafe {
+                    read_from_ptr::<i32>(bin.as_ptr().offset(pos as _))
+                });
             }
             OpcodeFormat::U32 => {
-                print!(" {}", read_from_ptr::<u32>(bin.as_ptr().offset(pos as _)));
+                print!(" {}", unsafe {
+                    read_from_ptr::<u32>(bin.as_ptr().offset(pos as _))
+                });
             }
 
             #[cfg(feature = "short_opcode")]
@@ -485,11 +493,13 @@ pub unsafe fn dump_opcodes(
             }
 
             f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
-                let addr = read_from_ptr::<u32>(bin.as_ptr().offset(pos as _));
+                let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().offset(pos as _)) };
                 has_addr1!(addr);
 
                 if f == OpcodeFormat::LABEL_U16 {
-                    print!(", {}", read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)));
+                    print!(", {}", unsafe {
+                        read_from_ptr::<u16>(bin.as_ptr().add(pos + 4))
+                    });
                 }
             }
 
@@ -504,39 +514,35 @@ pub unsafe fn dump_opcodes(
             }
 
             OpcodeFormat::CONST => {
-                let idx = read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize;
-                print!(" {idx}:");
-                if let Some(v) = cpools.get(idx) {
-                    print!("{}", v.repr());
-                } else {
-                    #[cfg(debug_assertions)]
-                    unreachable!()
-                }
+                let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
+                print!(" {idx}:{}", cpools[idx]);
             }
             OpcodeFormat::ATOM => {
-                let a = read_from_ptr::<u32>(bin.as_ptr().add(pos));
+                let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
                 JSAtom(a).with_utf8(ctx.rt(), |s| {
                     print!(" {a}:{s}");
                 });
             }
             f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-                JSAtom(read_from_ptr::<u32>(bin.as_ptr().add(pos))).with_utf8(ctx.rt(), |s| {
+                let atom = JSAtom(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) });
+                atom.with_utf8(ctx.rt(), |s| {
                     print!(
                         " {s}, {}",
                         if f == OpcodeFormat::ATOM_U8 {
                             bin[pos as usize + 4] as usize
                         } else {
-                            read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)) as usize
+                            unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)) as usize }
                         }
                     );
                 });
             }
             f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-                JSAtom(read_from_ptr::<u32>(bin.as_ptr().add(pos as _))).with_utf8(ctx.rt(), |s| {
+                let atom = JSAtom(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) });
+                atom.with_utf8(ctx.rt(), |s| {
                     print!(" {s}");
                 });
 
-                let addr = read_from_ptr::<u32>(bin.as_ptr().offset(pos as isize + 4));
+                let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().offset(pos as isize + 4)) };
                 if pass == 1 {
                     print!(", {}:{}", addr, labels[addr as usize].pos);
                 } else if pass == 2 {
@@ -546,9 +552,11 @@ pub unsafe fn dump_opcodes(
                 }
 
                 if f == OpcodeFormat::ATOM_LABEL_U8 {
-                    print!(", {}", *bin.as_ptr().add(pos + 8));
+                    print!(", {}", unsafe { *bin.as_ptr().add(pos + 8) });
                 } else {
-                    print!(", {}", read_from_ptr::<u16>(bin.as_ptr().add(pos + 8)));
+                    print!(", {}", unsafe {
+                        read_from_ptr::<u16>(bin.as_ptr().add(pos + 8))
+                    });
                 }
             }
 
@@ -563,14 +571,11 @@ pub unsafe fn dump_opcodes(
 
             f @ (OpcodeFormat::LOC8 | OpcodeFormat::LOC) => {
                 let idx = if f == OpcodeFormat::LOC8 {
-                    *bin.as_ptr().add(pos) as usize
+                    unsafe { *bin.as_ptr().add(pos) as usize }
                 } else {
-                    read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize
+                    unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize }
                 };
-                print!(
-                    " {idx}:{}",
-                    vars.get(idx).unwrap().var_name.to_str(ctx.rt())
-                );
+                print!(" {idx}:{}", vars.get(idx).unwrap().var_name.utf8(ctx.rt()));
             }
 
             #[cfg(feature = "short_opcode")]
@@ -583,11 +588,8 @@ pub unsafe fn dump_opcodes(
             }
 
             OpcodeFormat::ARG => {
-                let idx = read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize;
-                print!(
-                    " {idx}:{}",
-                    args.get(idx).unwrap().var_name.to_str(ctx.rt())
-                );
+                let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
+                print!(" {idx}:{}", args.get(idx).unwrap().var_name.utf8(ctx.rt()));
             }
 
             #[cfg(feature = "short_opcode")]
@@ -600,10 +602,10 @@ pub unsafe fn dump_opcodes(
             }
 
             OpcodeFormat::VAR_REF => {
-                let idx = read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize;
+                let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}:{}",
-                    closure_vars.get(idx).unwrap().var_name.to_str(ctx.rt())
+                    closure_vars.get(idx).unwrap().var_name.utf8(ctx.rt())
                 );
             }
 
@@ -623,7 +625,7 @@ pub unsafe fn dump_opcodes(
 }
 
 impl Bytecode {
-    /// dump Bytecode data
+    /// dump Bytecode
     #[cfg(feature = "dump_bytecode")]
     pub fn dump(&self, ctx: &JSContext) {
         print!("{:?}: ", self);
@@ -631,11 +633,7 @@ impl Bytecode {
         let b = self.0.borrow();
 
         if b.has_debug && b.debug.filename != JS_ATOM_NULL {
-            print!(
-                "{}@{}: ",
-                b.debug.filename.to_str(ctx.rt()),
-                b.debug.line_num
-            );
+            print!("{}:{}: ", b.debug.filename.utf8(ctx.rt()), b.debug.line_num);
         }
 
         println!(
@@ -645,7 +643,7 @@ impl Bytecode {
             } else {
                 ""
             },
-            b.func_name.to_str(ctx.rt()),
+            b.func_name.utf8(ctx.rt()),
         );
 
         if b.js_mode != 0 {
@@ -664,7 +662,7 @@ impl Bytecode {
             if !args.is_empty() {
                 print!("  args:");
                 for arg in args {
-                    print!(" {}", arg.var_name.to_str(ctx.rt()));
+                    print!(" {}", arg.var_name.utf8(ctx.rt()));
                 }
                 println!();
             }
@@ -689,7 +687,7 @@ impl Bytecode {
                     }
                 };
 
-                print!("{i:5}: {kind_str} {}", vd.var_name.to_str(ctx.rt()),);
+                print!("{i:5}: {kind_str} {}", vd.var_name.utf8(ctx.rt()),);
 
                 if vd.scope_level != 0 {
                     print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);
@@ -714,7 +712,7 @@ impl Bytecode {
 
                 println!(
                     "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
-                    cv.var_name.to_str(ctx.rt()),
+                    cv.var_name.utf8(ctx.rt()),
                     cv.var_idx
                 );
             }

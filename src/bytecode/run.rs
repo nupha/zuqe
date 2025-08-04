@@ -256,7 +256,7 @@ impl Bytecode {
                 unsafe {
                     let pos = pc.offset_from(pc_base) as usize;
                     print!("[O.o] RUN {:5}: ", pos);
-                    crate::bytecode::dump::debug_dump_opcode_one(ctx, self, pos);
+                    crate::bytecode::dump::dump_opcode_one(ctx, self, pos);
                     println!();
                 }
 
