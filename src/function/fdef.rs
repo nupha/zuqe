@@ -358,21 +358,19 @@ impl JSFunctionDef {
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass {pass}");
 
-            unsafe {
-                crate::bytecode::dump_opcodes(
-                    ctx,
-                    pass,
-                    self.byte_code.as_slice(),
-                    self.args.as_slice(),
-                    self.vars.as_slice(),
-                    self.closure_vars.as_deref().unwrap_or(&[]),
-                    self.cpool.as_slice(),
-                    self.source.as_deref(),
-                    self.line_num as _,
-                    self.label_slots.as_slice(),
-                    None,
-                );
-            }
+            crate::bytecode::dump_opcodes(
+                ctx,
+                pass,
+                self.byte_code.as_slice(),
+                self.args.as_slice(),
+                self.vars.as_slice(),
+                self.closure_vars.as_deref().unwrap_or(&[]),
+                self.cpool.as_slice(),
+                self.source.as_deref(),
+                self.line_num as _,
+                self.label_slots.as_slice(),
+                None,
+            );
 
             println!();
         }

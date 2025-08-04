@@ -721,29 +721,27 @@ impl Bytecode {
         println!("  stack_size: {}", (*b).stack_size);
         println!("  opcodes:");
 
-        unsafe {
-            dump_opcodes(
-                ctx,
-                3,
-                b.opcodes(),
-                b.args_slice(),
-                b.vars_slice(),
-                b.closure_vars_slice(),
-                b.cpools_slice(),
-                if b.has_debug {
-                    b.debug.source.as_deref()
-                } else {
-                    None
-                },
-                if b.has_debug {
-                    b.debug.line_num as _
-                } else {
-                    -1
-                },
-                &[],
-                Some(self),
-            );
-        }
+        dump_opcodes(
+            ctx,
+            3,
+            b.opcodes(),
+            b.args_slice(),
+            b.vars_slice(),
+            b.closure_vars_slice(),
+            b.cpools_slice(),
+            if b.has_debug {
+                b.debug.source.as_deref()
+            } else {
+                None
+            },
+            if b.has_debug {
+                b.debug.line_num as _
+            } else {
+                -1
+            },
+            &[],
+            Some(self),
+        );
 
         // if (*b).has_debug {
         //     dump_pc2line(
