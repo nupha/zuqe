@@ -412,7 +412,7 @@ impl JSObject {
             let idx = *idx;
             let mut ta_out_of_bound = false;
 
-            // try fast path: array access
+            // try fast path: fast array
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     // fast path: fast array

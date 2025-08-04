@@ -1731,9 +1731,11 @@ impl Bytecode {
                         let val = SP_REF!(-2)
                             .get_property_value(ctx, &SP_TAKE!(-1))
                             .unwrap_or(JSValue::EXCEPTION);
-                        SP_PUT!(-2, val.clone());
+                        let is_err = val.is_exception();
+
+                        SP_PUT!(-2, val);
                         SP_GO!(-1);
-                        if val.is_exception() {
+                        if is_err {
                             break State::Exception;
                         }
                     }
@@ -1785,8 +1787,9 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_ARRAY_EL => {
-                        // [obj, idx_prop, value, ^] -> [^]
-                        let ret = SP_TAKE!(-3).set_property_value(
+                        // [obj, prop, value, ^] -> [^]
+                        let arr = SP_TAKE!(-3);
+                        let ret = arr.set_property_value(
                             ctx,
                             &SP_TAKE!(-2),
                             SP_TAKE!(-1),

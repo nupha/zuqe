@@ -187,7 +187,8 @@ impl JSRuntime {
 
     /// register a class def to runtime, with given class_id
     pub fn add_class(&mut self, class_id: JSClassID, class_def: &JSClassDef) -> Result<(), i32> {
-        let name = if let Some(a) = __JS_FindAtom(self, class_def.class_name, AtomTypeHint::String) {
+        let name = if let Some(a) = __JS_FindAtom(self, class_def.class_name, AtomTypeHint::String)
+        {
             a
         } else {
             self.register_atom_str(class_def.class_name, AtomTypeHint::String)?
@@ -409,7 +410,7 @@ fn js_arguments_define_own_property(
             .to_array_index(ctx.rt())
             .map_or(false, |i| i < p.array_length_unchecked())
     {
-        if unsafe { convert_fast_array_to_array(ctx, p) } != 0 {
+        if p.destruct_fast_array(ctx).is_err() {
             return -1;
         }
     }

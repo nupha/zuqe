@@ -176,13 +176,16 @@ impl JSObject {
 
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    if let Some(el) = self.with_fast_array_values(|lst| {
-                        if nth < lst.len() {
-                            lst[nth as usize].clone() // element in fast array values
-                        } else {
-                            JSValue::UNDEFINED
-                        }
-                    }) {
+                    if let Some(el) = self
+                        .with_fast_array_values(|lst| {
+                            if nth < lst.len() {
+                                Some(lst[nth as usize].clone()) // return element value
+                            } else {
+                                None // try slow path later
+                            }
+                        })
+                        .flatten()
+                    {
                         return Ok(el);
                     }
                 }
