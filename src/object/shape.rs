@@ -468,7 +468,7 @@ pub const fn shape_initial_hash(proto_id: usize) -> u32 {
 
 impl ObjectInner {
     /// ensure that the shape can be safely modified.
-    /// if object's shape is changed, returns true.
+    /// if shape of `self` is changed, returns true.
     /// after calling, object's shape is guaranteed to be exclusive, and not registered.
     fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
         // Note: short borrow in scope to avoid conflict with later ::borrow_mut()
@@ -496,9 +496,9 @@ impl ObjectInner {
         Ok(changed)
     }
 
-    /// Updates flag of object's shape property.
+    /// Updates flag of a shape property.
     /// if object's shape was changed, returns true
-    pub fn js_update_property_flags(
+    pub fn update_shape_property_flags(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -541,18 +541,20 @@ impl JSObject {
     /// ensure that the shape can be safely modified.
     /// if object's shape is changed, returns true.
     /// after calling, object's shape is guaranteed to be exclusive, and not registered.
+    #[inline(always)]
     pub fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
         self.0.shape_prepare_update(ctx)
     }
 
     /// Updates flag of object's shape property.
     /// if object's shape was changed, returns true
-    pub fn js_update_property_flags(
+    #[inline(always)]
+    pub fn update_shape_property_flags(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.0.js_update_property_flags(ctx, prop, flags)
+        self.0.update_shape_property_flags(ctx, prop, flags)
     }
 }

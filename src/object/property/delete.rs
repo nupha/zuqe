@@ -1,6 +1,5 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    array::convert_fast_array_to_array,
     atom::{JS_ATOM_MAX_INT, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
     object::JSObject,

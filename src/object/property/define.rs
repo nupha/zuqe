@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    array::{JS_ToArrayLengthFree, convert_fast_array_to_array},
+    array::JS_ToArrayLengthFree,
     atom::{
         __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*,
     },
@@ -104,7 +104,7 @@ impl JSObject {
 
                 // Note: shape may have been changed, should reload current shape property
                 let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
-                self.js_update_property_flags(ctx, prop, (prs_flags2 & !mask) | (flags & mask))?;
+                self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | (flags & mask))?;
 
                 return Ok(res);
             }
@@ -121,18 +121,12 @@ impl JSObject {
                             if idx < array_len {
                                 let prop_flags = get_prop_flags(flags, JS_PROP_C_W_E);
                                 if prop_flags != JS_PROP_C_W_E {
-                                    if unsafe { convert_fast_array_to_array(ctx, self) } != 0 {
-                                        return Err(-1);
-                                    } else {
-                                        continue; // redo_prop_update
-                                    }
+                                    self.destruct_fast_array(ctx)?;
+                                    continue; // redo_prop_update
                                 }
                                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-                                    if unsafe { convert_fast_array_to_array(ctx, self) } != 0 {
-                                        return Err(-1);
-                                    } else {
-                                        continue; // redo_prop_update
-                                    }
+                                    self.destruct_fast_array(ctx)?;
+                                    continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
                                     self.with_fast_array_values_mut(|lst| {

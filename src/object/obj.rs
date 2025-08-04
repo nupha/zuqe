@@ -840,7 +840,7 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
         .find_shape_property(JS_ATOM_length)
         .expect("length property must exist");
 
-    if p.js_update_property_flags(
+    if p.update_shape_property_flags(
         ctx,
         JS_ATOM_length,
         cur_flags & !(JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE),
