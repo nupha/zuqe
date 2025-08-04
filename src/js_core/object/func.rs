@@ -314,18 +314,10 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
     };
 
     let prop = cc.arg(1);
-
-    let atom = prop.coerce_to_atom(ctx)?;
-
-    // free atom when exit
-    let rt = ctx.rt_ptr();
-    let _atom = JSAtom(atom.0);
-    defer!({
-        JS_FreeAtomRT(rt.as_ptr(), _atom);
-    });
+    let atom = prop.coerce_to_atom(ctx)?.into_rc(ctx.rt());
 
     if let JSValue::Object(p) = &obj {
-        if let Some(desc) = p.get_own_property(ctx, atom)? {
+        if let Some(desc) = p.get_own_property(ctx, *atom)? {
             let ret = ctx.create_base_object()?;
 
             let flags = JS_PROP_C_W_E | JS_PROP_THROW;

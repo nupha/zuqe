@@ -284,15 +284,14 @@ impl JSObject {
                                     state = SetPropState::CreateProp;
                                     continue;
                                 } else {
-                                    return self.add_shape_property_then(
-                                        ctx,
-                                        prop,
-                                        JS_PROP_C_W_E,
-                                        |pr| {
-                                            *pr = JSProperty::Normal(val);
-                                            true
-                                        },
-                                    );
+                                    return self
+                                        .add_own_property(
+                                            ctx,
+                                            prop,
+                                            JS_PROP_C_W_E,
+                                            JSProperty::Normal(val),
+                                        )
+                                        .map(|_| true);
                                 }
                             } else {
                                 // generic case: modify the property in this_obj if it already exists

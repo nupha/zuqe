@@ -110,9 +110,7 @@ impl JSContext {
         if !ob.flags().extensible() || ob.has_shape_property(prop) {
             Ok(())
         } else {
-            ob.add_shape_property_then(self, prop, flags, |pr| {
-                *pr = JSProperty::Normal(val);
-            })
+            ob.add_own_property(self, prop, flags, JSProperty::Normal(val))
         }
     }
 

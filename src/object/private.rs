@@ -124,13 +124,11 @@ impl JSObject {
             if self.has_shape_property(prop) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
-                    prop.to_str(ctx.rt())
+                    prop.utf8(ctx.rt())
                 ));
                 Err(-1)
             } else {
-                self.add_shape_property_then(ctx, prop, JS_PROP_C_W_E, |pr| {
-                    *pr = JSProperty::Normal(val);
-                })
+                self.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))
             }
         } else {
             ctx.throw_type_error_not_a_symbol();
@@ -154,22 +152,24 @@ impl JSValue {
     /// if self is an object, then defined a property with the home_obj's symbol as key.
     pub fn add_brand(&self, ctx: &JSContext, home_obj: &JSValue) -> Result<(), i32> {
         if let JSValue::Object(home) = home_obj {
-            let brand_sym: JSValue = if let Some((idx, _)) =
-                home.find_shape_property(JS_ATOM_Private_brand)
-            {
-                if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
-                    val.clone()
+            let brand_sym: JSValue =
+                if let Some((idx, _)) = home.find_shape_property(JS_ATOM_Private_brand) {
+                    if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
+                        val.clone()
+                    } else {
+                        unreachable!()
+                    }
                 } else {
-                    unreachable!()
-                }
-            } else {
-                // the private <brand> prop is not present, add it
-                let br = ctx.create_symbol_from_atom(JS_ATOM__brand_, AtomTypeHint::Private)?;
-                home.add_shape_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
-                    *pr = JSProperty::Normal(br.clone());
-                })?;
-                br
-            };
+                    // the private <brand> prop is not present, add it
+                    let br = ctx.create_symbol_from_atom(JS_ATOM__brand_, AtomTypeHint::Private)?;
+                    home.add_own_property(
+                        ctx,
+                        JS_ATOM_Private_brand,
+                        JS_PROP_C_W_E,
+                        JSProperty::Normal(br.clone()),
+                    )?;
+                    br
+                };
 
             if let Some(ob) = self.object() {
                 let brand_atom = brand_sym.coerce_to_atom(ctx).unwrap();
@@ -179,9 +179,12 @@ impl JSValue {
                     ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else {
-                    let r = ob.add_shape_property_then(ctx, brand_atom, JS_PROP_C_W_E, |pr| {
-                        *pr = JSProperty::Normal(JSValue::UNDEFINED);
-                    });
+                    let r = ob.add_own_property(
+                        ctx,
+                        brand_atom,
+                        JS_PROP_C_W_E,
+                        JSProperty::Normal(JSValue::UNDEFINED),
+                    );
                     JS_FreeAtom(ctx, brand_atom);
                     r
                 }

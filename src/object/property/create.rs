@@ -213,8 +213,8 @@ impl JSObject {
             flags & JS_PROP_C_W_E
         };
 
-        self.add_shape_property_then(ctx, prop, prop_flags, |pr| {
-            *pr = if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+        self.add_own_property(ctx, prop, prop_flags, {
+            if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                 // getset property
                 JSProperty::GetSet {
                     getter: if (flags & JS_PROP_HAS_GET) != 0 && getter.is_callable() {
@@ -235,7 +235,7 @@ impl JSObject {
                 } else {
                     JSValue::UNDEFINED
                 })
-            };
+            }
         })?;
 
         Ok(true)

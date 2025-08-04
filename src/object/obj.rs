@@ -323,13 +323,11 @@ impl ObjectInner {
 
         if add_length_prop {
             // only used for the fast array, cannot fail
-            obj.add_shape_property_then(
+            obj.add_own_property(
                 ctx,
                 JS_ATOM_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
-                |pr| {
-                    *pr = JSProperty::Normal(JSValue::Int(0));
-                },
+                JSProperty::Normal(JSValue::Int(0)),
             )
             .unwrap()
         }

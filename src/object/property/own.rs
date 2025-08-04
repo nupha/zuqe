@@ -4,18 +4,135 @@ use crate::{
     error::JS_ThrowReferenceErrorUninitialized,
     object::{
         JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK,
-        JS_PROP_VARREF, JSObject, JSProperty, JSPropertyDescriptor,
+        JS_PROP_VARREF, JSObject, JSProperty, JSPropertyDescriptor, JSShape, ObjectInner,
     },
     value::JSValue,
 };
 
+impl ObjectInner {
+    /// Grows property values slot to accommodate more properties.
+    /// Takes a new length and extends the array with undefined values if needed.
+    /// Returns error if memory allocation fails.
+    pub(crate) fn grow_prop_value_slots(&self, total_length: usize) -> Result<(), i32> {
+        let mut slots = self.prop_values.borrow_mut();
+
+        let len = slots.len();
+        if total_length > len {
+            let delta = total_length - len;
+            slots.try_reserve_exact(delta).map_err(|_| -1)?;
+
+            // init extended values
+            for _ in 0..delta {
+                slots.push(JSProperty::default());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add an own property, and grow object's prop value slots.
+    /// This method adds the new prop is to shape, it assumes the new prop does not exist in shape yet.
+    /// Returns Err if memory error.
+    /// `prop` is not consumed.
+    pub(crate) fn add_own_property(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        prop_flags: u32,
+        prop_value: JSProperty,
+    ) -> Result<(), i32> {
+        let mut shape = self.shape.borrow_mut().take().unwrap();
+        let mut shape0: Option<JSShape> = None;
+
+        if shape.is_hashed() {
+            // try to find an existing shape
+            match ctx
+                .rt()
+                .find_shape_with_extend_prop(&shape, prop, prop_flags)
+            {
+                Some(found) => {
+                    let new_len = found.len();
+                    // debug_assert!(new_len > shape.len());
+                    debug_assert_eq!(new_len, shape.len() + 1);
+
+                    if self.grow_prop_value_slots(new_len).is_err() {
+                        ctx.throw_out_of_memory();
+                        self.shape.borrow_mut().replace(shape); // restore original shape
+                        return Err(-1);
+                    }
+
+                    // use existing shape
+                    self.shape.borrow_mut().replace(found);
+                    // set value
+                    self.prop_values.borrow_mut()[new_len - 1] = prop_value;
+                    return Ok(());
+                }
+                None => {
+                    if shape.strong_count() != 1 {
+                        // current shape is shared, clone and use the new
+                        let new_shape = shape.clone_to_new(ctx)?;
+                        shape0.replace(shape);
+                        shape = new_shape;
+                    }
+                }
+            };
+        }
+
+        // Note: shape must be exclusive now, so that is can be modified.
+        // add shape property, enlarge object prop value slot.
+        let len = if let Ok(n) = shape.add_shape_property(ctx, prop, prop_flags, Some(self)) {
+            n
+        } else {
+            // fail to modify shape: restore old shape for object
+            if let Some(sh0) = shape0 {
+                self.shape.borrow_mut().replace(sh0);
+            } else {
+                // shape was unregistered
+                ctx.rt_mut().register_shape(&shape).unwrap();
+                self.shape.borrow_mut().replace(shape);
+            }
+            return Err(-1);
+        };
+
+        // let object use modified shape
+        self.shape.borrow_mut().replace(shape.clone());
+        // set value
+        self.prop_values.borrow_mut()[len - 1] = prop_value;
+
+        Ok(())
+    }
+}
+
 impl JSObject {
-    /// test if own property prop exists.
+    /// Check if shape property `atom` exists.
+    /// `prop` is not consumed.
+    pub(crate) fn has_shape_property(&self, prop: JSAtom) -> bool {
+        self.shape()
+            .is_some_and(|sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
+    }
+
+    /// Find shape property by prop atom, a.k.a find_own_property().
+    /// Returns shape property index and flags if the prop exists.
+    /// `prop` is not consumed.
+    pub(crate) fn find_shape_property(&self, prop: JSAtom) -> Option<(usize, u32)> {
+        self.shape().and_then(|sh| {
+            sh.0.borrow()
+                .prop_defs
+                .get_full(&prop.0)
+                .map(|(i, _, pr)| (i, pr.flags()))
+        })
+    }
+
+    /// test if own property `prop` exists:
+    /// 1. find in shape,
+    /// 1. if not shape property, and if is exotic or fast array, test by exotic or array length.
     pub fn has_own_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+        // is shape prop?
         if self.has_shape_property(prop) {
             return Ok(true);
         }
 
+        // check exotic
         let flags = self.flags();
         if flags.is_exotic() {
             if flags.is_fast_array() {
@@ -46,7 +163,7 @@ impl JSObject {
         b
     }
 
-    /// get description of own property.
+    /// get own property.
     /// Returns None if own property does not exist.
     pub fn get_own_property(
         &self,
@@ -126,6 +243,22 @@ impl JSObject {
         }
 
         Ok(None)
+    }
+
+    /// Add a own property to shape and enlarge prop value slots.
+    /// This function implies that the new prop should be add to shape (owned property),
+    /// and it does not exist yet.
+    /// Returns Err if memory error.
+    /// `prop` is not consumed.
+    #[inline(always)]
+    pub fn add_own_property(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        prop_flags: u32,
+        prop_value: JSProperty,
+    ) -> Result<(), i32> {
+        self.0.add_own_property(ctx, prop, prop_flags, prop_value)
     }
 }
 

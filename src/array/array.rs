@@ -136,15 +136,12 @@ impl JSObject {
             for (i, v) in items.into_iter().enumerate() {
                 // add_property cannot fail here
                 // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
-                self.add_shape_property_then(
+                self.add_own_property(
                     ctx,
                     JSAtom::new_u32(i as _), // int as property name
                     JS_PROP_C_W_E,
-                    |pr| {
-                        *pr = JSProperty::Normal(v);
-                    },
-                )
-                .expect("FIXME: add_property error");
+                    JSProperty::Normal(v),
+                )?;
             }
 
             unsafe {

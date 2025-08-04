@@ -292,16 +292,15 @@ impl JSShape {
             })?;
         }
 
-        let mut pr = JSShapeProperty {
+        let mut prs = JSShapeProperty {
             atom: prop.dup(ctx.rt()),
             bitfield: 0,
         };
-        pr.set_flags(prop_flags);
+        prs.set_flags(prop_flags);
 
-        self.with_mut(|s| {
-            s.prop_defs.insert(prop.0, pr);
-            s.has_small_array_index |= prop.is_int_type();
-        });
+        let mut s = self.0.borrow_mut();
+        s.prop_defs.insert(prop.0, prs);
+        s.has_small_array_index |= prop.is_int_type();
 
         Ok(new_len)
     }

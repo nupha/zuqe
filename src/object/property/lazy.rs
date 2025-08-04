@@ -130,19 +130,17 @@ impl JSObject {
             !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
             prop.0,
-            prop.to_str(ctx.rt())
+            prop.utf8(ctx.rt())
         );
 
-        self.add_shape_property_then(
+        self.add_own_property(
             ctx,
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_AUTOINIT,
-            |pr| {
-                *pr = JSProperty::LazyInit {
-                    init_type: lazy_init,
-                    realm: ctx.downgrade(),
-                    opaque: std::ptr::null_mut(),
-                };
+            JSProperty::LazyInit {
+                init_type: lazy_init,
+                realm: ctx.downgrade(),
+                opaque: std::ptr::null_mut(),
             },
         )
     }

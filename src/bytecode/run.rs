@@ -1231,20 +1231,19 @@ impl Bytecode {
                             Ok(vr) => unsafe {
                                 if SP_REF!(-1)
                                     .object_unchecked()
-                                    .add_shape_property_then(
+                                    .add_own_property(
                                         ctx,
                                         atom,
                                         JS_PROP_WRITABLE | JS_PROP_VARREF,
-                                        |pr| {
-                                            *pr = JSProperty::VarRef(vr);
-                                            SP_PUT!(0, atom.to_value(ctx, false));
-                                            SP_GO!(1);
-                                        },
+                                        JSProperty::VarRef(vr),
                                     )
                                     .is_err()
                                 {
                                     break State::Exception;
-                                };
+                                } else {
+                                    SP_PUT!(0, atom.to_value(ctx, false));
+                                    SP_GO!(1);
+                                }
                             },
                             Err(_) => {
                                 break State::Exception;

@@ -247,13 +247,11 @@ impl ModuleDef {
             match en.export_type.clone() {
                 ExportedNameEntryEnum::EXPORTED_NAME_NORMAL(vref) => {
                     if obj
-                        .add_shape_property_then(
+                        .add_own_property(
                             ctx,
                             en.export_name,
                             JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
-                            |pr| {
-                                *pr = JSProperty::VarRef(vref);
-                            },
+                            JSProperty::VarRef(vref),
                         )
                         .is_err()
                     {
