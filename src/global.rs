@@ -237,7 +237,7 @@ impl JSContext {
             }
 
             let gobj = self.global_obj();
-            gobj.set_property_ex(self, prop, val, &JSValue::Object(gobj.clone()), flags1)
+            gobj.set_property_internal(self, prop, val, &JSValue::Object(gobj.clone()), flags1)
 
             // let gobj = &self.0.borrow().global_obj;
             // JSValue::set_property_internal(self, gobj, prop, val, gobj, flags1)

@@ -49,10 +49,13 @@ pub(crate) fn call_setter(
 
 #[derive(Debug, Clone, PartialEq)]
 enum SetPropState {
-    /// Try exotic set handler, and walk up through proto chain
-    ExoticAndGoUp,
-    /// Set property value or instantiate property
-    SetSlotValue,
+    /// if prop is found in shape, update value slot.
+    FindInShape,
+    /// use exotic or fast array
+    TryExotic,
+    /// walk up proto chain
+    WalkUpProto,
+
     /// Add or update property
     Add,
     /// Create new property on object
@@ -74,7 +77,7 @@ impl JSObject {
     ) -> Result<bool, Option<SetPropState>> {
         debug_assert!(self.flags().is_exotic());
 
-        let mut new_state = SetPropState::ExoticAndGoUp;
+        let mut next_state = SetPropState::WalkUpProto;
 
         if self.flags().is_fast_array() {
             // set array element
@@ -86,12 +89,12 @@ impl JSObject {
                             .set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
                             .map_err(|_| None);
                     } else {
-                        new_state = SetPropState::Add;
+                        next_state = SetPropState::Add;
                     }
                 } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                     .contains(&self.class_id())
                 {
-                    new_state = SetPropState::ErrTypedArrayOOB(self.class_id());
+                    next_state = SetPropState::ErrTypedArrayOOB(self.class_id());
                 }
             } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
                 let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
@@ -99,7 +102,7 @@ impl JSObject {
                     if ret < 0 {
                         return Err(None);
                     }
-                    new_state = SetPropState::ErrTypedArrayOOB(self.class_id());
+                    next_state = SetPropState::ErrTypedArrayOOB(self.class_id());
                 }
             }
         } else {
@@ -131,7 +134,7 @@ impl JSObject {
                         }
 
                         if desc.flags & JS_PROP_WRITABLE == 0 {
-                            new_state = SetPropState::ErrReadOnly;
+                            next_state = SetPropState::ErrReadOnly;
                         } else if this_obj.object() == Some(self) {
                             return self
                                 .define_property(
@@ -144,14 +147,14 @@ impl JSObject {
                                 )
                                 .map_err(|_| None);
                         } else {
-                            new_state = SetPropState::Add;
+                            next_state = SetPropState::Add;
                         }
                     }
                 }
             }
         }
 
-        Err(Some(new_state))
+        Err(Some(next_state))
     }
 
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
@@ -159,7 +162,7 @@ impl JSObject {
     ///
     /// In most cases, self==this_obj, except in case of Reflect.set(target, prop, val, [[receiver]]),
     /// where `self` is _target_, and `this_obj` is _receiver_.
-    pub(crate) fn set_property_ex(
+    pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -170,70 +173,21 @@ impl JSObject {
         match this_obj {
             JSValue::Object(this) => {
                 let mut state = if self == this {
-                    if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-                        return self.put_prop_slot(
-                            ctx,
-                            prs_flags,
-                            prop,
-                            idx,
-                            val.clone(),
-                            self,
-                            flags,
-                        );
-                    } else {
-                        SetPropState::ExoticAndGoUp
-                    }
+                    SetPropState::FindInShape
+                } else if self.flags().is_exotic() {
+                    SetPropState::TryExotic
                 } else {
-                    SetPropState::SetSlotValue
+                    SetPropState::WalkUpProto
                 };
 
                 // proto chain walker
-                let mut ob_obj = self.clone();
+                let mut cur_obj = self.clone();
 
                 loop {
                     match state {
-                        SetPropState::ExoticAndGoUp => {
-                            // target: ob_obj
-                            if ob_obj.flags().is_exotic() {
-                                match ob_obj.set_property_exotic(
-                                    ctx,
-                                    prop,
-                                    val.clone(),
-                                    this_obj.clone(),
-                                    flags,
-                                ) {
-                                    Ok(b) => {
-                                        return Ok(b);
-                                    }
-                                    Err(None) => {
-                                        return Err(-1);
-                                    }
-                                    Err(Some(next_state)) => {
-                                        state = next_state;
-                                    }
-                                }
-                            }
-
-                            if SetPropState::ExoticAndGoUp == state {
-                                // walk up proto chain
-                                state = if let Some(up) =
-                                    ob_obj.shape().unwrap().0.borrow().proto.clone()
-                                {
-                                    ob_obj = up;
-                                    SetPropState::SetSlotValue
-                                } else {
-                                    // end of proto chain, prop was not found on `obj`
-                                    // ob_obj = None;
-                                    SetPropState::Add
-                                };
-                            }
-
-                            continue;
-                        }
-                        SetPropState::SetSlotValue => {
-                            // target: ob_obj
-                            if let Some((idx, prs_flags)) = ob_obj.find_shape_property(prop) {
-                                return ob_obj.put_prop_slot(
+                        SetPropState::FindInShape => {
+                            if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
+                                return cur_obj.put_prop_slot(
                                     ctx,
                                     prs_flags,
                                     prop,
@@ -242,10 +196,43 @@ impl JSObject {
                                     this,
                                     flags,
                                 );
+                            } else if cur_obj.flags().is_exotic() {
+                                state = SetPropState::TryExotic;
                             } else {
-                                state = SetPropState::ExoticAndGoUp;
-                                continue;
+                                state = SetPropState::WalkUpProto;
                             }
+                        }
+                        SetPropState::TryExotic => {
+                            debug_assert!(cur_obj.flags().is_exotic());
+                            match cur_obj.set_property_exotic(
+                                ctx,
+                                prop,
+                                val.clone(),
+                                this_obj.clone(),
+                                flags,
+                            ) {
+                                Ok(b) => {
+                                    return Ok(b);
+                                }
+                                Err(None) => {
+                                    return Err(-1);
+                                }
+                                Err(Some(next_state)) => {
+                                    state = next_state;
+                                }
+                            }
+                        }
+                        SetPropState::WalkUpProto => {
+                            state = if let Some(up) =
+                                cur_obj.shape().unwrap().0.borrow().proto.clone()
+                            {
+                                cur_obj = up;
+                                SetPropState::FindInShape
+                            } else {
+                                // at end of proto chain, means `prop` does not exist yet,
+                                // let's add it.
+                                SetPropState::Add
+                            };
                         }
 
                         SetPropState::Add => {
@@ -391,7 +378,7 @@ impl JSObject {
 
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
-        self.set_property_ex(
+        self.set_property_internal(
             ctx,
             prop,
             val,
@@ -608,7 +595,7 @@ impl JSObject {
 
         // slow_path
         let atom = prop.coerce_to_atom(ctx)?;
-        let ret = self.set_property_ex(ctx, atom, val, &JSValue::Object(self.clone()), flags);
+        let ret = self.set_property_internal(ctx, atom, val, &JSValue::Object(self.clone()), flags);
         JS_FreeAtom(ctx, atom);
         ret
     }
@@ -641,10 +628,10 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(o) = obj {
-            o.set_property_ex(ctx, prop, val, this_obj, flags)
+            o.set_property_internal(ctx, prop, val, this_obj, flags)
         } else {
             if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, obj) } {
-                p.set_property_ex(ctx, prop, val, this_obj, flags)
+                p.set_property_internal(ctx, prop, val, this_obj, flags)
             } else {
                 if ctx.throw_type_error_or_false(flags as _, "not an object") {
                     Err(-1)

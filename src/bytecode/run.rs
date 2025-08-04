@@ -484,14 +484,14 @@ impl Bytecode {
                         SP_GO!(3);
                     }
                     OpCode::DUP1 => {
-                        // Stack operation: [a, b, ^] -> [a, a, b, ^] where ^ is stack top
+                        // Stack operation: [a, b, ^] -> [a, a, b, ^]
                         // Duplicates the second value from top and places it below top
                         SP_PUT!(0, SP_TAKE!(-1));
                         SP_PUT!(-1, SP_REF!(-2).clone());
                         SP_GO!(1);
                     }
                     OpCode::INSERT2 => {
-                        // Stack operation: [obj, a, ^] -> [a, obj, a, ^] where ^ is stack top
+                        // Stack operation: [obj, a, ^] -> [a, obj, a, ^]
                         // Duplicates top value and inserts it under second position
                         SP_PUT!(0, SP_TAKE!(-1));
                         SP_PUT!(-1, SP_TAKE!(-2));
@@ -499,7 +499,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::INSERT3 => {
-                        // Stack operation: [obj, prop, a, ^] -> [a, obj, prop, a, ^] where ^ is stack top
+                        // Stack operation: [obj, prop, a, ^] -> [a, obj, prop, a, ^]
                         // Duplicates top value and inserts it under third position
                         // Uses array rotation for efficient stack manipulation
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-3), 4) };
