@@ -150,7 +150,7 @@ impl JSObject {
         if let JSValue::Int(i) = prop
             && *i >= 0
         {
-            // fast path: property is positive int, check fast array
+            // fast path: property is positive int, try fast array
             let nth = *i as usize;
 
             macro_rules! typed_array_elemnt {
@@ -224,7 +224,7 @@ impl JSObject {
             }
         }
 
-        // slow path
+        // generic path
         {
             let atom = prop.coerce_to_atom(ctx)?;
             let ret = self.get_property(ctx, atom);
@@ -300,7 +300,12 @@ impl JSValue {
                 ));
                 Err(-1)
             }
-            Self::EXCEPTION => Err(-1),
+            Self::EXCEPTION => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Err(-1)
+            }
             _ => unsafe {
                 JS_GetPrototypePrimitive(ctx, self)
                     .object()
@@ -310,7 +315,7 @@ impl JSValue {
         }
     }
 
-    /// returns Exception when fail.
+    /// returns Exception when failed.
     #[inline(always)]
     pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSResult {
         self.get_property_internal(ctx, prop, self, false)

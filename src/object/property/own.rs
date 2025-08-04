@@ -96,7 +96,7 @@ impl ObjectInner {
 
         // let object use modified shape
         self.shape.borrow_mut().replace(shape.clone());
-        // set value
+        // prop content
         self.prop_values.borrow_mut()[len - 1] = prop_value;
 
         Ok(())

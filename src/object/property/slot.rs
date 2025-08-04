@@ -250,7 +250,7 @@ impl JSObject {
                 JSProperty::GetSet { setter, .. } => call_setter(
                     ctx,
                     setter.as_ref(),
-                    &JSValue::Object(self.clone()),
+                    &JSValue::Object(this_obj.clone()),
                     value,
                     flags,
                 ),

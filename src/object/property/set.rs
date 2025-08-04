@@ -201,6 +201,7 @@ impl JSObject {
                             } else {
                                 state = SetPropState::WalkUpProto;
                             }
+                            continue;
                         }
                         SetPropState::TryExotic => {
                             debug_assert!(cur_obj.flags().is_exotic());
@@ -219,6 +220,7 @@ impl JSObject {
                                 }
                                 Err(Some(next_state)) => {
                                     state = next_state;
+                                    continue;
                                 }
                             }
                         }
@@ -271,7 +273,7 @@ impl JSObject {
                                     state = SetPropState::CreateProp;
                                     continue;
                                 } else {
-                                    return self
+                                    return this
                                         .add_own_property(
                                             ctx,
                                             prop,
@@ -301,7 +303,7 @@ impl JSObject {
                                             continue;
                                         }
 
-                                        return this_obj.define_property(
+                                        return this.define_property(
                                             ctx,
                                             prop,
                                             val,
@@ -320,7 +322,6 @@ impl JSObject {
                         }
                         SetPropState::CreateProp => {
                             // create property on this_obj.
-                            // target: ob_this
                             return this.create_property(
                                 ctx,
                                 prop,
